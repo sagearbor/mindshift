@@ -1,6 +1,6 @@
-# EmpathyChat
+# MindShift 
 
-EmpathyChat is an app that helps users see situations from multiple perspectives using AI-driven persona roles.
+MindShift is an app that helps users see situations from multiple perspectives using AI-driven persona roles.
 
 ## 🧠 Concept
 Users describe a situation and choose roles (e.g., “Husband” / “Wife”). The system prepends these roles to the input prompt and generates responses that help understand each side.
@@ -31,4 +31,4 @@ Web build via Expo web export. Mobile via Expo Go or EAS build.
 
 ---
 
-© 2025 EmpathyChat MVP
+© 2025 MindShift MVP
