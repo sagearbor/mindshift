@@ -1,0 +1,1 @@
+export default function EmpathySlider() { return <div>Slider</div>; }

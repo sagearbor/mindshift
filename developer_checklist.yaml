@@ -1,0 +1,23 @@
+# developer_checklist.yaml
+
+frontend:
+  - [ ] Build role selector
+  - [ ] Implement empathy slider
+  - [ ] Display role avatars with blend visualization
+
+backend:
+  - [ ] Mock LLM response generator
+  - [ ] Blend roles with weighted prompts
+  - [ ] Add FastAPI endpoints `/respond`
+
+infra:
+  - [ ] Setup CI (lint, test)
+  - [ ] Add environment config handling
+
+qa:
+  - [ ] Unit tests for blend logic
+  - [ ] Snapshot tests for UI
+
+milestones:
+  - milestone1: Role-based chat with static roles
+  - milestone2: Slider-based empathy blending
