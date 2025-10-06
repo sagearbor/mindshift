@@ -1,0 +1,1 @@
+import create from "zustand"; export const useEmpathyStore = create(() => ({ role: "Neutral", empathy: 0.5 }));

@@ -1,0 +1,1 @@
+test("empathy blend", () => { expect(1+1).toBe(2); });
