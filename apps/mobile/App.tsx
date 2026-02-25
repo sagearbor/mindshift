@@ -3,9 +3,11 @@ import { SafeAreaView, View, Text, TouchableOpacity, StyleSheet } from "react-na
 import SessionScreen from "./src/screens/SessionScreen";
 import TherapistDashboard from "./src/screens/TherapistDashboard";
 import SessionDetail from "./src/screens/SessionDetail";
+import LiveCoachScreen from "./src/screens/LiveCoachScreen";
 
 type Screen =
   | { name: "session" }
+  | { name: "live-coach" }
   | { name: "dashboard" }
   | { name: "detail"; sessionId: string };
 
@@ -16,6 +18,8 @@ export default function App() {
     switch (screen.name) {
       case "session":
         return <SessionScreen />;
+      case "live-coach":
+        return <LiveCoachScreen />;
       case "dashboard":
         return (
           <TherapistDashboard
@@ -50,6 +54,20 @@ export default function App() {
               ]}
             >
               Session
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            testID="tab-live-coach"
+            style={[styles.tab, screen.name === "live-coach" && styles.tabActive]}
+            onPress={() => setScreen({ name: "live-coach" })}
+          >
+            <Text
+              style={[
+                styles.tabText,
+                screen.name === "live-coach" && styles.tabTextActive,
+              ]}
+            >
+              Live Coach
             </Text>
           </TouchableOpacity>
           <TouchableOpacity

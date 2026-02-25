@@ -1,0 +1,7 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`LiveCoachScreen renders disconnected state 1`] = `null`;
+
+exports[`LiveCoachScreen renders initial idle state 1`] = `null`;
+
+exports[`LiveCoachScreen renders recording state with transcript and suggestions 1`] = `null`;

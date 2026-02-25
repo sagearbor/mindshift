@@ -34,5 +34,24 @@ jest.mock("react-native/Libraries/Share/Share", () => ({
   share: jest.fn().mockResolvedValue({ action: "sharedAction" }),
 }));
 
+// Mock expo-av for audio tests
+jest.mock("expo-av", () => ({
+  Audio: {
+    requestPermissionsAsync: jest
+      .fn()
+      .mockResolvedValue({ status: "granted" }),
+    setAudioModeAsync: jest.fn().mockResolvedValue(undefined),
+    Recording: jest.fn().mockImplementation(() => ({
+      prepareToRecordAsync: jest.fn().mockResolvedValue(undefined),
+      startAsync: jest.fn().mockResolvedValue(undefined),
+      stopAndUnloadAsync: jest.fn().mockResolvedValue(undefined),
+      setOnRecordingStatusUpdate: jest.fn(),
+    })),
+    RecordingOptionsPresets: {
+      HIGH_QUALITY: {},
+    },
+  },
+}));
+
 // Mock fetch globally
 global.fetch = jest.fn();

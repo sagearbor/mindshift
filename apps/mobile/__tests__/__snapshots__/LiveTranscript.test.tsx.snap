@@ -1,0 +1,7 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`LiveTranscript highlights the most recent entry 1`] = `null`;
+
+exports[`LiveTranscript renders empty state 1`] = `null`;
+
+exports[`LiveTranscript renders transcript entries with speaker colors 1`] = `null`;
