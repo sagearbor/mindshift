@@ -1,0 +1,193 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`SuggestionCard renders correctly with assertive tone 1`] = `
+<View
+  style={
+    {
+      "backgroundColor": "#FFFFFF",
+      "borderRadius": 12,
+      "elevation": 2,
+      "marginHorizontal": 16,
+      "marginVertical": 6,
+      "padding": 16,
+      "shadowColor": "#000",
+      "shadowOffset": {
+        "height": 1,
+        "width": 0,
+      },
+      "shadowOpacity": 0.1,
+      "shadowRadius": 3,
+    }
+  }
+  testID="suggestion-card"
+>
+  <View
+    style={
+      [
+        {
+          "alignSelf": "flex-start",
+          "borderRadius": 12,
+          "marginBottom": 8,
+          "paddingHorizontal": 10,
+          "paddingVertical": 3,
+        },
+        {
+          "backgroundColor": "#EF4444",
+        },
+      ]
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#FFFFFF",
+          "fontSize": 12,
+          "fontWeight": "600",
+          "textTransform": "capitalize",
+        }
+      }
+    >
+      assertive
+    </Text>
+  </View>
+  <Text
+    style={
+      {
+        "color": "#1F2937",
+        "fontSize": 15,
+        "lineHeight": 22,
+      }
+    }
+  >
+    I understand, but I need to express my perspective too.
+  </Text>
+</View>
+`;
+
+exports[`SuggestionCard renders correctly with balanced tone 1`] = `
+<View
+  style={
+    {
+      "backgroundColor": "#FFFFFF",
+      "borderRadius": 12,
+      "elevation": 2,
+      "marginHorizontal": 16,
+      "marginVertical": 6,
+      "padding": 16,
+      "shadowColor": "#000",
+      "shadowOffset": {
+        "height": 1,
+        "width": 0,
+      },
+      "shadowOpacity": 0.1,
+      "shadowRadius": 3,
+    }
+  }
+  testID="suggestion-card"
+>
+  <View
+    style={
+      [
+        {
+          "alignSelf": "flex-start",
+          "borderRadius": 12,
+          "marginBottom": 8,
+          "paddingHorizontal": 10,
+          "paddingVertical": 3,
+        },
+        {
+          "backgroundColor": "#F59E0B",
+        },
+      ]
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#FFFFFF",
+          "fontSize": 12,
+          "fontWeight": "600",
+          "textTransform": "capitalize",
+        }
+      }
+    >
+      balanced
+    </Text>
+  </View>
+  <Text
+    style={
+      {
+        "color": "#1F2937",
+        "fontSize": 15,
+        "lineHeight": 22,
+      }
+    }
+  >
+    I see your point. Let's find a middle ground.
+  </Text>
+</View>
+`;
+
+exports[`SuggestionCard renders correctly with empathetic tone 1`] = `
+<View
+  style={
+    {
+      "backgroundColor": "#FFFFFF",
+      "borderRadius": 12,
+      "elevation": 2,
+      "marginHorizontal": 16,
+      "marginVertical": 6,
+      "padding": 16,
+      "shadowColor": "#000",
+      "shadowOffset": {
+        "height": 1,
+        "width": 0,
+      },
+      "shadowOpacity": 0.1,
+      "shadowRadius": 3,
+    }
+  }
+  testID="suggestion-card"
+>
+  <View
+    style={
+      [
+        {
+          "alignSelf": "flex-start",
+          "borderRadius": 12,
+          "marginBottom": 8,
+          "paddingHorizontal": 10,
+          "paddingVertical": 3,
+        },
+        {
+          "backgroundColor": "#10B981",
+        },
+      ]
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#FFFFFF",
+          "fontSize": 12,
+          "fontWeight": "600",
+          "textTransform": "capitalize",
+        }
+      }
+    >
+      empathetic
+    </Text>
+  </View>
+  <Text
+    style={
+      {
+        "color": "#1F2937",
+        "fontSize": 15,
+        "lineHeight": 22,
+      }
+    }
+  >
+    I hear what you're saying and that sounds really difficult.
+  </Text>
+</View>
+`;

@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "name": "MindShift",
+    "slug": "mindshift",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "platforms": ["ios", "android", "web"],
+    "extra": {
+      "apiUrl": "${EXPO_PUBLIC_API_URL}"
+    }
+  }
+}

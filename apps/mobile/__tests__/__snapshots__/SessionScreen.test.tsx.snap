@@ -1,0 +1,9 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`SessionScreen renders loading state 1`] = `null`;
+
+exports[`SessionScreen renders the initial screen 1`] = `null`;
+
+exports[`SessionScreen renders with suggestions 1`] = `null`;
+
+exports[`SessionScreen renders with turns in the transcript 1`] = `null`;

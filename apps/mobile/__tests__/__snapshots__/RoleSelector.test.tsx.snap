@@ -1,0 +1,632 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`RoleSelector renders correctly with a selected role 1`] = `
+<View
+  style={
+    {
+      "marginVertical": 12,
+      "paddingHorizontal": 16,
+    }
+  }
+>
+  <Text
+    style={
+      {
+        "color": "#1F2937",
+        "fontSize": 16,
+        "fontWeight": "600",
+        "marginBottom": 8,
+      }
+    }
+  >
+    Select Role
+  </Text>
+  <View
+    style={
+      {
+        "flexDirection": "row",
+        "flexWrap": "wrap",
+        "gap": 8,
+      }
+    }
+  >
+    <View
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": true,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#4A90D9",
+          "borderColor": "#4A90D9",
+          "borderRadius": 20,
+          "borderWidth": 1,
+          "opacity": 1,
+          "paddingHorizontal": 14,
+          "paddingVertical": 8,
+        }
+      }
+      testID="role-Husband / Wife"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#374151",
+              "fontSize": 14,
+            },
+            {
+              "color": "#FFFFFF",
+              "fontWeight": "600",
+            },
+          ]
+        }
+      >
+        Husband / Wife
+      </Text>
+    </View>
+    <View
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 20,
+          "borderWidth": 1,
+          "opacity": 1,
+          "paddingHorizontal": 14,
+          "paddingVertical": 8,
+        }
+      }
+      testID="role-Parent / Child"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#374151",
+              "fontSize": 14,
+            },
+            false,
+          ]
+        }
+      >
+        Parent / Child
+      </Text>
+    </View>
+    <View
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 20,
+          "borderWidth": 1,
+          "opacity": 1,
+          "paddingHorizontal": 14,
+          "paddingVertical": 8,
+        }
+      }
+      testID="role-Manager / Employee"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#374151",
+              "fontSize": 14,
+            },
+            false,
+          ]
+        }
+      >
+        Manager / Employee
+      </Text>
+    </View>
+    <View
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 20,
+          "borderWidth": 1,
+          "opacity": 1,
+          "paddingHorizontal": 14,
+          "paddingVertical": 8,
+        }
+      }
+      testID="role-Therapist / Patient"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#374151",
+              "fontSize": 14,
+            },
+            false,
+          ]
+        }
+      >
+        Therapist / Patient
+      </Text>
+    </View>
+    <View
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 20,
+          "borderWidth": 1,
+          "opacity": 1,
+          "paddingHorizontal": 14,
+          "paddingVertical": 8,
+        }
+      }
+      testID="role-Friend / Friend"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#374151",
+              "fontSize": 14,
+            },
+            false,
+          ]
+        }
+      >
+        Friend / Friend
+      </Text>
+    </View>
+  </View>
+</View>
+`;
+
+exports[`RoleSelector renders correctly with no selection 1`] = `
+<View
+  style={
+    {
+      "marginVertical": 12,
+      "paddingHorizontal": 16,
+    }
+  }
+>
+  <Text
+    style={
+      {
+        "color": "#1F2937",
+        "fontSize": 16,
+        "fontWeight": "600",
+        "marginBottom": 8,
+      }
+    }
+  >
+    Select Role
+  </Text>
+  <View
+    style={
+      {
+        "flexDirection": "row",
+        "flexWrap": "wrap",
+        "gap": 8,
+      }
+    }
+  >
+    <View
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 20,
+          "borderWidth": 1,
+          "opacity": 1,
+          "paddingHorizontal": 14,
+          "paddingVertical": 8,
+        }
+      }
+      testID="role-Husband / Wife"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#374151",
+              "fontSize": 14,
+            },
+            false,
+          ]
+        }
+      >
+        Husband / Wife
+      </Text>
+    </View>
+    <View
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 20,
+          "borderWidth": 1,
+          "opacity": 1,
+          "paddingHorizontal": 14,
+          "paddingVertical": 8,
+        }
+      }
+      testID="role-Parent / Child"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#374151",
+              "fontSize": 14,
+            },
+            false,
+          ]
+        }
+      >
+        Parent / Child
+      </Text>
+    </View>
+    <View
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 20,
+          "borderWidth": 1,
+          "opacity": 1,
+          "paddingHorizontal": 14,
+          "paddingVertical": 8,
+        }
+      }
+      testID="role-Manager / Employee"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#374151",
+              "fontSize": 14,
+            },
+            false,
+          ]
+        }
+      >
+        Manager / Employee
+      </Text>
+    </View>
+    <View
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 20,
+          "borderWidth": 1,
+          "opacity": 1,
+          "paddingHorizontal": 14,
+          "paddingVertical": 8,
+        }
+      }
+      testID="role-Therapist / Patient"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#374151",
+              "fontSize": 14,
+            },
+            false,
+          ]
+        }
+      >
+        Therapist / Patient
+      </Text>
+    </View>
+    <View
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 20,
+          "borderWidth": 1,
+          "opacity": 1,
+          "paddingHorizontal": 14,
+          "paddingVertical": 8,
+        }
+      }
+      testID="role-Friend / Friend"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#374151",
+              "fontSize": 14,
+            },
+            false,
+          ]
+        }
+      >
+        Friend / Friend
+      </Text>
+    </View>
+  </View>
+</View>
+`;

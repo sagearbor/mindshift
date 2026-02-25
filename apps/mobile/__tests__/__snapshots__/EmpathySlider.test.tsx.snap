@@ -1,0 +1,178 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`EmpathySlider renders correctly at default value 1`] = `
+<View
+  style={
+    {
+      "marginVertical": 12,
+      "paddingHorizontal": 16,
+    }
+  }
+>
+  <Text
+    style={
+      {
+        "color": "#1F2937",
+        "fontSize": 16,
+        "fontWeight": "600",
+        "marginBottom": 8,
+      }
+    }
+  >
+    Empathy: 
+    50
+     — 
+    Balanced
+  </Text>
+  <View
+    testID="empathy-slider"
+  />
+  <View
+    style={
+      {
+        "flexDirection": "row",
+        "justifyContent": "space-between",
+      }
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#6B7280",
+          "fontSize": 12,
+        }
+      }
+    >
+      Assertive
+    </Text>
+    <Text
+      style={
+        {
+          "color": "#6B7280",
+          "fontSize": 12,
+        }
+      }
+    >
+      Full Empathy
+    </Text>
+  </View>
+</View>
+`;
+
+exports[`EmpathySlider renders correctly at maximum 1`] = `
+<View
+  style={
+    {
+      "marginVertical": 12,
+      "paddingHorizontal": 16,
+    }
+  }
+>
+  <Text
+    style={
+      {
+        "color": "#1F2937",
+        "fontSize": 16,
+        "fontWeight": "600",
+        "marginBottom": 8,
+      }
+    }
+  >
+    Empathy: 
+    100
+     — 
+    Full Empathy
+  </Text>
+  <View
+    testID="empathy-slider"
+  />
+  <View
+    style={
+      {
+        "flexDirection": "row",
+        "justifyContent": "space-between",
+      }
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#6B7280",
+          "fontSize": 12,
+        }
+      }
+    >
+      Assertive
+    </Text>
+    <Text
+      style={
+        {
+          "color": "#6B7280",
+          "fontSize": 12,
+        }
+      }
+    >
+      Full Empathy
+    </Text>
+  </View>
+</View>
+`;
+
+exports[`EmpathySlider renders correctly at minimum 1`] = `
+<View
+  style={
+    {
+      "marginVertical": 12,
+      "paddingHorizontal": 16,
+    }
+  }
+>
+  <Text
+    style={
+      {
+        "color": "#1F2937",
+        "fontSize": 16,
+        "fontWeight": "600",
+        "marginBottom": 8,
+      }
+    }
+  >
+    Empathy: 
+    0
+     — 
+    Assertive
+  </Text>
+  <View
+    testID="empathy-slider"
+  />
+  <View
+    style={
+      {
+        "flexDirection": "row",
+        "justifyContent": "space-between",
+      }
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#6B7280",
+          "fontSize": 12,
+        }
+      }
+    >
+      Assertive
+    </Text>
+    <Text
+      style={
+        {
+          "color": "#6B7280",
+          "fontSize": 12,
+        }
+      }
+    >
+      Full Empathy
+    </Text>
+  </View>
+</View>
+`;

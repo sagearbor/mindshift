@@ -208,3 +208,9 @@ __marimo__/
 
 tmp/
 .tmp/
+
+# Node.js
+node_modules/
+npm-debug.log*
+.expo/
+*.tsbuildinfo
