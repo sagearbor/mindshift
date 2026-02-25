@@ -1,0 +1,238 @@
+{
+  "version": "1.0",
+  "description": "Sample couple and parent-child conversation transcripts for MindShift tone analysis testing",
+  "conversations": [
+    {
+      "id": "couple_conflict_escalation",
+      "scenario": "Couple arguing about household responsibilities",
+      "roles": {
+        "speaker_a": { "name": "Alex", "role": "husband" },
+        "speaker_b": { "name": "Jordan", "role": "wife" }
+      },
+      "turns": [
+        {
+          "speaker": "speaker_b",
+          "text": "You said you'd take care of the dishes three hours ago. They're still sitting there.",
+          "empathy_level": 15,
+          "tone": "frustrated",
+          "response_type": "accusation"
+        },
+        {
+          "speaker": "speaker_a",
+          "text": "I was going to get to them. You don't have to remind me every five minutes.",
+          "empathy_level": 10,
+          "tone": "defensive",
+          "response_type": "deflection"
+        },
+        {
+          "speaker": "speaker_b",
+          "text": "Every five minutes? I asked you once. Three hours ago. That's the problem — you don't even hear me.",
+          "empathy_level": 10,
+          "tone": "angry",
+          "response_type": "escalation"
+        },
+        {
+          "speaker": "speaker_a",
+          "text": "Here we go again. Everything I do is wrong.",
+          "empathy_level": 5,
+          "tone": "sarcastic",
+          "response_type": "withdrawal"
+        },
+        {
+          "speaker": "speaker_b",
+          "text": "I'm not saying everything is wrong. I just need you to follow through when you say you'll do something.",
+          "empathy_level": 40,
+          "tone": "firm",
+          "response_type": "clarification"
+        }
+      ]
+    },
+    {
+      "id": "couple_repair_attempt",
+      "scenario": "Couple reconnecting after a disagreement about finances",
+      "roles": {
+        "speaker_a": { "name": "Sam", "role": "husband" },
+        "speaker_b": { "name": "Casey", "role": "wife" }
+      },
+      "turns": [
+        {
+          "speaker": "speaker_a",
+          "text": "Hey, I've been thinking about what you said last night about the budget. You had some good points.",
+          "empathy_level": 70,
+          "tone": "warm",
+          "response_type": "repair_attempt"
+        },
+        {
+          "speaker": "speaker_b",
+          "text": "Really? Because it felt like you just shut down when I brought it up.",
+          "empathy_level": 30,
+          "tone": "guarded",
+          "response_type": "testing"
+        },
+        {
+          "speaker": "speaker_a",
+          "text": "I know. I did shut down. I get overwhelmed when money comes up because it makes me feel like I'm not providing enough.",
+          "empathy_level": 75,
+          "tone": "vulnerable",
+          "response_type": "self_disclosure"
+        },
+        {
+          "speaker": "speaker_b",
+          "text": "I didn't realize that's what was going on. I'm not saying you're not providing — I just want us to plan together.",
+          "empathy_level": 80,
+          "tone": "compassionate",
+          "response_type": "validation"
+        },
+        {
+          "speaker": "speaker_a",
+          "text": "That makes sense. Can we sit down this weekend and look at everything together?",
+          "empathy_level": 85,
+          "tone": "collaborative",
+          "response_type": "problem_solving"
+        }
+      ]
+    },
+    {
+      "id": "parent_teen_boundary",
+      "scenario": "Parent setting boundaries with teenager about screen time",
+      "roles": {
+        "speaker_a": { "name": "Morgan", "role": "parent" },
+        "speaker_b": { "name": "Riley", "role": "child" }
+      },
+      "turns": [
+        {
+          "speaker": "speaker_a",
+          "text": "Riley, it's 11 PM on a school night. You need to put the phone away.",
+          "empathy_level": 45,
+          "tone": "firm",
+          "response_type": "boundary_setting"
+        },
+        {
+          "speaker": "speaker_b",
+          "text": "All my friends are still online. You're the only parent who does this.",
+          "empathy_level": 10,
+          "tone": "whiny",
+          "response_type": "protest"
+        },
+        {
+          "speaker": "speaker_a",
+          "text": "I get that it feels unfair. But sleep matters, and tomorrow you have that math test.",
+          "empathy_level": 65,
+          "tone": "empathetic_firm",
+          "response_type": "acknowledge_and_hold"
+        },
+        {
+          "speaker": "speaker_b",
+          "text": "Fine. But can I at least say goodnight to Avery?",
+          "empathy_level": 35,
+          "tone": "resigned",
+          "response_type": "negotiation"
+        },
+        {
+          "speaker": "speaker_a",
+          "text": "Two minutes, then phone on the charger in the kitchen. Deal?",
+          "empathy_level": 60,
+          "tone": "warm_firm",
+          "response_type": "compromise"
+        }
+      ]
+    },
+    {
+      "id": "couple_stonewalling",
+      "scenario": "One partner stonewalling during discussion about visiting in-laws",
+      "roles": {
+        "speaker_a": { "name": "Taylor", "role": "wife" },
+        "speaker_b": { "name": "Drew", "role": "husband" }
+      },
+      "turns": [
+        {
+          "speaker": "speaker_a",
+          "text": "My mom asked if we're coming for Easter. We need to give her an answer.",
+          "empathy_level": 50,
+          "tone": "neutral",
+          "response_type": "request"
+        },
+        {
+          "speaker": "speaker_b",
+          "text": "Mm-hmm.",
+          "empathy_level": 5,
+          "tone": "disengaged",
+          "response_type": "stonewalling"
+        },
+        {
+          "speaker": "speaker_a",
+          "text": "Drew. Can you actually talk to me about this? I feel like I'm talking to a wall.",
+          "empathy_level": 20,
+          "tone": "frustrated",
+          "response_type": "bid_for_engagement"
+        },
+        {
+          "speaker": "speaker_b",
+          "text": "What do you want me to say? You already know I don't want to go. But you're going to make us go anyway.",
+          "empathy_level": 10,
+          "tone": "resentful",
+          "response_type": "passive_aggressive"
+        },
+        {
+          "speaker": "speaker_a",
+          "text": "I don't want to make you do anything. But I need you to tell me what you're actually feeling instead of shutting down.",
+          "empathy_level": 55,
+          "tone": "assertive",
+          "response_type": "meta_communication"
+        }
+      ]
+    },
+    {
+      "id": "parent_child_emotional_support",
+      "scenario": "Parent comforting child after a bad day at school",
+      "roles": {
+        "speaker_a": { "name": "Jamie", "role": "parent" },
+        "speaker_b": { "name": "Kai", "role": "child" }
+      },
+      "turns": [
+        {
+          "speaker": "speaker_b",
+          "text": "Nobody picked me for their team at recess today. Again.",
+          "empathy_level": 20,
+          "tone": "sad",
+          "response_type": "disclosure"
+        },
+        {
+          "speaker": "speaker_a",
+          "text": "Oh buddy, that sounds really painful. Come sit with me.",
+          "empathy_level": 90,
+          "tone": "warm",
+          "response_type": "validation"
+        },
+        {
+          "speaker": "speaker_b",
+          "text": "I hate recess. I just want to stay inside and read.",
+          "empathy_level": 15,
+          "tone": "defeated",
+          "response_type": "avoidance"
+        },
+        {
+          "speaker": "speaker_a",
+          "text": "It makes sense you'd want to avoid something that hurts. Being left out is one of the worst feelings.",
+          "empathy_level": 90,
+          "tone": "validating",
+          "response_type": "emotional_reflection"
+        },
+        {
+          "speaker": "speaker_b",
+          "text": "Do you think there's something wrong with me?",
+          "empathy_level": 25,
+          "tone": "vulnerable",
+          "response_type": "seeking_reassurance"
+        },
+        {
+          "speaker": "speaker_a",
+          "text": "There is nothing wrong with you. Some kids are slower to find their people, and that's okay. Want to brainstorm some ideas together?",
+          "empathy_level": 85,
+          "tone": "reassuring",
+          "response_type": "reassurance_and_redirect"
+        }
+      ]
+    }
+  ]
+}
