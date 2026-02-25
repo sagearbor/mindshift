@@ -1,0 +1,9 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`ToneSparkline renders empty state when no scores 1`] = `null`;
+
+exports[`ToneSparkline renders single score 1`] = `null`;
+
+exports[`ToneSparkline renders with custom color 1`] = `null`;
+
+exports[`ToneSparkline renders with scores 1`] = `null`;

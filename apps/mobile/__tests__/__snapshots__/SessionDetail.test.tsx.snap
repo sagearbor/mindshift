@@ -1,0 +1,5 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`SessionDetail renders empty state for missing session 1`] = `null`;
+
+exports[`SessionDetail renders session detail with transcript 1`] = `null`;
