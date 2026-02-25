@@ -251,3 +251,96 @@ Storage
 - Not HIPAA-certified (out of scope for pilot)
 - Not a general-purpose chatbot
 - Not multi-language (English only for MVP)
+
+---
+
+## 12. Multi-Vendor Model Support
+
+### Design Principle
+The backend must be **model-agnostic**. Swap providers without touching business logic. All LLM calls go through a single `llm_client.py` abstraction layer.
+
+### API Format Detection
+
+Different providers use incompatible APIs. Detection must be automatic based on model name:
+
+| Model Pattern | API Format | Notes |
+|--------------|-----------|-------|
+| `claude-*` | Anthropic Messages API | `anthropic` SDK |
+| `gpt-4o*`, `gpt-4-*`, `gpt-3.5-*` | OpenAI Chat Completions | `openai` SDK, `/chat/completions` |
+| `gpt-5*`, `o1*`, `o3*`, `o4*` | OpenAI Responses API | `openai` SDK, `/responses` — different input/output format |
+| `gemini-*` | Google Generative AI | `google-generativeai` SDK |
+| `mistral-*` | Mistral Chat Completions | Chat completions compatible |
+
+### Temperature Rules (Critical)
+Many bugs come from setting temperature on models that don't support it:
+
+| Model | Temperature | Reasoning |
+|-------|------------|-----------|
+| `claude-*` | 0.0–1.0 ✅ | Normal |
+| `gpt-4o*`, `gpt-4-*` | 0.0–2.0 ✅ | Normal |
+| `gpt-5*` (non-reasoning) | 0.0–2.0 ✅ | Normal |
+| `gpt-5*` with `reasoning` | **Must be 1.0** ⚠️ | Hardcoded — do not pass other values |
+| `o1*`, `o3*`, `o4*` | **Omit entirely** ⚠️ | These models reject temperature param |
+| `gemini-*` | 0.0–1.0 ✅ | Normal |
+
+### Responses API vs Chat Completions (OpenAI)
+
+**Chat Completions** (older, most models):
+```python
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "..."}],
+    temperature=0.7
+)
+text = response.choices[0].message.content
+```
+
+**Responses API** (GPT-5+, future models):
+```python
+response = client.responses.create(
+    model="gpt-5",
+    input="...",          # Different field name
+    temperature=1.0       # Or omit for reasoning variants
+)
+text = response.output_text  # Different output field
+```
+
+### `llm_client.py` — Required Interface
+
+```python
+class LLMClient:
+    def __init__(self, model: str, api_key: str): ...
+
+    def complete(self, 
+        system: str,
+        user: str,
+        temperature: float = 0.7,
+        max_tokens: int = 512
+    ) -> str:
+        # Detects provider + API format from model name
+        # Applies temperature override rules automatically
+        # Returns plain text string always
+        ...
+    
+    @staticmethod
+    def is_reasoning_model(model: str) -> bool:
+        return model.startswith(("o1", "o3", "o4")) or \
+               ("gpt-5" in model and "reasoning" in model)
+    
+    @staticmethod
+    def uses_responses_api(model: str) -> bool:
+        return model.startswith(("gpt-5", "o1", "o3", "o4"))
+```
+
+### Environment Config
+```
+# mindshift/server/.env
+MINDSHIFT_MODEL=claude-3-haiku-20240307   # default — cheap + fast
+# Override anytime:
+# MINDSHIFT_MODEL=gpt-4o-mini
+# MINDSHIFT_MODEL=gpt-5
+# MINDSHIFT_MODEL=gemini-2.0-flash
+```
+
+### Agent Task (spawn when ready)
+Implement `server/llm_client.py` with full provider detection, temperature rules, and tests covering all model pattern branches.
