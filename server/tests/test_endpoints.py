@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from main import app, empathy_system_prompt, init_db, parse_llm_json
+from main import app, empathy_system_prompt, init_db, parse_llm_json, _resolve_session_token
 
 
 # ---------------------------------------------------------------------------
@@ -458,3 +458,148 @@ async def test_export_pdf_returns_bytes(client):
     assert resp.content[:5] == b"%PDF-"
     # LLM was called for insights
     mock_client.complete.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# POST /auth/session
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_create_auth_session(client):
+    resp = await client.post("/auth/session", json={
+        "therapist_id": "dr-smith",
+        "patient_id": "patient-001",
+        "role_pair": "Husband/Wife",
+    })
+    assert resp.status_code == 201
+    data = resp.json()
+    assert "session_token" in data
+    assert data["therapist_id"] == "dr-smith"
+    assert data["patient_id"] == "patient-001"
+    assert data["role_pair"] == "Husband/Wife"
+    assert "created_at" in data
+
+
+@pytest.mark.anyio
+async def test_create_auth_session_default_role_pair(client):
+    resp = await client.post("/auth/session", json={
+        "therapist_id": "dr-lee",
+        "patient_id": "patient-002",
+    })
+    assert resp.status_code == 201
+    assert resp.json()["role_pair"] == "Husband/Wife"
+
+
+# ---------------------------------------------------------------------------
+# X-Session-Token on /session
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_create_session_with_auth_token(client):
+    """Session created with X-Session-Token should be linked to therapist/patient."""
+    # Create auth session first
+    auth_resp = await client.post("/auth/session", json={
+        "therapist_id": "dr-smith",
+        "patient_id": "patient-001",
+    })
+    token = auth_resp.json()["session_token"]
+
+    # Create a data session using the auth token
+    session_resp = await client.post(
+        "/session",
+        json={"turns": [{"speaker": "Wife", "text": "Hello"}], "metadata": {}},
+        headers={"X-Session-Token": token},
+    )
+    assert session_resp.status_code == 201
+
+    # Verify it shows up under the therapist's patient sessions
+    list_resp = await client.get("/therapist/dr-smith/patient/patient-001/sessions")
+    assert list_resp.status_code == 200
+    sessions = list_resp.json()
+    assert len(sessions) >= 1
+    assert sessions[0]["id"] == session_resp.json()["id"]
+
+
+@pytest.mark.anyio
+async def test_create_session_without_token(client):
+    """Session without X-Session-Token still works (no auth association)."""
+    resp = await client.post("/session", json={
+        "turns": [],
+        "metadata": {},
+    })
+    assert resp.status_code == 201
+
+
+# ---------------------------------------------------------------------------
+# GET /therapist/{id}/patients
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_list_patients(client):
+    # Create auth session + linked data sessions
+    auth_resp = await client.post("/auth/session", json={
+        "therapist_id": "dr-jones",
+        "patient_id": "p-alpha",
+    })
+    token_a = auth_resp.json()["session_token"]
+
+    auth_resp2 = await client.post("/auth/session", json={
+        "therapist_id": "dr-jones",
+        "patient_id": "p-beta",
+    })
+    token_b = auth_resp2.json()["session_token"]
+
+    # Create sessions for each patient
+    await client.post("/session", json={"turns": [], "metadata": {}},
+                      headers={"X-Session-Token": token_a})
+    await client.post("/session", json={"turns": [], "metadata": {}},
+                      headers={"X-Session-Token": token_a})
+    await client.post("/session", json={"turns": [], "metadata": {}},
+                      headers={"X-Session-Token": token_b})
+
+    resp = await client.get("/therapist/dr-jones/patients")
+    assert resp.status_code == 200
+    patients = resp.json()
+    assert len(patients) == 2
+
+    by_id = {p["patient_id"]: p["session_count"] for p in patients}
+    assert by_id["p-alpha"] == 2
+    assert by_id["p-beta"] == 1
+
+
+@pytest.mark.anyio
+async def test_list_patients_empty(client):
+    resp = await client.get("/therapist/nonexistent-therapist/patients")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+# ---------------------------------------------------------------------------
+# GET /therapist/{id}/patient/{pid}/sessions
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_list_patient_sessions(client):
+    auth_resp = await client.post("/auth/session", json={
+        "therapist_id": "dr-patel",
+        "patient_id": "p-gamma",
+    })
+    token = auth_resp.json()["session_token"]
+
+    turns = [{"speaker": "Husband", "text": "I need to talk."}]
+    await client.post("/session", json={"turns": turns, "metadata": {"note": "first"}},
+                      headers={"X-Session-Token": token})
+
+    resp = await client.get("/therapist/dr-patel/patient/p-gamma/sessions")
+    assert resp.status_code == 200
+    sessions = resp.json()
+    assert len(sessions) == 1
+    assert sessions[0]["turn_count"] == 1
+    assert sessions[0]["metadata"]["note"] == "first"
+
+
+@pytest.mark.anyio
+async def test_list_patient_sessions_empty(client):
+    resp = await client.get("/therapist/dr-nobody/patient/p-nobody/sessions")
+    assert resp.status_code == 200
+    assert resp.json() == []

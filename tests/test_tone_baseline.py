@@ -6,10 +6,12 @@ produces consistent, reasonable scores across known emotional scenarios.
 These tests validate the text-based tone analysis (Tier 0) before
 audio-based detection is integrated (Tier 2).
 
-All tests mock LLMClient.complete() — no API key required.
+When ANTHROPIC_API_KEY is set, tests use LLMResponseCache to call the real
+API (with disk caching). Otherwise all tests use a mocked LLMClient.
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -20,6 +22,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "server"))
 
 from llm_client import LLMClient  # noqa: E402
+from test_cache import LLMResponseCache  # noqa: E402
+
+HAS_API_KEY = bool(os.environ.get("ANTHROPIC_API_KEY"))
 
 # ---------------------------------------------------------------------------
 # Synthetic transcripts with expected score ranges
@@ -184,6 +189,16 @@ def sample_transcripts():
         return json.load(f)
 
 
+@pytest.fixture
+def cached_llm():
+    """Return an LLMResponseCache wrapping a real LLMClient when API key is set.
+    Only used by tests explicitly opting in to live-API-with-cache mode."""
+    if not HAS_API_KEY:
+        pytest.skip("ANTHROPIC_API_KEY not set — skipping live-cached test")
+    client = LLMClient(model=os.environ.get("MINDSHIFT_MODEL", "claude-3-haiku-20240307"))
+    return LLMResponseCache(client)
+
+
 # ---------------------------------------------------------------------------
 # Tests — Tone Baseline (mocked LLMClient)
 # ---------------------------------------------------------------------------
@@ -332,3 +347,29 @@ class TestSampleTranscriptsFixture:
                 role = conv["roles"][role_key]
                 assert "name" in role
                 assert "role" in role
+
+
+# ---------------------------------------------------------------------------
+# Tests — Live-Cached Tone Scoring (requires ANTHROPIC_API_KEY)
+# ---------------------------------------------------------------------------
+
+
+class TestToneBaselineCached:
+    """Run tone scoring against the real API with disk caching.
+    Skipped when ANTHROPIC_API_KEY is not set."""
+
+    @pytest.mark.parametrize(
+        "case",
+        SYNTHETIC_TRANSCRIPTS[:3],
+        ids=[c["id"] for c in SYNTHETIC_TRANSCRIPTS[:3]],
+    )
+    def test_cached_scores_in_range(self, cached_llm, case):
+        """Score via cached LLM and verify results fall in expected ranges."""
+        scores = _score_transcript(cached_llm, case["transcript"])
+
+        for dim in TONE_DIMENSIONS:
+            lo, hi = case["expected"][dim]
+            actual = scores[dim]
+            assert lo <= actual <= hi, (
+                f"[{case['id']}] {dim}: expected {lo}–{hi}, got {actual}"
+            )
