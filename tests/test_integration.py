@@ -2,7 +2,7 @@
 End-to-end integration tests for MindShift API.
 
 Drives the FastAPI app through httpx TestClient, exercising /respond, /score,
-and /session endpoints against the 5 sample conversation fixtures.
+and /session endpoints against the sample conversation fixtures.
 All LLM calls are mocked — no API key needed.
 """
 
@@ -17,7 +17,6 @@ from conftest import (
     MOCK_RESPOND_JSON,
     MOCK_SCORE_JSON,
     TONE_SCORE_KEYS,
-    _make_anthropic_response,
 )
 
 
@@ -27,14 +26,14 @@ from conftest import (
 
 def _slider_side_effect(mock_jsons: dict[str, str]):
     """Return a side_effect that picks a mock response based on system prompt."""
-    def _side_effect(*, model, max_tokens, system, messages):
+    def _side_effect(*, system, user, **kwargs):
         lower = system.lower()
         if "assertive" in lower and "fully" not in lower:
-            return _make_anthropic_response(mock_jsons["assertive"])
+            return mock_jsons["assertive"]
         elif "fully empathetic" in lower:
-            return _make_anthropic_response(mock_jsons["full_empathy"])
+            return mock_jsons["full_empathy"]
         else:
-            return _make_anthropic_response(mock_jsons["balanced"])
+            return mock_jsons["balanced"]
     return _side_effect
 
 
@@ -50,18 +49,16 @@ SLIDER_MOCKS = {
 # ---------------------------------------------------------------------------
 
 class TestRespondFixtures:
-    """POST every turn from all 5 fixture conversations to /respond."""
+    """POST every turn from all fixture conversations to /respond."""
 
     @pytest.mark.anyio
     async def test_all_conversations_all_turns(self, client, sample_transcripts):
         conversations = sample_transcripts["conversations"]
-        assert len(conversations) == 5
+        assert len(conversations) == 10
 
-        with patch("main.get_anthropic_client") as mock_get:
+        with patch("main.get_llm_client") as mock_get:
             mock_client = MagicMock()
-            mock_client.messages.create.return_value = _make_anthropic_response(
-                MOCK_RESPOND_JSON
-            )
+            mock_client.complete.return_value = MOCK_RESPOND_JSON
             mock_get.return_value = mock_client
 
             for conv in conversations:
@@ -97,9 +94,9 @@ class TestSliderRange:
     async def test_slider_produces_different_suggestions(self, client):
         turn_text = "You never listen to me!"
 
-        with patch("main.get_anthropic_client") as mock_get:
+        with patch("main.get_llm_client") as mock_get:
             mock_client = MagicMock()
-            mock_client.messages.create.side_effect = _slider_side_effect(SLIDER_MOCKS)
+            mock_client.complete.side_effect = _slider_side_effect(SLIDER_MOCKS)
             mock_get.return_value = mock_client
 
             results = {}
@@ -122,11 +119,9 @@ class TestSliderRange:
         """Verify the system prompt changes with the slider value."""
         turn_text = "I feel ignored."
 
-        with patch("main.get_anthropic_client") as mock_get:
+        with patch("main.get_llm_client") as mock_get:
             mock_client = MagicMock()
-            mock_client.messages.create.return_value = _make_anthropic_response(
-                MOCK_RESPOND_JSON
-            )
+            mock_client.complete.return_value = MOCK_RESPOND_JSON
             mock_get.return_value = mock_client
 
             prompts = {}
@@ -136,7 +131,7 @@ class TestSliderRange:
                     "role": "Husband",
                     "empathy_slider": slider_val,
                 })
-                call_kwargs = mock_client.messages.create.call_args
+                call_kwargs = mock_client.complete.call_args
                 prompts[slider_val] = call_kwargs.kwargs["system"]
 
         assert "assertive" in prompts[0].lower()
@@ -161,11 +156,9 @@ class TestScoreEndpoint:
     @pytest.mark.anyio
     @pytest.mark.parametrize("utterance", SCORE_UTTERANCES)
     async def test_score_returns_all_dimensions(self, client, utterance):
-        with patch("main.get_anthropic_client") as mock_get:
+        with patch("main.get_llm_client") as mock_get:
             mock_client = MagicMock()
-            mock_client.messages.create.return_value = _make_anthropic_response(
-                MOCK_SCORE_JSON
-            )
+            mock_client.complete.return_value = MOCK_SCORE_JSON
             mock_get.return_value = mock_client
 
             resp = await client.post("/score", json={"text": utterance})

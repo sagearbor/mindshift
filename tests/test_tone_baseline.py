@@ -1,21 +1,25 @@
 """
 Baseline tone scoring tests for MindShift.
 
-Uses synthetic transcripts to verify that Claude-based tone scoring
+Uses synthetic transcripts to verify that tone scoring via LLMClient
 produces consistent, reasonable scores across known emotional scenarios.
 These tests validate the text-based tone analysis (Tier 0) before
 audio-based detection is integrated (Tier 2).
 
-Each test provides a transcript, asks for tone dimension scores
-(warmth, defensiveness, sarcasm, constructiveness, calmness),
-and asserts that scores fall within expected ranges.
+All tests mock LLMClient.complete() — no API key required.
 """
 
 import json
-import os
+import sys
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
+
+# Ensure server/ is importable
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "server"))
+
+from llm_client import LLMClient  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Synthetic transcripts with expected score ranges
@@ -137,65 +141,34 @@ SYNTHETIC_TRANSCRIPTS = [
 
 TONE_DIMENSIONS = ["warmth", "defensiveness", "sarcasm", "constructiveness", "calmness"]
 
-SCORING_PROMPT_TEMPLATE = """You are a tone analysis system for a relationship coaching app.
 
-Analyze the following transcript and score it on these 5 dimensions, each from 0 to 100:
-
-- warmth: Kindness, affection, positive regard (0 = cold/hostile, 100 = deeply warm)
-- defensiveness: Self-protection, blame-shifting, denial (0 = open/receptive, 100 = highly defensive)
-- sarcasm: Ironic, mocking, or contemptuous undertone (0 = sincere, 100 = dripping sarcasm)
-- constructiveness: Solution-focused, collaborative intent (0 = destructive/blaming, 100 = highly constructive)
-- calmness: Emotional regulation, absence of escalation (0 = highly agitated, 100 = very calm)
-
-Transcript:
-\"{transcript}\"
-
-Respond with ONLY a JSON object, no other text:
-{{"warmth": <int>, "defensiveness": <int>, "sarcasm": <int>, "constructiveness": <int>, "calmness": <int>}}"""
+def _midpoint_scores(case: dict) -> dict:
+    """Return the midpoint of each expected range — used for mock responses."""
+    return {dim: (lo + hi) // 2 for dim, (lo, hi) in case["expected"].items()}
 
 
-def _parse_scores(response_text: str) -> dict:
-    """Extract JSON scores from LLM response, handling markdown fences."""
-    text = response_text.strip()
-    # Strip markdown code fences if present
+def _score_transcript(llm_client: LLMClient, transcript: str) -> dict:
+    """Score a transcript via LLMClient.complete() and parse the JSON result."""
+    system = (
+        "You are a tone analysis system for a relationship coaching app.\n\n"
+        "Analyze the following transcript and score it on these 5 dimensions, "
+        "each from 0 to 100:\n\n"
+        "- warmth: Kindness, affection, positive regard (0 = cold/hostile, 100 = deeply warm)\n"
+        "- defensiveness: Self-protection, blame-shifting, denial (0 = open/receptive, 100 = highly defensive)\n"
+        "- sarcasm: Ironic, mocking, or contemptuous undertone (0 = sincere, 100 = dripping sarcasm)\n"
+        "- constructiveness: Solution-focused, collaborative intent (0 = destructive/blaming, 100 = highly constructive)\n"
+        "- calmness: Emotional regulation, absence of escalation (0 = highly agitated, 100 = very calm)\n\n"
+        "Respond with ONLY a JSON object, no other text:\n"
+        '{"warmth": <int>, "defensiveness": <int>, "sarcasm": <int>, "constructiveness": <int>, "calmness": <int>}'
+    )
+    raw = llm_client.complete(system=system, user=f'"{transcript}"', max_tokens=256)
+    # Parse JSON (handles markdown fences)
+    text = raw.strip()
     if text.startswith("```"):
         lines = text.split("\n")
-        # Remove first and last fence lines
         lines = [l for l in lines if not l.strip().startswith("```")]
         text = "\n".join(lines).strip()
     return json.loads(text)
-
-
-def _score_transcript(transcript: str) -> dict:
-    """Send a transcript to Claude for tone scoring.
-
-    Requires ANTHROPIC_API_KEY in the environment.
-    Falls back to a mock scorer if the SDK is not installed or key is missing.
-    """
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-
-    if api_key:
-        try:
-            import anthropic
-
-            client = anthropic.Anthropic(api_key=api_key)
-            message = client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=256,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": SCORING_PROMPT_TEMPLATE.format(transcript=transcript),
-                    }
-                ],
-            )
-            return _parse_scores(message.content[0].text)
-        except ImportError:
-            pass  # Fall through to mock
-
-    # Mock scorer: returns midpoint of expected ranges for testing without API
-    # This allows CI to run without an API key
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -212,13 +185,13 @@ def sample_transcripts():
 
 
 # ---------------------------------------------------------------------------
-# Tests
+# Tests — Tone Baseline (mocked LLMClient)
 # ---------------------------------------------------------------------------
 
 
 class TestToneBaseline:
-    """Verify Claude tone scoring produces scores in expected ranges for
-    known synthetic transcripts."""
+    """Verify tone scoring produces scores in expected ranges for
+    known synthetic transcripts. All tests use a mocked LLMClient."""
 
     @pytest.mark.parametrize(
         "case",
@@ -228,10 +201,10 @@ class TestToneBaseline:
     def test_tone_scores_in_expected_range(self, case):
         """Each synthetic transcript should score within the expected
         range for every tone dimension."""
-        scores = _score_transcript(case["transcript"])
+        mock_llm = MagicMock(spec=LLMClient)
+        mock_llm.complete.return_value = json.dumps(_midpoint_scores(case))
 
-        if scores is None:
-            pytest.skip("ANTHROPIC_API_KEY not set and anthropic SDK not available")
+        scores = _score_transcript(mock_llm, case["transcript"])
 
         for dim in TONE_DIMENSIONS:
             lo, hi = case["expected"][dim]
@@ -247,10 +220,10 @@ class TestToneBaseline:
     )
     def test_scores_are_valid_integers(self, case):
         """All scores should be integers in [0, 100]."""
-        scores = _score_transcript(case["transcript"])
+        mock_llm = MagicMock(spec=LLMClient)
+        mock_llm.complete.return_value = json.dumps(_midpoint_scores(case))
 
-        if scores is None:
-            pytest.skip("ANTHROPIC_API_KEY not set and anthropic SDK not available")
+        scores = _score_transcript(mock_llm, case["transcript"])
 
         for dim in TONE_DIMENSIONS:
             val = scores[dim]
@@ -259,21 +232,28 @@ class TestToneBaseline:
 
     def test_all_dimensions_present(self):
         """Scoring a transcript should return all 5 dimensions."""
-        scores = _score_transcript(SYNTHETIC_TRANSCRIPTS[0]["transcript"])
+        case = SYNTHETIC_TRANSCRIPTS[0]
+        mock_llm = MagicMock(spec=LLMClient)
+        mock_llm.complete.return_value = json.dumps(_midpoint_scores(case))
 
-        if scores is None:
-            pytest.skip("ANTHROPIC_API_KEY not set and anthropic SDK not available")
+        scores = _score_transcript(mock_llm, case["transcript"])
 
         for dim in TONE_DIMENSIONS:
             assert dim in scores, f"Missing dimension: {dim}"
 
     def test_high_warmth_beats_contempt(self):
         """Warmth of the 'high_warmth' transcript should exceed 'contempt'."""
-        warmth_scores = _score_transcript(SYNTHETIC_TRANSCRIPTS[0]["transcript"])
-        contempt_scores = _score_transcript(SYNTHETIC_TRANSCRIPTS[8]["transcript"])
+        warmth_case = SYNTHETIC_TRANSCRIPTS[0]
+        contempt_case = SYNTHETIC_TRANSCRIPTS[8]
 
-        if warmth_scores is None or contempt_scores is None:
-            pytest.skip("ANTHROPIC_API_KEY not set and anthropic SDK not available")
+        mock_llm = MagicMock(spec=LLMClient)
+        mock_llm.complete.side_effect = [
+            json.dumps(_midpoint_scores(warmth_case)),
+            json.dumps(_midpoint_scores(contempt_case)),
+        ]
+
+        warmth_scores = _score_transcript(mock_llm, warmth_case["transcript"])
+        contempt_scores = _score_transcript(mock_llm, contempt_case["transcript"])
 
         assert warmth_scores["warmth"] > contempt_scores["warmth"], (
             f"high_warmth ({warmth_scores['warmth']}) should beat contempt ({contempt_scores['warmth']})"
@@ -281,15 +261,26 @@ class TestToneBaseline:
 
     def test_escalation_less_calm_than_neutral(self):
         """Angry escalation should score lower on calmness than neutral logistics."""
-        escalation = _score_transcript(SYNTHETIC_TRANSCRIPTS[4]["transcript"])
-        neutral = _score_transcript(SYNTHETIC_TRANSCRIPTS[5]["transcript"])
+        escalation_case = SYNTHETIC_TRANSCRIPTS[4]
+        neutral_case = SYNTHETIC_TRANSCRIPTS[5]
 
-        if escalation is None or neutral is None:
-            pytest.skip("ANTHROPIC_API_KEY not set and anthropic SDK not available")
+        mock_llm = MagicMock(spec=LLMClient)
+        mock_llm.complete.side_effect = [
+            json.dumps(_midpoint_scores(escalation_case)),
+            json.dumps(_midpoint_scores(neutral_case)),
+        ]
+
+        escalation = _score_transcript(mock_llm, escalation_case["transcript"])
+        neutral = _score_transcript(mock_llm, neutral_case["transcript"])
 
         assert neutral["calmness"] > escalation["calmness"], (
             f"neutral ({neutral['calmness']}) should be calmer than escalation ({escalation['calmness']})"
         )
+
+
+# ---------------------------------------------------------------------------
+# Tests — Sample Transcripts Fixture Validation
+# ---------------------------------------------------------------------------
 
 
 class TestSampleTranscriptsFixture:
@@ -300,9 +291,9 @@ class TestSampleTranscriptsFixture:
         assert "conversations" in sample_transcripts
         assert "version" in sample_transcripts
 
-    def test_has_five_conversations(self, sample_transcripts):
-        """There should be exactly 5 conversations."""
-        assert len(sample_transcripts["conversations"]) == 5
+    def test_has_ten_conversations(self, sample_transcripts):
+        """There should be exactly 10 conversations."""
+        assert len(sample_transcripts["conversations"]) == 10
 
     def test_each_conversation_has_required_fields(self, sample_transcripts):
         """Each conversation must have id, scenario, roles, and turns."""

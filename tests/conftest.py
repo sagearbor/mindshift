@@ -20,17 +20,8 @@ from main import app, init_db  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
-# Mock LLM helpers (reused from server/conftest.py pattern)
+# Mock LLM helpers (matches server/conftest.py pattern — mock get_llm_client)
 # ---------------------------------------------------------------------------
-
-def _make_anthropic_response(content: str):
-    """Build a mock Anthropic message response."""
-    block = MagicMock()
-    block.text = content
-    msg = MagicMock()
-    msg.content = [block]
-    return msg
-
 
 MOCK_RESPOND_JSON = json.dumps({
     "suggestions": [

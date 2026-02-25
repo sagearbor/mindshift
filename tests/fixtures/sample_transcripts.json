@@ -233,6 +233,231 @@
           "response_type": "reassurance_and_redirect"
         }
       ]
+    },
+    {
+      "id": "couple_career_stonewalling",
+      "scenario": "Partner stonewalls when asked about a job offer requiring relocation",
+      "roles": {
+        "speaker_a": { "name": "Ava", "role": "wife" },
+        "speaker_b": { "name": "Liam", "role": "husband" }
+      },
+      "turns": [
+        {
+          "speaker": "speaker_a",
+          "text": "I got the offer from the Denver office today. We need to talk about this.",
+          "empathy_level": 50,
+          "tone": "serious",
+          "response_type": "disclosure"
+        },
+        {
+          "speaker": "speaker_b",
+          "text": "Cool.",
+          "empathy_level": 5,
+          "tone": "flat",
+          "response_type": "stonewalling"
+        },
+        {
+          "speaker": "speaker_a",
+          "text": "Liam, this is a big deal. I need you to actually engage with me here.",
+          "empathy_level": 25,
+          "tone": "frustrated",
+          "response_type": "bid_for_engagement"
+        },
+        {
+          "speaker": "speaker_b",
+          "text": "You've already decided. I can tell by the way you brought it up.",
+          "empathy_level": 10,
+          "tone": "resigned",
+          "response_type": "assumption"
+        },
+        {
+          "speaker": "speaker_a",
+          "text": "I haven't decided anything. I'm bringing it to you because I want us to decide together. But I can't do that if you won't talk.",
+          "empathy_level": 55,
+          "tone": "firm_but_open",
+          "response_type": "clarification"
+        }
+      ]
+    },
+    {
+      "id": "couple_flooding_overwhelmed",
+      "scenario": "Partner becomes emotionally flooded during conversation about trust after discovering a hidden credit card",
+      "roles": {
+        "speaker_a": { "name": "Mia", "role": "wife" },
+        "speaker_b": { "name": "Ethan", "role": "husband" }
+      },
+      "turns": [
+        {
+          "speaker": "speaker_a",
+          "text": "I found the credit card statement, Ethan. Six thousand dollars you never told me about.",
+          "empathy_level": 15,
+          "tone": "controlled_anger",
+          "response_type": "confrontation"
+        },
+        {
+          "speaker": "speaker_b",
+          "text": "I — I was going to tell you. I just — there's so much happening and I didn't know how to — I can't even think right now.",
+          "empathy_level": 20,
+          "tone": "panicked",
+          "response_type": "flooding"
+        },
+        {
+          "speaker": "speaker_a",
+          "text": "You can't think? I'm the one who just found out my husband has been hiding debt from me!",
+          "empathy_level": 5,
+          "tone": "angry",
+          "response_type": "escalation"
+        },
+        {
+          "speaker": "speaker_b",
+          "text": "I know, I know, I'm sorry, I'm so sorry. My heart is pounding. I feel like the room is spinning. Can we — can I just have five minutes?",
+          "empathy_level": 30,
+          "tone": "overwhelmed",
+          "response_type": "flooding_request_pause"
+        },
+        {
+          "speaker": "speaker_a",
+          "text": "Fine. Five minutes. But we are talking about this tonight. I'm not letting this get swept under the rug.",
+          "empathy_level": 20,
+          "tone": "firm",
+          "response_type": "conditional_agreement"
+        }
+      ]
+    },
+    {
+      "id": "couple_contemptuous_criticism",
+      "scenario": "One partner uses contempt and criticism about the other's parenting choices",
+      "roles": {
+        "speaker_a": { "name": "Nora", "role": "wife" },
+        "speaker_b": { "name": "Marcus", "role": "husband" }
+      },
+      "turns": [
+        {
+          "speaker": "speaker_a",
+          "text": "You let them have ice cream for dinner again? Seriously, it's like I'm raising three children instead of two.",
+          "empathy_level": 5,
+          "tone": "contemptuous",
+          "response_type": "contempt"
+        },
+        {
+          "speaker": "speaker_b",
+          "text": "It was one night. They'd already eaten most of their food.",
+          "empathy_level": 20,
+          "tone": "defensive",
+          "response_type": "justification"
+        },
+        {
+          "speaker": "speaker_a",
+          "text": "One night? You do this every time I'm not here. You have zero discipline. The kids walk all over you.",
+          "empathy_level": 5,
+          "tone": "harsh",
+          "response_type": "character_attack"
+        },
+        {
+          "speaker": "speaker_b",
+          "text": "That's not fair, Nora. I'm a good dad. You don't get to talk to me like that.",
+          "empathy_level": 25,
+          "tone": "hurt",
+          "response_type": "boundary_setting"
+        },
+        {
+          "speaker": "speaker_a",
+          "text": "If you were consistent with them, I wouldn't have to.",
+          "empathy_level": 5,
+          "tone": "dismissive",
+          "response_type": "blame"
+        }
+      ]
+    },
+    {
+      "id": "couple_post_argument_repair",
+      "scenario": "Partner initiates repair the morning after an argument about social media boundaries",
+      "roles": {
+        "speaker_a": { "name": "Quinn", "role": "wife" },
+        "speaker_b": { "name": "Rowan", "role": "husband" }
+      },
+      "turns": [
+        {
+          "speaker": "speaker_b",
+          "text": "Hey. I made you coffee. Can we talk about last night?",
+          "empathy_level": 70,
+          "tone": "gentle",
+          "response_type": "repair_attempt"
+        },
+        {
+          "speaker": "speaker_a",
+          "text": "I don't know if I'm ready. I'm still pretty upset.",
+          "empathy_level": 30,
+          "tone": "guarded",
+          "response_type": "hesitation"
+        },
+        {
+          "speaker": "speaker_b",
+          "text": "That's okay. I just want you to know I heard you. I was wrong to get defensive about the DMs. You had every right to be uncomfortable.",
+          "empathy_level": 80,
+          "tone": "vulnerable",
+          "response_type": "accountability"
+        },
+        {
+          "speaker": "speaker_a",
+          "text": "It's not about the messages themselves. It's that you hid them. That's what hurt.",
+          "empathy_level": 45,
+          "tone": "honest",
+          "response_type": "clarification"
+        },
+        {
+          "speaker": "speaker_b",
+          "text": "You're right. I should have been upfront. I'll do better. Can we figure out together what feels okay for both of us?",
+          "empathy_level": 85,
+          "tone": "collaborative",
+          "response_type": "problem_solving"
+        }
+      ]
+    },
+    {
+      "id": "couple_successful_de_escalation",
+      "scenario": "Couple starts heated about division of childcare but successfully de-escalates",
+      "roles": {
+        "speaker_a": { "name": "Dana", "role": "wife" },
+        "speaker_b": { "name": "Chris", "role": "husband" }
+      },
+      "turns": [
+        {
+          "speaker": "speaker_a",
+          "text": "I'm exhausted, Chris. I've done every single bedtime this week. You just sit on the couch.",
+          "empathy_level": 15,
+          "tone": "frustrated",
+          "response_type": "complaint"
+        },
+        {
+          "speaker": "speaker_b",
+          "text": "That's not true — I did Tuesday. And I've been working late every night this week.",
+          "empathy_level": 15,
+          "tone": "defensive",
+          "response_type": "counter_argument"
+        },
+        {
+          "speaker": "speaker_a",
+          "text": "Okay, wait. I don't want this to turn into a scorekeeping fight. I'm just tired and I need more help.",
+          "empathy_level": 55,
+          "tone": "self_aware",
+          "response_type": "de_escalation"
+        },
+        {
+          "speaker": "speaker_b",
+          "text": "You're right, I'm sorry. I know you're carrying a lot. What if I take bedtime Thursday through Sunday?",
+          "empathy_level": 75,
+          "tone": "warm",
+          "response_type": "validation_and_offer"
+        },
+        {
+          "speaker": "speaker_a",
+          "text": "That would help a lot. Thank you for hearing me. I know you're tired too.",
+          "empathy_level": 80,
+          "tone": "grateful",
+          "response_type": "appreciation"
+        }
+      ]
     }
   ]
 }

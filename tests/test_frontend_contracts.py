@@ -17,7 +17,6 @@ from conftest import (
     MOCK_RESPOND_JSON,
     MOCK_SCORE_JSON,
     TONE_SCORE_KEYS,
-    _make_anthropic_response,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -33,11 +32,9 @@ class TestRespondContract:
     @pytest.mark.anyio
     async def test_respond_returns_suggestions_list(self, client):
         """Frontend expects { suggestions: Suggestion[] } from /respond."""
-        with patch("main.get_anthropic_client") as mock_get:
+        with patch("main.get_llm_client") as mock_get:
             mock_client = MagicMock()
-            mock_client.messages.create.return_value = _make_anthropic_response(
-                MOCK_RESPOND_JSON
-            )
+            mock_client.complete.return_value = MOCK_RESPOND_JSON
             mock_get.return_value = mock_client
 
             resp = await client.post("/respond", json={
@@ -54,11 +51,9 @@ class TestRespondContract:
     @pytest.mark.anyio
     async def test_respond_returns_tone_score(self, client):
         """Frontend displays tone info — tone_score must have all 5 keys."""
-        with patch("main.get_anthropic_client") as mock_get:
+        with patch("main.get_llm_client") as mock_get:
             mock_client = MagicMock()
-            mock_client.messages.create.return_value = _make_anthropic_response(
-                MOCK_RESPOND_JSON
-            )
+            mock_client.complete.return_value = MOCK_RESPOND_JSON
             mock_get.return_value = mock_client
 
             resp = await client.post("/respond", json={
@@ -81,11 +76,9 @@ class TestRespondContract:
         (sessionStore.ts) maps backend strings into Suggestion objects.
         The backend's raw suggestion items must be strings.
         """
-        with patch("main.get_anthropic_client") as mock_get:
+        with patch("main.get_llm_client") as mock_get:
             mock_client = MagicMock()
-            mock_client.messages.create.return_value = _make_anthropic_response(
-                MOCK_RESPOND_JSON
-            )
+            mock_client.complete.return_value = MOCK_RESPOND_JSON
             mock_get.return_value = mock_client
 
             resp = await client.post("/respond", json={
@@ -231,11 +224,9 @@ class TestScoreContract:
 
     @pytest.mark.anyio
     async def test_score_returns_all_dimensions(self, client):
-        with patch("main.get_anthropic_client") as mock_get:
+        with patch("main.get_llm_client") as mock_get:
             mock_client = MagicMock()
-            mock_client.messages.create.return_value = _make_anthropic_response(
-                MOCK_SCORE_JSON
-            )
+            mock_client.complete.return_value = MOCK_SCORE_JSON
             mock_get.return_value = mock_client
 
             resp = await client.post("/score", json={
@@ -250,11 +241,9 @@ class TestScoreContract:
     @pytest.mark.anyio
     async def test_score_dimensions_match_prd(self, client):
         """Score dimensions must include the 5 PRD-defined dimensions."""
-        with patch("main.get_anthropic_client") as mock_get:
+        with patch("main.get_llm_client") as mock_get:
             mock_client = MagicMock()
-            mock_client.messages.create.return_value = _make_anthropic_response(
-                MOCK_SCORE_JSON
-            )
+            mock_client.complete.return_value = MOCK_SCORE_JSON
             mock_get.return_value = mock_client
 
             resp = await client.post("/score", json={"text": "Test utterance"})
