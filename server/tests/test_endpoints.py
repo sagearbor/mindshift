@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from main import app, empathy_system_prompt, init_db, parse_llm_json, _resolve_session_token
+from main import app, empathy_system_prompt, init_db, parse_llm_json
 
 
 # ---------------------------------------------------------------------------
@@ -461,145 +461,283 @@ async def test_export_pdf_returns_bytes(client):
 
 
 # ---------------------------------------------------------------------------
-# POST /auth/session
+# Relationship graph: couple topology
 # ---------------------------------------------------------------------------
 
 @pytest.mark.anyio
-async def test_create_auth_session(client):
-    resp = await client.post("/auth/session", json={
-        "therapist_id": "dr-smith",
-        "patient_id": "patient-001",
-        "role_pair": "Husband/Wife",
+async def test_couple_relationship_lifecycle(client):
+    """Create couple relationship, list edges (2 directed edges), start session on edge."""
+    resp = await client.post("/relationships", json={
+        "type": "couple",
+        "name": "Smith Marriage",
+        "participants": [
+            {"id": "alex", "role": "husband", "display_name": "Alex Smith"},
+            {"id": "jordan", "role": "wife", "display_name": "Jordan Smith"},
+        ],
     })
     assert resp.status_code == 201
-    data = resp.json()
-    assert "session_token" in data
-    assert data["therapist_id"] == "dr-smith"
-    assert data["patient_id"] == "patient-001"
-    assert data["role_pair"] == "Husband/Wife"
-    assert "created_at" in data
+    rel = resp.json()
+    rel_id = rel["id"]
+    assert rel["type"] == "couple"
+    assert rel["name"] == "Smith Marriage"
+    assert len(rel["participants"]) == 2
 
+    # GET relationship
+    get_resp = await client.get(f"/relationships/{rel_id}")
+    assert get_resp.status_code == 200
+    assert get_resp.json()["name"] == "Smith Marriage"
 
-@pytest.mark.anyio
-async def test_create_auth_session_default_role_pair(client):
-    resp = await client.post("/auth/session", json={
-        "therapist_id": "dr-lee",
-        "patient_id": "patient-002",
+    # List edges — couple has 2 directed edges
+    edges_resp = await client.get(f"/relationships/{rel_id}/edges")
+    assert edges_resp.status_code == 200
+    edges = edges_resp.json()
+    assert len(edges) == 2
+    contexts = {e["context"] for e in edges}
+    assert contexts == {"partner_to_partner"}
+
+    # Start session on alex → jordan edge
+    session_resp = await client.post(f"/relationships/{rel_id}/sessions", json={
+        "from_participant_id": "alex",
+        "to_participant_id": "jordan",
+        "empathy_slider": 65,
     })
-    assert resp.status_code == 201
-    assert resp.json()["role_pair"] == "Husband/Wife"
-
-
-# ---------------------------------------------------------------------------
-# X-Session-Token on /session
-# ---------------------------------------------------------------------------
-
-@pytest.mark.anyio
-async def test_create_session_with_auth_token(client):
-    """Session created with X-Session-Token should be linked to therapist/patient."""
-    # Create auth session first
-    auth_resp = await client.post("/auth/session", json={
-        "therapist_id": "dr-smith",
-        "patient_id": "patient-001",
-    })
-    token = auth_resp.json()["session_token"]
-
-    # Create a data session using the auth token
-    session_resp = await client.post(
-        "/session",
-        json={"turns": [{"speaker": "Wife", "text": "Hello"}], "metadata": {}},
-        headers={"X-Session-Token": token},
-    )
     assert session_resp.status_code == 201
+    session = session_resp.json()
+    assert session["relationship_id"] == rel_id
+    assert session["from_participant_id"] == "alex"
+    assert session["to_participant_id"] == "jordan"
+    assert session["edge_context"] == "partner_to_partner"
+    assert session["empathy_slider"] == 65
 
-    # Verify it shows up under the therapist's patient sessions
-    list_resp = await client.get("/therapist/dr-smith/patient/patient-001/sessions")
+    # List sessions for relationship
+    list_resp = await client.get(f"/relationships/{rel_id}/sessions")
     assert list_resp.status_code == 200
-    sessions = list_resp.json()
-    assert len(sessions) >= 1
-    assert sessions[0]["id"] == session_resp.json()["id"]
+    assert len(list_resp.json()) == 1
 
+
+# ---------------------------------------------------------------------------
+# Relationship graph: org topology
+# ---------------------------------------------------------------------------
 
 @pytest.mark.anyio
-async def test_create_session_without_token(client):
-    """Session without X-Session-Token still works (no auth association)."""
-    resp = await client.post("/session", json={
-        "turns": [],
-        "metadata": {},
+async def test_org_relationship_edges(client):
+    """Create org (director + 2 managers + 4 reports), verify correct edges."""
+    resp = await client.post("/relationships", json={
+        "type": "org",
+        "name": "Engineering Dept",
+        "participants": [
+            {"id": "dir", "role": "director", "display_name": "Director D", "parent_id": None},
+            {"id": "mgr1", "role": "manager", "display_name": "Manager M1", "parent_id": "dir"},
+            {"id": "mgr2", "role": "manager", "display_name": "Manager M2", "parent_id": "dir"},
+            {"id": "eng1", "role": "engineer", "display_name": "Engineer E1", "parent_id": "mgr1"},
+            {"id": "eng2", "role": "engineer", "display_name": "Engineer E2", "parent_id": "mgr1"},
+            {"id": "eng3", "role": "engineer", "display_name": "Engineer E3", "parent_id": "mgr2"},
+            {"id": "eng4", "role": "engineer", "display_name": "Engineer E4", "parent_id": "mgr2"},
+        ],
     })
     assert resp.status_code == 201
+    rel_id = resp.json()["id"]
+
+    edges_resp = await client.get(f"/relationships/{rel_id}/edges")
+    assert edges_resp.status_code == 200
+    edges = edges_resp.json()
+
+    # Expected edges:
+    # dir <-> mgr1, dir <-> mgr2 (4 directed manager_to_report/upward)
+    # mgr1 <-> eng1, mgr1 <-> eng2 (4 directed)
+    # mgr2 <-> eng3, mgr2 <-> eng4 (4 directed)
+    # Peers under dir: mgr1 <-> mgr2 (2 directed)
+    # Peers under mgr1: eng1 <-> eng2 (2 directed)
+    # Peers under mgr2: eng3 <-> eng4 (2 directed)
+    # Total = 4 + 4 + 4 + 2 + 2 + 2 = 18
+
+    assert len(edges) == 18
+
+    contexts = {e["context"] for e in edges}
+    assert "manager_to_report" in contexts
+    assert "upward" in contexts
+    assert "peer" in contexts
 
 
 # ---------------------------------------------------------------------------
-# GET /therapist/{id}/patients
+# Relationship graph: coach_team topology
 # ---------------------------------------------------------------------------
 
 @pytest.mark.anyio
-async def test_list_patients(client):
-    # Create auth session + linked data sessions
-    auth_resp = await client.post("/auth/session", json={
-        "therapist_id": "dr-jones",
-        "patient_id": "p-alpha",
+async def test_coach_team_relationship(client):
+    """Create coach/team (1 coach + 5 players), start session coach→player."""
+    participants = [
+        {"id": "coach1", "role": "coach", "display_name": "Coach C"},
+    ]
+    for i in range(1, 6):
+        participants.append(
+            {"id": f"player{i}", "role": "player", "display_name": f"Player P{i}"}
+        )
+
+    resp = await client.post("/relationships", json={
+        "type": "coach_team",
+        "name": "Basketball Team",
+        "participants": participants,
     })
-    token_a = auth_resp.json()["session_token"]
+    assert resp.status_code == 201
+    rel_id = resp.json()["id"]
 
-    auth_resp2 = await client.post("/auth/session", json={
-        "therapist_id": "dr-jones",
-        "patient_id": "p-beta",
+    edges_resp = await client.get(f"/relationships/{rel_id}/edges")
+    assert edges_resp.status_code == 200
+    edges = edges_resp.json()
+    # 1 coach × 5 players × 2 directions = 10
+    assert len(edges) == 10
+
+    coach_to_player = [e for e in edges if e["context"] == "coach_to_player"]
+    player_to_coach = [e for e in edges if e["context"] == "player_to_coach"]
+    assert len(coach_to_player) == 5
+    assert len(player_to_coach) == 5
+
+    # Start session coach → player1
+    session_resp = await client.post(f"/relationships/{rel_id}/sessions", json={
+        "from_participant_id": "coach1",
+        "to_participant_id": "player1",
+        "empathy_slider": 50,
     })
-    token_b = auth_resp2.json()["session_token"]
-
-    # Create sessions for each patient
-    await client.post("/session", json={"turns": [], "metadata": {}},
-                      headers={"X-Session-Token": token_a})
-    await client.post("/session", json={"turns": [], "metadata": {}},
-                      headers={"X-Session-Token": token_a})
-    await client.post("/session", json={"turns": [], "metadata": {}},
-                      headers={"X-Session-Token": token_b})
-
-    resp = await client.get("/therapist/dr-jones/patients")
-    assert resp.status_code == 200
-    patients = resp.json()
-    assert len(patients) == 2
-
-    by_id = {p["patient_id"]: p["session_count"] for p in patients}
-    assert by_id["p-alpha"] == 2
-    assert by_id["p-beta"] == 1
-
-
-@pytest.mark.anyio
-async def test_list_patients_empty(client):
-    resp = await client.get("/therapist/nonexistent-therapist/patients")
-    assert resp.status_code == 200
-    assert resp.json() == []
+    assert session_resp.status_code == 201
+    assert session_resp.json()["edge_context"] == "coach_to_player"
 
 
 # ---------------------------------------------------------------------------
-# GET /therapist/{id}/patient/{pid}/sessions
+# Relationship graph: participant sessions
 # ---------------------------------------------------------------------------
 
 @pytest.mark.anyio
-async def test_list_patient_sessions(client):
-    auth_resp = await client.post("/auth/session", json={
-        "therapist_id": "dr-patel",
-        "patient_id": "p-gamma",
+async def test_participant_sessions(client):
+    """Sessions involving a specific participant should be queryable."""
+    resp = await client.post("/relationships", json={
+        "type": "couple",
+        "name": "Test Couple",
+        "participants": [
+            {"id": "p1", "role": "husband", "display_name": "Person 1"},
+            {"id": "p2", "role": "wife", "display_name": "Person 2"},
+        ],
     })
-    token = auth_resp.json()["session_token"]
+    rel_id = resp.json()["id"]
 
-    turns = [{"speaker": "Husband", "text": "I need to talk."}]
-    await client.post("/session", json={"turns": turns, "metadata": {"note": "first"}},
-                      headers={"X-Session-Token": token})
+    # Create two sessions
+    await client.post(f"/relationships/{rel_id}/sessions", json={
+        "from_participant_id": "p1",
+        "to_participant_id": "p2",
+        "empathy_slider": 50,
+    })
+    await client.post(f"/relationships/{rel_id}/sessions", json={
+        "from_participant_id": "p2",
+        "to_participant_id": "p1",
+        "empathy_slider": 75,
+    })
 
-    resp = await client.get("/therapist/dr-patel/patient/p-gamma/sessions")
+    # p1 involved in both (as from or to)
+    resp = await client.get(f"/relationships/{rel_id}/participant/p1/sessions")
     assert resp.status_code == 200
-    sessions = resp.json()
-    assert len(sessions) == 1
-    assert sessions[0]["turn_count"] == 1
-    assert sessions[0]["metadata"]["note"] == "first"
+    assert len(resp.json()) == 2
+
+    # p2 also involved in both
+    resp = await client.get(f"/relationships/{rel_id}/participant/p2/sessions")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 2
+
+
+# ---------------------------------------------------------------------------
+# /respond with relationship context enriches prompt
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_respond_with_relationship_context(client):
+    """POST /respond with relationship_id should enrich the LLM prompt."""
+    # Create a relationship first
+    rel_resp = await client.post("/relationships", json={
+        "type": "org",
+        "name": "Team Alpha",
+        "participants": [
+            {"id": "mgr", "role": "manager", "display_name": "Manager M", "parent_id": None},
+            {"id": "rpt", "role": "report", "display_name": "Report R", "parent_id": "mgr"},
+        ],
+    })
+    rel_id = rel_resp.json()["id"]
+
+    with patch("main.get_llm_client") as mock_get:
+        mock_client = MagicMock()
+        mock_client.complete.return_value = MOCK_RESPOND_JSON
+        mock_get.return_value = mock_client
+
+        resp = await client.post("/respond", json={
+            "transcript_turn": "I need more time on this project.",
+            "role": "Manager",
+            "empathy_slider": 50,
+            "relationship_id": rel_id,
+            "from_participant_id": "mgr",
+            "to_participant_id": "rpt",
+        })
+
+    assert resp.status_code == 200
+    # Verify that the LLM was called with relationship context in the user prompt
+    call_kwargs = mock_client.complete.call_args.kwargs
+    assert "Relationship context" in call_kwargs["user"]
+    assert "Team Alpha" in call_kwargs["user"]
+    assert "Manager M" in call_kwargs["user"]
+    assert "Report R" in call_kwargs["user"]
+
+
+# ---------------------------------------------------------------------------
+# Relationship not found
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_get_relationship_not_found(client):
+    resp = await client.get("/relationships/nonexistent-id")
+    assert resp.status_code == 404
 
 
 @pytest.mark.anyio
-async def test_list_patient_sessions_empty(client):
-    resp = await client.get("/therapist/dr-nobody/patient/p-nobody/sessions")
-    assert resp.status_code == 200
-    assert resp.json() == []
+async def test_relationship_session_invalid_participant(client):
+    """Creating session with participant not in relationship returns 400."""
+    resp = await client.post("/relationships", json={
+        "type": "couple",
+        "name": "Test",
+        "participants": [
+            {"id": "a", "role": "husband", "display_name": "A"},
+            {"id": "b", "role": "wife", "display_name": "B"},
+        ],
+    })
+    rel_id = resp.json()["id"]
+
+    resp = await client.post(f"/relationships/{rel_id}/sessions", json={
+        "from_participant_id": "a",
+        "to_participant_id": "UNKNOWN",
+        "empathy_slider": 50,
+    })
+    assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Parent-child topology
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_parent_child_edges(client):
+    """Parent-child relationship should generate parent_to_child and child_to_parent edges."""
+    resp = await client.post("/relationships", json={
+        "type": "parent_child",
+        "name": "Family",
+        "participants": [
+            {"id": "parent1", "role": "parent", "display_name": "Mom", "parent_id": None},
+            {"id": "child1", "role": "child", "display_name": "Kid 1", "parent_id": "parent1"},
+            {"id": "child2", "role": "child", "display_name": "Kid 2", "parent_id": "parent1"},
+        ],
+    })
+    assert resp.status_code == 201
+    rel_id = resp.json()["id"]
+
+    edges_resp = await client.get(f"/relationships/{rel_id}/edges")
+    edges = edges_resp.json()
+    # 1 parent × 2 children × 2 directions = 4
+    assert len(edges) == 4
+    contexts = {e["context"] for e in edges}
+    assert "parent_to_child" in contexts
+    assert "child_to_parent" in contexts

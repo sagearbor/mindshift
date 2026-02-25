@@ -1,4 +1,3 @@
-import hashlib
 import io
 import os
 import json
@@ -9,12 +8,21 @@ from enum import Enum
 from typing import Optional
 
 import aiosqlite
-from fastapi import FastAPI, Header, HTTPException, Query, WebSocket
+from fastapi import FastAPI, HTTPException, Query, WebSocket
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from audio_pipeline import audio_ws_endpoint
 from llm_client import LLMClient
+from models.relationship import (
+    EdgeOut,
+    Participant,
+    RelationshipCreate,
+    RelationshipOut,
+    RelationshipSessionCreate,
+    RelationshipSessionOut,
+    RelationshipType,
+)
 
 DB_PATH = os.getenv("MINDSHIFT_DB_PATH", "mindshift.db")
 MINDSHIFT_MODEL = os.getenv("MINDSHIFT_MODEL", "claude-3-haiku-20240307")
@@ -29,6 +37,9 @@ class RespondRequest(BaseModel):
     role: str
     empathy_slider: int = Field(ge=0, le=100)
     context: str = ""
+    relationship_id: Optional[str] = None
+    from_participant_id: Optional[str] = None
+    to_participant_id: Optional[str] = None
 
 
 class RespondResponse(BaseModel):
@@ -38,6 +49,9 @@ class RespondResponse(BaseModel):
 
 class ScoreRequest(BaseModel):
     text: str
+    relationship_id: Optional[str] = None
+    from_participant_id: Optional[str] = None
+    to_participant_id: Optional[str] = None
 
 
 class ScoreResponse(BaseModel):
@@ -77,31 +91,6 @@ class TurnResponse(BaseModel):
     turn: dict
 
 
-class AuthSessionCreate(BaseModel):
-    therapist_id: str
-    patient_id: str
-    role_pair: str = "Husband/Wife"
-
-
-class AuthSessionOut(BaseModel):
-    session_token: str
-    therapist_id: str
-    patient_id: str
-    role_pair: str
-    created_at: str
-
-
-class PatientSummary(BaseModel):
-    patient_id: str
-    session_count: int
-
-
-class PatientSessionOut(BaseModel):
-    id: str
-    created_at: str
-    turn_count: int
-    metadata: dict
-
 
 # ---------------------------------------------------------------------------
 # Database helpers
@@ -123,19 +112,34 @@ async def init_db() -> None:
                 created_at TEXT NOT NULL,
                 turns TEXT NOT NULL,
                 metadata TEXT NOT NULL,
-                therapist_id TEXT,
-                patient_id TEXT
+                relationship_id TEXT,
+                from_participant_id TEXT,
+                to_participant_id TEXT,
+                edge_context TEXT,
+                empathy_slider INTEGER
             )
             """
         )
         await db.execute(
             """
-            CREATE TABLE IF NOT EXISTS auth_sessions (
-                session_token TEXT PRIMARY KEY,
-                therapist_id TEXT NOT NULL,
-                patient_id TEXT NOT NULL,
-                role_pair TEXT NOT NULL,
+            CREATE TABLE IF NOT EXISTS relationships (
+                id TEXT PRIMARY KEY,
+                type TEXT NOT NULL,
+                name TEXT NOT NULL,
                 created_at TEXT NOT NULL
+            )
+            """
+        )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS participants (
+                id TEXT NOT NULL,
+                relationship_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                parent_id TEXT,
+                PRIMARY KEY (id, relationship_id),
+                FOREIGN KEY (relationship_id) REFERENCES relationships(id)
             )
             """
         )
@@ -232,30 +236,68 @@ def read_root():
     return {"message": "MindShift API"}
 
 
-async def _resolve_session_token(token: str | None) -> dict | None:
-    """Look up an auth session by token. Returns dict or None."""
-    if not token:
+async def _resolve_relationship_context(
+    relationship_id: str | None,
+    from_id: str | None,
+    to_id: str | None,
+) -> str | None:
+    """Build a relationship context string for LLM prompt enrichment."""
+    if not relationship_id or not from_id or not to_id:
         return None
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT therapist_id, patient_id, role_pair FROM auth_sessions WHERE session_token = ?",
-            (token,),
+            "SELECT type, name FROM relationships WHERE id = ?",
+            (relationship_id,),
         )
-        row = await cursor.fetchone()
+        rel_row = await cursor.fetchone()
+        if rel_row is None:
+            return None
+
+        cursor = await db.execute(
+            "SELECT role, display_name FROM participants WHERE id = ? AND relationship_id = ?",
+            (from_id, relationship_id),
+        )
+        from_row = await cursor.fetchone()
+
+        cursor = await db.execute(
+            "SELECT role, display_name FROM participants WHERE id = ? AND relationship_id = ?",
+            (to_id, relationship_id),
+        )
+        to_row = await cursor.fetchone()
     finally:
         await db.close()
-    if row is None:
+
+    if not from_row or not to_row:
         return None
-    return {"therapist_id": row["therapist_id"], "patient_id": row["patient_id"], "role_pair": row["role_pair"]}
+
+    rel_type = rel_row["type"]
+    rel_name = rel_row["name"]
+    from_role = from_row["role"]
+    from_name = from_row["display_name"]
+    to_role = to_row["role"]
+    to_name = to_row["display_name"]
+
+    return (
+        f"Relationship: {rel_name} ({rel_type}). "
+        f"You are coaching {from_name} (role: {from_role}) "
+        f"speaking to {to_name} (role: {to_role})."
+    )
 
 
 @app.post("/respond", response_model=RespondResponse)
 async def respond(req: RespondRequest):
     system = empathy_system_prompt(req.empathy_slider, req.role)
+
+    rel_context = await _resolve_relationship_context(
+        req.relationship_id, req.from_participant_id, req.to_participant_id,
+    )
+
     user_content = f"Transcript turn: \"{req.transcript_turn}\""
     if req.context:
         user_content += f"\n\nConversation context: {req.context}"
+    if rel_context:
+        user_content += f"\n\nRelationship context: {rel_context}"
 
     llm = get_llm_client()
     raw = llm.complete(system=system, user=user_content)
@@ -278,8 +320,16 @@ async def score(req: ScoreRequest):
         "Higher means more of that quality."
     )
 
+    rel_context = await _resolve_relationship_context(
+        req.relationship_id, req.from_participant_id, req.to_participant_id,
+    )
+
+    user_content = req.text
+    if rel_context:
+        user_content += f"\n\nRelationship context: {rel_context}"
+
     llm = get_llm_client()
-    raw = llm.complete(system=system, user=req.text, max_tokens=256)
+    raw = llm.complete(system=system, user=user_content, max_tokens=256)
     try:
         data = parse_llm_json(raw)
     except (json.JSONDecodeError, IndexError, KeyError):
@@ -295,24 +345,16 @@ async def score(req: ScoreRequest):
 
 
 @app.post("/session", response_model=SessionOut, status_code=201)
-async def create_session(
-    req: SessionCreate,
-    x_session_token: Optional[str] = Header(None),
-):
+async def create_session(req: SessionCreate):
     session_id = str(uuid.uuid4())
     created_at = datetime.now(timezone.utc).isoformat()
-
-    auth = await _resolve_session_token(x_session_token)
-    therapist_id = auth["therapist_id"] if auth else None
-    patient_id = auth["patient_id"] if auth else None
 
     db = await get_db()
     try:
         await db.execute(
-            "INSERT INTO sessions (id, created_at, turns, metadata, therapist_id, patient_id) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (session_id, created_at, json.dumps(req.turns), json.dumps(req.metadata),
-             therapist_id, patient_id),
+            "INSERT INTO sessions (id, created_at, turns, metadata) "
+            "VALUES (?, ?, ?, ?)",
+            (session_id, created_at, json.dumps(req.turns), json.dumps(req.metadata)),
         )
         await db.commit()
     finally:
@@ -576,76 +618,367 @@ async def export_session(
 
 
 # ---------------------------------------------------------------------------
-# Auth endpoints
+# Relationship graph endpoints
 # ---------------------------------------------------------------------------
 
-@app.post("/auth/session", response_model=AuthSessionOut, status_code=201)
-async def create_auth_session(req: AuthSessionCreate):
-    token = hashlib.sha256(
-        f"{req.therapist_id}:{req.patient_id}:{uuid.uuid4()}".encode()
-    ).hexdigest()
+def _generate_edges(rel_type: str, participants: list[dict]) -> list[dict]:
+    """Generate valid communication edges based on relationship type."""
+    edges = []
+    by_id = {p["id"]: p for p in participants}
+
+    if rel_type == "couple":
+        # Bidirectional between both partners
+        if len(participants) >= 2:
+            a, b = participants[0], participants[1]
+            edges.append({
+                "from_participant_id": a["id"],
+                "from_display_name": a["display_name"],
+                "to_participant_id": b["id"],
+                "to_display_name": b["display_name"],
+                "context": "partner_to_partner",
+            })
+            edges.append({
+                "from_participant_id": b["id"],
+                "from_display_name": b["display_name"],
+                "to_participant_id": a["id"],
+                "to_display_name": a["display_name"],
+                "context": "partner_to_partner",
+            })
+
+    elif rel_type == "parent_child":
+        parents = [p for p in participants if p.get("parent_id") is None]
+        children = [p for p in participants if p.get("parent_id") is not None]
+        for parent in parents:
+            for child in children:
+                edges.append({
+                    "from_participant_id": parent["id"],
+                    "from_display_name": parent["display_name"],
+                    "to_participant_id": child["id"],
+                    "to_display_name": child["display_name"],
+                    "context": "parent_to_child",
+                })
+                edges.append({
+                    "from_participant_id": child["id"],
+                    "from_display_name": child["display_name"],
+                    "to_participant_id": parent["id"],
+                    "to_display_name": parent["display_name"],
+                    "context": "child_to_parent",
+                })
+
+    elif rel_type == "coach_team":
+        coaches = [p for p in participants if p["role"] == "coach"]
+        players = [p for p in participants if p["role"] != "coach"]
+        for coach in coaches:
+            for player in players:
+                edges.append({
+                    "from_participant_id": coach["id"],
+                    "from_display_name": coach["display_name"],
+                    "to_participant_id": player["id"],
+                    "to_display_name": player["display_name"],
+                    "context": "coach_to_player",
+                })
+                edges.append({
+                    "from_participant_id": player["id"],
+                    "from_display_name": player["display_name"],
+                    "to_participant_id": coach["id"],
+                    "to_display_name": coach["display_name"],
+                    "context": "player_to_coach",
+                })
+
+    elif rel_type == "org":
+        # Edges between managers and their direct reports (via parent_id)
+        for p in participants:
+            if p.get("parent_id") and p["parent_id"] in by_id:
+                manager = by_id[p["parent_id"]]
+                edges.append({
+                    "from_participant_id": manager["id"],
+                    "from_display_name": manager["display_name"],
+                    "to_participant_id": p["id"],
+                    "to_display_name": p["display_name"],
+                    "context": "manager_to_report",
+                })
+                edges.append({
+                    "from_participant_id": p["id"],
+                    "from_display_name": p["display_name"],
+                    "to_participant_id": manager["id"],
+                    "to_display_name": manager["display_name"],
+                    "context": "upward",
+                })
+        # Peer edges: participants sharing the same parent_id
+        from itertools import combinations
+        children_by_parent: dict[str, list[dict]] = {}
+        for p in participants:
+            pid = p.get("parent_id")
+            if pid:
+                children_by_parent.setdefault(pid, []).append(p)
+        for siblings in children_by_parent.values():
+            for a, b in combinations(siblings, 2):
+                edges.append({
+                    "from_participant_id": a["id"],
+                    "from_display_name": a["display_name"],
+                    "to_participant_id": b["id"],
+                    "to_display_name": b["display_name"],
+                    "context": "peer",
+                })
+                edges.append({
+                    "from_participant_id": b["id"],
+                    "from_display_name": b["display_name"],
+                    "to_participant_id": a["id"],
+                    "to_display_name": a["display_name"],
+                    "context": "peer",
+                })
+
+    else:  # custom — all-to-all
+        from itertools import permutations
+        for a, b in permutations(participants, 2):
+            edges.append({
+                "from_participant_id": a["id"],
+                "from_display_name": a["display_name"],
+                "to_participant_id": b["id"],
+                "to_display_name": b["display_name"],
+                "context": "custom",
+            })
+
+    return edges
+
+
+@app.post("/relationships", response_model=RelationshipOut, status_code=201)
+async def create_relationship(req: RelationshipCreate):
+    rel_id = str(uuid.uuid4())
     created_at = datetime.now(timezone.utc).isoformat()
 
     db = await get_db()
     try:
         await db.execute(
-            "INSERT INTO auth_sessions (session_token, therapist_id, patient_id, role_pair, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (token, req.therapist_id, req.patient_id, req.role_pair, created_at),
+            "INSERT INTO relationships (id, type, name, created_at) VALUES (?, ?, ?, ?)",
+            (rel_id, req.type.value, req.name, created_at),
+        )
+        for p in req.participants:
+            await db.execute(
+                "INSERT INTO participants (id, relationship_id, role, display_name, parent_id) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (p.id, rel_id, p.role, p.display_name, p.parent_id),
+            )
+        await db.commit()
+    finally:
+        await db.close()
+
+    return RelationshipOut(
+        id=rel_id,
+        type=req.type,
+        name=req.name,
+        participants=req.participants,
+        created_at=created_at,
+    )
+
+
+@app.get("/relationships/{relationship_id}", response_model=RelationshipOut)
+async def get_relationship(relationship_id: str):
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT id, type, name, created_at FROM relationships WHERE id = ?",
+            (relationship_id,),
+        )
+        rel_row = await cursor.fetchone()
+        if rel_row is None:
+            raise HTTPException(status_code=404, detail="Relationship not found")
+
+        cursor = await db.execute(
+            "SELECT id, role, display_name, parent_id FROM participants WHERE relationship_id = ?",
+            (relationship_id,),
+        )
+        p_rows = await cursor.fetchall()
+    finally:
+        await db.close()
+
+    return RelationshipOut(
+        id=rel_row["id"],
+        type=RelationshipType(rel_row["type"]),
+        name=rel_row["name"],
+        participants=[
+            Participant(
+                id=r["id"], role=r["role"],
+                display_name=r["display_name"], parent_id=r["parent_id"],
+            )
+            for r in p_rows
+        ],
+        created_at=rel_row["created_at"],
+    )
+
+
+@app.get("/relationships/{relationship_id}/edges", response_model=list[EdgeOut])
+async def list_edges(relationship_id: str):
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT id, type FROM relationships WHERE id = ?",
+            (relationship_id,),
+        )
+        rel_row = await cursor.fetchone()
+        if rel_row is None:
+            raise HTTPException(status_code=404, detail="Relationship not found")
+
+        cursor = await db.execute(
+            "SELECT id, role, display_name, parent_id FROM participants WHERE relationship_id = ?",
+            (relationship_id,),
+        )
+        p_rows = await cursor.fetchall()
+    finally:
+        await db.close()
+
+    participants = [
+        {"id": r["id"], "role": r["role"], "display_name": r["display_name"], "parent_id": r["parent_id"]}
+        for r in p_rows
+    ]
+    edges = _generate_edges(rel_row["type"], participants)
+    return [EdgeOut(**e) for e in edges]
+
+
+@app.post(
+    "/relationships/{relationship_id}/sessions",
+    response_model=RelationshipSessionOut,
+    status_code=201,
+)
+async def create_relationship_session(relationship_id: str, req: RelationshipSessionCreate):
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT id, type FROM relationships WHERE id = ?",
+            (relationship_id,),
+        )
+        rel_row = await cursor.fetchone()
+        if rel_row is None:
+            raise HTTPException(status_code=404, detail="Relationship not found")
+
+        # Verify participants exist in this relationship
+        cursor = await db.execute(
+            "SELECT id, role, display_name, parent_id FROM participants WHERE relationship_id = ?",
+            (relationship_id,),
+        )
+        p_rows = await cursor.fetchall()
+        participant_ids = {r["id"] for r in p_rows}
+        if req.from_participant_id not in participant_ids:
+            raise HTTPException(status_code=400, detail="from_participant_id not in relationship")
+        if req.to_participant_id not in participant_ids:
+            raise HTTPException(status_code=400, detail="to_participant_id not in relationship")
+
+        # Determine edge context
+        participants = [
+            {"id": r["id"], "role": r["role"], "display_name": r["display_name"], "parent_id": r["parent_id"]}
+            for r in p_rows
+        ]
+        edges = _generate_edges(rel_row["type"], participants)
+        edge_context = "custom"
+        for e in edges:
+            if e["from_participant_id"] == req.from_participant_id and e["to_participant_id"] == req.to_participant_id:
+                edge_context = e["context"]
+                break
+
+        session_id = str(uuid.uuid4())
+        created_at = datetime.now(timezone.utc).isoformat()
+
+        await db.execute(
+            "INSERT INTO sessions (id, created_at, turns, metadata, relationship_id, "
+            "from_participant_id, to_participant_id, edge_context, empathy_slider) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (session_id, created_at, json.dumps([]), json.dumps(req.metadata),
+             relationship_id, req.from_participant_id, req.to_participant_id,
+             edge_context, req.empathy_slider),
         )
         await db.commit()
     finally:
         await db.close()
 
-    return AuthSessionOut(
-        session_token=token,
-        therapist_id=req.therapist_id,
-        patient_id=req.patient_id,
-        role_pair=req.role_pair,
+    return RelationshipSessionOut(
+        id=session_id,
+        relationship_id=relationship_id,
+        from_participant_id=req.from_participant_id,
+        to_participant_id=req.to_participant_id,
+        edge_context=edge_context,
+        empathy_slider=req.empathy_slider,
         created_at=created_at,
+        turns=[],
+        metadata=req.metadata,
     )
 
 
-@app.get("/therapist/{therapist_id}/patients", response_model=list[PatientSummary])
-async def list_patients(therapist_id: str):
+@app.get(
+    "/relationships/{relationship_id}/sessions",
+    response_model=list[RelationshipSessionOut],
+)
+async def list_relationship_sessions(relationship_id: str):
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT patient_id, COUNT(*) as session_count FROM sessions "
-            "WHERE therapist_id = ? GROUP BY patient_id",
-            (therapist_id,),
+            "SELECT id FROM relationships WHERE id = ?",
+            (relationship_id,),
+        )
+        if await cursor.fetchone() is None:
+            raise HTTPException(status_code=404, detail="Relationship not found")
+
+        cursor = await db.execute(
+            "SELECT id, created_at, turns, metadata, relationship_id, "
+            "from_participant_id, to_participant_id, edge_context, empathy_slider "
+            "FROM sessions WHERE relationship_id = ? ORDER BY created_at DESC",
+            (relationship_id,),
         )
         rows = await cursor.fetchall()
     finally:
         await db.close()
 
     return [
-        PatientSummary(patient_id=row["patient_id"], session_count=row["session_count"])
+        RelationshipSessionOut(
+            id=row["id"],
+            relationship_id=row["relationship_id"],
+            from_participant_id=row["from_participant_id"],
+            to_participant_id=row["to_participant_id"],
+            edge_context=row["edge_context"],
+            empathy_slider=row["empathy_slider"] or 50,
+            created_at=row["created_at"],
+            turns=json.loads(row["turns"]),
+            metadata=json.loads(row["metadata"]),
+        )
         for row in rows
     ]
 
 
 @app.get(
-    "/therapist/{therapist_id}/patient/{patient_id}/sessions",
-    response_model=list[PatientSessionOut],
+    "/relationships/{relationship_id}/participant/{participant_id}/sessions",
+    response_model=list[RelationshipSessionOut],
 )
-async def list_patient_sessions(therapist_id: str, patient_id: str):
+async def list_participant_sessions(relationship_id: str, participant_id: str):
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT id, created_at, turns, metadata FROM sessions "
-            "WHERE therapist_id = ? AND patient_id = ? ORDER BY created_at DESC",
-            (therapist_id, patient_id),
+            "SELECT id FROM relationships WHERE id = ?",
+            (relationship_id,),
+        )
+        if await cursor.fetchone() is None:
+            raise HTTPException(status_code=404, detail="Relationship not found")
+
+        cursor = await db.execute(
+            "SELECT id, created_at, turns, metadata, relationship_id, "
+            "from_participant_id, to_participant_id, edge_context, empathy_slider "
+            "FROM sessions WHERE relationship_id = ? "
+            "AND (from_participant_id = ? OR to_participant_id = ?) "
+            "ORDER BY created_at DESC",
+            (relationship_id, participant_id, participant_id),
         )
         rows = await cursor.fetchall()
     finally:
         await db.close()
 
     return [
-        PatientSessionOut(
+        RelationshipSessionOut(
             id=row["id"],
+            relationship_id=row["relationship_id"],
+            from_participant_id=row["from_participant_id"],
+            to_participant_id=row["to_participant_id"],
+            edge_context=row["edge_context"],
+            empathy_slider=row["empathy_slider"] or 50,
             created_at=row["created_at"],
-            turn_count=len(json.loads(row["turns"])),
+            turns=json.loads(row["turns"]),
             metadata=json.loads(row["metadata"]),
         )
         for row in rows
