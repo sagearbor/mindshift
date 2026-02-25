@@ -1,11 +1,14 @@
+import io
 import os
 import json
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from enum import Enum
 
 import aiosqlite
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from llm_client import LLMClient
@@ -52,6 +55,23 @@ class SessionOut(BaseModel):
     created_at: str
     turns: list[dict]
     metadata: dict
+
+
+class ExportFormat(str, Enum):
+    text = "text"
+    pdf = "pdf"
+
+
+class SessionTurn(BaseModel):
+    speaker: str
+    text: str
+    score: dict | None = None
+
+
+class TurnResponse(BaseModel):
+    session_id: str
+    turn_index: int
+    turn: dict
 
 
 # ---------------------------------------------------------------------------
@@ -248,4 +268,230 @@ async def get_session(session_id: str):
         created_at=row["created_at"],
         turns=json.loads(row["turns"]),
         metadata=json.loads(row["metadata"]),
+    )
+
+
+@app.post("/session/{session_id}/turns", response_model=TurnResponse, status_code=201)
+async def add_turn(session_id: str, turn: SessionTurn):
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT turns FROM sessions WHERE id = ?", (session_id,),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        turns = json.loads(row["turns"])
+        turn_dict = turn.model_dump()
+        turns.append(turn_dict)
+
+        await db.execute(
+            "UPDATE sessions SET turns = ? WHERE id = ?",
+            (json.dumps(turns), session_id),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+    return TurnResponse(
+        session_id=session_id,
+        turn_index=len(turns) - 1,
+        turn=turn_dict,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Session export helpers
+# ---------------------------------------------------------------------------
+
+def _compute_aggregate_stats(turns: list[dict]) -> dict[str, float]:
+    """Compute average tone scores across all turns that have score dicts."""
+    dimensions = ["warmth", "defensiveness", "sarcasm", "constructiveness", "overall"]
+    totals = {d: 0.0 for d in dimensions}
+    count = 0
+    for t in turns:
+        score = t.get("score")
+        if isinstance(score, dict):
+            count += 1
+            for d in dimensions:
+                totals[d] += score.get(d, 0)
+    if count == 0:
+        return {d: 0.0 for d in dimensions}
+    return {d: round(totals[d] / count, 1) for d in dimensions}
+
+
+def _build_text_export(session: dict, insights: str) -> str:
+    """Build structured text export for a session."""
+    lines: list[str] = []
+    lines.append("=" * 60)
+    lines.append("MINDSHIFT SESSION EXPORT")
+    lines.append("=" * 60)
+    lines.append("")
+
+    # Metadata
+    lines.append("SESSION METADATA")
+    lines.append("-" * 40)
+    lines.append(f"  Session ID : {session['id']}")
+    lines.append(f"  Created    : {session['created_at']}")
+    for k, v in session.get("metadata", {}).items():
+        lines.append(f"  {k.title():11s}: {v}")
+    lines.append("")
+
+    # Transcript
+    turns = session.get("turns", [])
+    lines.append("TRANSCRIPT")
+    lines.append("-" * 40)
+    for i, t in enumerate(turns, 1):
+        speaker = t.get("speaker", "Unknown")
+        text = t.get("text", "")
+        lines.append(f"  Turn {i} [{speaker}]: {text}")
+        score = t.get("score")
+        if isinstance(score, dict):
+            parts = [f"{k}={v}" for k, v in score.items()]
+            lines.append(f"    Tone: {', '.join(parts)}")
+    lines.append("")
+
+    # Aggregate stats
+    stats = _compute_aggregate_stats(turns)
+    lines.append("AGGREGATE STATISTICS")
+    lines.append("-" * 40)
+    for k, v in stats.items():
+        lines.append(f"  Avg {k:20s}: {v}")
+    lines.append("")
+
+    # Insights
+    lines.append("SESSION INSIGHTS")
+    lines.append("-" * 40)
+    lines.append(f"  {insights}")
+    lines.append("")
+    lines.append("=" * 60)
+
+    return "\n".join(lines)
+
+
+def _build_pdf_export(session: dict, insights: str) -> bytes:
+    """Generate a PDF report for a session using reportlab."""
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib import colors
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=letter, topMargin=0.75 * inch)
+    styles = getSampleStyleSheet()
+    story: list = []
+
+    # Title
+    story.append(Paragraph("MindShift Session Export", styles["Title"]))
+    story.append(Spacer(1, 12))
+
+    # Metadata
+    story.append(Paragraph("Session Metadata", styles["Heading2"]))
+    meta_data = [
+        ["Session ID", session["id"]],
+        ["Created", session["created_at"]],
+    ]
+    for k, v in session.get("metadata", {}).items():
+        meta_data.append([k.title(), str(v)])
+    meta_table = Table(meta_data, colWidths=[1.5 * inch, 4.5 * inch])
+    meta_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#eeeeee")),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+    ]))
+    story.append(meta_table)
+    story.append(Spacer(1, 12))
+
+    # Transcript
+    turns = session.get("turns", [])
+    story.append(Paragraph("Transcript", styles["Heading2"]))
+    for i, t in enumerate(turns, 1):
+        speaker = t.get("speaker", "Unknown")
+        text = t.get("text", "")
+        story.append(Paragraph(f"<b>Turn {i} [{speaker}]:</b> {text}", styles["Normal"]))
+        score = t.get("score")
+        if isinstance(score, dict):
+            parts = [f"{k}={v}" for k, v in score.items()]
+            story.append(Paragraph(f"<i>Tone: {', '.join(parts)}</i>", styles["Normal"]))
+        story.append(Spacer(1, 4))
+    story.append(Spacer(1, 12))
+
+    # Aggregate stats
+    stats = _compute_aggregate_stats(turns)
+    story.append(Paragraph("Aggregate Statistics", styles["Heading2"]))
+    stat_data = [["Dimension", "Average"]] + [[k.title(), str(v)] for k, v in stats.items()]
+    stat_table = Table(stat_data, colWidths=[2 * inch, 1.5 * inch])
+    stat_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#cccccc")),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+    ]))
+    story.append(stat_table)
+    story.append(Spacer(1, 12))
+
+    # Insights
+    story.append(Paragraph("Session Insights", styles["Heading2"]))
+    story.append(Paragraph(insights, styles["Normal"]))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
+@app.get("/session/{session_id}/export")
+async def export_session(
+    session_id: str,
+    format: ExportFormat = Query(default=ExportFormat.text),
+):
+    # Fetch session
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT id, created_at, turns, metadata FROM sessions WHERE id = ?",
+            (session_id,),
+        )
+        row = await cursor.fetchone()
+    finally:
+        await db.close()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = {
+        "id": row["id"],
+        "created_at": row["created_at"],
+        "turns": json.loads(row["turns"]),
+        "metadata": json.loads(row["metadata"]),
+    }
+
+    # Generate AI insights
+    llm = get_llm_client()
+    turns_summary = "\n".join(
+        f"{t.get('speaker', '?')}: {t.get('text', '')}" for t in session["turns"]
+    )
+    insights_prompt = (
+        "You are a therapist assistant. Summarize the following session in one short paragraph. "
+        "Highlight communication patterns, emotional dynamics, and areas for improvement.\n\n"
+        f"{turns_summary}"
+    )
+    insights = llm.complete(
+        system="You are a clinical communication analyst.",
+        user=insights_prompt,
+        max_tokens=300,
+    )
+
+    if format == ExportFormat.pdf:
+        pdf_bytes = _build_pdf_export(session, insights)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename=session_{session_id}.pdf"},
+        )
+
+    text_export = _build_text_export(session, insights)
+    return Response(
+        content=text_export,
+        media_type="text/plain",
+        headers={"Content-Disposition": f"attachment; filename=session_{session_id}.txt"},
     )

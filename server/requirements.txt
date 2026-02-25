@@ -6,6 +6,7 @@ fastapi
 uvicorn
 aiosqlite
 pydantic
+reportlab
 httpx
 anyio
 pytest

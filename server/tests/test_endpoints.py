@@ -290,3 +290,171 @@ class TestParseLlmJson:
     def test_invalid_json_raises(self):
         with pytest.raises(json.JSONDecodeError):
             parse_llm_json("not json")
+
+
+# ---------------------------------------------------------------------------
+# POST /session/{id}/turns — multi-turn sessions
+# ---------------------------------------------------------------------------
+
+SAMPLE_TURNS = [
+    {"speaker": "Wife", "text": "You forgot again.",
+     "score": {"warmth": 20, "defensiveness": 60, "sarcasm": 30, "constructiveness": 25, "overall": 35}},
+    {"speaker": "Husband", "text": "I'm sorry, I'll set a reminder.",
+     "score": {"warmth": 70, "defensiveness": 10, "sarcasm": 5, "constructiveness": 80, "overall": 75}},
+]
+
+
+@pytest.mark.anyio
+async def test_add_turn_and_retrieve(client):
+    """Create session, add a turn, verify it's appended."""
+    create_resp = await client.post("/session", json={
+        "turns": SAMPLE_TURNS,
+        "metadata": {"therapist": "Dr. Lee"},
+    })
+    assert create_resp.status_code == 201
+    sid = create_resp.json()["id"]
+
+    new_turn = {
+        "speaker": "Wife",
+        "text": "Thank you for hearing me.",
+        "score": {"warmth": 80, "defensiveness": 5, "sarcasm": 0, "constructiveness": 70, "overall": 80},
+    }
+    turn_resp = await client.post(f"/session/{sid}/turns", json=new_turn)
+    assert turn_resp.status_code == 201
+    turn_data = turn_resp.json()
+    assert turn_data["session_id"] == sid
+    assert turn_data["turn_index"] == 2
+    assert turn_data["turn"]["speaker"] == "Wife"
+
+    # Verify session now has 3 turns
+    get_resp = await client.get(f"/session/{sid}")
+    assert get_resp.status_code == 200
+    assert len(get_resp.json()["turns"]) == 3
+    assert get_resp.json()["turns"][2]["text"] == "Thank you for hearing me."
+
+
+@pytest.mark.anyio
+async def test_add_turn_session_not_found(client):
+    resp = await client.post("/session/nonexistent-id/turns", json={
+        "speaker": "Wife",
+        "text": "Hello",
+    })
+    assert resp.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_add_turn_no_score(client):
+    """Turn without score should still be accepted (score is optional)."""
+    create_resp = await client.post("/session", json={"turns": [], "metadata": {}})
+    sid = create_resp.json()["id"]
+
+    turn_resp = await client.post(f"/session/{sid}/turns", json={
+        "speaker": "Husband",
+        "text": "Let's talk later.",
+    })
+    assert turn_resp.status_code == 201
+    assert turn_resp.json()["turn"]["score"] is None
+
+
+# ---------------------------------------------------------------------------
+# GET /session/{id}/export — text format
+# ---------------------------------------------------------------------------
+
+MOCK_INSIGHTS = "The session showed a pattern of defensiveness from the wife with constructive repair attempts from the husband."
+
+
+@pytest.mark.anyio
+async def test_export_text_structure(client):
+    """Text export should contain metadata, transcript, stats, and insights."""
+    create_resp = await client.post("/session", json={
+        "turns": SAMPLE_TURNS,
+        "metadata": {"therapist": "Dr. Smith", "date": "2026-02-25"},
+    })
+    sid = create_resp.json()["id"]
+
+    with patch("main.get_llm_client") as mock_get:
+        mock_client = MagicMock()
+        mock_client.complete.return_value = MOCK_INSIGHTS
+        mock_get.return_value = mock_client
+
+        resp = await client.get(f"/session/{sid}/export")
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "text/plain; charset=utf-8"
+
+    body = resp.text
+    # Metadata section
+    assert "SESSION METADATA" in body
+    assert sid in body
+    assert "Dr. Smith" in body
+
+    # Transcript section
+    assert "TRANSCRIPT" in body
+    assert "You forgot again." in body
+    assert "I'm sorry" in body
+    assert "warmth=" in body
+
+    # Aggregate stats
+    assert "AGGREGATE STATISTICS" in body
+    assert "warmth" in body.lower()
+
+    # Insights
+    assert "SESSION INSIGHTS" in body
+    assert "defensiveness" in body
+
+    # LLM was called once for insights
+    mock_client.complete.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_export_text_format_param(client):
+    """Explicit ?format=text should work identically."""
+    create_resp = await client.post("/session", json={
+        "turns": SAMPLE_TURNS,
+        "metadata": {},
+    })
+    sid = create_resp.json()["id"]
+
+    with patch("main.get_llm_client") as mock_get:
+        mock_client = MagicMock()
+        mock_client.complete.return_value = MOCK_INSIGHTS
+        mock_get.return_value = mock_client
+
+        resp = await client.get(f"/session/{sid}/export?format=text")
+
+    assert resp.status_code == 200
+    assert "text/plain" in resp.headers["content-type"]
+
+
+@pytest.mark.anyio
+async def test_export_not_found(client):
+    resp = await client.get("/session/nonexistent-id/export")
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# GET /session/{id}/export?format=pdf
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_export_pdf_returns_bytes(client):
+    """PDF export should return application/pdf with valid PDF bytes."""
+    create_resp = await client.post("/session", json={
+        "turns": SAMPLE_TURNS,
+        "metadata": {"therapist": "Dr. Lee"},
+    })
+    sid = create_resp.json()["id"]
+
+    with patch("main.get_llm_client") as mock_get:
+        mock_client = MagicMock()
+        mock_client.complete.return_value = MOCK_INSIGHTS
+        mock_get.return_value = mock_client
+
+        resp = await client.get(f"/session/{sid}/export?format=pdf")
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/pdf"
+    # PDF files start with %PDF
+    assert resp.content[:5] == b"%PDF-"
+    # LLM was called for insights
+    mock_client.complete.assert_called_once()
