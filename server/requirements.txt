@@ -1,0 +1,12 @@
+anthropic
+openai
+google-generativeai
+mistralai
+fastapi
+uvicorn
+aiosqlite
+pydantic
+httpx
+anyio
+pytest
+pytest-asyncio

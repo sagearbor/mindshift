@@ -5,12 +5,13 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import aiosqlite
-import anthropic
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from llm_client import LLMClient
+
 DB_PATH = os.getenv("MINDSHIFT_DB_PATH", "mindshift.db")
-ANTHROPIC_MODEL = "claude-3-haiku-20240307"
+MINDSHIFT_MODEL = os.getenv("MINDSHIFT_MODEL", "claude-3-haiku-20240307")
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +85,7 @@ async def init_db() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    app.state.llm_client = LLMClient(model=MINDSHIFT_MODEL)
     yield
 
 
@@ -134,8 +136,8 @@ def empathy_system_prompt(slider: int, role: str) -> str:
 # LLM helpers
 # ---------------------------------------------------------------------------
 
-def get_anthropic_client() -> anthropic.Anthropic:
-    return anthropic.Anthropic()
+def get_llm_client() -> LLMClient:
+    return app.state.llm_client
 
 
 def parse_llm_json(text: str) -> dict:
@@ -166,15 +168,8 @@ async def respond(req: RespondRequest):
     if req.context:
         user_content += f"\n\nConversation context: {req.context}"
 
-    client = get_anthropic_client()
-    message = client.messages.create(
-        model=ANTHROPIC_MODEL,
-        max_tokens=512,
-        system=system,
-        messages=[{"role": "user", "content": user_content}],
-    )
-
-    raw = message.content[0].text
+    llm = get_llm_client()
+    raw = llm.complete(system=system, user=user_content)
     try:
         data = parse_llm_json(raw)
     except (json.JSONDecodeError, IndexError, KeyError):
@@ -194,15 +189,8 @@ async def score(req: ScoreRequest):
         "Higher means more of that quality."
     )
 
-    client = get_anthropic_client()
-    message = client.messages.create(
-        model=ANTHROPIC_MODEL,
-        max_tokens=256,
-        system=system,
-        messages=[{"role": "user", "content": req.text}],
-    )
-
-    raw = message.content[0].text
+    llm = get_llm_client()
+    raw = llm.complete(system=system, user=req.text, max_tokens=256)
     try:
         data = parse_llm_json(raw)
     except (json.JSONDecodeError, IndexError, KeyError):

@@ -8,16 +8,8 @@ from main import app, empathy_system_prompt, init_db, parse_llm_json
 
 
 # ---------------------------------------------------------------------------
-# Helper
+# Mock data
 # ---------------------------------------------------------------------------
-
-def _make_anthropic_response(content: str):
-    block = MagicMock()
-    block.text = content
-    msg = MagicMock()
-    msg.content = [block]
-    return msg
-
 
 MOCK_RESPOND_JSON = json.dumps({
     "suggestions": [
@@ -69,11 +61,9 @@ async def test_root(client):
 
 @pytest.mark.anyio
 async def test_respond_success(client):
-    with patch("main.get_anthropic_client") as mock_get:
+    with patch("main.get_llm_client") as mock_get:
         mock_client = MagicMock()
-        mock_client.messages.create.return_value = _make_anthropic_response(
-            MOCK_RESPOND_JSON
-        )
+        mock_client.complete.return_value = MOCK_RESPOND_JSON
         mock_get.return_value = mock_client
 
         resp = await client.post("/respond", json={
@@ -92,11 +82,9 @@ async def test_respond_success(client):
 
 @pytest.mark.anyio
 async def test_respond_slider_assertive(client):
-    with patch("main.get_anthropic_client") as mock_get:
+    with patch("main.get_llm_client") as mock_get:
         mock_client = MagicMock()
-        mock_client.messages.create.return_value = _make_anthropic_response(
-            MOCK_RESPOND_JSON
-        )
+        mock_client.complete.return_value = MOCK_RESPOND_JSON
         mock_get.return_value = mock_client
 
         resp = await client.post("/respond", json={
@@ -106,18 +94,15 @@ async def test_respond_slider_assertive(client):
         })
 
     assert resp.status_code == 200
-    # Verify the system prompt used assertive language
-    call_kwargs = mock_client.messages.create.call_args
+    call_kwargs = mock_client.complete.call_args
     assert "assertive" in call_kwargs.kwargs["system"].lower()
 
 
 @pytest.mark.anyio
 async def test_respond_slider_full_empathy(client):
-    with patch("main.get_anthropic_client") as mock_get:
+    with patch("main.get_llm_client") as mock_get:
         mock_client = MagicMock()
-        mock_client.messages.create.return_value = _make_anthropic_response(
-            MOCK_RESPOND_JSON
-        )
+        mock_client.complete.return_value = MOCK_RESPOND_JSON
         mock_get.return_value = mock_client
 
         resp = await client.post("/respond", json={
@@ -127,7 +112,7 @@ async def test_respond_slider_full_empathy(client):
         })
 
     assert resp.status_code == 200
-    call_kwargs = mock_client.messages.create.call_args
+    call_kwargs = mock_client.complete.call_args
     assert "fully empathetic" in call_kwargs.kwargs["system"].lower()
 
 
@@ -152,11 +137,9 @@ async def test_respond_missing_field(client):
 
 @pytest.mark.anyio
 async def test_respond_bad_llm_json(client):
-    with patch("main.get_anthropic_client") as mock_get:
+    with patch("main.get_llm_client") as mock_get:
         mock_client = MagicMock()
-        mock_client.messages.create.return_value = _make_anthropic_response(
-            "This is not JSON at all"
-        )
+        mock_client.complete.return_value = "This is not JSON at all"
         mock_get.return_value = mock_client
 
         resp = await client.post("/respond", json={
@@ -174,11 +157,9 @@ async def test_respond_bad_llm_json(client):
 
 @pytest.mark.anyio
 async def test_score_success(client):
-    with patch("main.get_anthropic_client") as mock_get:
+    with patch("main.get_llm_client") as mock_get:
         mock_client = MagicMock()
-        mock_client.messages.create.return_value = _make_anthropic_response(
-            MOCK_SCORE_JSON
-        )
+        mock_client.complete.return_value = MOCK_SCORE_JSON
         mock_get.return_value = mock_client
 
         resp = await client.post("/score", json={
@@ -196,11 +177,9 @@ async def test_score_success(client):
 
 @pytest.mark.anyio
 async def test_score_bad_llm_json(client):
-    with patch("main.get_anthropic_client") as mock_get:
+    with patch("main.get_llm_client") as mock_get:
         mock_client = MagicMock()
-        mock_client.messages.create.return_value = _make_anthropic_response(
-            "not json!"
-        )
+        mock_client.complete.return_value = "not json!"
         mock_get.return_value = mock_client
 
         resp = await client.post("/score", json={"text": "Hello"})

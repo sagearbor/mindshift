@@ -14,15 +14,6 @@ _tmp.close()
 from main import app  # noqa: E402 — must set env before import
 
 
-def _make_anthropic_response(content: str):
-    """Build a mock Anthropic message response."""
-    block = MagicMock()
-    block.text = content
-    msg = MagicMock()
-    msg.content = [block]
-    return msg
-
-
 MOCK_RESPOND_JSON = json.dumps({
     "suggestions": [
         "I hear what you're saying.",
@@ -48,28 +39,23 @@ MOCK_SCORE_JSON = json.dumps({
 
 
 @pytest.fixture
-def mock_anthropic():
-    """Patch the Anthropic client so no real API calls are made."""
-    with patch("main.get_anthropic_client") as mock_get:
-        client = MagicMock()
-        mock_get.return_value = client
-        yield client
+def mock_llm():
+    """Patch the LLMClient so no real API calls are made."""
+    mock_client = MagicMock()
+    with patch("main.get_llm_client", return_value=mock_client):
+        yield mock_client
 
 
 @pytest.fixture
-def mock_respond(mock_anthropic):
-    mock_anthropic.messages.create.return_value = _make_anthropic_response(
-        MOCK_RESPOND_JSON
-    )
-    return mock_anthropic
+def mock_respond(mock_llm):
+    mock_llm.complete.return_value = MOCK_RESPOND_JSON
+    return mock_llm
 
 
 @pytest.fixture
-def mock_score(mock_anthropic):
-    mock_anthropic.messages.create.return_value = _make_anthropic_response(
-        MOCK_SCORE_JSON
-    )
-    return mock_anthropic
+def mock_score(mock_llm):
+    mock_llm.complete.return_value = MOCK_SCORE_JSON
+    return mock_llm
 
 
 @pytest.fixture
