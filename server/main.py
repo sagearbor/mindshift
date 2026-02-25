@@ -1,3 +1,4 @@
+import hashlib
 import io
 import os
 import json
@@ -5,12 +6,14 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Optional
 
 import aiosqlite
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query, WebSocket
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
+from audio_pipeline import audio_ws_endpoint
 from llm_client import LLMClient
 
 DB_PATH = os.getenv("MINDSHIFT_DB_PATH", "mindshift.db")
@@ -74,6 +77,32 @@ class TurnResponse(BaseModel):
     turn: dict
 
 
+class AuthSessionCreate(BaseModel):
+    therapist_id: str
+    patient_id: str
+    role_pair: str = "Husband/Wife"
+
+
+class AuthSessionOut(BaseModel):
+    session_token: str
+    therapist_id: str
+    patient_id: str
+    role_pair: str
+    created_at: str
+
+
+class PatientSummary(BaseModel):
+    patient_id: str
+    session_count: int
+
+
+class PatientSessionOut(BaseModel):
+    id: str
+    created_at: str
+    turn_count: int
+    metadata: dict
+
+
 # ---------------------------------------------------------------------------
 # Database helpers
 # ---------------------------------------------------------------------------
@@ -93,7 +122,20 @@ async def init_db() -> None:
                 id TEXT PRIMARY KEY,
                 created_at TEXT NOT NULL,
                 turns TEXT NOT NULL,
-                metadata TEXT NOT NULL
+                metadata TEXT NOT NULL,
+                therapist_id TEXT,
+                patient_id TEXT
+            )
+            """
+        )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS auth_sessions (
+                session_token TEXT PRIMARY KEY,
+                therapist_id TEXT NOT NULL,
+                patient_id TEXT NOT NULL,
+                role_pair TEXT NOT NULL,
+                created_at TEXT NOT NULL
             )
             """
         )
@@ -110,6 +152,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="MindShift API", lifespan=lifespan)
+
+
+# ---------------------------------------------------------------------------
+# WebSocket — real-time audio pipeline (M2)
+# ---------------------------------------------------------------------------
+
+@app.websocket("/ws/session/{session_id}")
+async def ws_session(websocket: WebSocket, session_id: str):
+    await audio_ws_endpoint(websocket, session_id)
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +232,24 @@ def read_root():
     return {"message": "MindShift API"}
 
 
+async def _resolve_session_token(token: str | None) -> dict | None:
+    """Look up an auth session by token. Returns dict or None."""
+    if not token:
+        return None
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT therapist_id, patient_id, role_pair FROM auth_sessions WHERE session_token = ?",
+            (token,),
+        )
+        row = await cursor.fetchone()
+    finally:
+        await db.close()
+    if row is None:
+        return None
+    return {"therapist_id": row["therapist_id"], "patient_id": row["patient_id"], "role_pair": row["role_pair"]}
+
+
 @app.post("/respond", response_model=RespondResponse)
 async def respond(req: RespondRequest):
     system = empathy_system_prompt(req.empathy_slider, req.role)
@@ -226,15 +295,24 @@ async def score(req: ScoreRequest):
 
 
 @app.post("/session", response_model=SessionOut, status_code=201)
-async def create_session(req: SessionCreate):
+async def create_session(
+    req: SessionCreate,
+    x_session_token: Optional[str] = Header(None),
+):
     session_id = str(uuid.uuid4())
     created_at = datetime.now(timezone.utc).isoformat()
+
+    auth = await _resolve_session_token(x_session_token)
+    therapist_id = auth["therapist_id"] if auth else None
+    patient_id = auth["patient_id"] if auth else None
 
     db = await get_db()
     try:
         await db.execute(
-            "INSERT INTO sessions (id, created_at, turns, metadata) VALUES (?, ?, ?, ?)",
-            (session_id, created_at, json.dumps(req.turns), json.dumps(req.metadata)),
+            "INSERT INTO sessions (id, created_at, turns, metadata, therapist_id, patient_id) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (session_id, created_at, json.dumps(req.turns), json.dumps(req.metadata),
+             therapist_id, patient_id),
         )
         await db.commit()
     finally:
@@ -495,3 +573,80 @@ async def export_session(
         media_type="text/plain",
         headers={"Content-Disposition": f"attachment; filename=session_{session_id}.txt"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Auth endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/auth/session", response_model=AuthSessionOut, status_code=201)
+async def create_auth_session(req: AuthSessionCreate):
+    token = hashlib.sha256(
+        f"{req.therapist_id}:{req.patient_id}:{uuid.uuid4()}".encode()
+    ).hexdigest()
+    created_at = datetime.now(timezone.utc).isoformat()
+
+    db = await get_db()
+    try:
+        await db.execute(
+            "INSERT INTO auth_sessions (session_token, therapist_id, patient_id, role_pair, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (token, req.therapist_id, req.patient_id, req.role_pair, created_at),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+    return AuthSessionOut(
+        session_token=token,
+        therapist_id=req.therapist_id,
+        patient_id=req.patient_id,
+        role_pair=req.role_pair,
+        created_at=created_at,
+    )
+
+
+@app.get("/therapist/{therapist_id}/patients", response_model=list[PatientSummary])
+async def list_patients(therapist_id: str):
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT patient_id, COUNT(*) as session_count FROM sessions "
+            "WHERE therapist_id = ? GROUP BY patient_id",
+            (therapist_id,),
+        )
+        rows = await cursor.fetchall()
+    finally:
+        await db.close()
+
+    return [
+        PatientSummary(patient_id=row["patient_id"], session_count=row["session_count"])
+        for row in rows
+    ]
+
+
+@app.get(
+    "/therapist/{therapist_id}/patient/{patient_id}/sessions",
+    response_model=list[PatientSessionOut],
+)
+async def list_patient_sessions(therapist_id: str, patient_id: str):
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT id, created_at, turns, metadata FROM sessions "
+            "WHERE therapist_id = ? AND patient_id = ? ORDER BY created_at DESC",
+            (therapist_id, patient_id),
+        )
+        rows = await cursor.fetchall()
+    finally:
+        await db.close()
+
+    return [
+        PatientSessionOut(
+            id=row["id"],
+            created_at=row["created_at"],
+            turn_count=len(json.loads(row["turns"])),
+            metadata=json.loads(row["metadata"]),
+        )
+        for row in rows
+    ]
