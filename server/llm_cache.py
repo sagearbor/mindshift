@@ -1,14 +1,14 @@
-"""LLM Response Cache framework.
+"""On-disk LLM response cache.
 
 Caches LLM API responses to avoid re-spending API credits on unchanged inputs.
-Cache key = SHA-256(model + system_prompt + user_prompt).
-Stores responses as JSON in tests/fixtures/llm_cache/{key}.json.
+Cache key = SHA-256(model + system_prompt + user_prompt). Responses are stored
+as JSON under ``tests/fixtures/llm_cache/{key}.json``.
 
 Usage:
     cache = LLMResponseCache(llm_client)
     result = cache.complete(system="...", user="...", max_tokens=256)
 
-Set REFRESH_LLM_CACHE=1 to force re-run even on cache hit.
+Set ``REFRESH_LLM_CACHE=1`` to force a real call even on a cache hit.
 """
 
 import hashlib
@@ -16,11 +16,12 @@ import json
 import os
 from pathlib import Path
 
+# Default cache location: <repo-root>/tests/fixtures/llm_cache
 CACHE_DIR = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "llm_cache"
 
 
 class LLMResponseCache:
-    """Wraps an LLMClient to cache responses on disk."""
+    """Wraps an LLMClient to cache its responses on disk."""
 
     def __init__(self, llm_client, cache_dir: Path | None = None):
         self._client = llm_client
@@ -44,17 +45,17 @@ class LLMResponseCache:
         temperature: float = 0.7,
         max_tokens: int = 512,
     ) -> str:
-        """Return cached response or call real LLM and cache the result."""
+        """Return a cached response, or call the real LLM and cache the result."""
         model = self._client.model
         key = self._cache_key(model, system, user)
         path = self._cache_path(key)
 
-        # Cache hit (and not refreshing)
+        # Cache hit (and not forcing a refresh).
         if path.exists() and not self._refresh:
             data = json.loads(path.read_text())
             return data["response"]
 
-        # Cache miss or forced refresh — call real LLM
+        # Cache miss or forced refresh — call the real LLM.
         response = self._client.complete(
             system=system,
             user=user,
@@ -62,12 +63,8 @@ class LLMResponseCache:
             max_tokens=max_tokens,
         )
 
-        # Store in cache
-        data = {
-            "model": model,
-            "system": system,
-            "user": user,
-            "response": response,
-        }
-        path.write_text(json.dumps(data, indent=2))
+        path.write_text(json.dumps(
+            {"model": model, "system": system, "user": user, "response": response},
+            indent=2,
+        ))
         return response

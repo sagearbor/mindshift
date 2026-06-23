@@ -22,7 +22,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "server"))
 
 from llm_client import LLMClient  # noqa: E402
-from test_cache import LLMResponseCache  # noqa: E402
+from llm_cache import LLMResponseCache  # noqa: E402
 
 HAS_API_KEY = bool(os.environ.get("ANTHROPIC_API_KEY"))
 
