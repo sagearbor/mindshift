@@ -1,0 +1,16 @@
+{
+  "name": "mindshift",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MindShift — AI empathy coach (Expo RN+Web frontend + FastAPI backend)",
+  "workspaces": [
+    "apps/mobile"
+  ],
+  "scripts": {
+    "dev:mobile": "npm run --workspace mindshift-mobile start",
+    "dev:web": "npm run --workspace mindshift-mobile web",
+    "dev:ios": "npm run --workspace mindshift-mobile ios",
+    "dev:android": "npm run --workspace mindshift-mobile android",
+    "test": "npm run --workspace mindshift-mobile test"
+  }
+}

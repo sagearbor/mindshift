@@ -11,10 +11,14 @@ App that helps users see situations from multiple perspectives using AI-driven p
 - Jest (TypeScript) + Pytest (Python) — testing
 - Monorepo: `apps/`, `packages/`, `server/`, `tests/`
 
-## Status (last commits)
-- Initial setup merged into main via PR #1
-- Very early stage — base repo structure only
-- No significant feature work yet
+## Status (2026-06-23, branch sophieArborBot_m2-realtime)
+- M0–M1 done & tested: /respond, /score, /session CRUD + multi-turn, /session export (text+PDF),
+  multi-vendor LLMClient, on-disk LLM response cache, relationship graph model.
+- M2 in progress: WebSocket audio pipeline wired. Transcription (Deepgram) and TTS are
+  credential-gated — they report `transcription_unavailable` rather than fabricating data;
+  live integrations still to be built.
+- Frontend (apps/mobile): SessionScreen, LiveCoachScreen, TherapistDashboard, SessionDetail + components.
+- Active app is `apps/mobile`; `apps/web/` and `packages/*` are vestigial scaffold.
 
 ## How to Run
 ```bash
@@ -25,14 +29,15 @@ cd server && uvicorn main:app --reload  # backend
 ```
 
 ## Open Tasks
-- Core persona/role feature implementation
-- LLM API integration (real, not mock)
-- UI for situation input + role selection
-- See `developer_checklist.yaml`
+- Live Deepgram transcription + diarization (replace credential-gated stubs)
+- Earpiece TTS integration
+- Align `apps/mobile/src/hooks/useAudioStream.ts` with the server WebSocket protocol
+- Auth (deferred for now)
+- See PRD.md §9 milestones
 
 ## Branch
 - Main: `main`
-- Sophie working branch: `sophieArborBot_firstBranch`
+- Active working branch: `sophieArborBot_m2-realtime`
 
 ## Test Strategy
 ```bash
