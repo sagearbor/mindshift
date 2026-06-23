@@ -1,0 +1,9 @@
+[tool.pytest.ini_options]
+# Collect both the server unit tests and the top-level integration tests in a
+# single `pytest` run from the repo root.
+testpaths = ["server", "tests"]
+# importlib mode lets the two conftest.py files (server/ and tests/) coexist
+# without shadowing each other — the classic "import file mismatch" collision.
+addopts = "--import-mode=importlib"
+# Make `main` (server/) and `_mock_data` (tests/) importable by name from tests.
+pythonpath = ["server", "tests"]

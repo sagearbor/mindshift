@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from conftest import (
+from _mock_data import (
     MOCK_ASSERTIVE_JSON,
     MOCK_FULL_EMPATHY_JSON,
     MOCK_RESPOND_JSON,

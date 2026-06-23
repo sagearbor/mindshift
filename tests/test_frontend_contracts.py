@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from conftest import (
+from _mock_data import (
     MOCK_RESPOND_JSON,
     MOCK_SCORE_JSON,
     TONE_SCORE_KEYS,
