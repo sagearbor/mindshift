@@ -1,11 +1,23 @@
-"""M2 real-time audio pipeline — WebSocket endpoint with Deepgram, diarization, and TTS stubs."""
+"""M2 real-time audio pipeline — WebSocket endpoint with credential-gated
+transcription, diarization, and TTS.
+
+Design note (honesty over mock data)
+------------------------------------
+The speech providers below are credential-gated. When their API keys are not
+configured they report themselves *unavailable* and the pipeline says so
+explicitly over the WebSocket — it never fabricates transcripts or audio that
+could be mistaken for real output. The full transcribe → diarize → suggest →
+speak flow is exercised in tests by injecting test doubles via ``app.state``
+(see ``tests/test_audio_pipeline.py``); the live provider integrations remain
+to be implemented.
+"""
 
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -16,56 +28,66 @@ from models.audio import DiarizationConfig, SuggestionEvent, Utterance
 logger = logging.getLogger(__name__)
 
 
+class TranscriberUnavailable(RuntimeError):
+    """Raised when a transcription backend is not configured/available.
+
+    The pipeline catches this and reports ``transcription_unavailable`` to the
+    client rather than inventing a transcript.
+    """
+
+
 # ---------------------------------------------------------------------------
-# Deepgram transcriber stub
+# Deepgram transcriber (credential-gated)
 # ---------------------------------------------------------------------------
 
 class DeepgramTranscriber:
-    """Stub for Deepgram streaming transcription.
+    """Real-time transcription via Deepgram.
 
-    In production this would hold a Deepgram SDK client and stream audio
-    via their WebSocket API.  For now it accumulates chunks and returns
-    mock transcriptions.
+    Requires ``DEEPGRAM_API_KEY``. The live streaming integration is not yet
+    implemented; ``connect()`` reports precisely why it is unavailable so the
+    project's true state is never hidden behind fabricated transcripts.
     """
 
     def __init__(self) -> None:
         self._connected = False
-        self._chunks: list[bytes] = []
 
     async def connect(self) -> None:
-        self._connected = True
-        logger.info("DeepgramTranscriber connected (stub)")
+        api_key = os.getenv("DEEPGRAM_API_KEY", "").strip()
+        if not api_key:
+            raise TranscriberUnavailable(
+                "DEEPGRAM_API_KEY not set — real-time transcription is disabled"
+            )
+        # A key is present but the live Deepgram streaming bridge is not built
+        # yet. Be honest rather than returning placeholder text.
+        raise TranscriberUnavailable(
+            "Deepgram live transcription is not yet implemented "
+            "(API key detected, streaming integration pending)"
+        )
 
     @property
     def is_connected(self) -> bool:
         return self._connected
 
     async def stream(self, audio_bytes: bytes) -> str | None:
-        """Feed audio bytes; returns a transcription when an utterance is complete.
-
-        Stub logic: every chunk produces a mock transcription so tests can
-        exercise the full pipeline.  A real implementation would buffer and
-        return ``None`` until Deepgram signals an utterance boundary.
-        """
         if not self._connected:
-            raise RuntimeError("Transcriber not connected")
-        self._chunks.append(audio_bytes)
-        return f"Mock transcription for chunk {len(self._chunks)}"
+            raise TranscriberUnavailable("Transcriber not connected")
+        raise TranscriberUnavailable("Deepgram live transcription is not yet implemented")
 
     async def close(self) -> None:
         self._connected = False
-        self._chunks.clear()
-        logger.info("DeepgramTranscriber closed (stub)")
 
 
 # ---------------------------------------------------------------------------
-# Speaker diarization stub
+# Speaker diarization (alternation heuristic)
 # ---------------------------------------------------------------------------
 
 class SpeakerDiarizer:
-    """Assigns speaker labels based on simple alternation / silence heuristic.
+    """Assigns speaker labels by alternating across configured labels.
 
-    Stub: alternates between configured labels on each utterance.
+    This is an explicit placeholder heuristic, not acoustic diarization: it
+    rotates through ``config.labels`` on each utterance. Real speaker
+    separation (e.g. from Deepgram diarization or an embedding model) will
+    replace this once transcription is wired to a live backend.
     """
 
     def __init__(self, config: DiarizationConfig | None = None) -> None:
@@ -82,21 +104,26 @@ class SpeakerDiarizer:
 
 
 # ---------------------------------------------------------------------------
-# TTS stub
+# Text-to-speech (credential-gated)
 # ---------------------------------------------------------------------------
 
 class TTSClient:
-    """Stub for text-to-speech synthesis (earpiece output).
+    """Text-to-speech for earpiece output.
 
-    In production this would call a TTS API (e.g. ElevenLabs, Google TTS)
-    and return real audio bytes.  The stub returns a base64-encoded
-    placeholder.
+    Requires a TTS provider key (``TTS_API_KEY`` or ``ELEVENLABS_API_KEY``).
+    When unconfigured, ``synthesize`` returns ``None`` (no audio) rather than
+    fabricating placeholder bytes — the suggestion still flows as on-screen text.
     """
 
-    async def synthesize(self, text: str) -> str:
-        """Return base64-encoded mock audio for *text*."""
-        mock_audio = f"[TTS audio: {text}]".encode()
-        return base64.b64encode(mock_audio).decode()
+    async def synthesize(self, text: str) -> str | None:
+        """Return base64-encoded audio for *text*, or ``None`` if TTS is unavailable."""
+        api_key = os.getenv("TTS_API_KEY") or os.getenv("ELEVENLABS_API_KEY")
+        if not api_key:
+            logger.info("TTS unavailable (no TTS key) — returning no audio")
+            return None
+        # Live TTS synthesis is not yet implemented; do not fabricate audio.
+        logger.info("TTS key detected but synthesis integration is not yet implemented")
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -129,14 +156,31 @@ async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
 
     # Per-connection state
     ctx = SessionContext(session_id=session_id)
-    transcriber = DeepgramTranscriber()
-    diarizer = SpeakerDiarizer()
-    tts = TTSClient()
 
-    # Resolve LLM client from app state
-    llm_client: LLMClient = websocket.app.state.llm_client
+    # Resolve providers from app.state (tests inject doubles here), falling
+    # back to the real, credential-gated implementations.
+    state = websocket.app.state
+    transcriber_factory = getattr(state, "transcriber_factory", None) or DeepgramTranscriber
+    diarizer_factory = getattr(state, "diarizer_factory", None) or SpeakerDiarizer
+    tts = getattr(state, "tts_client", None) or TTSClient()
+    llm_client: LLMClient = state.llm_client
 
-    await transcriber.connect()
+    transcriber = transcriber_factory()
+    diarizer = diarizer_factory()
+
+    # Connect transcription; if unavailable, tell the client plainly instead of
+    # fabricating transcripts.
+    transcription_available = True
+    unavailable_reason = ""
+    try:
+        await transcriber.connect()
+    except TranscriberUnavailable as exc:
+        transcription_available = False
+        unavailable_reason = str(exc)
+        await websocket.send_text(json.dumps(
+            {"type": "transcription_unavailable", "reason": unavailable_reason}
+        ))
+        logger.info("Transcription unavailable for session %s: %s", session_id, unavailable_reason)
 
     try:
         while True:
@@ -152,7 +196,21 @@ async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                 if len(audio_bytes) == 0:
                     continue
 
-                transcript = await transcriber.stream(audio_bytes)
+                if not transcription_available:
+                    await websocket.send_text(json.dumps(
+                        {"type": "transcription_unavailable", "reason": unavailable_reason}
+                    ))
+                    continue
+
+                try:
+                    transcript = await transcriber.stream(audio_bytes)
+                except TranscriberUnavailable as exc:
+                    transcription_available = False
+                    unavailable_reason = str(exc)
+                    await websocket.send_text(json.dumps(
+                        {"type": "transcription_unavailable", "reason": unavailable_reason}
+                    ))
+                    continue
                 if transcript is None:
                     continue
 
