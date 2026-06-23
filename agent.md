@@ -9,7 +9,7 @@ App that helps users see situations from multiple perspectives using AI-driven p
 - Zustand — state management
 - Tailwind + shadcn/ui — UI
 - Jest (TypeScript) + Pytest (Python) — testing
-- Monorepo: `apps/`, `packages/`, `server/`, `tests/`
+- Layout: `apps/mobile/` (active app), `server/`, `tests/`
 
 ## Status (2026-06-23, branch sophieArborBot_m2-realtime)
 - M0–M1 done & tested: /respond, /score, /session CRUD + multi-turn, /session export (text+PDF),
@@ -18,7 +18,7 @@ App that helps users see situations from multiple perspectives using AI-driven p
   credential-gated — they report `transcription_unavailable` rather than fabricating data;
   live integrations still to be built.
 - Frontend (apps/mobile): SessionScreen, LiveCoachScreen, TherapistDashboard, SessionDetail + components.
-- Active app is `apps/mobile`; `apps/web/` and `packages/*` are vestigial scaffold.
+- Active app is `apps/mobile`; the old `apps/web/` + `packages/*` scaffold was removed.
 
 ## How to Run
 ```bash

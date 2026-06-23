@@ -1,1 +1,0 @@
-export function mockResponse(role: string, text: string) { return `${role}: ${text}`; }

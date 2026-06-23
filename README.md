@@ -8,7 +8,7 @@ MindShift is an AI-powered empathy coach that helps people understand how their 
 - **Backend:** FastAPI (Python) + SQLite, with a model-agnostic `LLMClient` (Claude/OpenAI/Gemini/Mistral).
 - **Tests:** Pytest (backend), Jest via jest-expo (frontend).
 
-> Note: `apps/web/` and `packages/*` are leftover scaffold from the initial setup and are not wired into the active app. Treat `apps/mobile/src` and `server/` as the source of truth.
+The source of truth is `apps/mobile/src` (frontend) and `server/` (backend).
 
 ## 🚀 Quickstart
 
