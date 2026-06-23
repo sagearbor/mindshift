@@ -26,6 +26,8 @@ interface UseAudioStreamReturn {
   suggestions: SuggestionEntry[];
   speakerLabel: string;
   connectionStatus: ConnectionStatus;
+  transcriptionAvailable: boolean;
+  transcriptionMessage: string;
   startSession: (sessionId: string, empathyLevel: number) => Promise<void>;
   stopSession: () => Promise<void>;
   sendEmpathyUpdate: (level: number) => void;
@@ -34,6 +36,18 @@ interface UseAudioStreamReturn {
 const RECONNECT_DELAY_MS = 2000;
 const MAX_RECONNECT_ATTEMPTS = 5;
 
+/**
+ * Maps the empathy slider to the coaching stance label shown on each
+ * suggestion. This describes how the suggestion was generated — it is not a
+ * claim about detected tone (the server's suggestion event carries no tone).
+ */
+function empathyTone(slider: number): string {
+  if (slider <= 20) return "assertive";
+  if (slider <= 50) return "balanced";
+  if (slider <= 80) return "empathetic";
+  return "validating";
+}
+
 export function useAudioStream(): UseAudioStreamReturn {
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
@@ -41,6 +55,8 @@ export function useAudioStream(): UseAudioStreamReturn {
   const [speakerLabel, setSpeakerLabel] = useState("");
   const [connectionStatus, setConnectionStatus] =
     useState<ConnectionStatus>("idle");
+  const [transcriptionAvailable, setTranscriptionAvailable] = useState(true);
+  const [transcriptionMessage, setTranscriptionMessage] = useState("");
 
   const wsRef = useRef<WebSocket | null>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
@@ -75,7 +91,7 @@ export function useAudioStream(): UseAudioStreamReturn {
 
   const connectWebSocket = useCallback(
     (sessionId: string, empathyLevel: number) => {
-      const url = `${WS_BASE}/ws/session/${sessionId}?empathy=${empathyLevel}`;
+      const url = `${WS_BASE}/ws/session/${sessionId}`;
       setConnectionStatus("connecting");
 
       const ws = new WebSocket(url);
@@ -84,27 +100,48 @@ export function useAudioStream(): UseAudioStreamReturn {
       ws.onopen = () => {
         setConnectionStatus("live");
         reconnectAttempts.current = 0;
+        // The server learns the empathy setting (and role) via a config
+        // message — there is no query-param channel.
+        ws.send(
+          JSON.stringify({
+            type: "config",
+            empathy_slider: empathyRef.current,
+          }),
+        );
       };
 
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
 
-          if (data.type === "transcript") {
-            const entry: TranscriptEntry = {
-              speaker: data.speaker || "Unknown",
-              text: data.text || "",
-              timestamp: data.timestamp || Date.now(),
-            };
-            setSpeakerLabel(entry.speaker);
-            setTranscript((prev) => [...prev, entry]);
-          } else if (data.type === "suggestion") {
-            const suggestion: SuggestionEntry = {
-              text: data.text || "",
-              tone: data.tone || "neutral",
-            };
-            setSuggestions((prev) => [...prev, suggestion]);
+          if (data.type === "suggestion") {
+            // The server bundles the transcribed utterance and its coaching
+            // suggestions in one event (see server SuggestionEvent).
+            const speaker = data.speaker || "Unknown";
+            setSpeakerLabel(speaker);
+            if (data.utterance_text) {
+              setTranscript((prev) => [
+                ...prev,
+                { speaker, text: data.utterance_text, timestamp: Date.now() },
+              ]);
+            }
+            const tone = empathyTone(
+              typeof data.empathy_slider === "number"
+                ? data.empathy_slider
+                : empathyRef.current,
+            );
+            const items: string[] = Array.isArray(data.suggestions)
+              ? data.suggestions
+              : [];
+            if (items.length > 0) {
+              setSuggestions(items.map((text) => ({ text, tone })));
+            }
+          } else if (data.type === "transcription_unavailable") {
+            // Be explicit instead of silently showing an empty live screen.
+            setTranscriptionAvailable(false);
+            setTranscriptionMessage(data.reason || "Transcription unavailable");
           }
+          // config_ack and other control frames need no UI action.
         } catch {
           // Ignore malformed messages
         }
@@ -148,22 +185,12 @@ export function useAudioStream(): UseAudioStreamReturn {
       Audio.RecordingOptionsPresets.HIGH_QUALITY,
     );
 
-    recording.setOnRecordingStatusUpdate((status) => {
-      if (
-        status.isRecording &&
-        status.durationMillis > 0 &&
-        wsRef.current?.readyState === WebSocket.OPEN
-      ) {
-        // In a production implementation, we'd read audio chunks from
-        // the recording buffer and send them over WebSocket. Expo-av
-        // doesn't expose raw PCM streaming directly, so the backend
-        // would use the recording URI or a chunked upload approach.
-        // For now, we signal the backend that audio is being captured.
-        wsRef.current.send(
-          JSON.stringify({ type: "audio_status", recording: true }),
-        );
-      }
-    });
+    // NOTE: streaming raw audio chunks to the server is not yet wired up.
+    // expo-av doesn't expose raw PCM streaming directly, so this needs a
+    // chunked-upload or native-module approach. We intentionally do NOT send
+    // a placeholder message here — the server only understands binary audio
+    // and `config`, and would reject anything else. Until real chunk
+    // streaming lands, the server reports `transcription_unavailable`.
 
     await recording.startAsync();
     recordingRef.current = recording;
@@ -180,6 +207,8 @@ export function useAudioStream(): UseAudioStreamReturn {
       setTranscript([]);
       setSuggestions([]);
       setSpeakerLabel("");
+      setTranscriptionAvailable(true);
+      setTranscriptionMessage("");
 
       connectWebSocket(sessionId, empathyLevel);
 
@@ -197,8 +226,10 @@ export function useAudioStream(): UseAudioStreamReturn {
   const sendEmpathyUpdate = useCallback((level: number) => {
     empathyRef.current = level;
     if (wsRef.current?.readyState === WebSocket.OPEN) {
+      // Empathy changes go through the same `config` channel the server
+      // understands (it rejects unknown message types).
       wsRef.current.send(
-        JSON.stringify({ type: "empathy_update", level }),
+        JSON.stringify({ type: "config", empathy_slider: level }),
       );
     }
   }, []);
@@ -209,6 +240,8 @@ export function useAudioStream(): UseAudioStreamReturn {
     suggestions,
     speakerLabel,
     connectionStatus,
+    transcriptionAvailable,
+    transcriptionMessage,
     startSession,
     stopSession,
     sendEmpathyUpdate,

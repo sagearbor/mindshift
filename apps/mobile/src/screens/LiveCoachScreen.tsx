@@ -25,6 +25,7 @@ export default function LiveCoachScreen() {
     transcript,
     suggestions,
     connectionStatus,
+    transcriptionMessage,
     startSession,
     stopSession,
     sendEmpathyUpdate,
@@ -69,6 +70,15 @@ export default function LiveCoachScreen() {
           </Text>
         </View>
       </View>
+
+      {/* Transcription availability banner */}
+      {transcriptionMessage ? (
+        <View style={styles.banner} testID="transcription-banner">
+          <Text style={styles.bannerText}>
+            Transcription unavailable: {transcriptionMessage}
+          </Text>
+        </View>
+      ) : null}
 
       {/* Coach mode toggle */}
       <View style={styles.modeRow}>
@@ -181,6 +191,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     textTransform: "capitalize",
+  },
+  banner: {
+    backgroundColor: "#FEF3C7",
+    borderLeftWidth: 4,
+    borderLeftColor: "#F59E0B",
+    marginHorizontal: 16,
+    marginBottom: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  bannerText: {
+    fontSize: 13,
+    color: "#92400E",
   },
   modeRow: {
     flexDirection: "row",
