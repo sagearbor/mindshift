@@ -57,10 +57,14 @@ OPENAI_API_KEY=sk-your-key-here
 
 ---
 
-## 3. Deepgram API Key (for real-time earpiece transcription — V2)
+## 3. Deepgram API Key (live transcription + Aura TTS — already integrated ✅)
+
+This one key powers BOTH real-time features in `server/audio_pipeline.py`:
+- **Live streaming STT** — `nova-3` over Deepgram's raw v1 WebSocket protocol, with diarization, real timestamps, and interim results
+- **Earpiece TTS** — Deepgram Aura (`aura-2-thalia-en`), returned as base64 mp3 in suggestion events
 
 **Why Deepgram over Whisper for live mode:**
-Whisper has ~2–5s latency. Deepgram Nova-2 is <300ms. For earpiece coaching, you need Deepgram.
+Whisper has ~2–5s latency. Deepgram Nova is <300ms. For earpiece coaching, you need Deepgram.
 
 **Get it:**
 1. Go to https://console.deepgram.com → **Create API Key**
@@ -71,11 +75,15 @@ Whisper has ~2–5s latency. Deepgram Nova-2 is <300ms. For earpiece coaching, y
 DEEPGRAM_API_KEY=your-key-here
 ```
 
-**Model:**
-```
-nova-2-general   # Best accuracy + speed balance
-nova-2-conversational  # Better for natural dialogue
-```
+**Without the key (honest behavior):** the server still runs; live sessions get a
+`transcription_unavailable` message instead of fabricated transcripts, and no TTS
+audio is sent. Any Deepgram failure (bad key, network, mid-session death) takes the
+same honest path.
+
+**Tests:** the full pytest suite passes with NO keys — `server/tests/test_deepgram_live.py`
+runs against a local fake Deepgram server. It also includes an optional live smoke test
+that automatically runs against the real API when `DEEPGRAM_API_KEY` is set (and
+auto-skips otherwise).
 
 ---
 

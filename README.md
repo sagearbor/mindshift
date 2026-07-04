@@ -4,7 +4,7 @@ MindShift is an AI-powered empathy coach that helps people understand how their 
 
 ## 🧩 Architecture
 
-- **Frontend:** Expo (React Native + Web) — the active app is **`apps/mobile`** (it serves iOS, Android, and Web). Zustand for state.
+- **Frontend:** Expo SDK 57 (React Native + Web) — the active app is **`apps/mobile`** (it serves iOS, Android, and Web). Zustand for state. Live mic streaming works on iOS/Android (including Expo Go) via `expo-audio`; web mic capture is not yet available (the UI shows an error banner rather than pretending).
 - **Backend:** FastAPI (Python) + SQLite, with a model-agnostic `LLMClient` (Claude/OpenAI/Gemini/Mistral).
 - **Tests:** Pytest (backend), Jest via jest-expo (frontend).
 
@@ -26,10 +26,11 @@ MINDSHIFT_MODEL=claude-3-haiku-20240307   # default LLM (see PRD §12 for provid
 ANTHROPIC_API_KEY=...                      # required for real LLM calls (tests mock it)
 MINDSHIFT_DB_PATH=mindshift.db             # SQLite path
 
-# Optional — real-time audio (M2). Without these, the WebSocket pipeline
-# reports `transcription_unavailable` instead of fabricating transcripts.
-DEEPGRAM_API_KEY=...                       # real-time transcription (integration pending)
-TTS_API_KEY=... | ELEVENLABS_API_KEY=...   # earpiece TTS (integration pending)
+# Optional — real-time audio (M2/M3). Without DEEPGRAM_API_KEY the app still
+# runs; the WebSocket pipeline reports `transcription_unavailable` instead of
+# fabricating transcripts.
+DEEPGRAM_API_KEY=...                       # live streaming STT (nova-3, diarized) + Aura TTS
+TTS_API_KEY=... | ELEVENLABS_API_KEY=...   # recognized but not yet implemented
 ```
 
 ### Frontend (Expo)

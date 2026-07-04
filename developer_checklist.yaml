@@ -1,23 +1,39 @@
-# developer_checklist.yaml
+# developer_checklist.yaml — quick orientation checklist, maintained to reflect ACTUAL state (not aspirations)
 
-frontend:
-  - [ ] Build role selector
-  - [ ] Implement empathy slider
-  - [ ] Display role avatars with blend visualization
+m0_text_mvp: # complete
+  - "[x] Role selector + empathy slider"
+  - "[x] /respond endpoint via multi-vendor LLMClient (Claude/OpenAI/Gemini/Mistral)"
+  - "[x] On-disk LLM response cache"
 
-backend:
-  - [ ] Mock LLM response generator
-  - [ ] Blend roles with weighted prompts
-  - [ ] Add FastAPI endpoints `/respond`
+m1_tone_and_sessions: # complete
+  - "[x] /score tone scoring from text"
+  - "[x] Session CRUD + multi-turn + export (text/PDF)"
 
-infra:
-  - [ ] Setup CI (lint, test)
-  - [ ] Add environment config handling
+m2_realtime: # complete
+  - "[x] WebSocket audio pipeline /ws/session/{id} (binary frames: raw PCM int16 LE, 16 kHz mono, ~100 ms)"
+  - "[x] Live Deepgram streaming STT (nova-3, raw v1 WS protocol via websockets, diarization, real timestamps)"
+  - "[x] Honest credential gating — no key or any Deepgram failure => transcription_unavailable, nothing fabricated"
+  - "[x] Mobile live mic streaming on iOS/Android (Expo SDK 57, expo-audio, works in Expo Go)"
+  - "[x] Reconnect handling (mic permission before WS opens; <=5 s audio buffered across reconnects)"
+  - "[x] Tests pass with NO API keys (local fake Deepgram server; live smoke test auto-skips without a key)"
 
-qa:
-  - [ ] Unit tests for blend logic
-  - [ ] Snapshot tests for UI
+m3_earpiece_tts: # partial
+  - "[x] Server-side TTS synthesis (Deepgram Aura aura-2-thalia-en, base64 mp3 in suggestion events)"
+  - "[ ] Suggestion audio playback in the mobile app"
 
-milestones:
-  - milestone1: Role-based chat with static roles
-  - milestone2: Slider-based empathy blending
+m4_audio_tone:
+  - "[ ] Audio tone detection + pleasantness scoring"
+
+m5_efficacy:
+  - "[x] Therapist dashboard screens"
+  - "[ ] Efficacy data collection"
+
+m6_extras:
+  - "[ ] Smartwatch haptics"
+  - "[ ] Per-person memory"
+
+known_gaps:
+  - "[ ] Web mic capture (expo-audio 57 has no web recording backend — UI shows an honest error banner)"
+  - "[ ] Deepgram auto-reconnect mid-session (dead socket surfaces transcription_unavailable)"
+  - "[ ] TTS_API_KEY / ELEVENLABS_API_KEY recognized but unimplemented"
+  - "[ ] Auth (explicitly deferred)"
