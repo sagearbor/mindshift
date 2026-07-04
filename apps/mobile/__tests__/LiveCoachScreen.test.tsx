@@ -11,10 +11,14 @@ import LiveCoachScreen from "../src/screens/LiveCoachScreen";
 
 const defaultHookState = {
   isRecording: false,
+  sessionActive: false,
   transcript: [],
   suggestions: [],
   speakerLabel: "",
   connectionStatus: "idle" as const,
+  transcriptionAvailable: true,
+  transcriptionMessage: "",
+  micError: "",
   startSession: jest.fn(),
   stopSession: jest.fn(),
   sendEmpathyUpdate: jest.fn(),
@@ -26,17 +30,18 @@ beforeEach(() => {
 
 describe("LiveCoachScreen", () => {
   it("renders initial idle state", () => {
-    let tree: renderer.ReactTestRendererJSON | null = null;
+    let component: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer.create(<LiveCoachScreen />).toJSON();
+      component = renderer.create(<LiveCoachScreen />);
     });
-    expect(tree).toMatchSnapshot();
+    expect(component!.toJSON()).toMatchSnapshot();
   });
 
   it("renders recording state with transcript and suggestions", () => {
     mockUseAudioStream.mockReturnValue({
       ...defaultHookState,
       isRecording: true,
+      sessionActive: true,
       connectionStatus: "live",
       speakerLabel: "Speaker B",
       transcript: [
@@ -59,11 +64,11 @@ describe("LiveCoachScreen", () => {
       ],
     });
 
-    let tree: renderer.ReactTestRendererJSON | null = null;
+    let component: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer.create(<LiveCoachScreen />).toJSON();
+      component = renderer.create(<LiveCoachScreen />);
     });
-    expect(tree).toMatchSnapshot();
+    expect(component!.toJSON()).toMatchSnapshot();
   });
 
   it("renders disconnected state", () => {
@@ -72,10 +77,37 @@ describe("LiveCoachScreen", () => {
       connectionStatus: "disconnected",
     });
 
-    let tree: renderer.ReactTestRendererJSON | null = null;
+    let component: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer.create(<LiveCoachScreen />).toJSON();
+      component = renderer.create(<LiveCoachScreen />);
     });
-    expect(tree).toMatchSnapshot();
+    expect(component!.toJSON()).toMatchSnapshot();
+  });
+
+  it("shows the mic error banner when capture fails", () => {
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      micError: "Microphone permission denied — enable microphone access.",
+    });
+
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    const banner = root!.root.findByProps({ testID: "mic-error-banner" });
+    expect(banner).toBeTruthy();
+    // The honest failure message is shown verbatim.
+    const text = JSON.stringify(root!.toJSON());
+    expect(text).toContain("Microphone permission denied");
+  });
+
+  it("hides the mic error banner when there is no error", () => {
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    expect(
+      root!.root.findAllByProps({ testID: "mic-error-banner" }),
+    ).toHaveLength(0);
   });
 });

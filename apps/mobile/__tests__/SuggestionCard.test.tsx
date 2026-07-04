@@ -1,42 +1,39 @@
 import React from "react";
-import renderer from "react-test-renderer";
+import renderer, { act } from "react-test-renderer";
 import SuggestionCard, { getToneColor } from "../src/components/SuggestionCard";
 
 describe("SuggestionCard", () => {
   it("renders correctly with empathetic tone", () => {
-    const tree = renderer
-      .create(
-        <SuggestionCard
+    let component: renderer.ReactTestRenderer;
+    act(() => {
+      component = renderer.create(<SuggestionCard
           text="I hear what you're saying and that sounds really difficult."
           tone="empathetic"
-        />,
-      )
-      .toJSON();
-    expect(tree).toMatchSnapshot();
+        />,);
+    });
+    expect(component!.toJSON()).toMatchSnapshot();
   });
 
   it("renders correctly with assertive tone", () => {
-    const tree = renderer
-      .create(
-        <SuggestionCard
+    let component: renderer.ReactTestRenderer;
+    act(() => {
+      component = renderer.create(<SuggestionCard
           text="I understand, but I need to express my perspective too."
           tone="assertive"
-        />,
-      )
-      .toJSON();
-    expect(tree).toMatchSnapshot();
+        />,);
+    });
+    expect(component!.toJSON()).toMatchSnapshot();
   });
 
   it("renders correctly with balanced tone", () => {
-    const tree = renderer
-      .create(
-        <SuggestionCard
+    let component: renderer.ReactTestRenderer;
+    act(() => {
+      component = renderer.create(<SuggestionCard
           text="I see your point. Let's find a middle ground."
           tone="balanced"
-        />,
-      )
-      .toJSON();
-    expect(tree).toMatchSnapshot();
+        />,);
+    });
+    expect(component!.toJSON()).toMatchSnapshot();
   });
 
   describe("getToneColor", () => {
