@@ -64,22 +64,22 @@ beforeEach(() => {
 
 describe("SessionDetail", () => {
   it("renders session detail with transcript", () => {
-    let tree: renderer.ReactTestRendererJSON | null = null;
+    let component: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer
+      component = renderer
         .create(<SessionDetail sessionId="s1" onBack={jest.fn()} />)
-        .toJSON();
+        ;
     });
-    expect(tree).toMatchSnapshot();
+    expect(component!.toJSON()).toMatchSnapshot();
   });
 
   it("renders empty state for missing session", () => {
-    let tree: renderer.ReactTestRendererJSON | null = null;
+    let component: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer
+      component = renderer
         .create(<SessionDetail sessionId="nonexistent" onBack={jest.fn()} />)
-        .toJSON();
+        ;
     });
-    expect(tree).toMatchSnapshot();
+    expect(component!.toJSON()).toMatchSnapshot();
   });
 });

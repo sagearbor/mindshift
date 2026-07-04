@@ -8,6 +8,7 @@ aiosqlite
 pydantic
 reportlab
 httpx
+websockets>=14
 anyio
 pytest
 pytest-asyncio

@@ -74,13 +74,13 @@ beforeEach(() => {
 
 describe("TherapistDashboard", () => {
   it("renders empty state", () => {
-    let tree: renderer.ReactTestRendererJSON | null = null;
+    let component: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer
+      component = renderer
         .create(<TherapistDashboard onSelectSession={jest.fn()} />)
-        .toJSON();
+        ;
     });
-    expect(tree).toMatchSnapshot();
+    expect(component!.toJSON()).toMatchSnapshot();
   });
 
   it("renders with sessions", () => {
@@ -88,13 +88,13 @@ describe("TherapistDashboard", () => {
       useDashboardStore.setState({ sessions: mockSessions });
     });
 
-    let tree: renderer.ReactTestRendererJSON | null = null;
+    let component: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer
+      component = renderer
         .create(<TherapistDashboard onSelectSession={jest.fn()} />)
-        .toJSON();
+        ;
     });
-    expect(tree).toMatchSnapshot();
+    expect(component!.toJSON()).toMatchSnapshot();
   });
 
   it("renders loading state", () => {
@@ -102,13 +102,13 @@ describe("TherapistDashboard", () => {
       useDashboardStore.setState({ loading: true });
     });
 
-    let tree: renderer.ReactTestRendererJSON | null = null;
+    let component: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer
+      component = renderer
         .create(<TherapistDashboard onSelectSession={jest.fn()} />)
-        .toJSON();
+        ;
     });
-    expect(tree).toMatchSnapshot();
+    expect(component!.toJSON()).toMatchSnapshot();
   });
 
   it("renders filtered by role", () => {
@@ -119,12 +119,12 @@ describe("TherapistDashboard", () => {
       });
     });
 
-    let tree: renderer.ReactTestRendererJSON | null = null;
+    let component: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer
+      component = renderer
         .create(<TherapistDashboard onSelectSession={jest.fn()} />)
-        .toJSON();
+        ;
     });
-    expect(tree).toMatchSnapshot();
+    expect(component!.toJSON()).toMatchSnapshot();
   });
 });

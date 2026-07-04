@@ -34,24 +34,39 @@ jest.mock("react-native/Libraries/Share/Share", () => ({
   share: jest.fn().mockResolvedValue({ action: "sharedAction" }),
 }));
 
-// Mock expo-av for audio tests
-jest.mock("expo-av", () => ({
-  Audio: {
-    requestPermissionsAsync: jest
-      .fn()
-      .mockResolvedValue({ status: "granted" }),
-    setAudioModeAsync: jest.fn().mockResolvedValue(undefined),
-    Recording: jest.fn().mockImplementation(() => ({
-      prepareToRecordAsync: jest.fn().mockResolvedValue(undefined),
-      startAsync: jest.fn().mockResolvedValue(undefined),
-      stopAndUnloadAsync: jest.fn().mockResolvedValue(undefined),
-      setOnRecordingStatusUpdate: jest.fn(),
-    })),
-    RecordingOptionsPresets: {
-      HIGH_QUALITY: {},
+// Mock expo-audio for tests. The realtime PCM stream API (useAudioStream)
+// captures the onBuffer callback on `globalThis.__expoAudioMock` so tests can
+// push synthetic PCM buffers through the pipeline. Test files may override
+// this with their own jest.mock("expo-audio", ...) for finer control.
+jest.mock("expo-audio", () => {
+  type MockBufferCallback = (mockBuffer: unknown) => void;
+  const mockState = {
+    onBuffer: null as MockBufferCallback | null,
+    stream: {
+      id: "mock-audio-stream",
+      sampleRate: 16000,
+      channels: 1,
+      isStreaming: false,
+      start: jest.fn().mockResolvedValue(undefined),
+      stop: jest.fn(),
     },
-  },
-}));
+  };
+  (globalThis as Record<string, unknown>).__expoAudioMock = mockState;
+  return {
+    __esModule: true,
+    requestRecordingPermissionsAsync: jest
+      .fn()
+      .mockResolvedValue({ status: "granted", granted: true }),
+    getRecordingPermissionsAsync: jest
+      .fn()
+      .mockResolvedValue({ status: "granted", granted: true }),
+    setAudioModeAsync: jest.fn().mockResolvedValue(undefined),
+    useAudioStream: (options?: { onBuffer?: MockBufferCallback }) => {
+      mockState.onBuffer = options?.onBuffer ?? null;
+      return { stream: mockState.stream, isStreaming: false };
+    },
+  };
+});
 
 // Mock fetch globally
 global.fetch = jest.fn();

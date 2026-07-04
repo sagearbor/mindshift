@@ -1,9 +1,133 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`ToneSparkline renders empty state when no scores 1`] = `null`;
+exports[`ToneSparkline renders empty state when no scores 1`] = `
+<View
+  style={
+    {
+      "height": 40,
+      "width": 120,
+    }
+  }
+  testID="tone-sparkline-empty"
+/>
+`;
 
-exports[`ToneSparkline renders single score 1`] = `null`;
+exports[`ToneSparkline renders single score 1`] = `
+<View
+  style={
+    [
+      {
+        "overflow": "hidden",
+      },
+      {
+        "height": 30,
+        "width": 100,
+      },
+    ]
+  }
+  testID="tone-sparkline"
+>
+  <View
+    height={30}
+    testID="Svg"
+    width={100}
+  >
+    <View
+      fill="none"
+      points="50,11.7"
+      stroke="#10B981"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      testID="Polyline"
+    />
+    <View
+      cx={50}
+      cy={11.7}
+      fill="#10B981"
+      r={3}
+      testID="Circle"
+    />
+  </View>
+</View>
+`;
 
-exports[`ToneSparkline renders with custom color 1`] = `null`;
+exports[`ToneSparkline renders with custom color 1`] = `
+<View
+  style={
+    [
+      {
+        "overflow": "hidden",
+      },
+      {
+        "height": 40,
+        "width": 120,
+      },
+    ]
+  }
+  testID="tone-sparkline"
+>
+  <View
+    height={40}
+    testID="Svg"
+    width={120}
+  >
+    <View
+      fill="none"
+      points="4,29.6 60,23.2 116,16.8"
+      stroke="#EF4444"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      testID="Polyline"
+    />
+    <View
+      cx={116}
+      cy={16.8}
+      fill="#EF4444"
+      r={3}
+      testID="Circle"
+    />
+  </View>
+</View>
+`;
 
-exports[`ToneSparkline renders with scores 1`] = `null`;
+exports[`ToneSparkline renders with scores 1`] = `
+<View
+  style={
+    [
+      {
+        "overflow": "hidden",
+      },
+      {
+        "height": 40,
+        "width": 120,
+      },
+    ]
+  }
+  testID="tone-sparkline"
+>
+  <View
+    height={40}
+    testID="Svg"
+    width={120}
+  >
+    <View
+      fill="none"
+      points="4,26.4 32,18.4 60,13.600000000000001 88,21.6 116,10.399999999999999"
+      stroke="#4A90D9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      testID="Polyline"
+    />
+    <View
+      cx={116}
+      cy={10.399999999999999}
+      fill="#4A90D9"
+      r={3}
+      testID="Circle"
+    />
+  </View>
+</View>
+`;

@@ -18,11 +18,11 @@ beforeEach(() => {
 
 describe("SessionScreen", () => {
   it("renders the initial screen", () => {
-    let tree: renderer.ReactTestRendererJSON | null = null;
+    let component: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer.create(<SessionScreen />).toJSON();
+      component = renderer.create(<SessionScreen />);
     });
-    expect(tree).toMatchSnapshot();
+    expect(component!.toJSON()).toMatchSnapshot();
   });
 
   it("renders with turns in the transcript", () => {
@@ -35,11 +35,11 @@ describe("SessionScreen", () => {
       });
     });
 
-    let tree: renderer.ReactTestRendererJSON | null = null;
+    let component: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer.create(<SessionScreen />).toJSON();
+      component = renderer.create(<SessionScreen />);
     });
-    expect(tree).toMatchSnapshot();
+    expect(component!.toJSON()).toMatchSnapshot();
   });
 
   it("renders with suggestions", () => {
@@ -65,11 +65,11 @@ describe("SessionScreen", () => {
       });
     });
 
-    let tree: renderer.ReactTestRendererJSON | null = null;
+    let component: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer.create(<SessionScreen />).toJSON();
+      component = renderer.create(<SessionScreen />);
     });
-    expect(tree).toMatchSnapshot();
+    expect(component!.toJSON()).toMatchSnapshot();
   });
 
   it("renders loading state", () => {
@@ -80,10 +80,10 @@ describe("SessionScreen", () => {
       });
     });
 
-    let tree: renderer.ReactTestRendererJSON | null = null;
+    let component: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer.create(<SessionScreen />).toJSON();
+      component = renderer.create(<SessionScreen />);
     });
-    expect(tree).toMatchSnapshot();
+    expect(component!.toJSON()).toMatchSnapshot();
   });
 });

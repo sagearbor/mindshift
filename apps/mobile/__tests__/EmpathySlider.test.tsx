@@ -1,29 +1,32 @@
 import React from "react";
-import renderer from "react-test-renderer";
+import renderer, { act } from "react-test-renderer";
 import EmpathySlider, {
   getEmpathyLabel,
 } from "../src/components/EmpathySlider";
 
 describe("EmpathySlider", () => {
   it("renders correctly at default value", () => {
-    const tree = renderer
-      .create(<EmpathySlider value={50} onValueChange={jest.fn()} />)
-      .toJSON();
-    expect(tree).toMatchSnapshot();
+    let component: renderer.ReactTestRenderer;
+    act(() => {
+      component = renderer.create(<EmpathySlider value={50} onValueChange={jest.fn()} />);
+    });
+    expect(component!.toJSON()).toMatchSnapshot();
   });
 
   it("renders correctly at minimum", () => {
-    const tree = renderer
-      .create(<EmpathySlider value={0} onValueChange={jest.fn()} />)
-      .toJSON();
-    expect(tree).toMatchSnapshot();
+    let component: renderer.ReactTestRenderer;
+    act(() => {
+      component = renderer.create(<EmpathySlider value={0} onValueChange={jest.fn()} />);
+    });
+    expect(component!.toJSON()).toMatchSnapshot();
   });
 
   it("renders correctly at maximum", () => {
-    const tree = renderer
-      .create(<EmpathySlider value={100} onValueChange={jest.fn()} />)
-      .toJSON();
-    expect(tree).toMatchSnapshot();
+    let component: renderer.ReactTestRenderer;
+    act(() => {
+      component = renderer.create(<EmpathySlider value={100} onValueChange={jest.fn()} />);
+    });
+    expect(component!.toJSON()).toMatchSnapshot();
   });
 
   describe("getEmpathyLabel", () => {

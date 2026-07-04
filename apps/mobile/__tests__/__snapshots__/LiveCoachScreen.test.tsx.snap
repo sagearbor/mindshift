@@ -1,7 +1,1217 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`LiveCoachScreen renders disconnected state 1`] = `null`;
+exports[`LiveCoachScreen renders disconnected state 1`] = `
+<View
+  style={
+    {
+      "backgroundColor": "#F9FAFB",
+      "flex": 1,
+    }
+  }
+>
+  <View
+    style={
+      {
+        "alignItems": "center",
+        "flexDirection": "row",
+        "justifyContent": "space-between",
+        "paddingBottom": 8,
+        "paddingHorizontal": 16,
+        "paddingTop": 16,
+      }
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#111827",
+          "fontSize": 24,
+          "fontWeight": "700",
+        }
+      }
+    >
+      Live Coach
+    </Text>
+    <View
+      style={
+        {
+          "alignItems": "center",
+          "flexDirection": "row",
+          "gap": 6,
+        }
+      }
+    >
+      <View
+        style={
+          [
+            {
+              "borderRadius": 5,
+              "height": 10,
+              "width": 10,
+            },
+            {
+              "backgroundColor": "#EF4444",
+            },
+          ]
+        }
+        testID="connection-status"
+      />
+      <Text
+        style={
+          [
+            {
+              "fontSize": 13,
+              "fontWeight": "600",
+              "textTransform": "capitalize",
+            },
+            {
+              "color": "#EF4444",
+            },
+          ]
+        }
+      >
+        disconnected
+      </Text>
+    </View>
+  </View>
+  <View
+    style={
+      {
+        "alignItems": "center",
+        "flexDirection": "row",
+        "gap": 8,
+        "paddingHorizontal": 16,
+        "paddingVertical": 8,
+      }
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#374151",
+          "fontSize": 14,
+          "fontWeight": "600",
+          "marginRight": 4,
+        }
+      }
+    >
+      Coach mode:
+    </Text>
+    <View
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": undefined,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#FFFFFF",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 16,
+          "borderWidth": 1,
+          "opacity": 1,
+          "paddingHorizontal": 14,
+          "paddingVertical": 6,
+        }
+      }
+      testID="mode-earpiece"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 13,
+              "fontWeight": "500",
+            },
+            false,
+          ]
+        }
+      >
+        Earpiece
+      </Text>
+    </View>
+    <View
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": undefined,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#4A90D9",
+          "borderColor": "#4A90D9",
+          "borderRadius": 16,
+          "borderWidth": 1,
+          "opacity": 1,
+          "paddingHorizontal": 14,
+          "paddingVertical": 6,
+        }
+      }
+      testID="mode-visual"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 13,
+              "fontWeight": "500",
+            },
+            {
+              "color": "#FFFFFF",
+            },
+          ]
+        }
+      >
+        Visual
+      </Text>
+    </View>
+  </View>
+  <View
+    style={
+      {
+        "marginVertical": 12,
+        "paddingHorizontal": 16,
+      }
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#1F2937",
+          "fontSize": 16,
+          "fontWeight": "600",
+          "marginBottom": 8,
+        }
+      }
+    >
+      Empathy: 
+      50
+       — 
+      Balanced
+    </Text>
+    <View
+      testID="empathy-slider"
+    />
+    <View
+      style={
+        {
+          "flexDirection": "row",
+          "justifyContent": "space-between",
+        }
+      }
+    >
+      <Text
+        style={
+          {
+            "color": "#6B7280",
+            "fontSize": 12,
+          }
+        }
+      >
+        Assertive
+      </Text>
+      <Text
+        style={
+          {
+            "color": "#6B7280",
+            "fontSize": 12,
+          }
+        }
+      >
+        Full Empathy
+      </Text>
+    </View>
+  </View>
+  <View
+    style={
+      {
+        "alignItems": "center",
+        "flex": 1,
+        "justifyContent": "center",
+        "paddingVertical": 40,
+      }
+    }
+    testID="live-transcript-empty"
+  >
+    <Text
+      style={
+        {
+          "color": "#9CA3AF",
+          "fontSize": 15,
+          "fontStyle": "italic",
+        }
+      }
+    >
+      Waiting for conversation...
+    </Text>
+  </View>
+  <View
+    accessibilityState={
+      {
+        "busy": undefined,
+        "checked": undefined,
+        "disabled": undefined,
+        "expanded": undefined,
+        "selected": undefined,
+      }
+    }
+    accessibilityValue={
+      {
+        "max": undefined,
+        "min": undefined,
+        "now": undefined,
+        "text": undefined,
+      }
+    }
+    accessible={true}
+    collapsable={false}
+    focusable={true}
+    onClick={[Function]}
+    onResponderGrant={[Function]}
+    onResponderMove={[Function]}
+    onResponderRelease={[Function]}
+    onResponderTerminate={[Function]}
+    onResponderTerminationRequest={[Function]}
+    onStartShouldSetResponder={[Function]}
+    style={
+      {
+        "alignItems": "center",
+        "backgroundColor": "#4A90D9",
+        "borderRadius": 12,
+        "marginHorizontal": 16,
+        "marginVertical": 12,
+        "opacity": 1,
+        "paddingVertical": 16,
+      }
+    }
+    testID="mic-toggle"
+  >
+    <Text
+      style={
+        {
+          "color": "#FFFFFF",
+          "fontSize": 18,
+          "fontWeight": "700",
+        }
+      }
+    >
+      Start Listening
+    </Text>
+  </View>
+</View>
+`;
 
-exports[`LiveCoachScreen renders initial idle state 1`] = `null`;
+exports[`LiveCoachScreen renders initial idle state 1`] = `
+<View
+  style={
+    {
+      "backgroundColor": "#F9FAFB",
+      "flex": 1,
+    }
+  }
+>
+  <View
+    style={
+      {
+        "alignItems": "center",
+        "flexDirection": "row",
+        "justifyContent": "space-between",
+        "paddingBottom": 8,
+        "paddingHorizontal": 16,
+        "paddingTop": 16,
+      }
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#111827",
+          "fontSize": 24,
+          "fontWeight": "700",
+        }
+      }
+    >
+      Live Coach
+    </Text>
+    <View
+      style={
+        {
+          "alignItems": "center",
+          "flexDirection": "row",
+          "gap": 6,
+        }
+      }
+    >
+      <View
+        style={
+          [
+            {
+              "borderRadius": 5,
+              "height": 10,
+              "width": 10,
+            },
+            {
+              "backgroundColor": "#9CA3AF",
+            },
+          ]
+        }
+        testID="connection-status"
+      />
+      <Text
+        style={
+          [
+            {
+              "fontSize": 13,
+              "fontWeight": "600",
+              "textTransform": "capitalize",
+            },
+            {
+              "color": "#9CA3AF",
+            },
+          ]
+        }
+      >
+        idle
+      </Text>
+    </View>
+  </View>
+  <View
+    style={
+      {
+        "alignItems": "center",
+        "flexDirection": "row",
+        "gap": 8,
+        "paddingHorizontal": 16,
+        "paddingVertical": 8,
+      }
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#374151",
+          "fontSize": 14,
+          "fontWeight": "600",
+          "marginRight": 4,
+        }
+      }
+    >
+      Coach mode:
+    </Text>
+    <View
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": undefined,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#FFFFFF",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 16,
+          "borderWidth": 1,
+          "opacity": 1,
+          "paddingHorizontal": 14,
+          "paddingVertical": 6,
+        }
+      }
+      testID="mode-earpiece"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 13,
+              "fontWeight": "500",
+            },
+            false,
+          ]
+        }
+      >
+        Earpiece
+      </Text>
+    </View>
+    <View
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": undefined,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#4A90D9",
+          "borderColor": "#4A90D9",
+          "borderRadius": 16,
+          "borderWidth": 1,
+          "opacity": 1,
+          "paddingHorizontal": 14,
+          "paddingVertical": 6,
+        }
+      }
+      testID="mode-visual"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 13,
+              "fontWeight": "500",
+            },
+            {
+              "color": "#FFFFFF",
+            },
+          ]
+        }
+      >
+        Visual
+      </Text>
+    </View>
+  </View>
+  <View
+    style={
+      {
+        "marginVertical": 12,
+        "paddingHorizontal": 16,
+      }
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#1F2937",
+          "fontSize": 16,
+          "fontWeight": "600",
+          "marginBottom": 8,
+        }
+      }
+    >
+      Empathy: 
+      50
+       — 
+      Balanced
+    </Text>
+    <View
+      testID="empathy-slider"
+    />
+    <View
+      style={
+        {
+          "flexDirection": "row",
+          "justifyContent": "space-between",
+        }
+      }
+    >
+      <Text
+        style={
+          {
+            "color": "#6B7280",
+            "fontSize": 12,
+          }
+        }
+      >
+        Assertive
+      </Text>
+      <Text
+        style={
+          {
+            "color": "#6B7280",
+            "fontSize": 12,
+          }
+        }
+      >
+        Full Empathy
+      </Text>
+    </View>
+  </View>
+  <View
+    style={
+      {
+        "alignItems": "center",
+        "flex": 1,
+        "justifyContent": "center",
+        "paddingVertical": 40,
+      }
+    }
+    testID="live-transcript-empty"
+  >
+    <Text
+      style={
+        {
+          "color": "#9CA3AF",
+          "fontSize": 15,
+          "fontStyle": "italic",
+        }
+      }
+    >
+      Waiting for conversation...
+    </Text>
+  </View>
+  <View
+    accessibilityState={
+      {
+        "busy": undefined,
+        "checked": undefined,
+        "disabled": undefined,
+        "expanded": undefined,
+        "selected": undefined,
+      }
+    }
+    accessibilityValue={
+      {
+        "max": undefined,
+        "min": undefined,
+        "now": undefined,
+        "text": undefined,
+      }
+    }
+    accessible={true}
+    collapsable={false}
+    focusable={true}
+    onClick={[Function]}
+    onResponderGrant={[Function]}
+    onResponderMove={[Function]}
+    onResponderRelease={[Function]}
+    onResponderTerminate={[Function]}
+    onResponderTerminationRequest={[Function]}
+    onStartShouldSetResponder={[Function]}
+    style={
+      {
+        "alignItems": "center",
+        "backgroundColor": "#4A90D9",
+        "borderRadius": 12,
+        "marginHorizontal": 16,
+        "marginVertical": 12,
+        "opacity": 1,
+        "paddingVertical": 16,
+      }
+    }
+    testID="mic-toggle"
+  >
+    <Text
+      style={
+        {
+          "color": "#FFFFFF",
+          "fontSize": 18,
+          "fontWeight": "700",
+        }
+      }
+    >
+      Start Listening
+    </Text>
+  </View>
+</View>
+`;
 
-exports[`LiveCoachScreen renders recording state with transcript and suggestions 1`] = `null`;
+exports[`LiveCoachScreen renders recording state with transcript and suggestions 1`] = `
+<View
+  style={
+    {
+      "backgroundColor": "#F9FAFB",
+      "flex": 1,
+    }
+  }
+>
+  <View
+    style={
+      {
+        "alignItems": "center",
+        "flexDirection": "row",
+        "justifyContent": "space-between",
+        "paddingBottom": 8,
+        "paddingHorizontal": 16,
+        "paddingTop": 16,
+      }
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#111827",
+          "fontSize": 24,
+          "fontWeight": "700",
+        }
+      }
+    >
+      Live Coach
+    </Text>
+    <View
+      style={
+        {
+          "alignItems": "center",
+          "flexDirection": "row",
+          "gap": 6,
+        }
+      }
+    >
+      <View
+        style={
+          [
+            {
+              "borderRadius": 5,
+              "height": 10,
+              "width": 10,
+            },
+            {
+              "backgroundColor": "#10B981",
+            },
+          ]
+        }
+        testID="connection-status"
+      />
+      <Text
+        style={
+          [
+            {
+              "fontSize": 13,
+              "fontWeight": "600",
+              "textTransform": "capitalize",
+            },
+            {
+              "color": "#10B981",
+            },
+          ]
+        }
+      >
+        live
+      </Text>
+    </View>
+  </View>
+  <View
+    style={
+      {
+        "alignItems": "center",
+        "flexDirection": "row",
+        "gap": 8,
+        "paddingHorizontal": 16,
+        "paddingVertical": 8,
+      }
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#374151",
+          "fontSize": 14,
+          "fontWeight": "600",
+          "marginRight": 4,
+        }
+      }
+    >
+      Coach mode:
+    </Text>
+    <View
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": undefined,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#FFFFFF",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 16,
+          "borderWidth": 1,
+          "opacity": 1,
+          "paddingHorizontal": 14,
+          "paddingVertical": 6,
+        }
+      }
+      testID="mode-earpiece"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 13,
+              "fontWeight": "500",
+            },
+            false,
+          ]
+        }
+      >
+        Earpiece
+      </Text>
+    </View>
+    <View
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": undefined,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#4A90D9",
+          "borderColor": "#4A90D9",
+          "borderRadius": 16,
+          "borderWidth": 1,
+          "opacity": 1,
+          "paddingHorizontal": 14,
+          "paddingVertical": 6,
+        }
+      }
+      testID="mode-visual"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 13,
+              "fontWeight": "500",
+            },
+            {
+              "color": "#FFFFFF",
+            },
+          ]
+        }
+      >
+        Visual
+      </Text>
+    </View>
+  </View>
+  <View
+    style={
+      {
+        "marginVertical": 12,
+        "paddingHorizontal": 16,
+      }
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#1F2937",
+          "fontSize": 16,
+          "fontWeight": "600",
+          "marginBottom": 8,
+        }
+      }
+    >
+      Empathy: 
+      50
+       — 
+      Balanced
+    </Text>
+    <View
+      testID="empathy-slider"
+    />
+    <View
+      style={
+        {
+          "flexDirection": "row",
+          "justifyContent": "space-between",
+        }
+      }
+    >
+      <Text
+        style={
+          {
+            "color": "#6B7280",
+            "fontSize": 12,
+          }
+        }
+      >
+        Assertive
+      </Text>
+      <Text
+        style={
+          {
+            "color": "#6B7280",
+            "fontSize": 12,
+          }
+        }
+      >
+        Full Empathy
+      </Text>
+    </View>
+  </View>
+  <RCTScrollView
+    style={
+      {
+        "flex": 1,
+        "paddingHorizontal": 16,
+      }
+    }
+    testID="live-transcript"
+  >
+    <View>
+      <View
+        style={
+          [
+            {
+              "backgroundColor": "#F9FAFB",
+              "borderRadius": 8,
+              "marginBottom": 10,
+              "paddingHorizontal": 10,
+              "paddingVertical": 6,
+            },
+            false,
+          ]
+        }
+      >
+        <Text
+          style={
+            [
+              {
+                "fontSize": 12,
+                "fontWeight": "700",
+                "marginBottom": 2,
+                "textTransform": "uppercase",
+              },
+              {
+                "color": "#4A90D9",
+              },
+            ]
+          }
+        >
+          Speaker A
+        </Text>
+        <Text
+          style={
+            [
+              {
+                "color": "#1F2937",
+                "fontSize": 15,
+                "lineHeight": 22,
+              },
+              false,
+            ]
+          }
+        >
+          You never listen to me.
+        </Text>
+      </View>
+      <View
+        style={
+          [
+            {
+              "backgroundColor": "#F9FAFB",
+              "borderRadius": 8,
+              "marginBottom": 10,
+              "paddingHorizontal": 10,
+              "paddingVertical": 6,
+            },
+            {
+              "backgroundColor": "#EEF2FF",
+              "borderLeftColor": "#4A90D9",
+              "borderLeftWidth": 3,
+            },
+          ]
+        }
+      >
+        <Text
+          style={
+            [
+              {
+                "fontSize": 12,
+                "fontWeight": "700",
+                "marginBottom": 2,
+                "textTransform": "uppercase",
+              },
+              {
+                "color": "#E85D75",
+              },
+            ]
+          }
+        >
+          Speaker B
+        </Text>
+        <Text
+          style={
+            [
+              {
+                "color": "#1F2937",
+                "fontSize": 15,
+                "lineHeight": 22,
+              },
+              {
+                "fontWeight": "500",
+              },
+            ]
+          }
+        >
+          I'm trying my best.
+        </Text>
+      </View>
+    </View>
+  </RCTScrollView>
+  <RCTScrollView
+    horizontal={false}
+    style={
+      {
+        "maxHeight": 200,
+        "paddingBottom": 8,
+      }
+    }
+    testID="suggestions-list"
+  >
+    <View>
+      <Text
+        style={
+          {
+            "color": "#1F2937",
+            "fontSize": 16,
+            "fontWeight": "600",
+            "marginBottom": 4,
+            "paddingHorizontal": 16,
+            "paddingTop": 8,
+          }
+        }
+      >
+        Suggestions
+      </Text>
+      <View
+        style={
+          {
+            "backgroundColor": "#FFFFFF",
+            "borderRadius": 12,
+            "elevation": 2,
+            "marginHorizontal": 16,
+            "marginVertical": 6,
+            "padding": 16,
+            "shadowColor": "#000",
+            "shadowOffset": {
+              "height": 1,
+              "width": 0,
+            },
+            "shadowOpacity": 0.1,
+            "shadowRadius": 3,
+          }
+        }
+        testID="suggestion-card"
+      >
+        <View
+          style={
+            [
+              {
+                "alignSelf": "flex-start",
+                "borderRadius": 12,
+                "marginBottom": 8,
+                "paddingHorizontal": 10,
+                "paddingVertical": 3,
+              },
+              {
+                "backgroundColor": "#10B981",
+              },
+            ]
+          }
+        >
+          <Text
+            style={
+              {
+                "color": "#FFFFFF",
+                "fontSize": 12,
+                "fontWeight": "600",
+                "textTransform": "capitalize",
+              }
+            }
+          >
+            empathetic
+          </Text>
+        </View>
+        <Text
+          style={
+            {
+              "color": "#1F2937",
+              "fontSize": 15,
+              "lineHeight": 22,
+            }
+          }
+        >
+          I hear that you feel unheard. Can you help me understand what you need?
+        </Text>
+      </View>
+    </View>
+  </RCTScrollView>
+  <View
+    accessibilityState={
+      {
+        "busy": undefined,
+        "checked": undefined,
+        "disabled": undefined,
+        "expanded": undefined,
+        "selected": undefined,
+      }
+    }
+    accessibilityValue={
+      {
+        "max": undefined,
+        "min": undefined,
+        "now": undefined,
+        "text": undefined,
+      }
+    }
+    accessible={true}
+    collapsable={false}
+    focusable={true}
+    onClick={[Function]}
+    onResponderGrant={[Function]}
+    onResponderMove={[Function]}
+    onResponderRelease={[Function]}
+    onResponderTerminate={[Function]}
+    onResponderTerminationRequest={[Function]}
+    onStartShouldSetResponder={[Function]}
+    style={
+      {
+        "alignItems": "center",
+        "backgroundColor": "#EF4444",
+        "borderRadius": 12,
+        "marginHorizontal": 16,
+        "marginVertical": 12,
+        "opacity": 1,
+        "paddingVertical": 16,
+      }
+    }
+    testID="mic-toggle"
+  >
+    <Text
+      style={
+        {
+          "color": "#FFFFFF",
+          "fontSize": 18,
+          "fontWeight": "700",
+        }
+      }
+    >
+      Stop Listening
+    </Text>
+  </View>
+</View>
+`;

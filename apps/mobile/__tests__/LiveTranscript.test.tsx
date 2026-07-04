@@ -5,11 +5,11 @@ import type { TranscriptEntry } from "../src/hooks/useAudioStream";
 
 describe("LiveTranscript", () => {
   it("renders empty state", () => {
-    let tree: renderer.ReactTestRendererJSON | null = null;
+    let component: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer.create(<LiveTranscript entries={[]} />).toJSON();
+      component = renderer.create(<LiveTranscript entries={[]} />);
     });
-    expect(tree).toMatchSnapshot();
+    expect(component!.toJSON()).toMatchSnapshot();
   });
 
   it("renders transcript entries with speaker colors", () => {
@@ -22,11 +22,11 @@ describe("LiveTranscript", () => {
       },
     ];
 
-    let tree: renderer.ReactTestRendererJSON | null = null;
+    let component: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer.create(<LiveTranscript entries={entries} />).toJSON();
+      component = renderer.create(<LiveTranscript entries={entries} />);
     });
-    expect(tree).toMatchSnapshot();
+    expect(component!.toJSON()).toMatchSnapshot();
   });
 
   it("highlights the most recent entry", () => {
@@ -36,10 +36,10 @@ describe("LiveTranscript", () => {
       { speaker: "Speaker A", text: "Latest message.", timestamp: 3000 },
     ];
 
-    let tree: renderer.ReactTestRendererJSON | null = null;
+    let component: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer.create(<LiveTranscript entries={entries} />).toJSON();
+      component = renderer.create(<LiveTranscript entries={entries} />);
     });
-    expect(tree).toMatchSnapshot();
+    expect(component!.toJSON()).toMatchSnapshot();
   });
 });

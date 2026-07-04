@@ -1,5 +1,844 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`SessionDetail renders empty state for missing session 1`] = `null`;
+exports[`SessionDetail renders empty state for missing session 1`] = `
+<View
+  style={
+    {
+      "alignItems": "center",
+      "flex": 1,
+      "justifyContent": "center",
+      "padding": 20,
+    }
+  }
+  testID="session-detail-empty"
+>
+  <Text
+    style={
+      {
+        "color": "#9CA3AF",
+        "fontSize": 15,
+        "marginBottom": 16,
+      }
+    }
+  >
+    Session not found.
+  </Text>
+  <View
+    accessibilityState={
+      {
+        "busy": undefined,
+        "checked": undefined,
+        "disabled": undefined,
+        "expanded": undefined,
+        "selected": undefined,
+      }
+    }
+    accessibilityValue={
+      {
+        "max": undefined,
+        "min": undefined,
+        "now": undefined,
+        "text": undefined,
+      }
+    }
+    accessible={true}
+    collapsable={false}
+    focusable={true}
+    onClick={[Function]}
+    onResponderGrant={[Function]}
+    onResponderMove={[Function]}
+    onResponderRelease={[Function]}
+    onResponderTerminate={[Function]}
+    onResponderTerminationRequest={[Function]}
+    onStartShouldSetResponder={[Function]}
+    style={
+      {
+        "backgroundColor": "#F3F4F6",
+        "borderRadius": 8,
+        "opacity": 1,
+        "paddingHorizontal": 12,
+        "paddingVertical": 6,
+      }
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#4A90D9",
+          "fontSize": 14,
+          "fontWeight": "600",
+        }
+      }
+    >
+      Back
+    </Text>
+  </View>
+</View>
+`;
 
-exports[`SessionDetail renders session detail with transcript 1`] = `null`;
+exports[`SessionDetail renders session detail with transcript 1`] = `
+<RCTScrollView
+  contentContainerStyle={
+    {
+      "paddingBottom": 40,
+      "paddingHorizontal": 16,
+      "paddingTop": 60,
+    }
+  }
+  style={
+    {
+      "flex": 1,
+    }
+  }
+  testID="session-detail"
+>
+  <View>
+    <View
+      style={
+        {
+          "alignItems": "center",
+          "flexDirection": "row",
+          "justifyContent": "space-between",
+          "marginBottom": 12,
+        }
+      }
+    >
+      <View
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": undefined,
+            "expanded": undefined,
+            "selected": undefined,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={true}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
+        style={
+          {
+            "backgroundColor": "#F3F4F6",
+            "borderRadius": 8,
+            "opacity": 1,
+            "paddingHorizontal": 12,
+            "paddingVertical": 6,
+          }
+        }
+        testID="back-button"
+      >
+        <Text
+          style={
+            {
+              "color": "#4A90D9",
+              "fontSize": 14,
+              "fontWeight": "600",
+            }
+          }
+        >
+          Back
+        </Text>
+      </View>
+      <View
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": undefined,
+            "expanded": undefined,
+            "selected": undefined,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={true}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
+        style={
+          {
+            "backgroundColor": "#4A90D9",
+            "borderRadius": 8,
+            "opacity": 1,
+            "paddingHorizontal": 14,
+            "paddingVertical": 6,
+          }
+        }
+        testID="export-button"
+      >
+        <Text
+          style={
+            {
+              "color": "#FFFFFF",
+              "fontSize": 14,
+              "fontWeight": "600",
+            }
+          }
+        >
+          Export
+        </Text>
+      </View>
+    </View>
+    <Text
+      style={
+        {
+          "color": "#111827",
+          "fontSize": 22,
+          "fontWeight": "700",
+          "marginBottom": 4,
+        }
+      }
+    >
+      Session Detail
+    </Text>
+    <Text
+      style={
+        {
+          "color": "#6B7280",
+          "fontSize": 14,
+          "marginBottom": 20,
+        }
+      }
+    >
+      2/20/2026
+       — 
+      Husband / Wife
+    </Text>
+    <View
+      style={
+        {
+          "marginBottom": 24,
+        }
+      }
+    >
+      <Text
+        style={
+          {
+            "color": "#1F2937",
+            "fontSize": 16,
+            "fontWeight": "600",
+            "marginBottom": 10,
+          }
+        }
+      >
+        Tone Timeline
+      </Text>
+      <View
+        style={
+          [
+            {
+              "overflow": "hidden",
+            },
+            {
+              "height": 60,
+              "width": 320,
+            },
+          ]
+        }
+        testID="tone-sparkline"
+      >
+        <View
+          height={60}
+          testID="Svg"
+          width={320}
+        >
+          <View
+            fill="none"
+            points="4,36.239999999999995 160,15.439999999999998 316,21.159999999999997"
+            stroke="#4A90D9"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            testID="Polyline"
+          />
+          <View
+            cx={316}
+            cy={21.159999999999997}
+            fill="#4A90D9"
+            r={3}
+            testID="Circle"
+          />
+        </View>
+      </View>
+    </View>
+    <View
+      style={
+        {
+          "marginBottom": 24,
+        }
+      }
+    >
+      <Text
+        style={
+          {
+            "color": "#1F2937",
+            "fontSize": 16,
+            "fontWeight": "600",
+            "marginBottom": 10,
+          }
+        }
+      >
+        Average Scores
+      </Text>
+      <View
+        style={
+          {
+            "flexDirection": "row",
+            "flexWrap": "wrap",
+            "gap": 10,
+          }
+        }
+      >
+        <View
+          style={
+            {
+              "alignItems": "center",
+              "backgroundColor": "#F9FAFB",
+              "borderRadius": 10,
+              "minWidth": 90,
+              "padding": 10,
+            }
+          }
+        >
+          <Text
+            style={
+              {
+                "color": "#4A90D9",
+                "fontSize": 20,
+                "fontWeight": "700",
+              }
+            }
+          >
+            62
+          </Text>
+          <Text
+            style={
+              {
+                "color": "#6B7280",
+                "fontSize": 11,
+                "marginTop": 2,
+                "textTransform": "capitalize",
+              }
+            }
+          >
+            warmth
+          </Text>
+        </View>
+        <View
+          style={
+            {
+              "alignItems": "center",
+              "backgroundColor": "#F9FAFB",
+              "borderRadius": 10,
+              "minWidth": 90,
+              "padding": 10,
+            }
+          }
+        >
+          <Text
+            style={
+              {
+                "color": "#4A90D9",
+                "fontSize": 20,
+                "fontWeight": "700",
+              }
+            }
+          >
+            58
+          </Text>
+          <Text
+            style={
+              {
+                "color": "#6B7280",
+                "fontSize": 11,
+                "marginTop": 2,
+                "textTransform": "capitalize",
+              }
+            }
+          >
+            constructiveness
+          </Text>
+        </View>
+        <View
+          style={
+            {
+              "alignItems": "center",
+              "backgroundColor": "#F9FAFB",
+              "borderRadius": 10,
+              "minWidth": 90,
+              "padding": 10,
+            }
+          }
+        >
+          <Text
+            style={
+              {
+                "color": "#4A90D9",
+                "fontSize": 20,
+                "fontWeight": "700",
+              }
+            }
+          >
+            63
+          </Text>
+          <Text
+            style={
+              {
+                "color": "#6B7280",
+                "fontSize": 11,
+                "marginTop": 2,
+                "textTransform": "capitalize",
+              }
+            }
+          >
+            calmness
+          </Text>
+        </View>
+        <View
+          style={
+            {
+              "alignItems": "center",
+              "backgroundColor": "#F9FAFB",
+              "borderRadius": 10,
+              "minWidth": 90,
+              "padding": 10,
+            }
+          }
+        >
+          <Text
+            style={
+              {
+                "color": "#4A90D9",
+                "fontSize": 20,
+                "fontWeight": "700",
+              }
+            }
+          >
+            60
+          </Text>
+          <Text
+            style={
+              {
+                "color": "#6B7280",
+                "fontSize": 11,
+                "marginTop": 2,
+                "textTransform": "capitalize",
+              }
+            }
+          >
+            respect
+          </Text>
+        </View>
+        <View
+          style={
+            {
+              "alignItems": "center",
+              "backgroundColor": "#F9FAFB",
+              "borderRadius": 10,
+              "minWidth": 90,
+              "padding": 10,
+            }
+          }
+        >
+          <Text
+            style={
+              {
+                "color": "#4A90D9",
+                "fontSize": 20,
+                "fontWeight": "700",
+              }
+            }
+          >
+            57
+          </Text>
+          <Text
+            style={
+              {
+                "color": "#6B7280",
+                "fontSize": 11,
+                "marginTop": 2,
+                "textTransform": "capitalize",
+              }
+            }
+          >
+            engagement
+          </Text>
+        </View>
+        <View
+          style={
+            {
+              "alignItems": "center",
+              "backgroundColor": "#F9FAFB",
+              "borderRadius": 10,
+              "minWidth": 90,
+              "padding": 10,
+            }
+          }
+        >
+          <Text
+            style={
+              {
+                "color": "#4A90D9",
+                "fontSize": 20,
+                "fontWeight": "700",
+              }
+            }
+          >
+            61
+          </Text>
+          <Text
+            style={
+              {
+                "color": "#6B7280",
+                "fontSize": 11,
+                "marginTop": 2,
+                "textTransform": "capitalize",
+              }
+            }
+          >
+            pleasantness
+          </Text>
+        </View>
+      </View>
+    </View>
+    <View
+      style={
+        {
+          "marginBottom": 24,
+        }
+      }
+    >
+      <Text
+        style={
+          {
+            "color": "#1F2937",
+            "fontSize": 16,
+            "fontWeight": "600",
+            "marginBottom": 10,
+          }
+        }
+      >
+        Transcript
+      </Text>
+      <View
+        style={
+          [
+            {
+              "backgroundColor": "#FFFFFF",
+              "borderLeftWidth": 4,
+              "borderRadius": 10,
+              "elevation": 1,
+              "marginBottom": 8,
+              "padding": 12,
+              "shadowColor": "#000",
+              "shadowOffset": {
+                "height": 1,
+                "width": 0,
+              },
+              "shadowOpacity": 0.05,
+              "shadowRadius": 2,
+            },
+            {
+              "borderLeftColor": "#EF4444",
+            },
+          ]
+        }
+        testID="turn-0"
+      >
+        <View
+          style={
+            {
+              "alignItems": "center",
+              "flexDirection": "row",
+              "justifyContent": "space-between",
+              "marginBottom": 4,
+            }
+          }
+        >
+          <Text
+            style={
+              {
+                "color": "#374151",
+                "fontSize": 13,
+                "fontWeight": "700",
+              }
+            }
+          >
+            Alice
+          </Text>
+          <View
+            style={
+              {
+                "backgroundColor": "#F9FAFB",
+                "borderRadius": 6,
+                "paddingHorizontal": 8,
+                "paddingVertical": 2,
+              }
+            }
+          >
+            <Text
+              style={
+                [
+                  {
+                    "fontSize": 13,
+                    "fontWeight": "700",
+                  },
+                  {
+                    "color": "#EF4444",
+                  },
+                ]
+              }
+            >
+              38
+            </Text>
+          </View>
+        </View>
+        <Text
+          style={
+            {
+              "color": "#1F2937",
+              "fontSize": 14,
+              "lineHeight": 20,
+              "marginBottom": 4,
+            }
+          }
+        >
+          I feel like you never listen.
+        </Text>
+        <Text
+          style={
+            {
+              "color": "#9CA3AF",
+              "fontSize": 11,
+            }
+          }
+        >
+          Empathy: 
+          50
+        </Text>
+      </View>
+      <View
+        style={
+          [
+            {
+              "backgroundColor": "#FFFFFF",
+              "borderLeftWidth": 4,
+              "borderRadius": 10,
+              "elevation": 1,
+              "marginBottom": 8,
+              "padding": 12,
+              "shadowColor": "#000",
+              "shadowOffset": {
+                "height": 1,
+                "width": 0,
+              },
+              "shadowOpacity": 0.05,
+              "shadowRadius": 2,
+            },
+            {
+              "borderLeftColor": "#10B981",
+            },
+          ]
+        }
+        testID="turn-1"
+      >
+        <View
+          style={
+            {
+              "alignItems": "center",
+              "flexDirection": "row",
+              "justifyContent": "space-between",
+              "marginBottom": 4,
+            }
+          }
+        >
+          <Text
+            style={
+              {
+                "color": "#374151",
+                "fontSize": 13,
+                "fontWeight": "700",
+              }
+            }
+          >
+            Bob
+          </Text>
+          <View
+            style={
+              {
+                "backgroundColor": "#F9FAFB",
+                "borderRadius": 6,
+                "paddingHorizontal": 8,
+                "paddingVertical": 2,
+              }
+            }
+          >
+            <Text
+              style={
+                [
+                  {
+                    "fontSize": 13,
+                    "fontWeight": "700",
+                  },
+                  {
+                    "color": "#10B981",
+                  },
+                ]
+              }
+            >
+              78
+            </Text>
+          </View>
+        </View>
+        <Text
+          style={
+            {
+              "color": "#1F2937",
+              "fontSize": 14,
+              "lineHeight": 20,
+              "marginBottom": 4,
+            }
+          }
+        >
+          I hear you, and I want to do better.
+        </Text>
+        <Text
+          style={
+            {
+              "color": "#9CA3AF",
+              "fontSize": 11,
+            }
+          }
+        >
+          Empathy: 
+          75
+        </Text>
+      </View>
+      <View
+        style={
+          [
+            {
+              "backgroundColor": "#FFFFFF",
+              "borderLeftWidth": 4,
+              "borderRadius": 10,
+              "elevation": 1,
+              "marginBottom": 8,
+              "padding": 12,
+              "shadowColor": "#000",
+              "shadowOffset": {
+                "height": 1,
+                "width": 0,
+              },
+              "shadowOpacity": 0.05,
+              "shadowRadius": 2,
+            },
+            {
+              "borderLeftColor": "#10B981",
+            },
+          ]
+        }
+        testID="turn-2"
+      >
+        <View
+          style={
+            {
+              "alignItems": "center",
+              "flexDirection": "row",
+              "justifyContent": "space-between",
+              "marginBottom": 4,
+            }
+          }
+        >
+          <Text
+            style={
+              {
+                "color": "#374151",
+                "fontSize": 13,
+                "fontWeight": "700",
+              }
+            }
+          >
+            Alice
+          </Text>
+          <View
+            style={
+              {
+                "backgroundColor": "#F9FAFB",
+                "borderRadius": 6,
+                "paddingHorizontal": 8,
+                "paddingVertical": 2,
+              }
+            }
+          >
+            <Text
+              style={
+                [
+                  {
+                    "fontSize": 13,
+                    "fontWeight": "700",
+                  },
+                  {
+                    "color": "#10B981",
+                  },
+                ]
+              }
+            >
+              67
+            </Text>
+          </View>
+        </View>
+        <Text
+          style={
+            {
+              "color": "#1F2937",
+              "fontSize": 14,
+              "lineHeight": 20,
+              "marginBottom": 4,
+            }
+          }
+        >
+          That means a lot to me.
+        </Text>
+        <Text
+          style={
+            {
+              "color": "#9CA3AF",
+              "fontSize": 11,
+            }
+          }
+        >
+          Empathy: 
+          60
+        </Text>
+      </View>
+    </View>
+  </View>
+</RCTScrollView>
+`;

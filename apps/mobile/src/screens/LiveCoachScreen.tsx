@@ -22,10 +22,12 @@ const STATUS_COLORS: Record<string, string> = {
 export default function LiveCoachScreen() {
   const {
     isRecording,
+    sessionActive,
     transcript,
     suggestions,
     connectionStatus,
     transcriptionMessage,
+    micError,
     startSession,
     stopSession,
     sendEmpathyUpdate,
@@ -37,13 +39,15 @@ export default function LiveCoachScreen() {
   );
 
   const handleToggle = useCallback(async () => {
-    if (isRecording) {
+    // Toggle on sessionActive, not isRecording: a session can be live with
+    // mic capture unavailable (e.g. web) and must still be stoppable.
+    if (sessionActive) {
       await stopSession();
     } else {
       const sessionId = `live-${Date.now()}`;
       await startSession(sessionId, empathyLevel);
     }
-  }, [isRecording, stopSession, startSession, empathyLevel]);
+  }, [sessionActive, stopSession, startSession, empathyLevel]);
 
   const handleEmpathyChange = useCallback(
     (value: number) => {
@@ -70,6 +74,13 @@ export default function LiveCoachScreen() {
           </Text>
         </View>
       </View>
+
+      {/* Microphone error banner — honest failure state, never a fake session */}
+      {micError ? (
+        <View style={styles.errorBanner} testID="mic-error-banner">
+          <Text style={styles.errorBannerText}>{micError}</Text>
+        </View>
+      ) : null}
 
       {/* Transcription availability banner */}
       {transcriptionMessage ? (
@@ -152,7 +163,7 @@ export default function LiveCoachScreen() {
         onPress={handleToggle}
       >
         <Text style={styles.micButtonText}>
-          {isRecording ? "Stop Listening" : "Start Listening"}
+          {sessionActive ? "Stop Listening" : "Start Listening"}
         </Text>
       </TouchableOpacity>
     </View>
@@ -205,6 +216,20 @@ const styles = StyleSheet.create({
   bannerText: {
     fontSize: 13,
     color: "#92400E",
+  },
+  errorBanner: {
+    backgroundColor: "#FEE2E2",
+    borderLeftWidth: 4,
+    borderLeftColor: "#EF4444",
+    marginHorizontal: 16,
+    marginBottom: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  errorBannerText: {
+    fontSize: 13,
+    color: "#991B1B",
   },
   modeRow: {
     flexDirection: "row",

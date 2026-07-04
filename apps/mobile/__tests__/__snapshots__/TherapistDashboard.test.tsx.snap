@@ -1,9 +1,1156 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`TherapistDashboard renders empty state 1`] = `null`;
+exports[`TherapistDashboard renders empty state 1`] = `
+<RCTScrollView
+  contentContainerStyle={
+    {
+      "paddingBottom": 40,
+      "paddingHorizontal": 16,
+      "paddingTop": 60,
+    }
+  }
+  style={
+    {
+      "flex": 1,
+    }
+  }
+  testID="therapist-dashboard"
+>
+  <View>
+    <Text
+      style={
+        {
+          "color": "#111827",
+          "fontSize": 24,
+          "fontWeight": "700",
+          "marginBottom": 16,
+          "textAlign": "center",
+        }
+      }
+    >
+      Therapist Dashboard
+    </Text>
+    <View
+      style={
+        {
+          "flexDirection": "row",
+          "flexWrap": "wrap",
+          "gap": 8,
+          "marginBottom": 16,
+        }
+      }
+    >
+      <View
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": undefined,
+            "expanded": undefined,
+            "selected": undefined,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={true}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
+        style={
+          {
+            "backgroundColor": "#4A90D9",
+            "borderColor": "#4A90D9",
+            "borderRadius": 16,
+            "borderWidth": 1,
+            "opacity": 1,
+            "paddingHorizontal": 14,
+            "paddingVertical": 6,
+          }
+        }
+        testID="filter-all"
+      >
+        <Text
+          style={
+            [
+              {
+                "color": "#374151",
+                "fontSize": 13,
+              },
+              {
+                "color": "#FFFFFF",
+                "fontWeight": "600",
+              },
+            ]
+          }
+        >
+          All
+        </Text>
+      </View>
+    </View>
+    <ActivityIndicator
+      color="#4A90D9"
+      size="large"
+      style={
+        {
+          "marginTop": 40,
+        }
+      }
+      testID="dashboard-loading"
+    />
+  </View>
+</RCTScrollView>
+`;
 
-exports[`TherapistDashboard renders filtered by role 1`] = `null`;
+exports[`TherapistDashboard renders filtered by role 1`] = `
+<RCTScrollView
+  contentContainerStyle={
+    {
+      "paddingBottom": 40,
+      "paddingHorizontal": 16,
+      "paddingTop": 60,
+    }
+  }
+  style={
+    {
+      "flex": 1,
+    }
+  }
+  testID="therapist-dashboard"
+>
+  <View>
+    <Text
+      style={
+        {
+          "color": "#111827",
+          "fontSize": 24,
+          "fontWeight": "700",
+          "marginBottom": 16,
+          "textAlign": "center",
+        }
+      }
+    >
+      Therapist Dashboard
+    </Text>
+    <View
+      style={
+        {
+          "flexDirection": "row",
+          "flexWrap": "wrap",
+          "gap": 8,
+          "marginBottom": 16,
+        }
+      }
+    >
+      <View
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": undefined,
+            "expanded": undefined,
+            "selected": undefined,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={true}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
+        style={
+          {
+            "backgroundColor": "#F9FAFB",
+            "borderColor": "#D1D5DB",
+            "borderRadius": 16,
+            "borderWidth": 1,
+            "opacity": 1,
+            "paddingHorizontal": 14,
+            "paddingVertical": 6,
+          }
+        }
+        testID="filter-all"
+      >
+        <Text
+          style={
+            [
+              {
+                "color": "#374151",
+                "fontSize": 13,
+              },
+              false,
+            ]
+          }
+        >
+          All
+        </Text>
+      </View>
+      <View
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": undefined,
+            "expanded": undefined,
+            "selected": undefined,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={true}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
+        style={
+          {
+            "backgroundColor": "#4A90D9",
+            "borderColor": "#4A90D9",
+            "borderRadius": 16,
+            "borderWidth": 1,
+            "opacity": 1,
+            "paddingHorizontal": 14,
+            "paddingVertical": 6,
+          }
+        }
+        testID="filter-Husband / Wife"
+      >
+        <Text
+          style={
+            [
+              {
+                "color": "#374151",
+                "fontSize": 13,
+              },
+              {
+                "color": "#FFFFFF",
+                "fontWeight": "600",
+              },
+            ]
+          }
+        >
+          Husband / Wife
+        </Text>
+      </View>
+      <View
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": undefined,
+            "expanded": undefined,
+            "selected": undefined,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={true}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
+        style={
+          {
+            "backgroundColor": "#F9FAFB",
+            "borderColor": "#D1D5DB",
+            "borderRadius": 16,
+            "borderWidth": 1,
+            "opacity": 1,
+            "paddingHorizontal": 14,
+            "paddingVertical": 6,
+          }
+        }
+        testID="filter-Parent / Child"
+      >
+        <Text
+          style={
+            [
+              {
+                "color": "#374151",
+                "fontSize": 13,
+              },
+              false,
+            ]
+          }
+        >
+          Parent / Child
+        </Text>
+      </View>
+    </View>
+    <ActivityIndicator
+      color="#4A90D9"
+      size="large"
+      style={
+        {
+          "marginTop": 40,
+        }
+      }
+      testID="dashboard-loading"
+    />
+    <View
+      style={
+        {
+          "marginBottom": 20,
+        }
+      }
+    >
+      <Text
+        style={
+          {
+            "color": "#1F2937",
+            "fontSize": 16,
+            "fontWeight": "600",
+            "marginBottom": 8,
+          }
+        }
+      >
+        Husband / Wife
+      </Text>
+      <View
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": undefined,
+            "expanded": undefined,
+            "selected": undefined,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={true}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
+        style={
+          {
+            "backgroundColor": "#FFFFFF",
+            "borderRadius": 12,
+            "elevation": 2,
+            "marginBottom": 10,
+            "opacity": 1,
+            "padding": 14,
+            "shadowColor": "#000",
+            "shadowOffset": {
+              "height": 1,
+              "width": 0,
+            },
+            "shadowOpacity": 0.08,
+            "shadowRadius": 3,
+          }
+        }
+        testID="session-s1"
+      >
+        <View
+          style={
+            {
+              "alignItems": "center",
+              "flexDirection": "row",
+              "justifyContent": "space-between",
+              "marginBottom": 4,
+            }
+          }
+        >
+          <Text
+            style={
+              {
+                "color": "#1F2937",
+                "fontSize": 14,
+                "fontWeight": "600",
+              }
+            }
+          >
+            2/20/2026
+          </Text>
+          <View
+            style={
+              {
+                "backgroundColor": "#EFF6FF",
+                "borderRadius": 8,
+                "paddingHorizontal": 8,
+                "paddingVertical": 2,
+              }
+            }
+          >
+            <Text
+              style={
+                {
+                  "color": "#4A90D9",
+                  "fontSize": 14,
+                  "fontWeight": "700",
+                }
+              }
+            >
+              62
+            </Text>
+          </View>
+        </View>
+        <Text
+          style={
+            {
+              "color": "#6B7280",
+              "fontSize": 12,
+              "marginBottom": 8,
+            }
+          }
+        >
+          2
+           turns
+        </Text>
+        <View
+          style={
+            [
+              {
+                "overflow": "hidden",
+              },
+              {
+                "height": 36,
+                "width": 200,
+              },
+            ]
+          }
+          testID="tone-sparkline"
+        >
+          <View
+            height={36}
+            testID="Svg"
+            width={200}
+          >
+            <View
+              fill="none"
+              points="4,16.599999999999998 196,12.959999999999997"
+              stroke="#F59E0B"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              testID="Polyline"
+            />
+            <View
+              cx={196}
+              cy={12.959999999999997}
+              fill="#F59E0B"
+              r={3}
+              testID="Circle"
+            />
+          </View>
+        </View>
+      </View>
+    </View>
+  </View>
+</RCTScrollView>
+`;
 
-exports[`TherapistDashboard renders loading state 1`] = `null`;
+exports[`TherapistDashboard renders loading state 1`] = `
+<RCTScrollView
+  contentContainerStyle={
+    {
+      "paddingBottom": 40,
+      "paddingHorizontal": 16,
+      "paddingTop": 60,
+    }
+  }
+  style={
+    {
+      "flex": 1,
+    }
+  }
+  testID="therapist-dashboard"
+>
+  <View>
+    <Text
+      style={
+        {
+          "color": "#111827",
+          "fontSize": 24,
+          "fontWeight": "700",
+          "marginBottom": 16,
+          "textAlign": "center",
+        }
+      }
+    >
+      Therapist Dashboard
+    </Text>
+    <View
+      style={
+        {
+          "flexDirection": "row",
+          "flexWrap": "wrap",
+          "gap": 8,
+          "marginBottom": 16,
+        }
+      }
+    >
+      <View
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": undefined,
+            "expanded": undefined,
+            "selected": undefined,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={true}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
+        style={
+          {
+            "backgroundColor": "#4A90D9",
+            "borderColor": "#4A90D9",
+            "borderRadius": 16,
+            "borderWidth": 1,
+            "opacity": 1,
+            "paddingHorizontal": 14,
+            "paddingVertical": 6,
+          }
+        }
+        testID="filter-all"
+      >
+        <Text
+          style={
+            [
+              {
+                "color": "#374151",
+                "fontSize": 13,
+              },
+              {
+                "color": "#FFFFFF",
+                "fontWeight": "600",
+              },
+            ]
+          }
+        >
+          All
+        </Text>
+      </View>
+    </View>
+    <ActivityIndicator
+      color="#4A90D9"
+      size="large"
+      style={
+        {
+          "marginTop": 40,
+        }
+      }
+      testID="dashboard-loading"
+    />
+  </View>
+</RCTScrollView>
+`;
 
-exports[`TherapistDashboard renders with sessions 1`] = `null`;
+exports[`TherapistDashboard renders with sessions 1`] = `
+<RCTScrollView
+  contentContainerStyle={
+    {
+      "paddingBottom": 40,
+      "paddingHorizontal": 16,
+      "paddingTop": 60,
+    }
+  }
+  style={
+    {
+      "flex": 1,
+    }
+  }
+  testID="therapist-dashboard"
+>
+  <View>
+    <Text
+      style={
+        {
+          "color": "#111827",
+          "fontSize": 24,
+          "fontWeight": "700",
+          "marginBottom": 16,
+          "textAlign": "center",
+        }
+      }
+    >
+      Therapist Dashboard
+    </Text>
+    <View
+      style={
+        {
+          "flexDirection": "row",
+          "flexWrap": "wrap",
+          "gap": 8,
+          "marginBottom": 16,
+        }
+      }
+    >
+      <View
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": undefined,
+            "expanded": undefined,
+            "selected": undefined,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={true}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
+        style={
+          {
+            "backgroundColor": "#4A90D9",
+            "borderColor": "#4A90D9",
+            "borderRadius": 16,
+            "borderWidth": 1,
+            "opacity": 1,
+            "paddingHorizontal": 14,
+            "paddingVertical": 6,
+          }
+        }
+        testID="filter-all"
+      >
+        <Text
+          style={
+            [
+              {
+                "color": "#374151",
+                "fontSize": 13,
+              },
+              {
+                "color": "#FFFFFF",
+                "fontWeight": "600",
+              },
+            ]
+          }
+        >
+          All
+        </Text>
+      </View>
+      <View
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": undefined,
+            "expanded": undefined,
+            "selected": undefined,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={true}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
+        style={
+          {
+            "backgroundColor": "#F9FAFB",
+            "borderColor": "#D1D5DB",
+            "borderRadius": 16,
+            "borderWidth": 1,
+            "opacity": 1,
+            "paddingHorizontal": 14,
+            "paddingVertical": 6,
+          }
+        }
+        testID="filter-Husband / Wife"
+      >
+        <Text
+          style={
+            [
+              {
+                "color": "#374151",
+                "fontSize": 13,
+              },
+              false,
+            ]
+          }
+        >
+          Husband / Wife
+        </Text>
+      </View>
+      <View
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": undefined,
+            "expanded": undefined,
+            "selected": undefined,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={true}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
+        style={
+          {
+            "backgroundColor": "#F9FAFB",
+            "borderColor": "#D1D5DB",
+            "borderRadius": 16,
+            "borderWidth": 1,
+            "opacity": 1,
+            "paddingHorizontal": 14,
+            "paddingVertical": 6,
+          }
+        }
+        testID="filter-Parent / Child"
+      >
+        <Text
+          style={
+            [
+              {
+                "color": "#374151",
+                "fontSize": 13,
+              },
+              false,
+            ]
+          }
+        >
+          Parent / Child
+        </Text>
+      </View>
+    </View>
+    <ActivityIndicator
+      color="#4A90D9"
+      size="large"
+      style={
+        {
+          "marginTop": 40,
+        }
+      }
+      testID="dashboard-loading"
+    />
+    <View
+      style={
+        {
+          "marginBottom": 20,
+        }
+      }
+    >
+      <Text
+        style={
+          {
+            "color": "#1F2937",
+            "fontSize": 16,
+            "fontWeight": "600",
+            "marginBottom": 8,
+          }
+        }
+      >
+        Husband / Wife
+      </Text>
+      <View
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": undefined,
+            "expanded": undefined,
+            "selected": undefined,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={true}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
+        style={
+          {
+            "backgroundColor": "#FFFFFF",
+            "borderRadius": 12,
+            "elevation": 2,
+            "marginBottom": 10,
+            "opacity": 1,
+            "padding": 14,
+            "shadowColor": "#000",
+            "shadowOffset": {
+              "height": 1,
+              "width": 0,
+            },
+            "shadowOpacity": 0.08,
+            "shadowRadius": 3,
+          }
+        }
+        testID="session-s1"
+      >
+        <View
+          style={
+            {
+              "alignItems": "center",
+              "flexDirection": "row",
+              "justifyContent": "space-between",
+              "marginBottom": 4,
+            }
+          }
+        >
+          <Text
+            style={
+              {
+                "color": "#1F2937",
+                "fontSize": 14,
+                "fontWeight": "600",
+              }
+            }
+          >
+            2/20/2026
+          </Text>
+          <View
+            style={
+              {
+                "backgroundColor": "#EFF6FF",
+                "borderRadius": 8,
+                "paddingHorizontal": 8,
+                "paddingVertical": 2,
+              }
+            }
+          >
+            <Text
+              style={
+                {
+                  "color": "#4A90D9",
+                  "fontSize": 14,
+                  "fontWeight": "700",
+                }
+              }
+            >
+              62
+            </Text>
+          </View>
+        </View>
+        <Text
+          style={
+            {
+              "color": "#6B7280",
+              "fontSize": 12,
+              "marginBottom": 8,
+            }
+          }
+        >
+          2
+           turns
+        </Text>
+        <View
+          style={
+            [
+              {
+                "overflow": "hidden",
+              },
+              {
+                "height": 36,
+                "width": 200,
+              },
+            ]
+          }
+          testID="tone-sparkline"
+        >
+          <View
+            height={36}
+            testID="Svg"
+            width={200}
+          >
+            <View
+              fill="none"
+              points="4,16.599999999999998 196,12.959999999999997"
+              stroke="#F59E0B"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              testID="Polyline"
+            />
+            <View
+              cx={196}
+              cy={12.959999999999997}
+              fill="#F59E0B"
+              r={3}
+              testID="Circle"
+            />
+          </View>
+        </View>
+      </View>
+    </View>
+    <View
+      style={
+        {
+          "marginBottom": 20,
+        }
+      }
+    >
+      <Text
+        style={
+          {
+            "color": "#1F2937",
+            "fontSize": 16,
+            "fontWeight": "600",
+            "marginBottom": 8,
+          }
+        }
+      >
+        Parent / Child
+      </Text>
+      <View
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": undefined,
+            "expanded": undefined,
+            "selected": undefined,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={true}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
+        style={
+          {
+            "backgroundColor": "#FFFFFF",
+            "borderRadius": 12,
+            "elevation": 2,
+            "marginBottom": 10,
+            "opacity": 1,
+            "padding": 14,
+            "shadowColor": "#000",
+            "shadowOffset": {
+              "height": 1,
+              "width": 0,
+            },
+            "shadowOpacity": 0.08,
+            "shadowRadius": 3,
+          }
+        }
+        testID="session-s2"
+      >
+        <View
+          style={
+            {
+              "alignItems": "center",
+              "flexDirection": "row",
+              "justifyContent": "space-between",
+              "marginBottom": 4,
+            }
+          }
+        >
+          <Text
+            style={
+              {
+                "color": "#1F2937",
+                "fontSize": 14,
+                "fontWeight": "600",
+              }
+            }
+          >
+            2/21/2026
+          </Text>
+          <View
+            style={
+              {
+                "backgroundColor": "#EFF6FF",
+                "borderRadius": 8,
+                "paddingHorizontal": 8,
+                "paddingVertical": 2,
+              }
+            }
+          >
+            <Text
+              style={
+                {
+                  "color": "#4A90D9",
+                  "fontSize": 14,
+                  "fontWeight": "700",
+                }
+              }
+            >
+              45
+            </Text>
+          </View>
+        </View>
+        <Text
+          style={
+            {
+              "color": "#6B7280",
+              "fontSize": 12,
+              "marginBottom": 8,
+            }
+          }
+        >
+          1
+           turns
+        </Text>
+        <View
+          style={
+            [
+              {
+                "overflow": "hidden",
+              },
+              {
+                "height": 36,
+                "width": 200,
+              },
+            ]
+          }
+          testID="tone-sparkline"
+        >
+          <View
+            height={36}
+            testID="Svg"
+            width={200}
+          >
+            <View
+              fill="none"
+              points="100,19.4"
+              stroke="#F59E0B"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              testID="Polyline"
+            />
+            <View
+              cx={100}
+              cy={19.4}
+              fill="#F59E0B"
+              r={3}
+              testID="Circle"
+            />
+          </View>
+        </View>
+      </View>
+    </View>
+  </View>
+</RCTScrollView>
+`;

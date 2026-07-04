@@ -1,7 +1,299 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`LiveTranscript highlights the most recent entry 1`] = `null`;
+exports[`LiveTranscript highlights the most recent entry 1`] = `
+<RCTScrollView
+  style={
+    {
+      "flex": 1,
+      "paddingHorizontal": 16,
+    }
+  }
+  testID="live-transcript"
+>
+  <View>
+    <View
+      style={
+        [
+          {
+            "backgroundColor": "#F9FAFB",
+            "borderRadius": 8,
+            "marginBottom": 10,
+            "paddingHorizontal": 10,
+            "paddingVertical": 6,
+          },
+          false,
+        ]
+      }
+    >
+      <Text
+        style={
+          [
+            {
+              "fontSize": 12,
+              "fontWeight": "700",
+              "marginBottom": 2,
+              "textTransform": "uppercase",
+            },
+            {
+              "color": "#4A90D9",
+            },
+          ]
+        }
+      >
+        Speaker A
+      </Text>
+      <Text
+        style={
+          [
+            {
+              "color": "#1F2937",
+              "fontSize": 15,
+              "lineHeight": 22,
+            },
+            false,
+          ]
+        }
+      >
+        First message.
+      </Text>
+    </View>
+    <View
+      style={
+        [
+          {
+            "backgroundColor": "#F9FAFB",
+            "borderRadius": 8,
+            "marginBottom": 10,
+            "paddingHorizontal": 10,
+            "paddingVertical": 6,
+          },
+          false,
+        ]
+      }
+    >
+      <Text
+        style={
+          [
+            {
+              "fontSize": 12,
+              "fontWeight": "700",
+              "marginBottom": 2,
+              "textTransform": "uppercase",
+            },
+            {
+              "color": "#E85D75",
+            },
+          ]
+        }
+      >
+        Speaker B
+      </Text>
+      <Text
+        style={
+          [
+            {
+              "color": "#1F2937",
+              "fontSize": 15,
+              "lineHeight": 22,
+            },
+            false,
+          ]
+        }
+      >
+        Second message.
+      </Text>
+    </View>
+    <View
+      style={
+        [
+          {
+            "backgroundColor": "#F9FAFB",
+            "borderRadius": 8,
+            "marginBottom": 10,
+            "paddingHorizontal": 10,
+            "paddingVertical": 6,
+          },
+          {
+            "backgroundColor": "#EEF2FF",
+            "borderLeftColor": "#4A90D9",
+            "borderLeftWidth": 3,
+          },
+        ]
+      }
+    >
+      <Text
+        style={
+          [
+            {
+              "fontSize": 12,
+              "fontWeight": "700",
+              "marginBottom": 2,
+              "textTransform": "uppercase",
+            },
+            {
+              "color": "#4A90D9",
+            },
+          ]
+        }
+      >
+        Speaker A
+      </Text>
+      <Text
+        style={
+          [
+            {
+              "color": "#1F2937",
+              "fontSize": 15,
+              "lineHeight": 22,
+            },
+            {
+              "fontWeight": "500",
+            },
+          ]
+        }
+      >
+        Latest message.
+      </Text>
+    </View>
+  </View>
+</RCTScrollView>
+`;
 
-exports[`LiveTranscript renders empty state 1`] = `null`;
+exports[`LiveTranscript renders empty state 1`] = `
+<View
+  style={
+    {
+      "alignItems": "center",
+      "flex": 1,
+      "justifyContent": "center",
+      "paddingVertical": 40,
+    }
+  }
+  testID="live-transcript-empty"
+>
+  <Text
+    style={
+      {
+        "color": "#9CA3AF",
+        "fontSize": 15,
+        "fontStyle": "italic",
+      }
+    }
+  >
+    Waiting for conversation...
+  </Text>
+</View>
+`;
 
-exports[`LiveTranscript renders transcript entries with speaker colors 1`] = `null`;
+exports[`LiveTranscript renders transcript entries with speaker colors 1`] = `
+<RCTScrollView
+  style={
+    {
+      "flex": 1,
+      "paddingHorizontal": 16,
+    }
+  }
+  testID="live-transcript"
+>
+  <View>
+    <View
+      style={
+        [
+          {
+            "backgroundColor": "#F9FAFB",
+            "borderRadius": 8,
+            "marginBottom": 10,
+            "paddingHorizontal": 10,
+            "paddingVertical": 6,
+          },
+          false,
+        ]
+      }
+    >
+      <Text
+        style={
+          [
+            {
+              "fontSize": 12,
+              "fontWeight": "700",
+              "marginBottom": 2,
+              "textTransform": "uppercase",
+            },
+            {
+              "color": "#4A90D9",
+            },
+          ]
+        }
+      >
+        Speaker A
+      </Text>
+      <Text
+        style={
+          [
+            {
+              "color": "#1F2937",
+              "fontSize": 15,
+              "lineHeight": 22,
+            },
+            false,
+          ]
+        }
+      >
+        I feel frustrated.
+      </Text>
+    </View>
+    <View
+      style={
+        [
+          {
+            "backgroundColor": "#F9FAFB",
+            "borderRadius": 8,
+            "marginBottom": 10,
+            "paddingHorizontal": 10,
+            "paddingVertical": 6,
+          },
+          {
+            "backgroundColor": "#EEF2FF",
+            "borderLeftColor": "#4A90D9",
+            "borderLeftWidth": 3,
+          },
+        ]
+      }
+    >
+      <Text
+        style={
+          [
+            {
+              "fontSize": 12,
+              "fontWeight": "700",
+              "marginBottom": 2,
+              "textTransform": "uppercase",
+            },
+            {
+              "color": "#E85D75",
+            },
+          ]
+        }
+      >
+        Speaker B
+      </Text>
+      <Text
+        style={
+          [
+            {
+              "color": "#1F2937",
+              "fontSize": 15,
+              "lineHeight": 22,
+            },
+            {
+              "fontWeight": "500",
+            },
+          ]
+        }
+      >
+        I understand, tell me more.
+      </Text>
+    </View>
+  </View>
+</RCTScrollView>
+`;
