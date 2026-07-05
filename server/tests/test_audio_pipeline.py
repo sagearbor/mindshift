@@ -7,15 +7,18 @@ transcripts or audio. To exercise the pipeline logic without live providers,
 these tests inject the test doubles defined below via ``app.state``.
 """
 
+import asyncio
 import json
 import threading
 import time
+import types
 from unittest.mock import MagicMock
 
 import pytest
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+import audio_pipeline
 from audio_pipeline import TranscriberUnavailable, TranscriptSegment
 from main import app
 
@@ -141,6 +144,16 @@ class DyingTranscriber:
 
     async def stream(self, audio_bytes: bytes):
         raise TranscriberUnavailable("mid-stream death")
+
+    async def close(self) -> None:
+        pass
+
+
+class NeverConnectsTranscriber:
+    """connect() always fails — models a config-broken backend (no key, etc.)."""
+
+    async def connect(self) -> None:
+        raise TranscriberUnavailable("backend is down")
 
     async def close(self) -> None:
         pass
@@ -614,10 +627,29 @@ class TestSuggestionWorker:
 # ---------------------------------------------------------------------------
 
 class TestUnavailableNoticeOnce:
-    def test_midstream_failure_notice_sent_once(self):
-        """After a mid-stream failure the client is told once; further binary
-        frames are ignored silently (no per-frame re-send flood)."""
+    def test_midstream_failure_notice_sent_once(self, monkeypatch):
+        """After a mid-stream failure (and exhausted reconnects — P1-1) the
+        client is told once; further binary frames are ignored silently (no
+        per-frame re-send flood).
+
+        Re-pinned for P1-1: a previously-connected transcriber that drops now
+        triggers reconnect attempts first, so the factory here serves dead
+        replacements — the unavailable latch happens only after they exhaust.
+        """
+        monkeypatch.setattr(
+            audio_pipeline, "TRANSCRIBER_RECONNECT_BACKOFFS_S", (0.0, 0.0, 0.0)
+        )
+        factory_calls: list[int] = []
+
+        def factory():
+            factory_calls.append(1)
+            # First transcriber connects then dies; every replacement is dead.
+            if len(factory_calls) == 1:
+                return DyingTranscriber()
+            return NeverConnectsTranscriber()
+
         client = _inject(DyingTranscriber())
+        app.state.transcriber_factory = factory
         try:
             with client.websocket_connect("/ws/session/once-1") as ws:
                 ws.send_bytes(b"\x00" * 50)
@@ -632,6 +664,8 @@ class TestUnavailableNoticeOnce:
         assert first["type"] == "transcription_unavailable"
         # Exactly one notice — the very next message is already the config ack.
         assert second["type"] == "config_ack"
+        # Initial connect + exactly 3 reconnect attempts, then the latch.
+        assert len(factory_calls) == 4
 
 
 # ---------------------------------------------------------------------------
@@ -653,3 +687,333 @@ class TestTTSOwnership:
             _clear_overrides()
 
         assert tts.closed is False  # shared instance must survive the session
+
+
+# ---------------------------------------------------------------------------
+# Suggestion failures are reported, never silent, never fabricated (P0-2, P0-3)
+# ---------------------------------------------------------------------------
+
+class TestSuggestionErrorHonesty:
+    def test_llm_exception_sends_suggestion_error(self):
+        """P0-2: an LLM failure must produce a suggestion_error event — the
+        client is told WHICH utterance yielded nothing and why (class name
+        only; the raw message could carry key fragments)."""
+        client = _inject(FakeTranscriber())
+        app.state.llm_client.complete.side_effect = RuntimeError(
+            "401 invalid x-api-key sk-ant-SECRET"
+        )
+        try:
+            with client.websocket_connect("/ws/session/err-1") as ws:
+                ws.send_bytes(b"\x00" * 50)
+                raw = ws.receive_text()
+                resp = json.loads(raw)
+                # Session survives the failure — control channel still works.
+                ws.send_text(json.dumps({"type": "config"}))
+                ack = json.loads(ws.receive_text())
+        finally:
+            _clear_overrides()
+
+        assert resp["type"] == "suggestion_error"
+        assert resp["utterance_text"] == FAKE_TRANSCRIPT
+        assert resp["reason"] == "RuntimeError"
+        assert "SECRET" not in raw  # exception message never hits the wire
+        assert ack["type"] == "config_ack"
+
+    def test_unparseable_llm_output_is_error_not_fabrication(self):
+        """P0-3: unparseable LLM output must NOT become an 'I hear you — …'
+        fake suggestion (which would even get TTS-spoken); the client gets an
+        honest suggestion_error with reason llm_parse_error."""
+        client = _inject(FakeTranscriber())
+        app.state.llm_client.complete.return_value = "Sorry, no JSON today."
+        try:
+            with client.websocket_connect("/ws/session/err-2") as ws:
+                ws.send_bytes(b"\x00" * 50)
+                resp = json.loads(ws.receive_text())
+        finally:
+            _clear_overrides()
+
+        assert resp["type"] == "suggestion_error"
+        assert resp["reason"] == "llm_parse_error"
+        assert "suggestions" not in resp
+        assert "I hear you" not in json.dumps(resp)
+
+    def test_wrong_shape_json_is_parse_error(self):
+        """Valid JSON that isn't the expected object shape is also honest."""
+        client = _inject(FakeTranscriber())
+        app.state.llm_client.complete.return_value = json.dumps(["a", "list"])
+        try:
+            with client.websocket_connect("/ws/session/err-3") as ws:
+                ws.send_bytes(b"\x00" * 50)
+                resp = json.loads(ws.receive_text())
+        finally:
+            _clear_overrides()
+
+        assert resp["type"] == "suggestion_error"
+        assert resp["reason"] == "llm_parse_error"
+
+
+# ---------------------------------------------------------------------------
+# Mid-session transcriber reconnect (P1-1)
+# ---------------------------------------------------------------------------
+
+class TestTranscriberReconnect:
+    def test_midsession_drop_reconnects_and_restores(self, monkeypatch):
+        """A previously-live transcriber that drops is replaced via the
+        factory; the client hears transcription_restored and transcription
+        continues on the replacement."""
+        monkeypatch.setattr(
+            audio_pipeline, "TRANSCRIBER_RECONNECT_BACKOFFS_S", (0.0, 0.0, 0.0)
+        )
+        factory_calls: list[int] = []
+        healthy = RecordingSegmentTranscriber(
+            [TranscriptSegment("After the blip.", 0.0, 1.0, speaker=0)],
+        )
+
+        def factory():
+            factory_calls.append(1)
+            return DyingTranscriber() if len(factory_calls) == 1 else healthy
+
+        client = _inject(DyingTranscriber())
+        app.state.transcriber_factory = factory
+        try:
+            with client.websocket_connect("/ws/session/reconn-1") as ws:
+                ws.send_bytes(b"\x00" * 50)  # dies → reconnect → restored
+                restored = json.loads(ws.receive_text())
+                ws.send_bytes(b"\x01" * 50)  # flows to the replacement
+                suggestion = json.loads(ws.receive_text())
+        finally:
+            _clear_overrides()
+
+        assert restored == {"type": "transcription_restored"}
+        assert suggestion["type"] == "suggestion"
+        assert suggestion["utterance_text"] == "After the blip."
+        assert len(factory_calls) == 2  # initial + one successful reconnect
+        assert healthy.frames  # audio really reached the replacement
+
+    def test_initial_connect_failure_is_not_retried(self, monkeypatch):
+        """A transcriber that NEVER connected failed for a config reason (no
+        key, missing package) — reconnecting cannot fix that, so the endpoint
+        must not spin the factory."""
+        monkeypatch.setattr(
+            audio_pipeline, "TRANSCRIBER_RECONNECT_BACKOFFS_S", (0.0, 0.0, 0.0)
+        )
+        factory_calls: list[int] = []
+
+        def factory():
+            factory_calls.append(1)
+            return NeverConnectsTranscriber()
+
+        client = _inject(NeverConnectsTranscriber())
+        app.state.transcriber_factory = factory
+        try:
+            with client.websocket_connect("/ws/session/reconn-2") as ws:
+                first = json.loads(ws.receive_text())
+                ws.send_bytes(b"\x00" * 50)  # ignored — latched unavailable
+                ws.send_text(json.dumps({"type": "config"}))
+                second = json.loads(ws.receive_text())
+        finally:
+            _clear_overrides()
+
+        assert first["type"] == "transcription_unavailable"
+        assert second["type"] == "config_ack"
+        assert len(factory_calls) == 1  # no retries for a config failure
+
+
+# ---------------------------------------------------------------------------
+# Worker task lifecycle on immediate disconnect (P1-7)
+# ---------------------------------------------------------------------------
+
+class _GoneClientWS:
+    """Minimal WebSocket stand-in: accepts, then behaves like a client that
+    disconnected immediately — every send fails (as Starlette's does after a
+    disconnect) and receive() reports the disconnect."""
+
+    def __init__(self, state) -> None:
+        self.app = types.SimpleNamespace(state=state)
+
+    async def accept(self) -> None:
+        pass
+
+    async def send_text(self, data: str) -> None:
+        raise RuntimeError('Cannot call "send" once a close message has been sent.')
+
+    async def receive(self) -> dict:
+        return {"type": "websocket.disconnect"}
+
+    async def close(self, code: int = 1000, reason: str | None = None) -> None:
+        pass
+
+
+class TestWorkerTaskLifecycle:
+    @pytest.mark.anyio
+    async def test_immediate_disconnect_does_not_leak_worker_task(self):
+        """P1-7: when the client is gone before the initial unavailable-notify
+        goes out, the endpoint must still tear down its suggestion worker —
+        previously the notify raised before the protecting try, leaking one
+        pending task per occurrence (and propagating the send error)."""
+        from audio_pipeline import audio_ws_endpoint
+
+        state = types.SimpleNamespace(
+            llm_client=MagicMock(),
+            transcriber_factory=lambda: NeverConnectsTranscriber(),
+            tts_client=FakeTTS(),
+        )
+        before = asyncio.all_tasks()
+        # Must return cleanly (no send error escaping) …
+        await audio_ws_endpoint(_GoneClientWS(state), "leak-1")
+        # … and leave no pending background task behind.
+        leaked = [t for t in asyncio.all_tasks() - before if not t.done()]
+        assert leaked == []
+
+
+# ---------------------------------------------------------------------------
+# Graceful stop drain is bounded (P1-8)
+# ---------------------------------------------------------------------------
+
+class TestStopDrainTimeout:
+    def test_hung_llm_does_not_stall_stop(self, monkeypatch):
+        """A hung LLM call must not hold the client's stop hostage: after the
+        drain timeout the server closes out with an honest pending_dropped
+        count instead of a bare session_complete."""
+        monkeypatch.setattr(audio_pipeline, "STOP_DRAIN_TIMEOUT_S", 0.2)
+        llm = BlockingLLM(MOCK_LLM_JSON)
+        t = StoppableTranscriber(
+            live=[TranscriptSegment("Never finishes.", 0.0, 1.0, speaker=0)],
+        )
+        client = _inject(t)
+        app.state.llm_client = llm
+        try:
+            with client.websocket_connect("/ws/session/drain-1") as ws:
+                ws.send_bytes(b"\x00" * 50)
+                assert llm.started.wait(timeout=5)  # worker is inside the LLM
+                ws.send_text(json.dumps({"type": "stop"}))
+                done = json.loads(ws.receive_text())
+                llm.release.set()  # unblock the worker thread for teardown
+        finally:
+            _clear_overrides()
+
+        assert done == {"type": "session_complete", "pending_dropped": 1}
+
+    def test_fast_drain_keeps_bare_session_complete(self):
+        """No timeout → the pre-existing exact payload is preserved."""
+        t = StoppableTranscriber(
+            final=[TranscriptSegment("Quick.", 0.0, 1.0, speaker=0)],
+        )
+        client = _inject(t)
+        try:
+            with client.websocket_connect("/ws/session/drain-2") as ws:
+                ws.send_text(json.dumps({"type": "stop"}))
+                suggestion = json.loads(ws.receive_text())
+                done = json.loads(ws.receive_text())
+        finally:
+            _clear_overrides()
+
+        assert suggestion["type"] == "suggestion"
+        assert done == {"type": "session_complete"}  # no pending_dropped key
+
+
+# ---------------------------------------------------------------------------
+# In-memory utterance buffer is bounded (P1-9) + PII-safe logging (P1-4)
+# ---------------------------------------------------------------------------
+
+class TestMemoryAndLogging:
+    def test_utterance_buffer_is_capped(self):
+        from audio_pipeline import SessionContext, _remember_utterance
+        from models.audio import Utterance
+
+        ctx = SessionContext(session_id="cap-buf")
+        for i in range(audio_pipeline.UTTERANCE_BUFFER_MAX + 1):
+            _remember_utterance(ctx, Utterance(
+                session_id="cap-buf", speaker="Speaker A", text=f"utterance {i}",
+                start_time=float(i), end_time=float(i) + 0.5,
+            ))
+
+        assert len(ctx.utterances) == audio_pipeline.UTTERANCE_BUFFER_KEEP
+        # The newest entries are the ones retained.
+        assert ctx.utterances[-1].text == (
+            f"utterance {audio_pipeline.UTTERANCE_BUFFER_MAX}"
+        )
+
+    def test_redact_never_contains_the_text(self):
+        from audio_pipeline import _redact
+
+        secret = "I told my therapist something deeply private"
+        out = _redact(secret)
+        for word in secret.split():
+            assert word not in out
+        assert f"len={len(secret)}" in out
+        assert out == _redact(secret)  # stable digest → log lines correlate
+
+
+# ---------------------------------------------------------------------------
+# Session + utterance caps (P2-1)
+# ---------------------------------------------------------------------------
+
+class TestSessionCaps:
+    def test_session_cap_rejects_with_1013(self, fake_ws, monkeypatch):
+        monkeypatch.setattr(audio_pipeline, "_session_slots", asyncio.Semaphore(1))
+        with fake_ws.websocket_connect("/ws/session/cap-1") as ws1:
+            ws1.send_text(json.dumps({"type": "config"}))
+            assert json.loads(ws1.receive_text())["type"] == "config_ack"
+            # Second concurrent session: honest 1013 "try again later".
+            with fake_ws.websocket_connect("/ws/session/cap-2") as ws2:
+                with pytest.raises(WebSocketDisconnect) as excinfo:
+                    ws2.receive_text()
+                assert excinfo.value.code == 1013
+        # The slot frees when the first session ends — new sessions connect.
+        with fake_ws.websocket_connect("/ws/session/cap-3") as ws3:
+            ws3.send_text(json.dumps({"type": "config"}))
+            assert json.loads(ws3.receive_text())["type"] == "config_ack"
+
+    def test_utterance_cap_sends_limit_reached_once(self, fake_ws, monkeypatch):
+        monkeypatch.setattr(audio_pipeline, "MAX_UTTERANCES", 2)
+        with fake_ws.websocket_connect("/ws/session/cap-4") as ws:
+            # Send/receive in lockstep: limit_reached goes out from the receive
+            # loop while suggestions come from the worker, so firing all frames
+            # at once could interleave the two streams.
+            for i in range(2):  # FakeTranscriber yields one utterance per frame
+                ws.send_bytes(bytes([i]) * 50)
+                assert json.loads(ws.receive_text())["type"] == "suggestion"
+            ws.send_bytes(b"\x02" * 50)  # over budget → notified once
+            assert json.loads(ws.receive_text())["type"] == "limit_reached"
+            ws.send_bytes(b"\x03" * 50)  # still over budget → silence
+            ws.send_text(json.dumps({"type": "config"}))
+            # No second limit_reached, no suggestion — next event is the ack.
+            assert json.loads(ws.receive_text())["type"] == "config_ack"
+
+
+# ---------------------------------------------------------------------------
+# WS input validation (P2-3)
+# ---------------------------------------------------------------------------
+
+class TestInputValidation:
+    def test_oversized_audio_frame_rejected(self, fake_ws):
+        with fake_ws.websocket_connect("/ws/session/val-1") as ws:
+            ws.send_bytes(b"\x00" * (audio_pipeline.MAX_AUDIO_FRAME_BYTES + 1))
+            resp = json.loads(ws.receive_text())
+            assert "audio frame too large" in resp["error"]
+            # A contract-sized frame afterwards still flows normally.
+            ws.send_bytes(b"\x00" * 3200)
+            assert json.loads(ws.receive_text())["type"] == "suggestion"
+
+    def test_role_is_clamped_to_100_chars(self, fake_ws):
+        long_role = "R" * 300
+        with fake_ws.websocket_connect("/ws/session/val-2") as ws:
+            ws.send_text(json.dumps({"type": "config", "role": long_role}))
+            assert json.loads(ws.receive_text())["type"] == "config_ack"
+            ws.send_bytes(b"\x00" * 50)
+            assert json.loads(ws.receive_text())["type"] == "suggestion"
+
+        system = app.state.llm_client.complete.call_args.kwargs["system"]
+        assert "R" * 100 in system
+        assert "R" * 101 not in system
+
+    def test_non_string_role_is_ignored(self, fake_ws):
+        with fake_ws.websocket_connect("/ws/session/val-3") as ws:
+            ws.send_text(json.dumps({"type": "config", "role": ["not", "a", "str"]}))
+            assert json.loads(ws.receive_text())["type"] == "config_ack"
+            ws.send_bytes(b"\x00" * 50)
+            assert json.loads(ws.receive_text())["type"] == "suggestion"
+
+        system = app.state.llm_client.complete.call_args.kwargs["system"]
+        assert "Husband" in system  # default role survived the bad config
