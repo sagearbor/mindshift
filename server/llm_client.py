@@ -6,8 +6,17 @@ Handles temperature rules per PRD Section 12.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
+
+logger = logging.getLogger(__name__)
+
+# Production guardrails: without an explicit timeout the Anthropic/OpenAI SDKs
+# default to a 600s request timeout with 2 retries — a single hung call could
+# occupy a worker thread for 30 minutes. Fail fast instead.
+REQUEST_TIMEOUT_SECONDS = 30
+MAX_RETRIES = 1
 
 
 class LLMClient:
@@ -57,12 +66,16 @@ class LLMClient:
             import anthropic
             return anthropic.Anthropic(
                 api_key=self._api_key or os.environ.get("ANTHROPIC_API_KEY"),
+                timeout=REQUEST_TIMEOUT_SECONDS,
+                max_retries=MAX_RETRIES,
             )
 
         if self._provider == "openai":
             import openai
             return openai.OpenAI(
                 api_key=self._api_key or os.environ.get("OPENAI_API_KEY"),
+                timeout=REQUEST_TIMEOUT_SECONDS,
+                max_retries=MAX_RETRIES,
             )
 
         if self._provider == "google":
@@ -74,11 +87,33 @@ class LLMClient:
 
         if self._provider == "mistral":
             from mistralai import Mistral
+            # Speakeasy-generated SDK takes a client-wide timeout in ms.
             return Mistral(
                 api_key=self._api_key or os.environ.get("MISTRAL_API_KEY"),
+                timeout_ms=REQUEST_TIMEOUT_SECONDS * 1000,
             )
 
         raise ValueError(f"No client builder for provider: {self._provider}")
+
+    # ------------------------------------------------------------------
+    # Shutdown
+    # ------------------------------------------------------------------
+
+    def close(self) -> None:
+        """Release the underlying provider client's connection pool.
+
+        Anthropic/OpenAI SDK clients expose ``close()`` (httpx pool); the
+        Google ``genai`` module does not — quietly skip where unsupported.
+        """
+        close_fn = getattr(self._client, "close", None)
+        if not callable(close_fn):
+            return
+        try:
+            close_fn()
+        except Exception:  # noqa: BLE001 — shutdown must never raise
+            logger.warning(
+                "Error closing %s LLM client", self._provider, exc_info=True,
+            )
 
     # ------------------------------------------------------------------
     # Temperature rules (PRD Section 12)

@@ -1,9 +1,11 @@
+import asyncio
 import io
 import logging
 import os
 import json
 import uuid
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -21,8 +23,8 @@ else:
     load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 import aiosqlite
-from fastapi import FastAPI, HTTPException, Query, WebSocket
-from fastapi.responses import Response
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from audio_pipeline import audio_ws_endpoint
@@ -39,8 +41,73 @@ from models.relationship import (
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = os.getenv("MINDSHIFT_DB_PATH", "mindshift.db")
+# Default to an absolute repo-root path so every launch directory uses the
+# same database; MINDSHIFT_DB_PATH still overrides.
+_DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "mindshift.db"
+DB_PATH = os.getenv("MINDSHIFT_DB_PATH") or str(_DEFAULT_DB_PATH)
 MINDSHIFT_MODEL = os.getenv("MINDSHIFT_MODEL", "claude-3-haiku-20240307")
+
+# API-key env var per provider — used for health/startup reporting only.
+_PROVIDER_KEY_ENVS = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "google": "GOOGLE_API_KEY",
+    "mistral": "MISTRAL_API_KEY",
+}
+
+
+def _detected_provider() -> str:
+    """Best-effort provider name for the configured model ("unknown" if none)."""
+    try:
+        return LLMClient._detect_provider(MINDSHIFT_MODEL)
+    except ValueError:
+        return "unknown"
+
+
+def _llm_key_present() -> bool:
+    env_var = _PROVIDER_KEY_ENVS.get(_detected_provider())
+    return bool(env_var and os.environ.get(env_var))
+
+
+def _stt_provider() -> str:
+    return (os.getenv("STT_PROVIDER") or "deepgram").strip().lower() or "deepgram"
+
+
+# ---------------------------------------------------------------------------
+# Logging + request correlation
+# ---------------------------------------------------------------------------
+
+_request_id_var: ContextVar[str] = ContextVar("request_id", default="-")
+
+
+class _RequestIdFilter(logging.Filter):
+    """Stamp every record with the current request's ID ("-" outside HTTP)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.request_id = _request_id_var.get()
+        return True
+
+
+def _configure_logging() -> None:
+    """Install a timestamped root handler — only if none exists yet.
+
+    pytest and uvicorn install their own handlers; when they have, this is a
+    no-op so their configuration survives untouched.
+    """
+    root = logging.getLogger()
+    if root.handlers:
+        return
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s [%(request_id)s] %(name)s: %(message)s",
+    ))
+    handler.addFilter(_RequestIdFilter())
+    root.addHandler(handler)
+    level = os.getenv("LOG_LEVEL", "INFO").upper()
+    if level not in logging.getLevelNamesMapping():
+        logger.warning("Invalid LOG_LEVEL=%r — defaulting to INFO", level)
+        level = "INFO"
+    root.setLevel(level)
 
 
 # ---------------------------------------------------------------------------
@@ -114,6 +181,12 @@ class TurnResponse(BaseModel):
 async def get_db() -> aiosqlite.Connection:
     db = await aiosqlite.connect(DB_PATH)
     db.row_factory = aiosqlite.Row
+    # Production tuning: WAL lets readers and a writer coexist; busy_timeout
+    # waits out short write locks instead of failing immediately.
+    await db.execute("PRAGMA journal_mode=WAL")
+    await db.execute("PRAGMA busy_timeout=5000")
+    await db.execute("PRAGMA foreign_keys=ON")
+    await db.execute("PRAGMA synchronous=NORMAL")
     return db
 
 
@@ -158,6 +231,10 @@ async def init_db() -> None:
             )
             """
         )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_rel "
+            "ON sessions(relationship_id)"
+        )
         await db.commit()
     finally:
         await db.close()
@@ -191,13 +268,38 @@ def _configure_stt(app: FastAPI) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _configure_logging()
     await init_db()
     app.state.llm_client = LLMClient(model=MINDSHIFT_MODEL)
     _configure_stt(app)
+    logger.info(
+        "MindShift API started — model=%s provider=%s llm_key_present=%s "
+        "stt_provider=%s db_path=%s",
+        MINDSHIFT_MODEL,
+        _detected_provider(),
+        "yes" if _llm_key_present() else "no",
+        _stt_provider(),
+        Path(DB_PATH).resolve(),
+    )
     yield
+    app.state.llm_client.close()
+    logger.info("MindShift API shut down — LLM client closed")
 
 
 app = FastAPI(title="MindShift API", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    """Accept or mint an X-Request-ID and expose it to logs + the response."""
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    token = _request_id_var.set(request_id)
+    try:
+        response = await call_next(request)
+    finally:
+        _request_id_var.reset(token)
+    response.headers["X-Request-ID"] = request_id
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -278,6 +380,29 @@ def read_root():
     return {"message": "MindShift API"}
 
 
+@app.get("/healthz")
+async def healthz():
+    """Liveness/readiness probe — checks the DB, never calls external APIs."""
+    db_ok = False
+    try:
+        db = await get_db()
+        try:
+            await db.execute("SELECT 1")
+            db_ok = True
+        finally:
+            await db.close()
+    except Exception:  # noqa: BLE001 — a health probe must report, not crash
+        logger.exception("Health check: database unreachable")
+
+    payload = {
+        "status": "ok" if db_ok else "degraded",
+        "db": db_ok,
+        "llm_key_present": _llm_key_present(),
+        "stt_provider": _stt_provider(),
+    }
+    return JSONResponse(payload, status_code=200 if db_ok else 503)
+
+
 async def _resolve_relationship_context(
     relationship_id: str | None,
     from_id: str | None,
@@ -342,14 +467,32 @@ async def respond(req: RespondRequest):
         user_content += f"\n\nRelationship context: {rel_context}"
 
     llm = get_llm_client()
-    raw = llm.complete(system=system, user=user_content)
+    # to_thread: llm.complete is a blocking SDK call — never run it on the
+    # event loop, or one slow request stalls every other request/WebSocket.
+    raw = await asyncio.to_thread(llm.complete, system=system, user=user_content)
     try:
         data = parse_llm_json(raw)
     except (json.JSONDecodeError, IndexError, KeyError):
         raise HTTPException(status_code=502, detail="LLM returned invalid JSON")
 
-    suggestions = data.get("suggestions", [])
-    tone_score = data.get("tone_score", {})
+    suggestions = data.get("suggestions")
+    tone_score = data.get("tone_score")
+    if (
+        not isinstance(suggestions, list)
+        or not suggestions
+        or not all(isinstance(s, str) for s in suggestions)
+    ):
+        raise HTTPException(
+            status_code=502,
+            detail="LLM returned invalid suggestions (expected non-empty list of strings)",
+        )
+    if not isinstance(tone_score, dict) or not all(
+        isinstance(v, int) and not isinstance(v, bool) for v in tone_score.values()
+    ):
+        raise HTTPException(
+            status_code=502,
+            detail="LLM returned invalid tone_score (expected integer scores)",
+        )
     return RespondResponse(suggestions=suggestions, tone_score=tone_score)
 
 
@@ -371,18 +514,36 @@ async def score(req: ScoreRequest):
         user_content += f"\n\nRelationship context: {rel_context}"
 
     llm = get_llm_client()
-    raw = llm.complete(system=system, user=user_content, max_tokens=256)
+    # to_thread: keep the blocking SDK call off the event loop (see /respond).
+    raw = await asyncio.to_thread(
+        llm.complete, system=system, user=user_content, max_tokens=256,
+    )
     try:
         data = parse_llm_json(raw)
     except (json.JSONDecodeError, IndexError, KeyError):
         raise HTTPException(status_code=502, detail="LLM returned invalid JSON")
 
+    # Honest failure: a missing dimension must be a 502, never a fabricated 0.
+    dimensions = ("warmth", "defensiveness", "sarcasm", "constructiveness", "overall")
+    invalid = [
+        d for d in dimensions
+        if not isinstance(data.get(d), int) or isinstance(data.get(d), bool)
+    ]
+    if invalid:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "LLM response missing or invalid score dimensions: "
+                + ", ".join(invalid)
+            ),
+        )
+
     return ScoreResponse(
-        warmth=data.get("warmth", 0),
-        defensiveness=data.get("defensiveness", 0),
-        sarcasm=data.get("sarcasm", 0),
-        constructiveness=data.get("constructiveness", 0),
-        overall=data.get("overall", 0),
+        warmth=data["warmth"],
+        defensiveness=data["defensiveness"],
+        sarcasm=data["sarcasm"],
+        constructiveness=data["constructiveness"],
+        overall=data["overall"],
     )
 
 
@@ -435,24 +596,26 @@ async def get_session(session_id: str):
 
 @app.post("/session/{session_id}/turns", response_model=TurnResponse, status_code=201)
 async def add_turn(session_id: str, turn: SessionTurn):
+    turn_dict = turn.model_dump()
+
     db = await get_db()
     try:
+        # Atomic append via SQLite JSON1 — a single UPDATE cannot lose turns
+        # to a concurrent read-modify-write race (last-writer-wins data loss).
+        cursor = await db.execute(
+            "UPDATE sessions SET turns = json_insert(turns, '$[#]', json(?)) "
+            "WHERE id = ?",
+            (json.dumps(turn_dict), session_id),
+        )
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Session not found")
+        await db.commit()
+
         cursor = await db.execute(
             "SELECT turns FROM sessions WHERE id = ?", (session_id,),
         )
         row = await cursor.fetchone()
-        if row is None:
-            raise HTTPException(status_code=404, detail="Session not found")
-
         turns = json.loads(row["turns"])
-        turn_dict = turn.model_dump()
-        turns.append(turn_dict)
-
-        await db.execute(
-            "UPDATE sessions SET turns = ? WHERE id = ?",
-            (json.dumps(turns), session_id),
-        )
-        await db.commit()
     finally:
         await db.close()
 
@@ -620,14 +783,18 @@ async def export_session(
     if row is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    session = {
-        "id": row["id"],
-        "created_at": row["created_at"],
-        "turns": json.loads(row["turns"]),
-        "metadata": json.loads(row["metadata"]),
-    }
+    try:
+        session = {
+            "id": row["id"],
+            "created_at": row["created_at"],
+            "turns": json.loads(row["turns"]),
+            "metadata": json.loads(row["metadata"]),
+        }
+    except (json.JSONDecodeError, TypeError):
+        logger.exception("Corrupt stored JSON for session %s", session_id)
+        raise HTTPException(status_code=500, detail="corrupt session data")
 
-    # Generate AI insights
+    # Generate AI insights — an LLM failure must not sink the transcript.
     llm = get_llm_client()
     turns_summary = "\n".join(
         f"{t.get('speaker', '?')}: {t.get('text', '')}" for t in session["turns"]
@@ -637,11 +804,19 @@ async def export_session(
         "Highlight communication patterns, emotional dynamics, and areas for improvement.\n\n"
         f"{turns_summary}"
     )
-    insights = llm.complete(
-        system="You are a clinical communication analyst.",
-        user=insights_prompt,
-        max_tokens=300,
-    )
+    try:
+        # to_thread: keep the blocking SDK call off the event loop.
+        insights = await asyncio.to_thread(
+            llm.complete,
+            system="You are a clinical communication analyst.",
+            user=insights_prompt,
+            max_tokens=300,
+        )
+    except Exception as exc:  # noqa: BLE001 — degrade honestly, keep transcript
+        logger.warning(
+            "Insights generation failed for session %s: %s", session_id, exc,
+        )
+        insights = f"Insights unavailable: {exc}"
 
     if format == ExportFormat.pdf:
         pdf_bytes = _build_pdf_export(session, insights)

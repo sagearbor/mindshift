@@ -1,10 +1,13 @@
+import asyncio
 import json
+import threading
+import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from main import app, empathy_system_prompt, init_db, parse_llm_json
+from main import app, empathy_system_prompt, get_db, init_db, parse_llm_json
 
 
 # ---------------------------------------------------------------------------
@@ -53,6 +56,68 @@ async def test_root(client):
     resp = await client.get("/")
     assert resp.status_code == 200
     assert resp.json()["message"] == "MindShift API"
+
+
+# ---------------------------------------------------------------------------
+# GET /healthz (P1-2)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_healthz(client):
+    resp = await client.get("/healthz")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "ok"
+    assert data["db"] is True
+    assert isinstance(data["llm_key_present"], bool)
+    assert isinstance(data["stt_provider"], str) and data["stt_provider"]
+
+
+# ---------------------------------------------------------------------------
+# X-Request-ID middleware (P1-3)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_request_id_echoed(client):
+    resp = await client.get("/", headers={"X-Request-ID": "req-abc-123"})
+    assert resp.headers["X-Request-ID"] == "req-abc-123"
+
+
+@pytest.mark.anyio
+async def test_request_id_generated_when_missing(client):
+    resp = await client.get("/")
+    # Generated IDs are uuid4 — parseable as a UUID.
+    uuid.UUID(resp.headers["X-Request-ID"])
+
+
+# ---------------------------------------------------------------------------
+# init_db creates the relationship-session index (P1-6)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_init_db_creates_relationship_index(client):
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type = 'index' AND name = 'idx_sessions_rel'"
+        )
+        row = await cursor.fetchone()
+    finally:
+        await db.close()
+    assert row is not None
+
+
+# ---------------------------------------------------------------------------
+# Lifespan shutdown closes the LLM client (P1-8)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_lifespan_closes_llm_client():
+    with patch("main.LLMClient") as mock_cls:
+        async with app.router.lifespan_context(app):
+            mock_cls.return_value.close.assert_not_called()
+        mock_cls.return_value.close.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +216,70 @@ async def test_respond_bad_llm_json(client):
     assert resp.status_code == 502
 
 
+async def _post_respond_with_llm_payload(client, payload: str):
+    with patch("main.get_llm_client") as mock_get:
+        mock_client = MagicMock()
+        mock_client.complete.return_value = payload
+        mock_get.return_value = mock_client
+
+        return await client.post("/respond", json={
+            "transcript_turn": "Test",
+            "role": "Husband",
+            "empathy_slider": 50,
+        })
+
+
+@pytest.mark.anyio
+async def test_respond_empty_suggestions_is_502(client):
+    """P2-4: an empty suggestions list is an LLM failure, not a valid answer."""
+    payload = json.dumps({"suggestions": [], "tone_score": {"warmth": 50}})
+    resp = await _post_respond_with_llm_payload(client, payload)
+    assert resp.status_code == 502
+
+
+@pytest.mark.anyio
+async def test_respond_missing_suggestions_is_502(client):
+    payload = json.dumps({"tone_score": {"warmth": 50}})
+    resp = await _post_respond_with_llm_payload(client, payload)
+    assert resp.status_code == 502
+
+
+@pytest.mark.anyio
+async def test_respond_non_integer_tone_is_502(client):
+    """P2-4: non-integer tone values must be a 502, not a 500 validation error."""
+    payload = json.dumps({
+        "suggestions": ["a", "b", "c"],
+        "tone_score": {"warmth": "very warm"},
+    })
+    resp = await _post_respond_with_llm_payload(client, payload)
+    assert resp.status_code == 502
+
+
+@pytest.mark.anyio
+async def test_respond_llm_runs_off_event_loop(client):
+    """P0-1: the blocking LLM call must not run on the event-loop thread."""
+    loop_thread = threading.current_thread()
+    seen: dict = {}
+
+    def record_thread(**kwargs):
+        seen["thread"] = threading.current_thread()
+        return MOCK_RESPOND_JSON
+
+    with patch("main.get_llm_client") as mock_get:
+        mock_client = MagicMock()
+        mock_client.complete.side_effect = record_thread
+        mock_get.return_value = mock_client
+
+        resp = await client.post("/respond", json={
+            "transcript_turn": "Test",
+            "role": "Husband",
+            "empathy_slider": 50,
+        })
+
+    assert resp.status_code == 200
+    assert seen["thread"] is not loop_thread
+
+
 # ---------------------------------------------------------------------------
 # POST /score
 # ---------------------------------------------------------------------------
@@ -191,6 +320,62 @@ async def test_score_bad_llm_json(client):
 async def test_score_missing_text(client):
     resp = await client.post("/score", json={})
     assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_score_missing_dimension_is_502(client):
+    """P2-4: a missing dimension must be a 502, never a fabricated 0."""
+    incomplete = json.dumps({
+        "warmth": 70, "defensiveness": 20, "sarcasm": 5, "constructiveness": 80,
+        # "overall" missing
+    })
+    with patch("main.get_llm_client") as mock_get:
+        mock_client = MagicMock()
+        mock_client.complete.return_value = incomplete
+        mock_get.return_value = mock_client
+
+        resp = await client.post("/score", json={"text": "Hello"})
+
+    assert resp.status_code == 502
+    assert "overall" in resp.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_score_non_integer_dimension_is_502(client):
+    invalid = json.dumps({
+        "warmth": "high", "defensiveness": 20, "sarcasm": 5,
+        "constructiveness": 80, "overall": 75,
+    })
+    with patch("main.get_llm_client") as mock_get:
+        mock_client = MagicMock()
+        mock_client.complete.return_value = invalid
+        mock_get.return_value = mock_client
+
+        resp = await client.post("/score", json={"text": "Hello"})
+
+    assert resp.status_code == 502
+    assert "warmth" in resp.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_score_llm_runs_off_event_loop(client):
+    """P0-1: the blocking LLM call must not run on the event-loop thread."""
+    loop_thread = threading.current_thread()
+    seen: dict = {}
+
+    def record_thread(**kwargs):
+        seen["thread"] = threading.current_thread()
+        return MOCK_SCORE_JSON
+
+    with patch("main.get_llm_client") as mock_get:
+        mock_client = MagicMock()
+        mock_client.complete.side_effect = record_thread
+        mock_get.return_value = mock_client
+
+        resp = await client.post("/score", json={"text": "Hello"})
+
+    assert resp.status_code == 200
+    assert seen["thread"] is not loop_thread
 
 
 # ---------------------------------------------------------------------------
@@ -356,6 +541,28 @@ async def test_add_turn_no_score(client):
     assert turn_resp.json()["turn"]["score"] is None
 
 
+@pytest.mark.anyio
+async def test_add_turn_concurrent_no_lost_updates(client):
+    """P0-4: N concurrent adds must persist all N turns (no lost updates)."""
+    create_resp = await client.post("/session", json={"turns": [], "metadata": {}})
+    sid = create_resp.json()["id"]
+
+    n = 10
+    responses = await asyncio.gather(*[
+        client.post(f"/session/{sid}/turns", json={
+            "speaker": "Speaker",
+            "text": f"concurrent-turn-{i}",
+        })
+        for i in range(n)
+    ])
+    assert all(r.status_code == 201 for r in responses)
+
+    get_resp = await client.get(f"/session/{sid}")
+    turns = get_resp.json()["turns"]
+    assert len(turns) == n
+    assert {t["text"] for t in turns} == {f"concurrent-turn-{i}" for i in range(n)}
+
+
 # ---------------------------------------------------------------------------
 # GET /session/{id}/export — text format
 # ---------------------------------------------------------------------------
@@ -430,6 +637,81 @@ async def test_export_text_format_param(client):
 async def test_export_not_found(client):
     resp = await client.get("/session/nonexistent-id/export")
     assert resp.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_export_insights_failure_still_delivers_transcript(client):
+    """P2-5: an LLM failure degrades insights honestly, keeps the transcript."""
+    create_resp = await client.post("/session", json={
+        "turns": SAMPLE_TURNS,
+        "metadata": {"therapist": "Dr. Smith"},
+    })
+    sid = create_resp.json()["id"]
+
+    with patch("main.get_llm_client") as mock_get:
+        mock_client = MagicMock()
+        mock_client.complete.side_effect = RuntimeError("API down")
+        mock_get.return_value = mock_client
+
+        resp = await client.get(f"/session/{sid}/export")
+
+    assert resp.status_code == 200
+    body = resp.text
+    assert "Insights unavailable" in body
+    assert "API down" in body
+    # Transcript still fully delivered
+    assert "You forgot again." in body
+    assert "AGGREGATE STATISTICS" in body
+
+
+@pytest.mark.anyio
+async def test_export_corrupt_session_data_is_explicit_500(client):
+    """P2-5: corrupt stored JSON yields an explicit 500, not a raw traceback."""
+    sid = f"corrupt-{uuid.uuid4()}"
+    db = await get_db()
+    try:
+        await db.execute(
+            "INSERT INTO sessions (id, created_at, turns, metadata) "
+            "VALUES (?, ?, ?, ?)",
+            (sid, "2026-01-01T00:00:00+00:00", "{not valid json", "{}"),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+    with patch("main.get_llm_client") as mock_get:
+        mock_get.return_value = MagicMock()
+        resp = await client.get(f"/session/{sid}/export")
+
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == "corrupt session data"
+
+
+@pytest.mark.anyio
+async def test_export_llm_runs_off_event_loop(client):
+    """P0-1: the insights LLM call must not run on the event-loop thread."""
+    create_resp = await client.post("/session", json={
+        "turns": SAMPLE_TURNS,
+        "metadata": {},
+    })
+    sid = create_resp.json()["id"]
+
+    loop_thread = threading.current_thread()
+    seen: dict = {}
+
+    def record_thread(**kwargs):
+        seen["thread"] = threading.current_thread()
+        return MOCK_INSIGHTS
+
+    with patch("main.get_llm_client") as mock_get:
+        mock_client = MagicMock()
+        mock_client.complete.side_effect = record_thread
+        mock_get.return_value = mock_client
+
+        resp = await client.get(f"/session/{sid}/export")
+
+    assert resp.status_code == 200
+    assert seen["thread"] is not loop_thread
 
 
 # ---------------------------------------------------------------------------

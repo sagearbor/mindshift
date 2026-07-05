@@ -1,9 +1,10 @@
 """Tests for the multi-vendor LLM abstraction layer."""
 
+import sys
 from unittest.mock import MagicMock, patch, PropertyMock
 import pytest
 
-from llm_client import LLMClient
+from llm_client import LLMClient, MAX_RETRIES, REQUEST_TIMEOUT_SECONDS
 
 
 # ---------------------------------------------------------------------------
@@ -83,6 +84,62 @@ class TestUsesResponsesApi:
     def test_non_openai_models(self):
         assert LLMClient.uses_responses_api("claude-3-haiku-20240307") is False
         assert LLMClient.uses_responses_api("gemini-2.0-flash") is False
+
+
+# ---------------------------------------------------------------------------
+# Client construction — production timeouts/retries (P0-1)
+# ---------------------------------------------------------------------------
+
+class TestBuildClientConfig:
+    def test_anthropic_gets_timeout_and_retries(self):
+        with patch("anthropic.Anthropic") as mock_cls:
+            LLMClient(model="claude-3-haiku-20240307", api_key="test-key")
+        kwargs = mock_cls.call_args.kwargs
+        assert kwargs["timeout"] == REQUEST_TIMEOUT_SECONDS
+        assert kwargs["max_retries"] == MAX_RETRIES
+
+    def test_openai_gets_timeout_and_retries(self, monkeypatch):
+        fake_openai = MagicMock()
+        monkeypatch.setitem(sys.modules, "openai", fake_openai)
+        LLMClient(model="gpt-4o-mini", api_key="test-key")
+        kwargs = fake_openai.OpenAI.call_args.kwargs
+        assert kwargs["timeout"] == REQUEST_TIMEOUT_SECONDS
+        assert kwargs["max_retries"] == MAX_RETRIES
+
+    def test_mistral_gets_timeout_ms(self, monkeypatch):
+        fake_mistralai = MagicMock()
+        monkeypatch.setitem(sys.modules, "mistralai", fake_mistralai)
+        LLMClient(model="mistral-large", api_key="test-key")
+        kwargs = fake_mistralai.Mistral.call_args.kwargs
+        assert kwargs["timeout_ms"] == REQUEST_TIMEOUT_SECONDS * 1000
+
+
+# ---------------------------------------------------------------------------
+# Shutdown — close() releases the provider client (P1-8)
+# ---------------------------------------------------------------------------
+
+class TestClose:
+    def _make_client(self, underlying) -> LLMClient:
+        client = LLMClient.__new__(LLMClient)
+        client.model = "claude-3-haiku-20240307"
+        client._provider = "anthropic"
+        client._api_key = None
+        client._client = underlying
+        return client
+
+    def test_close_calls_underlying_close(self):
+        underlying = MagicMock()
+        self._make_client(underlying).close()
+        underlying.close.assert_called_once()
+
+    def test_close_without_close_method_is_noop(self):
+        # e.g. the google genai module has no close() — must not raise.
+        self._make_client(object()).close()
+
+    def test_close_swallows_errors(self):
+        underlying = MagicMock()
+        underlying.close.side_effect = RuntimeError("pool already closed")
+        self._make_client(underlying).close()  # must not raise
 
 
 # ---------------------------------------------------------------------------
