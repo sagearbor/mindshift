@@ -16,3 +16,4 @@ pytest-asyncio
 # whichever file gets installed.
 python-dotenv>=1,<2
 numpy>=1.26,<3
+certifi>=2024.0
