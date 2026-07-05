@@ -171,7 +171,7 @@ def _score_transcript(llm_client: LLMClient, transcript: str) -> dict:
     text = raw.strip()
     if text.startswith("```"):
         lines = text.split("\n")
-        lines = [l for l in lines if not l.strip().startswith("```")]
+        lines = [ln for ln in lines if not ln.strip().startswith("```")]
         text = "\n".join(lines).strip()
     return json.loads(text)
 

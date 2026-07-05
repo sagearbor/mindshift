@@ -1,7 +1,7 @@
 """Tests for the multi-vendor LLM abstraction layer."""
 
 import sys
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 import pytest
 
 from llm_client import LLMClient, MAX_RETRIES, REQUEST_TIMEOUT_SECONDS
@@ -14,7 +14,6 @@ from llm_client import LLMClient, MAX_RETRIES, REQUEST_TIMEOUT_SECONDS
 class TestProviderDetection:
     def test_claude_models(self):
         for model in ["claude-3-haiku-20240307", "claude-3-opus-20240229", "claude-3-5-sonnet-20241022"]:
-            client = LLMClient.__new__(LLMClient)
             assert LLMClient._detect_provider(model) == "anthropic"
 
     def test_openai_chat_models(self):

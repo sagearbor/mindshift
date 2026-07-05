@@ -6,8 +6,6 @@ React Native frontend (SessionScreen, SuggestionCard, client.ts) expects.
 Catches schema drift between backend and frontend early.
 """
 
-import json
-import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
