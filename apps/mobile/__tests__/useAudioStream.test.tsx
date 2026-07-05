@@ -46,7 +46,11 @@ jest.mock("expo-audio", () => ({
   },
 }));
 
+import * as Speech from "expo-speech";
 import { useAudioStream } from "../src/hooks/useAudioStream";
+
+const speakMock = Speech.speak as jest.Mock;
+const speechStopMock = Speech.stop as jest.Mock;
 
 /**
  * Fake WebSocket capturing sent frames and letting tests drive server events.
@@ -125,6 +129,9 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ status: "granted", granted: true });
   mockMic.setAudioMode.mockReset().mockResolvedValue(undefined);
+
+  speakMock.mockReset();
+  speechStopMock.mockReset().mockResolvedValue(undefined);
 });
 
 async function startLiveSession(empathy = 50) {
@@ -365,6 +372,180 @@ describe("useAudioStream — live PCM streaming", () => {
   });
 });
 
+/** A server suggestion event whose top suggestion is `top`. */
+function suggestionEvent(top: string, rest: string[] = []) {
+  return {
+    type: "suggestion",
+    session_id: "sess-1",
+    utterance_text: "some utterance",
+    speaker: "Speaker A",
+    suggestions: [top, ...rest],
+    empathy_slider: 50,
+  };
+}
+
+describe("useAudioStream — on-device speech (expo-speech, free)", () => {
+  it("earpiece mode: speaks the TOP suggestion exactly once", async () => {
+    const { hook, ws } = await startLiveSession();
+    await act(() => hook.result.current.setSpeechEnabled(true));
+
+    await act(() =>
+      ws.emitServer(suggestionEvent("I hear you.", ["Tell me more."])),
+    );
+
+    expect(speakMock).toHaveBeenCalledTimes(1);
+    expect(speakMock.mock.calls[0][0]).toBe("I hear you.");
+    expect(hook.result.current.speechEnabled).toBe(true);
+    expect(hook.result.current.speechAvailable).toBe(true);
+  });
+
+  it("visual mode (default): suggestions render but are NOT spoken", async () => {
+    const { hook, ws } = await startLiveSession();
+    expect(hook.result.current.speechEnabled).toBe(false);
+
+    await act(() => ws.emitServer(suggestionEvent("Stay silent about this.")));
+
+    expect(hook.result.current.suggestions[0].text).toBe(
+      "Stay silent about this.",
+    );
+    expect(speakMock).not.toHaveBeenCalled();
+  });
+
+  it("most-recent-wins: a new suggestion stops the current utterance and speaks the new one", async () => {
+    const { hook, ws } = await startLiveSession();
+    await act(() => hook.result.current.setSpeechEnabled(true));
+
+    await act(() => ws.emitServer(suggestionEvent("First advice.")));
+    expect(speakMock).toHaveBeenCalledTimes(1);
+
+    // The mock never fires onDone — the first utterance is still "speaking"
+    // when the second suggestion lands.
+    await act(() => ws.emitServer(suggestionEvent("Newer advice.")));
+
+    expect(speakMock).toHaveBeenCalledTimes(2);
+    expect(speakMock.mock.calls[1][0]).toBe("Newer advice.");
+    // stop() ran before the second speak() — interrupt, never queue.
+    const stopOrders = speechStopMock.mock.invocationCallOrder;
+    const speakOrders = speakMock.mock.invocationCallOrder;
+    expect(Math.max(...stopOrders)).toBeLessThan(speakOrders[1]);
+  });
+
+  it("stopSession stops speech and nothing is spoken afterward (drain included)", async () => {
+    const { hook, ws } = await startLiveSession();
+    await act(() => hook.result.current.setSpeechEnabled(true));
+
+    await act(() => ws.emitServer(suggestionEvent("Mid-session advice.")));
+    expect(speakMock).toHaveBeenCalledTimes(1);
+    speechStopMock.mockClear();
+
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    expect(speechStopMock).toHaveBeenCalled();
+
+    // A late suggestion during the drain window still renders visually but
+    // is NOT spoken — the user pressed stop.
+    await act(() => ws.emitServer(suggestionEvent("Too late to say aloud.")));
+    expect(hook.result.current.suggestions[0].text).toBe(
+      "Too late to say aloud.",
+    );
+    expect(speakMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("unmount stops any in-flight speech", async () => {
+    const { hook, ws } = await startLiveSession();
+    await act(() => hook.result.current.setSpeechEnabled(true));
+    await act(() => ws.emitServer(suggestionEvent("Still talking...")));
+    speechStopMock.mockClear();
+
+    await act(() => hook.unmount());
+
+    expect(speechStopMock).toHaveBeenCalled();
+  });
+
+  it("switching back to visual mid-utterance silences immediately", async () => {
+    const { hook, ws } = await startLiveSession();
+    await act(() => hook.result.current.setSpeechEnabled(true));
+    await act(() => ws.emitServer(suggestionEvent("Long spoken advice...")));
+    speechStopMock.mockClear();
+
+    await act(() => hook.result.current.setSpeechEnabled(false));
+    expect(speechStopMock).toHaveBeenCalled();
+
+    await act(() => ws.emitServer(suggestionEvent("Visual-only now.")));
+    expect(speakMock).toHaveBeenCalledTimes(1); // no new speech
+  });
+
+  it("degrades honestly when the platform has no TTS: no crash, visual suggestions intact", async () => {
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      speakMock.mockImplementation(() => {
+        throw new Error("Speech synthesis is unavailable on this platform");
+      });
+
+      const { hook, ws } = await startLiveSession();
+      await act(() => hook.result.current.setSpeechEnabled(true));
+
+      await act(() => ws.emitServer(suggestionEvent("Try saying this.")));
+
+      // The failure is surfaced, not hidden — and the visual path still works.
+      expect(hook.result.current.speechAvailable).toBe(false);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(hook.result.current.suggestions[0].text).toBe("Try saying this.");
+
+      // Once known-unavailable, we stop attempting to speak at all.
+      speakMock.mockClear();
+      await act(() => ws.emitServer(suggestionEvent("Another idea.")));
+      expect(speakMock).not.toHaveBeenCalled();
+      expect(hook.result.current.suggestions[0].text).toBe("Another idea.");
+      expect(warnSpy).toHaveBeenCalledTimes(1); // logged once, never spammed
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("async TTS failure (onError) flips speechAvailable to false — the silent earpiece is never presented as working", async () => {
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // e.g. Android where detectSpeechSupport() is true but the TTS engine
+      // has no installed voice data: speak() returns normally, then the
+      // utterance fails asynchronously via its onError callback.
+      speakMock.mockImplementation(
+        (_text: string, opts?: { onError?: (error: Error) => void }) => {
+          opts?.onError?.(new Error("TTS engine has no voice data"));
+        },
+      );
+
+      const { hook, ws } = await startLiveSession();
+      await act(() => hook.result.current.setSpeechEnabled(true));
+      expect(hook.result.current.speechAvailable).toBe(true);
+
+      await act(() => ws.emitServer(suggestionEvent("Say this aloud.")));
+
+      // Nothing was actually spoken, so the hook must say so: the flag flips
+      // and LiveCoachScreen's "spoken suggestions aren't available" note
+      // renders (pinned by the LiveCoachScreen speechAvailable=false test).
+      expect(hook.result.current.speechAvailable).toBe(false);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+
+      // Visual transcript + suggestions keep working untouched.
+      expect(hook.result.current.suggestions[0].text).toBe("Say this aloud.");
+      expect(hook.result.current.transcript.at(-1)?.text).toBe(
+        "some utterance",
+      );
+
+      // Known-unavailable: no further speak attempts, no log spam.
+      speakMock.mockClear();
+      await act(() => ws.emitServer(suggestionEvent("Another idea.")));
+      expect(speakMock).not.toHaveBeenCalled();
+      expect(hook.result.current.suggestions[0].text).toBe("Another idea.");
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+});
+
 describe("useAudioStream — graceful stop handshake", () => {
   it("stop flushes the remainder, sends a stop message, and drains late suggestions before closing", async () => {
     const { hook, ws } = await startLiveSession();
@@ -437,6 +618,126 @@ describe("useAudioStream — graceful stop handshake", () => {
       expect(hook.result.current.connectionStatus).toBe("idle");
       expect(hook.result.current.sessionActive).toBe(false);
     } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("drain window resets on server activity: a slow (e.g. Whisper) final suggestion at t=6s still lands", async () => {
+    jest.useFakeTimers();
+    try {
+      const { hook, ws } = await startLiveSession();
+
+      await act(async () => {
+        await hook.result.current.stopSession();
+      });
+      expect(ws.readyState).toBe(FakeWebSocket.OPEN);
+
+      // t=3.5s: any frame from the server (here a config_ack control frame)
+      // proves it is alive and still finalizing — the window must reset.
+      await act(() => {
+        jest.advanceTimersByTime(3500);
+      });
+      await act(() => ws.emitServer({ type: "config_ack" }));
+
+      // t=6s: the OLD fixed 4s deadline would have killed the socket at t=4s.
+      // With the reset the drain is still open, waiting for the server.
+      await act(() => {
+        jest.advanceTimersByTime(2500);
+      });
+      expect(ws.readyState).toBe(FakeWebSocket.OPEN);
+      expect(hook.result.current.connectionStatus).toBe("live");
+
+      // The slow-transcription final suggestion + session_complete arrive
+      // at t=6s and must land in state before the session ends at "idle".
+      await act(() =>
+        ws.emitServer({
+          type: "suggestion",
+          session_id: "sess-1",
+          utterance_text: "one last thing",
+          speaker: "Speaker A",
+          suggestions: ["Closing advice."],
+          empathy_slider: 50,
+        }),
+      );
+      expect(hook.result.current.transcript.at(-1)?.text).toBe(
+        "one last thing",
+      );
+      expect(hook.result.current.suggestions[0].text).toBe("Closing advice.");
+
+      await act(() => ws.emitServer({ type: "session_complete" }));
+      expect(ws.readyState).not.toBe(FakeWebSocket.OPEN);
+      expect(hook.result.current.connectionStatus).toBe("idle");
+      expect(hook.result.current.sessionActive).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("a server that keeps sending but never completes is cut off at the absolute drain cap", async () => {
+    jest.useFakeTimers();
+    try {
+      const { hook, ws } = await startLiveSession();
+
+      await act(async () => {
+        await hook.result.current.stopSession();
+      });
+
+      // The server emits a frame every 3s (each one inside the 4s inactivity
+      // window, so the drain keeps extending) but never session_complete.
+      for (let t = 3000; t <= 12000; t += 3000) {
+        await act(() => {
+          jest.advanceTimersByTime(3000);
+        });
+        expect(ws.readyState).toBe(FakeWebSocket.OPEN); // still draining
+        await act(() => ws.emitServer({ type: "config_ack" }));
+      }
+
+      // The window re-armed at t=12s would run to t=16s, but the absolute
+      // 15s cap wins: the stop can never hang forever, and it ends at idle.
+      await act(() => {
+        jest.advanceTimersByTime(3000);
+      });
+      expect(ws.readyState).not.toBe(FakeWebSocket.OPEN);
+      expect(hook.result.current.connectionStatus).toBe("idle");
+      expect(hook.result.current.sessionActive).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("unmount during the drain clears the drain timer — no leaks, no setState after unmount", async () => {
+    jest.useFakeTimers();
+    const setTimeoutSpy = jest.spyOn(global, "setTimeout");
+    const clearTimeoutSpy = jest.spyOn(global, "clearTimeout");
+    try {
+      const { hook, ws } = await startLiveSession();
+
+      await act(async () => {
+        await hook.result.current.stopSession();
+      });
+      expect(ws.readyState).toBe(FakeWebSocket.OPEN); // draining
+
+      // The drain timer is the only 4000ms timer armed here (reconnects use
+      // 2000ms; the rest are React Native internals) — pin its exact id.
+      const drainCalls = setTimeoutSpy.mock.calls
+        .map((call, i) => ({ delay: call[1], i }))
+        .filter(({ delay }) => delay === 4000);
+      expect(drainCalls).toHaveLength(1);
+      const drainTimerId = setTimeoutSpy.mock.results[drainCalls[0].i].value;
+
+      await act(() => hook.unmount());
+
+      // Unmount cleared that exact timer, so finishDrain can never fire and
+      // call setState on the unmounted hook.
+      expect(clearTimeoutSpy.mock.calls.some(([id]) => id === drainTimerId)).toBe(
+        true,
+      );
+      await act(() => {
+        jest.advanceTimersByTime(20000); // belt-and-braces: nothing throws
+      });
+    } finally {
+      setTimeoutSpy.mockRestore();
+      clearTimeoutSpy.mockRestore();
       jest.useRealTimers();
     }
   });

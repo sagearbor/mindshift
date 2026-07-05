@@ -19,6 +19,9 @@ const defaultHookState = {
   transcriptionAvailable: true,
   transcriptionMessage: "",
   micError: "",
+  speechAvailable: true,
+  speechEnabled: false,
+  setSpeechEnabled: jest.fn(),
   startSession: jest.fn(),
   stopSession: jest.fn(),
   sendEmpathyUpdate: jest.fn(),
@@ -108,6 +111,72 @@ describe("LiveCoachScreen", () => {
     });
     expect(
       root!.root.findAllByProps({ testID: "mic-error-banner" }),
+    ).toHaveLength(0);
+  });
+
+  it("wires coach mode to speech: visual on mount, earpiece enables speaking", () => {
+    const setSpeechEnabled = jest.fn();
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      setSpeechEnabled,
+    });
+
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    // Default mode is visual — speech starts disabled, honestly silent.
+    expect(setSpeechEnabled).toHaveBeenLastCalledWith(false);
+
+    act(() => {
+      root!.root.findByProps({ testID: "mode-earpiece" }).props.onPress();
+    });
+    expect(setSpeechEnabled).toHaveBeenLastCalledWith(true);
+
+    act(() => {
+      root!.root.findByProps({ testID: "mode-visual" }).props.onPress();
+    });
+    expect(setSpeechEnabled).toHaveBeenLastCalledWith(false);
+  });
+
+  it("shows an honest note when earpiece is selected but TTS is unavailable", () => {
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      speechAvailable: false,
+    });
+
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    // Visual mode: no note (nothing was promised aloud).
+    expect(
+      root!.root.findAllByProps({ testID: "speech-unavailable-note" }),
+    ).toHaveLength(0);
+
+    act(() => {
+      root!.root.findByProps({ testID: "mode-earpiece" }).props.onPress();
+    });
+    // Count host nodes only — RN <Text> also yields a composite node
+    // carrying the same testID.
+    const notes = root!.root.findAll(
+      (node) =>
+        node.props.testID === "speech-unavailable-note" &&
+        typeof node.type === "string",
+    );
+    expect(notes).toHaveLength(1);
+  });
+
+  it("hides the unavailable note when TTS works in earpiece mode", () => {
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    act(() => {
+      root!.root.findByProps({ testID: "mode-earpiece" }).props.onPress();
+    });
+    expect(
+      root!.root.findAllByProps({ testID: "speech-unavailable-note" }),
     ).toHaveLength(0);
   });
 });

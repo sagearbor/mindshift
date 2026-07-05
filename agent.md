@@ -19,8 +19,17 @@ App that helps users see situations from multiple perspectives using AI-driven p
   real timestamps/speakers/confidence in `TranscriptSegment`s. Credential-gated honestly:
   no `DEEPGRAM_API_KEY` or any Deepgram failure → `transcription_unavailable`; nothing fabricated.
   Tests run against a local fake Deepgram server (`server/tests/test_deepgram_live.py`) — no keys needed.
-- M3 partial: server-side TTS via Deepgram Aura (`aura-2-thalia-en`, base64 mp3 in suggestion
-  events) when the key is set; the mobile app does not play the audio yet.
+- Free voice path (no paid keys): `STT_PROVIDER=whisper` runs local faster-whisper
+  (`server/whisper_transcriber.py`) as a drop-in transcriber — background-worker design
+  (audio queue → transcribe off the receive loop), shared module-level model cache, honest
+  gating (package absent → `transcription_unavailable`, never faked). Optional dep in
+  `requirements-whisper.txt` only; base install stays light. Deepgram remains the default.
+  Env loads from `.env` (see `env.example`) via python-dotenv.
+- M3 partial: coaching suggestions are SPOKEN on-device for free via `expo-speech` (earpiece
+  mode; most-recent-wins; honest degradation if a platform has no TTS). Server-side Deepgram
+  Aura (`aura-2-thalia-en`, base64 mp3 in suggestion events) also available when the key is
+  set — but the app uses free expo-speech, not the Aura audio, so no key is needed to hear
+  suggestions.
 - Mobile on Expo SDK 57 (`expo-av` removed): live mic streaming works on iOS/Android incl.
   Expo Go — `expo-audio` PCM → `src/utils/audio.ts` (downmix/resample/int16) → 100 ms binary
   WS frames (raw PCM int16 LE, 16 kHz mono) to `/ws/session/{id}`. Web mic capture is honestly
@@ -42,7 +51,6 @@ cd server && uvicorn main:app --reload  # backend
 ```
 
 ## Open Tasks
-- Suggestion audio playback in the mobile app (server already sends `audio_b64`)
 - Web mic capture (expo-audio 57 has no web recording backend)
 - Deepgram auto-reconnect mid-session (a dead Deepgram socket surfaces
   `transcription_unavailable` rather than silently reconnecting)

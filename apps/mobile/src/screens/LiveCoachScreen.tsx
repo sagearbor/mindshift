@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -28,6 +28,8 @@ export default function LiveCoachScreen() {
     connectionStatus,
     transcriptionMessage,
     micError,
+    speechAvailable,
+    setSpeechEnabled,
     startSession,
     stopSession,
     sendEmpathyUpdate,
@@ -37,6 +39,13 @@ export default function LiveCoachScreen() {
   const [coachMode, setCoachMode] = useState<"earpiece" | "visual">(
     "visual",
   );
+
+  // Earpiece mode speaks the top suggestion aloud (free on-device TTS);
+  // visual mode stays silent. The hook stops any in-flight utterance when
+  // this flips to false.
+  useEffect(() => {
+    setSpeechEnabled(coachMode === "earpiece");
+  }, [coachMode, setSpeechEnabled]);
 
   const handleToggle = useCallback(async () => {
     // Toggle on sessionActive, not isRecording: a session can be live with
@@ -129,6 +138,15 @@ export default function LiveCoachScreen() {
           </Text>
         </TouchableOpacity>
       </View>
+
+      {/* Honest state: earpiece selected but this platform has no TTS —
+          suggestions stay visual-only instead of silently pretending. */}
+      {coachMode === "earpiece" && !speechAvailable ? (
+        <Text style={styles.speechUnavailableText} testID="speech-unavailable-note">
+          Spoken suggestions aren&apos;t available on this platform — showing
+          them on screen only.
+        </Text>
+      ) : null}
 
       {/* Empathy slider */}
       <EmpathySlider
@@ -263,6 +281,12 @@ const styles = StyleSheet.create({
   },
   modeButtonTextActive: {
     color: "#FFFFFF",
+  },
+  speechUnavailableText: {
+    fontSize: 12,
+    color: "#6B7280",
+    paddingHorizontal: 16,
+    paddingBottom: 4,
   },
   suggestionsContainer: {
     maxHeight: 200,

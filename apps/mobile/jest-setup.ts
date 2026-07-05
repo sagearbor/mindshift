@@ -68,5 +68,16 @@ jest.mock("expo-audio", () => {
   };
 });
 
+// Mock expo-speech (free on-device TTS) for tests. speak/stop/isSpeakingAsync
+// are plain jest.fn()s so tests can assert what would have been spoken.
+jest.mock("expo-speech", () => ({
+  __esModule: true,
+  speak: jest.fn(),
+  stop: jest.fn().mockResolvedValue(undefined),
+  isSpeakingAsync: jest.fn().mockResolvedValue(false),
+  getAvailableVoicesAsync: jest.fn().mockResolvedValue([]),
+  maxSpeechInputLength: 4000,
+}));
+
 // Mock fetch globally
 global.fetch = jest.fn();

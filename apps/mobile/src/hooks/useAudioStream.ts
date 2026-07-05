@@ -1,10 +1,12 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { Platform } from "react-native";
 import {
   useAudioStream as useMicrophoneStream,
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
 } from "expo-audio";
 import type { AudioStreamBuffer } from "expo-audio";
+import * as Speech from "expo-speech";
 import {
   concatInt16,
   downmixToMono,
@@ -42,6 +44,13 @@ interface UseAudioStreamReturn {
   transcriptionAvailable: boolean;
   transcriptionMessage: string;
   micError: string;
+  /** True when on-device text-to-speech can actually produce sound here.
+   *  False (e.g. a browser without the Web Speech API) means suggestions are
+   *  visual-only — an honest state, never a fake "spoken" claim. */
+  speechAvailable: boolean;
+  /** True when new top suggestions should be spoken aloud (earpiece mode). */
+  speechEnabled: boolean;
+  setSpeechEnabled: (enabled: boolean) => void;
   startSession: (sessionId: string, empathyLevel: number) => Promise<void>;
   stopSession: () => Promise<void>;
   sendEmpathyUpdate: (level: number) => void;
@@ -50,11 +59,19 @@ interface UseAudioStreamReturn {
 const RECONNECT_DELAY_MS = 2000;
 const MAX_RECONNECT_ATTEMPTS = 5;
 /**
- * After a manual stop we keep the socket open this long so the server can
- * deliver the final utterance's suggestion (Deepgram finishes a few hundred
- * ms after the last audio frame) before it sends `session_complete`.
+ * After a manual stop we keep the socket open so the server can deliver the
+ * final utterance's suggestion before `session_complete`. This is an
+ * INACTIVITY window, not a fixed deadline: any frame received while draining
+ * proves the server is alive and still working (the Whisper path can spend
+ * several seconds transcribing the final utterance before emitting the last
+ * suggestion), so each frame re-arms the window instead of racing it.
  */
 const STOP_DRAIN_TIMEOUT_MS = 4000;
+/**
+ * Absolute upper bound on the whole drain — however chatty the server is, a
+ * manual stop must never leave the UI hanging in a half-stopped state.
+ */
+const STOP_DRAIN_MAX_MS = 15000;
 
 /**
  * Wire contract with the backend: binary WS frames carry raw PCM,
@@ -81,6 +98,35 @@ function empathyTone(slider: number): string {
   return "validating";
 }
 
+/**
+ * Whether expo-speech (free, on-device TTS: iOS AVSpeechSynthesizer, Android
+ * TextToSpeech, web SpeechSynthesis) can produce sound on this platform.
+ * expo-speech's web build calls `window.speechSynthesis` without guarding, so
+ * on browsers lacking the Web Speech API we must never call it — detect that
+ * up front and degrade honestly (visual suggestions keep working, no crash).
+ */
+function detectSpeechSupport(): boolean {
+  if (Platform.OS !== "web") return true; // iOS/Android ship a TTS engine.
+  return (
+    typeof window !== "undefined" &&
+    typeof window.speechSynthesis !== "undefined" &&
+    typeof SpeechSynthesisUtterance !== "undefined"
+  );
+}
+
+/**
+ * Stop any in-flight utterance without ever throwing. `Speech.stop()` is a
+ * no-op when nothing is speaking, but on a platform with no TTS backend it
+ * can reject — swallow that (there was nothing speaking to stop anyway).
+ */
+function stopSpeechSafely() {
+  try {
+    void Promise.resolve(Speech.stop()).catch(() => {});
+  } catch {
+    // No TTS backend — nothing could have been speaking.
+  }
+}
+
 export function useAudioStream(): UseAudioStreamReturn {
   const [isRecording, setIsRecording] = useState(false);
   const [sessionActive, setSessionActive] = useState(false);
@@ -92,6 +138,8 @@ export function useAudioStream(): UseAudioStreamReturn {
   const [transcriptionAvailable, setTranscriptionAvailable] = useState(true);
   const [transcriptionMessage, setTranscriptionMessage] = useState("");
   const [micError, setMicError] = useState("");
+  const [speechAvailable, setSpeechAvailable] = useState(detectSpeechSupport);
+  const [speechEnabled, setSpeechEnabledState] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string>("");
@@ -106,6 +154,9 @@ export function useAudioStream(): UseAudioStreamReturn {
   /** True while a graceful stop is waiting for the server's final events. */
   const drainingRef = useRef(false);
   const drainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Wall-clock time (ms epoch) at which the drain must end no matter what —
+   *  the absolute cap the re-armed inactivity window can never exceed. */
+  const drainDeadlineRef = useRef(0);
   /** Gates the onBuffer callback — the native stream can deliver a trailing
    *  buffer after stop() has been requested. */
   const streamingRef = useRef(false);
@@ -116,6 +167,69 @@ export function useAudioStream(): UseAudioStreamReturn {
    *  ~100 ms buffer would restart the read phase every call and drop
    *  fractional samples at non-integer ratios like 44.1k -> 16k. */
   const resamplerRef = useRef<StreamingResampler | null>(null);
+  /** Refs mirroring the speech states: the WS onmessage handler is a
+   *  long-lived closure, so it must read these at event time, not capture a
+   *  stale render's value. */
+  const speechEnabledRef = useRef(false);
+  const speechAvailableRef = useRef(speechAvailable);
+
+  const setSpeechEnabled = useCallback((enabled: boolean) => {
+    const wasEnabled = speechEnabledRef.current;
+    speechEnabledRef.current = enabled;
+    setSpeechEnabledState(enabled);
+    if (wasEnabled && !enabled) {
+      // Switching to visual mid-utterance: go silent immediately.
+      stopSpeechSafely();
+    }
+  }, []);
+
+  /**
+   * TTS failed to actually produce sound — synchronously (speak() threw) or
+   * asynchronously (the utterance's onError fired, e.g. Android with no
+   * installed voice data even though detectSpeechSupport() said true).
+   * Degrade honestly: flip speechAvailable so LiveCoachScreen shows its
+   * "spoken suggestions aren't available" note instead of the user hearing
+   * silence while the UI implies audio coaching works. Idempotent — flips
+   * and logs only once, however many late onError callbacks arrive.
+   */
+  const markSpeechUnavailable = useCallback((reason: unknown) => {
+    if (!speechAvailableRef.current) return; // Already known — don't spam.
+    speechAvailableRef.current = false;
+    setSpeechAvailable(false);
+    console.warn(
+      "[useAudioStream] On-device TTS failed — suggestions are visual-only from here on:",
+      reason,
+    );
+  }, []);
+
+  /**
+   * Speak one suggestion via free on-device TTS (expo-speech) — the free
+   * analog of the server's Deepgram Aura audio. Most-recent-wins: any
+   * utterance still in flight is stopped first, and nothing is ever queued —
+   * in a live conversation, stale advice is worse than interrupted advice.
+   */
+  const speakSuggestion = useCallback(
+    (text: string) => {
+      if (!speechEnabledRef.current) return; // Visual mode: stay silent.
+      if (!speechAvailableRef.current) return; // No TTS here: honest silence.
+      if (drainingRef.current) return; // User pressed stop: don't keep talking.
+      try {
+        // Unconditional stop guarantees most-recent-wins without tracking
+        // speaking state (Speech.stop() is a no-op when nothing is speaking,
+        // and it clears expo-speech's internal utterance queue).
+        stopSpeechSafely();
+        Speech.speak(text, {
+          // Nothing was actually spoken — never pretend otherwise. The
+          // suggestion is already on screen; surface the degraded state.
+          onError: (error) => markSpeechUnavailable(error),
+        });
+      } catch (err) {
+        // speak() itself threw: no usable TTS backend on this platform.
+        markSpeechUnavailable(err);
+      }
+    },
+    [markSpeechUnavailable],
+  );
 
   /**
    * Send accumulated audio as ~100 ms binary frames. Reads wsRef.current at
@@ -221,10 +335,35 @@ export function useAudioStream(): UseAudioStreamReturn {
     setConnectionStatus("idle");
   }, [teardownWebSocket]);
 
+  /**
+   * (Re)arm the drain inactivity timer: STOP_DRAIN_TIMEOUT_MS of server
+   * silence ends the drain, but never later than the absolute deadline set
+   * when the drain started. Called once from stopSession and again on every
+   * frame received while draining (a frame = the server is alive and still
+   * working on the final utterance).
+   */
+  const armDrainTimer = useCallback(() => {
+    if (drainTimerRef.current !== null) {
+      clearTimeout(drainTimerRef.current);
+    }
+    const untilDeadline = drainDeadlineRef.current - Date.now();
+    drainTimerRef.current = setTimeout(
+      () => {
+        drainTimerRef.current = null;
+        finishDrain();
+      },
+      Math.max(0, Math.min(STOP_DRAIN_TIMEOUT_MS, untilDeadline)),
+    );
+  }, [finishDrain]);
+
   const stopSession = useCallback(async () => {
     if (drainingRef.current) return; // Stop already in progress.
     shouldReconnect.current = false;
     streamingRef.current = false;
+    // The session is over: never keep coaching aloud after the user stops.
+    // (drainingRef gates speakSuggestion, so late drain-window suggestions
+    // still render visually but are not spoken.)
+    stopSpeechSafely();
     try {
       micStreamRef.current?.stop();
     } catch {
@@ -258,9 +397,8 @@ export function useAudioStream(): UseAudioStreamReturn {
       setIsRecording(false);
       setSessionActive(false);
       drainingRef.current = true;
-      drainTimerRef.current = setTimeout(() => {
-        finishDrain();
-      }, STOP_DRAIN_TIMEOUT_MS);
+      drainDeadlineRef.current = Date.now() + STOP_DRAIN_MAX_MS;
+      armDrainTimer();
       return;
     }
 
@@ -268,7 +406,7 @@ export function useAudioStream(): UseAudioStreamReturn {
     // clean up immediately, exactly as before.
     pendingRef.current = new Int16Array(0);
     finishDrain();
-  }, [finishDrain]);
+  }, [finishDrain, armDrainTimer]);
 
   useEffect(() => {
     return () => {
@@ -287,6 +425,7 @@ export function useAudioStream(): UseAudioStreamReturn {
       } catch {
         // Stream may already be stopped.
       }
+      stopSpeechSafely(); // Never keep talking after the screen is gone.
       teardownWebSocket();
     };
   }, [teardownWebSocket]);
@@ -317,6 +456,14 @@ export function useAudioStream(): UseAudioStreamReturn {
       };
 
       ws.onmessage = (event) => {
+        // Any frame while draining — transcript, suggestion, ack, anything —
+        // means the server is alive and still finishing the session (e.g.
+        // Whisper transcribing the final utterance): re-arm the inactivity
+        // window (bounded by the absolute cap) instead of racing a fixed
+        // timeout and losing the final suggestion + session_complete.
+        if (drainingRef.current) {
+          armDrainTimer();
+        }
         try {
           const data = JSON.parse(event.data);
 
@@ -341,6 +488,11 @@ export function useAudioStream(): UseAudioStreamReturn {
               : [];
             if (items.length > 0) {
               setSuggestions(items.map((text) => ({ text, tone })));
+              // Earpiece mode: speak the newest TOP suggestion with free
+              // on-device TTS. (The event also carries data.audio_b64 —
+              // Deepgram Aura mp3, paid key required — deliberately ignored;
+              // kept as a future premium-playback option.)
+              speakSuggestion(items[0]);
             }
           } else if (data.type === "transcription_unavailable") {
             // Be explicit instead of silently showing an empty live screen.
@@ -399,12 +551,13 @@ export function useAudioStream(): UseAudioStreamReturn {
           }
           pendingRef.current = new Int16Array(0);
           resamplerRef.current = null;
+          stopSpeechSafely(); // Session is dead — stop coaching aloud too.
           setIsRecording(false);
           setSessionActive(false);
         }
       };
     },
-    [teardownWebSocket, finishDrain],
+    [teardownWebSocket, finishDrain, armDrainTimer, speakSuggestion],
   );
 
   const startSession = useCallback(
@@ -521,6 +674,9 @@ export function useAudioStream(): UseAudioStreamReturn {
     transcriptionAvailable,
     transcriptionMessage,
     micError,
+    speechAvailable,
+    speechEnabled,
+    setSpeechEnabled,
     startSession,
     stopSession,
     sendEmpathyUpdate,

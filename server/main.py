@@ -1,11 +1,24 @@
 import io
+import logging
 import os
 import json
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from enum import Enum
+from pathlib import Path
 from typing import Optional
+
+# Load a repo-root `.env` (if present) BEFORE any configuration is read below.
+# python-dotenv's default is override=False, so real environment variables
+# always win over .env values. Defensive try/except: a missing python-dotenv
+# must never break the server — .env support simply degrades to a no-op.
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover — python-dotenv is in requirements
+    pass
+else:
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 import aiosqlite
 from fastapi import FastAPI, HTTPException, Query, WebSocket
@@ -23,6 +36,8 @@ from models.relationship import (
     RelationshipSessionOut,
     RelationshipType,
 )
+
+logger = logging.getLogger(__name__)
 
 DB_PATH = os.getenv("MINDSHIFT_DB_PATH", "mindshift.db")
 MINDSHIFT_MODEL = os.getenv("MINDSHIFT_MODEL", "claude-3-haiku-20240307")
@@ -148,10 +163,37 @@ async def init_db() -> None:
         await db.close()
 
 
+def _configure_stt(app: FastAPI) -> None:
+    """Install the transcriber factory selected by the ``STT_PROVIDER`` env var.
+
+    * ``"deepgram"`` (the default, also used when unset) leaves
+      ``app.state.transcriber_factory`` unset — the audio pipeline then falls
+      back to :class:`~audio_pipeline.DeepgramTranscriber`, exactly as before.
+    * ``"whisper"`` installs the free local
+      :class:`~whisper_transcriber.WhisperTranscriber`. The heavy
+      ``faster-whisper`` package is optional (``requirements-whisper.txt``)
+      and is only imported when the first session connects; without it the
+      pipeline honestly reports transcription as unavailable.
+    * Anything else logs a warning and keeps the deepgram default.
+    """
+    provider = (os.getenv("STT_PROVIDER") or "deepgram").strip().lower() or "deepgram"
+    if provider == "whisper":
+        # WhisperTranscriber is zero-arg-callable, satisfying the pipeline's
+        # injection contract (transcriber_factory()).
+        from whisper_transcriber import WhisperTranscriber
+
+        app.state.transcriber_factory = WhisperTranscriber
+    elif provider != "deepgram":
+        logger.warning(
+            "Unknown STT_PROVIDER=%r — defaulting to deepgram", provider,
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
     app.state.llm_client = LLMClient(model=MINDSHIFT_MODEL)
+    _configure_stt(app)
     yield
 
 
