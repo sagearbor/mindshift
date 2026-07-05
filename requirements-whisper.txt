@@ -1,0 +1,8 @@
+# Optional — only needed for STT_PROVIDER=whisper (free local transcription).
+#   pip install -r requirements-whisper.txt
+# Kept out of the base requirements on purpose: faster-whisper pulls heavy
+# native dependencies (ctranslate2, onnxruntime, tokenizers, av) that the
+# default Deepgram-based setup does not need. Without this installed the
+# server still runs; selecting STT_PROVIDER=whisper then honestly reports
+# transcription as unavailable.
+faster-whisper>=1.1,<2

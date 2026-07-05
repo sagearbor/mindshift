@@ -12,3 +12,7 @@ websockets>=14
 anyio
 pytest
 pytest-asyncio
+# Pinned identically to the root requirements.txt — one resolver answer,
+# whichever file gets installed.
+python-dotenv>=1,<2
+numpy>=1.26,<3

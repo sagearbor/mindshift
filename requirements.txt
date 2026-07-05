@@ -5,6 +5,10 @@ aiosqlite>=0.20,<1
 anthropic>=0.39,<1
 httpx>=0.27,<1
 websockets>=14
+python-dotenv>=1,<2
+numpy>=1.26,<3
 pytest>=8,<9
 anyio>=4,<5
 pytest-anyio>=0.0.0
+# NOTE: faster-whisper (STT_PROVIDER=whisper) is intentionally NOT here —
+# it is optional and heavy; see requirements-whisper.txt.
