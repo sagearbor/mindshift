@@ -22,12 +22,27 @@ call to judge (``vad_filter=True``), not this gate's.
 
 Streaming design (mirrors ``DeepgramTranscriber``): ``stream()`` only
 enqueues audio and drains already-finalized segments — it never waits for the
-model, so the WebSocket receive loop stays responsive. A single background
-worker task owns the rolling buffer, detects boundaries, runs the blocking
-``model.transcribe`` in a thread (``asyncio.to_thread``) and pushes finished
+model, so the WebSocket receive loop stays responsive (review finding F6). A
+single background worker task owns the rolling buffer, detects MID-STREAM
+boundaries, runs the blocking ``model.transcribe`` in a thread
+(``asyncio.to_thread``) and pushes finished
 :class:`~audio_pipeline.TranscriptSegment` objects onto a results queue.
-``finish()`` asks the worker to flush the remainder and returns everything
-left; ``close()`` cancels the worker.
+
+``finish()`` is deliberately NOT routed through that worker. It is called from
+the pipeline's ``stop`` handler — off the hot receive loop — so it stops the
+worker and transcribes the session's FINAL utterance DIRECTLY
+(``await asyncio.to_thread`` in the caller), returning the segments. Routing
+the final flush through the worker and awaiting it with
+``asyncio.wait_for(task, timeout)`` was the original correctness bug: a real
+CPU decode of a few seconds of audio can take tens of seconds (the ``base``
+int8 model measured ~13x slower than real time on a laptop), so the wait timed
+out, CANCELLED the in-flight ``to_thread`` transcription and DISCARDED its
+already-finalized segment. For continuous speech with no >1.2 s internal pause
+that final flush is the ONLY flush, so the *entire* transcript came back empty.
+A transcription is finite work (O(audio length)) and a running ``to_thread``
+cannot actually be interrupted anyway, so ``finish()`` lets it complete and
+delivers the words instead of throwing them away; ``close()`` cancels the
+worker and abandons any residual audio.
 
 A transient per-utterance decode failure drops only that utterance (logged,
 offsets preserved) — it does NOT kill the session. Only ``connect()``-time
@@ -90,8 +105,14 @@ UTTERANCE_END_SILENCE_S = 1.2
 # Cap on buffered audio before a forced flush (bounds latency and memory for
 # pause-free monologues).
 MAX_BUFFER_S = 10.0
-# finish(): how long to wait for the worker's final flush. Generous because
-# a final flush may transcribe up to MAX_BUFFER_S of audio on CPU.
+# finish(): how long to wait for the worker to STOP after being asked to (so
+# finish() can safely take over the buffer). This bounds ONLY the handoff — a
+# mid-stream flush that happens to be in flight when finish() is called — never
+# the final transcription itself (that runs directly in finish() and is allowed
+# to complete). Generous because an in-flight flush may still be decoding up to
+# MAX_BUFFER_S of audio on a slow CPU; finite so a wedged worker can't hang
+# shutdown forever. On timeout the worker is cancelled and the final utterance
+# is transcribed directly regardless, so no words depend on this bound.
 FINISH_TIMEOUT_S = 30.0
 
 # WHISPER_MODEL size trade-offs (approximate, English, CPU int8):
@@ -299,26 +320,42 @@ class WhisperTranscriber:
         return self._drain_results()
 
     async def finish(self) -> list[TranscriptSegment]:
-        """Ask the worker to flush the remaining audio; return all segments.
+        """Flush the remaining audio and return all outstanding segments.
 
         Mirrors ``DeepgramTranscriber.finish()``: this is how the LAST
-        utterance of a session gets delivered instead of dropped. Bounded by
-        ``FINISH_TIMEOUT_S``. Idempotent; after ``finish()``, :meth:`close`
-        is a safe no-op. Never raises (the pipeline calls it during cleanup);
-        on failure the honest result is simply no further segments.
+        utterance of a session gets delivered instead of dropped. The worker is
+        told to stop (so this call can own the buffer exclusively), then the
+        final utterance is transcribed DIRECTLY here — not routed through the
+        worker under a cancel-on-timeout wait, which used to discard a decode
+        that ran longer than the timeout. Called from the pipeline's ``stop``
+        handler (off the hot receive loop), so a direct blocking transcribe is
+        fine here.
+
+        Idempotent; after ``finish()``, :meth:`close` is a safe no-op. Never
+        raises (the pipeline calls it during cleanup); on failure the honest
+        result is simply no further segments.
         """
         self._connected = False
         task, self._worker_task = self._worker_task, None
         if task is not None and not task.done():
+            # Ask the worker to stop. It drains any earlier-queued audio first
+            # (FIFO), so when it sees _FINISH the buffer holds exactly the
+            # post-last-boundary residual, which we transcribe below. The only
+            # thing we wait on is a mid-stream flush already in flight; bound it
+            # so a wedged worker can't hang shutdown (on timeout wait_for
+            # cancels the worker — safe, since the final utterance is
+            # transcribed directly regardless).
             self._audio_queue.put_nowait(_FINISH)
-            try:
+            with contextlib.suppress(Exception):
                 await asyncio.wait_for(task, timeout=FINISH_TIMEOUT_S)
-            except Exception:
-                # Timeout (wait_for cancels the task) or worker error — the
-                # drain below still returns whatever was finalized in time.
-                pass
+        # The worker has stopped touching the buffer: deliver the mid-stream
+        # segments it already finalized, then the final utterance (transcribed
+        # directly, allowed to run to completion so its words aren't dropped).
+        segments = self._drain_results()
+        segments += await self._flush()
         self._buffer.clear()
-        return self._drain_results()
+        self._heard_speech = False
+        return segments
 
     def _drain_results(self) -> list[TranscriptSegment]:
         segments: list[TranscriptSegment] = []
@@ -333,17 +370,21 @@ class WhisperTranscriber:
     async def _worker_loop(self) -> None:
         """Single owner of the rolling buffer: ingest → boundary → transcribe.
 
-        Exits when it sees the ``finish()`` sentinel (after a final flush) or
-        when cancelled by ``close()``. Any OTHER exception is a genuine
-        malfunction: it is recorded so the next ``stream()`` reports the
-        transcriber unavailable instead of silently swallowing audio.
+        Exits when it sees the ``finish()`` sentinel (leaving the residual
+        buffer for ``finish()`` to transcribe directly) or when cancelled by
+        ``close()``. Any OTHER exception is a genuine malfunction: it is
+        recorded so the next ``stream()`` reports the transcriber unavailable
+        instead of silently swallowing audio.
         """
         try:
             while True:
                 chunk = await self._audio_queue.get()
                 try:
                     if chunk is _FINISH:
-                        await self._flush()
+                        # Stop here; finish() owns the residual buffer now and
+                        # transcribes it directly (the final flush is NOT run in
+                        # the worker, so it can't be cancelled by finish()'s
+                        # bounded wait).
                         return
                     await self._ingest(chunk)
                 finally:
@@ -360,16 +401,17 @@ class WhisperTranscriber:
 
         ALL audio is retained until transcribed (up to the max-window cap);
         energy only decides WHEN to flush and lets leading pure silence be
-        trimmed while nothing has been said yet.
+        trimmed while nothing has been said yet. Segments from a mid-stream
+        flush are pushed onto the results queue for ``stream()`` to drain.
         """
         self._buffer.extend(chunk)
         if not self._heard_speech and _rms(chunk) >= self._silence_rms:
             self._heard_speech = True
 
         if self._buffer_seconds() >= self._max_buffer_s:
-            await self._flush()  # safety cap — pause-free monologue
+            self._emit(await self._flush())  # safety cap — pause-free monologue
         elif self._heard_speech and self._ends_in_silence():
-            await self._flush()  # speaker went quiet — utterance end
+            self._emit(await self._flush())  # speaker went quiet — utterance end
         elif not self._heard_speech:
             # Nothing above the pure-silence floor so far: keep only the
             # trailing window so a silent room is neither stored forever nor
@@ -404,14 +446,28 @@ class WhisperTranscriber:
         del self._buffer[:excess]
         self._buffer_start_sample += excess // BYTES_PER_SAMPLE
 
-    async def _flush(self) -> None:
-        """Transcribe the buffered utterance and enqueue its segments.
+    def _emit(self, segments: list[TranscriptSegment]) -> None:
+        """Push a mid-stream flush's segments onto the results queue for
+        ``stream()`` to drain (finish() returns its segments directly)."""
+        for seg in segments:
+            self._results.put_nowait(seg)
+
+    async def _flush(self) -> list[TranscriptSegment]:
+        """Transcribe the buffered utterance and RETURN its segments.
 
         The buffer and offsets are reset FIRST, so a decode failure cannot
         corrupt session timing: the broken utterance is dropped (logged
         honestly) and the session continues — a transient error must not kill
         transcription for the rest of the call (the pipeline treats
         ``TranscriberUnavailable`` from ``stream()`` as terminal).
+
+        The blocking model call runs in a worker thread and is allowed to run
+        to completion: it is finite work (O(audio length)) and a running
+        ``to_thread`` cannot be interrupted, so bounding it with a
+        cancel-on-timeout wait would only leak the thread AND drop a segment
+        that was about to be delivered — the original bug. Callers that must
+        stay responsive (``stream()``) never await a flush; only the worker and
+        ``finish()`` do, both off the receive loop.
 
         Skips the model entirely when the buffer holds nothing above the
         pure-silence floor (e.g. ``finish()`` right after a flush): there is
@@ -426,7 +482,7 @@ class WhisperTranscriber:
         self._buffer.clear()
         self._heard_speech = False
         if not pcm or not heard:
-            return
+            return []
 
         # int16 PCM → float32 normalized to [-1, 1], as Whisper expects.
         audio = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
@@ -439,13 +495,14 @@ class WhisperTranscriber:
                 len(pcm) / BYTES_PER_SAMPLE / SAMPLE_RATE,
                 exc_info=True,
             )
-            return
+            return []
 
+        segments: list[TranscriptSegment] = []
         for seg in raw_segments:
             text = (seg.text or "").strip()
             if not text:
                 continue
-            self._results.put_nowait(TranscriptSegment(
+            segments.append(TranscriptSegment(
                 text=text,
                 # Whisper times are buffer-relative; offset to session time.
                 start_time=float(seg.start) + offset_s,
@@ -453,6 +510,7 @@ class WhisperTranscriber:
                 speaker=None,  # Whisper has no diarization — never invent one
                 confidence=_confidence(getattr(seg, "avg_logprob", None)),
             ))
+        return segments
 
     def _transcribe(self, audio: np.ndarray) -> list:
         """Blocking model call — runs in a worker thread via ``_flush``."""

@@ -18,9 +18,13 @@ import importlib.util
 import logging
 import math
 import os
+import shutil
+import subprocess
 import sys
 import threading
+import time
 import types
+import wave
 from dataclasses import dataclass
 
 import numpy as np
@@ -473,6 +477,87 @@ class TestFinish:
 
 
 # ---------------------------------------------------------------------------
+# Slow model — the regression that the instant fake missed
+#
+# A real CPU decode of a few seconds of audio takes TENS of seconds (the base
+# int8 model measured ~13x slower than real time). The original finish() ran
+# the final flush inside the worker and awaited it with a bounded
+# asyncio.wait_for that CANCELLED the in-flight transcription on timeout,
+# dropping its already-finalized segment — so gapless speech (one final flush,
+# no mid-stream boundary) produced an EMPTY transcript. These tests exercise
+# that path at unit speed with a fake whose transcribe() blocks in the
+# to_thread call, longer than a shrunk handoff bound.
+# ---------------------------------------------------------------------------
+
+class SlowFakeModel:
+    """Fake model whose transcribe() blocks (like real inference) inside the
+    to_thread call, then returns a canned segment."""
+
+    def __init__(self, block_s: float, segments: list[FakeSegment] | None = None):
+        self._block_s = block_s
+        self._segments = segments or [FakeSegment(0.0, 0.5, " final words")]
+        self.calls = 0
+
+    def transcribe(self, audio, **kwargs):
+        self.calls += 1
+        time.sleep(self._block_s)  # real inference latency, via to_thread
+        return iter(list(self._segments)), {"language": "en"}
+
+
+class TestSlowModelFlush:
+    @pytest.mark.anyio
+    async def test_finish_delivers_final_utterance_despite_slow_decode(self, monkeypatch):
+        """THE regression: a final decode slower than finish()'s handoff bound
+        must STILL be delivered — finish() transcribes the last utterance
+        directly and lets it complete instead of cancelling it. Shrinking the
+        bound and blocking past it reproduces the empty-transcript bug at unit
+        speed (the old code returned [])."""
+        # Bound is only the worker-stop handoff now; make it tiny AND make the
+        # decode outlast it. Old code: wait_for cancels the flush → []. New
+        # code: worker stops instantly, final flush runs directly to completion.
+        monkeypatch.setattr(whisper_transcriber, "FINISH_TIMEOUT_S", 0.05)
+        model = SlowFakeModel(0.3, [FakeSegment(0.0, 0.5, " final words")])
+        t = await connected(model)
+        # Speech with NO trailing-silence boundary: only finish() can flush it,
+        # so this is the "final flush is the only flush" case that broke.
+        assert await stream_all(t, pcm(0.5, SPEECH_AMPLITUDE)) == []
+        out = await t.finish()
+        assert [s.text for s in out] == ["final words"]
+        assert model.calls == 1
+        await t.close()
+
+    @pytest.mark.anyio
+    async def test_midstream_boundary_delivers_with_slow_decode(self):
+        """A mid-stream utterance-end flush must also survive a slow decode:
+        the worker awaits transcribe() in a thread and enqueues the result."""
+        model = SlowFakeModel(0.3, [FakeSegment(0.0, 1.0, " slow midstream")])
+        t = await connected(model)
+        out = await stream_all(
+            t, pcm(1.0, SPEECH_AMPLITUDE) + pcm(UTTERANCE_GAP_S, 0),
+        )
+        assert [s.text for s in out] == ["slow midstream"]
+        assert model.calls == 1
+        await t.close()
+
+    @pytest.mark.anyio
+    async def test_slow_final_decode_does_not_block_stream_receive_loop(self, monkeypatch):
+        """F6 invariant under a slow model: while a final-sized utterance is
+        buffered, stream() calls still return promptly (they only enqueue) —
+        the blocking decode happens later, in finish()/the worker, never in
+        stream()."""
+        monkeypatch.setattr(whisper_transcriber, "FINISH_TIMEOUT_S", 0.05)
+        model = SlowFakeModel(0.3)
+        t = await connected(model)
+        try:
+            for frame in frames(pcm(0.5, SPEECH_AMPLITUDE)):
+                out = await asyncio.wait_for(t.stream(frame), timeout=0.5)
+                assert out == []  # nothing finalized, and never blocked
+            assert model.calls == 0  # no decode ran during streaming
+        finally:
+            await t.close()
+
+
+# ---------------------------------------------------------------------------
 # Unit helpers — confidence mapping and RMS
 # ---------------------------------------------------------------------------
 
@@ -597,3 +682,57 @@ async def test_real_whisper_smoke():
             assert seg.end_time >= seg.start_time >= 0.0
     finally:
         await t.close()
+
+
+def _synthesize_speech_pcm(sentence: str, tmp_dir: str) -> bytes:
+    """Render *sentence* to 16 kHz mono int16 PCM using macOS ``say`` +
+    ``afconvert``. Returns raw PCM bytes; raises so callers can skip when the
+    tools are absent (non-macOS CI)."""
+    aiff = os.path.join(tmp_dir, "clip.aiff")
+    wav = os.path.join(tmp_dir, "clip.wav")
+    subprocess.run(["say", "-v", "Samantha", "-o", aiff, sentence], check=True)
+    subprocess.run(
+        ["afconvert", "-f", "WAVE", "-d", "LEI16@16000", "-c", "1", aiff, wav],
+        check=True,
+    )
+    with wave.open(wav, "rb") as w:
+        assert w.getframerate() == SAMPLE_RATE and w.getnchannels() == 1
+        return w.readframes(w.getnframes())
+
+
+@pytest.mark.skipif(
+    not (HAS_FASTER_WHISPER and os.getenv("RUN_WHISPER_SMOKE") == "1"),
+    reason="real-model smoke test: needs faster-whisper installed and RUN_WHISPER_SMOKE=1",
+)
+@pytest.mark.skipif(
+    not (shutil.which("say") and shutil.which("afconvert")),
+    reason="needs macOS 'say' + 'afconvert' to synthesize a speech clip",
+)
+@pytest.mark.anyio
+async def test_real_whisper_transcribes_real_speech(tmp_path):
+    """End-to-end proof of the fix: synthesize a real spoken sentence, stream
+    it as 100 ms frames with NO trailing silence (so ONLY finish() flushes it —
+    the exact case that returned an empty transcript before), and assert the
+    real model's words come back. This is the regression the redesign fixes."""
+    sentence = "You never listen to me when I am talking about my day."
+    speech = _synthesize_speech_pcm(sentence, str(tmp_path))
+
+    t = WhisperTranscriber(model_size=os.getenv("WHISPER_MODEL", "base"))
+    await t.connect()
+    try:
+        out: list[TranscriptSegment] = []
+        for frame in frames(speech):
+            out += await t.stream(frame)
+        out += await t.finish()  # the final (only) flush must deliver words
+    finally:
+        await t.close()
+
+    text = " ".join(s.text for s in out).lower()
+    assert text, "real Whisper returned an EMPTY transcript (the bug)"
+    # Robust to minor ASR variation: require several content words, not exact.
+    assert "listen" in text
+    assert "talking" in text
+    for seg in out:
+        assert seg.speaker is None
+        assert 0.0 <= seg.confidence <= 1.0
+        assert seg.end_time >= seg.start_time >= 0.0
