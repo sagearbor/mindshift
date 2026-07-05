@@ -69,15 +69,10 @@ jobs:
       - name: Install ruff
         run: pip install ruff
 
-      # NON-BLOCKING for now: `ruff check server tests` currently reports 10
-      # pre-existing issues (unused imports, one unused local variable, one
-      # ambiguous variable name `l`) under the conservative ruleset in
-      # ruff.toml (line-length 100, Ruff's default E4/E7/E9/F selection).
-      # That's a small, easily-fixable count, but this task is CI/config-only
-      # and intentionally does not touch server/ or tests/ source, so the
-      # step is allowed to fail without redding out the whole workflow.
-      # Once those 10 issues are cleaned up, remove `continue-on-error` here
-      # to make lint blocking.
+      # BLOCKING: the codebase is clean under the conservative ruleset in
+      # ruff.toml (line-length 100, Ruff's default E4/E7/E9/F selection). The
+      # original pre-existing issues (unused imports, an unused local, an
+      # ambiguous `l`) were cleaned up, so lint now fails the workflow on
+      # regressions rather than merely warning.
       - name: Run ruff
-        continue-on-error: true
         run: ruff check server tests

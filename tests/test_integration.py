@@ -6,7 +6,6 @@ and /session endpoints against the sample conversation fixtures.
 All LLM calls are mocked — no API key needed.
 """
 
-import json
 import uuid
 from unittest.mock import MagicMock, patch
 
