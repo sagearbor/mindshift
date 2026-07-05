@@ -12,3 +12,4 @@ anyio>=4,<5
 pytest-anyio>=0.0.0
 # NOTE: faster-whisper (STT_PROVIDER=whisper) is intentionally NOT here —
 # it is optional and heavy; see requirements-whisper.txt.
+certifi>=2024.0

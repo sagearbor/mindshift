@@ -540,6 +540,23 @@ def test_requirements_pin_websockets_14():
         assert m is not None and int(m.group(1)) >= 14, f"{req}: {line!r}"
 
 
+def test_tls_context_only_for_wss():
+    """wss:// (real Deepgram) gets a verifying TLS context anchored on certifi
+    so an empty system CA store can't break the connection; plain ws:// (the
+    local fake server used in these tests) gets no TLS context."""
+    import ssl
+
+    from audio_pipeline import _tls_context_for
+
+    assert _tls_context_for("ws://127.0.0.1:1234") is None
+
+    ctx = _tls_context_for("wss://api.deepgram.com/v1/listen")
+    assert isinstance(ctx, ssl.SSLContext)
+    assert ctx.verify_mode == ssl.CERT_REQUIRED
+    # at least one CA is loaded (empty store would defeat the purpose)
+    assert ctx.cert_store_stats().get("x509_ca", 0) > 0
+
+
 # ---------------------------------------------------------------------------
 # Live smoke test — only runs when a real key is configured
 # ---------------------------------------------------------------------------

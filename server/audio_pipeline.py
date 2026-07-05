@@ -22,6 +22,7 @@ import contextlib
 import json
 import logging
 import os
+import ssl
 import time
 from collections import Counter
 from dataclasses import dataclass, field
@@ -35,6 +36,29 @@ from llm_client import LLMClient
 from models.audio import DiarizationConfig, SuggestionEvent, Utterance
 
 logger = logging.getLogger(__name__)
+
+
+def _tls_context_for(url: str) -> ssl.SSLContext | None:
+    """Return a TLS context for ``wss://`` URLs, or ``None`` for plain ``ws://``.
+
+    Deepgram is reached over ``wss://``, so certificate verification must
+    succeed. Some Python installs (notably python.org builds on macOS) ship
+    with an empty default CA store, which makes verification fail even though
+    the key and network are fine. We anchor trust on the ``certifi`` bundle
+    when it's importable so the app doesn't depend on each machine having its
+    system CA store wired into Python; we fall back to the stdlib default
+    otherwise. Plain ``ws://`` (the local fake server used in tests) needs no
+    TLS, so we return ``None``.
+    """
+    if not url.lower().startswith("wss://"):
+        return None
+    try:
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:  # certifi absent or unreadable — use the stdlib default
+        return ssl.create_default_context()
+
 
 # Incoming client audio contract: raw PCM, int16 little-endian, mono, 16 kHz.
 # The mobile client sends ~50-100ms binary WS frames of exactly this format,
@@ -145,6 +169,7 @@ class DeepgramTranscriber:
                 url,
                 additional_headers={"Authorization": f"Token {api_key}"},
                 open_timeout=10,
+                ssl=_tls_context_for(url),
             )
         except Exception as exc:  # DNS failure, refused, 401/4xx handshake, timeout
             raise TranscriberUnavailable(
