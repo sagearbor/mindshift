@@ -13,6 +13,8 @@ import base64
 import json
 import os
 import socket
+import threading
+import time
 from unittest.mock import MagicMock
 
 import httpx
@@ -20,6 +22,7 @@ import pytest
 from starlette.testclient import TestClient
 from websockets.asyncio.server import serve
 
+import audio_pipeline
 from audio_pipeline import (
     DeepgramTranscriber,
     TranscriberUnavailable,
@@ -555,6 +558,121 @@ def test_tls_context_only_for_wss():
     assert ctx.verify_mode == ssl.CERT_REQUIRED
     # at least one CA is loaded (empty store would defeat the purpose)
     assert ctx.cert_store_stats().get("x509_ca", 0) > 0
+
+
+# ---------------------------------------------------------------------------
+# Pipeline reconnect against the fake Deepgram server (P1-1): kill it,
+# bring it back on the same port, and the live session recovers.
+# ---------------------------------------------------------------------------
+
+class ThreadedFakeDeepgramServer:
+    """A :class:`FakeDeepgramServer` handler on a private event loop in a
+    daemon thread.
+
+    The pipeline-level reconnect test drives the app through the sync
+    ``TestClient`` (whose loop lives in its own portal thread), so the fake
+    Deepgram server cannot share a test-owned loop — and the test must be able
+    to KILL the server and resurrect a fresh one on the SAME port while the
+    WebSocket session stays live.
+    """
+
+    def __init__(self, inner: FakeDeepgramServer, port: int = 0) -> None:
+        self.inner = inner  # records frames/control messages, holds responses
+        self.port = port
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._stop: asyncio.Event | None = None
+        self._thread: threading.Thread | None = None
+        self._ready = threading.Event()
+
+    def start(self) -> None:
+        self._thread = threading.Thread(
+            target=lambda: asyncio.run(self._serve()), daemon=True,
+        )
+        self._thread.start()
+        assert self._ready.wait(timeout=5), "fake Deepgram server did not start"
+
+    async def _serve(self) -> None:
+        self._loop = asyncio.get_running_loop()
+        self._stop = asyncio.Event()
+        async with serve(self.inner._handler, "127.0.0.1", self.port) as server:
+            self.port = server.sockets[0].getsockname()[1]
+            self._ready.set()
+            await self._stop.wait()
+        # Exiting the context closes the listener AND live connections —
+        # exactly what a dying Deepgram looks like to the transcriber.
+
+    def stop(self) -> None:
+        assert self._loop is not None and self._stop is not None
+        self._loop.call_soon_threadsafe(self._stop.set)
+        self._thread.join(timeout=5)
+        assert not self._thread.is_alive(), "fake Deepgram server did not stop"
+
+
+class TestPipelineReconnectLive:
+    def test_kill_and_resurrect_deepgram_midsession(self, monkeypatch):
+        """P1-1 end-to-end: the fake Deepgram dies mid-session; a fresh one
+        comes back on the same port; the pipeline reconnects, announces
+        transcription_restored, and transcription flows again."""
+        monkeypatch.setenv("DEEPGRAM_API_KEY", "test-key")
+        # Short backoffs — the replacement server is already listening when
+        # the first reconnect attempt fires.
+        monkeypatch.setattr(
+            audio_pipeline, "TRANSCRIBER_RECONNECT_BACKOFFS_S", (0.05, 0.1, 0.2)
+        )
+
+        server_a = ThreadedFakeDeepgramServer(FakeDeepgramServer())
+        server_a.start()
+        port = server_a.port
+
+        _clear_overrides()
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MOCK_LLM_JSON
+        app.state.llm_client = mock_llm
+        app.state.transcriber_factory = lambda: DeepgramTranscriber(
+            url=f"ws://127.0.0.1:{port}"
+        )
+        server_b = None
+        frame = b"\x00\x00" * 800  # 100ms of PCM
+        try:
+            with TestClient(app).websocket_connect("/ws/session/live-reconn") as ws:
+                # Prove the first connection is alive before killing it.
+                ws.send_text(json.dumps({"type": "config"}))
+                assert json.loads(ws.receive_text())["type"] == "config_ack"
+
+                # KILL Deepgram mid-session…
+                server_a.stop()
+                # …and bring a fresh one back on the SAME port, primed with a
+                # Results payload for the post-reconnect audio.
+                revived = FakeDeepgramServer()
+                revived.responses.append(_results_payload(
+                    "Back from the dead.", start=0.0, duration=1.0, speaker=0,
+                ))
+                server_b = ThreadedFakeDeepgramServer(revived, port=port)
+                server_b.start()
+
+                # Keep streaming. The dead socket surfaces within a frame or
+                # two (a TCP send can succeed into a closed peer once), then
+                # the pipeline reconnects to the revived server.
+                for _ in range(5):
+                    ws.send_bytes(frame)
+                    time.sleep(0.05)
+                assert json.loads(ws.receive_text()) == {
+                    "type": "transcription_restored"
+                }
+
+                # Post-restore audio reaches the revived server, whose queued
+                # Results flows through to a real suggestion.
+                for _ in range(10):
+                    ws.send_bytes(frame)
+                    time.sleep(0.02)
+                suggestion = json.loads(ws.receive_text())
+                assert suggestion["type"] == "suggestion"
+                assert suggestion["utterance_text"] == "Back from the dead."
+                assert revived.audio_frames  # audio really flowed to server B
+        finally:
+            _clear_overrides()
+            if server_b is not None:
+                server_b.stop()
 
 
 # ---------------------------------------------------------------------------

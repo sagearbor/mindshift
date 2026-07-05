@@ -19,6 +19,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -86,6 +88,67 @@ DEEPGRAM_FINISH_TIMEOUT_S = 5.0
 DEEPGRAM_SPEAK_URL = "https://api.deepgram.com/v1/speak"
 DEEPGRAM_AURA_MODEL = "aura-2-thalia-en"
 
+# ---------------------------------------------------------------------------
+# Production guardrails (env-configurable; read once at import time, so a
+# changed env var needs a process restart — tests monkeypatch the module
+# attributes directly instead)
+# ---------------------------------------------------------------------------
+
+# P2-1: hard cap on concurrent live sessions. Each session holds a Deepgram
+# socket, an LLM worker, and a TTS client — unbounded acceptance would let a
+# burst of clients exhaust the process. Beyond the cap, new WebSockets are
+# closed with 1013 ("try again later") instead of degrading everyone.
+MAX_WS_SESSIONS = int(os.getenv("MAX_WS_SESSIONS", "100"))
+_session_slots = asyncio.Semaphore(MAX_WS_SESSIONS)
+
+# P2-1: per-session utterance budget. After this many utterances the client
+# gets one {"type": "limit_reached"} and no further suggestions are generated
+# (each one is an LLM + TTS spend). Generous: 500 utterances is hours of talk.
+MAX_UTTERANCES = int(os.getenv("MAX_UTTERANCES", "500"))
+
+# P2-3: the mobile client's contract is ~3200-byte PCM frames (~100ms). A
+# frame vastly beyond that is a broken or hostile client — reject it honestly
+# instead of forwarding it to the transcription backend.
+MAX_AUDIO_FRAME_BYTES = int(os.getenv("MAX_AUDIO_FRAME_BYTES", str(64 * 1024)))
+
+# P2-3: the configured role is interpolated into the LLM system prompt, so an
+# unbounded value is both a token-cost and a prompt-injection surface.
+MAX_ROLE_CHARS = 100
+
+# P1-1: backoff schedule for mid-session transcriber reconnects. One attempt
+# per entry; sleeps the entry's seconds before that attempt.
+TRANSCRIBER_RECONNECT_BACKOFFS_S: tuple[float, ...] = (1.0, 2.0, 4.0)
+
+# P1-8: bound on draining pending suggestions during a graceful stop. A hung
+# LLM/TTS call must not hold the client's "stop" hostage for minutes.
+STOP_DRAIN_TIMEOUT_S = 30.0
+
+# P1-9: bounds for the per-session in-memory utterance buffer. When the
+# buffer exceeds MAX, only the most recent KEEP entries are retained.
+UTTERANCE_BUFFER_MAX = 1000
+UTTERANCE_BUFFER_KEEP = 500
+
+
+# Per-process random salt: makes the redaction digest a keyed HMAC so short or
+# guessable utterances ("no", a name, "I want a divorce") can't be confirmed
+# from logs by hashing candidates. Correlation holds within one process
+# lifetime; confirmability across the dictionary does not. Regenerated each boot.
+_REDACT_SALT = os.urandom(32)
+
+
+def _redact(text: str) -> str:
+    """PII-safe stand-in for user speech in log lines (P1-4).
+
+    This is a therapy product: transcript text must never sit in server logs.
+    A coarse length bucket + a salted HMAC digest keeps log lines correlatable
+    (same utterance → same digest, this process) without storing what was said
+    and without being a dictionary-attack oracle on short phrases.
+    """
+    digest = hmac.new(_REDACT_SALT, text.encode("utf-8"), hashlib.sha256).hexdigest()[:12]
+    # Bucket the length so a 3-char utterance isn't advertised as exactly len=3.
+    bucket = "0" if not text else f"~{max(8, (len(text) + 7) // 8 * 8)}"
+    return f"<utterance len={bucket} hmac={digest}>"
+
 
 class TranscriberUnavailable(RuntimeError):
     """Raised when a transcription backend is not configured/available.
@@ -93,6 +156,20 @@ class TranscriberUnavailable(RuntimeError):
     The pipeline catches this and reports ``transcription_unavailable`` to the
     client rather than inventing a transcript.
     """
+
+
+class SuggestionUnavailable(RuntimeError):
+    """Raised when no suggestion could be produced for an utterance (P0-3).
+
+    Carries a short machine-readable ``reason`` — no transcript text, no
+    provider error details — that is safe to forward to the client in a
+    ``suggestion_error`` event. The pipeline reports the failure honestly
+    rather than fabricating a suggestion line.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
 
 
 # ---------------------------------------------------------------------------
@@ -520,6 +597,22 @@ class SessionContext:
     utterances: list[Utterance] = field(default_factory=list)
 
 
+def _remember_utterance(ctx: SessionContext, utterance: Utterance) -> None:
+    """Append to the session's in-memory utterance buffer, bounded (P1-9).
+
+    Nothing reads this buffer yet; it is kept (rather than removed) as the
+    natural attachment point for a future in-session summary/context feature,
+    but capped so an hour-long session cannot grow process memory without
+    bound. Deliberately NOT persisted anywhere: whether live-session
+    transcripts may be stored server-side at all is a flagged human/product
+    decision, and this module must not pre-empt it.
+    """
+    ctx.utterances.append(utterance)
+    if len(ctx.utterances) > UTTERANCE_BUFFER_MAX:
+        # Keep only the most recent entries; older ones are dropped.
+        del ctx.utterances[:-UTTERANCE_BUFFER_KEEP]
+
+
 # ---------------------------------------------------------------------------
 # WebSocket handler
 # ---------------------------------------------------------------------------
@@ -545,12 +638,55 @@ async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
     Client → Server (text):    JSON control messages, e.g.
         {"type": "config", "empathy_slider": 75, "role": "Husband"}
         {"type": "stop"} — graceful end-of-session: the server flushes the
-        transcriber, delivers every remaining ``SuggestionEvent``, then sends
-        {"type": "session_complete"} and closes the socket with code 1000.
-    Server → Client (text):    JSON ``SuggestionEvent`` on each utterance
+        transcriber, delivers every remaining ``SuggestionEvent`` (bounded by
+        ``STOP_DRAIN_TIMEOUT_S``), then sends {"type": "session_complete"}
+        and closes the socket with code 1000.
+    Server → Client (text):    JSON events (the mobile client tolerates
+    unknown types, so these are additive):
+        {"type": "suggestion", ...}            — SuggestionEvent per utterance
+        {"type": "suggestion_error",
+         "utterance_text": ..., "reason": ...} — an utterance produced NO
+                                                 suggestion (LLM/TTS failure);
+                                                 reported, never fabricated
+        {"type": "transcription_unavailable", "reason": ...}
+        {"type": "transcription_restored"}     — a mid-session transcriber
+                                                 drop was recovered (P1-1)
+        {"type": "limit_reached"}              — per-session utterance budget
+                                                 exhausted; no more suggestions
+        {"type": "session_complete"}           — plus "pending_dropped": n when
+                                                 the stop drain timed out
+        {"error": ...}                         — malformed client input
+
+    New WebSockets beyond ``MAX_WS_SESSIONS`` concurrent sessions are closed
+    immediately with code 1013 ("try again later") — an honest rejection
+    instead of letting every session degrade (P2-1).
     """
     await websocket.accept()
 
+    if _session_slots.locked():
+        # At capacity. Suppress send failures — the client may vanish mid-close.
+        logger.info(
+            "Rejecting session %s: %d concurrent sessions already active",
+            session_id, MAX_WS_SESSIONS,
+        )
+        with contextlib.suppress(Exception):
+            await websocket.close(
+                code=1013, reason="server at session capacity — try again later"
+            )
+        return
+
+    # NOTE: locked()+acquire() is not atomic; under a connection race an extra
+    # session may briefly WAIT here for a slot instead of being rejected.
+    # That's benign — the cap on concurrently *running* sessions still holds.
+    await _session_slots.acquire()
+    try:
+        await _run_session(websocket, session_id)
+    finally:
+        _session_slots.release()
+
+
+async def _run_session(websocket: WebSocket, session_id: str) -> None:
+    """Body of one accepted, slot-holding audio session (see endpoint above)."""
     # Per-connection state
     ctx = SessionContext(session_id=session_id)
 
@@ -582,6 +718,10 @@ async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
     # One worker (not a pool) keeps SuggestionEvents in utterance order.
     # Queue items carry the (empathy_slider, role) snapshot at enqueue time.
     suggestion_queue: asyncio.Queue[tuple[TranscriptSegment, int, str]] = asyncio.Queue()
+    # enqueued-vs-finished counters let the stop handler report honestly how
+    # many suggestions were dropped when draining times out (P1-8) — qsize()
+    # alone would miss the item the worker is currently processing.
+    queue_stats = {"enqueued": 0, "finished": 0}
 
     async def process_segment(
         segment: TranscriptSegment, empathy_slider: int, role: str,
@@ -596,7 +736,7 @@ async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
             end_time=segment.end_time,
             confidence=segment.confidence,
         )
-        ctx.utterances.append(utterance)
+        _remember_utterance(ctx, utterance)
 
         # Generate suggestion via LLM
         suggestion_texts = await _generate_suggestions(
@@ -625,35 +765,115 @@ async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
             segment, empathy_slider, role = await suggestion_queue.get()
             try:
                 await process_segment(segment, empathy_slider, role)
-            except Exception:
-                # task_done() must still run or queue.join() deadlocks; the
-                # receive loop notices a dead socket on its own.
+            except Exception as exc:
+                # P0-2: a failed suggestion (LLM/TTS error, missing key, rate
+                # limit) must never be silently swallowed — the client is told
+                # WHICH utterance produced nothing and why. Only the exception
+                # class name goes over the wire: provider error messages can
+                # carry key fragments or internals. task_done() must still run
+                # or queue.join() deadlocks.
                 logger.warning(
-                    "Suggestion processing failed for session %s", session_id,
-                    exc_info=True,
+                    "Suggestion processing failed for session %s (%s)",
+                    session_id, _redact(segment.text), exc_info=True,
                 )
+                reason = (
+                    exc.reason if isinstance(exc, SuggestionUnavailable)
+                    else type(exc).__name__
+                )
+                # Suppress send failures — the socket may already be gone.
+                with contextlib.suppress(Exception):
+                    await send_json({
+                        "type": "suggestion_error",
+                        "utterance_text": segment.text,
+                        "reason": reason,
+                    })
             finally:
+                queue_stats["finished"] += 1
                 suggestion_queue.task_done()
 
-    worker_task = asyncio.create_task(suggestion_worker())
+    limit_notified = False
 
-    def enqueue_segments(result) -> None:
+    async def enqueue_segments(result) -> None:
+        nonlocal limit_notified
         for segment in _normalize_segments(result):
+            if queue_stats["enqueued"] >= MAX_UTTERANCES:
+                # P2-1: utterance budget exhausted — every suggestion is an
+                # LLM + TTS spend. Say so ONCE, then drop further segments
+                # (transcription itself keeps running; only suggestion
+                # generation stops).
+                if not limit_notified:
+                    limit_notified = True
+                    logger.info(
+                        "Session %s reached MAX_UTTERANCES=%d — no further "
+                        "suggestions will be generated", session_id, MAX_UTTERANCES,
+                    )
+                    with contextlib.suppress(Exception):
+                        await send_json({"type": "limit_reached"})
+                return
+            queue_stats["enqueued"] += 1
             suggestion_queue.put_nowait((segment, ctx.empathy_slider, ctx.role))
 
-    # Connect transcription; if unavailable, tell the client plainly instead of
-    # fabricating transcripts. The client is told ONCE on entering the
-    # unavailable state; further binary frames are then ignored silently
-    # (the phone streams ~10 frames/sec — re-sending per frame is a flood).
-    transcription_available = True
+    worker_task = asyncio.create_task(suggestion_worker())
+    # P1-7: this try must start IMMEDIATELY after the worker task is created.
+    # The initial connect + notify below can raise (e.g. the client
+    # disconnects before we get a word in); without the try/finally around
+    # them, each such occurrence would leak one forever-pending worker task.
     try:
-        await transcriber.connect()
-    except TranscriberUnavailable as exc:
-        transcription_available = False
-        await send_json({"type": "transcription_unavailable", "reason": str(exc)})
-        logger.info("Transcription unavailable for session %s: %s", session_id, exc)
+        # Connect transcription; if unavailable, tell the client plainly
+        # instead of fabricating transcripts. The client is told ONCE on
+        # entering the unavailable state; further binary frames are then
+        # ignored silently (the phone streams ~10 frames/sec — re-sending per
+        # frame is a flood).
+        transcription_available = True
+        # P1-1: only a transcriber that WAS live is worth reconnecting. An
+        # initial connect failure is a config problem (no API key, missing
+        # package, bad URL) that retrying cannot fix.
+        transcriber_connected_once = False
+        try:
+            await transcriber.connect()
+            transcriber_connected_once = True
+        except TranscriberUnavailable as exc:
+            transcription_available = False
+            with contextlib.suppress(Exception):  # client may already be gone
+                await send_json(
+                    {"type": "transcription_unavailable", "reason": str(exc)}
+                )
+            logger.info(
+                "Transcription unavailable for session %s: %s", session_id, exc
+            )
 
-    try:
+        async def reconnect_transcriber():
+            """P1-1: try to bring transcription back after a mid-session drop.
+
+            Deepgram dropping a live socket (idle timeout, network blip,
+            upstream restart) must not silently kill transcription for the
+            rest of a possibly hour-long session. Tries one fresh transcriber
+            per backoff entry; returns the connected replacement, or ``None``
+            when every attempt failed. Runs inline in the receive loop, so
+            client frames buffer in the socket while retrying and are delivered
+            to the replacement transcriber after the swap — only the single
+            frame that hit the dead socket is lost. The client hears about it
+            honestly if retries exhaust.
+            """
+            attempts = len(TRANSCRIBER_RECONNECT_BACKOFFS_S)
+            for attempt, delay in enumerate(TRANSCRIBER_RECONNECT_BACKOFFS_S, 1):
+                await asyncio.sleep(delay)
+                candidate = transcriber_factory()
+                try:
+                    await candidate.connect()
+                except TranscriberUnavailable as exc:
+                    logger.info(
+                        "Transcriber reconnect %d/%d failed for session %s: %s",
+                        attempt, attempts, session_id, exc,
+                    )
+                    continue
+                logger.info(
+                    "Transcriber reconnected for session %s (attempt %d/%d)",
+                    session_id, attempt, attempts,
+                )
+                return candidate
+            return None
+
         while True:
             message = await websocket.receive()
 
@@ -666,16 +886,44 @@ async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                 audio_bytes: bytes = message["bytes"]
                 if len(audio_bytes) == 0 or not transcription_available:
                     continue
+                if len(audio_bytes) > MAX_AUDIO_FRAME_BYTES:
+                    # P2-3: contract frames are ~3200 bytes — reject the
+                    # anomaly honestly rather than forwarding it upstream.
+                    await send_json({
+                        "error": (
+                            f"audio frame too large ({len(audio_bytes)} bytes; "
+                            f"max {MAX_AUDIO_FRAME_BYTES})"
+                        )
+                    })
+                    continue
 
                 try:
                     result = await transcriber.stream(audio_bytes)
                 except TranscriberUnavailable as exc:
+                    if transcriber_connected_once:
+                        # A previously-live backend dropped mid-session —
+                        # attempt recovery before declaring it dead (P1-1).
+                        with contextlib.suppress(Exception):
+                            await transcriber.close()
+                        replacement = await reconnect_transcriber()
+                        if replacement is not None:
+                            transcriber = replacement
+                            # The client may have disconnected during the multi-
+                            # second reconnect; a send on a dead socket can raise
+                            # a non-WebSocketDisconnect error — suppress so it
+                            # doesn't escape the handler (cleanup still runs).
+                            with contextlib.suppress(Exception):
+                                await send_json({"type": "transcription_restored"})
+                            # The frame that hit the dead socket is gone — its
+                            # audio cannot be recovered, only acknowledged.
+                            continue
                     transcription_available = False
-                    await send_json(
-                        {"type": "transcription_unavailable", "reason": str(exc)}
-                    )
+                    with contextlib.suppress(Exception):
+                        await send_json(
+                            {"type": "transcription_unavailable", "reason": str(exc)}
+                        )
                     continue
-                enqueue_segments(result)
+                await enqueue_segments(result)
 
             # --- Text control message ---
             elif "text" in message and message["text"] is not None:
@@ -692,17 +940,50 @@ async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                         if isinstance(val, int) and 0 <= val <= 100:
                             ctx.empathy_slider = val
                     if "role" in payload:
-                        ctx.role = str(payload["role"])
+                        role_val = payload["role"]
+                        # P2-3: role reaches the LLM system prompt — ignore
+                        # wrong-typed values, clamp the length (cost +
+                        # injection surface).
+                        if isinstance(role_val, str):
+                            ctx.role = role_val[:MAX_ROLE_CHARS]
                     await send_json({"type": "config_ack"})
                 elif msg_type == "stop":
                     # Graceful stop: flush the transcriber so the FINAL
-                    # utterance is delivered, wait for every pending
-                    # SuggestionEvent to go out, then confirm completion and
-                    # close server-side.
-                    enqueue_segments(await _finish_transcriber(transcriber))
-                    await suggestion_queue.join()
-                    await send_json({"type": "session_complete"})
-                    await websocket.close(code=1000)
+                    # utterance is delivered, wait (bounded — P1-8) for the
+                    # pending SuggestionEvents to go out, then confirm
+                    # completion and close server-side.
+                    await enqueue_segments(await _finish_transcriber(transcriber))
+                    completion: dict = {"type": "session_complete"}
+                    try:
+                        await asyncio.wait_for(
+                            suggestion_queue.join(), timeout=STOP_DRAIN_TIMEOUT_S
+                        )
+                    except asyncio.TimeoutError:
+                        # A hung LLM/TTS/send must not stall the client's stop for
+                        # minutes. Count pending FIRST — an in-flight suggestion
+                        # stuck in the LLM was never delivered, so it is genuinely
+                        # dropped (the worker's finally would mark it "finished"
+                        # on cancel, which would dishonestly under-report it).
+                        pending = queue_stats["enqueued"] - queue_stats["finished"]
+                        # THEN cancel before the completion send: the worker may
+                        # be holding send_lock (a large TTS frame to a non-reading
+                        # client), which would otherwise deadlock the send on the
+                        # same lock — and it can't deliver a late suggestion after.
+                        worker_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await worker_task
+                        completion["pending_dropped"] = pending
+                        logger.warning(
+                            "Graceful stop drain timed out after %.0fs with %d "
+                            "pending suggestion(s) for session %s",
+                            STOP_DRAIN_TIMEOUT_S, pending, session_id,
+                        )
+                    # Bound the final send + close too — a connected-but-not-reading
+                    # client must not hang the stop indefinitely.
+                    with contextlib.suppress(Exception):
+                        await asyncio.wait_for(send_json(completion), timeout=5.0)
+                    with contextlib.suppress(Exception):
+                        await asyncio.wait_for(websocket.close(code=1000), timeout=5.0)
                     break
                 else:
                     await send_json({"error": f"unknown type: {msg_type}"})
@@ -768,7 +1049,15 @@ async def _generate_suggestions(
     empathy_slider: int,
     role: str,
 ) -> list[str]:
-    """Call LLMClient.complete() and parse suggestions from the response."""
+    """Call LLMClient.complete() and parse suggestions from the response.
+
+    Raises :class:`SuggestionUnavailable` ("llm_parse_error") when the LLM
+    output cannot be parsed (P0-3). It used to fabricate an
+    "I hear you — <utterance>" line here — a fake suggestion that would then
+    be TTS-spoken as if the coach really produced it. Honest failure instead:
+    the suggestion worker turns the exception into a ``suggestion_error``
+    event so the client knows this utterance yielded nothing.
+    """
     from main import empathy_system_prompt, parse_llm_json
 
     system = empathy_system_prompt(empathy_slider, role)
@@ -778,7 +1067,17 @@ async def _generate_suggestions(
 
     try:
         data = parse_llm_json(raw)
-        return data.get("suggestions", [])
-    except (json.JSONDecodeError, KeyError):
-        logger.warning("LLM returned unparseable response for utterance: %s", utterance.text)
-        return [f"I hear you — {utterance.text}"]
+        suggestions = data.get("suggestions", [])
+    # AttributeError/TypeError: valid JSON of the wrong shape (list, string…).
+    except (json.JSONDecodeError, KeyError, AttributeError, TypeError) as exc:
+        # P1-4: log length/hash, never the transcript text itself.
+        logger.warning(
+            "LLM returned unparseable response for %s", _redact(utterance.text)
+        )
+        raise SuggestionUnavailable("llm_parse_error") from exc
+    if not isinstance(suggestions, list):
+        logger.warning(
+            "LLM returned non-list suggestions for %s", _redact(utterance.text)
+        )
+        raise SuggestionUnavailable("llm_parse_error")
+    return suggestions

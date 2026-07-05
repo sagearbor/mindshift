@@ -6,7 +6,7 @@ fastapi
 uvicorn
 aiosqlite
 pydantic
-reportlab
+reportlab>=4,<5
 httpx
 websockets>=14
 anyio
