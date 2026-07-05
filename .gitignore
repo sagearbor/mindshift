@@ -136,6 +136,7 @@ celerybeat.pid
 
 # Environments
 .env
+.env.*
 .envrc
 .venv
 env/
@@ -143,6 +144,8 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+# NOTE: env.example (no leading dot) is intentionally NOT matched by .env.*
+# above and stays tracked as the checked-in template.
 
 # Spyder project settings
 .spyderproject
@@ -214,3 +217,12 @@ node_modules/
 npm-debug.log*
 .expo/
 *.tsbuildinfo
+
+# Editor swap files
+*.swp
+*.swo
+
+# SQLite (MindShift local dev DB)
+mindshift.db
+*.db-wal
+*.db-shm
