@@ -1,0 +1,700 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MindShift — An empathy coach in your ear for hard conversations</title>
+<meta name="description" content="MindShift is a real-time AI empathy coach for difficult conversations. It listens, transcribes, and quietly suggests kinder ways to say hard things — with an empathy dial you control. Coming soon to Google Play." />
+
+<!-- Open Graph / social preview -->
+<meta property="og:type" content="website" />
+<meta property="og:title" content="MindShift — An empathy coach in your ear for hard conversations" />
+<meta property="og:description" content="Real-time coaching for the conversations that matter most. Listens, understands, and gently suggests kinder phrasing — on your terms. Coming soon to Google Play." />
+<meta property="og:site_name" content="MindShift" />
+<meta name="theme-color" content="#0f1512" media="(prefers-color-scheme: dark)" />
+<meta name="theme-color" content="#f7f1e8" media="(prefers-color-scheme: light)" />
+
+<!-- Favicon: a soft speech bloom -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%230f1512'/%3E%3Cpath d='M9 11a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v3a5 5 0 0 1-5 5h-3l-4 3v-3a5 5 0 0 1-2-4z' fill='%23e8b98a'/%3E%3Ccircle cx='16' cy='12.5' r='2.1' fill='%230f1512'/%3E%3C/svg%3E" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+
+<style>
+  :root{
+    --paper:#f7f1e8;
+    --paper-2:#efe6d7;
+    --ink:#171d18;
+    --ink-soft:#3c463d;
+    --muted:#6a7469;
+    --line:#e0d4c1;
+    --card:#fffdf8;
+    --sage:#3f6f5b;
+    --sage-deep:#2c5344;
+    --terra:#c8724a;
+    --terra-soft:#e8b98a;
+    --glow:rgba(63,111,91,.16);
+    --shadow:0 1px 2px rgba(23,29,24,.05), 0 18px 40px -22px rgba(23,29,24,.28);
+    --radius:20px;
+    --maxw:1120px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --paper:#0f1512;
+      --paper-2:#141c18;
+      --ink:#ede6da;
+      --ink-soft:#c3c9bf;
+      --muted:#8c968a;
+      --line:#26302a;
+      --card:#161e1a;
+      --sage:#7fc0a3;
+      --sage-deep:#a7d8c0;
+      --terra:#e79a6c;
+      --terra-soft:#e8b98a;
+      --glow:rgba(127,192,163,.14);
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 24px 60px -28px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="light"]{
+    --paper:#f7f1e8;--paper-2:#efe6d7;--ink:#171d18;--ink-soft:#3c463d;--muted:#6a7469;
+    --line:#e0d4c1;--card:#fffdf8;--sage:#3f6f5b;--sage-deep:#2c5344;--terra:#c8724a;
+    --terra-soft:#e8b98a;--glow:rgba(63,111,91,.16);
+    --shadow:0 1px 2px rgba(23,29,24,.05), 0 18px 40px -22px rgba(23,29,24,.28);
+  }
+  :root[data-theme="dark"]{
+    --paper:#0f1512;--paper-2:#141c18;--ink:#ede6da;--ink-soft:#c3c9bf;--muted:#8c968a;
+    --line:#26302a;--card:#161e1a;--sage:#7fc0a3;--sage-deep:#a7d8c0;--terra:#e79a6c;
+    --terra-soft:#e8b98a;--glow:rgba(127,192,163,.14);
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 24px 60px -28px rgba(0,0,0,.7);
+  }
+
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:"Instrument Sans",-apple-system,BlinkMacSystemFont,sans-serif;
+    font-size:17px;
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+    overflow-x:hidden;
+  }
+  /* Paper grain + warm light bloom */
+  body::before{
+    content:"";position:fixed;inset:0;z-index:-2;pointer-events:none;
+    background:
+      radial-gradient(1200px 700px at 78% -8%, var(--glow), transparent 60%),
+      radial-gradient(900px 600px at -6% 12%, rgba(200,114,74,.10), transparent 55%);
+  }
+  body::after{
+    content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.5;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E");
+    mix-blend-mode:soft-light;
+  }
+
+  a{color:inherit}
+  h1,h2,h3{font-family:"Fraunces",Georgia,serif;font-weight:600;line-height:1.05;letter-spacing:-.01em;margin:0}
+  .serif{font-family:"Fraunces",Georgia,serif}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+  .eyebrow{
+    font-size:12.5px;letter-spacing:.16em;text-transform:uppercase;font-weight:600;
+    color:var(--sage);display:inline-flex;align-items:center;gap:9px;
+  }
+  .eyebrow::before{content:"";width:22px;height:1.5px;background:var(--sage);display:inline-block;opacity:.7}
+
+  /* ---------- NAV ---------- */
+  header.nav{
+    position:sticky;top:0;z-index:50;
+    backdrop-filter:saturate(140%) blur(12px);
+    background:color-mix(in srgb, var(--paper) 82%, transparent);
+    border-bottom:1px solid transparent;transition:border-color .3s;
+  }
+  header.nav.scrolled{border-bottom:1px solid var(--line)}
+  .nav-inner{display:flex;align-items:center;justify-content:space-between;height:68px}
+  .brand{display:flex;align-items:center;gap:11px;font-family:"Fraunces",serif;font-weight:600;font-size:20px;letter-spacing:-.02em}
+  .brand svg{width:30px;height:30px;flex:none}
+  .nav-links{display:flex;align-items:center;gap:30px}
+  .nav-links a{text-decoration:none;color:var(--ink-soft);font-size:15px;font-weight:500;transition:color .2s}
+  .nav-links a:hover{color:var(--ink)}
+  .nav-cta{display:inline-flex;align-items:center;gap:8px;background:var(--ink);color:var(--paper);padding:9px 16px;border-radius:999px;font-size:14px;font-weight:600;text-decoration:none;transition:transform .2s, opacity .2s}
+  .nav-cta:hover{transform:translateY(-1px);opacity:.92}
+  .theme-toggle{background:transparent;border:1px solid var(--line);color:var(--ink-soft);width:38px;height:38px;border-radius:50%;cursor:pointer;display:grid;place-items:center;transition:border-color .2s, transform .2s}
+  .theme-toggle:hover{border-color:var(--sage);transform:rotate(-12deg)}
+  .theme-toggle svg{width:17px;height:17px}
+  @media(max-width:760px){.nav-links a.navlink{display:none}}
+
+  /* ---------- BUTTONS ---------- */
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;font-weight:600;font-size:16px;text-decoration:none;border-radius:999px;padding:15px 26px;transition:transform .2s, box-shadow .2s, opacity .2s;cursor:pointer;border:none}
+  .btn-play{background:var(--ink);color:var(--paper);box-shadow:var(--shadow)}
+  .btn-play:hover{transform:translateY(-2px)}
+  .btn-ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line)}
+  .btn-ghost:hover{border-color:var(--sage);color:var(--sage)}
+  .btn svg{width:20px;height:20px;flex:none}
+
+  /* ---------- HERO ---------- */
+  .hero{position:relative;padding:74px 0 40px}
+  .hero-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:56px;align-items:center}
+  @media(max-width:940px){.hero-grid{grid-template-columns:1fr;gap:40px}}
+  .badge-soft{display:inline-flex;align-items:center;gap:9px;background:var(--card);border:1px solid var(--line);color:var(--ink-soft);border-radius:999px;padding:7px 14px;font-size:13.5px;font-weight:500;box-shadow:var(--shadow)}
+  .badge-soft .dot{width:8px;height:8px;border-radius:50%;background:var(--terra);box-shadow:0 0 0 0 rgba(200,114,74,.5);animation:pulse 2.4s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(200,114,74,.45)}70%{box-shadow:0 0 0 8px rgba(200,114,74,0)}100%{box-shadow:0 0 0 0 rgba(200,114,74,0)}}
+  h1.hero-title{font-size:clamp(2.6rem,6vw,4.35rem);margin:22px 0 0;letter-spacing:-.025em}
+  h1.hero-title em{font-style:italic;color:var(--sage);font-weight:500}
+  .hero-sub{font-size:clamp(1.05rem,1.6vw,1.28rem);color:var(--ink-soft);max-width:33ch;margin:22px 0 0;line-height:1.55}
+  .hero-cta{display:flex;flex-wrap:wrap;gap:14px;margin-top:34px}
+  .hero-note{margin-top:18px;font-size:13.5px;color:var(--muted);display:flex;align-items:center;gap:8px}
+  .hero-note svg{width:15px;height:15px;flex:none;color:var(--sage)}
+
+  /* staggered reveal */
+  .reveal{opacity:0;transform:translateY(16px);animation:rise .8s cubic-bezier(.2,.7,.2,1) forwards}
+  @keyframes rise{to{opacity:1;transform:none}}
+  .d1{animation-delay:.05s}.d2{animation-delay:.16s}.d3{animation-delay:.28s}.d4{animation-delay:.4s}.d5{animation-delay:.52s}
+  @media(prefers-reduced-motion:reduce){.reveal{animation:none;opacity:1;transform:none}.badge-soft .dot{animation:none}}
+
+  /* ---------- PHONE / TRANSCRIPT DEMO ---------- */
+  .phone-stage{position:relative;display:flex;justify-content:center}
+  .phone-stage::before{content:"";position:absolute;inset:-30px;background:radial-gradient(closest-side, var(--glow), transparent 72%);z-index:0}
+  .phone{
+    position:relative;z-index:1;width:300px;max-width:82vw;background:var(--card);
+    border:1px solid var(--line);border-radius:34px;padding:16px 14px 18px;box-shadow:var(--shadow);
+  }
+  .phone-top{display:flex;align-items:center;justify-content:space-between;padding:2px 6px 12px}
+  .phone-top .live{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--terra)}
+  .phone-top .live .dot{width:7px;height:7px;border-radius:50%;background:var(--terra);animation:pulse 2.4s infinite}
+  .phone-top .who{font-size:11px;color:var(--muted);font-weight:500}
+  .transcript{display:flex;flex-direction:column;gap:11px;min-height:250px}
+  .line{display:flex;flex-direction:column;gap:3px;opacity:0;transform:translateY(8px)}
+  .line.show{opacity:1;transform:none;transition:all .5s cubic-bezier(.2,.7,.2,1)}
+  .spk{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;color:var(--muted)}
+  .bubble{font-size:14px;line-height:1.45;padding:9px 12px;border-radius:13px;background:var(--paper-2);color:var(--ink);border:1px solid var(--line)}
+  .line.them .bubble{border-bottom-left-radius:4px}
+  .line.you{align-items:flex-end}
+  .line.you .spk{color:var(--sage)}
+  .line.you .bubble{background:color-mix(in srgb,var(--sage) 14%, var(--card));border-bottom-right-radius:4px}
+  .coach{margin-top:2px;border-radius:14px;padding:11px 12px;background:linear-gradient(180deg,color-mix(in srgb,var(--terra-soft) 22%,var(--card)),var(--card));border:1px solid color-mix(in srgb,var(--terra) 30%,var(--line));box-shadow:var(--shadow)}
+  .coach .tag{display:flex;align-items:center;gap:7px;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--terra)}
+  .coach .tag svg{width:13px;height:13px}
+  .coach p{margin:6px 0 0;font-size:13.5px;line-height:1.5;color:var(--ink)}
+  .coach p em{font-style:italic;color:var(--sage-deep);font-family:"Fraunces",serif;font-weight:500}
+  .replay{margin:12px auto 0;display:block;background:transparent;border:1px solid var(--line);color:var(--muted);font-size:12px;font-weight:600;border-radius:999px;padding:6px 14px;cursor:pointer;font-family:inherit}
+  .replay:hover{color:var(--sage);border-color:var(--sage)}
+
+  /* ---------- MARQUEE / values strip ---------- */
+  .strip{border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin-top:56px;overflow:hidden;background:color-mix(in srgb,var(--paper-2) 50%, transparent)}
+  .strip-track{display:flex;gap:56px;white-space:nowrap;padding:16px 0;animation:scroll 34s linear infinite;width:max-content}
+  @keyframes scroll{to{transform:translateX(-50%)}}
+  .strip:hover .strip-track{animation-play-state:paused}
+  .strip-track span{font-family:"Fraunces",serif;font-style:italic;font-size:18px;color:var(--muted);display:inline-flex;align-items:center;gap:56px}
+  .strip-track span::after{content:"◆";font-style:normal;font-size:9px;color:var(--terra);opacity:.6}
+  @media(prefers-reduced-motion:reduce){.strip-track{animation:none}}
+
+  /* ---------- SECTION SHELL ---------- */
+  section{padding:88px 0}
+  .sec-head{max-width:640px;margin-bottom:52px}
+  .sec-head h2{font-size:clamp(1.9rem,3.6vw,2.9rem);margin-top:16px;letter-spacing:-.02em}
+  .sec-head p{color:var(--ink-soft);font-size:1.08rem;margin-top:16px}
+
+  /* ---------- WHAT IT DOES ---------- */
+  .feat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px}
+  @media(max-width:900px){.feat-grid{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:28px;box-shadow:var(--shadow);transition:transform .3s, border-color .3s;position:relative;overflow:hidden}
+  .card:hover{transform:translateY(-4px);border-color:color-mix(in srgb,var(--sage) 45%,var(--line))}
+  .card .ic{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;background:color-mix(in srgb,var(--sage) 12%, var(--card));border:1px solid color-mix(in srgb,var(--sage) 22%,var(--line));margin-bottom:18px}
+  .card .ic svg{width:23px;height:23px;color:var(--sage)}
+  .card h3{font-size:1.32rem;margin-bottom:9px}
+  .card p{color:var(--ink-soft);font-size:.98rem;margin:0}
+
+  /* ---------- HOW IT WORKS ---------- */
+  .how{background:var(--paper-2)}
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;counter-reset:step}
+  @media(max-width:820px){.steps{grid-template-columns:1fr}}
+  .step{position:relative;padding:30px 26px;border-radius:var(--radius);background:var(--card);border:1px solid var(--line)}
+  .step .num{font-family:"Fraunces",serif;font-size:2.6rem;font-weight:600;color:var(--terra);line-height:1;opacity:.9}
+  .step h3{font-size:1.28rem;margin:14px 0 8px}
+  .step p{color:var(--ink-soft);font-size:.97rem;margin:0}
+  .step .arrow{position:absolute;right:-24px;top:50%;transform:translateY(-50%);color:var(--line);z-index:2}
+  .step .arrow svg{width:26px;height:26px}
+  @media(max-width:820px){.step .arrow{display:none}}
+
+  /* ---------- EMPATHY DIAL ---------- */
+  .dial-grid{display:grid;grid-template-columns:.9fr 1.1fr;gap:48px;align-items:center}
+  @media(max-width:900px){.dial-grid{grid-template-columns:1fr;gap:34px}}
+  .dial-panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:32px;box-shadow:var(--shadow)}
+  .dial-meta{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+  .dial-meta .lbl{font-size:12px;letter-spacing:.12em;text-transform:uppercase;font-weight:600;color:var(--muted)}
+  .dial-meta .cur{font-family:"Fraunces",serif;font-weight:600;font-size:1.15rem;color:var(--sage)}
+  .said{font-size:13px;color:var(--muted);margin-bottom:16px}
+  .said b{color:var(--ink-soft);font-weight:600;font-family:"Fraunces",serif;font-style:italic}
+  .phrase{font-family:"Fraunces",serif;font-size:clamp(1.3rem,2.4vw,1.7rem);line-height:1.32;font-weight:500;letter-spacing:-.01em;min-height:4.6em;transition:opacity .18s}
+  .phrase .q{color:var(--terra);font-family:"Fraunces",serif}
+  .slider-shell{margin-top:26px}
+  input[type=range].dial{
+    -webkit-appearance:none;appearance:none;width:100%;height:8px;border-radius:999px;outline:none;
+    background:linear-gradient(90deg,var(--terra),var(--sage));cursor:pointer;
+  }
+  input[type=range].dial::-webkit-slider-thumb{-webkit-appearance:none;width:28px;height:28px;border-radius:50%;background:var(--card);border:2.5px solid var(--sage);box-shadow:var(--shadow);cursor:grab;transition:transform .15s}
+  input[type=range].dial::-webkit-slider-thumb:active{transform:scale(1.12);cursor:grabbing}
+  input[type=range].dial::-moz-range-thumb{width:28px;height:28px;border-radius:50%;background:var(--card);border:2.5px solid var(--sage);box-shadow:var(--shadow);cursor:grab}
+  .ticks{display:flex;justify-content:space-between;margin-top:12px;font-size:12px;font-weight:600;color:var(--muted)}
+  .ticks span{transition:color .2s}
+  .dial-copy h2{font-size:clamp(1.9rem,3.6vw,2.8rem);letter-spacing:-.02em}
+  .dial-copy p{color:var(--ink-soft);margin-top:16px;font-size:1.05rem}
+
+  /* ---------- WHO IT'S FOR ---------- */
+  .who-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+  @media(max-width:820px){.who-grid{grid-template-columns:1fr}}
+  .who-card{border-radius:var(--radius);padding:34px;border:1px solid var(--line);position:relative;overflow:hidden}
+  .who-card.therapist{background:linear-gradient(150deg,color-mix(in srgb,var(--sage) 16%,var(--card)),var(--card))}
+  .who-card.individual{background:linear-gradient(150deg,color-mix(in srgb,var(--terra) 14%,var(--card)),var(--card))}
+  .who-card .kick{font-size:12px;letter-spacing:.14em;text-transform:uppercase;font-weight:600;color:var(--sage)}
+  .who-card.individual .kick{color:var(--terra)}
+  .who-card h3{font-size:1.6rem;margin:12px 0 12px}
+  .who-card p{color:var(--ink-soft);font-size:1rem;margin:0 0 18px}
+  .who-card ul{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:10px}
+  .who-card li{display:flex;gap:11px;align-items:flex-start;font-size:.97rem;color:var(--ink-soft)}
+  .who-card li svg{width:19px;height:19px;flex:none;margin-top:2px;color:var(--sage)}
+  .who-card.individual li svg{color:var(--terra)}
+
+  /* ---------- PRIVACY ---------- */
+  .privacy{background:var(--paper-2)}
+  .privacy-grid{display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:center}
+  @media(max-width:900px){.privacy-grid{grid-template-columns:1fr;gap:34px}}
+  .privacy-visual{display:grid;place-items:center;position:relative;min-height:260px}
+  .shield-wrap{position:relative;width:230px;height:230px;display:grid;place-items:center}
+  .ring{position:absolute;border-radius:50%;border:1.5px dashed color-mix(in srgb,var(--sage) 40%,var(--line));animation:spin 26s linear infinite}
+  .ring.r1{inset:0}.ring.r2{inset:34px;animation-duration:18s;animation-direction:reverse;border-style:dotted}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @media(prefers-reduced-motion:reduce){.ring{animation:none}}
+  .shield-core{width:112px;height:112px;border-radius:28px;background:var(--card);border:1px solid var(--line);display:grid;place-items:center;box-shadow:var(--shadow);z-index:2}
+  .shield-core svg{width:52px;height:52px;color:var(--sage)}
+  .chip{position:absolute;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:12px;font-weight:600;box-shadow:var(--shadow);z-index:3}
+  .chip.c1{top:6px;left:-6px;color:var(--sage)}
+  .chip.c2{bottom:22px;right:-14px;color:var(--terra)}
+  .chip.c3{bottom:-6px;left:30px;color:var(--ink-soft)}
+  .privacy-copy h2{font-size:clamp(1.9rem,3.6vw,2.8rem);letter-spacing:-.02em}
+  .privacy-copy p{color:var(--ink-soft);margin-top:16px;font-size:1.06rem}
+  .privacy-list{margin-top:22px;display:flex;flex-direction:column;gap:14px}
+  .privacy-list div{display:flex;gap:12px;align-items:flex-start}
+  .privacy-list svg{width:20px;height:20px;flex:none;margin-top:3px;color:var(--sage)}
+  .privacy-list b{font-weight:600;color:var(--ink)}
+  .privacy-list span{color:var(--ink-soft)}
+
+  /* ---------- CTA ---------- */
+  .cta-band{text-align:center;padding:96px 0}
+  .cta-inner{max-width:720px;margin:0 auto;background:var(--card);border:1px solid var(--line);border-radius:28px;padding:56px 40px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .cta-inner::before{content:"";position:absolute;inset:0;background:radial-gradient(600px 260px at 50% -30%,var(--glow),transparent 70%);pointer-events:none}
+  .cta-inner h2{font-size:clamp(2rem,4vw,3rem);letter-spacing:-.02em;position:relative}
+  .cta-inner p{color:var(--ink-soft);font-size:1.1rem;max-width:44ch;margin:16px auto 0;position:relative}
+  .cta-actions{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:32px;position:relative}
+  .cta-fine{margin-top:20px;font-size:13px;color:var(--muted);position:relative}
+
+  /* ---------- FOOTER ---------- */
+  footer{border-top:1px solid var(--line);padding:56px 0 40px}
+  .foot-grid{display:flex;justify-content:space-between;gap:32px;flex-wrap:wrap;align-items:flex-start}
+  .foot-brand{max-width:320px}
+  .foot-brand .brand{margin-bottom:14px}
+  .foot-brand p{color:var(--muted);font-size:.95rem;margin:0}
+  .foot-links{display:flex;gap:56px;flex-wrap:wrap}
+  .foot-col h4{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 14px;font-family:"Instrument Sans",sans-serif;font-weight:600}
+  .foot-col a{display:block;text-decoration:none;color:var(--ink-soft);font-size:.95rem;margin-bottom:9px;transition:color .2s}
+  .foot-col a:hover{color:var(--sage)}
+  .disclaimer{margin-top:44px;padding-top:26px;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;align-items:center}
+  .disclaimer p{font-size:12.5px;color:var(--muted);max-width:70ch;margin:0;line-height:1.6}
+  .disclaimer .copyr{font-size:12.5px;color:var(--muted);white-space:nowrap}
+
+  /* Scroll-reveal for sections */
+  .obs{opacity:0;transform:translateY(24px);transition:opacity .7s ease, transform .7s cubic-bezier(.2,.7,.2,1)}
+  .obs.in{opacity:1;transform:none}
+  @media(prefers-reduced-motion:reduce){.obs{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+
+<!-- =================== NAV =================== -->
+<header class="nav" id="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="#top" aria-label="MindShift home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="var(--ink)"/><path d="M9 11a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v3a5 5 0 0 1-5 5h-3l-4 3v-3a5 5 0 0 1-2-4z" fill="var(--terra-soft)"/><circle cx="16" cy="12.5" r="2.1" fill="var(--ink)"/></svg>
+      MindShift
+    </a>
+    <nav class="nav-links" aria-label="Primary">
+      <a class="navlink" href="#what">What it does</a>
+      <a class="navlink" href="#how">How it works</a>
+      <a class="navlink" href="#dial">Empathy dial</a>
+      <a class="navlink" href="#privacy">Privacy</a>
+      <button class="theme-toggle" id="themeToggle" aria-label="Toggle light and dark theme" title="Toggle theme">
+        <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/></svg>
+      </button>
+      <a class="nav-cta" href="#get">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M3.6 2.1 13 12 3.6 21.9c-.4-.2-.6-.6-.6-1V3.1c0-.4.2-.8.6-1zM14.7 13.7l2.6 2.6-9.6 5.5 7-8.1zM18.8 9.6l2.5 1.5c.6.4.6 1.4 0 1.8l-2.5 1.5-2.9-2.9 2.9-2.9zM7.7 2.2l9.6 5.5-2.6 2.6-7-8.1z"/></svg>
+        Get early access
+      </a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+<!-- =================== HERO =================== -->
+<section class="hero" style="padding-top:56px">
+  <div class="wrap hero-grid">
+    <div>
+      <span class="badge-soft reveal d1"><span class="dot"></span> Coming soon to Google Play · Pilot now open</span>
+      <h1 class="hero-title reveal d2">Say the hard thing —<br><em>with more heart.</em></h1>
+      <p class="hero-sub reveal d3">MindShift is a quiet coach in your ear for difficult conversations. It listens as you talk, follows who said what, and gently offers kinder ways to phrase what matters most.</p>
+      <div class="hero-cta reveal d4">
+        <a class="btn btn-play" href="#get">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.6 2.1 13 12 3.6 21.9c-.4-.2-.6-.6-.6-1V3.1c0-.4.2-.8.6-1zM14.7 13.7l2.6 2.6-9.6 5.5 7-8.1zM18.8 9.6l2.5 1.5c.6.4.6 1.4 0 1.8l-2.5 1.5-2.9-2.9 2.9-2.9zM7.7 2.2l9.6 5.5-2.6 2.6-7-8.1z"/></svg>
+          Join the Android pilot
+        </a>
+        <a class="btn btn-ghost" href="#how">See how it works</a>
+      </div>
+      <p class="hero-note reveal d5">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
+        A coach for how you say it — not therapy or medical advice.
+      </p>
+    </div>
+
+    <!-- Live transcript demo -->
+    <div class="phone-stage reveal d3">
+      <div class="phone" aria-label="Illustrative demo of MindShift listening to a conversation">
+        <div class="phone-top">
+          <span class="live"><span class="dot"></span> Listening</span>
+          <span class="who">On-device · demo</span>
+        </div>
+        <div class="transcript" id="transcript" role="log" aria-live="off"></div>
+        <button class="replay" id="replayBtn" type="button">↻ Replay</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- values strip -->
+<div class="strip" aria-hidden="true">
+  <div class="strip-track">
+    <span>Partners</span><span>Parents &amp; kids</span><span>Coaches &amp; clients</span><span>Hard talks at work</span><span>Repair after conflict</span>
+    <span>Partners</span><span>Parents &amp; kids</span><span>Coaches &amp; clients</span><span>Hard talks at work</span><span>Repair after conflict</span>
+  </div>
+</div>
+
+<!-- =================== WHAT IT DOES =================== -->
+<section id="what">
+  <div class="wrap">
+    <div class="sec-head obs">
+      <span class="eyebrow">What it does</span>
+      <h2>Support in the moment, not a lecture afterward.</h2>
+      <p>Most advice arrives too late — after the words are already out. MindShift works while you're still in the conversation, so the kinder version is the one you actually say.</p>
+    </div>
+    <div class="feat-grid">
+      <div class="card obs">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4M8 21h8"/></svg></div>
+        <h3>Real-time transcription</h3>
+        <p>It follows the conversation live and keeps track of who said what — so its guidance is grounded in what's actually happening, not guesswork.</p>
+      </div>
+      <div class="card obs">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-4.6-9.3-9A5.3 5.3 0 0 1 12 6.5 5.3 5.3 0 0 1 21.3 12C19 16.4 12 21 12 21z"/></svg></div>
+        <h3>Gentle, spoken suggestions</h3>
+        <p>When things get tense, a calm voice offers a warmer way to say it — quietly, in your ear, so only you hear the nudge.</p>
+      </div>
+      <div class="card obs">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h4l2 6 4-14 2 8h4"/></svg></div>
+        <h3>Tuned to your tone</h3>
+        <p>Turn the empathy dial from direct to deeply validating. MindShift adapts its suggestions to sound like the version of you that you want to be.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =================== HOW IT WORKS =================== -->
+<section id="how" class="how">
+  <div class="wrap">
+    <div class="sec-head obs">
+      <span class="eyebrow">How it works</span>
+      <h2>Three quiet steps, one better conversation.</h2>
+      <p>No dashboards to manage mid-talk. You focus on the person in front of you; MindShift does the rest in the background.</p>
+    </div>
+    <div class="steps">
+      <div class="step obs">
+        <div class="num">01</div>
+        <h3>Listens</h3>
+        <p>Start a session and MindShift transcribes the conversation in real time, gently noting each speaker.</p>
+        <span class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+      </div>
+      <div class="step obs">
+        <div class="num">02</div>
+        <h3>Understands</h3>
+        <p>It reads the emotional undercurrent — where things are heating up, where someone feels unheard.</p>
+        <span class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+      </div>
+      <div class="step obs">
+        <div class="num">03</div>
+        <h3>Suggests</h3>
+        <p>At the right moment, it offers a kinder phrasing at the empathy level you chose — yours to use or ignore.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =================== EMPATHY DIAL =================== -->
+<section id="dial">
+  <div class="wrap dial-grid">
+    <div class="dial-copy obs">
+      <span class="eyebrow">The empathy dial</span>
+      <h2>You set the tone. Always.</h2>
+      <p>The same feeling can be said a dozen ways. Slide from clear-and-direct to deeply-validating and watch a real example shift — this is the choice MindShift puts in your hands, live in every conversation.</p>
+      <p style="font-size:.95rem;color:var(--muted)">Try it — drag the dial below.</p>
+    </div>
+
+    <div class="dial-panel obs">
+      <div class="dial-meta">
+        <span class="lbl">Suggested rephrasing</span>
+        <span class="cur" id="dialLabel">Balanced</span>
+      </div>
+      <p class="said">They said: <b>"You never listen to me."</b></p>
+      <p class="phrase" id="dialPhrase"></p>
+      <div class="slider-shell">
+        <input type="range" min="0" max="4" value="2" step="1" class="dial" id="dial" aria-label="Empathy level from direct to deeply validating" />
+        <div class="ticks">
+          <span data-i="0">Direct</span>
+          <span data-i="1">Clear</span>
+          <span data-i="2">Balanced</span>
+          <span data-i="3">Warm</span>
+          <span data-i="4">Validating</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =================== WHO IT'S FOR =================== -->
+<section id="who" style="padding-top:24px">
+  <div class="wrap">
+    <div class="sec-head obs">
+      <span class="eyebrow">Who it's for</span>
+      <h2>Built with therapists in mind. Made for anyone who cares how it lands.</h2>
+    </div>
+    <div class="who-grid">
+      <div class="who-card therapist obs">
+        <span class="kick">For practitioners</span>
+        <h3>Therapists &amp; coaches</h3>
+        <p>Designed alongside the people who guide couples, families, and clients through hard moments — a supportive tool between and during sessions.</p>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg> Couples working through friction</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg> Parent &amp; child communication</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg> Coaching relationships that need warmth and candor</li>
+        </ul>
+      </div>
+      <div class="who-card individual obs">
+        <span class="kick">For everyone</span>
+        <h3>Individuals &amp; families</h3>
+        <p>You don't need a clinician to want to be understood. Bring MindShift to the talks that keep you up at night.</p>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg> Reconnecting with a partner</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg> A tough talk with a teenager</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg> Setting a boundary without burning a bridge</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =================== PRIVACY =================== -->
+<section id="privacy" class="privacy">
+  <div class="wrap privacy-grid">
+    <div class="privacy-visual obs" aria-hidden="true">
+      <div class="shield-wrap">
+        <div class="ring r1"></div>
+        <div class="ring r2"></div>
+        <div class="shield-core">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.4 8.6 8 11 4.6-2.4 8-6 8-11V5l-8-3z"/><path d="M9 12l2 2 4-4"/></svg>
+        </div>
+        <span class="chip c1">No cloud needed</span>
+        <span class="chip c2">On-device</span>
+        <span class="chip c3">Your words stay yours</span>
+      </div>
+    </div>
+    <div class="privacy-copy obs">
+      <span class="eyebrow">Privacy by design</span>
+      <h2>The most intimate conversations never have to leave the room.</h2>
+      <p>For sensitive talks, MindShift can run transcription fully on-device or self-hosted — no audio sent to the cloud. Privacy isn't a setting you hunt for; it's the starting point.</p>
+      <div class="privacy-list">
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><span><b>On-device transcription.</b> Choose a mode where audio is processed on your phone and never uploaded.</span></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="4"/></svg><span><b>Self-hostable.</b> Run the pipeline on your own infrastructure for full control.</span></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a3 3 0 0 1 0 6h-1M6 8H5a3 3 0 0 0 0 6h1M9 11h6"/></svg><span><b>Yours to keep or discard.</b> You decide what a session leaves behind — if anything.</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =================== CTA =================== -->
+<section id="get" class="cta-band">
+  <div class="wrap">
+    <div class="cta-inner obs">
+      <span class="eyebrow" style="justify-content:center;display:flex">Get early access</span>
+      <h2 style="margin-top:16px">Be there when the conversation gets easier.</h2>
+      <p>MindShift is in pilot and coming soon to Google Play. Join the early list and we'll reach out when the Android app is ready for you.</p>
+      <div class="cta-actions">
+        <!-- NOTE TO OWNER: replace the placeholder address below (hello@mindshift.example) with a real inbox before publishing widely. This mailto opens the user's mail app; there is no backend form that could silently fail. -->
+        <a class="btn btn-play" href="mailto:hello@mindshift.example?subject=MindShift%20pilot%20—%20early%20access&body=Hi%20MindShift%20team%2C%20I'd%20love%20to%20join%20the%20Android%20pilot.">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+          Request early access
+        </a>
+        <a class="btn btn-ghost" href="#what">Learn more first</a>
+      </div>
+      <p class="cta-fine">No spam, no dark patterns — just a note when the pilot opens up. Coming soon to Google Play (Android).</p>
+    </div>
+  </div>
+</section>
+</main>
+
+<!-- =================== FOOTER =================== -->
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-brand">
+        <a class="brand" href="#top" aria-label="MindShift home">
+          <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="var(--ink)"/><path d="M9 11a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v3a5 5 0 0 1-5 5h-3l-4 3v-3a5 5 0 0 1-2-4z" fill="var(--terra-soft)"/><circle cx="16" cy="12.5" r="2.1" fill="var(--ink)"/></svg>
+          MindShift
+        </a>
+        <p>A gentle coach for the conversations that matter most. Pre-launch and built with care.</p>
+      </div>
+      <div class="foot-links">
+        <div class="foot-col">
+          <h4>Explore</h4>
+          <a href="#what">What it does</a>
+          <a href="#how">How it works</a>
+          <a href="#dial">Empathy dial</a>
+          <a href="#privacy">Privacy</a>
+        </div>
+        <div class="foot-col">
+          <h4>Get it</h4>
+          <a href="#get">Join the pilot</a>
+          <!-- NOTE TO OWNER: swap hello@mindshift.example for a real address -->
+          <a href="mailto:hello@mindshift.example?subject=MindShift%20pilot">Contact us</a>
+          <a href="#get">Coming to Google Play</a>
+        </div>
+      </div>
+    </div>
+    <div class="disclaimer">
+      <p><strong>A note on what MindShift is.</strong> MindShift is a communication coaching tool, not a substitute for therapy, counseling, or professional medical or mental-health advice. It does not diagnose or treat any condition. If you or someone else is in crisis, please contact a qualified professional or your local emergency services. Product is pre-launch; features and availability may change.</p>
+      <span class="copyr">© 2026 MindShift</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var root=document.documentElement;
+
+  /* ---- Theme toggle (respects system, remembers choice) ---- */
+  var toggle=document.getElementById('themeToggle');
+  var icon=document.getElementById('themeIcon');
+  var moon='<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>';
+  var sun='<circle cx="12" cy="12" r="4.2"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/>';
+  function apply(mode){
+    root.setAttribute('data-theme',mode);
+    icon.innerHTML = mode==='dark' ? moon : sun;
+  }
+  var saved=null;
+  try{saved=localStorage.getItem('ms-theme');}catch(e){}
+  var initial=saved || (window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  apply(initial);
+  toggle.addEventListener('click',function(){
+    var next=root.getAttribute('data-theme')==='dark'?'light':'dark';
+    apply(next);
+    try{localStorage.setItem('ms-theme',next);}catch(e){}
+  });
+
+  /* ---- Sticky nav border ---- */
+  var nav=document.getElementById('nav');
+  window.addEventListener('scroll',function(){
+    nav.classList.toggle('scrolled',window.scrollY>12);
+  },{passive:true});
+
+  /* ---- Scroll reveal ---- */
+  var obs=document.querySelectorAll('.obs');
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if(en.isIntersecting){en.target.classList.add('in');io.unobserve(en.target);}
+      });
+    },{threshold:.12});
+    obs.forEach(function(el){io.observe(el);});
+  } else { obs.forEach(function(el){el.classList.add('in');}); }
+
+  /* ---- Empathy dial ---- */
+  var phrases=[
+    {label:'Direct',   text:'I hear you differently than you feel. Tell me one thing you need me to actually take in.'},
+    {label:'Clear',    text:'I don’t want you to feel unheard. Can you point to a moment I missed so I can do better?'},
+    {label:'Balanced', text:'It sounds like you’ve felt brushed aside, and I don’t want that. Help me understand what listening would look like to you.'},
+    {label:'Warm',     text:'I’m sorry — feeling unheard by me must hurt. You matter to me, and I really do want to get this right.'},
+    {label:'Validating',text:'You’re right to want to be heard, and I’m sorry it’s felt like you aren’t. Your voice matters to me. I’m here, and I’m listening now.'}
+  ];
+  var dial=document.getElementById('dial');
+  var phraseEl=document.getElementById('dialPhrase');
+  var labelEl=document.getElementById('dialLabel');
+  var ticks=document.querySelectorAll('.ticks span');
+  function renderDial(i){
+    phraseEl.style.opacity=0;
+    setTimeout(function(){
+      phraseEl.innerHTML='<span class="q">“</span>'+phrases[i].text+'<span class="q">”</span>';
+      labelEl.textContent=phrases[i].label;
+      phraseEl.style.opacity=1;
+    },130);
+    ticks.forEach(function(t){
+      var on=+t.getAttribute('data-i')===i;
+      t.style.color=on?'var(--sage)':'var(--muted)';
+      t.style.fontWeight=on?'700':'600';
+    });
+  }
+  dial.addEventListener('input',function(){renderDial(+dial.value);});
+  renderDial(+dial.value);
+
+  /* ---- Live transcript demo (illustrative, scripted) ---- */
+  var script=[
+    {cls:'them', spk:'Partner', text:'You never listen when I talk about work.'},
+    {cls:'you',  spk:'You',     text:'That’s not true, I always listen.'},
+    {cls:'coach',text:'Try naming the feeling first — <em>“It sounds like you’ve felt unheard lately. Tell me about today.”</em>'},
+    {cls:'you',  spk:'You',     text:'It sounds like you’ve felt unheard lately. Tell me about today.'},
+    {cls:'them', spk:'Partner', text:'…thank you. Okay. So this morning—'}
+  ];
+  var tEl=document.getElementById('transcript');
+  var timers=[];
+  function clearTimers(){timers.forEach(clearTimeout);timers=[];}
+  function build(item){
+    var d=document.createElement('div');
+    if(item.cls==='coach'){
+      d.className='coach line';
+      d.innerHTML='<span class="tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M5.6 5.6 7.7 7.7M3 12h3M18 12h3M12 8a4 4 0 0 0-2 7.5V18h4v-2.5A4 4 0 0 0 12 8zM10 21h4"/></svg> MindShift suggests</span><p>'+item.text+'</p>';
+    } else {
+      d.className='line '+item.cls;
+      d.innerHTML='<span class="spk">'+item.spk+'</span><span class="bubble">'+item.text+'</span>';
+    }
+    return d;
+  }
+  function play(){
+    clearTimers();
+    tEl.innerHTML='';
+    var delay=350;
+    script.forEach(function(item,i){
+      var node=build(item);
+      tEl.appendChild(node);
+      timers.push(setTimeout(function(){node.classList.add('show');},delay));
+      delay += item.cls==='coach' ? 1500 : 1250;
+    });
+  }
+  document.getElementById('replayBtn').addEventListener('click',play);
+  // Kick off once the phone scrolls into view
+  if('IntersectionObserver' in window){
+    var started=false;
+    var pio=new IntersectionObserver(function(es){
+      es.forEach(function(e){ if(e.isIntersecting && !started){started=true;play();pio.disconnect();} });
+    },{threshold:.4});
+    pio.observe(tEl);
+  } else { play(); }
+})();
+</script>
+</body>
+</html>
