@@ -7,6 +7,7 @@ All LLM calls are mocked — no API key needed.
 """
 
 import json
+import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -233,7 +234,9 @@ class TestSessionLifecycle:
 
     @pytest.mark.anyio
     async def test_session_not_found(self, client):
-        resp = await client.get("/session/does-not-exist")
+        # Re-pinned for P2-7: session_id is UUID-validated at the route, so a
+        # valid-but-absent UUID is the 404 case ("does-not-exist" is now a 422).
+        resp = await client.get(f"/session/{uuid.uuid4()}")
         assert resp.status_code == 404
 
     @pytest.mark.anyio

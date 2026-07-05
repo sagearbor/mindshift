@@ -33,6 +33,11 @@ from _mock_data import (  # noqa: E402,F401 — re-exported for backward compati
 @pytest.fixture
 async def client():
     await init_db()
+    # P1-5: isolate each test's per-IP rate-limit window so cumulative
+    # cost-endpoint traffic across the suite (all tests share one client IP)
+    # cannot trip the limiter. The generous 60/min default stays in force.
+    import main  # noqa: E402 — app already imported above
+    main._rate_limiter.reset()
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as ac:

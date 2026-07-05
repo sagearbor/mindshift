@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+import main
 from main import app, empathy_system_prompt, get_db, init_db, parse_llm_json
 
 
@@ -41,6 +42,10 @@ MOCK_SCORE_JSON = json.dumps({
 @pytest.fixture
 async def client():
     await init_db()
+    # P1-5: isolate each test's rate-limit window so cross-test call volume on
+    # the shared client IP can never trip the limiter. The default 60/min limit
+    # is left in place; one dedicated test lowers it to prove the 429 path.
+    main._rate_limiter.reset()
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as ac:
@@ -460,8 +465,17 @@ async def test_create_and_get_session(client):
 
 @pytest.mark.anyio
 async def test_get_session_not_found(client):
-    resp = await client.get("/session/nonexistent-id")
+    # Re-pinned for P2-7: the id must now be a well-formed UUID to reach the
+    # handler (a malformed id is a 422 — see test_get_session_invalid_uuid_422).
+    resp = await client.get(f"/session/{uuid.uuid4()}")
     assert resp.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_get_session_invalid_uuid_422(client):
+    """P2-7: a non-UUID session_id is rejected up front with 422."""
+    resp = await client.get("/session/not-a-uuid")
+    assert resp.status_code == 422
 
 
 @pytest.mark.anyio
@@ -569,11 +583,22 @@ async def test_add_turn_and_retrieve(client):
 
 @pytest.mark.anyio
 async def test_add_turn_session_not_found(client):
-    resp = await client.post("/session/nonexistent-id/turns", json={
+    # Re-pinned for P2-7: valid-UUID-but-absent → 404.
+    resp = await client.post(f"/session/{uuid.uuid4()}/turns", json={
         "speaker": "Wife",
         "text": "Hello",
     })
     assert resp.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_add_turn_invalid_uuid_422(client):
+    """P2-7: a non-UUID session_id is rejected with 422."""
+    resp = await client.post("/session/not-a-uuid/turns", json={
+        "speaker": "Wife",
+        "text": "Hello",
+    })
+    assert resp.status_code == 422
 
 
 @pytest.mark.anyio
@@ -684,8 +709,17 @@ async def test_export_text_format_param(client):
 
 @pytest.mark.anyio
 async def test_export_not_found(client):
-    resp = await client.get("/session/nonexistent-id/export")
+    # Re-pinned for P2-7: valid-UUID-but-absent → 404.
+    resp = await client.get(f"/session/{uuid.uuid4()}/export")
     assert resp.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_export_invalid_uuid_422(client):
+    """P2-7: a non-UUID session_id is rejected with 422 (also closes the
+    Content-Disposition filename header-injection surface)."""
+    resp = await client.get("/session/not-a-uuid/export")
+    assert resp.status_code == 422
 
 
 @pytest.mark.anyio
@@ -718,7 +752,9 @@ async def test_export_insights_failure_still_delivers_transcript(client):
 @pytest.mark.anyio
 async def test_export_corrupt_session_data_is_explicit_500(client):
     """P2-5: corrupt stored JSON yields an explicit 500, not a raw traceback."""
-    sid = f"corrupt-{uuid.uuid4()}"
+    # Re-pinned for P2-7: sid must be a valid UUID to reach the handler (the
+    # old "corrupt-<uuid>" prefix would now be a 422, not the 500 under test).
+    sid = str(uuid.uuid4())
     db = await get_db()
     try:
         await db.execute(
@@ -791,6 +827,36 @@ async def test_export_pdf_returns_bytes(client):
     assert resp.content[:5] == b"%PDF-"
     # LLM was called for insights
     mock_client.complete.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_export_pdf_escapes_markup(client):
+    """P1-3: transcript text with reportlab mini-HTML metacharacters (`<`, `&`,
+    a stray `</font>`) must not break Paragraph parsing (500) or inject styling
+    — the export still yields valid PDF bytes."""
+    hostile_turns = [
+        {"speaker": "<b>Wife</b>", "text": "You said <font color='red'>this</font> & that </b>!",
+         "score": {"warmth": 20, "defensiveness": 60, "sarcasm": 30,
+                   "constructiveness": 25, "overall": 35}},
+        {"speaker": "Husband & Co", "text": "1 < 2 && 3 > 2, right? <not-a-tag>",
+         "score": None},
+    ]
+    create_resp = await client.post("/session", json={
+        "turns": hostile_turns,
+        "metadata": {"note": "<script>alert(1)</script>"},
+    })
+    sid = create_resp.json()["id"]
+
+    with patch("main.get_llm_client") as mock_get:
+        mock_client = MagicMock()
+        mock_client.complete.return_value = "Insights with <b>markup</b> & ampersand."
+        mock_get.return_value = mock_client
+
+        resp = await client.get(f"/session/{sid}/export?format=pdf")
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/pdf"
+    assert resp.content[:5] == b"%PDF-"
 
 
 # ---------------------------------------------------------------------------
@@ -1023,8 +1089,16 @@ async def test_respond_with_relationship_context(client):
 
 @pytest.mark.anyio
 async def test_get_relationship_not_found(client):
-    resp = await client.get("/relationships/nonexistent-id")
+    # Re-pinned for P2-7: valid-UUID-but-absent → 404.
+    resp = await client.get(f"/relationships/{uuid.uuid4()}")
     assert resp.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_get_relationship_invalid_uuid_422(client):
+    """P2-7: a non-UUID relationship_id is rejected with 422."""
+    resp = await client.get("/relationships/not-a-uuid")
+    assert resp.status_code == 422
 
 
 @pytest.mark.anyio
@@ -1074,3 +1148,30 @@ async def test_parent_child_edges(client):
     contexts = {e["context"] for e in edges}
     assert "parent_to_child" in contexts
     assert "child_to_parent" in contexts
+
+
+# ---------------------------------------------------------------------------
+# P1-5: per-IP rate limiting on cost-bearing endpoints
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_rate_limit_triggers_429(client, monkeypatch):
+    """With a tiny limit, requests beyond the budget get an honest 429. The
+    monkeypatched limit auto-restores, so the generous default is untouched
+    for every other test."""
+    monkeypatch.setattr(main._rate_limiter, "limit", 2)
+    main._rate_limiter.reset()
+
+    with patch("main.get_llm_client") as mock_get:
+        mock_client = MagicMock()
+        mock_client.complete.return_value = MOCK_SCORE_JSON
+        mock_get.return_value = mock_client
+
+        r1 = await client.post("/score", json={"text": "one"})
+        r2 = await client.post("/score", json={"text": "two"})
+        r3 = await client.post("/score", json={"text": "three"})
+
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    assert r3.status_code == 429
+    assert "rate limit" in r3.json()["detail"].lower()

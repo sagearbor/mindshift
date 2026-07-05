@@ -3,13 +3,14 @@ import io
 import logging
 import os
 import json
+import time
 import uuid
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from enum import Enum
-from pathlib import Path
-from typing import Optional
+from pathlib import Path as FilePath
+from typing import Annotated, Optional
 
 # Load a repo-root `.env` (if present) BEFORE any configuration is read below.
 # python-dotenv's default is override=False, so real environment variables
@@ -20,14 +21,14 @@ try:
 except ImportError:  # pragma: no cover — python-dotenv is in requirements
     pass
 else:
-    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+    load_dotenv(FilePath(__file__).resolve().parent.parent / ".env")
 
 import aiosqlite
-from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
+from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request, WebSocket
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
-from audio_pipeline import audio_ws_endpoint
+from audio_pipeline import UUID_PATTERN, audio_ws_endpoint
 from llm_client import LLMClient
 from models.relationship import (
     EdgeOut,
@@ -43,9 +44,19 @@ logger = logging.getLogger(__name__)
 
 # Default to an absolute repo-root path so every launch directory uses the
 # same database; MINDSHIFT_DB_PATH still overrides.
-_DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "mindshift.db"
+_DEFAULT_DB_PATH = FilePath(__file__).resolve().parent.parent / "mindshift.db"
 DB_PATH = os.getenv("MINDSHIFT_DB_PATH") or str(_DEFAULT_DB_PATH)
 MINDSHIFT_MODEL = os.getenv("MINDSHIFT_MODEL", "claude-3-haiku-20240307")
+
+# P1-5: conservative per-IP rate limiting on the cost-bearing REST endpoints
+# (/respond, /score, /session/{id}/export each spend LLM tokens). Both values
+# are env-configurable and DELIBERATELY generous — the exact numbers are a
+# flagged human decision, so they are tunable rather than hardcoded. Set
+# RATE_LIMIT_ENABLED=0 to turn the limiter off entirely.
+RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))  # HUMAN-TUNABLE
+RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "1").strip().lower() not in (
+    "0", "false", "no", "off", "",
+)
 
 # API-key env var per provider — used for health/startup reporting only.
 _PROVIDER_KEY_ENVS = {
@@ -279,7 +290,7 @@ async def lifespan(app: FastAPI):
         _detected_provider(),
         "yes" if _llm_key_present() else "no",
         _stt_provider(),
-        Path(DB_PATH).resolve(),
+        FilePath(DB_PATH).resolve(),
     )
     yield
     app.state.llm_client.close()
@@ -376,6 +387,58 @@ def parse_llm_json(text: str) -> dict:
             lines = lines[:-1]
         stripped = "\n".join(lines).strip()
     return json.loads(stripped)
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting (P1-5) — per-IP, in-process, dependency-free
+# ---------------------------------------------------------------------------
+
+class _RateLimiter:
+    """Fixed-window per-key request counter for cost-exhaustion protection.
+
+    In-process only (one worker) — honest about its scope: it protects a
+    single process, not a cluster, but needs no external store and cannot
+    itself fail a request for infrastructure reasons. A production multi-worker
+    deployment would move this to a shared store; that is a flagged decision.
+    """
+
+    def __init__(self, limit_per_minute: int, window_s: float = 60.0) -> None:
+        self.limit = limit_per_minute
+        self.window_s = window_s
+        # key -> (window_start_monotonic, count_in_window)
+        self._hits: dict[str, tuple[float, int]] = {}
+        self._lock = asyncio.Lock()
+
+    async def allow(self, key: str) -> bool:
+        """Record a hit for *key*; return False once the window limit is passed."""
+        async with self._lock:
+            now = time.monotonic()
+            start, count = self._hits.get(key, (now, 0))
+            if now - start >= self.window_s:
+                start, count = now, 0  # window elapsed — reset
+            count += 1
+            self._hits[key] = (start, count)
+            return count <= self.limit
+
+    def reset(self) -> None:
+        """Drop all counters (used by tests to isolate windows)."""
+        self._hits.clear()
+
+
+_rate_limiter = _RateLimiter(RATE_LIMIT_PER_MINUTE)
+
+
+async def _rate_limit(request: Request) -> None:
+    """FastAPI dependency: 429 once a client IP exceeds the per-minute budget."""
+    if not RATE_LIMIT_ENABLED:
+        return
+    client = request.client
+    key = client.host if client else "unknown"
+    if not await _rate_limiter.allow(key):
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded — too many requests; please slow down.",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -479,7 +542,7 @@ def _coerce_score(value: object) -> int | None:
 
 
 @app.post("/respond", response_model=RespondResponse)
-async def respond(req: RespondRequest):
+async def respond(req: RespondRequest, _rl: None = Depends(_rate_limit)):
     system = empathy_system_prompt(req.empathy_slider, req.role)
 
     rel_context = await _resolve_relationship_context(
@@ -536,7 +599,7 @@ async def respond(req: RespondRequest):
 
 
 @app.post("/score", response_model=ScoreResponse)
-async def score(req: ScoreRequest):
+async def score(req: ScoreRequest, _rl: None = Depends(_rate_limit)):
     system = (
         "You are a tone analysis engine. Analyze the following text and return "
         "ONLY a JSON object with integer scores 0-100 for these dimensions: "
@@ -610,7 +673,7 @@ async def create_session(req: SessionCreate):
 
 
 @app.get("/session/{session_id}", response_model=SessionOut)
-async def get_session(session_id: str):
+async def get_session(session_id: Annotated[str, Path(pattern=UUID_PATTERN)]):
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -633,7 +696,10 @@ async def get_session(session_id: str):
 
 
 @app.post("/session/{session_id}/turns", response_model=TurnResponse, status_code=201)
-async def add_turn(session_id: str, turn: SessionTurn):
+async def add_turn(
+    session_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    turn: SessionTurn,
+):
     turn_dict = turn.model_dump()
 
     db = await get_db()
@@ -734,6 +800,8 @@ def _build_text_export(session: dict, insights: str) -> str:
 
 def _build_pdf_export(session: dict, insights: str) -> bytes:
     """Generate a PDF report for a session using reportlab."""
+    from xml.sax.saxutils import escape
+
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.units import inch
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
@@ -770,12 +838,15 @@ def _build_pdf_export(session: dict, insights: str) -> bytes:
     turns = session.get("turns", [])
     story.append(Paragraph("Transcript", styles["Heading2"]))
     for i, t in enumerate(turns, 1):
-        speaker = t.get("speaker", "Unknown")
-        text = t.get("text", "")
+        # P1-3: every interpolated field is XML-escaped before it enters the
+        # reportlab Paragraph mini-HTML markup — a stray "<", "&" or "</font>"
+        # in transcript speech must not break parsing (500) or inject styling.
+        speaker = escape(str(t.get("speaker", "Unknown")))
+        text = escape(str(t.get("text", "")))
         story.append(Paragraph(f"<b>Turn {i} [{speaker}]:</b> {text}", styles["Normal"]))
         score = t.get("score")
         if isinstance(score, dict):
-            parts = [f"{k}={v}" for k, v in score.items()]
+            parts = [f"{escape(str(k))}={escape(str(v))}" for k, v in score.items()]
             story.append(Paragraph(f"<i>Tone: {', '.join(parts)}</i>", styles["Normal"]))
         story.append(Spacer(1, 4))
     story.append(Spacer(1, 12))
@@ -795,7 +866,7 @@ def _build_pdf_export(session: dict, insights: str) -> bytes:
 
     # Insights
     story.append(Paragraph("Session Insights", styles["Heading2"]))
-    story.append(Paragraph(insights, styles["Normal"]))
+    story.append(Paragraph(escape(insights), styles["Normal"]))
 
     doc.build(story)
     return buf.getvalue()
@@ -803,8 +874,9 @@ def _build_pdf_export(session: dict, insights: str) -> bytes:
 
 @app.get("/session/{session_id}/export")
 async def export_session(
-    session_id: str,
+    session_id: Annotated[str, Path(pattern=UUID_PATTERN)],
     format: ExportFormat = Query(default=ExportFormat.text),
+    _rl: None = Depends(_rate_limit),
 ):
     # Fetch session
     db = await get_db()
@@ -1036,7 +1108,9 @@ async def create_relationship(req: RelationshipCreate):
 
 
 @app.get("/relationships/{relationship_id}", response_model=RelationshipOut)
-async def get_relationship(relationship_id: str):
+async def get_relationship(
+    relationship_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+):
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -1071,7 +1145,7 @@ async def get_relationship(relationship_id: str):
 
 
 @app.get("/relationships/{relationship_id}/edges", response_model=list[EdgeOut])
-async def list_edges(relationship_id: str):
+async def list_edges(relationship_id: Annotated[str, Path(pattern=UUID_PATTERN)]):
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -1103,7 +1177,10 @@ async def list_edges(relationship_id: str):
     response_model=RelationshipSessionOut,
     status_code=201,
 )
-async def create_relationship_session(relationship_id: str, req: RelationshipSessionCreate):
+async def create_relationship_session(
+    relationship_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    req: RelationshipSessionCreate,
+):
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -1170,7 +1247,9 @@ async def create_relationship_session(relationship_id: str, req: RelationshipSes
     "/relationships/{relationship_id}/sessions",
     response_model=list[RelationshipSessionOut],
 )
-async def list_relationship_sessions(relationship_id: str):
+async def list_relationship_sessions(
+    relationship_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+):
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -1210,7 +1289,14 @@ async def list_relationship_sessions(relationship_id: str):
     "/relationships/{relationship_id}/participant/{participant_id}/sessions",
     response_model=list[RelationshipSessionOut],
 )
-async def list_participant_sessions(relationship_id: str, participant_id: str):
+async def list_participant_sessions(
+    relationship_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    # P2-7: participant_id is CLIENT-supplied (Participant.id is free-form in the
+    # create request — e.g. "alex", "p1"), NOT a server-generated UUID, so it is
+    # intentionally left unvalidated here. It only ever reaches parameterized SQL
+    # and routing — never a response header — so it carries no injection surface.
+    participant_id: str,
+):
     db = await get_db()
     try:
         cursor = await db.execute(
