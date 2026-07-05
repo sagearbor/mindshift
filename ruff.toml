@@ -1,0 +1,18 @@
+# Ruff configuration for the MindShift backend (server/, tests/).
+#
+# Deliberately conservative: the default Ruff rule set (pyflakes + a slice of
+# pycodestyle "error" rules) rather than the full aggressive catalog. Goal is
+# to catch real bugs — unused imports, undefined names, obvious pycodestyle
+# errors — without a wall of style-only noise (no import sorting, no
+# docstring rules, no complexity/naming lint).
+line-length = 100
+target-version = "py311"
+
+[lint]
+# E4  = import-related pycodestyle errors (e.g. module-import-not-at-top)
+# E7  = statement pycodestyle errors (e.g. ambiguous variable names, bare except)
+# E9  = runtime errors (syntax errors, undefined names caught at parse time)
+# F   = pyflakes (unused imports/variables, undefined names, etc.)
+# This mirrors Ruff's own default selection — kept explicit here so the
+# choice is documented rather than implicit.
+select = ["E4", "E7", "E9", "F"]
