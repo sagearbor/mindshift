@@ -8,6 +8,7 @@ these tests inject the test doubles defined below via ``app.state``.
 """
 
 import asyncio
+import hashlib
 import json
 import threading
 import time
@@ -941,8 +942,11 @@ class TestMemoryAndLogging:
         out = _redact(secret)
         for word in secret.split():
             assert word not in out
-        assert f"len={len(secret)}" in out
+        # exact length is bucketed (not advertised) to avoid narrowing short phrases
+        assert f"len={len(secret)}" not in out
         assert out == _redact(secret)  # stable digest → log lines correlate
+        # salted HMAC, not a bare sha256 of the text (dictionary-attack resistant)
+        assert hashlib.sha256(secret.encode()).hexdigest()[:12] not in out
 
 
 # ---------------------------------------------------------------------------

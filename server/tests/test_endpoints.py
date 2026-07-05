@@ -256,6 +256,55 @@ async def test_respond_non_integer_tone_is_502(client):
 
 
 @pytest.mark.anyio
+async def test_respond_empty_tone_score_is_502(client):
+    """Review-fix: an empty tone_score dict must 502 (all() over {} is vacuously
+    True), never yield a response the client will KeyError on."""
+    payload = json.dumps({"suggestions": ["a", "b", "c"], "tone_score": {}})
+    resp = await _post_respond_with_llm_payload(client, payload)
+    assert resp.status_code == 502
+
+
+@pytest.mark.anyio
+async def test_respond_accepts_whole_number_float_tone(client):
+    """Review-fix: LLMs sometimes emit 82.0 for integer scores; a whole-number
+    float must be accepted and coerced, not 502'd."""
+    scores = {d: 50.0 for d in
+              ("warmth", "defensiveness", "sarcasm", "constructiveness", "overall")}
+    payload = json.dumps({"suggestions": ["a", "b", "c"], "tone_score": scores})
+    resp = await _post_respond_with_llm_payload(client, payload)
+    assert resp.status_code == 200
+    assert all(isinstance(v, int) for v in resp.json()["tone_score"].values())
+
+
+@pytest.mark.anyio
+async def test_respond_none_llm_content_is_502(client):
+    """Review-fix: a provider returning None content (content filter/refusal)
+    must 502, not raise a raw 500 from None.strip()."""
+    with patch("main.get_llm_client") as mock_get:
+        mock_client = MagicMock()
+        mock_client.complete.return_value = None
+        mock_get.return_value = mock_client
+        resp = await client.post("/respond", json={
+            "transcript_turn": "Test", "role": "Husband", "empathy_slider": 50,
+        })
+    assert resp.status_code == 502
+
+
+@pytest.mark.anyio
+async def test_score_accepts_whole_number_float(client):
+    """Review-fix: whole-number float scores are coerced to int, not 502'd."""
+    scores = {d: 42.0 for d in
+              ("warmth", "defensiveness", "sarcasm", "constructiveness", "overall")}
+    with patch("main.get_llm_client") as mock_get:
+        mock_client = MagicMock()
+        mock_client.complete.return_value = json.dumps(scores)
+        mock_get.return_value = mock_client
+        resp = await client.post("/score", json={"text": "hello"})
+    assert resp.status_code == 200
+    assert resp.json()["warmth"] == 42
+
+
+@pytest.mark.anyio
 async def test_respond_llm_runs_off_event_loop(client):
     """P0-1: the blocking LLM call must not run on the event-loop thread."""
     loop_thread = threading.current_thread()
@@ -658,7 +707,9 @@ async def test_export_insights_failure_still_delivers_transcript(client):
     assert resp.status_code == 200
     body = resp.text
     assert "Insights unavailable" in body
-    assert "API down" in body
+    # The raw provider error must NOT leak into the user-facing document
+    # (it can carry request URLs/IDs); it belongs in the logs only.
+    assert "API down" not in body
     # Transcript still fully delivered
     assert "You forgot again." in body
     assert "AGGREGATE STATISTICS" in body

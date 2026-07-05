@@ -20,6 +20,7 @@ import asyncio
 import base64
 import contextlib
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -128,15 +129,25 @@ UTTERANCE_BUFFER_MAX = 1000
 UTTERANCE_BUFFER_KEEP = 500
 
 
+# Per-process random salt: makes the redaction digest a keyed HMAC so short or
+# guessable utterances ("no", a name, "I want a divorce") can't be confirmed
+# from logs by hashing candidates. Correlation holds within one process
+# lifetime; confirmability across the dictionary does not. Regenerated each boot.
+_REDACT_SALT = os.urandom(32)
+
+
 def _redact(text: str) -> str:
     """PII-safe stand-in for user speech in log lines (P1-4).
 
     This is a therapy product: transcript text must never sit in server logs.
-    Length + a short digest keeps log lines correlatable (same utterance →
-    same digest) without storing what was said.
+    A coarse length bucket + a salted HMAC digest keeps log lines correlatable
+    (same utterance → same digest, this process) without storing what was said
+    and without being a dictionary-attack oracle on short phrases.
     """
-    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
-    return f"<utterance len={len(text)} sha256={digest}>"
+    digest = hmac.new(_REDACT_SALT, text.encode("utf-8"), hashlib.sha256).hexdigest()[:12]
+    # Bucket the length so a 3-char utterance isn't advertised as exactly len=3.
+    bucket = "0" if not text else f"~{max(8, (len(text) + 7) // 8 * 8)}"
+    return f"<utterance len={bucket} hmac={digest}>"
 
 
 class TranscriberUnavailable(RuntimeError):
@@ -839,9 +850,10 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             rest of a possibly hour-long session. Tries one fresh transcriber
             per backoff entry; returns the connected replacement, or ``None``
             when every attempt failed. Runs inline in the receive loop, so
-            client frames buffer in the socket while retrying — the audio sent
-            during the outage is lost either way (the backend was down), and
-            the client hears about it honestly if retries exhaust.
+            client frames buffer in the socket while retrying and are delivered
+            to the replacement transcriber after the swap — only the single
+            frame that hit the dead socket is lost. The client hears about it
+            honestly if retries exhaust.
             """
             attempts = len(TRANSCRIBER_RECONNECT_BACKOFFS_S)
             for attempt, delay in enumerate(TRANSCRIBER_RECONNECT_BACKOFFS_S, 1):
@@ -896,14 +908,20 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                         replacement = await reconnect_transcriber()
                         if replacement is not None:
                             transcriber = replacement
-                            await send_json({"type": "transcription_restored"})
+                            # The client may have disconnected during the multi-
+                            # second reconnect; a send on a dead socket can raise
+                            # a non-WebSocketDisconnect error — suppress so it
+                            # doesn't escape the handler (cleanup still runs).
+                            with contextlib.suppress(Exception):
+                                await send_json({"type": "transcription_restored"})
                             # The frame that hit the dead socket is gone — its
                             # audio cannot be recovered, only acknowledged.
                             continue
                     transcription_available = False
-                    await send_json(
-                        {"type": "transcription_unavailable", "reason": str(exc)}
-                    )
+                    with contextlib.suppress(Exception):
+                        await send_json(
+                            {"type": "transcription_unavailable", "reason": str(exc)}
+                        )
                     continue
                 await enqueue_segments(result)
 
@@ -941,18 +959,31 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                             suggestion_queue.join(), timeout=STOP_DRAIN_TIMEOUT_S
                         )
                     except asyncio.TimeoutError:
-                        # A hung LLM/TTS call must not stall the client's stop
-                        # for minutes — close out, honestly reporting how many
-                        # suggestions never made it.
+                        # A hung LLM/TTS/send must not stall the client's stop for
+                        # minutes. Count pending FIRST — an in-flight suggestion
+                        # stuck in the LLM was never delivered, so it is genuinely
+                        # dropped (the worker's finally would mark it "finished"
+                        # on cancel, which would dishonestly under-report it).
                         pending = queue_stats["enqueued"] - queue_stats["finished"]
+                        # THEN cancel before the completion send: the worker may
+                        # be holding send_lock (a large TTS frame to a non-reading
+                        # client), which would otherwise deadlock the send on the
+                        # same lock — and it can't deliver a late suggestion after.
+                        worker_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await worker_task
                         completion["pending_dropped"] = pending
                         logger.warning(
                             "Graceful stop drain timed out after %.0fs with %d "
                             "pending suggestion(s) for session %s",
                             STOP_DRAIN_TIMEOUT_S, pending, session_id,
                         )
-                    await send_json(completion)
-                    await websocket.close(code=1000)
+                    # Bound the final send + close too — a connected-but-not-reading
+                    # client must not hang the stop indefinitely.
+                    with contextlib.suppress(Exception):
+                        await asyncio.wait_for(send_json(completion), timeout=5.0)
+                    with contextlib.suppress(Exception):
+                        await asyncio.wait_for(websocket.close(code=1000), timeout=5.0)
                     break
                 else:
                     await send_json({"error": f"unknown type: {msg_type}"})

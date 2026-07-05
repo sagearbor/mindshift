@@ -360,7 +360,14 @@ def get_llm_client() -> LLMClient:
 
 
 def parse_llm_json(text: str) -> dict:
-    """Extract JSON from LLM response, handling markdown fences."""
+    """Extract JSON from LLM response, handling markdown fences.
+
+    Raises ValueError when the provider returned no text at all (e.g. an
+    OpenAI content-filter/refusal yields ``message.content is None``) so callers
+    surface an honest 502 rather than a raw 500 from ``None.strip()``.
+    """
+    if not text:
+        raise ValueError("LLM returned no content")
     stripped = text.strip()
     if stripped.startswith("```"):
         lines = stripped.split("\n")
@@ -387,7 +394,10 @@ async def healthz():
     try:
         db = await get_db()
         try:
-            await db.execute("SELECT 1")
+            # Probe a real table so an uninitialized/misconfigured DB fails the
+            # check — aiosqlite auto-creates the file and `SELECT 1` touches no
+            # schema, so it would falsely pass on a fresh/empty database.
+            await db.execute("SELECT 1 FROM sessions LIMIT 1")
             db_ok = True
         finally:
             await db.close()
@@ -452,6 +462,22 @@ async def _resolve_relationship_context(
     )
 
 
+TONE_DIMENSIONS = ("warmth", "defensiveness", "sarcasm", "constructiveness", "overall")
+
+
+def _coerce_score(value: object) -> int | None:
+    """Return an int score, accepting whole-number floats the LLM may emit
+    (e.g. ``82.0``); return None for anything that isn't a whole number.
+    Rejects bool (``True``/``False`` are ints in Python but never a score)."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return None
+
+
 @app.post("/respond", response_model=RespondResponse)
 async def respond(req: RespondRequest):
     system = empathy_system_prompt(req.empathy_slider, req.role)
@@ -472,7 +498,9 @@ async def respond(req: RespondRequest):
     raw = await asyncio.to_thread(llm.complete, system=system, user=user_content)
     try:
         data = parse_llm_json(raw)
-    except (json.JSONDecodeError, IndexError, KeyError):
+    except (ValueError, IndexError, KeyError, TypeError):
+        # ValueError covers json.JSONDecodeError and the empty-content case;
+        # TypeError guards other non-text provider payloads. Honest 502.
         raise HTTPException(status_code=502, detail="LLM returned invalid JSON")
 
     suggestions = data.get("suggestions")
@@ -486,14 +514,25 @@ async def respond(req: RespondRequest):
             status_code=502,
             detail="LLM returned invalid suggestions (expected non-empty list of strings)",
         )
-    if not isinstance(tone_score, dict) or not all(
-        isinstance(v, int) and not isinstance(v, bool) for v in tone_score.values()
-    ):
+    # Honest failure: require the five named dimensions as whole-number scores;
+    # an empty or wrong-keyed tone_score must 502, never yield a response the
+    # client will KeyError on. (all() over an empty dict is vacuously True.)
+    coerced: dict[str, int] = {}
+    if not isinstance(tone_score, dict):
+        tone_score = {}
+    missing = []
+    for dim in TONE_DIMENSIONS:
+        s = _coerce_score(tone_score.get(dim))
+        if s is None:
+            missing.append(dim)
+        else:
+            coerced[dim] = s
+    if missing:
         raise HTTPException(
             status_code=502,
-            detail="LLM returned invalid tone_score (expected integer scores)",
+            detail="LLM returned invalid tone_score, missing/invalid: " + ", ".join(missing),
         )
-    return RespondResponse(suggestions=suggestions, tone_score=tone_score)
+    return RespondResponse(suggestions=suggestions, tone_score=coerced)
 
 
 @app.post("/score", response_model=ScoreResponse)
@@ -520,15 +559,20 @@ async def score(req: ScoreRequest):
     )
     try:
         data = parse_llm_json(raw)
-    except (json.JSONDecodeError, IndexError, KeyError):
+    except (ValueError, IndexError, KeyError, TypeError):
+        # ValueError covers json.JSONDecodeError and the empty-content case;
+        # TypeError guards other non-text provider payloads. Honest 502.
         raise HTTPException(status_code=502, detail="LLM returned invalid JSON")
 
     # Honest failure: a missing dimension must be a 502, never a fabricated 0.
-    dimensions = ("warmth", "defensiveness", "sarcasm", "constructiveness", "overall")
-    invalid = [
-        d for d in dimensions
-        if not isinstance(data.get(d), int) or isinstance(data.get(d), bool)
-    ]
+    scores: dict[str, int] = {}
+    invalid = []
+    for d in TONE_DIMENSIONS:
+        s = _coerce_score(data.get(d))
+        if s is None:
+            invalid.append(d)
+        else:
+            scores[d] = s
     if invalid:
         raise HTTPException(
             status_code=502,
@@ -538,13 +582,7 @@ async def score(req: ScoreRequest):
             ),
         )
 
-    return ScoreResponse(
-        warmth=data["warmth"],
-        defensiveness=data["defensiveness"],
-        sarcasm=data["sarcasm"],
-        constructiveness=data["constructiveness"],
-        overall=data["overall"],
-    )
+    return ScoreResponse(**scores)
 
 
 @app.post("/session", response_model=SessionOut, status_code=201)
@@ -600,28 +638,27 @@ async def add_turn(session_id: str, turn: SessionTurn):
 
     db = await get_db()
     try:
-        # Atomic append via SQLite JSON1 — a single UPDATE cannot lose turns
-        # to a concurrent read-modify-write race (last-writer-wins data loss).
+        # Atomic append via SQLite JSON1 — a single UPDATE cannot lose turns to a
+        # concurrent read-modify-write race (last-writer-wins data loss). RETURNING
+        # the post-update array length in the SAME statement gives THIS append's
+        # own index; a separate post-commit SELECT could read a concurrent
+        # append's state and report the wrong turn_index.
         cursor = await db.execute(
             "UPDATE sessions SET turns = json_insert(turns, '$[#]', json(?)) "
-            "WHERE id = ?",
+            "WHERE id = ? RETURNING json_array_length(turns)",
             (json.dumps(turn_dict), session_id),
         )
-        if cursor.rowcount == 0:
-            raise HTTPException(status_code=404, detail="Session not found")
-        await db.commit()
-
-        cursor = await db.execute(
-            "SELECT turns FROM sessions WHERE id = ?", (session_id,),
-        )
         row = await cursor.fetchone()
-        turns = json.loads(row["turns"])
+        if row is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        new_len = row[0]
+        await db.commit()
     finally:
         await db.close()
 
     return TurnResponse(
         session_id=session_id,
-        turn_index=len(turns) - 1,
+        turn_index=new_len - 1,
         turn=turn_dict,
     )
 
@@ -784,13 +821,20 @@ async def export_session(
         raise HTTPException(status_code=404, detail="Session not found")
 
     try:
+        turns = json.loads(row["turns"])
+        metadata = json.loads(row["metadata"])
+        # Valid JSON of the wrong shape (e.g. a manual DB edit leaving turns as a
+        # string or object) would slip past a decode-only guard and later raise a
+        # raw AttributeError; require the expected container shapes here.
+        if not isinstance(turns, list) or not isinstance(metadata, dict):
+            raise TypeError("unexpected stored shape")
         session = {
             "id": row["id"],
             "created_at": row["created_at"],
-            "turns": json.loads(row["turns"]),
-            "metadata": json.loads(row["metadata"]),
+            "turns": turns,
+            "metadata": metadata,
         }
-    except (json.JSONDecodeError, TypeError):
+    except (json.JSONDecodeError, TypeError, ValueError):
         logger.exception("Corrupt stored JSON for session %s", session_id)
         raise HTTPException(status_code=500, detail="corrupt session data")
 
@@ -813,10 +857,12 @@ async def export_session(
             max_tokens=300,
         )
     except Exception as exc:  # noqa: BLE001 — degrade honestly, keep transcript
+        # Log the detail; keep it OUT of the user-facing document — provider
+        # error strings can carry request URLs/IDs and other internals.
         logger.warning(
             "Insights generation failed for session %s: %s", session_id, exc,
         )
-        insights = f"Insights unavailable: {exc}"
+        insights = "Insights unavailable (generation failed; see server logs)."
 
     if format == ExportFormat.pdf:
         pdf_bytes = _build_pdf_export(session, insights)
