@@ -1,19 +1,27 @@
-anthropic
-openai
-google-generativeai
-mistralai
-fastapi
-uvicorn
-aiosqlite
-pydantic
+# Pinned to match the repo-root requirements.txt (P2-10: no version drift).
+# The root file is the single source of truth for the shared API deps; keep
+# these ranges identical to it. Rate limiting (P1-5) is implemented in-process
+# with no new dependency, so nothing is added here for it.
+fastapi>=0.110,<1
+uvicorn>=0.29,<1
+pydantic>=2,<3
+aiosqlite>=0.20,<1
+anthropic>=0.39,<1
 reportlab>=4,<5
-httpx
+httpx>=0.27,<1
 websockets>=14
-anyio
-pytest
-pytest-asyncio
-# Pinned identically to the root requirements.txt — one resolver answer,
-# whichever file gets installed.
 python-dotenv>=1,<2
 numpy>=1.26,<3
+anyio>=4,<5
+pytest>=8,<9
+pytest-anyio>=0.0.0
+# Deepgram TLS fix anchors trust on the certifi bundle — keep it available here
+# too (matches root).
 certifi>=2024.0
+
+# Multi-provider LLM support (llm_client imports these lazily per provider);
+# they are beyond the root API pin set, so they live here where the server
+# actually uses them.
+openai>=1.40,<2
+google-generativeai>=0.7,<1
+mistralai>=1,<2

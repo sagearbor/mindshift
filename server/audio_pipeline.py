@@ -24,6 +24,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import ssl
 import time
 from collections import Counter
@@ -127,6 +128,48 @@ STOP_DRAIN_TIMEOUT_S = 30.0
 # buffer exceeds MAX, only the most recent KEEP entries are retained.
 UTTERANCE_BUFFER_MAX = 1000
 UTTERANCE_BUFFER_KEEP = 500
+
+# P2-7: server-generated session/relationship ids are UUIDs. Path params that
+# reach routing and (for session_id) the export ``Content-Disposition``
+# filename header must be validated — a CR/LF/quote in a free-form id could
+# malform that header. Lenient across UUID versions: we only assert the
+# canonical 8-4-4-4-12 hex shape. Shared with main.py's REST ``Path(pattern=)``.
+UUID_PATTERN = (
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+_UUID_RE = re.compile(UUID_PATTERN)
+
+
+def _is_valid_uuid(value: str) -> bool:
+    return bool(_UUID_RE.match(value))
+
+
+# P0-1: WebSockets bypass CORS / the same-origin policy — any web page in any
+# browser can open ws://.../ws/session/x, stream audio, and burn the owner's
+# Deepgram + Anthropic credits. Native mobile apps send NO Origin header;
+# browsers always do. Policy: allow a missing Origin (native clients); for a
+# PRESENT Origin, require it to be in this allowlist. Default empty = reject
+# every browser origin. Read once at import time (tests monkeypatch this
+# module attribute directly, like the other guardrails above). The concrete
+# allowlist is a flagged human/ops decision — set MINDSHIFT_ALLOWED_ORIGINS.
+ALLOWED_ORIGINS: frozenset[str] = frozenset(
+    o.strip()
+    for o in os.getenv("MINDSHIFT_ALLOWED_ORIGINS", "").split(",")
+    if o.strip()
+)
+
+
+def _origin_allowed(origin: str | None) -> bool:
+    """Whether a WS connection carrying this Origin header may proceed (P0-1).
+
+    ``None`` (no Origin — native mobile clients) is allowed. A present Origin
+    must appear in :data:`ALLOWED_ORIGINS`; otherwise it is a cross-site
+    browser connection and is rejected before ``accept()``.
+    """
+    if origin is None:
+        return True
+    return origin in ALLOWED_ORIGINS
 
 
 # Per-process random salt: makes the redaction digest a keyed HMAC so short or
@@ -660,7 +703,27 @@ async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
     New WebSockets beyond ``MAX_WS_SESSIONS`` concurrent sessions are closed
     immediately with code 1013 ("try again later") — an honest rejection
     instead of letting every session degrade (P2-1).
+
+    Two checks run BEFORE ``accept()`` so a rejected connection never reaches
+    Deepgram/Anthropic (no credit spend, no session slot held):
+      * P0-1 Origin allowlist — cross-site browser connections closed 4403.
+      * P2-7 session_id shape — a non-UUID id is closed 4403.
     """
+    # P0-1: reject cross-site browser WS before accepting. Closing in the
+    # "connecting" state rejects the handshake cleanly (the client sees 4403).
+    origin = websocket.headers.get("origin")
+    if not _origin_allowed(origin):
+        logger.info("Rejecting WS session: Origin %r not allowlisted", origin)
+        await websocket.close(code=4403)
+        return
+
+    # P2-7: session_id is a server-generated UUID — a free-form value is a
+    # broken or hostile client. Reject before accept, same as a bad Origin.
+    if not _is_valid_uuid(session_id):
+        logger.info("Rejecting WS session: session_id is not a UUID")
+        await websocket.close(code=4403)
+        return
+
     await websocket.accept()
 
     if _session_slots.locked():

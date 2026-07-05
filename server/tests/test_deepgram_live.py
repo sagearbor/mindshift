@@ -411,7 +411,7 @@ class TestPipelineSegmentConsumption:
             TranscriptSegment("Third utterance.", 3.5, 4.2, speaker=0),
         ])
         try:
-            with TestClient(app).websocket_connect("/ws/session/seg-1") as ws:
+            with TestClient(app).websocket_connect("/ws/session/b3583132-3ac3-5f01-ad83-bb1590e1b5d4") as ws:
                 ws.send_bytes(b"\x00" * 50)
                 events = [json.loads(ws.receive_text()) for _ in range(3)]
         finally:
@@ -432,7 +432,7 @@ class TestPipelineSegmentConsumption:
             TranscriptSegment("No speaker data here.", 0.0, 1.0, speaker=None),
         ])
         try:
-            with TestClient(app).websocket_connect("/ws/session/seg-2") as ws:
+            with TestClient(app).websocket_connect("/ws/session/26e90aed-f581-5810-a375-d810a82e8ffa") as ws:
                 ws.send_bytes(b"\x00" * 50)
                 event = json.loads(ws.receive_text())
         finally:
@@ -634,7 +634,7 @@ class TestPipelineReconnectLive:
         server_b = None
         frame = b"\x00\x00" * 800  # 100ms of PCM
         try:
-            with TestClient(app).websocket_connect("/ws/session/live-reconn") as ws:
+            with TestClient(app).websocket_connect("/ws/session/4dc3f6f5-a32b-5ec8-89dc-c6a5ce746d22") as ws:
                 # Prove the first connection is alive before killing it.
                 ws.send_text(json.dumps({"type": "config"}))
                 assert json.loads(ws.receive_text())["type"] == "config_ack"
