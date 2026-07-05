@@ -594,17 +594,28 @@ class ThreadedFakeDeepgramServer:
     async def _serve(self) -> None:
         self._loop = asyncio.get_running_loop()
         self._stop = asyncio.Event()
-        async with serve(self.inner._handler, "127.0.0.1", self.port) as server:
-            self.port = server.sockets[0].getsockname()[1]
-            self._ready.set()
+        server = await serve(self.inner._handler, "127.0.0.1", self.port)
+        self.port = server.sockets[0].getsockname()[1]
+        self._ready.set()
+        try:
             await self._stop.wait()
-        # Exiting the context closes the listener AND live connections —
-        # exactly what a dying Deepgram looks like to the transcriber.
+        finally:
+            # Force-close the listener AND any live connection immediately —
+            # exactly what a dying Deepgram looks like to the transcriber, and
+            # (crucially) frees the port promptly so the test can rebind a fresh
+            # server on it. A graceful drain could otherwise wait on the still-
+            # open transcriber socket and stall shutdown past the join timeout
+            # on a loaded CI runner (the source of an intermittent failure).
+            server.close(close_connections=True)
+            await server.wait_closed()
 
     def stop(self) -> None:
         assert self._loop is not None and self._stop is not None
         self._loop.call_soon_threadsafe(self._stop.set)
-        self._thread.join(timeout=5)
+        # Generous timeout: shutdown is normally sub-second, but shared CI
+        # runners are slow and this must not flake (the port must be free before
+        # the replacement server binds it).
+        self._thread.join(timeout=20)
         assert not self._thread.is_alive(), "fake Deepgram server did not stop"
 
 
