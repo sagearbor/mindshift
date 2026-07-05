@@ -30,8 +30,21 @@ MINDSHIFT_DB_PATH=mindshift.db             # SQLite path
 # runs; the WebSocket pipeline reports `transcription_unavailable` instead of
 # fabricating transcripts.
 DEEPGRAM_API_KEY=...                       # live streaming STT (nova-3, diarized) + Aura TTS
+STT_PROVIDER=deepgram                      # deepgram (default) | whisper (free, local, offline)
+WHISPER_MODEL=base                         # tiny|base|small|medium — only when STT_PROVIDER=whisper
 TTS_API_KEY=... | ELEVENLABS_API_KEY=...   # recognized but not yet implemented
 ```
+
+Env vars load from a `.env` at repo root (see `env.example`) if present; real
+shell env always wins.
+
+**Free voice path (no paid keys):** set `STT_PROVIDER=whisper` and
+`pip install -r requirements-whisper.txt` for free on-device transcription via
+faster-whisper (near-real-time, private — audio never leaves the machine;
+slightly laggier than Deepgram's true streaming). On the mobile side, coaching
+suggestions are spoken with on-device `expo-speech` (free, no key) — the Deepgram
+key is optional throughout. Deepgram stays the default for the fastest, lowest-
+latency streaming during dev.
 
 ### Frontend (Expo)
 
