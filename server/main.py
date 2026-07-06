@@ -29,6 +29,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from audio_pipeline import UUID_PATTERN, audio_ws_endpoint
+from auth import get_current_uid, init_firebase
 from llm_client import LLMClient
 from models.relationship import (
     EdgeOut,
@@ -243,7 +244,8 @@ async def init_db() -> None:
                 from_participant_id TEXT,
                 to_participant_id TEXT,
                 edge_context TEXT,
-                empathy_slider INTEGER
+                empathy_slider INTEGER,
+                user_id TEXT
             )
             """
         )
@@ -253,7 +255,8 @@ async def init_db() -> None:
                 id TEXT PRIMARY KEY,
                 type TEXT NOT NULL,
                 name TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                user_id TEXT
             )
             """
         )
@@ -292,9 +295,42 @@ async def init_db() -> None:
             )
             """
         )
+        # --- Auth: additive user-ownership migration (tolerates existing DBs) ---
+        # `sessions` and `relationships` are the two ownership roots (a Firebase
+        # uid); participants/voice_profiles inherit ownership through their
+        # relationship FK. Fresh installs already have the column from the
+        # CREATE TABLE above; existing databases gain it here. Guarded against
+        # the "duplicate column" error so init_db() stays safe to run every boot
+        # (there is no migration framework). No anon-row backfill: prod SQLite is
+        # ephemeral, so rows predating auth are simply NULL and match no user.
+        await _add_column_if_missing(db, "sessions", "user_id", "TEXT")
+        await _add_column_if_missing(db, "relationships", "user_id", "TEXT")
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_relationships_user "
+            "ON relationships(user_id)"
+        )
         await db.commit()
     finally:
         await db.close()
+
+
+async def _add_column_if_missing(
+    db: aiosqlite.Connection, table: str, column: str, coltype: str,
+) -> None:
+    """Add ``column`` to ``table`` only when absent (idempotent ALTER).
+
+    SQLite has no ``ADD COLUMN IF NOT EXISTS``; running the ALTER twice raises
+    "duplicate column name". Checking PRAGMA table_info first keeps init_db()
+    safe to run on every boot against a database that already has the column.
+    ``table``/``column`` are internal constants, never user input.
+    """
+    cursor = await db.execute(f"PRAGMA table_info({table})")
+    existing = {row["name"] for row in await cursor.fetchall()}
+    if column not in existing:
+        await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
 
 
 def _configure_stt(app: FastAPI) -> None:
@@ -327,6 +363,9 @@ def _configure_stt(app: FastAPI) -> None:
 async def lifespan(app: FastAPI):
     _configure_logging()
     await init_db()
+    # Initialize Firebase Admin for ID-token verification (ADC on Cloud Run).
+    # Best-effort: init never raises, and verification fails closed (401).
+    init_firebase()
     app.state.llm_client = LLMClient(model=MINDSHIFT_MODEL)
     _configure_stt(app)
     logger.info(
@@ -579,15 +618,21 @@ async def _resolve_relationship_context(
     relationship_id: str | None,
     from_id: str | None,
     to_id: str | None,
+    uid: str,
 ) -> str | None:
-    """Build a relationship context string for LLM prompt enrichment."""
+    """Build a relationship context string for LLM prompt enrichment.
+
+    Scoped to ``uid``: a relationship owned by another user resolves to None
+    (no context), exactly like a missing one — never leaking another user's
+    relationship/participant data into the prompt.
+    """
     if not relationship_id or not from_id or not to_id:
         return None
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT type, name FROM relationships WHERE id = ?",
-            (relationship_id,),
+            "SELECT type, name FROM relationships WHERE id = ? AND user_id = ?",
+            (relationship_id, uid),
         )
         rel_row = await cursor.fetchone()
         if rel_row is None:
@@ -627,6 +672,7 @@ async def _resolve_relationship_context(
 async def _resolve_voice_profile(
     relationship_id: str | None,
     participant_id: str | None,
+    uid: str,
 ) -> dict | None:
     """Load the voice profile for ``(relationship_id, participant_id)``.
 
@@ -635,15 +681,21 @@ async def _resolve_voice_profile(
     keeps the prompt byte-identical to today when no profile applies. One
     indexed ``SELECT``; mirrors the guard style of
     ``_resolve_relationship_context``.
+
+    Scoped to ``uid`` via a join on the owning relationship: a voice profile
+    whose relationship belongs to another user resolves to None, so one user
+    can never load another user's stored voice into their prompt.
     """
     if not relationship_id or not participant_id:
         return None
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT pairs, style_notes, updated_at FROM voice_profiles "
-            "WHERE relationship_id = ? AND participant_id = ?",
-            (relationship_id, participant_id),
+            "SELECT vp.pairs, vp.style_notes, vp.updated_at FROM voice_profiles vp "
+            "JOIN relationships r ON r.id = vp.relationship_id "
+            "WHERE vp.relationship_id = ? AND vp.participant_id = ? "
+            "AND r.user_id = ?",
+            (relationship_id, participant_id, uid),
         )
         row = await cursor.fetchone()
     finally:
@@ -684,16 +736,21 @@ def _coerce_score(value: object) -> int | None:
 
 
 @app.post("/respond", response_model=RespondResponse)
-async def respond(req: RespondRequest, _rl: None = Depends(_rate_limit)):
+async def respond(
+    req: RespondRequest,
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
     # The voice profile is keyed on the speaker being coached — the
     # from_participant_id. Absent (or no profile) → None → today's exact prompt.
+    # Both lookups are uid-scoped so relationship context never crosses users.
     voice_profile = await _resolve_voice_profile(
-        req.relationship_id, req.from_participant_id,
+        req.relationship_id, req.from_participant_id, uid,
     )
     system = empathy_system_prompt(req.empathy_slider, req.role, voice_profile)
 
     rel_context = await _resolve_relationship_context(
-        req.relationship_id, req.from_participant_id, req.to_participant_id,
+        req.relationship_id, req.from_participant_id, req.to_participant_id, uid,
     )
 
     user_content = f"Transcript turn: \"{req.transcript_turn}\""
@@ -746,7 +803,11 @@ async def respond(req: RespondRequest, _rl: None = Depends(_rate_limit)):
 
 
 @app.post("/score", response_model=ScoreResponse)
-async def score(req: ScoreRequest, _rl: None = Depends(_rate_limit)):
+async def score(
+    req: ScoreRequest,
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
     system = (
         "You are a tone analysis engine. Analyze the following text and return "
         "ONLY a JSON object with integer scores 0-100 for these dimensions: "
@@ -755,7 +816,7 @@ async def score(req: ScoreRequest, _rl: None = Depends(_rate_limit)):
     )
 
     rel_context = await _resolve_relationship_context(
-        req.relationship_id, req.from_participant_id, req.to_participant_id,
+        req.relationship_id, req.from_participant_id, req.to_participant_id, uid,
     )
 
     user_content = req.text
@@ -796,16 +857,20 @@ async def score(req: ScoreRequest, _rl: None = Depends(_rate_limit)):
 
 
 @app.post("/session", response_model=SessionOut, status_code=201)
-async def create_session(req: SessionCreate):
+async def create_session(
+    req: SessionCreate, uid: str = Depends(get_current_uid),
+):
     session_id = str(uuid.uuid4())
     created_at = datetime.now(timezone.utc).isoformat()
 
     db = await get_db()
     try:
+        # user_id is stamped from the verified token, never from the request.
         await db.execute(
-            "INSERT INTO sessions (id, created_at, turns, metadata) "
-            "VALUES (?, ?, ?, ?)",
-            (session_id, created_at, json.dumps(req.turns), json.dumps(req.metadata)),
+            "INSERT INTO sessions (id, created_at, turns, metadata, user_id) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (session_id, created_at, json.dumps(req.turns),
+             json.dumps(req.metadata), uid),
         )
         await db.commit()
     finally:
@@ -820,12 +885,18 @@ async def create_session(req: SessionCreate):
 
 
 @app.get("/session/{session_id}", response_model=SessionOut)
-async def get_session(session_id: Annotated[str, Path(pattern=UUID_PATTERN)]):
+async def get_session(
+    session_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    uid: str = Depends(get_current_uid),
+):
     db = await get_db()
     try:
+        # Scoped to the caller: another user's session reads as 404 (not 403),
+        # so its existence is never confirmed.
         cursor = await db.execute(
-            "SELECT id, created_at, turns, metadata FROM sessions WHERE id = ?",
-            (session_id,),
+            "SELECT id, created_at, turns, metadata FROM sessions "
+            "WHERE id = ? AND user_id = ?",
+            (session_id, uid),
         )
         row = await cursor.fetchone()
     finally:
@@ -846,6 +917,7 @@ async def get_session(session_id: Annotated[str, Path(pattern=UUID_PATTERN)]):
 async def add_turn(
     session_id: Annotated[str, Path(pattern=UUID_PATTERN)],
     turn: SessionTurn,
+    uid: str = Depends(get_current_uid),
 ):
     turn_dict = turn.model_dump()
 
@@ -855,11 +927,12 @@ async def add_turn(
         # concurrent read-modify-write race (last-writer-wins data loss). RETURNING
         # the post-update array length in the SAME statement gives THIS append's
         # own index; a separate post-commit SELECT could read a concurrent
-        # append's state and report the wrong turn_index.
+        # append's state and report the wrong turn_index. The user_id predicate
+        # makes a foreign (or missing) session a no-op → 404 below.
         cursor = await db.execute(
             "UPDATE sessions SET turns = json_insert(turns, '$[#]', json(?)) "
-            "WHERE id = ? RETURNING json_array_length(turns)",
-            (json.dumps(turn_dict), session_id),
+            "WHERE id = ? AND user_id = ? RETURNING json_array_length(turns)",
+            (json.dumps(turn_dict), session_id, uid),
         )
         row = await cursor.fetchone()
         if row is None:
@@ -1023,14 +1096,16 @@ def _build_pdf_export(session: dict, insights: str) -> bytes:
 async def export_session(
     session_id: Annotated[str, Path(pattern=UUID_PATTERN)],
     format: ExportFormat = Query(default=ExportFormat.text),
+    uid: str = Depends(get_current_uid),
     _rl: None = Depends(_rate_limit),
 ):
-    # Fetch session
+    # Fetch session — scoped to the caller (foreign/missing → 404 below).
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT id, created_at, turns, metadata FROM sessions WHERE id = ?",
-            (session_id,),
+            "SELECT id, created_at, turns, metadata FROM sessions "
+            "WHERE id = ? AND user_id = ?",
+            (session_id, uid),
         )
         row = await cursor.fetchone()
     finally:
@@ -1225,15 +1300,19 @@ def _generate_edges(rel_type: str, participants: list[dict]) -> list[dict]:
 
 
 @app.post("/relationships", response_model=RelationshipOut, status_code=201)
-async def create_relationship(req: RelationshipCreate):
+async def create_relationship(
+    req: RelationshipCreate, uid: str = Depends(get_current_uid),
+):
     rel_id = str(uuid.uuid4())
     created_at = datetime.now(timezone.utc).isoformat()
 
     db = await get_db()
     try:
+        # user_id from the verified token; participants inherit this ownership.
         await db.execute(
-            "INSERT INTO relationships (id, type, name, created_at) VALUES (?, ?, ?, ?)",
-            (rel_id, req.type.value, req.name, created_at),
+            "INSERT INTO relationships (id, type, name, created_at, user_id) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (rel_id, req.type.value, req.name, created_at, uid),
         )
         for p in req.participants:
             await db.execute(
@@ -1257,12 +1336,15 @@ async def create_relationship(req: RelationshipCreate):
 @app.get("/relationships/{relationship_id}", response_model=RelationshipOut)
 async def get_relationship(
     relationship_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    uid: str = Depends(get_current_uid),
 ):
     db = await get_db()
     try:
+        # Foreign/missing relationship → 404 (never confirm another's existence).
         cursor = await db.execute(
-            "SELECT id, type, name, created_at FROM relationships WHERE id = ?",
-            (relationship_id,),
+            "SELECT id, type, name, created_at FROM relationships "
+            "WHERE id = ? AND user_id = ?",
+            (relationship_id, uid),
         )
         rel_row = await cursor.fetchone()
         if rel_row is None:
@@ -1292,12 +1374,15 @@ async def get_relationship(
 
 
 @app.get("/relationships/{relationship_id}/edges", response_model=list[EdgeOut])
-async def list_edges(relationship_id: Annotated[str, Path(pattern=UUID_PATTERN)]):
+async def list_edges(
+    relationship_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    uid: str = Depends(get_current_uid),
+):
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT id, type FROM relationships WHERE id = ?",
-            (relationship_id,),
+            "SELECT id, type FROM relationships WHERE id = ? AND user_id = ?",
+            (relationship_id, uid),
         )
         rel_row = await cursor.fetchone()
         if rel_row is None:
@@ -1320,15 +1405,18 @@ async def list_edges(relationship_id: Annotated[str, Path(pattern=UUID_PATTERN)]
 
 
 async def _require_participant(
-    db: aiosqlite.Connection, relationship_id: str, participant_id: str,
+    db: aiosqlite.Connection, relationship_id: str, participant_id: str, uid: str,
 ) -> None:
     """404 if the relationship or the participant-in-relationship is unknown.
 
     Honest failure: editing a voice profile for a participant that does not
-    exist must not silently create an orphaned row.
+    exist must not silently create an orphaned row. Scoped to ``uid`` — another
+    user's relationship reads as "not found" (404, not 403), so its existence
+    is never confirmed.
     """
     cursor = await db.execute(
-        "SELECT 1 FROM relationships WHERE id = ?", (relationship_id,),
+        "SELECT 1 FROM relationships WHERE id = ? AND user_id = ?",
+        (relationship_id, uid),
     )
     if await cursor.fetchone() is None:
         raise HTTPException(status_code=404, detail="Relationship not found")
@@ -1347,10 +1435,11 @@ async def _require_participant(
 async def get_voice_profile(
     relationship_id: Annotated[str, Path(pattern=UUID_PATTERN)],
     participant_id: str,
+    uid: str = Depends(get_current_uid),
 ):
     db = await get_db()
     try:
-        await _require_participant(db, relationship_id, participant_id)
+        await _require_participant(db, relationship_id, participant_id, uid)
         cursor = await db.execute(
             "SELECT pairs, style_notes, updated_at FROM voice_profiles "
             "WHERE relationship_id = ? AND participant_id = ?",
@@ -1384,6 +1473,7 @@ async def put_voice_profile(
     relationship_id: Annotated[str, Path(pattern=UUID_PATTERN)],
     participant_id: str,
     req: VoiceProfileIn,
+    uid: str = Depends(get_current_uid),
 ):
     # Full replace (simplest editable surface). Apply the §2 caps: keep the
     # most recent MAX_PAIRS, truncate each field, then upsert.
@@ -1402,7 +1492,7 @@ async def put_voice_profile(
 
     db = await get_db()
     try:
-        await _require_participant(db, relationship_id, participant_id)
+        await _require_participant(db, relationship_id, participant_id, uid)
         await db.execute(
             "INSERT INTO voice_profiles "
             "(relationship_id, participant_id, pairs, style_notes, updated_at) "
@@ -1430,12 +1520,13 @@ async def put_voice_profile(
 async def create_relationship_session(
     relationship_id: Annotated[str, Path(pattern=UUID_PATTERN)],
     req: RelationshipSessionCreate,
+    uid: str = Depends(get_current_uid),
 ):
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT id, type FROM relationships WHERE id = ?",
-            (relationship_id,),
+            "SELECT id, type FROM relationships WHERE id = ? AND user_id = ?",
+            (relationship_id, uid),
         )
         rel_row = await cursor.fetchone()
         if rel_row is None:
@@ -1470,11 +1561,12 @@ async def create_relationship_session(
 
         await db.execute(
             "INSERT INTO sessions (id, created_at, turns, metadata, relationship_id, "
-            "from_participant_id, to_participant_id, edge_context, empathy_slider) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "from_participant_id, to_participant_id, edge_context, empathy_slider, "
+            "user_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (session_id, created_at, json.dumps([]), json.dumps(req.metadata),
              relationship_id, req.from_participant_id, req.to_participant_id,
-             edge_context, req.empathy_slider),
+             edge_context, req.empathy_slider, uid),
         )
         await db.commit()
     finally:
@@ -1499,12 +1591,13 @@ async def create_relationship_session(
 )
 async def list_relationship_sessions(
     relationship_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    uid: str = Depends(get_current_uid),
 ):
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT id FROM relationships WHERE id = ?",
-            (relationship_id,),
+            "SELECT id FROM relationships WHERE id = ? AND user_id = ?",
+            (relationship_id, uid),
         )
         if await cursor.fetchone() is None:
             raise HTTPException(status_code=404, detail="Relationship not found")
@@ -1512,8 +1605,9 @@ async def list_relationship_sessions(
         cursor = await db.execute(
             "SELECT id, created_at, turns, metadata, relationship_id, "
             "from_participant_id, to_participant_id, edge_context, empathy_slider "
-            "FROM sessions WHERE relationship_id = ? ORDER BY created_at DESC",
-            (relationship_id,),
+            "FROM sessions WHERE relationship_id = ? AND user_id = ? "
+            "ORDER BY created_at DESC",
+            (relationship_id, uid),
         )
         rows = await cursor.fetchall()
     finally:
@@ -1546,12 +1640,13 @@ async def list_participant_sessions(
     # intentionally left unvalidated here. It only ever reaches parameterized SQL
     # and routing — never a response header — so it carries no injection surface.
     participant_id: str,
+    uid: str = Depends(get_current_uid),
 ):
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT id FROM relationships WHERE id = ?",
-            (relationship_id,),
+            "SELECT id FROM relationships WHERE id = ? AND user_id = ?",
+            (relationship_id, uid),
         )
         if await cursor.fetchone() is None:
             raise HTTPException(status_code=404, detail="Relationship not found")
@@ -1559,10 +1654,10 @@ async def list_participant_sessions(
         cursor = await db.execute(
             "SELECT id, created_at, turns, metadata, relationship_id, "
             "from_participant_id, to_participant_id, edge_context, empathy_slider "
-            "FROM sessions WHERE relationship_id = ? "
+            "FROM sessions WHERE relationship_id = ? AND user_id = ? "
             "AND (from_participant_id = ? OR to_participant_id = ?) "
             "ORDER BY created_at DESC",
-            (relationship_id, participant_id, participant_id),
+            (relationship_id, uid, participant_id, participant_id),
         )
         rows = await cursor.fetchall()
     finally:

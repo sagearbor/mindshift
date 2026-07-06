@@ -10,6 +10,7 @@ touches the real Deepgram API is skipped unless a key is present.
 
 import asyncio
 import base64
+import contextlib
 import json
 import os
 import socket
@@ -31,6 +32,20 @@ from audio_pipeline import (
     _normalize_segments,
 )
 from main import app
+
+# Auth: the WS now requires a verified Firebase token in the first config frame
+# (see conftest FAKE_TOKENS / _server_test_auth). open_ws performs that
+# handshake and consumes the config_ack so each test body is unchanged.
+FAKE_ID_TOKEN = "fake-id-token"  # conftest maps this → uid "test-user"
+
+
+@contextlib.contextmanager
+def open_ws(client, path, *, token=FAKE_ID_TOKEN):
+    with client.websocket_connect(path) as ws:
+        ws.send_text(json.dumps({"type": "config", "id_token": token}))
+        ack = json.loads(ws.receive_text())
+        assert ack["type"] == "config_ack", ack
+        yield ws
 
 
 # ---------------------------------------------------------------------------
@@ -411,7 +426,7 @@ class TestPipelineSegmentConsumption:
             TranscriptSegment("Third utterance.", 3.5, 4.2, speaker=0),
         ])
         try:
-            with TestClient(app).websocket_connect("/ws/session/b3583132-3ac3-5f01-ad83-bb1590e1b5d4") as ws:
+            with open_ws(TestClient(app), "/ws/session/b3583132-3ac3-5f01-ad83-bb1590e1b5d4") as ws:
                 ws.send_bytes(b"\x00" * 50)
                 events = [json.loads(ws.receive_text()) for _ in range(3)]
         finally:
@@ -432,7 +447,7 @@ class TestPipelineSegmentConsumption:
             TranscriptSegment("No speaker data here.", 0.0, 1.0, speaker=None),
         ])
         try:
-            with TestClient(app).websocket_connect("/ws/session/26e90aed-f581-5810-a375-d810a82e8ffa") as ws:
+            with open_ws(TestClient(app), "/ws/session/26e90aed-f581-5810-a375-d810a82e8ffa") as ws:
                 ws.send_bytes(b"\x00" * 50)
                 event = json.loads(ws.receive_text())
         finally:
@@ -645,7 +660,7 @@ class TestPipelineReconnectLive:
         server_b = None
         frame = b"\x00\x00" * 800  # 100ms of PCM
         try:
-            with TestClient(app).websocket_connect("/ws/session/4dc3f6f5-a32b-5ec8-89dc-c6a5ce746d22") as ws:
+            with open_ws(TestClient(app), "/ws/session/4dc3f6f5-a32b-5ec8-89dc-c6a5ce746d22") as ws:
                 # Prove the first connection is alive before killing it.
                 ws.send_text(json.dumps({"type": "config"}))
                 assert json.loads(ws.receive_text())["type"] == "config_ack"

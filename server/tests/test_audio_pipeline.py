@@ -8,6 +8,7 @@ these tests inject the test doubles defined below via ``app.state``.
 """
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import threading
@@ -23,6 +24,27 @@ from starlette.websockets import WebSocketDisconnect
 import audio_pipeline
 from audio_pipeline import TranscriberUnavailable, TranscriptSegment
 from main import app
+
+# Auth: every WS now requires a verified Firebase token in the first config
+# frame (see conftest FAKE_TOKENS / _server_test_auth). open_ws performs that
+# handshake and consumes the config_ack, so each test body proceeds exactly as
+# it did before auth existed.
+FAKE_ID_TOKEN = "fake-id-token"  # conftest maps this → uid "test-user"
+
+
+@contextlib.contextmanager
+def open_ws(client, path, *, token=FAKE_ID_TOKEN, headers=None):
+    """Open a WS, complete the Firebase auth handshake, yield the authed socket.
+
+    The auth ``config_ack`` is consumed here; the caller sends its own audio /
+    config / stop frames just as before.
+    """
+    kwargs = {"headers": headers} if headers is not None else {}
+    with client.websocket_connect(path, **kwargs) as ws:
+        ws.send_text(json.dumps({"type": "config", "id_token": token}))
+        ack = json.loads(ws.receive_text())
+        assert ack["type"] == "config_ack", ack
+        yield ws
 
 MOCK_LLM_JSON = json.dumps({
     "suggestions": [
@@ -216,14 +238,14 @@ def unavailable_ws(monkeypatch):
 
 class TestWebSocketConnection:
     def test_connect_and_disconnect(self, fake_ws):
-        with fake_ws.websocket_connect("/ws/session/fe671ae6-ab15-55a0-a52a-a420dbb8f518") as ws:
+        with open_ws(fake_ws, "/ws/session/fe671ae6-ab15-55a0-a52a-a420dbb8f518") as ws:
             ws.send_text(json.dumps({"type": "config", "empathy_slider": 75}))
             resp = json.loads(ws.receive_text())
             assert resp["type"] == "config_ack"
 
     def test_connect_different_sessions(self, fake_ws):
         for sid in ("f13e554a-934c-536f-bc6e-5d24c3c8b63a", "44a700b7-7f37-533b-966f-94ee1cdad404"):
-            with fake_ws.websocket_connect(f"/ws/session/{sid}") as ws:
+            with open_ws(fake_ws, f"/ws/session/{sid}") as ws:
                 ws.send_text(json.dumps({"type": "config"}))
                 resp = json.loads(ws.receive_text())
                 assert resp["type"] == "config_ack"
@@ -237,7 +259,7 @@ class TestWebSocketOriginCheck:
     def test_no_origin_connects(self, fake_ws):
         """Native mobile clients send no Origin header — always allowed."""
         sid = str(uuid.uuid4())
-        with fake_ws.websocket_connect(f"/ws/session/{sid}") as ws:
+        with open_ws(fake_ws, f"/ws/session/{sid}") as ws:
             ws.send_text(json.dumps({"type": "config"}))
             assert json.loads(ws.receive_text())["type"] == "config_ack"
 
@@ -258,8 +280,8 @@ class TestWebSocketOriginCheck:
             audio_pipeline, "ALLOWED_ORIGINS", frozenset({"https://app.example"})
         )
         sid = str(uuid.uuid4())
-        with fake_ws.websocket_connect(
-            f"/ws/session/{sid}", headers={"origin": "https://app.example"}
+        with open_ws(
+            fake_ws, f"/ws/session/{sid}", headers={"origin": "https://app.example"}
         ) as ws:
             ws.send_text(json.dumps({"type": "config"}))
             assert json.loads(ws.receive_text())["type"] == "config_ack"
@@ -272,7 +294,7 @@ class TestWebSocketOriginCheck:
 class TestWebSocketSessionIdValidation:
     def test_non_uuid_session_id_rejected_4403(self, fake_ws):
         with pytest.raises(WebSocketDisconnect) as excinfo:
-            with fake_ws.websocket_connect("/ws/session/not-a-uuid") as ws:
+            with open_ws(fake_ws, "/ws/session/not-a-uuid") as ws:
                 ws.receive_text()
         assert excinfo.value.code == 4403
 
@@ -283,7 +305,7 @@ class TestWebSocketSessionIdValidation:
 
 class TestUtteranceSuggestionFlow:
     def test_audio_chunk_produces_suggestion(self, fake_ws):
-        with fake_ws.websocket_connect("/ws/session/ba80d20c-e237-5290-99d8-fc64759ab9db") as ws:
+        with open_ws(fake_ws, "/ws/session/ba80d20c-e237-5290-99d8-fc64759ab9db") as ws:
             ws.send_bytes(b"\x00\x01\x02\x03" * 100)
             resp = json.loads(ws.receive_text())
 
@@ -296,7 +318,7 @@ class TestUtteranceSuggestionFlow:
             assert resp["audio_b64"] is not None  # injected TTS produced audio
 
     def test_empathy_slider_affects_suggestion(self, fake_ws):
-        with fake_ws.websocket_connect("/ws/session/71c97c3e-a88e-56b9-a46b-5ad735d20295") as ws:
+        with open_ws(fake_ws, "/ws/session/71c97c3e-a88e-56b9-a46b-5ad735d20295") as ws:
             ws.send_text(json.dumps({"type": "config", "empathy_slider": 10}))
             assert json.loads(ws.receive_text())["type"] == "config_ack"
 
@@ -305,7 +327,7 @@ class TestUtteranceSuggestionFlow:
             assert resp["empathy_slider"] == 10
 
     def test_multiple_chunks_produce_multiple_suggestions(self, fake_ws):
-        with fake_ws.websocket_connect("/ws/session/245b20ae-77dc-588d-85c4-c199bbadbaeb") as ws:
+        with open_ws(fake_ws, "/ws/session/245b20ae-77dc-588d-85c4-c199bbadbaeb") as ws:
             for i in range(3):
                 ws.send_bytes(bytes([i]) * 50)
                 resp = json.loads(ws.receive_text())
@@ -316,7 +338,7 @@ class TestUtteranceSuggestionFlow:
         mock_llm = app.state.llm_client
         mock_llm.complete.reset_mock()
 
-        with fake_ws.websocket_connect("/ws/session/0c7b8bd6-c8dd-5dc3-9210-c0af33cddc7b") as ws:
+        with open_ws(fake_ws, "/ws/session/0c7b8bd6-c8dd-5dc3-9210-c0af33cddc7b") as ws:
             ws.send_bytes(b"\x00" * 50)
             ws.receive_text()
 
@@ -334,7 +356,7 @@ class TestUtteranceSuggestionFlow:
         app.state.transcriber_factory = lambda: FakeTranscriber()
         app.state.tts_client = FakeTTS(audio_b64=None)  # unavailable TTS
         try:
-            with TestClient(app).websocket_connect("/ws/session/9a2ee749-c067-5e8b-bbe0-82a094cb5d6a") as ws:
+            with open_ws(TestClient(app), "/ws/session/9a2ee749-c067-5e8b-bbe0-82a094cb5d6a") as ws:
                 ws.send_bytes(b"\x00" * 50)
                 resp = json.loads(ws.receive_text())
                 assert resp["type"] == "suggestion"
@@ -350,7 +372,7 @@ class TestUtteranceSuggestionFlow:
 class TestTranscriptionUnavailable:
     def test_unavailable_event_on_connect(self, unavailable_ws):
         """With no DEEPGRAM_API_KEY, the server announces transcription is unavailable."""
-        with unavailable_ws.websocket_connect("/ws/session/74b1265a-dd00-5431-b6ca-35c8b986e290") as ws:
+        with open_ws(unavailable_ws, "/ws/session/74b1265a-dd00-5431-b6ca-35c8b986e290") as ws:
             resp = json.loads(ws.receive_text())
             assert resp["type"] == "transcription_unavailable"
             assert "reason" in resp
@@ -362,7 +384,7 @@ class TestTranscriptionUnavailable:
         frames afterwards are ignored silently — no suggestion, no re-send
         flood. The next reply on the wire is the config ack.
         """
-        with unavailable_ws.websocket_connect("/ws/session/d78849a1-e1be-502e-94e7-200bb5414c71") as ws:
+        with open_ws(unavailable_ws, "/ws/session/d78849a1-e1be-502e-94e7-200bb5414c71") as ws:
             assert json.loads(ws.receive_text())["type"] == "transcription_unavailable"
             ws.send_bytes(b"\x00" * 50)
             ws.send_bytes(b"\x00" * 50)
@@ -371,7 +393,7 @@ class TestTranscriptionUnavailable:
             assert resp["type"] == "config_ack"  # nothing sent for the frames
 
     def test_config_still_works_when_unavailable(self, unavailable_ws):
-        with unavailable_ws.websocket_connect("/ws/session/787db2b8-6c84-5f6b-be8b-f69a9e4f8149") as ws:
+        with open_ws(unavailable_ws, "/ws/session/787db2b8-6c84-5f6b-be8b-f69a9e4f8149") as ws:
             assert json.loads(ws.receive_text())["type"] == "transcription_unavailable"
             ws.send_text(json.dumps({"type": "config", "empathy_slider": 80}))
             assert json.loads(ws.receive_text())["type"] == "config_ack"
@@ -383,7 +405,7 @@ class TestTranscriptionUnavailable:
 
 class TestSpeakerDiarization:
     def test_alternating_speakers(self, fake_ws):
-        with fake_ws.websocket_connect("/ws/session/cdd59ad9-9e74-5783-8d2c-150fb3182f9a") as ws:
+        with open_ws(fake_ws, "/ws/session/cdd59ad9-9e74-5783-8d2c-150fb3182f9a") as ws:
             speakers = []
             for _ in range(4):
                 ws.send_bytes(b"\x00" * 50)
@@ -464,20 +486,20 @@ class TestSpeakerLabelAssigner:
 
 class TestBadAudioHandling:
     def test_empty_audio_chunk_ignored(self, fake_ws):
-        with fake_ws.websocket_connect("/ws/session/48ea3fad-753d-5df7-aa35-00f4daf8958a") as ws:
+        with open_ws(fake_ws, "/ws/session/48ea3fad-753d-5df7-aa35-00f4daf8958a") as ws:
             ws.send_bytes(b"")  # empty
             ws.send_bytes(b"\x01\x02\x03")  # real chunk
             resp = json.loads(ws.receive_text())
             assert resp["type"] == "suggestion"
 
     def test_invalid_json_text_returns_error(self, fake_ws):
-        with fake_ws.websocket_connect("/ws/session/89b993dd-e75f-5291-88e8-8677f21f0509") as ws:
+        with open_ws(fake_ws, "/ws/session/89b993dd-e75f-5291-88e8-8677f21f0509") as ws:
             ws.send_text("this is not json")
             resp = json.loads(ws.receive_text())
             assert resp.get("error") == "invalid JSON"
 
     def test_unknown_message_type_returns_error(self, fake_ws):
-        with fake_ws.websocket_connect("/ws/session/564a4fe1-642f-5ee3-a650-27f1466fc408") as ws:
+        with open_ws(fake_ws, "/ws/session/564a4fe1-642f-5ee3-a650-27f1466fc408") as ws:
             ws.send_text(json.dumps({"type": "foobar"}))
             resp = json.loads(ws.receive_text())
             assert "unknown type" in resp.get("error", "")
@@ -489,7 +511,7 @@ class TestBadAudioHandling:
 
 class TestConfigMessages:
     def test_config_updates_empathy_slider(self, fake_ws):
-        with fake_ws.websocket_connect("/ws/session/6c29fdf8-51e6-531e-a44a-f2112a05f38a") as ws:
+        with open_ws(fake_ws, "/ws/session/6c29fdf8-51e6-531e-a44a-f2112a05f38a") as ws:
             ws.send_text(json.dumps({"type": "config", "empathy_slider": 90}))
             assert json.loads(ws.receive_text())["type"] == "config_ack"
             ws.send_bytes(b"\x00" * 50)
@@ -497,12 +519,12 @@ class TestConfigMessages:
             assert resp["empathy_slider"] == 90
 
     def test_config_updates_role(self, fake_ws):
-        with fake_ws.websocket_connect("/ws/session/9efc8eec-7259-5354-868d-7c319ca9bd74") as ws:
+        with open_ws(fake_ws, "/ws/session/9efc8eec-7259-5354-868d-7c319ca9bd74") as ws:
             ws.send_text(json.dumps({"type": "config", "role": "Wife"}))
             assert json.loads(ws.receive_text())["type"] == "config_ack"
 
     def test_config_ignores_invalid_slider(self, fake_ws):
-        with fake_ws.websocket_connect("/ws/session/5969eeeb-0c99-5c2f-9bb7-586a81d1342a") as ws:
+        with open_ws(fake_ws, "/ws/session/5969eeeb-0c99-5c2f-9bb7-586a81d1342a") as ws:
             ws.send_text(json.dumps({"type": "config", "empathy_slider": 200}))
             assert json.loads(ws.receive_text())["type"] == "config_ack"
             ws.send_bytes(b"\x00" * 50)
@@ -564,7 +586,7 @@ class TestGracefulStop:
         )
         client = _inject(t)
         try:
-            with client.websocket_connect("/ws/session/54b398cb-b43e-596c-966a-f7e17da1d6c0") as ws:
+            with open_ws(client, "/ws/session/54b398cb-b43e-596c-966a-f7e17da1d6c0") as ws:
                 ws.send_bytes(b"\x00" * 50)
                 first = json.loads(ws.receive_text())
                 ws.send_text(json.dumps({"type": "stop"}))
@@ -591,7 +613,7 @@ class TestGracefulStop:
         )
         client = _inject(t)
         try:
-            with client.websocket_connect("/ws/session/74542016-975a-5488-a0a4-7a75117e82b1") as ws:
+            with open_ws(client, "/ws/session/74542016-975a-5488-a0a4-7a75117e82b1") as ws:
                 ws.send_text(json.dumps({"type": "stop"}))
                 suggestion = json.loads(ws.receive_text())
                 done = json.loads(ws.receive_text())
@@ -605,7 +627,7 @@ class TestGracefulStop:
     def test_stop_when_transcription_unavailable_completes_cleanly(self, unavailable_ws):
         """stop must work even when the (real, unconnected) transcriber never
         came up — finish() on it is a safe no-op."""
-        with unavailable_ws.websocket_connect("/ws/session/e56c87ae-89a0-526a-8256-5ef31eb110ea") as ws:
+        with open_ws(unavailable_ws, "/ws/session/e56c87ae-89a0-526a-8256-5ef31eb110ea") as ws:
             assert json.loads(ws.receive_text())["type"] == "transcription_unavailable"
             ws.send_text(json.dumps({"type": "stop"}))
             assert json.loads(ws.receive_text()) == {"type": "session_complete"}
@@ -626,7 +648,7 @@ class TestSuggestionWorker:
         client = _inject(t)
         app.state.llm_client = llm  # replace the MagicMock with the blocker
         try:
-            with client.websocket_connect("/ws/session/60f4a89a-537d-5139-a70b-cb9eaec86327") as ws:
+            with open_ws(client, "/ws/session/60f4a89a-537d-5139-a70b-cb9eaec86327") as ws:
                 ws.send_bytes(b"\x01" * 50)
                 assert llm.started.wait(timeout=5)  # worker is now inside the LLM
                 ws.send_bytes(b"\x02" * 50)
@@ -663,7 +685,7 @@ class TestSuggestionWorker:
         client = _inject(t)
         app.state.llm_client.complete.side_effect = slow_first
         try:
-            with client.websocket_connect("/ws/session/9762d144-4d01-5060-8f11-2d7dba4a761f") as ws:
+            with open_ws(client, "/ws/session/9762d144-4d01-5060-8f11-2d7dba4a761f") as ws:
                 ws.send_bytes(b"\x00" * 50)
                 events = [json.loads(ws.receive_text()) for _ in range(3)]
         finally:
@@ -701,7 +723,7 @@ class TestUnavailableNoticeOnce:
         client = _inject(DyingTranscriber())
         app.state.transcriber_factory = factory
         try:
-            with client.websocket_connect("/ws/session/2512291a-796d-5f21-b1db-75a6261e6aa6") as ws:
+            with open_ws(client, "/ws/session/2512291a-796d-5f21-b1db-75a6261e6aa6") as ws:
                 ws.send_bytes(b"\x00" * 50)
                 ws.send_bytes(b"\x00" * 50)
                 ws.send_bytes(b"\x00" * 50)
@@ -730,7 +752,7 @@ class TestTTSOwnership:
         )
         client = _inject(t, tts=tts)
         try:
-            with client.websocket_connect("/ws/session/838378a4-1e3c-50b3-9f2e-71c3ad374969") as ws:
+            with open_ws(client, "/ws/session/838378a4-1e3c-50b3-9f2e-71c3ad374969") as ws:
                 ws.send_bytes(b"\x00" * 50)
                 assert json.loads(ws.receive_text())["type"] == "suggestion"
         finally:
@@ -753,7 +775,7 @@ class TestSuggestionErrorHonesty:
             "401 invalid x-api-key sk-ant-SECRET"
         )
         try:
-            with client.websocket_connect("/ws/session/a2358e57-1418-5997-8e8d-7026163bc9f5") as ws:
+            with open_ws(client, "/ws/session/a2358e57-1418-5997-8e8d-7026163bc9f5") as ws:
                 ws.send_bytes(b"\x00" * 50)
                 raw = ws.receive_text()
                 resp = json.loads(raw)
@@ -776,7 +798,7 @@ class TestSuggestionErrorHonesty:
         client = _inject(FakeTranscriber())
         app.state.llm_client.complete.return_value = "Sorry, no JSON today."
         try:
-            with client.websocket_connect("/ws/session/537c414a-a7df-570c-a344-5203b036cc62") as ws:
+            with open_ws(client, "/ws/session/537c414a-a7df-570c-a344-5203b036cc62") as ws:
                 ws.send_bytes(b"\x00" * 50)
                 resp = json.loads(ws.receive_text())
         finally:
@@ -792,7 +814,7 @@ class TestSuggestionErrorHonesty:
         client = _inject(FakeTranscriber())
         app.state.llm_client.complete.return_value = json.dumps(["a", "list"])
         try:
-            with client.websocket_connect("/ws/session/38705c3f-22f9-5ab1-93e5-23097150ea63") as ws:
+            with open_ws(client, "/ws/session/38705c3f-22f9-5ab1-93e5-23097150ea63") as ws:
                 ws.send_bytes(b"\x00" * 50)
                 resp = json.loads(ws.receive_text())
         finally:
@@ -826,7 +848,7 @@ class TestTranscriberReconnect:
         client = _inject(DyingTranscriber())
         app.state.transcriber_factory = factory
         try:
-            with client.websocket_connect("/ws/session/a56b5f93-1eab-5de5-bd6a-934d454ca97d") as ws:
+            with open_ws(client, "/ws/session/a56b5f93-1eab-5de5-bd6a-934d454ca97d") as ws:
                 ws.send_bytes(b"\x00" * 50)  # dies → reconnect → restored
                 restored = json.loads(ws.receive_text())
                 ws.send_bytes(b"\x01" * 50)  # flows to the replacement
@@ -856,7 +878,7 @@ class TestTranscriberReconnect:
         client = _inject(NeverConnectsTranscriber())
         app.state.transcriber_factory = factory
         try:
-            with client.websocket_connect("/ws/session/af6be8a7-3f67-5301-94e1-8bfb6bd959df") as ws:
+            with open_ws(client, "/ws/session/af6be8a7-3f67-5301-94e1-8bfb6bd959df") as ws:
                 first = json.loads(ws.receive_text())
                 ws.send_bytes(b"\x00" * 50)  # ignored — latched unavailable
                 ws.send_text(json.dumps({"type": "config"}))
@@ -935,7 +957,7 @@ class TestStopDrainTimeout:
         client = _inject(t)
         app.state.llm_client = llm
         try:
-            with client.websocket_connect("/ws/session/80d8585e-c7a7-52ec-951f-96b7d1a718ad") as ws:
+            with open_ws(client, "/ws/session/80d8585e-c7a7-52ec-951f-96b7d1a718ad") as ws:
                 ws.send_bytes(b"\x00" * 50)
                 assert llm.started.wait(timeout=5)  # worker is inside the LLM
                 ws.send_text(json.dumps({"type": "stop"}))
@@ -953,7 +975,7 @@ class TestStopDrainTimeout:
         )
         client = _inject(t)
         try:
-            with client.websocket_connect("/ws/session/06057ec0-a9eb-55ad-a1fe-ed066a0b3397") as ws:
+            with open_ws(client, "/ws/session/06057ec0-a9eb-55ad-a1fe-ed066a0b3397") as ws:
                 ws.send_text(json.dumps({"type": "stop"}))
                 suggestion = json.loads(ws.receive_text())
                 done = json.loads(ws.receive_text())
@@ -1007,22 +1029,26 @@ class TestMemoryAndLogging:
 class TestSessionCaps:
     def test_session_cap_rejects_with_1013(self, fake_ws, monkeypatch):
         monkeypatch.setattr(audio_pipeline, "_session_slots", asyncio.Semaphore(1))
-        with fake_ws.websocket_connect("/ws/session/2ba12c1f-d5da-559d-b21c-9e9a5dd99cb2") as ws1:
+        with open_ws(fake_ws, "/ws/session/2ba12c1f-d5da-559d-b21c-9e9a5dd99cb2") as ws1:
             ws1.send_text(json.dumps({"type": "config"}))
             assert json.loads(ws1.receive_text())["type"] == "config_ack"
-            # Second concurrent session: honest 1013 "try again later".
-            with fake_ws.websocket_connect("/ws/session/d8e3cd62-25b7-54b9-a94c-5180a2086f45") as ws2:
+            # Second concurrent session: honest 1013 "try again later". The cap
+            # rejects it right after accept — before the auth handshake — so it
+            # stays a raw connect (open_ws would try to auth on a closing socket).
+            with fake_ws.websocket_connect(
+                "/ws/session/d8e3cd62-25b7-54b9-a94c-5180a2086f45"
+            ) as ws2:
                 with pytest.raises(WebSocketDisconnect) as excinfo:
                     ws2.receive_text()
                 assert excinfo.value.code == 1013
         # The slot frees when the first session ends — new sessions connect.
-        with fake_ws.websocket_connect("/ws/session/26439e23-62b6-5469-b904-b985496c0654") as ws3:
+        with open_ws(fake_ws, "/ws/session/26439e23-62b6-5469-b904-b985496c0654") as ws3:
             ws3.send_text(json.dumps({"type": "config"}))
             assert json.loads(ws3.receive_text())["type"] == "config_ack"
 
     def test_utterance_cap_sends_limit_reached_once(self, fake_ws, monkeypatch):
         monkeypatch.setattr(audio_pipeline, "MAX_UTTERANCES", 2)
-        with fake_ws.websocket_connect("/ws/session/206ef3fb-6502-54d8-b7c1-555711c5f449") as ws:
+        with open_ws(fake_ws, "/ws/session/206ef3fb-6502-54d8-b7c1-555711c5f449") as ws:
             # Send/receive in lockstep: limit_reached goes out from the receive
             # loop while suggestions come from the worker, so firing all frames
             # at once could interleave the two streams.
@@ -1043,7 +1069,7 @@ class TestSessionCaps:
 
 class TestInputValidation:
     def test_oversized_audio_frame_rejected(self, fake_ws):
-        with fake_ws.websocket_connect("/ws/session/d0dfee8f-90a3-538b-86c9-ce2c196e1f08") as ws:
+        with open_ws(fake_ws, "/ws/session/d0dfee8f-90a3-538b-86c9-ce2c196e1f08") as ws:
             ws.send_bytes(b"\x00" * (audio_pipeline.MAX_AUDIO_FRAME_BYTES + 1))
             resp = json.loads(ws.receive_text())
             assert "audio frame too large" in resp["error"]
@@ -1053,7 +1079,7 @@ class TestInputValidation:
 
     def test_role_is_clamped_to_100_chars(self, fake_ws):
         long_role = "R" * 300
-        with fake_ws.websocket_connect("/ws/session/7356ce8d-30af-5360-a2d8-f2e8bb114856") as ws:
+        with open_ws(fake_ws, "/ws/session/7356ce8d-30af-5360-a2d8-f2e8bb114856") as ws:
             ws.send_text(json.dumps({"type": "config", "role": long_role}))
             assert json.loads(ws.receive_text())["type"] == "config_ack"
             ws.send_bytes(b"\x00" * 50)
@@ -1064,7 +1090,7 @@ class TestInputValidation:
         assert "R" * 101 not in system
 
     def test_non_string_role_is_ignored(self, fake_ws):
-        with fake_ws.websocket_connect("/ws/session/b0692156-a25f-5471-b63b-794314ae2f9c") as ws:
+        with open_ws(fake_ws, "/ws/session/b0692156-a25f-5471-b63b-794314ae2f9c") as ws:
             ws.send_text(json.dumps({"type": "config", "role": ["not", "a", "str"]}))
             assert json.loads(ws.receive_text())["type"] == "config_ack"
             ws.send_bytes(b"\x00" * 50)
@@ -1118,8 +1144,8 @@ class TestVoiceProfileWS:
     def test_ws_config_loads_and_applies_profile(self, fake_ws):
         rel_id = self._seed_profile(fake_ws)
         app.state.llm_client.complete.reset_mock()
-        with fake_ws.websocket_connect(
-            "/ws/session/2b8c1e4a-0000-4000-8000-000000000001"
+        with open_ws(
+            fake_ws, "/ws/session/2b8c1e4a-0000-4000-8000-000000000001"
         ) as ws:
             ws.send_text(json.dumps({
                 "type": "config",
@@ -1139,8 +1165,8 @@ class TestVoiceProfileWS:
         from main import empathy_system_prompt
 
         app.state.llm_client.complete.reset_mock()
-        with fake_ws.websocket_connect(
-            "/ws/session/2b8c1e4a-0000-4000-8000-000000000002"
+        with open_ws(
+            fake_ws, "/ws/session/2b8c1e4a-0000-4000-8000-000000000002"
         ) as ws:
             ws.send_bytes(b"\x00" * 50)
             assert json.loads(ws.receive_text())["type"] == "suggestion"
@@ -1163,8 +1189,8 @@ class TestVoiceProfileWS:
         })
         rel_id = rel.json()["id"]
         app.state.llm_client.complete.reset_mock()
-        with fake_ws.websocket_connect(
-            "/ws/session/2b8c1e4a-0000-4000-8000-000000000003"
+        with open_ws(
+            fake_ws, "/ws/session/2b8c1e4a-0000-4000-8000-000000000003"
         ) as ws:
             ws.send_text(json.dumps({
                 "type": "config",
@@ -1177,3 +1203,72 @@ class TestVoiceProfileWS:
 
         system = app.state.llm_client.complete.call_args.kwargs["system"]
         assert system == empathy_system_prompt(50, "Husband")
+
+
+# ---------------------------------------------------------------------------
+# WebSocket Firebase auth — token required in the first config frame
+# ---------------------------------------------------------------------------
+# The WS handshake can't carry an Authorization header, so the first frame must
+# be a config carrying a valid id_token (conftest maps "fake-id-token" and
+# "tok-user-a"/"tok-user-b" to uids via the fake verify_id_token). A missing/
+# invalid token — or a stored session owned by another user — is closed 4401
+# before any provider work.
+
+def _expect_4401(ws) -> None:
+    """The server sends an auth_error notice, then closes the WS with 4401."""
+    first = json.loads(ws.receive_text())
+    assert first["type"] == "auth_error", first
+    with pytest.raises(WebSocketDisconnect) as excinfo:
+        ws.receive_text()
+    assert excinfo.value.code == 4401
+
+
+class TestWebSocketAuth:
+    def test_missing_id_token_rejected_4401(self, fake_ws):
+        sid = str(uuid.uuid4())
+        with fake_ws.websocket_connect(f"/ws/session/{sid}") as ws:
+            ws.send_text(json.dumps({"type": "config"}))  # no id_token
+            _expect_4401(ws)
+
+    def test_invalid_id_token_rejected_4401(self, fake_ws):
+        sid = str(uuid.uuid4())
+        with fake_ws.websocket_connect(f"/ws/session/{sid}") as ws:
+            ws.send_text(json.dumps({"type": "config", "id_token": "bogus"}))
+            _expect_4401(ws)
+
+    def test_audio_before_auth_rejected_4401(self, fake_ws):
+        """Binary audio before authenticating is refused — no transcript work
+        happens for an unauthenticated client."""
+        sid = str(uuid.uuid4())
+        with fake_ws.websocket_connect(f"/ws/session/{sid}") as ws:
+            ws.send_bytes(b"\x00" * 50)
+            _expect_4401(ws)
+
+    def test_non_config_first_frame_rejected_4401(self, fake_ws):
+        sid = str(uuid.uuid4())
+        with fake_ws.websocket_connect(f"/ws/session/{sid}") as ws:
+            ws.send_text(json.dumps({"type": "stop"}))  # not a config
+            _expect_4401(ws)
+
+    def test_valid_id_token_authenticates_and_flows(self, fake_ws):
+        sid = str(uuid.uuid4())
+        with open_ws(fake_ws, f"/ws/session/{sid}") as ws:
+            ws.send_bytes(b"\x00" * 50)
+            assert json.loads(ws.receive_text())["type"] == "suggestion"
+
+    def test_cannot_open_ws_on_another_users_session(self, fake_ws):
+        """A stored session owned by user-a cannot be opened by another user —
+        the live audio pipeline is never attached to a foreign session."""
+        created = fake_ws.post(
+            "/session", json={"turns": [], "metadata": {}},
+            headers={"X-Test-Uid": "user-a"},
+        )
+        sid = created.json()["id"]
+        # "fake-id-token" → uid "test-user" ≠ owner "user-a" → 4401.
+        with fake_ws.websocket_connect(f"/ws/session/{sid}") as ws:
+            ws.send_text(json.dumps({"type": "config", "id_token": "fake-id-token"}))
+            _expect_4401(ws)
+        # The real owner (tok-user-a → "user-a") opens it fine.
+        with open_ws(fake_ws, f"/ws/session/{sid}", token="tok-user-a") as ws:
+            ws.send_bytes(b"\x00" * 50)
+            assert json.loads(ws.receive_text())["type"] == "suggestion"

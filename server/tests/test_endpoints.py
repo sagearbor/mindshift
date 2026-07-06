@@ -8,6 +8,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 import main
+from auth import get_current_uid
 from main import app, empathy_system_prompt, get_db, init_db, parse_llm_json
 
 
@@ -757,10 +758,13 @@ async def test_export_corrupt_session_data_is_explicit_500(client):
     sid = str(uuid.uuid4())
     db = await get_db()
     try:
+        # Stamp the owning uid so the (now uid-scoped) export reaches the
+        # corrupt-JSON branch instead of 404-ing on ownership. "test-user" is
+        # the default uid supplied by the conftest dependency override.
         await db.execute(
-            "INSERT INTO sessions (id, created_at, turns, metadata) "
-            "VALUES (?, ?, ?, ?)",
-            (sid, "2026-01-01T00:00:00+00:00", "{not valid json", "{}"),
+            "INSERT INTO sessions (id, created_at, turns, metadata, user_id) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (sid, "2026-01-01T00:00:00+00:00", "{not valid json", "{}", "test-user"),
         )
         await db.commit()
     finally:
@@ -1395,3 +1399,181 @@ async def test_respond_without_profile_prompt_unchanged(client):
     assert resp.status_code == 200
     system = mock_client.complete.call_args.kwargs["system"]
     assert system == empathy_system_prompt(50, "Husband")
+
+
+# ---------------------------------------------------------------------------
+# Firebase auth — token required + strict per-user data scoping
+# ---------------------------------------------------------------------------
+# The conftest installs a dependency override for get_current_uid (reads the
+# X-Test-Uid header, default "test-user") and a keyless fake verify_id_token
+# (FAKE_TOKENS: "fake-id-token"→"test-user", "tok-user-a"→"user-a", ...). These
+# tests either drive different users via X-Test-Uid, or drop the override to
+# exercise the REAL dependency against the fake verifier — never real Firebase.
+
+
+async def _make_couple(client, uid: str, pid: str = "alex") -> str:
+    """Create a couple relationship owned by ``uid``; return its id."""
+    resp = await client.post(
+        "/relationships",
+        json={
+            "type": "couple",
+            "name": "Owned Marriage",
+            "participants": [
+                {"id": pid, "role": "husband", "display_name": "Alex"},
+                {"id": "jordan", "role": "wife", "display_name": "Jordan"},
+            ],
+        },
+        headers={"X-Test-Uid": uid},
+    )
+    assert resp.status_code == 201
+    return resp.json()["id"]
+
+
+class TestAuthTokenRequired:
+    """With the real dependency in force, a valid Bearer token is required."""
+
+    @pytest.mark.anyio
+    async def test_missing_token_is_401(self, client, monkeypatch):
+        monkeypatch.delitem(app.dependency_overrides, get_current_uid)
+        resp = await client.post("/session", json={"turns": [], "metadata": {}})
+        assert resp.status_code == 401
+
+    @pytest.mark.anyio
+    async def test_malformed_header_is_401(self, client, monkeypatch):
+        monkeypatch.delitem(app.dependency_overrides, get_current_uid)
+        resp = await client.post(
+            "/session", json={"turns": [], "metadata": {}},
+            headers={"Authorization": "Token abc"},  # not "Bearer ..."
+        )
+        assert resp.status_code == 401
+
+    @pytest.mark.anyio
+    async def test_invalid_token_is_401(self, client, monkeypatch):
+        monkeypatch.delitem(app.dependency_overrides, get_current_uid)
+        resp = await client.post(
+            "/session", json={"turns": [], "metadata": {}},
+            headers={"Authorization": "Bearer not-a-real-token"},
+        )
+        assert resp.status_code == 401
+
+    @pytest.mark.anyio
+    async def test_valid_token_accepted_and_scopes_to_uid(self, client, monkeypatch):
+        """A verified token creates a session owned by that token's uid, which
+        the same token can then read back."""
+        monkeypatch.delitem(app.dependency_overrides, get_current_uid)
+        auth = {"Authorization": "Bearer fake-id-token"}  # → uid "test-user"
+        created = await client.post(
+            "/session", json={"turns": [], "metadata": {}}, headers=auth,
+        )
+        assert created.status_code == 201
+        sid = created.json()["id"]
+        got = await client.get(f"/session/{sid}", headers=auth)
+        assert got.status_code == 200
+
+
+class TestCrossUserIsolation:
+    """The critical security property: one user can never see or mutate
+    another user's data. Foreign rows return 404 (not 403) — existence is
+    never confirmed."""
+
+    @pytest.mark.anyio
+    async def test_cannot_read_or_mutate_another_users_session(self, client):
+        created = await client.post(
+            "/session", json={"turns": [], "metadata": {}},
+            headers={"X-Test-Uid": "user-a"},
+        )
+        sid = created.json()["id"]
+        # Owner sees it.
+        assert (await client.get(
+            f"/session/{sid}", headers={"X-Test-Uid": "user-a"},
+        )).status_code == 200
+        # Another user cannot read, append to, or export it.
+        other = {"X-Test-Uid": "user-b"}
+        assert (await client.get(f"/session/{sid}", headers=other)).status_code == 404
+        assert (await client.post(
+            f"/session/{sid}/turns", json={"speaker": "x", "text": "y"},
+            headers=other,
+        )).status_code == 404
+        assert (await client.get(
+            f"/session/{sid}/export", headers=other,
+        )).status_code == 404
+
+    @pytest.mark.anyio
+    async def test_cannot_reach_another_users_relationship(self, client):
+        rel_id = await _make_couple(client, "user-a")
+        other = {"X-Test-Uid": "user-b"}
+        # Every relationship-scoped read is 404 for a non-owner.
+        for path in (
+            f"/relationships/{rel_id}",
+            f"/relationships/{rel_id}/edges",
+            f"/relationships/{rel_id}/sessions",
+            f"/relationships/{rel_id}/participant/alex/sessions",
+            f"/relationships/{rel_id}/participants/alex/voice-profile",
+        ):
+            assert (await client.get(path, headers=other)).status_code == 404, path
+        # ...and every write is 404 too (no orphan rows under another owner).
+        assert (await client.put(
+            f"/relationships/{rel_id}/participants/alex/voice-profile",
+            json={"pairs": SAMPLE_PAIRS}, headers=other,
+        )).status_code == 404
+        assert (await client.post(
+            f"/relationships/{rel_id}/sessions",
+            json={"from_participant_id": "alex", "to_participant_id": "jordan",
+                  "empathy_slider": 50},
+            headers=other,
+        )).status_code == 404
+        # The owner is unaffected.
+        assert (await client.get(
+            f"/relationships/{rel_id}", headers={"X-Test-Uid": "user-a"},
+        )).status_code == 200
+
+    @pytest.mark.anyio
+    async def test_voice_profile_is_not_leaked_across_users(self, client):
+        """A voice profile stored by one user must never surface in another
+        user's coaching prompt (it is scoped through the owning relationship)."""
+        rel_id = await _make_couple(client, "user-a")
+        await client.put(
+            f"/relationships/{rel_id}/participants/alex/voice-profile",
+            json={"pairs": SAMPLE_PAIRS, "style_notes": "short, dry"},
+            headers={"X-Test-Uid": "user-a"},
+        )
+        # user-b references user-a's ids in /respond — must NOT pick up the
+        # profile (prompt stays the default) and must NOT error.
+        mock_client = MagicMock()
+        mock_client.complete.return_value = MOCK_RESPOND_JSON
+        with patch("main.get_llm_client", return_value=mock_client):
+            resp = await client.post(
+                "/respond",
+                json={
+                    "transcript_turn": "Whatever.",
+                    "role": "Husband",
+                    "empathy_slider": 50,
+                    "relationship_id": rel_id,
+                    "from_participant_id": "alex",
+                },
+                headers={"X-Test-Uid": "user-b"},
+            )
+        assert resp.status_code == 200
+        system = mock_client.complete.call_args.kwargs["system"]
+        assert system == empathy_system_prompt(50, "Husband")
+        assert "short, dry" not in system
+
+    @pytest.mark.anyio
+    async def test_relationship_sessions_list_scoped_by_user(self, client):
+        """Two users' relationships and sessions stay fully partitioned."""
+        rel_a = await _make_couple(client, "user-a")
+        await client.post(
+            f"/relationships/{rel_a}/sessions",
+            json={"from_participant_id": "alex", "to_participant_id": "jordan",
+                  "empathy_slider": 50},
+            headers={"X-Test-Uid": "user-a"},
+        )
+        # user-a sees their one session; user-b sees a 404 on the foreign rel.
+        a_list = await client.get(
+            f"/relationships/{rel_a}/sessions", headers={"X-Test-Uid": "user-a"},
+        )
+        assert a_list.status_code == 200 and len(a_list.json()) == 1
+        b_list = await client.get(
+            f"/relationships/{rel_a}/sessions", headers={"X-Test-Uid": "user-b"},
+        )
+        assert b_list.status_code == 404

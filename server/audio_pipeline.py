@@ -642,6 +642,10 @@ class SessionContext:
     empathy_slider: int = 50
     role: str = "Husband"
     utterances: list[Utterance] = field(default_factory=list)
+    # Verified Firebase uid, set by the WS auth handshake before any audio is
+    # processed. None only during the pre-auth window; a session that reaches
+    # provider setup always has it.
+    uid: str | None = None
     # Net-new voice-profile context (all optional, all backward-compatible):
     # the config message may carry the relationship + coached-speaker ids so the
     # WS coach can load a voice profile once, at config time. With none set,
@@ -684,6 +688,147 @@ async def _finish_transcriber(transcriber) -> list[TranscriptSegment]:
     return await finish()
 
 
+async def _close_ws_unauthorized(websocket: WebSocket, reason: str) -> None:
+    """Tell the client why (best-effort) and close the WS with code 4401.
+
+    4401 is the WebSocket analogue of HTTP 401: the token was missing,
+    malformed, invalid/expired, or named a session the caller does not own.
+    """
+    with contextlib.suppress(Exception):
+        await websocket.send_text(
+            json.dumps({"type": "auth_error", "reason": reason})
+        )
+    with contextlib.suppress(Exception):
+        await websocket.close(code=4401, reason=reason)
+
+
+async def _apply_config(ctx: SessionContext, payload: dict) -> None:
+    """Apply a config frame's non-auth fields to the session context.
+
+    Shared by the initial auth handshake and later in-session config updates so
+    empathy/role/voice-profile handling lives in exactly one place. The voice
+    profile is loaded once, uid-scoped, the first time both ids are known.
+    """
+    if "empathy_slider" in payload:
+        val = payload["empathy_slider"]
+        if isinstance(val, int) and 0 <= val <= 100:
+            ctx.empathy_slider = val
+    if "role" in payload:
+        role_val = payload["role"]
+        # P2-3: role reaches the LLM system prompt — ignore wrong-typed values,
+        # clamp the length (cost + injection surface).
+        if isinstance(role_val, str):
+            ctx.role = role_val[:MAX_ROLE_CHARS]
+    # Optional voice-profile context. These only feed a DB lookup (not the
+    # prompt directly), but clamp length anyway as defence in depth.
+    rel_val = payload.get("relationship_id")
+    if isinstance(rel_val, str):
+        ctx.relationship_id = rel_val[:MAX_ID_CHARS]
+    part_val = payload.get("from_participant_id")
+    if isinstance(part_val, str):
+        ctx.from_participant_id = part_val[:MAX_ID_CHARS]
+    # Load the profile ONCE, the first time both ids are known — not per
+    # utterance. uid-scoped, so a session can never load another user's stored
+    # voice. A lookup failure degrades to no profile, never breaks the session.
+    if (
+        not ctx.voice_profile_loaded
+        and ctx.relationship_id
+        and ctx.from_participant_id
+    ):
+        ctx.voice_profile_loaded = True
+        from main import _resolve_voice_profile
+        try:
+            ctx.voice_profile = await _resolve_voice_profile(
+                ctx.relationship_id, ctx.from_participant_id, ctx.uid,
+            )
+        except Exception:
+            logger.warning(
+                "Voice profile lookup failed for session %s",
+                ctx.session_id, exc_info=True,
+            )
+
+
+async def _session_owner_ok(session_id: str, uid: str) -> bool:
+    """Whether ``uid`` may open a live WS on ``session_id``.
+
+    A WS session_id may be an ad-hoc/ephemeral id with no ``sessions`` row —
+    that is allowed. But if a row DOES exist it must belong to the caller, so a
+    user cannot attach the live audio pipeline (transcripts, suggestions) to
+    another user's stored session. A DB error fails closed (denied).
+    """
+    from main import get_db
+    try:
+        db = await get_db()
+        try:
+            cursor = await db.execute(
+                "SELECT user_id FROM sessions WHERE id = ?", (session_id,),
+            )
+            row = await cursor.fetchone()
+        finally:
+            await db.close()
+    except Exception:
+        logger.warning(
+            "Session ownership check failed for %s", session_id, exc_info=True,
+        )
+        return False
+    if row is None:
+        return True
+    return row["user_id"] == uid
+
+
+async def _authenticate(
+    websocket: WebSocket, ctx: SessionContext, send_json,
+) -> bool:
+    """Gate the session on a verified Firebase token in the first config frame.
+
+    The WebSocket handshake cannot carry an ``Authorization`` header, so the
+    client sends its ``id_token`` in the opening ``config`` message. This
+    consumes that first frame: it must be a JSON ``config`` carrying a valid
+    ``id_token`` whose session (if it maps to a stored row) the caller owns. On
+    success the verified uid is stored on ``ctx``, the frame's other config
+    fields are applied, a ``config_ack`` is sent, and True is returned. On any
+    failure the socket is closed 4401 and False is returned — no audio, no
+    transcript, and no provider work ever happen for an unauthenticated client.
+    """
+    try:
+        message = await websocket.receive()
+    except Exception:
+        return False
+    if message.get("type") == "websocket.disconnect":
+        return False
+    text = message.get("text")
+    if text is None:
+        # Binary audio before authenticating — reject before any provider work.
+        await _close_ws_unauthorized(websocket, "authentication required")
+        return False
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        await _close_ws_unauthorized(websocket, "authentication required")
+        return False
+    if not isinstance(payload, dict) or payload.get("type") != "config":
+        await _close_ws_unauthorized(websocket, "authentication required")
+        return False
+    token = payload.get("id_token")
+    if not isinstance(token, str) or not token.strip():
+        await _close_ws_unauthorized(websocket, "missing id_token")
+        return False
+    try:
+        from auth import verify_id_token
+        # verify_id_token is a blocking SDK call (cert fetch) — off the loop.
+        uid = await asyncio.to_thread(verify_id_token, token.strip())
+    except Exception:
+        await _close_ws_unauthorized(websocket, "invalid id_token")
+        return False
+    if not await _session_owner_ok(ctx.session_id, uid):
+        await _close_ws_unauthorized(websocket, "session not owned by user")
+        return False
+    ctx.uid = uid
+    await _apply_config(ctx, payload)
+    await send_json({"type": "config_ack"})
+    return True
+
+
 async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
     """Handle a single audio-streaming WebSocket connection.
 
@@ -691,7 +836,14 @@ async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
     --------
     Client → Server (binary):  raw audio chunks
     Client → Server (text):    JSON control messages, e.g.
-        {"type": "config", "empathy_slider": 75, "role": "Husband"}
+        {"type": "config", "empathy_slider": 75, "role": "Husband",
+         "id_token": "<firebase id token>"}
+        The FIRST frame must be such a config carrying a valid ``id_token``
+        (the WS handshake cannot send an Authorization header): the server
+        verifies it, stores the uid, and only then does any provider work.
+        A missing/invalid token — or a session owned by another user — is
+        closed with code 4401 before a single byte of audio is processed.
+        Later config frames reuse the established uid (no token needed).
         {"type": "stop"} — graceful end-of-session: the server flushes the
         transcriber, delivers every remaining ``SuggestionEvent`` (bounded by
         ``STOP_DRAIN_TIMEOUT_S``), then sends {"type": "session_complete"}
@@ -765,6 +917,21 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
     # Per-connection state
     ctx = SessionContext(session_id=session_id)
 
+    # The receive loop (acks/errors) and the suggestion worker both send on
+    # this socket — serialize so frames never interleave mid-send.
+    send_lock = asyncio.Lock()
+
+    async def send_json(payload: dict) -> None:
+        async with send_lock:
+            await websocket.send_text(json.dumps(payload))
+
+    # AUTH GATE — before ANY provider work, credit spend, or transcript. The
+    # first client frame must be a config carrying a valid Firebase id_token
+    # for a session this user owns. On failure the socket is already closed
+    # 4401; just return (no worker task has been created yet, so nothing leaks).
+    if not await _authenticate(websocket, ctx, send_json):
+        return
+
     # Resolve providers from app.state (tests inject doubles here), falling
     # back to the real, credential-gated implementations.
     state = websocket.app.state
@@ -778,14 +945,6 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
     transcriber = transcriber_factory()
     diarizer = diarizer_factory()
     labeler = SpeakerLabelAssigner(diarizer)
-
-    # The receive loop (acks/errors) and the suggestion worker both send on
-    # this socket — serialize so frames never interleave mid-send.
-    send_lock = asyncio.Lock()
-
-    async def send_json(payload: dict) -> None:
-        async with send_lock:
-            await websocket.send_text(json.dumps(payload))
 
     # Suggestion generation (LLM via thread + TTS HTTP, up to ~15s) runs on a
     # single background worker so it never stalls the audio receive loop —
@@ -1011,45 +1170,11 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
 
                 msg_type = payload.get("type")
                 if msg_type == "config":
-                    if "empathy_slider" in payload:
-                        val = payload["empathy_slider"]
-                        if isinstance(val, int) and 0 <= val <= 100:
-                            ctx.empathy_slider = val
-                    if "role" in payload:
-                        role_val = payload["role"]
-                        # P2-3: role reaches the LLM system prompt — ignore
-                        # wrong-typed values, clamp the length (cost +
-                        # injection surface).
-                        if isinstance(role_val, str):
-                            ctx.role = role_val[:MAX_ROLE_CHARS]
-                    # Optional voice-profile context. These only feed a DB
-                    # lookup (not the prompt directly), but clamp length anyway
-                    # as defence in depth.
-                    rel_val = payload.get("relationship_id")
-                    if isinstance(rel_val, str):
-                        ctx.relationship_id = rel_val[:MAX_ID_CHARS]
-                    part_val = payload.get("from_participant_id")
-                    if isinstance(part_val, str):
-                        ctx.from_participant_id = part_val[:MAX_ID_CHARS]
-                    # Load the profile ONCE, the first time both ids are known —
-                    # not per utterance. A lookup failure degrades to no profile
-                    # (today's behaviour), never breaks the session.
-                    if (
-                        not ctx.voice_profile_loaded
-                        and ctx.relationship_id
-                        and ctx.from_participant_id
-                    ):
-                        ctx.voice_profile_loaded = True
-                        from main import _resolve_voice_profile
-                        try:
-                            ctx.voice_profile = await _resolve_voice_profile(
-                                ctx.relationship_id, ctx.from_participant_id,
-                            )
-                        except Exception:
-                            logger.warning(
-                                "Voice profile lookup failed for session %s",
-                                session_id, exc_info=True,
-                            )
+                    # Re-config (empathy / role / voice context). The id_token
+                    # is verified only on the FIRST config — the auth handshake
+                    # above — so later frames reuse the established uid and need
+                    # not (and do not) re-present a token.
+                    await _apply_config(ctx, payload)
                     await send_json({"type": "config_ack"})
                 elif msg_type == "stop":
                     # Graceful stop: flush the transcriber so the FINAL
