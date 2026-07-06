@@ -1175,3 +1175,223 @@ async def test_rate_limit_triggers_429(client, monkeypatch):
     assert r2.status_code == 200
     assert r3.status_code == 429
     assert "rate limit" in r3.json()["detail"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Voice profile ("speaks in your actual voice")
+# ---------------------------------------------------------------------------
+
+SAMPLE_PAIRS = [
+    {
+        "suggestion": "I understand you're frustrated, and I want to work through this.",
+        "rephrase": "Okay — I get it, let's just figure it out.",
+    },
+    {
+        "suggestion": "I feel hurt when plans change last minute.",
+        "rephrase": "Yeah, springing that on me kinda sucks, ngl.",
+    },
+]
+
+
+async def _make_relationship(client, pid: str = "alex") -> str:
+    """Create a couple relationship containing participant ``pid``; return its id."""
+    resp = await client.post("/relationships", json={
+        "type": "couple",
+        "name": "Test Marriage",
+        "participants": [
+            {"id": pid, "role": "husband", "display_name": "Alex"},
+            {"id": "jordan", "role": "wife", "display_name": "Jordan"},
+        ],
+    })
+    assert resp.status_code == 201
+    return resp.json()["id"]
+
+
+class TestVoiceProfileRendering:
+    """The prompt-injection contract, in isolation (no DB / HTTP)."""
+
+    def test_none_renders_blank(self):
+        assert main._render_voice_profile(None) == ""
+
+    def test_empty_profile_renders_blank(self):
+        assert main._render_voice_profile({"pairs": [], "style_notes": None}) == ""
+
+    def test_prompt_byte_identical_without_profile(self):
+        """The load-bearing safety property: no profile → today's exact string.
+        None AND a stored-but-empty profile must both leave the prompt unchanged
+        across every slider band and role."""
+        for slider in (0, 20, 21, 50, 51, 80, 81, 100):
+            for role in ("Husband", "Wife", "Therapist"):
+                base = empathy_system_prompt(slider, role)
+                assert empathy_system_prompt(slider, role, None) == base
+                assert empathy_system_prompt(
+                    slider, role, {"pairs": [], "style_notes": None},
+                ) == base
+
+    def test_pairs_injected_after_output_contract(self):
+        base = empathy_system_prompt(50, "Husband")
+        prompt = empathy_system_prompt(
+            50, "Husband", {"pairs": SAMPLE_PAIRS, "style_notes": "short, dry"},
+        )
+        # The base (with its JSON output contract) stays first and intact.
+        assert prompt.startswith(base)
+        assert len(prompt) > len(base)
+        # The few-shot pairs and style notes are rendered verbatim.
+        assert "Okay — I get it, let's just figure it out." in prompt
+        assert "springing that on me kinda sucks" in prompt
+        assert "Style notes: short, dry" in prompt
+        assert "Match that voice" in prompt
+
+    def test_render_caps_pairs_at_max(self):
+        many = [
+            {"suggestion": f"s{i}", "rephrase": f"r{i}"}
+            for i in range(main.MAX_PAIRS + 3)
+        ]
+        rendered = main._render_voice_profile({"pairs": many, "style_notes": None})
+        assert rendered.count("Generic:") == main.MAX_PAIRS
+
+
+@pytest.mark.anyio
+async def test_voice_profile_get_empty_when_unset(client):
+    rel_id = await _make_relationship(client)
+    resp = await client.get(
+        f"/relationships/{rel_id}/participants/alex/voice-profile"
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body == {"pairs": [], "style_notes": None, "updated_at": None}
+
+
+@pytest.mark.anyio
+async def test_voice_profile_put_then_get_roundtrip(client):
+    rel_id = await _make_relationship(client)
+    put = await client.put(
+        f"/relationships/{rel_id}/participants/alex/voice-profile",
+        json={"pairs": SAMPLE_PAIRS, "style_notes": "short, dry, no exclamation marks"},
+    )
+    assert put.status_code == 200
+    assert put.json()["updated_at"] is not None
+
+    got = await client.get(
+        f"/relationships/{rel_id}/participants/alex/voice-profile"
+    )
+    assert got.status_code == 200
+    body = got.json()
+    assert body["pairs"] == SAMPLE_PAIRS
+    assert body["style_notes"] == "short, dry, no exclamation marks"
+    assert body["updated_at"] is not None
+
+
+@pytest.mark.anyio
+async def test_voice_profile_put_is_full_replace(client):
+    rel_id = await _make_relationship(client)
+    await client.put(
+        f"/relationships/{rel_id}/participants/alex/voice-profile",
+        json={"pairs": SAMPLE_PAIRS, "style_notes": "first"},
+    )
+    replacement = [{"suggestion": "Sorry about that.", "rephrase": "my bad"}]
+    await client.put(
+        f"/relationships/{rel_id}/participants/alex/voice-profile",
+        json={"pairs": replacement, "style_notes": None},
+    )
+    got = await client.get(
+        f"/relationships/{rel_id}/participants/alex/voice-profile"
+    )
+    assert got.json()["pairs"] == replacement
+    assert got.json()["style_notes"] is None
+
+
+@pytest.mark.anyio
+async def test_voice_profile_put_caps_pairs_and_truncates(client):
+    rel_id = await _make_relationship(client)
+    many = [
+        {"suggestion": f"suggestion {i}", "rephrase": f"rephrase {i}"}
+        for i in range(main.MAX_PAIRS + 4)
+    ]
+    long_field = "x" * (main.MAX_PAIR_CHARS + 50)
+    many.append({"suggestion": long_field, "rephrase": long_field})
+    put = await client.put(
+        f"/relationships/{rel_id}/participants/alex/voice-profile",
+        json={"pairs": many, "style_notes": "y" * (main.MAX_STYLE_NOTES_CHARS + 50)},
+    )
+    assert put.status_code == 200
+    body = put.json()
+    # Kept only the most recent MAX_PAIRS.
+    assert len(body["pairs"]) == main.MAX_PAIRS
+    assert body["pairs"][-1]["suggestion"] == long_field[:main.MAX_PAIR_CHARS]
+    assert len(body["style_notes"]) == main.MAX_STYLE_NOTES_CHARS
+
+
+@pytest.mark.anyio
+async def test_voice_profile_rejects_empty_pair_fields(client):
+    rel_id = await _make_relationship(client)
+    resp = await client.put(
+        f"/relationships/{rel_id}/participants/alex/voice-profile",
+        json={"pairs": [{"suggestion": "", "rephrase": "hi"}]},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_voice_profile_unknown_participant_404(client):
+    rel_id = await _make_relationship(client)
+    get = await client.get(
+        f"/relationships/{rel_id}/participants/nobody/voice-profile"
+    )
+    assert get.status_code == 404
+    put = await client.put(
+        f"/relationships/{rel_id}/participants/nobody/voice-profile",
+        json={"pairs": SAMPLE_PAIRS},
+    )
+    assert put.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_voice_profile_unknown_relationship_404(client):
+    missing = str(uuid.uuid4())
+    resp = await client.get(
+        f"/relationships/{missing}/participants/alex/voice-profile"
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_respond_injects_voice_profile(client):
+    """/respond looks up the profile from relationship + from_participant_id and
+    threads it into the system prompt."""
+    rel_id = await _make_relationship(client)
+    await client.put(
+        f"/relationships/{rel_id}/participants/alex/voice-profile",
+        json={"pairs": SAMPLE_PAIRS, "style_notes": "short, dry"},
+    )
+
+    mock_client = MagicMock()
+    mock_client.complete.return_value = MOCK_RESPOND_JSON
+    with patch("main.get_llm_client", return_value=mock_client):
+        resp = await client.post("/respond", json={
+            "transcript_turn": "Whatever, do what you want.",
+            "role": "Husband",
+            "empathy_slider": 50,
+            "relationship_id": rel_id,
+            "from_participant_id": "alex",
+        })
+    assert resp.status_code == 200
+    system = mock_client.complete.call_args.kwargs["system"]
+    assert "Okay — I get it, let's just figure it out." in system
+    assert "Style notes: short, dry" in system
+
+
+@pytest.mark.anyio
+async def test_respond_without_profile_prompt_unchanged(client):
+    """A /respond with no relationship context sends today's exact prompt."""
+    mock_client = MagicMock()
+    mock_client.complete.return_value = MOCK_RESPOND_JSON
+    with patch("main.get_llm_client", return_value=mock_client):
+        resp = await client.post("/respond", json={
+            "transcript_turn": "Whatever, do what you want.",
+            "role": "Husband",
+            "empathy_slider": 50,
+        })
+    assert resp.status_code == 200
+    system = mock_client.complete.call_args.kwargs["system"]
+    assert system == empathy_system_prompt(50, "Husband")

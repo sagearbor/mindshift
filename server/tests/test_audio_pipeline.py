@@ -1072,3 +1072,108 @@ class TestInputValidation:
 
         system = app.state.llm_client.complete.call_args.kwargs["system"]
         assert "Husband" in system  # default role survived the bad config
+
+
+# ---------------------------------------------------------------------------
+# Voice profile over the WebSocket (net-new relationship/participant plumbing)
+# ---------------------------------------------------------------------------
+
+def _ensure_schema() -> None:
+    """Create the DB schema in the shared temp DB (order-independent)."""
+    from main import init_db
+    asyncio.run(init_db())
+
+
+class TestVoiceProfileWS:
+    def _seed_profile(self, client) -> str:
+        """Create a relationship + participant and PUT a voice profile; return
+        the relationship id. Uses the same app/DB the WS session reads."""
+        # The fake_ws TestClient is created without running lifespan, so ensure
+        # the schema exists regardless of test ordering (this shared temp DB may
+        # be untouched when the audio tests run first).
+        _ensure_schema()
+        rel = client.post("/relationships", json={
+            "type": "couple",
+            "name": "WS Marriage",
+            "participants": [
+                {"id": "alex", "role": "husband", "display_name": "Alex"},
+                {"id": "jordan", "role": "wife", "display_name": "Jordan"},
+            ],
+        })
+        assert rel.status_code == 201
+        rel_id = rel.json()["id"]
+        put = client.put(
+            f"/relationships/{rel_id}/participants/alex/voice-profile",
+            json={
+                "pairs": [{
+                    "suggestion": "I understand you're frustrated.",
+                    "rephrase": "Okay — I get it, let's just figure it out.",
+                }],
+                "style_notes": "short, dry",
+            },
+        )
+        assert put.status_code == 200
+        return rel_id
+
+    def test_ws_config_loads_and_applies_profile(self, fake_ws):
+        rel_id = self._seed_profile(fake_ws)
+        app.state.llm_client.complete.reset_mock()
+        with fake_ws.websocket_connect(
+            "/ws/session/2b8c1e4a-0000-4000-8000-000000000001"
+        ) as ws:
+            ws.send_text(json.dumps({
+                "type": "config",
+                "relationship_id": rel_id,
+                "from_participant_id": "alex",
+            }))
+            assert json.loads(ws.receive_text())["type"] == "config_ack"
+            ws.send_bytes(b"\x00" * 50)
+            assert json.loads(ws.receive_text())["type"] == "suggestion"
+
+        system = app.state.llm_client.complete.call_args.kwargs["system"]
+        assert "Okay — I get it, let's just figure it out." in system
+        assert "Style notes: short, dry" in system
+
+    def test_ws_without_profile_prompt_unchanged(self, fake_ws):
+        """No relationship/participant in config → today's exact prompt."""
+        from main import empathy_system_prompt
+
+        app.state.llm_client.complete.reset_mock()
+        with fake_ws.websocket_connect(
+            "/ws/session/2b8c1e4a-0000-4000-8000-000000000002"
+        ) as ws:
+            ws.send_bytes(b"\x00" * 50)
+            assert json.loads(ws.receive_text())["type"] == "suggestion"
+
+        system = app.state.llm_client.complete.call_args.kwargs["system"]
+        assert system == empathy_system_prompt(50, "Husband")
+
+    def test_ws_unknown_profile_falls_back_cleanly(self, fake_ws):
+        """A relationship/participant with no stored profile → no block, no error."""
+        from main import empathy_system_prompt
+
+        _ensure_schema()
+        rel = fake_ws.post("/relationships", json={
+            "type": "couple",
+            "name": "No Profile",
+            "participants": [
+                {"id": "alex", "role": "husband", "display_name": "Alex"},
+                {"id": "jordan", "role": "wife", "display_name": "Jordan"},
+            ],
+        })
+        rel_id = rel.json()["id"]
+        app.state.llm_client.complete.reset_mock()
+        with fake_ws.websocket_connect(
+            "/ws/session/2b8c1e4a-0000-4000-8000-000000000003"
+        ) as ws:
+            ws.send_text(json.dumps({
+                "type": "config",
+                "relationship_id": rel_id,
+                "from_participant_id": "alex",
+            }))
+            assert json.loads(ws.receive_text())["type"] == "config_ack"
+            ws.send_bytes(b"\x00" * 50)
+            assert json.loads(ws.receive_text())["type"] == "suggestion"
+
+        system = app.state.llm_client.complete.call_args.kwargs["system"]
+        assert system == empathy_system_prompt(50, "Husband")

@@ -116,6 +116,10 @@ MAX_AUDIO_FRAME_BYTES = int(os.getenv("MAX_AUDIO_FRAME_BYTES", str(64 * 1024)))
 # unbounded value is both a token-cost and a prompt-injection surface.
 MAX_ROLE_CHARS = 100
 
+# Voice-profile ids from the config message only feed a DB lookup, but bound
+# their length as defence in depth against absurd input.
+MAX_ID_CHARS = 200
+
 # P1-1: backoff schedule for mid-session transcriber reconnects. One attempt
 # per entry; sleeps the entry's seconds before that attempt.
 TRANSCRIBER_RECONNECT_BACKOFFS_S: tuple[float, ...] = (1.0, 2.0, 4.0)
@@ -638,6 +642,14 @@ class SessionContext:
     empathy_slider: int = 50
     role: str = "Husband"
     utterances: list[Utterance] = field(default_factory=list)
+    # Net-new voice-profile context (all optional, all backward-compatible):
+    # the config message may carry the relationship + coached-speaker ids so the
+    # WS coach can load a voice profile once, at config time. With none set,
+    # voice_profile stays None and behaviour is byte-identical to today.
+    relationship_id: str | None = None
+    from_participant_id: str | None = None
+    voice_profile: dict | None = None
+    voice_profile_loaded: bool = False
 
 
 def _remember_utterance(ctx: SessionContext, utterance: Utterance) -> None:
@@ -801,9 +813,10 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         )
         _remember_utterance(ctx, utterance)
 
-        # Generate suggestion via LLM
+        # Generate suggestion via LLM. ctx.voice_profile was loaded once at
+        # config time (None when unset → today's exact prompt).
         suggestion_texts = await _generate_suggestions(
-            llm_client, utterance, empathy_slider, role,
+            llm_client, utterance, empathy_slider, role, ctx.voice_profile,
         )
 
         # TTS for first suggestion
@@ -1009,6 +1022,34 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                         # injection surface).
                         if isinstance(role_val, str):
                             ctx.role = role_val[:MAX_ROLE_CHARS]
+                    # Optional voice-profile context. These only feed a DB
+                    # lookup (not the prompt directly), but clamp length anyway
+                    # as defence in depth.
+                    rel_val = payload.get("relationship_id")
+                    if isinstance(rel_val, str):
+                        ctx.relationship_id = rel_val[:MAX_ID_CHARS]
+                    part_val = payload.get("from_participant_id")
+                    if isinstance(part_val, str):
+                        ctx.from_participant_id = part_val[:MAX_ID_CHARS]
+                    # Load the profile ONCE, the first time both ids are known —
+                    # not per utterance. A lookup failure degrades to no profile
+                    # (today's behaviour), never breaks the session.
+                    if (
+                        not ctx.voice_profile_loaded
+                        and ctx.relationship_id
+                        and ctx.from_participant_id
+                    ):
+                        ctx.voice_profile_loaded = True
+                        from main import _resolve_voice_profile
+                        try:
+                            ctx.voice_profile = await _resolve_voice_profile(
+                                ctx.relationship_id, ctx.from_participant_id,
+                            )
+                        except Exception:
+                            logger.warning(
+                                "Voice profile lookup failed for session %s",
+                                session_id, exc_info=True,
+                            )
                     await send_json({"type": "config_ack"})
                 elif msg_type == "stop":
                     # Graceful stop: flush the transcriber so the FINAL
@@ -1111,6 +1152,7 @@ async def _generate_suggestions(
     utterance: Utterance,
     empathy_slider: int,
     role: str,
+    voice_profile: dict | None = None,
 ) -> list[str]:
     """Call LLMClient.complete() and parse suggestions from the response.
 
@@ -1123,7 +1165,7 @@ async def _generate_suggestions(
     """
     from main import empathy_system_prompt, parse_llm_json
 
-    system = empathy_system_prompt(empathy_slider, role)
+    system = empathy_system_prompt(empathy_slider, role, voice_profile)
     user_content = f'Transcript turn: "{utterance.text}"'
 
     raw = await asyncio.to_thread(llm.complete, system=system, user=user_content)

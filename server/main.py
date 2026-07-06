@@ -184,6 +184,34 @@ class TurnResponse(BaseModel):
     turn: dict
 
 
+# --- Voice profile ("speaks in your actual voice") -------------------------
+# Caps are enforced server-side by design: this is few-shot prompt material,
+# not fine-tuning. Bounded storage keeps the injected prompt small and
+# predictable, which is a latency property (it feeds a real-time coach), not
+# just cleanliness.
+MAX_PAIRS = 5
+MAX_PAIR_CHARS = 200
+MAX_STYLE_NOTES_CHARS = 300
+
+
+class VoicePair(BaseModel):
+    # min_length keeps empty examples out of the prompt; the upper bound is a
+    # truncation on write (MAX_PAIR_CHARS), not a rejection, per the spec.
+    suggestion: str = Field(min_length=1)
+    rephrase: str = Field(min_length=1)
+
+
+class VoiceProfileIn(BaseModel):
+    pairs: list[VoicePair] = []
+    style_notes: Optional[str] = None
+
+
+class VoiceProfileOut(BaseModel):
+    pairs: list[VoicePair]
+    style_notes: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
 
 # ---------------------------------------------------------------------------
 # Database helpers
@@ -245,6 +273,24 @@ async def init_db() -> None:
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_sessions_rel "
             "ON sessions(relationship_id)"
+        )
+        # Optional, capped per-(relationship, participant) voice profile. Pairs
+        # are a JSON blob (matching the sessions.turns/metadata convention) so
+        # there is no join and no per-pair row management. CREATE TABLE IF NOT
+        # EXISTS is an additive migration: existing databases keep working and
+        # simply gain an empty table.
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS voice_profiles (
+                relationship_id TEXT NOT NULL,
+                participant_id  TEXT NOT NULL,
+                pairs           TEXT NOT NULL DEFAULT '[]',
+                style_notes     TEXT,
+                updated_at      TEXT NOT NULL,
+                PRIMARY KEY (relationship_id, participant_id),
+                FOREIGN KEY (relationship_id) REFERENCES relationships(id)
+            )
+            """
         )
         await db.commit()
     finally:
@@ -326,7 +372,51 @@ async def ws_session(websocket: WebSocket, session_id: str):
 # Empathy slider → prompt mapping
 # ---------------------------------------------------------------------------
 
-def empathy_system_prompt(slider: int, role: str) -> str:
+def _render_voice_profile(profile: dict | None) -> str:
+    """Render the trailing few-shot "voice" block, or "" when there is nothing
+    to say. Empty output is the load-bearing property: it lets
+    ``empathy_system_prompt`` stay byte-identical to today whenever no profile
+    is set. Pairs are rendered in stored order (oldest→newest, recency last)
+    and hard-capped at ``MAX_PAIRS`` as belt-and-suspenders over the write-time
+    cap.
+    """
+    if not profile:
+        return ""
+    pairs = profile.get("pairs") or []
+    if not isinstance(pairs, list):
+        pairs = []
+    pairs = pairs[:MAX_PAIRS]
+    style_notes = profile.get("style_notes")
+    if not pairs and not style_notes:
+        return ""
+
+    lines = [
+        "The user rephrases coaching suggestions into their own voice. Match "
+        "that voice",
+        "in every suggestion you produce, while keeping the coaching intent and "
+        "the exact",
+        "JSON output format described above.",
+    ]
+    if pairs:
+        lines += [
+            "",
+            "Examples of how this user rephrases a generic suggestion into how "
+            "they'd",
+            "actually say it:",
+        ]
+        for pair in pairs:
+            suggestion = pair.get("suggestion", "")
+            rephrase = pair.get("rephrase", "")
+            lines.append(f'- Generic: "{suggestion}"')
+            lines.append(f'  They\'d say: "{rephrase}"')
+    if style_notes:
+        lines += ["", f"Style notes: {style_notes}"]
+    return "\n".join(lines)
+
+
+def empathy_system_prompt(
+    slider: int, role: str, voice_profile: dict | None = None,
+) -> str:
     if slider <= 20:
         stance = (
             "You are an assertive communication coach. "
@@ -352,7 +442,7 @@ def empathy_system_prompt(slider: int, role: str) -> str:
             "or challenge — only affirm and show deep understanding."
         )
 
-    return (
+    prompt = (
         f"{stance}\n\n"
         f"The user's role in this conversation is: {role}.\n"
         "Provide exactly 3 short suggested responses the user could say next. "
@@ -360,6 +450,15 @@ def empathy_system_prompt(slider: int, role: str) -> str:
         "and \"tone_score\" (an object with integer keys: warmth, defensiveness, "
         "sarcasm, constructiveness, overall — each 0-100, scoring the transcript turn)."
     )
+    # Append the voice-profile few-shot block AFTER the output contract so the
+    # required JSON format stays stated last and authoritative. When there is
+    # no profile (None) or it renders empty, the prompt is byte-identical to
+    # before — the working coach cannot regress.
+    if voice_profile is not None:
+        block = _render_voice_profile(voice_profile)
+        if block:
+            prompt += "\n\n" + block
+    return prompt
 
 
 # ---------------------------------------------------------------------------
@@ -525,6 +624,49 @@ async def _resolve_relationship_context(
     )
 
 
+async def _resolve_voice_profile(
+    relationship_id: str | None,
+    participant_id: str | None,
+) -> dict | None:
+    """Load the voice profile for ``(relationship_id, participant_id)``.
+
+    Returns ``None`` — meaning "no profile, render nothing" — for an incomplete
+    key, a missing row, or a stored-but-empty profile. That ``None`` is what
+    keeps the prompt byte-identical to today when no profile applies. One
+    indexed ``SELECT``; mirrors the guard style of
+    ``_resolve_relationship_context``.
+    """
+    if not relationship_id or not participant_id:
+        return None
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT pairs, style_notes, updated_at FROM voice_profiles "
+            "WHERE relationship_id = ? AND participant_id = ?",
+            (relationship_id, participant_id),
+        )
+        row = await cursor.fetchone()
+    finally:
+        await db.close()
+
+    if row is None:
+        return None
+    try:
+        pairs = json.loads(row["pairs"])
+    except (ValueError, TypeError):
+        pairs = []
+    if not isinstance(pairs, list):
+        pairs = []
+    style_notes = row["style_notes"]
+    if not pairs and not style_notes:
+        return None
+    return {
+        "pairs": pairs,
+        "style_notes": style_notes,
+        "updated_at": row["updated_at"],
+    }
+
+
 TONE_DIMENSIONS = ("warmth", "defensiveness", "sarcasm", "constructiveness", "overall")
 
 
@@ -543,7 +685,12 @@ def _coerce_score(value: object) -> int | None:
 
 @app.post("/respond", response_model=RespondResponse)
 async def respond(req: RespondRequest, _rl: None = Depends(_rate_limit)):
-    system = empathy_system_prompt(req.empathy_slider, req.role)
+    # The voice profile is keyed on the speaker being coached — the
+    # from_participant_id. Absent (or no profile) → None → today's exact prompt.
+    voice_profile = await _resolve_voice_profile(
+        req.relationship_id, req.from_participant_id,
+    )
+    system = empathy_system_prompt(req.empathy_slider, req.role, voice_profile)
 
     rel_context = await _resolve_relationship_context(
         req.relationship_id, req.from_participant_id, req.to_participant_id,
@@ -1170,6 +1317,109 @@ async def list_edges(relationship_id: Annotated[str, Path(pattern=UUID_PATTERN)]
     ]
     edges = _generate_edges(rel_row["type"], participants)
     return [EdgeOut(**e) for e in edges]
+
+
+async def _require_participant(
+    db: aiosqlite.Connection, relationship_id: str, participant_id: str,
+) -> None:
+    """404 if the relationship or the participant-in-relationship is unknown.
+
+    Honest failure: editing a voice profile for a participant that does not
+    exist must not silently create an orphaned row.
+    """
+    cursor = await db.execute(
+        "SELECT 1 FROM relationships WHERE id = ?", (relationship_id,),
+    )
+    if await cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Relationship not found")
+    cursor = await db.execute(
+        "SELECT 1 FROM participants WHERE id = ? AND relationship_id = ?",
+        (participant_id, relationship_id),
+    )
+    if await cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Participant not found")
+
+
+@app.get(
+    "/relationships/{relationship_id}/participants/{participant_id}/voice-profile",
+    response_model=VoiceProfileOut,
+)
+async def get_voice_profile(
+    relationship_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    participant_id: str,
+):
+    db = await get_db()
+    try:
+        await _require_participant(db, relationship_id, participant_id)
+        cursor = await db.execute(
+            "SELECT pairs, style_notes, updated_at FROM voice_profiles "
+            "WHERE relationship_id = ? AND participant_id = ?",
+            (relationship_id, participant_id),
+        )
+        row = await cursor.fetchone()
+    finally:
+        await db.close()
+
+    # Never 404 for "not yet set" — an unset profile is an empty profile.
+    if row is None:
+        return VoiceProfileOut(pairs=[], style_notes=None, updated_at=None)
+    try:
+        pairs = json.loads(row["pairs"])
+    except (ValueError, TypeError):
+        pairs = []
+    if not isinstance(pairs, list):
+        pairs = []
+    return VoiceProfileOut(
+        pairs=pairs,
+        style_notes=row["style_notes"],
+        updated_at=row["updated_at"],
+    )
+
+
+@app.put(
+    "/relationships/{relationship_id}/participants/{participant_id}/voice-profile",
+    response_model=VoiceProfileOut,
+)
+async def put_voice_profile(
+    relationship_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    participant_id: str,
+    req: VoiceProfileIn,
+):
+    # Full replace (simplest editable surface). Apply the §2 caps: keep the
+    # most recent MAX_PAIRS, truncate each field, then upsert.
+    kept = req.pairs[-MAX_PAIRS:]
+    pairs = [
+        {
+            "suggestion": p.suggestion[:MAX_PAIR_CHARS],
+            "rephrase": p.rephrase[:MAX_PAIR_CHARS],
+        }
+        for p in kept
+    ]
+    style_notes = (
+        req.style_notes[:MAX_STYLE_NOTES_CHARS] if req.style_notes else None
+    )
+    updated_at = datetime.now(timezone.utc).isoformat()
+
+    db = await get_db()
+    try:
+        await _require_participant(db, relationship_id, participant_id)
+        await db.execute(
+            "INSERT INTO voice_profiles "
+            "(relationship_id, participant_id, pairs, style_notes, updated_at) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(relationship_id, participant_id) DO UPDATE SET "
+            "pairs = excluded.pairs, style_notes = excluded.style_notes, "
+            "updated_at = excluded.updated_at",
+            (relationship_id, participant_id, json.dumps(pairs), style_notes,
+             updated_at),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+    return VoiceProfileOut(
+        pairs=pairs, style_notes=style_notes, updated_at=updated_at,
+    )
 
 
 @app.post(
