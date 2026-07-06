@@ -18,6 +18,7 @@ import {
   WebCaptureError,
   isWebAudioCaptureSupported,
 } from "../utils/webAudioCapture";
+import { getCachedToken } from "../auth/authToken";
 
 const API_URL =
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:8000";
@@ -469,11 +470,19 @@ export function useAudioStream(): UseAudioStreamReturn {
         setConnectionStatus("live");
         reconnectAttempts.current = 0;
         // The server learns the empathy setting (and role) via a config
-        // message — there is no query-param channel.
+        // message — there is no query-param channel. The WebSocket handshake
+        // can't carry an Authorization header, so the Firebase ID token rides
+        // in this FIRST config frame as `id_token` (the exact field the
+        // backend verifies before accepting the session). Read synchronously
+        // from the cache — onopen can't await. Empathy updates reuse the
+        // config shape but deliberately omit the token: the server verifies
+        // only the first config frame.
+        const idToken = getCachedToken();
         ws.send(
           JSON.stringify({
             type: "config",
             empathy_slider: empathyRef.current,
+            ...(idToken ? { id_token: idToken } : {}),
           }),
         );
       };

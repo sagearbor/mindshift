@@ -79,5 +79,71 @@ jest.mock("expo-speech", () => ({
   maxSpeechInputLength: 4000,
 }));
 
+// --- Firebase Auth mocks (tests never hit real Firebase) ---
+// The real firebase/app + firebase/auth are replaced so no network/keystore is
+// touched. onIdTokenChanged stores the listener and the signed-in user on
+// `globalThis.__firebaseAuthMock` so tests can drive auth-state transitions.
+jest.mock("firebase/app", () => ({
+  __esModule: true,
+  initializeApp: jest.fn(() => ({ name: "[DEFAULT]" })),
+  getApps: jest.fn(() => []),
+  getApp: jest.fn(() => ({ name: "[DEFAULT]" })),
+}));
+
+jest.mock("firebase/auth", () => {
+  const state = { currentUser: null, idTokenListener: null };
+  (globalThis as Record<string, unknown>).__firebaseAuthMock = state;
+  const authInstance = {
+    get currentUser() {
+      return state.currentUser;
+    },
+  };
+  return {
+    __esModule: true,
+    initializeAuth: jest.fn(() => authInstance),
+    getAuth: jest.fn(() => authInstance),
+    browserLocalPersistence: { type: "LOCAL" },
+    getReactNativePersistence: jest.fn(() => ({ type: "REACT_NATIVE" })),
+    onIdTokenChanged: jest.fn((_auth, cb) => {
+      state.idTokenListener = cb;
+      return () => {
+        state.idTokenListener = null;
+      };
+    }),
+    signInWithEmailAndPassword: jest.fn().mockResolvedValue(undefined),
+    createUserWithEmailAndPassword: jest.fn().mockResolvedValue(undefined),
+    signInWithCredential: jest.fn().mockResolvedValue(undefined),
+    signOut: jest.fn().mockResolvedValue(undefined),
+    GoogleAuthProvider: {
+      credential: jest.fn((idToken) => ({
+        providerId: "google.com",
+        idToken,
+      })),
+    },
+  };
+});
+
+// Mock expo-secure-store (Firebase persistence backend on native).
+jest.mock("expo-secure-store", () => ({
+  __esModule: true,
+  getItemAsync: jest.fn().mockResolvedValue(null),
+  setItemAsync: jest.fn().mockResolvedValue(undefined),
+  deleteItemAsync: jest.fn().mockResolvedValue(undefined),
+}));
+
+// Mock expo-web-browser + the Google auth-session provider so no OAuth
+// browser session is opened during tests.
+jest.mock("expo-web-browser", () => ({
+  __esModule: true,
+  maybeCompleteAuthSession: jest.fn(),
+  warmUpAsync: jest.fn(),
+  coolDownAsync: jest.fn(),
+}));
+
+jest.mock("expo-auth-session/providers/google", () => ({
+  __esModule: true,
+  useAuthRequest: jest.fn(() => [null, null, jest.fn()]),
+}));
+
 // Mock fetch globally
 global.fetch = jest.fn();

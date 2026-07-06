@@ -1,9 +1,16 @@
 import { postRespond, empathyTone } from "../src/api/client";
+import {
+  setCachedToken,
+  setTokenProvider,
+} from "../src/auth/authToken";
 
 const mockFetch = global.fetch as jest.Mock;
 
 beforeEach(() => {
   mockFetch.mockReset();
+  // Reset auth token state between tests (module-level singleton).
+  setCachedToken(null);
+  setTokenProvider(null);
 });
 
 describe("postRespond", () => {
@@ -37,12 +44,50 @@ describe("postRespond", () => {
     expect(body).not.toHaveProperty("turns");
     expect(body).not.toHaveProperty("empathy_level");
 
+    // Signed out (no token set): no Authorization header is attached.
+    expect(init.headers).not.toHaveProperty("Authorization");
+
     // Bare strings become {text, tone}; tone derives from the slider.
     expect(result.suggestions).toEqual([
       { text: "I hear you.", tone: "validating" },
       { text: "Tell me more.", tone: "validating" },
     ]);
     expect(result.toneScore).toEqual({ warmth: 70, defensiveness: 10 });
+  });
+
+  it("attaches the Firebase ID token as an Authorization: Bearer header", async () => {
+    setTokenProvider(async () => "fresh-id-token-abc");
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ suggestions: [], tone_score: {} }),
+    });
+
+    await postRespond({
+      transcript_turn: "hi",
+      role: "Husband / Wife",
+      empathy_slider: 50,
+    });
+
+    const [, init] = mockFetch.mock.calls[0];
+    expect(init.headers.Authorization).toBe("Bearer fresh-id-token-abc");
+    expect(init.headers["Content-Type"]).toBe("application/json");
+  });
+
+  it("falls back to the cached token when no provider is registered", async () => {
+    setCachedToken("cached-token-xyz");
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ suggestions: [], tone_score: {} }),
+    });
+
+    await postRespond({
+      transcript_turn: "hi",
+      role: "r",
+      empathy_slider: 50,
+    });
+
+    const [, init] = mockFetch.mock.calls[0];
+    expect(init.headers.Authorization).toBe("Bearer cached-token-xyz");
   });
 
   it("throws on a non-OK response", async () => {

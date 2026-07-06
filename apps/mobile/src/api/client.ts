@@ -1,4 +1,5 @@
 import type { Suggestion } from "../components/SuggestionCard";
+import { getFreshToken } from "../auth/authToken";
 
 const API_URL =
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:8000";
@@ -44,9 +45,20 @@ export function empathyTone(slider: number): string {
 export async function postRespond(
   payload: RespondRequest,
 ): Promise<RespondResult> {
+  // A fresh Firebase ID token authenticates the request; the backend verifies
+  // it and scopes data to the token's uid. Null when signed out — the header is
+  // then omitted and the server answers with its own 401.
+  const token = await getFreshToken();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
   const res = await fetch(`${API_URL}/respond`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(payload),
   });
 

@@ -1,9 +1,18 @@
-import React, { useState } from "react";
-import { SafeAreaView, View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import React, { useEffect, useState } from "react";
+import {
+  SafeAreaView,
+  View,
+  Text,
+  TouchableOpacity,
+  ActivityIndicator,
+  StyleSheet,
+} from "react-native";
 import SessionScreen from "./src/screens/SessionScreen";
 import TherapistDashboard from "./src/screens/TherapistDashboard";
 import SessionDetail from "./src/screens/SessionDetail";
 import LiveCoachScreen from "./src/screens/LiveCoachScreen";
+import LoginScreen from "./src/screens/LoginScreen";
+import { useAuthStore, initAuth } from "./src/store/authStore";
 
 type Screen =
   | { name: "session" }
@@ -13,6 +22,34 @@ type Screen =
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>({ name: "session" });
+
+  // Start listening to Firebase auth state once, on mount.
+  useEffect(() => {
+    initAuth();
+  }, []);
+
+  const user = useAuthStore((s) => s.user);
+  const initializing = useAuthStore((s) => s.initializing);
+  const signOut = useAuthStore((s) => s.signOut);
+
+  // Cold start: wait for the first auth-state resolution before deciding which
+  // surface to show, so we never flash the wrong screen.
+  if (initializing) {
+    return (
+      <SafeAreaView style={[styles.container, styles.center]} testID="auth-loading">
+        <ActivityIndicator size="large" color="#4A90D9" />
+      </SafeAreaView>
+    );
+  }
+
+  // Auth gate: an unauthenticated user only ever sees the login screen.
+  if (!user) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <LoginScreen />
+      </SafeAreaView>
+    );
+  }
 
   const renderScreen = () => {
     switch (screen.name) {
@@ -84,6 +121,15 @@ export default function App() {
               Dashboard
             </Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            testID="tab-sign-out"
+            style={styles.tab}
+            onPress={() => {
+              void signOut();
+            }}
+          >
+            <Text style={styles.tabText}>Sign Out</Text>
+          </TouchableOpacity>
         </View>
       )}
     </SafeAreaView>
@@ -94,6 +140,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#F9FAFB",
+  },
+  center: {
+    alignItems: "center",
+    justifyContent: "center",
   },
   tabBar: {
     flexDirection: "row",

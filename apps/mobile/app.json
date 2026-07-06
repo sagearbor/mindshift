@@ -3,6 +3,7 @@
     "name": "MindShift",
     "slug": "mindshift",
     "version": "1.0.0",
+    "scheme": "mindshift",
     "orientation": "portrait",
     "platforms": [
       "ios",
