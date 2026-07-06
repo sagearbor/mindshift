@@ -37,10 +37,24 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const { role, empathyLevel, turns } = get();
     if (turns.length === 0) return;
 
+    // The server coaches on the latest utterance; earlier turns are supplied
+    // as free-text context. Send the empathy slider as an int (server expects
+    // 0–100).
+    const latest = turns[turns.length - 1];
+    const context = turns
+      .slice(0, -1)
+      .map((t) => `${t.speaker}: ${t.text}`)
+      .join("\n");
+
     set({ loading: true });
     try {
-      const data = await postRespond({ role, empathy_level: empathyLevel, turns });
-      set({ suggestions: data.suggestions ?? [] });
+      const { suggestions } = await postRespond({
+        transcript_turn: latest.text,
+        role,
+        empathy_slider: Math.round(empathyLevel),
+        context,
+      });
+      set({ suggestions });
     } catch {
       set({ suggestions: [] });
     } finally {
