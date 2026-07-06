@@ -48,6 +48,7 @@ jest.mock("expo-audio", () => ({
 
 import * as Speech from "expo-speech";
 import { useAudioStream } from "../src/hooks/useAudioStream";
+import { setCachedToken } from "../src/auth/authToken";
 
 const speakMock = Speech.speak as jest.Mock;
 const speechStopMock = Speech.stop as jest.Mock;
@@ -132,6 +133,9 @@ beforeEach(() => {
 
   speakMock.mockReset();
   speechStopMock.mockReset().mockResolvedValue(undefined);
+
+  // Signed out by default; token-specific tests set this explicitly.
+  setCachedToken(null);
 });
 
 async function startLiveSession(empathy = 50) {
@@ -204,6 +208,30 @@ describe("useAudioStream — WebSocket protocol", () => {
       .sentJson()
       .filter((m) => m.type === "config" && m.empathy_slider === 30);
     expect(configMsgs.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("includes the Firebase id_token in the FIRST config frame when signed in", async () => {
+    setCachedToken("ws-id-token-42");
+    const { hook, ws } = await startLiveSession(50);
+
+    const firstConfig = ws.sentJson().find((m) => m.type === "config");
+    // Exact field name the backend contract expects.
+    expect(firstConfig.id_token).toBe("ws-id-token-42");
+
+    // Empathy updates reuse the config shape but must NOT re-send the token
+    // (the server verifies only the first config frame).
+    await act(() => hook.result.current.sendEmpathyUpdate(90));
+    const empathyConfig = ws
+      .sentJson()
+      .find((m) => m.type === "config" && m.empathy_slider === 90);
+    expect(empathyConfig).toBeDefined();
+    expect(empathyConfig).not.toHaveProperty("id_token");
+  });
+
+  it("omits id_token from the config frame when signed out", async () => {
+    const { ws } = await startLiveSession(50);
+    const firstConfig = ws.sentJson().find((m) => m.type === "config");
+    expect(firstConfig).not.toHaveProperty("id_token");
   });
 });
 
