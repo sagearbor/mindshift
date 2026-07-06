@@ -27,30 +27,9 @@ export default function LoginScreen() {
 
   const signIn = useAuthStore((s) => s.signIn);
   const signUp = useAuthStore((s) => s.signUp);
-  const signInWithGoogleIdToken = useAuthStore((s) => s.signInWithGoogleIdToken);
   const busy = useAuthStore((s) => s.busy);
   const error = useAuthStore((s) => s.error);
   const clearError = useAuthStore((s) => s.clearError);
-
-  // expo-auth-session Google provider. Hooks can't be conditional, so we always
-  // create the request; the button itself is gated on googleSignInConfigured.
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    webClientId: googleOAuth.webClientId,
-    iosClientId: googleOAuth.iosClientId,
-    androidClientId: googleOAuth.androidClientId,
-  });
-
-  // On a successful Google OAuth round-trip, exchange the Google ID token for a
-  // Firebase session. The provider surfaces the id_token in params (implicit
-  // flow) or on the authentication object depending on platform.
-  useEffect(() => {
-    if (response?.type !== "success") return;
-    const googleIdToken =
-      response.params?.id_token ?? response.authentication?.idToken;
-    if (googleIdToken) {
-      void signInWithGoogleIdToken(googleIdToken);
-    }
-  }, [response, signInWithGoogleIdToken]);
 
   const submit = () => {
     const fn = mode === "signIn" ? signIn : signUp;
@@ -151,17 +130,7 @@ export default function LoginScreen() {
         </View>
 
         {googleSignInConfigured ? (
-          <TouchableOpacity
-            testID="google-button"
-            style={[styles.googleButton, (!request || busy) && styles.buttonDisabled]}
-            disabled={!request || busy}
-            onPress={() => {
-              clearError();
-              void promptAsync();
-            }}
-          >
-            <Text style={styles.googleButtonText}>Continue with Google</Text>
-          </TouchableOpacity>
+          <GoogleSignInButton busy={busy} />
         ) : (
           <Text testID="google-unconfigured" style={styles.googleUnconfigured}>
             Google sign-in isn't configured yet.
@@ -169,6 +138,52 @@ export default function LoginScreen() {
         )}
       </View>
     </KeyboardAvoidingView>
+  );
+}
+
+/**
+ * Google sign-in button, isolated into its own component so the
+ * expo-auth-session `useAuthRequest` hook only runs when Google is actually
+ * configured. On web that hook throws synchronously ("Client Id property
+ * `webClientId` must be defined to use Google auth on this platform") when the
+ * client id is undefined — which crashes the entire app to a blank screen.
+ * Rendering this component is gated on `googleSignInConfigured`, so the hook
+ * stays out of the React tree entirely until the OAuth client ids exist.
+ */
+function GoogleSignInButton({ busy }: { busy: boolean }) {
+  const signInWithGoogleIdToken = useAuthStore((s) => s.signInWithGoogleIdToken);
+  const clearError = useAuthStore((s) => s.clearError);
+
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    webClientId: googleOAuth.webClientId,
+    iosClientId: googleOAuth.iosClientId,
+    androidClientId: googleOAuth.androidClientId,
+  });
+
+  // On a successful Google OAuth round-trip, exchange the Google ID token for a
+  // Firebase session. The provider surfaces the id_token in params (implicit
+  // flow) or on the authentication object depending on platform.
+  useEffect(() => {
+    if (response?.type !== "success") return;
+    const googleIdToken =
+      response.params?.id_token ?? response.authentication?.idToken;
+    if (googleIdToken) {
+      void signInWithGoogleIdToken(googleIdToken);
+    }
+  }, [response, signInWithGoogleIdToken]);
+
+  return (
+    <TouchableOpacity
+      testID="google-button"
+      style={[styles.googleButton, (!request || busy) && styles.buttonDisabled]}
+      disabled={!request || busy}
+      onPress={() => {
+        clearError();
+        void promptAsync();
+      }}
+    >
+      <Text style={styles.googleButtonText}>Continue with Google</Text>
+    </TouchableOpacity>
   );
 }
 
