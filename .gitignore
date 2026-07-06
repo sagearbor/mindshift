@@ -230,3 +230,5 @@ mindshift.db
 # secrets + agent worktrees (safety)
 .env*
 .claude/
+
+.firebase/
