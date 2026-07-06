@@ -13,6 +13,11 @@ import {
   float32ToInt16,
   StreamingResampler,
 } from "../utils/audio";
+import {
+  WebAudioCapture,
+  WebCaptureError,
+  isWebAudioCaptureSupported,
+} from "../utils/webAudioCapture";
 
 const API_URL =
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:8000";
@@ -299,6 +304,32 @@ export function useAudioStream(): UseAudioStreamReturn {
   const micStreamRef = useRef(micStream);
   micStreamRef.current = micStream;
 
+  /** Web-only microphone capture (expo-audio has no web recorder). Null on
+   *  native and until a web session actually starts capturing. */
+  const webCaptureRef = useRef<WebAudioCapture | null>(null);
+
+  /**
+   * Release whichever capture backend is active — native (expo-audio) or web
+   * (getUserMedia + AudioWorklet) — without ever throwing. Called from every
+   * teardown path (manual stop, reconnect exhaustion, unmount). On native the
+   * web ref is always null (and vice versa), so this is exactly the old
+   * `micStreamRef.current?.stop()` on those platforms.
+   */
+  const releaseCapture = useCallback(() => {
+    try {
+      micStreamRef.current?.stop();
+    } catch {
+      // Stream may already be stopped.
+    }
+    const web = webCaptureRef.current;
+    if (web) {
+      webCaptureRef.current = null;
+      // stop() releases the mic tracks synchronously; the async context close
+      // is fire-and-forget (nothing to await on an unmount path).
+      void web.stop().catch(() => {});
+    }
+  }, []);
+
   /** Detach handlers BEFORE closing so the deliberate close() can't fire
    *  onclose and stomp the status we set afterwards (manual stop must end
    *  at "idle", not "disconnected"). */
@@ -364,11 +395,7 @@ export function useAudioStream(): UseAudioStreamReturn {
     // (drainingRef gates speakSuggestion, so late drain-window suggestions
     // still render visually but are not spoken.)
     stopSpeechSafely();
-    try {
-      micStreamRef.current?.stop();
-    } catch {
-      // Stream may already be stopped.
-    }
+    releaseCapture();
     const resampler = resamplerRef.current;
     resamplerRef.current = null;
 
@@ -406,7 +433,7 @@ export function useAudioStream(): UseAudioStreamReturn {
     // clean up immediately, exactly as before.
     pendingRef.current = new Int16Array(0);
     finishDrain();
-  }, [finishDrain, armDrainTimer]);
+  }, [finishDrain, armDrainTimer, releaseCapture]);
 
   useEffect(() => {
     return () => {
@@ -420,15 +447,11 @@ export function useAudioStream(): UseAudioStreamReturn {
       sessionActiveRef.current = false;
       shouldReconnect.current = false;
       streamingRef.current = false;
-      try {
-        micStreamRef.current?.stop();
-      } catch {
-        // Stream may already be stopped.
-      }
+      releaseCapture();
       stopSpeechSafely(); // Never keep talking after the screen is gone.
       teardownWebSocket();
     };
-  }, [teardownWebSocket]);
+  }, [teardownWebSocket, releaseCapture]);
 
   const connectWebSocket = useCallback(
     (sessionId: string) => {
@@ -544,11 +567,7 @@ export function useAudioStream(): UseAudioStreamReturn {
           shouldReconnect.current = false;
           streamingRef.current = false;
           sessionActiveRef.current = false;
-          try {
-            micStreamRef.current?.stop();
-          } catch {
-            // Stream may already be stopped.
-          }
+          releaseCapture();
           pendingRef.current = new Int16Array(0);
           resamplerRef.current = null;
           stopSpeechSafely(); // Session is dead — stop coaching aloud too.
@@ -557,7 +576,74 @@ export function useAudioStream(): UseAudioStreamReturn {
         }
       };
     },
-    [teardownWebSocket, finishDrain, armDrainTimer, speakSuggestion],
+    [teardownWebSocket, finishDrain, armDrainTimer, speakSuggestion, releaseCapture],
+  );
+
+  /**
+   * Web capture path (Platform.OS === "web"). expo-audio ships no web
+   * recorder, so we capture the mic ourselves with getUserMedia + an
+   * AudioWorklet (see utils/webAudioCapture) and feed the SAME resample /
+   * int16 / batching / WebSocket pipeline the native path uses — the backend
+   * cannot tell the two apart.
+   *
+   * Ordering matters for iOS Safari: `capture.start()` is reached with only
+   * synchronous setState calls before it, so the AudioContext is created and
+   * resumed inside the Start-button gesture (Safari refuses to resume it
+   * later). getUserMedia inside start() is the permission prompt — we request
+   * the mic BEFORE opening the session, mirroring the native path.
+   */
+  const startWebSession = useCallback(
+    async (sessionId: string) => {
+      if (!isWebAudioCaptureSupported()) {
+        // Honest unsupported-browser state. Still run the session (no audio):
+        // the coaching UI works and the server reports its own state (e.g.
+        // transcription_unavailable) rather than us faking capture.
+        setMicError(
+          "Your browser can't capture audio — live coaching needs microphone support (use a recent Chrome, Safari, Firefox, or Edge over HTTPS).",
+        );
+        shouldReconnect.current = true;
+        setSessionActive(true);
+        connectWebSocket(sessionId);
+        return;
+      }
+
+      const capture = new WebAudioCapture({ onBuffer: handleAudioBuffer });
+      try {
+        await capture.start();
+      } catch (err) {
+        // Permission denied / no mic / unsupported: surface the honest reason
+        // and open no session (nothing to record).
+        const kind = err instanceof WebCaptureError ? err.kind : "unavailable";
+        if (kind === "permission-denied") {
+          setMicError(
+            "Microphone permission denied — enable microphone access to start a live session.",
+          );
+        } else if (kind === "no-microphone") {
+          setMicError(
+            "No microphone found — connect a microphone to start a live session.",
+          );
+        } else {
+          setMicError(
+            err instanceof Error && err.message
+              ? `Microphone unavailable: ${err.message}`
+              : "Microphone unavailable — could not start audio capture.",
+          );
+        }
+        await capture.stop();
+        sessionActiveRef.current = false;
+        return;
+      }
+
+      webCaptureRef.current = capture;
+      // Frames start flowing from the worklet now, so open the gate before the
+      // socket connects (frames buffer in pendingRef until the WS is OPEN).
+      streamingRef.current = true;
+      shouldReconnect.current = true;
+      setSessionActive(true);
+      connectWebSocket(sessionId);
+      setIsRecording(true);
+    },
+    [connectWebSocket, handleAudioBuffer],
   );
 
   const startSession = useCallback(
@@ -585,6 +671,11 @@ export function useAudioStream(): UseAudioStreamReturn {
       setMicError("");
       pendingRef.current = new Int16Array(0);
       resamplerRef.current = null;
+
+      if (Platform.OS === "web") {
+        await startWebSession(sessionId);
+        return;
+      }
 
       const stream = micStreamRef.current;
       if (stream) {
@@ -650,7 +741,7 @@ export function useAudioStream(): UseAudioStreamReturn {
       streamingRef.current = true;
       setIsRecording(true);
     },
-    [connectWebSocket, teardownWebSocket, finishDrain],
+    [connectWebSocket, teardownWebSocket, finishDrain, startWebSession],
   );
 
   const sendEmpathyUpdate = useCallback((level: number) => {
