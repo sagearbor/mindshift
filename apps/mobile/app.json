@@ -4,7 +4,11 @@
     "slug": "mindshift",
     "version": "0.1.0",
     "orientation": "portrait",
-    "platforms": ["ios", "android", "web"],
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "splash": {
@@ -15,7 +19,13 @@
     "android": {
       "package": "com.sagearbor.mindshift.app",
       "versionCode": 1,
-      "permissions": ["RECORD_AUDIO"],
+      "permissions": [
+        "RECORD_AUDIO",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#312E81"
@@ -34,7 +44,11 @@
       ]
     ],
     "extra": {
-      "apiUrl": "${EXPO_PUBLIC_API_URL}"
-    }
+      "apiUrl": "${EXPO_PUBLIC_API_URL}",
+      "eas": {
+        "projectId": "c810a855-13ba-48bc-91f5-74f13e7b34f6"
+      }
+    },
+    "owner": "sagearbor"
   }
 }

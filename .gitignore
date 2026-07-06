@@ -226,3 +226,7 @@ npm-debug.log*
 mindshift.db
 *.db-wal
 *.db-shm
+
+# secrets + agent worktrees (safety)
+.env*
+.claude/

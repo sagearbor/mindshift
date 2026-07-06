@@ -78,12 +78,6 @@ read_env() {
 # Prefer an already-exported env var; otherwise read from .env.
 ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-$(read_env ANTHROPIC_API_KEY)}"
 DEEPGRAM_API_KEY="${DEEPGRAM_API_KEY:-$(read_env DEEPGRAM_API_KEY)}"
-# Optional: comma-separated browser origins allowed to open the WebSocket
-# (server/audio_pipeline.py). Native mobile apps send no Origin and are always
-# allowed, so this can stay empty for the internal-testing APK/AAB. Set it only
-# when a hosted WEB build must connect, e.g. https://mindshift.example.web.app.
-MINDSHIFT_ALLOWED_ORIGINS="${MINDSHIFT_ALLOWED_ORIGINS:-$(read_env MINDSHIFT_ALLOWED_ORIGINS)}"
-
 missing=()
 [[ -n "$ANTHROPIC_API_KEY" ]] || missing+=("ANTHROPIC_API_KEY")
 [[ -n "$DEEPGRAM_API_KEY" ]] || missing+=("DEEPGRAM_API_KEY")
@@ -99,9 +93,17 @@ fi
 # string; use ^@^ as the delimiter so values may safely contain commas.
 # ---------------------------------------------------------------------------
 ENV_VARS="ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}@DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}"
-if [[ -n "$MINDSHIFT_ALLOWED_ORIGINS" ]]; then
-  ENV_VARS="${ENV_VARS}@MINDSHIFT_ALLOWED_ORIGINS=${MINDSHIFT_ALLOWED_ORIGINS}"
-fi
+# Optional config: forwarded to Cloud Run only when present (in .env or a real
+# env var). This is what makes MINDSHIFT_MODEL, STT_PROVIDER, etc. genuinely
+# switch-in-.env — no code change needed as models/config evolve.
+for k in MINDSHIFT_MODEL STT_PROVIDER WHISPER_MODEL MINDSHIFT_ALLOWED_ORIGINS LOG_LEVEL RATE_LIMIT_ENABLED RATE_LIMIT_PER_MINUTE; do
+  v="${!k:-}"
+  [[ -n "$v" ]] || v="$(read_env "$k")"
+  if [[ -n "$v" ]]; then
+    ENV_VARS="${ENV_VARS}@${k}=${v}"
+    echo "   config  : ${k}=${v}"
+  fi
+done
 
 echo "──────────────────────────────────────────────────────────────"
 echo " MindShift → Cloud Run"

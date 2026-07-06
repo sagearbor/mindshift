@@ -1,0 +1,27 @@
+# Controls what `gcloud run deploy --source .` uploads to Cloud Build.
+# Keep secrets OUT of the build upload, and ship only the backend.
+# (Without this file gcloud falls back to .gitignore, which does NOT exclude
+# every local secret file — e.g. a stray .env2.)
+
+# Secrets — never upload any local env file (values live as Cloud Run env vars).
+.env*
+!.example.env
+
+# Not needed to build/run the backend image.
+apps/
+tests/
+docs/
+tmp/
+.git/
+.github/
+.claude/
+node_modules/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+requirements-whisper.txt
+*.db
+*.db-wal
+*.db-shm
