@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Data &amp; Account Deletion — MindShift</title>
+<meta name="description" content="How to have your MindShift session transcripts erased. No account required — email a deletion request and we remove your data from our server." />
+<meta name="theme-color" content="#0f1512" media="(prefers-color-scheme: dark)" />
+<meta name="theme-color" content="#f7f1e8" media="(prefers-color-scheme: light)" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%230f1512'/%3E%3Cpath d='M9 11a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v3a5 5 0 0 1-5 5h-3l-4 3v-3a5 5 0 0 1-2-4z' fill='%23e8b98a'/%3E%3Ccircle cx='16' cy='12.5' r='2.1' fill='%230f1512'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --paper:#f7f1e8;--paper-2:#efe6d7;--ink:#171d18;--ink-soft:#3c463d;--muted:#6a7469;
+    --line:#e0d4c1;--card:#fffdf8;--sage:#3f6f5b;--sage-deep:#2c5344;--terra:#c8724a;
+    --terra-soft:#e8b98a;--glow:rgba(63,111,91,.16);
+    --shadow:0 1px 2px rgba(23,29,24,.05), 0 18px 40px -22px rgba(23,29,24,.28);
+    --radius:20px;--maxw:820px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --paper:#0f1512;--paper-2:#141c18;--ink:#ede6da;--ink-soft:#c3c9bf;--muted:#8c968a;
+      --line:#26302a;--card:#161e1a;--sage:#7fc0a3;--sage-deep:#a7d8c0;--terra:#e79a6c;
+      --terra-soft:#e8b98a;--glow:rgba(127,192,163,.14);
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 24px 60px -28px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="light"]{
+    --paper:#f7f1e8;--paper-2:#efe6d7;--ink:#171d18;--ink-soft:#3c463d;--muted:#6a7469;
+    --line:#e0d4c1;--card:#fffdf8;--sage:#3f6f5b;--sage-deep:#2c5344;--terra:#c8724a;
+    --terra-soft:#e8b98a;--glow:rgba(63,111,91,.16);
+    --shadow:0 1px 2px rgba(23,29,24,.05), 0 18px 40px -22px rgba(23,29,24,.28);
+  }
+  :root[data-theme="dark"]{
+    --paper:#0f1512;--paper-2:#141c18;--ink:#ede6da;--ink-soft:#c3c9bf;--muted:#8c968a;
+    --line:#26302a;--card:#161e1a;--sage:#7fc0a3;--sage-deep:#a7d8c0;--terra:#e79a6c;
+    --terra-soft:#e8b98a;--glow:rgba(127,192,163,.14);
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 24px 60px -28px rgba(0,0,0,.7);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font-family:"Instrument Sans",-apple-system,BlinkMacSystemFont,sans-serif;
+    font-size:17px;line-height:1.65;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+  }
+  body::before{
+    content:"";position:fixed;inset:0;z-index:-2;pointer-events:none;
+    background:radial-gradient(1200px 700px at 78% -8%, var(--glow), transparent 60%),
+               radial-gradient(900px 600px at -6% 12%, rgba(200,114,74,.10), transparent 55%);
+  }
+  a{color:var(--sage);text-decoration:none;border-bottom:1px solid color-mix(in srgb,var(--sage) 40%,transparent)}
+  a:hover{color:var(--sage-deep);border-bottom-color:var(--sage)}
+  h1,h2,h3{font-family:"Fraunces",Georgia,serif;font-weight:600;line-height:1.1;letter-spacing:-.01em;margin:0}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+
+  header.nav{
+    position:sticky;top:0;z-index:50;backdrop-filter:saturate(140%) blur(12px);
+    background:color-mix(in srgb, var(--paper) 82%, transparent);border-bottom:1px solid var(--line);
+  }
+  .nav-inner{display:flex;align-items:center;justify-content:space-between;height:66px;max-width:var(--maxw);margin:0 auto;padding:0 24px}
+  .brand{display:flex;align-items:center;gap:11px;font-family:"Fraunces",serif;font-weight:600;font-size:20px;letter-spacing:-.02em;color:var(--ink);border:none}
+  .brand svg{width:30px;height:30px;flex:none}
+  .nav-right{display:flex;align-items:center;gap:18px}
+  .nav-right a{color:var(--ink-soft);font-size:15px;font-weight:500;border:none}
+  .nav-right a:hover{color:var(--ink)}
+  .theme-toggle{background:transparent;border:1px solid var(--line);color:var(--ink-soft);width:38px;height:38px;border-radius:50%;cursor:pointer;display:grid;place-items:center;transition:border-color .2s, transform .2s}
+  .theme-toggle:hover{border-color:var(--sage);transform:rotate(-12deg)}
+  .theme-toggle svg{width:17px;height:17px}
+
+  main{padding:56px 0 40px}
+  .eyebrow{font-size:12.5px;letter-spacing:.16em;text-transform:uppercase;font-weight:600;color:var(--sage);display:inline-flex;align-items:center;gap:9px}
+  .eyebrow::before{content:"";width:22px;height:1.5px;background:var(--sage);display:inline-block;opacity:.7}
+  h1.title{font-size:clamp(2.2rem,5vw,3.1rem);margin:18px 0 6px;letter-spacing:-.02em}
+  .lead{font-size:1.12rem;color:var(--ink-soft);margin:22px 0 0;max-width:60ch}
+  article h2{font-size:1.5rem;margin:44px 0 4px}
+  article p{color:var(--ink-soft);margin:12px 0}
+  article ul{color:var(--ink-soft);margin:12px 0;padding-left:22px}
+  article li{margin:9px 0}
+  .callout{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:20px 22px;box-shadow:var(--shadow);margin:22px 0}
+  .callout strong{color:var(--ink)}
+  .steps{list-style:none;counter-reset:step;padding:0;margin:22px 0}
+  .steps li{counter-increment:step;position:relative;padding:16px 18px 16px 62px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);margin:12px 0;color:var(--ink-soft)}
+  .steps li::before{content:counter(step);position:absolute;left:18px;top:16px;width:30px;height:30px;border-radius:50%;background:var(--sage);color:var(--paper);display:grid;place-items:center;font-weight:700;font-size:15px;font-family:"Fraunces",serif}
+  .steps li strong{color:var(--ink)}
+  .cta{display:inline-flex;align-items:center;gap:10px;background:var(--ink);color:var(--paper);padding:14px 24px;border-radius:999px;font-weight:600;font-size:16px;box-shadow:var(--shadow);border:none;margin:8px 0}
+  .cta:hover{color:var(--paper)}
+  .cta svg{width:19px;height:19px}
+  code{background:var(--paper-2);padding:2px 7px;border-radius:6px;font-size:14px;border:1px solid var(--line)}
+  footer{border-top:1px solid var(--line);margin-top:56px;padding:34px 0 40px}
+  footer .wrap{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;align-items:center}
+  footer a{color:var(--ink-soft);font-size:14px;border:none}
+  footer a:hover{color:var(--sage)}
+  footer .copyr{color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<header class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="./index.html" aria-label="MindShift home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="var(--ink)"/><path d="M9 11a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v3a5 5 0 0 1-5 5h-3l-4 3v-3a5 5 0 0 1-2-4z" fill="var(--terra-soft)"/><circle cx="16" cy="12.5" r="2.1" fill="var(--ink)"/></svg>
+      MindShift
+    </a>
+    <div class="nav-right">
+      <a href="./index.html">← Home</a>
+      <button class="theme-toggle" id="themeToggle" aria-label="Toggle light and dark theme" title="Toggle theme">
+        <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <span class="eyebrow">Your data</span>
+    <h1 class="title">Data &amp; Account Deletion</h1>
+    <p class="lead">MindShift doesn't have user accounts — there's nothing to log into and no profile to close. What we do hold is the transcripts of your coaching sessions. This page explains what that is and how to have it permanently erased.</p>
+
+    <article>
+      <h2>What data actually exists</h2>
+      <p>Because MindShift has no sign-up and no login, we hold very little about you as a person. The data tied to your use of the app is:</p>
+      <ul>
+        <li><strong>Session transcripts</strong> — the text of conversations you ran through MindShift and the coaching suggestions it produced, stored on MindShift's server (a small SQLite database).</li>
+        <li><strong>Minimal operational data</strong> — connection/session identifiers and timestamps used to route a session and keep the service running.</li>
+      </ul>
+      <p>We do <strong>not</strong> store recordings of your microphone audio — audio is streamed to our transcription provider (Deepgram) in real time and is not retained by us as audio. For the full picture of how data is handled, see the <a href="./privacy.html">Privacy Policy</a>.</p>
+
+      <h2>How to request deletion</h2>
+      <p>Send us an email and we'll erase your session transcripts from our server. No account needed.</p>
+
+      <ol class="steps">
+        <li><strong>Email <a href="mailto:sagearbor+mindshift@gmail.com?subject=MindShift%20data%20deletion%20request&amp;body=Please%20delete%20my%20MindShift%20session%20data.%0A%0AApproximate%20dates%20I%20used%20the%20app%3A%20%0ADevice%20(model%2FOS)%3A%20%0AAnything%20that%20identifies%20my%20sessions%3A%20">sagearbor+mindshift@gmail.com</a></strong> with the subject "MindShift data deletion request."</li>
+        <li>So we can find the right records (there are no accounts to match on), please include <strong>roughly when you used the app</strong> and <strong>the device you used</strong> (model / OS). Any session detail you remember helps.</li>
+        <li>We'll confirm and <strong>permanently delete your session transcripts within 30 days</strong>, then reply to confirm it's done.</li>
+      </ol>
+
+      <a class="cta" href="mailto:sagearbor+mindshift@gmail.com?subject=MindShift%20data%20deletion%20request&amp;body=Please%20delete%20my%20MindShift%20session%20data.%0A%0AApproximate%20dates%20I%20used%20the%20app%3A%20%0ADevice%20(model%2FOS)%3A%20%0AAnything%20that%20identifies%20my%20sessions%3A%20">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="m4 6 8 6 8-6"/></svg>
+        Request deletion by email
+      </a>
+
+      <h2>What gets deleted</h2>
+      <p>On completion of your request we remove your stored session transcripts and coaching output from our database, along with the associated operational records. Once deleted, this data cannot be recovered.</p>
+
+      <div class="callout">
+        <p style="margin:0"><strong>About our processors.</strong> The conversation text was processed by Deepgram (transcription) and Anthropic (coaching) at the time of your session. We do not retain your audio, and we don't send new data to them once your session ends. Their handling of any transient processing data is governed by their own policies, linked from our <a href="./privacy.html">Privacy Policy</a>.</p>
+      </div>
+
+      <h2>Contact</h2>
+      <p>Any questions about your data? Email <a href="mailto:sagearbor+mindshift@gmail.com?subject=MindShift%20data%20question">sagearbor+mindshift@gmail.com</a>.</p>
+    </article>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div>
+      <a href="./index.html">MindShift</a>
+      &nbsp;·&nbsp; <a href="./privacy.html">Privacy</a>
+      &nbsp;·&nbsp; <a href="mailto:sagearbor+mindshift@gmail.com">Contact</a>
+    </div>
+    <span class="copyr">© 2026 MindShift</span>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var root=document.documentElement;
+  var toggle=document.getElementById('themeToggle');
+  var icon=document.getElementById('themeIcon');
+  var moon='<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>';
+  var sun='<circle cx="12" cy="12" r="4.2"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/>';
+  function apply(mode){root.setAttribute('data-theme',mode);icon.innerHTML=mode==='dark'?moon:sun;}
+  var saved=null;try{saved=localStorage.getItem('ms-theme');}catch(e){}
+  apply(saved || (window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'));
+  toggle.addEventListener('click',function(){
+    var next=root.getAttribute('data-theme')==='dark'?'light':'dark';
+    apply(next);try{localStorage.setItem('ms-theme',next);}catch(e){}
+  });
+})();
+</script>
+</body>
+</html>
