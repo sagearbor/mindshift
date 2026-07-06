@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from fastapi import Header
 from httpx import ASGITransport, AsyncClient
 
 # Add server/ to sys.path so we can import main
@@ -16,6 +17,19 @@ os.environ["MINDSHIFT_DB_PATH"] = _tmp.name
 _tmp.close()
 
 from main import app, init_db  # noqa: E402
+from auth import get_current_uid  # noqa: E402
+
+# Auth is required on every data route now; these end-to-end tests run as a
+# single fixed user via a dependency override (keyless — no real Firebase). The
+# X-Test-Uid header can name a different user, but these suites don't need to.
+DEFAULT_TEST_UID = "test-user"
+
+
+def _test_uid_override(x_test_uid: str = Header(default=DEFAULT_TEST_UID)) -> str:
+    return x_test_uid
+
+
+app.dependency_overrides[get_current_uid] = _test_uid_override
 
 # Shared mock payloads live in _mock_data so test modules can import them
 # unambiguously even when pytest collects both server/ and tests/ in one run
