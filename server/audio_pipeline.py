@@ -149,6 +149,17 @@ def _is_valid_uuid(value: str) -> bool:
     return bool(_UUID_RE.match(value))
 
 
+# A live WebSocket session id is client-chosen — the mobile app sends
+# "live-<timestamp>". It is only used as a short log/session key, so it needs a
+# safe, bounded shape rather than a full UUID (requiring a UUID here wrongly
+# rejected the real app). Conservative charset + length caps injection/abuse.
+_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def _is_valid_session_id(value: str) -> bool:
+    return bool(_SESSION_ID_RE.match(value))
+
+
 # P0-1: WebSockets bypass CORS / the same-origin policy — any web page in any
 # browser can open ws://.../ws/session/x, stream audio, and burn the owner's
 # Deepgram + Anthropic credits. Native mobile apps send NO Origin header;
@@ -164,16 +175,29 @@ ALLOWED_ORIGINS: frozenset[str] = frozenset(
 )
 
 
-def _origin_allowed(origin: str | None) -> bool:
+def _origin_allowed(origin: str | None, host: str | None = None) -> bool:
     """Whether a WS connection carrying this Origin header may proceed (P0-1).
 
-    ``None`` (no Origin — native mobile clients) is allowed. A present Origin
-    must appear in :data:`ALLOWED_ORIGINS`; otherwise it is a cross-site
-    browser connection and is rejected before ``accept()``.
+    Allowed when:
+      * there is no Origin (some native clients omit it), OR
+      * the Origin is explicitly in :data:`ALLOWED_ORIGINS` (the web app), OR
+      * the Origin is *same-origin* with the server (``host`` matches). React
+        Native's WebSocket defaults its Origin to the target server's URL, so
+        the mobile app arrives same-origin — which is not a cross-site request
+        and is safe. The real gate is the id-token auth in the config frame.
+
+    Any other present Origin is a cross-site browser connection and is rejected
+    before ``accept()``.
     """
     if origin is None:
         return True
-    return origin in ALLOWED_ORIGINS
+    if origin in ALLOWED_ORIGINS:
+        return True
+    # Same-origin: strip the scheme and compare the host[:port] to the request's
+    # own Host header. Same-origin can't be a cross-site attacker.
+    if host is not None and origin.split("://", 1)[-1] == host:
+        return True
+    return False
 
 
 # Per-process random salt: makes the redaction digest a keyed HMAC so short or
@@ -876,15 +900,19 @@ async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
     # P0-1: reject cross-site browser WS before accepting. Closing in the
     # "connecting" state rejects the handshake cleanly (the client sees 4403).
     origin = websocket.headers.get("origin")
-    if not _origin_allowed(origin):
+    host = websocket.headers.get("host")
+    if not _origin_allowed(origin, host):
         logger.info("Rejecting WS session: Origin %r not allowlisted", origin)
         await websocket.close(code=4403)
         return
 
-    # P2-7: session_id is a server-generated UUID — a free-form value is a
-    # broken or hostile client. Reject before accept, same as a bad Origin.
-    if not _is_valid_uuid(session_id):
-        logger.info("Rejecting WS session: session_id is not a UUID")
+    # P2-7: session_id is a short client-chosen identifier (the app uses
+    # "live-<timestamp>"). Require a safe, bounded shape — reject anything with
+    # unsafe characters or an abusive length — but do NOT require a UUID, which
+    # wrongly rejected the real mobile client.
+    if not _is_valid_session_id(session_id):
+        logger.info("Rejecting WS session: session_id %r has an unsafe shape",
+                    session_id)
         await websocket.close(code=4403)
         return
 

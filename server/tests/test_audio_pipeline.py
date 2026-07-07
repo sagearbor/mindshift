@@ -286,17 +286,42 @@ class TestWebSocketOriginCheck:
             ws.send_text(json.dumps({"type": "config"}))
             assert json.loads(ws.receive_text())["type"] == "config_ack"
 
+    def test_same_origin_connects(self, fake_ws, monkeypatch):
+        """A same-origin client (Origin host == server Host) is allowed even
+        with an empty allowlist — this is how the React Native app arrives."""
+        monkeypatch.setattr(audio_pipeline, "ALLOWED_ORIGINS", frozenset())
+        sid = str(uuid.uuid4())
+        # Starlette's TestClient serves under Host 'testserver'.
+        with open_ws(
+            fake_ws, f"/ws/session/{sid}", headers={"origin": "http://testserver"}
+        ) as ws:
+            ws.send_text(json.dumps({"type": "config"}))
+            assert json.loads(ws.receive_text())["type"] == "config_ack"
+
 
 # ---------------------------------------------------------------------------
 # P2-7: WebSocket session_id must be a UUID
 # ---------------------------------------------------------------------------
 
 class TestWebSocketSessionIdValidation:
-    def test_non_uuid_session_id_rejected_4403(self, fake_ws):
+    def test_unsafe_session_id_rejected_4403(self, fake_ws):
+        # A session id with characters outside [A-Za-z0-9_-] is rejected.
         with pytest.raises(WebSocketDisconnect) as excinfo:
-            with open_ws(fake_ws, "/ws/session/not-a-uuid") as ws:
+            with open_ws(fake_ws, "/ws/session/bad.id.with.dots") as ws:
                 ws.receive_text()
         assert excinfo.value.code == 4403
+
+    def test_overlong_session_id_rejected_4403(self, fake_ws):
+        with pytest.raises(WebSocketDisconnect) as excinfo:
+            with open_ws(fake_ws, "/ws/session/" + "a" * 65) as ws:
+                ws.receive_text()
+        assert excinfo.value.code == 4403
+
+    def test_app_style_session_id_connects(self, fake_ws):
+        # The real mobile client sends "live-<timestamp>" — must be accepted.
+        with open_ws(fake_ws, "/ws/session/live-1783392818146") as ws:
+            ws.send_text(json.dumps({"type": "config"}))
+            assert json.loads(ws.receive_text())["type"] == "config_ack"
 
 
 # ---------------------------------------------------------------------------
