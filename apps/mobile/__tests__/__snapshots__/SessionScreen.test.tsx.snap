@@ -430,7 +430,177 @@ exports[`SessionScreen renders loading state 1`] = `
             }
           }
         >
-          Transcript
+          Review a conversation
+        </Text>
+        <Text
+          style={
+            {
+              "color": "#6B7280",
+              "fontSize": 12.5,
+              "lineHeight": 18,
+              "marginBottom": 10,
+            }
+          }
+        >
+          Paste or type a conversation and Load it — one line per turn. Start a line with a name and colon (e.g. “Me:” / “Her:”) to label who spoke. Then set the empathy dial and tap Get Suggestions.
+        </Text>
+        <TextInput
+          multiline={true}
+          onChangeText={[Function]}
+          placeholder="Me: I do all the cooking around here...
+Her: I've been buried at work all week..."
+          placeholderTextColor="#9CA3AF"
+          style={
+            {
+              "backgroundColor": "#FFFFFF",
+              "borderColor": "#D1D5DB",
+              "borderRadius": 8,
+              "borderWidth": 1,
+              "color": "#1F2937",
+              "fontSize": 14,
+              "minHeight": 110,
+              "padding": 10,
+              "textAlignVertical": "top",
+            }
+          }
+          testID="paste-transcript-input"
+          value=""
+        />
+        <View
+          style={
+            {
+              "alignItems": "center",
+              "flexDirection": "row",
+              "gap": 10,
+              "marginTop": 10,
+            }
+          }
+        >
+          <View
+            accessibilityState={
+              {
+                "busy": undefined,
+                "checked": undefined,
+                "disabled": true,
+                "expanded": undefined,
+                "selected": undefined,
+              }
+            }
+            accessibilityValue={
+              {
+                "max": undefined,
+                "min": undefined,
+                "now": undefined,
+                "text": undefined,
+              }
+            }
+            accessible={true}
+            collapsable={false}
+            focusable={false}
+            onClick={[Function]}
+            onResponderGrant={[Function]}
+            onResponderMove={[Function]}
+            onResponderRelease={[Function]}
+            onResponderTerminate={[Function]}
+            onResponderTerminationRequest={[Function]}
+            onStartShouldSetResponder={[Function]}
+            style={
+              {
+                "alignItems": "center",
+                "backgroundColor": "#4A90D9",
+                "borderRadius": 10,
+                "flex": 1,
+                "opacity": 0.6,
+                "paddingVertical": 12,
+              }
+            }
+            testID="load-transcript-button"
+          >
+            <Text
+              style={
+                {
+                  "color": "#FFFFFF",
+                  "fontSize": 15,
+                  "fontWeight": "600",
+                }
+              }
+            >
+              Load conversation
+            </Text>
+          </View>
+          <View
+            accessibilityState={
+              {
+                "busy": undefined,
+                "checked": undefined,
+                "disabled": undefined,
+                "expanded": undefined,
+                "selected": undefined,
+              }
+            }
+            accessibilityValue={
+              {
+                "max": undefined,
+                "min": undefined,
+                "now": undefined,
+                "text": undefined,
+              }
+            }
+            accessible={true}
+            collapsable={false}
+            focusable={true}
+            onClick={[Function]}
+            onResponderGrant={[Function]}
+            onResponderMove={[Function]}
+            onResponderRelease={[Function]}
+            onResponderTerminate={[Function]}
+            onResponderTerminationRequest={[Function]}
+            onStartShouldSetResponder={[Function]}
+            style={
+              {
+                "borderColor": "#D1D5DB",
+                "borderRadius": 10,
+                "borderWidth": 1,
+                "opacity": 1,
+                "paddingHorizontal": 16,
+                "paddingVertical": 12,
+              }
+            }
+            testID="clear-turns-button"
+          >
+            <Text
+              style={
+                {
+                  "color": "#6B7280",
+                  "fontSize": 14,
+                  "fontWeight": "600",
+                }
+              }
+            >
+              Clear
+            </Text>
+          </View>
+        </View>
+      </View>
+      <View
+        style={
+          {
+            "marginTop": 8,
+            "paddingHorizontal": 16,
+          }
+        }
+      >
+        <Text
+          style={
+            {
+              "color": "#1F2937",
+              "fontSize": 16,
+              "fontWeight": "600",
+              "marginBottom": 8,
+            }
+          }
+        >
+          Or add turns one at a time
         </Text>
         <TextInput
           onChangeText={[Function]}
@@ -1056,7 +1226,125 @@ exports[`SessionScreen renders the initial screen 1`] = `
             }
           }
         >
-          Transcript
+          Review a conversation
+        </Text>
+        <Text
+          style={
+            {
+              "color": "#6B7280",
+              "fontSize": 12.5,
+              "lineHeight": 18,
+              "marginBottom": 10,
+            }
+          }
+        >
+          Paste or type a conversation and Load it — one line per turn. Start a line with a name and colon (e.g. “Me:” / “Her:”) to label who spoke. Then set the empathy dial and tap Get Suggestions.
+        </Text>
+        <TextInput
+          multiline={true}
+          onChangeText={[Function]}
+          placeholder="Me: I do all the cooking around here...
+Her: I've been buried at work all week..."
+          placeholderTextColor="#9CA3AF"
+          style={
+            {
+              "backgroundColor": "#FFFFFF",
+              "borderColor": "#D1D5DB",
+              "borderRadius": 8,
+              "borderWidth": 1,
+              "color": "#1F2937",
+              "fontSize": 14,
+              "minHeight": 110,
+              "padding": 10,
+              "textAlignVertical": "top",
+            }
+          }
+          testID="paste-transcript-input"
+          value=""
+        />
+        <View
+          style={
+            {
+              "alignItems": "center",
+              "flexDirection": "row",
+              "gap": 10,
+              "marginTop": 10,
+            }
+          }
+        >
+          <View
+            accessibilityState={
+              {
+                "busy": undefined,
+                "checked": undefined,
+                "disabled": true,
+                "expanded": undefined,
+                "selected": undefined,
+              }
+            }
+            accessibilityValue={
+              {
+                "max": undefined,
+                "min": undefined,
+                "now": undefined,
+                "text": undefined,
+              }
+            }
+            accessible={true}
+            collapsable={false}
+            focusable={false}
+            onClick={[Function]}
+            onResponderGrant={[Function]}
+            onResponderMove={[Function]}
+            onResponderRelease={[Function]}
+            onResponderTerminate={[Function]}
+            onResponderTerminationRequest={[Function]}
+            onStartShouldSetResponder={[Function]}
+            style={
+              {
+                "alignItems": "center",
+                "backgroundColor": "#4A90D9",
+                "borderRadius": 10,
+                "flex": 1,
+                "opacity": 0.6,
+                "paddingVertical": 12,
+              }
+            }
+            testID="load-transcript-button"
+          >
+            <Text
+              style={
+                {
+                  "color": "#FFFFFF",
+                  "fontSize": 15,
+                  "fontWeight": "600",
+                }
+              }
+            >
+              Load conversation
+            </Text>
+          </View>
+        </View>
+      </View>
+      <View
+        style={
+          {
+            "marginTop": 8,
+            "paddingHorizontal": 16,
+          }
+        }
+      >
+        <Text
+          style={
+            {
+              "color": "#1F2937",
+              "fontSize": 16,
+              "fontWeight": "600",
+              "marginBottom": 8,
+            }
+          }
+        >
+          Or add turns one at a time
         </Text>
         <TextInput
           onChangeText={[Function]}
@@ -1648,7 +1936,177 @@ exports[`SessionScreen renders with suggestions 1`] = `
             }
           }
         >
-          Transcript
+          Review a conversation
+        </Text>
+        <Text
+          style={
+            {
+              "color": "#6B7280",
+              "fontSize": 12.5,
+              "lineHeight": 18,
+              "marginBottom": 10,
+            }
+          }
+        >
+          Paste or type a conversation and Load it — one line per turn. Start a line with a name and colon (e.g. “Me:” / “Her:”) to label who spoke. Then set the empathy dial and tap Get Suggestions.
+        </Text>
+        <TextInput
+          multiline={true}
+          onChangeText={[Function]}
+          placeholder="Me: I do all the cooking around here...
+Her: I've been buried at work all week..."
+          placeholderTextColor="#9CA3AF"
+          style={
+            {
+              "backgroundColor": "#FFFFFF",
+              "borderColor": "#D1D5DB",
+              "borderRadius": 8,
+              "borderWidth": 1,
+              "color": "#1F2937",
+              "fontSize": 14,
+              "minHeight": 110,
+              "padding": 10,
+              "textAlignVertical": "top",
+            }
+          }
+          testID="paste-transcript-input"
+          value=""
+        />
+        <View
+          style={
+            {
+              "alignItems": "center",
+              "flexDirection": "row",
+              "gap": 10,
+              "marginTop": 10,
+            }
+          }
+        >
+          <View
+            accessibilityState={
+              {
+                "busy": undefined,
+                "checked": undefined,
+                "disabled": true,
+                "expanded": undefined,
+                "selected": undefined,
+              }
+            }
+            accessibilityValue={
+              {
+                "max": undefined,
+                "min": undefined,
+                "now": undefined,
+                "text": undefined,
+              }
+            }
+            accessible={true}
+            collapsable={false}
+            focusable={false}
+            onClick={[Function]}
+            onResponderGrant={[Function]}
+            onResponderMove={[Function]}
+            onResponderRelease={[Function]}
+            onResponderTerminate={[Function]}
+            onResponderTerminationRequest={[Function]}
+            onStartShouldSetResponder={[Function]}
+            style={
+              {
+                "alignItems": "center",
+                "backgroundColor": "#4A90D9",
+                "borderRadius": 10,
+                "flex": 1,
+                "opacity": 0.6,
+                "paddingVertical": 12,
+              }
+            }
+            testID="load-transcript-button"
+          >
+            <Text
+              style={
+                {
+                  "color": "#FFFFFF",
+                  "fontSize": 15,
+                  "fontWeight": "600",
+                }
+              }
+            >
+              Load conversation
+            </Text>
+          </View>
+          <View
+            accessibilityState={
+              {
+                "busy": undefined,
+                "checked": undefined,
+                "disabled": undefined,
+                "expanded": undefined,
+                "selected": undefined,
+              }
+            }
+            accessibilityValue={
+              {
+                "max": undefined,
+                "min": undefined,
+                "now": undefined,
+                "text": undefined,
+              }
+            }
+            accessible={true}
+            collapsable={false}
+            focusable={true}
+            onClick={[Function]}
+            onResponderGrant={[Function]}
+            onResponderMove={[Function]}
+            onResponderRelease={[Function]}
+            onResponderTerminate={[Function]}
+            onResponderTerminationRequest={[Function]}
+            onStartShouldSetResponder={[Function]}
+            style={
+              {
+                "borderColor": "#D1D5DB",
+                "borderRadius": 10,
+                "borderWidth": 1,
+                "opacity": 1,
+                "paddingHorizontal": 16,
+                "paddingVertical": 12,
+              }
+            }
+            testID="clear-turns-button"
+          >
+            <Text
+              style={
+                {
+                  "color": "#6B7280",
+                  "fontSize": 14,
+                  "fontWeight": "600",
+                }
+              }
+            >
+              Clear
+            </Text>
+          </View>
+        </View>
+      </View>
+      <View
+        style={
+          {
+            "marginTop": 8,
+            "paddingHorizontal": 16,
+          }
+        }
+      >
+        <Text
+          style={
+            {
+              "color": "#1F2937",
+              "fontSize": 16,
+              "fontWeight": "600",
+              "marginBottom": 8,
+            }
+          }
+        >
+          Or add turns one at a time
         </Text>
         <TextInput
           onChangeText={[Function]}
@@ -2486,7 +2944,177 @@ exports[`SessionScreen renders with turns in the transcript 1`] = `
             }
           }
         >
-          Transcript
+          Review a conversation
+        </Text>
+        <Text
+          style={
+            {
+              "color": "#6B7280",
+              "fontSize": 12.5,
+              "lineHeight": 18,
+              "marginBottom": 10,
+            }
+          }
+        >
+          Paste or type a conversation and Load it — one line per turn. Start a line with a name and colon (e.g. “Me:” / “Her:”) to label who spoke. Then set the empathy dial and tap Get Suggestions.
+        </Text>
+        <TextInput
+          multiline={true}
+          onChangeText={[Function]}
+          placeholder="Me: I do all the cooking around here...
+Her: I've been buried at work all week..."
+          placeholderTextColor="#9CA3AF"
+          style={
+            {
+              "backgroundColor": "#FFFFFF",
+              "borderColor": "#D1D5DB",
+              "borderRadius": 8,
+              "borderWidth": 1,
+              "color": "#1F2937",
+              "fontSize": 14,
+              "minHeight": 110,
+              "padding": 10,
+              "textAlignVertical": "top",
+            }
+          }
+          testID="paste-transcript-input"
+          value=""
+        />
+        <View
+          style={
+            {
+              "alignItems": "center",
+              "flexDirection": "row",
+              "gap": 10,
+              "marginTop": 10,
+            }
+          }
+        >
+          <View
+            accessibilityState={
+              {
+                "busy": undefined,
+                "checked": undefined,
+                "disabled": true,
+                "expanded": undefined,
+                "selected": undefined,
+              }
+            }
+            accessibilityValue={
+              {
+                "max": undefined,
+                "min": undefined,
+                "now": undefined,
+                "text": undefined,
+              }
+            }
+            accessible={true}
+            collapsable={false}
+            focusable={false}
+            onClick={[Function]}
+            onResponderGrant={[Function]}
+            onResponderMove={[Function]}
+            onResponderRelease={[Function]}
+            onResponderTerminate={[Function]}
+            onResponderTerminationRequest={[Function]}
+            onStartShouldSetResponder={[Function]}
+            style={
+              {
+                "alignItems": "center",
+                "backgroundColor": "#4A90D9",
+                "borderRadius": 10,
+                "flex": 1,
+                "opacity": 0.6,
+                "paddingVertical": 12,
+              }
+            }
+            testID="load-transcript-button"
+          >
+            <Text
+              style={
+                {
+                  "color": "#FFFFFF",
+                  "fontSize": 15,
+                  "fontWeight": "600",
+                }
+              }
+            >
+              Load conversation
+            </Text>
+          </View>
+          <View
+            accessibilityState={
+              {
+                "busy": undefined,
+                "checked": undefined,
+                "disabled": undefined,
+                "expanded": undefined,
+                "selected": undefined,
+              }
+            }
+            accessibilityValue={
+              {
+                "max": undefined,
+                "min": undefined,
+                "now": undefined,
+                "text": undefined,
+              }
+            }
+            accessible={true}
+            collapsable={false}
+            focusable={true}
+            onClick={[Function]}
+            onResponderGrant={[Function]}
+            onResponderMove={[Function]}
+            onResponderRelease={[Function]}
+            onResponderTerminate={[Function]}
+            onResponderTerminationRequest={[Function]}
+            onStartShouldSetResponder={[Function]}
+            style={
+              {
+                "borderColor": "#D1D5DB",
+                "borderRadius": 10,
+                "borderWidth": 1,
+                "opacity": 1,
+                "paddingHorizontal": 16,
+                "paddingVertical": 12,
+              }
+            }
+            testID="clear-turns-button"
+          >
+            <Text
+              style={
+                {
+                  "color": "#6B7280",
+                  "fontSize": 14,
+                  "fontWeight": "600",
+                }
+              }
+            >
+              Clear
+            </Text>
+          </View>
+        </View>
+      </View>
+      <View
+        style={
+          {
+            "marginTop": 8,
+            "paddingHorizontal": 16,
+          }
+        }
+      >
+        <Text
+          style={
+            {
+              "color": "#1F2937",
+              "fontSize": 16,
+              "fontWeight": "600",
+              "marginBottom": 8,
+            }
+          }
+        >
+          Or add turns one at a time
         </Text>
         <TextInput
           onChangeText={[Function]}

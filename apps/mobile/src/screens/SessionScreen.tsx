@@ -25,11 +25,14 @@ export default function SessionScreen() {
     setRole,
     setEmpathyLevel,
     addTurn,
+    loadTranscript,
+    clearTurns,
     fetchSuggestions,
   } = useSessionStore();
 
   const [speaker, setSpeaker] = useState("");
   const [text, setText] = useState("");
+  const [pasted, setPasted] = useState("");
 
   const handleAddTurn = () => {
     const trimmedText = text.trim();
@@ -59,9 +62,55 @@ export default function SessionScreen() {
 
         <EmpathySlider value={empathyLevel} onValueChange={setEmpathyLevel} />
 
-        {/* Transcript input */}
+        {/* Async review: paste or type a whole conversation, then Load it. */}
         <View style={styles.inputSection}>
-          <Text style={styles.sectionTitle}>Transcript</Text>
+          <Text style={styles.sectionTitle}>Review a conversation</Text>
+          <Text style={styles.hint}>
+            Paste or type a conversation and Load it — one line per turn. Start a
+            line with a name and colon (e.g. “Me:” / “Her:”) to label who spoke.
+            Then set the empathy dial and tap Get Suggestions.
+          </Text>
+          <TextInput
+            testID="paste-transcript-input"
+            style={styles.pasteInput}
+            placeholder={"Me: I do all the cooking around here...\nHer: I've been buried at work all week..."}
+            value={pasted}
+            onChangeText={setPasted}
+            multiline
+            placeholderTextColor="#9CA3AF"
+          />
+          <View style={styles.pasteRow}>
+            <TouchableOpacity
+              testID="load-transcript-button"
+              style={[
+                styles.loadButton,
+                !pasted.trim() && styles.suggestButtonDisabled,
+              ]}
+              onPress={() => {
+                if (pasted.trim()) loadTranscript(pasted);
+              }}
+              disabled={!pasted.trim()}
+            >
+              <Text style={styles.loadButtonText}>Load conversation</Text>
+            </TouchableOpacity>
+            {turns.length > 0 && (
+              <TouchableOpacity
+                testID="clear-turns-button"
+                style={styles.clearButton}
+                onPress={() => {
+                  clearTurns();
+                  setPasted("");
+                }}
+              >
+                <Text style={styles.clearButtonText}>Clear</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        {/* Or build the transcript one turn at a time */}
+        <View style={styles.inputSection}>
+          <Text style={styles.sectionTitle}>Or add turns one at a time</Text>
 
           <TextInput
             testID="speaker-input"
@@ -156,6 +205,53 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginBottom: 8,
     color: "#1F2937",
+  },
+  hint: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: "#6B7280",
+    marginBottom: 10,
+  },
+  pasteInput: {
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 8,
+    padding: 10,
+    fontSize: 14,
+    minHeight: 110,
+    textAlignVertical: "top",
+    color: "#1F2937",
+    backgroundColor: "#FFFFFF",
+  },
+  pasteRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 10,
+  },
+  loadButton: {
+    flex: 1,
+    backgroundColor: "#4A90D9",
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  loadButtonText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  clearButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+  },
+  clearButtonText: {
+    color: "#6B7280",
+    fontSize: 14,
+    fontWeight: "600",
   },
   speakerInput: {
     borderWidth: 1,
