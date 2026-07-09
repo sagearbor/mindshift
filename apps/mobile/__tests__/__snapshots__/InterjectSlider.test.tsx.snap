@@ -1,0 +1,119 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`InterjectSlider renders correctly at default value 1`] = `
+<View
+  style={
+    {
+      "marginVertical": 12,
+      "paddingHorizontal": 16,
+    }
+  }
+>
+  <Text
+    style={
+      {
+        "color": "#1F2937",
+        "fontSize": 16,
+        "fontWeight": "600",
+        "marginBottom": 8,
+      }
+    }
+  >
+    Interject: 
+    0
+     — 
+    Every turn
+  </Text>
+  <View
+    testID="interject-slider"
+  />
+  <View
+    style={
+      {
+        "flexDirection": "row",
+        "justifyContent": "space-between",
+      }
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#6B7280",
+          "fontSize": 12,
+        }
+      }
+    >
+      Every turn
+    </Text>
+    <Text
+      style={
+        {
+          "color": "#6B7280",
+          "fontSize": 12,
+        }
+      }
+    >
+      Critical only
+    </Text>
+  </View>
+</View>
+`;
+
+exports[`InterjectSlider renders correctly at maximum 1`] = `
+<View
+  style={
+    {
+      "marginVertical": 12,
+      "paddingHorizontal": 16,
+    }
+  }
+>
+  <Text
+    style={
+      {
+        "color": "#1F2937",
+        "fontSize": 16,
+        "fontWeight": "600",
+        "marginBottom": 8,
+      }
+    }
+  >
+    Interject: 
+    100
+     — 
+    Critical only
+  </Text>
+  <View
+    testID="interject-slider"
+  />
+  <View
+    style={
+      {
+        "flexDirection": "row",
+        "justifyContent": "space-between",
+      }
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#6B7280",
+          "fontSize": 12,
+        }
+      }
+    >
+      Every turn
+    </Text>
+    <Text
+      style={
+        {
+          "color": "#6B7280",
+          "fontSize": 12,
+        }
+      }
+    >
+      Critical only
+    </Text>
+  </View>
+</View>
+`;

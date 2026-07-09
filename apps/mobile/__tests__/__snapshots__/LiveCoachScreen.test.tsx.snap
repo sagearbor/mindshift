@@ -271,6 +271,62 @@ exports[`LiveCoachScreen renders disconnected state 1`] = `
   <View
     style={
       {
+        "marginVertical": 12,
+        "paddingHorizontal": 16,
+      }
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#1F2937",
+          "fontSize": 16,
+          "fontWeight": "600",
+          "marginBottom": 8,
+        }
+      }
+    >
+      Interject: 
+      0
+       — 
+      Every turn
+    </Text>
+    <View
+      testID="interject-slider"
+    />
+    <View
+      style={
+        {
+          "flexDirection": "row",
+          "justifyContent": "space-between",
+        }
+      }
+    >
+      <Text
+        style={
+          {
+            "color": "#6B7280",
+            "fontSize": 12,
+          }
+        }
+      >
+        Every turn
+      </Text>
+      <Text
+        style={
+          {
+            "color": "#6B7280",
+            "fontSize": 12,
+          }
+        }
+      >
+        Critical only
+      </Text>
+    </View>
+  </View>
+  <View
+    style={
+      {
         "alignItems": "center",
         "flex": 1,
         "justifyContent": "center",
@@ -612,6 +668,62 @@ exports[`LiveCoachScreen renders initial idle state 1`] = `
         }
       >
         Full Empathy
+      </Text>
+    </View>
+  </View>
+  <View
+    style={
+      {
+        "marginVertical": 12,
+        "paddingHorizontal": 16,
+      }
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#1F2937",
+          "fontSize": 16,
+          "fontWeight": "600",
+          "marginBottom": 8,
+        }
+      }
+    >
+      Interject: 
+      0
+       — 
+      Every turn
+    </Text>
+    <View
+      testID="interject-slider"
+    />
+    <View
+      style={
+        {
+          "flexDirection": "row",
+          "justifyContent": "space-between",
+        }
+      }
+    >
+      <Text
+        style={
+          {
+            "color": "#6B7280",
+            "fontSize": 12,
+          }
+        }
+      >
+        Every turn
+      </Text>
+      <Text
+        style={
+          {
+            "color": "#6B7280",
+            "fontSize": 12,
+          }
+        }
+      >
+        Critical only
       </Text>
     </View>
   </View>
@@ -962,6 +1074,62 @@ exports[`LiveCoachScreen renders recording state with transcript and suggestions
       </Text>
     </View>
   </View>
+  <View
+    style={
+      {
+        "marginVertical": 12,
+        "paddingHorizontal": 16,
+      }
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#1F2937",
+          "fontSize": 16,
+          "fontWeight": "600",
+          "marginBottom": 8,
+        }
+      }
+    >
+      Interject: 
+      0
+       — 
+      Every turn
+    </Text>
+    <View
+      testID="interject-slider"
+    />
+    <View
+      style={
+        {
+          "flexDirection": "row",
+          "justifyContent": "space-between",
+        }
+      }
+    >
+      <Text
+        style={
+          {
+            "color": "#6B7280",
+            "fontSize": 12,
+          }
+        }
+      >
+        Every turn
+      </Text>
+      <Text
+        style={
+          {
+            "color": "#6B7280",
+            "fontSize": 12,
+          }
+        }
+      >
+        Critical only
+      </Text>
+    </View>
+  </View>
   <RCTScrollView
     style={
       {
@@ -1099,21 +1267,24 @@ exports[`LiveCoachScreen renders recording state with transcript and suggestions
       </Text>
       <View
         style={
-          {
-            "backgroundColor": "#FFFFFF",
-            "borderRadius": 12,
-            "elevation": 2,
-            "marginHorizontal": 16,
-            "marginVertical": 6,
-            "padding": 16,
-            "shadowColor": "#000",
-            "shadowOffset": {
-              "height": 1,
-              "width": 0,
+          [
+            {
+              "backgroundColor": "#FFFFFF",
+              "borderRadius": 12,
+              "elevation": 2,
+              "marginHorizontal": 16,
+              "marginVertical": 6,
+              "padding": 16,
+              "shadowColor": "#000",
+              "shadowOffset": {
+                "height": 1,
+                "width": 0,
+              },
+              "shadowOpacity": 0.1,
+              "shadowRadius": 3,
             },
-            "shadowOpacity": 0.1,
-            "shadowRadius": 3,
-          }
+            false,
+          ]
         }
         testID="suggestion-card"
       >

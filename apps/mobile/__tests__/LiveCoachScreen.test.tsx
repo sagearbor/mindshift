@@ -25,6 +25,7 @@ const defaultHookState = {
   startSession: jest.fn(),
   stopSession: jest.fn(),
   sendEmpathyUpdate: jest.fn(),
+  sendInterjectUpdate: jest.fn(),
 };
 
 beforeEach(() => {
@@ -178,5 +179,81 @@ describe("LiveCoachScreen", () => {
     expect(
       root!.root.findAllByProps({ testID: "speech-unavailable-note" }),
     ).toHaveLength(0);
+  });
+
+  it("moving the interject slider updates local state and notifies the hook", () => {
+    const sendInterjectUpdate = jest.fn();
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      sendInterjectUpdate,
+    });
+
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    act(() => {
+      root!.root
+        .findByProps({ testID: "interject-slider" })
+        .props.onValueChange(75);
+    });
+
+    expect(sendInterjectUpdate).toHaveBeenCalledWith(75);
+  });
+
+  it("passes the chosen interject level into startSession", async () => {
+    const startSession = jest.fn().mockResolvedValue(undefined);
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      startSession,
+    });
+
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    act(() => {
+      root!.root
+        .findByProps({ testID: "interject-slider" })
+        .props.onValueChange(30);
+    });
+    await act(async () => {
+      await root!.root.findByProps({ testID: "mic-toggle" }).props.onPress();
+    });
+
+    expect(startSession).toHaveBeenCalledWith(
+      expect.any(String),
+      50,
+      30,
+    );
+  });
+
+  it("dims muted suggestions instead of hiding them", () => {
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      suggestions: [
+        { text: "Spoken advice.", tone: "balanced", muted: false },
+        { text: "Quiet aside.", tone: "balanced", muted: true },
+      ],
+    });
+
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    // Host nodes only — RN's <View> also yields a composite node carrying
+    // the same testID.
+    const cards = root!.root.findAll(
+      (node) =>
+        node.props.testID === "suggestion-card" &&
+        typeof node.type === "string",
+    );
+    expect(cards).toHaveLength(2);
+    expect(cards[0].props.style).not.toContainEqual(
+      expect.objectContaining({ opacity: 0.5 }),
+    );
+    expect(cards[1].props.style).toContainEqual(
+      expect.objectContaining({ opacity: 0.5 }),
+    );
   });
 });

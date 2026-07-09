@@ -4,6 +4,9 @@ import { View, Text, StyleSheet } from "react-native";
 export interface Suggestion {
   text: string;
   tone: string;
+  /** True when the server chose not to voice this suggestion (speak: false).
+   *  Dims the card instead of hiding it — the advice is still worth reading. */
+  muted?: boolean;
 }
 
 const TONE_COLORS: Record<string, string> = {
@@ -20,11 +23,18 @@ export function getToneColor(tone: string): string {
   return TONE_COLORS[tone.toLowerCase()] || TONE_COLORS.neutral;
 }
 
-export default function SuggestionCard({ text, tone }: Suggestion) {
+export default function SuggestionCard({
+  text,
+  tone,
+  muted = false,
+}: Suggestion) {
   const badgeColor = getToneColor(tone);
 
   return (
-    <View style={styles.card} testID="suggestion-card">
+    <View
+      style={[styles.card, muted && styles.cardMuted]}
+      testID="suggestion-card"
+    >
       <View style={[styles.badge, { backgroundColor: badgeColor }]}>
         <Text style={styles.badgeText}>{tone}</Text>
       </View>
@@ -45,6 +55,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 2,
+  },
+  cardMuted: {
+    opacity: 0.5,
   },
   badge: {
     alignSelf: "flex-start",

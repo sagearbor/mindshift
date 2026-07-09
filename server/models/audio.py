@@ -24,6 +24,22 @@ class Utterance(BaseModel):
     confidence: float = Field(ge=0, le=1, default=1.0)
 
 
+class TranscriptEvent(BaseModel):
+    """A finalized transcript line, sent immediately on utterance end.
+
+    Decoupled from SuggestionEvent so the transcript renders in real time
+    (a suggestion takes seconds of LLM+TTS; the words themselves should not
+    wait on that) and so a turn can appear in the transcript even when the
+    coach chooses not to interject on it.
+    """
+    type: str = Field(default="transcript", description="Event type discriminator")
+    session_id: str
+    speaker: str
+    text: str
+    start_time: float = Field(ge=0)
+    end_time: float = Field(ge=0)
+
+
 class SuggestionEvent(BaseModel):
     """A coaching suggestion sent back over WebSocket."""
     type: str = Field(default="suggestion", description="Event type discriminator")
@@ -33,6 +49,12 @@ class SuggestionEvent(BaseModel):
     suggestions: list[str]
     empathy_slider: int = Field(ge=0, le=100)
     audio_b64: str | None = Field(default=None, description="TTS audio for earpiece, base64")
+    # How much this moment warranted a coaching interjection (LLM-scored).
+    # 100 (the fail-open default) preserves pre-importance behaviour.
+    importance: int = Field(default=100, ge=0, le=100)
+    # Whether the client should voice this suggestion (importance cleared the
+    # session's interject threshold). False → show silently/dimmed at most.
+    speak: bool = Field(default=True)
 
 
 class DiarizationConfig(BaseModel):

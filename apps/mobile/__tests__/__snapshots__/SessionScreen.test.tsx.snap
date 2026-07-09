@@ -2327,21 +2327,24 @@ Her: I've been buried at work all week..."
         </Text>
         <View
           style={
-            {
-              "backgroundColor": "#FFFFFF",
-              "borderRadius": 12,
-              "elevation": 2,
-              "marginHorizontal": 16,
-              "marginVertical": 6,
-              "padding": 16,
-              "shadowColor": "#000",
-              "shadowOffset": {
-                "height": 1,
-                "width": 0,
+            [
+              {
+                "backgroundColor": "#FFFFFF",
+                "borderRadius": 12,
+                "elevation": 2,
+                "marginHorizontal": 16,
+                "marginVertical": 6,
+                "padding": 16,
+                "shadowColor": "#000",
+                "shadowOffset": {
+                  "height": 1,
+                  "width": 0,
+                },
+                "shadowOpacity": 0.1,
+                "shadowRadius": 3,
               },
-              "shadowOpacity": 0.1,
-              "shadowRadius": 3,
-            }
+              false,
+            ]
           }
           testID="suggestion-card"
         >
@@ -2388,21 +2391,24 @@ Her: I've been buried at work all week..."
         </View>
         <View
           style={
-            {
-              "backgroundColor": "#FFFFFF",
-              "borderRadius": 12,
-              "elevation": 2,
-              "marginHorizontal": 16,
-              "marginVertical": 6,
-              "padding": 16,
-              "shadowColor": "#000",
-              "shadowOffset": {
-                "height": 1,
-                "width": 0,
+            [
+              {
+                "backgroundColor": "#FFFFFF",
+                "borderRadius": 12,
+                "elevation": 2,
+                "marginHorizontal": 16,
+                "marginVertical": 6,
+                "padding": 16,
+                "shadowColor": "#000",
+                "shadowOffset": {
+                  "height": 1,
+                  "width": 0,
+                },
+                "shadowOpacity": 0.1,
+                "shadowRadius": 3,
               },
-              "shadowOpacity": 0.1,
-              "shadowRadius": 3,
-            }
+              false,
+            ]
           }
           testID="suggestion-card"
         >
@@ -2449,21 +2455,24 @@ Her: I've been buried at work all week..."
         </View>
         <View
           style={
-            {
-              "backgroundColor": "#FFFFFF",
-              "borderRadius": 12,
-              "elevation": 2,
-              "marginHorizontal": 16,
-              "marginVertical": 6,
-              "padding": 16,
-              "shadowColor": "#000",
-              "shadowOffset": {
-                "height": 1,
-                "width": 0,
+            [
+              {
+                "backgroundColor": "#FFFFFF",
+                "borderRadius": 12,
+                "elevation": 2,
+                "marginHorizontal": 16,
+                "marginVertical": 6,
+                "padding": 16,
+                "shadowColor": "#000",
+                "shadowOffset": {
+                  "height": 1,
+                  "width": 0,
+                },
+                "shadowOpacity": 0.1,
+                "shadowRadius": 3,
               },
-              "shadowOpacity": 0.1,
-              "shadowRadius": 3,
-            }
+              false,
+            ]
           }
           testID="suggestion-card"
         >

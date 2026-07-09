@@ -485,9 +485,12 @@ def empathy_system_prompt(
         f"{stance}\n\n"
         f"The user's role in this conversation is: {role}.\n"
         "Provide exactly 3 short suggested responses the user could say next. "
-        "Return ONLY a JSON object with key \"suggestions\" (a list of strings) "
-        "and \"tone_score\" (an object with integer keys: warmth, defensiveness, "
-        "sarcasm, constructiveness, overall — each 0-100, scoring the transcript turn)."
+        "Return ONLY a JSON object with key \"suggestions\" (a list of strings), "
+        "\"tone_score\" (an object with integer keys: warmth, defensiveness, "
+        "sarcasm, constructiveness, overall — each 0-100, scoring the transcript "
+        "turn), and \"importance\" (an integer 0-100: how much the user needs a "
+        "coaching interjection at THIS moment — high for emotionally charged, "
+        "high-stakes, or pivotal turns; low for small talk, filler, or logistics)."
     )
     # Append the voice-profile few-shot block AFTER the output contract so the
     # required JSON format stays stated last and authoritative. When there is

@@ -8,6 +8,7 @@ import {
   StyleSheet,
 } from "react-native";
 import EmpathySlider from "../components/EmpathySlider";
+import InterjectSlider from "../components/InterjectSlider";
 import SuggestionCard from "../components/SuggestionCard";
 import LiveTranscript from "../components/LiveTranscript";
 import { useAudioStream } from "../hooks/useAudioStream";
@@ -33,9 +34,11 @@ export default function LiveCoachScreen() {
     startSession,
     stopSession,
     sendEmpathyUpdate,
+    sendInterjectUpdate,
   } = useAudioStream();
 
   const [empathyLevel, setEmpathyLevel] = useState(50);
+  const [interjectLevel, setInterjectLevel] = useState(0);
   const [coachMode, setCoachMode] = useState<"earpiece" | "visual">(
     "visual",
   );
@@ -54,9 +57,9 @@ export default function LiveCoachScreen() {
       await stopSession();
     } else {
       const sessionId = `live-${Date.now()}`;
-      await startSession(sessionId, empathyLevel);
+      await startSession(sessionId, empathyLevel, interjectLevel);
     }
-  }, [sessionActive, stopSession, startSession, empathyLevel]);
+  }, [sessionActive, stopSession, startSession, empathyLevel, interjectLevel]);
 
   const handleEmpathyChange = useCallback(
     (value: number) => {
@@ -64,6 +67,17 @@ export default function LiveCoachScreen() {
       sendEmpathyUpdate(value);
     },
     [sendEmpathyUpdate],
+  );
+
+  const handleInterjectChange = useCallback(
+    (value: number) => {
+      // Round at the source: the server takes an int, and this state also
+      // feeds startSession's initial config — keep both paths in sync.
+      const rounded = Math.round(value);
+      setInterjectLevel(rounded);
+      sendInterjectUpdate(rounded);
+    },
+    [sendInterjectUpdate],
   );
 
   const statusColor = STATUS_COLORS[connectionStatus] || STATUS_COLORS.idle;
@@ -154,6 +168,12 @@ export default function LiveCoachScreen() {
         onValueChange={handleEmpathyChange}
       />
 
+      {/* How often the coach should interject */}
+      <InterjectSlider
+        value={interjectLevel}
+        onValueChange={handleInterjectChange}
+      />
+
       {/* Live transcript */}
       <LiveTranscript entries={transcript} />
 
@@ -166,7 +186,12 @@ export default function LiveCoachScreen() {
         >
           <Text style={styles.suggestionsTitle}>Suggestions</Text>
           {suggestions.map((s, i) => (
-            <SuggestionCard key={i} text={s.text} tone={s.tone} />
+            <SuggestionCard
+              key={i}
+              text={s.text}
+              tone={s.tone}
+              muted={s.muted}
+            />
           ))}
         </ScrollView>
       )}

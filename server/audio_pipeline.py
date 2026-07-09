@@ -36,7 +36,12 @@ import websockets
 from fastapi import WebSocket, WebSocketDisconnect
 
 from llm_client import LLMClient
-from models.audio import DiarizationConfig, SuggestionEvent, Utterance
+from models.audio import (
+    DiarizationConfig,
+    SuggestionEvent,
+    TranscriptEvent,
+    Utterance,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -664,6 +669,11 @@ class TTSClient:
 class SessionContext:
     session_id: str
     empathy_slider: int = 50
+    # Interjection threshold 0-100: a suggestion is only VOICED when the
+    # LLM-scored importance of the moment clears this bar. 0 (default) voices
+    # every turn — the pre-slider behaviour. Orthogonal to empathy_slider,
+    # which sets the STYLE of suggestions, not when to deliver them.
+    interject_level: int = 0
     role: str = "Husband"
     utterances: list[Utterance] = field(default_factory=list)
     # Verified Firebase uid, set by the WS auth handshake before any audio is
@@ -737,6 +747,10 @@ async def _apply_config(ctx: SessionContext, payload: dict) -> None:
         val = payload["empathy_slider"]
         if isinstance(val, int) and 0 <= val <= 100:
             ctx.empathy_slider = val
+    if "interject_level" in payload:
+        val = payload["interject_level"]
+        if isinstance(val, int) and 0 <= val <= 100:
+            ctx.interject_level = val
     if "role" in payload:
         role_val = payload["role"]
         # P2-3: role reaches the LLM system prompt — ignore wrong-typed values,
@@ -978,56 +992,58 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
     # single background worker so it never stalls the audio receive loop —
     # audio keeps flowing to Deepgram while a suggestion is being generated.
     # One worker (not a pool) keeps SuggestionEvents in utterance order.
-    # Queue items carry the (empathy_slider, role) snapshot at enqueue time.
-    suggestion_queue: asyncio.Queue[tuple[TranscriptSegment, int, str]] = asyncio.Queue()
+    # Queue items carry the (empathy, interject, role) snapshot at enqueue time.
+    suggestion_queue: asyncio.Queue[tuple[Utterance, int, int, str]] = asyncio.Queue()
     # enqueued-vs-finished counters let the stop handler report honestly how
     # many suggestions were dropped when draining times out (P1-8) — qsize()
     # alone would miss the item the worker is currently processing.
-    queue_stats = {"enqueued": 0, "finished": 0}
+    # "superseded" counts stale turns dropped by the latest-wins policy below.
+    queue_stats = {"enqueued": 0, "finished": 0, "superseded": 0}
 
     async def process_segment(
-        segment: TranscriptSegment, empathy_slider: int, role: str,
+        utterance: Utterance, empathy_slider: int, interject_level: int,
+        role: str,
     ) -> None:
-        speaker = labeler.label_for(segment.speaker)
-
-        utterance = Utterance(
-            session_id=session_id,
-            speaker=speaker,
-            text=segment.text,
-            start_time=segment.start_time,
-            end_time=segment.end_time,
-            confidence=segment.confidence,
-        )
-        _remember_utterance(ctx, utterance)
-
         # Generate suggestion via LLM. ctx.voice_profile was loaded once at
         # config time (None when unset → today's exact prompt).
-        suggestion_texts = await _generate_suggestions(
+        suggestion_texts, importance = await _generate_suggestions(
             llm_client, utterance, empathy_slider, role, ctx.voice_profile,
         )
 
-        # TTS for first suggestion
+        # Interjection gate: the coach only VOICES a suggestion when the
+        # LLM-scored importance of the moment clears the session's threshold.
+        # The event is still sent (client may render it dimmed) — but no TTS
+        # is synthesized for it, so the earpiece stays quiet.
+        speak = importance >= interject_level
+
+        # TTS for first suggestion (only when it will actually be voiced)
         tts_audio = (
             await tts.synthesize(suggestion_texts[0])
-            if suggestion_texts else None
+            if (speak and suggestion_texts) else None
         )
 
         event = SuggestionEvent(
             session_id=session_id,
-            utterance_text=segment.text,
-            speaker=speaker,
+            utterance_text=utterance.text,
+            speaker=utterance.speaker,
             suggestions=suggestion_texts,
             empathy_slider=empathy_slider,
             audio_b64=tts_audio,
+            importance=importance,
+            speak=speak,
         )
         async with send_lock:
             await websocket.send_text(event.model_dump_json())
 
     async def suggestion_worker() -> None:
         while True:
-            segment, empathy_slider, role = await suggestion_queue.get()
+            utterance, empathy_slider, interject_level, role = (
+                await suggestion_queue.get()
+            )
             try:
-                await process_segment(segment, empathy_slider, role)
+                await process_segment(
+                    utterance, empathy_slider, interject_level, role,
+                )
             except Exception as exc:
                 # P0-2: a failed suggestion (LLM/TTS error, missing key, rate
                 # limit) must never be silently swallowed — the client is told
@@ -1037,7 +1053,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 # or queue.join() deadlocks.
                 logger.warning(
                     "Suggestion processing failed for session %s (%s)",
-                    session_id, _redact(segment.text), exc_info=True,
+                    session_id, _redact(utterance.text), exc_info=True,
                 )
                 reason = (
                     exc.reason if isinstance(exc, SuggestionUnavailable)
@@ -1047,7 +1063,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 with contextlib.suppress(Exception):
                     await send_json({
                         "type": "suggestion_error",
-                        "utterance_text": segment.text,
+                        "utterance_text": utterance.text,
                         "reason": reason,
                     })
             finally:
@@ -1059,6 +1075,29 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
     async def enqueue_segments(result) -> None:
         nonlocal limit_notified
         for segment in _normalize_segments(result):
+            # Label + remember + surface the transcript line IMMEDIATELY —
+            # the words should never wait on (or be dropped with) a
+            # suggestion. This also keeps the utterance buffer complete even
+            # when the latest-wins policy below skips coaching a turn.
+            speaker = labeler.label_for(segment.speaker)
+            utterance = Utterance(
+                session_id=session_id,
+                speaker=speaker,
+                text=segment.text,
+                start_time=segment.start_time,
+                end_time=segment.end_time,
+                confidence=segment.confidence,
+            )
+            _remember_utterance(ctx, utterance)
+            with contextlib.suppress(Exception):
+                await send_json(TranscriptEvent(
+                    session_id=session_id,
+                    speaker=speaker,
+                    text=segment.text,
+                    start_time=segment.start_time,
+                    end_time=segment.end_time,
+                ).model_dump())
+
             if queue_stats["enqueued"] >= MAX_UTTERANCES:
                 # P2-1: utterance budget exhausted — every suggestion is an
                 # LLM + TTS spend. Say so ONCE, then drop further segments
@@ -1073,8 +1112,25 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                     with contextlib.suppress(Exception):
                         await send_json({"type": "limit_reached"})
                 return
+
+            # Latest-wins: a suggestion takes seconds (LLM + TTS). If newer
+            # speech has arrived while one is still cooking, coaching the
+            # backlog is stale by definition — the user hears advice about
+            # something said a minute ago, arriving after they stopped
+            # talking. Drop pending (not-yet-started) turns so the coach
+            # always reacts to the most recent thing said; the dropped turns
+            # remain in the transcript and the utterance buffer above.
+            while not suggestion_queue.empty():
+                with contextlib.suppress(asyncio.QueueEmpty):
+                    suggestion_queue.get_nowait()
+                    suggestion_queue.task_done()
+                    queue_stats["finished"] += 1
+                    queue_stats["superseded"] += 1
+
             queue_stats["enqueued"] += 1
-            suggestion_queue.put_nowait((segment, ctx.empathy_slider, ctx.role))
+            suggestion_queue.put_nowait(
+                (utterance, ctx.empathy_slider, ctx.interject_level, ctx.role)
+            )
 
     worker_task = asyncio.create_task(suggestion_worker())
     # P1-7: this try must start IMMEDIATELY after the worker task is created.
@@ -1306,8 +1362,14 @@ async def _generate_suggestions(
     empathy_slider: int,
     role: str,
     voice_profile: dict | None = None,
-) -> list[str]:
-    """Call LLMClient.complete() and parse suggestions from the response.
+) -> tuple[list[str], int]:
+    """Call LLMClient.complete(); parse suggestions + moment importance.
+
+    Returns ``(suggestions, importance)`` where importance is the model's
+    0-100 rating of how much this moment warranted a coaching interjection.
+    A missing/invalid importance fails OPEN to 100 (always voice) so an older
+    or non-conforming model response degrades to pre-slider behaviour rather
+    than silencing the coach.
 
     Raises :class:`SuggestionUnavailable` ("llm_parse_error") when the LLM
     output cannot be parsed (P0-3). It used to fabricate an
@@ -1338,4 +1400,17 @@ async def _generate_suggestions(
             "LLM returned non-list suggestions for %s", _redact(utterance.text)
         )
         raise SuggestionUnavailable("llm_parse_error")
-    return suggestions
+
+    importance_raw = data.get("importance")
+    if isinstance(importance_raw, bool) or not isinstance(importance_raw, (int, float)):
+        # Fail open — voice it, like before the slider. Logged because a model
+        # that stops emitting importance silently turns the interject slider
+        # into a no-op; this line is how we'd notice from Cloud Run logs.
+        logger.info(
+            "LLM omitted/invalid importance for %s — failing open to 100",
+            _redact(utterance.text),
+        )
+        importance = 100
+    else:
+        importance = max(0, min(100, int(importance_raw)))
+    return suggestions, importance
