@@ -165,6 +165,14 @@ def _is_valid_session_id(value: str) -> bool:
     return bool(_SESSION_ID_RE.match(value))
 
 
+# Side-aware coaching: the coached user identifies themself by their diarized
+# label ("Speaker A"/"Speaker B", or a generated "Speaker AA" past Z — see
+# _generated_speaker_label). We only accept exactly that shape from config so a
+# malformed value can never mis-type turns; JSON null resets it (see
+# _apply_config). Mirrors the "Speaker <letters>" labels the labeler emits.
+_SELF_SPEAKER_RE = re.compile(r"^Speaker [A-Z]{1,2}$")
+
+
 # P0-1: WebSockets bypass CORS / the same-origin policy — any web page in any
 # browser can open ws://.../ws/session/x, stream audio, and burn the owner's
 # Deepgram + Anthropic credits. Native mobile apps send NO Origin header;
@@ -688,6 +696,14 @@ class SessionContext:
     from_participant_id: str | None = None
     voice_profile: dict | None = None
     voice_profile_loaded: bool = False
+    # Side-aware coaching ("the coach knows who you are"): the diarized label
+    # ("Speaker A"/"Speaker B") of the coached user, set via config. None = the
+    # legacy behaviour: every turn is coached as an OTHER turn (suggest what to
+    # say back), exactly as before this field existed. When set, a turn whose
+    # speaker matches is a SELF turn and gets a single delivery nudge instead.
+    # Snapshotted at ENQUEUE time (like empathy/interject/role) so a mid-flight
+    # config change never retypes an already-queued turn.
+    self_speaker: str | None = None
 
 
 def _remember_utterance(ctx: SessionContext, utterance: Utterance) -> None:
@@ -765,6 +781,18 @@ async def _apply_config(ctx: SessionContext, payload: dict) -> None:
     part_val = payload.get("from_participant_id")
     if isinstance(part_val, str):
         ctx.from_participant_id = part_val[:MAX_ID_CHARS]
+    # Side-aware coaching: which diarized label is the coached user. Applied on
+    # the initial config AND live updates. A string matching the "Speaker X"
+    # shape sets it; JSON null (Python None) resets to the legacy every-turn-
+    # OTHER behaviour; anything else (wrong type, "bob", bare "Speaker") is
+    # ignored, like the other validated fields above. The `in payload` guard
+    # distinguishes an explicit null (reset) from an absent key (leave as-is).
+    if "self_speaker" in payload:
+        self_val = payload["self_speaker"]
+        if isinstance(self_val, str) and _SELF_SPEAKER_RE.match(self_val):
+            ctx.self_speaker = self_val
+        elif self_val is None:
+            ctx.self_speaker = None
     # Load the profile ONCE, the first time both ids are known — not per
     # utterance. uid-scoped, so a session can never load another user's stored
     # voice. A lookup failure degrades to no profile, never breaks the session.
@@ -992,8 +1020,12 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
     # single background worker so it never stalls the audio receive loop —
     # audio keeps flowing to Deepgram while a suggestion is being generated.
     # One worker (not a pool) keeps SuggestionEvents in utterance order.
-    # Queue items carry the (empathy, interject, role) snapshot at enqueue time.
-    suggestion_queue: asyncio.Queue[tuple[Utterance, int, int, str]] = asyncio.Queue()
+    # Queue items carry the (empathy, interject, role, self_speaker) snapshot at
+    # enqueue time — self_speaker is snapshotted too so a mid-flight config
+    # change never retypes a queued turn (SELF vs OTHER).
+    suggestion_queue: "asyncio.Queue[tuple[Utterance, int, int, str, str | None]]" = (
+        asyncio.Queue()
+    )
     # enqueued-vs-finished counters let the stop handler report honestly how
     # many suggestions were dropped when draining times out (P1-8) — qsize()
     # alone would miss the item the worker is currently processing.
@@ -1002,10 +1034,45 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
 
     async def process_segment(
         utterance: Utterance, empathy_slider: int, interject_level: int,
-        role: str,
+        role: str, self_speaker: str | None,
     ) -> None:
-        # Generate suggestion via LLM. ctx.voice_profile was loaded once at
-        # config time (None when unset → today's exact prompt).
+        # Side-aware coaching: when the coached user is known (self_speaker set)
+        # and THIS turn is theirs, coach their DELIVERY (one whispered nudge)
+        # rather than suggesting what to say to the other person. self_speaker
+        # is the enqueue-time snapshot, so a mid-flight config change never
+        # retypes this already-queued turn. self_speaker None → every turn is an
+        # OTHER turn, i.e. today's exact behaviour.
+        if self_speaker is not None and utterance.speaker == self_speaker:
+            nudge, importance = await _generate_nudge(
+                llm_client, utterance, empathy_slider, role, ctx.voice_profile,
+            )
+            if not nudge:
+                # "Only speak when something should change." The transcript
+                # event already went out at enqueue; a self turn that needs no
+                # correction sends NOTHING further — no suggestion event, no TTS.
+                return
+            # Same interjection gate as below: voice (and synthesize TTS) only
+            # when the nudge's urgency clears the session's threshold.
+            speak = importance >= interject_level
+            tts_audio = await tts.synthesize(nudge) if speak else None
+            event = SuggestionEvent(
+                session_id=session_id,
+                utterance_text=utterance.text,
+                speaker=utterance.speaker,
+                suggestions=[nudge],
+                empathy_slider=empathy_slider,
+                audio_b64=tts_audio,
+                importance=importance,
+                speak=speak,
+                kind="nudge",
+            )
+            async with send_lock:
+                await websocket.send_text(event.model_dump_json())
+            return
+
+        # OTHER turn (including the legacy self_speaker=None case): today's
+        # behaviour exactly. Generate suggestion via LLM. ctx.voice_profile was
+        # loaded once at config time (None when unset → today's exact prompt).
         suggestion_texts, importance = await _generate_suggestions(
             llm_client, utterance, empathy_slider, role, ctx.voice_profile,
         )
@@ -1037,12 +1104,13 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
 
     async def suggestion_worker() -> None:
         while True:
-            utterance, empathy_slider, interject_level, role = (
+            utterance, empathy_slider, interject_level, role, self_speaker = (
                 await suggestion_queue.get()
             )
             try:
                 await process_segment(
                     utterance, empathy_slider, interject_level, role,
+                    self_speaker,
                 )
             except Exception as exc:
                 # P0-2: a failed suggestion (LLM/TTS error, missing key, rate
@@ -1129,7 +1197,8 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
 
             queue_stats["enqueued"] += 1
             suggestion_queue.put_nowait(
-                (utterance, ctx.empathy_slider, ctx.interject_level, ctx.role)
+                (utterance, ctx.empathy_slider, ctx.interject_level, ctx.role,
+                 ctx.self_speaker)
             )
 
     worker_task = asyncio.create_task(suggestion_worker())
@@ -1414,3 +1483,70 @@ async def _generate_suggestions(
     else:
         importance = max(0, min(100, int(importance_raw)))
     return suggestions, importance
+
+
+async def _generate_nudge(
+    llm: LLMClient,
+    utterance: Utterance,
+    empathy_slider: int,
+    role: str,
+    voice_profile: dict | None = None,
+) -> tuple[str, int]:
+    """Call the LLM for a SELF turn; parse the single delivery nudge + urgency.
+
+    Mirrors :func:`_generate_suggestions` but for the coached user's OWN
+    speech: :func:`~main.self_feedback_prompt` asks for ONE tiny course-
+    correction, or an empty string when the delivery is already fine ("only
+    speak when something should change"). Returns ``(nudge, importance)``:
+
+      * an empty/whitespace nudge → ``("", 0)`` — nothing to say, and nothing
+        to voice, so importance is forced to 0 regardless of what the model
+        emitted alongside the empty nudge.
+      * a non-empty nudge with a missing/invalid importance fails OPEN to 100
+        (a nudge worth emitting is worth voicing) — the same spirit as
+        _generate_suggestions, but only when there actually IS a nudge.
+
+    Raises :class:`SuggestionUnavailable` ("llm_parse_error") when the LLM
+    output cannot be parsed (P0-3), with PII-safe logging via :func:`_redact` —
+    it never fabricates a nudge.
+    """
+    from main import parse_llm_json, self_feedback_prompt
+
+    system = self_feedback_prompt(empathy_slider, role, voice_profile)
+    user_content = f'Transcript turn: "{utterance.text}"'
+
+    raw = await asyncio.to_thread(llm.complete, system=system, user=user_content)
+
+    try:
+        data = parse_llm_json(raw)
+        nudge = data.get("nudge", "")
+    # AttributeError/TypeError: valid JSON of the wrong shape (list, string…).
+    except (json.JSONDecodeError, KeyError, AttributeError, TypeError) as exc:
+        logger.warning(
+            "LLM returned unparseable nudge for %s", _redact(utterance.text)
+        )
+        raise SuggestionUnavailable("llm_parse_error") from exc
+    if not isinstance(nudge, str):
+        logger.warning(
+            "LLM returned non-string nudge for %s", _redact(utterance.text)
+        )
+        raise SuggestionUnavailable("llm_parse_error")
+
+    nudge = nudge.strip()
+    if not nudge:
+        # Delivery is fine — say nothing. importance 0 keeps callers from ever
+        # voicing an absent nudge.
+        return "", 0
+
+    importance_raw = data.get("importance")
+    if isinstance(importance_raw, bool) or not isinstance(importance_raw, (int, float)):
+        # Fail open — a nudge the model bothered to emit is worth voicing (see
+        # _generate_suggestions for the same rationale/log).
+        logger.info(
+            "LLM omitted/invalid importance for nudge %s — failing open to 100",
+            _redact(utterance.text),
+        )
+        importance = 100
+    else:
+        importance = max(0, min(100, int(importance_raw)))
+    return nudge, importance

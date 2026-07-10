@@ -15,6 +15,8 @@ const defaultHookState = {
   transcript: [],
   suggestions: [],
   speakerLabel: "",
+  selfSpeaker: "Speaker A" as string | null,
+  setSelfSpeaker: jest.fn(),
   connectionStatus: "idle" as const,
   transcriptionAvailable: true,
   transcriptionMessage: "",
@@ -27,6 +29,14 @@ const defaultHookState = {
   sendEmpathyUpdate: jest.fn(),
   sendInterjectUpdate: jest.fn(),
 };
+
+/** Build a "response" feed entry (the shape the hook now exposes). */
+function responseEntry(
+  texts: string[],
+  { id = 1, tone = "empathetic", muted = false } = {},
+) {
+  return { id, kind: "response" as const, texts, tone, muted, timestamp: id };
+}
 
 beforeEach(() => {
   mockUseAudioStream.mockReturnValue({ ...defaultHookState });
@@ -61,10 +71,9 @@ describe("LiveCoachScreen", () => {
         },
       ],
       suggestions: [
-        {
-          text: "I hear that you feel unheard. Can you help me understand what you need?",
-          tone: "empathetic",
-        },
+        responseEntry([
+          "I hear that you feel unheard. Can you help me understand what you need?",
+        ]),
       ],
     });
 
@@ -231,9 +240,14 @@ describe("LiveCoachScreen", () => {
   it("dims muted suggestions instead of hiding them", () => {
     mockUseAudioStream.mockReturnValue({
       ...defaultHookState,
+      // Two separate feed entries: newest first, the older one muted.
       suggestions: [
-        { text: "Spoken advice.", tone: "balanced", muted: false },
-        { text: "Quiet aside.", tone: "balanced", muted: true },
+        responseEntry(["Spoken advice."], { id: 2, tone: "balanced" }),
+        responseEntry(["Quiet aside."], {
+          id: 1,
+          tone: "balanced",
+          muted: true,
+        }),
       ],
     });
 
@@ -255,5 +269,138 @@ describe("LiveCoachScreen", () => {
     expect(cards[1].props.style).toContainEqual(
       expect.objectContaining({ opacity: 0.5 }),
     );
+  });
+
+  it("identity chip appears with a session and toggles the self speaker", () => {
+    const setSelfSpeaker = jest.fn();
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      sessionActive: true,
+      connectionStatus: "live",
+      selfSpeaker: "Speaker A",
+      setSelfSpeaker,
+    });
+
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    const chip = root!.root.findByProps({ testID: "self-speaker-chip" });
+    expect(chip).toBeTruthy();
+
+    act(() => chip.props.onPress());
+    // Currently "Speaker A" → toggles to "Speaker B".
+    expect(setSelfSpeaker).toHaveBeenCalledWith("Speaker B");
+  });
+
+  it("hides the identity chip before any session or transcript", () => {
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    expect(
+      root!.root.findAllByProps({ testID: "self-speaker-chip" }),
+    ).toHaveLength(0);
+  });
+
+  it("shows the idle explainer only when idle with no transcript", () => {
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    expect(
+      root!.root.findAllByProps({ testID: "idle-explainer" }).length,
+    ).toBeGreaterThan(0);
+
+    // During a live session it is gone.
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      sessionActive: true,
+      connectionStatus: "live",
+    });
+    let live: renderer.ReactTestRenderer;
+    act(() => {
+      live = renderer.create(<LiveCoachScreen />);
+    });
+    expect(
+      live!.root.findAllByProps({ testID: "idle-explainer" }),
+    ).toHaveLength(0);
+  });
+
+  it("review button shows only after a session ends with a transcript, and hands off the mapped turns", () => {
+    const onReviewTranscript = jest.fn();
+    const transcript = [
+      { speaker: "Speaker A", text: "You never listen.", timestamp: 1 },
+      { speaker: "Speaker B", text: "I'm trying.", timestamp: 2 },
+    ];
+
+    // Live session in progress: no review button yet.
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      sessionActive: true,
+      transcript,
+    });
+    let live: renderer.ReactTestRenderer;
+    act(() => {
+      live = renderer.create(
+        <LiveCoachScreen onReviewTranscript={onReviewTranscript} />,
+      );
+    });
+    expect(
+      live!.root.findAllByProps({ testID: "review-transcript-button" }),
+    ).toHaveLength(0);
+
+    // Session ended with a transcript: the button appears and hands off the
+    // turns mapped to {speaker, text} (timestamps dropped).
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      sessionActive: false,
+      transcript,
+    });
+    let ended: renderer.ReactTestRenderer;
+    act(() => {
+      ended = renderer.create(
+        <LiveCoachScreen onReviewTranscript={onReviewTranscript} />,
+      );
+    });
+    const button = ended!.root.findByProps({
+      testID: "review-transcript-button",
+    });
+    act(() => button.props.onPress());
+    expect(onReviewTranscript).toHaveBeenCalledWith([
+      { speaker: "Speaker A", text: "You never listen." },
+      { speaker: "Speaker B", text: "I'm trying." },
+    ]);
+  });
+
+  it("renders a nudge entry as a compact banner, not a suggestion card", () => {
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      sessionActive: true,
+      connectionStatus: "live",
+      suggestions: [
+        {
+          id: 1,
+          kind: "nudge" as const,
+          texts: ["ease up"],
+          tone: "balanced",
+          muted: false,
+          timestamp: 1,
+        },
+      ],
+    });
+
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    expect(
+      root!.root.findAllByProps({ testID: "nudge-banner" }).length,
+    ).toBeGreaterThan(0);
+    // A nudge is NOT a full SuggestionCard stack.
+    expect(
+      root!.root.findAllByProps({ testID: "suggestion-card" }),
+    ).toHaveLength(0);
+    expect(JSON.stringify(root!.toJSON())).toContain("ease up");
   });
 });

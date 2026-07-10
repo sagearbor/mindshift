@@ -1557,3 +1557,297 @@ class TestLatestWinsQueue:
         assert [s["utterance_text"] for s in suggestions] == [
             "Turn one.", "Turn three.",
         ]
+
+
+# ---------------------------------------------------------------------------
+# NEW: side-aware coaching — the coach knows who the user is
+# ---------------------------------------------------------------------------
+# self_speaker (the coached user's diarized label) turns their OWN turns into a
+# single delivery "nudge" (kind="nudge") instead of the 3-suggestion
+# "response". None (unset) = legacy behaviour: every turn is a "response". A
+# nudge LLM payload differs from MOCK_LLM_JSON — the contract is exactly
+# {"nudge": str, "importance": int} (no tone_score: nothing reads it, and dead
+# output is wasted tokens on every self turn of a real-time whisper).
+
+NUDGE_LLM_JSON = json.dumps({
+    "nudge": "ease up",
+    "importance": 70,
+})
+
+# A self turn that needs no correction: the model returns an empty (here
+# whitespace-only, to prove it is .strip()ed) nudge → the coach stays silent.
+EMPTY_NUDGE_LLM_JSON = json.dumps({
+    "nudge": "   ",
+    "importance": 0,
+})
+
+
+class TestSelfSpeakerConfigParsing:
+    """self_speaker parses like the other validated config fields: a valid
+    "Speaker X" string is stored, malformed shapes are ignored, JSON null
+    resets, and an absent key leaves the current value untouched."""
+
+    @pytest.mark.anyio
+    async def test_valid_self_speaker_stored(self):
+        from audio_pipeline import SessionContext, _apply_config
+
+        ctx = SessionContext(session_id="self-ok")
+        await _apply_config(ctx, {"self_speaker": "Speaker A"})
+        assert ctx.self_speaker == "Speaker A"
+        # Two-letter generated labels (past Z) are valid too.
+        await _apply_config(ctx, {"self_speaker": "Speaker AB"})
+        assert ctx.self_speaker == "Speaker AB"
+
+    @pytest.mark.anyio
+    async def test_invalid_self_speaker_shapes_ignored(self):
+        from audio_pipeline import SessionContext, _apply_config
+
+        ctx = SessionContext(session_id="self-bad")
+        ctx.self_speaker = "Speaker A"  # a previously-set value must survive
+        for bad in ("bob", 42, "Speaker", "speaker a", "Speaker 1", ["Speaker A"]):
+            await _apply_config(ctx, {"self_speaker": bad})
+            assert ctx.self_speaker == "Speaker A"
+
+    @pytest.mark.anyio
+    async def test_null_resets_self_speaker(self):
+        from audio_pipeline import SessionContext, _apply_config
+
+        ctx = SessionContext(session_id="self-null")
+        ctx.self_speaker = "Speaker B"
+        await _apply_config(ctx, {"self_speaker": None})
+        assert ctx.self_speaker is None
+
+    @pytest.mark.anyio
+    async def test_absent_key_leaves_self_speaker_unchanged(self):
+        from audio_pipeline import SessionContext, _apply_config
+
+        ctx = SessionContext(session_id="self-absent")
+        ctx.self_speaker = "Speaker A"
+        await _apply_config(ctx, {"empathy_slider": 30})  # unrelated field
+        assert ctx.self_speaker == "Speaker A"
+
+
+class TestSideAwareCoaching:
+    """End-to-end: with self_speaker set, the coached user's own turns get a
+    'nudge'; the other person's turns are unchanged 'response's.
+
+    speaker=0 maps to "Speaker A" and speaker=1 to "Speaker B" via the
+    SpeakerLabelAssigner, so a SequentialSegmentTranscriber can emit one SELF
+    and one OTHER turn deterministically."""
+
+    def test_other_turn_unchanged_with_self_speaker_set(self):
+        # self is Speaker B; a Speaker A (speaker=0) turn is the OTHER person →
+        # today's exact 3-suggestion response, kind="response".
+        t = SequentialSegmentTranscriber([
+            TranscriptSegment("You never listen.", 0.0, 1.0, speaker=0),
+        ])
+        client = _inject(t)  # mock LLM returns MOCK_LLM_JSON (3 suggestions)
+        try:
+            with open_ws(client, "/ws/session/5f0a1b2c-0000-4000-8000-000000000101") as ws:
+                ws.send_text(json.dumps({"type": "config", "self_speaker": "Speaker B"}))
+                assert json.loads(ws.receive_text())["type"] == "config_ack"
+                ws.send_bytes(b"\x00" * 50)
+                resp = recv_skipping_transcripts(ws)
+        finally:
+            _clear_overrides()
+
+        assert resp["type"] == "suggestion"
+        assert resp["kind"] == "response"
+        assert len(resp["suggestions"]) == 3
+
+    def test_self_turn_nudge_voiced_above_threshold(self):
+        # self is Speaker A; a Speaker A (speaker=0) turn is a SELF turn →
+        # kind="nudge", one nudge string. importance 70 >= interject 50 → voiced.
+        t = SequentialSegmentTranscriber([
+            TranscriptSegment("I'm sorry, maybe I'm wrong.", 0.0, 1.0, speaker=0),
+        ])
+        client = _inject(t)
+        app.state.llm_client.complete.return_value = NUDGE_LLM_JSON
+        try:
+            with open_ws(client, "/ws/session/5f0a1b2c-0000-4000-8000-000000000102") as ws:
+                ws.send_text(json.dumps({
+                    "type": "config", "self_speaker": "Speaker A",
+                    "interject_level": 50,
+                }))
+                assert json.loads(ws.receive_text())["type"] == "config_ack"
+                ws.send_bytes(b"\x00" * 50)
+                resp = recv_skipping_transcripts(ws)
+        finally:
+            _clear_overrides()
+
+        assert resp["type"] == "suggestion"
+        assert resp["kind"] == "nudge"
+        assert resp["suggestions"] == ["ease up"]
+        assert resp["importance"] == 70
+        assert resp["speak"] is True
+        assert resp["audio_b64"] is not None  # voiced → TTS synthesized
+
+    def test_self_turn_nudge_not_voiced_below_threshold(self):
+        # Same nudge (importance 70) but interject_level 90 → not voiced, no TTS,
+        # yet the nudge event is still delivered (client may render it dimmed).
+        t = SequentialSegmentTranscriber([
+            TranscriptSegment("I'm sorry, maybe I'm wrong.", 0.0, 1.0, speaker=0),
+        ])
+        client = _inject(t)
+        app.state.llm_client.complete.return_value = NUDGE_LLM_JSON
+        try:
+            with open_ws(client, "/ws/session/5f0a1b2c-0000-4000-8000-000000000103") as ws:
+                ws.send_text(json.dumps({
+                    "type": "config", "self_speaker": "Speaker A",
+                    "interject_level": 90,
+                }))
+                assert json.loads(ws.receive_text())["type"] == "config_ack"
+                ws.send_bytes(b"\x00" * 50)
+                resp = recv_skipping_transcripts(ws)
+        finally:
+            _clear_overrides()
+
+        assert resp["type"] == "suggestion"
+        assert resp["kind"] == "nudge"
+        assert resp["speak"] is False
+        assert resp["audio_b64"] is None
+
+    def test_empty_nudge_sends_no_suggestion_event(self):
+        # A self turn that needs no correction → empty nudge → NOTHING sent
+        # beyond the transcript. Mirror TestSessionCaps: prove absence by
+        # showing the next event on the wire is the config_ack.
+        t = SequentialSegmentTranscriber([
+            TranscriptSegment("Sounds good, thanks.", 0.0, 1.0, speaker=0),
+        ])
+        client = _inject(t)
+        app.state.llm_client.complete.return_value = EMPTY_NUDGE_LLM_JSON
+        try:
+            with open_ws(client, "/ws/session/5f0a1b2c-0000-4000-8000-000000000104") as ws:
+                ws.send_text(json.dumps({"type": "config", "self_speaker": "Speaker A"}))
+                assert json.loads(ws.receive_text())["type"] == "config_ack"
+                ws.send_bytes(b"\x00" * 50)
+                transcript = json.loads(ws.receive_text())
+                assert transcript["type"] == "transcript"
+                assert transcript["text"] == "Sounds good, thanks."
+                # No suggestion event for the silent nudge — the next event is
+                # the ack for this config frame.
+                ws.send_text(json.dumps({"type": "config"}))
+                assert json.loads(ws.receive_text())["type"] == "config_ack"
+        finally:
+            _clear_overrides()
+
+    def test_legacy_no_self_speaker_all_response_kind(self, fake_ws):
+        # self_speaker unset → every turn is a "response" (kind present + correct
+        # for old clients that never send self_speaker).
+        sid = str(uuid.uuid4())
+        with open_ws(fake_ws, f"/ws/session/{sid}") as ws:
+            ws.send_bytes(b"\x00" * 50)
+            resp = recv_skipping_transcripts(ws)
+        assert resp["type"] == "suggestion"
+        assert resp["kind"] == "response"
+
+    def test_self_speaker_change_does_not_retype_queued_turn(self):
+        """Snapshot semantics: a turn enqueued while self_speaker was None is
+        typed OTHER even if self_speaker is set before the worker finishes it.
+
+        Proof exploits that MOCK_LLM_JSON has 'suggestions' but no 'nudge':
+        typed OTHER, turn one yields a kind='response' suggestion; a (buggy)
+        SELF retype would read an empty nudge from the same payload and send
+        NOTHING. So seeing the response proves the enqueue-time snapshot held.
+        """
+        llm = BlockingLLM(MOCK_LLM_JSON)
+        t = SequentialSegmentTranscriber([
+            TranscriptSegment("First turn.", 0.0, 1.0, speaker=0),
+        ])
+        client = _inject(t)
+        app.state.llm_client = llm
+        try:
+            with open_ws(client, "/ws/session/5f0a1b2c-0000-4000-8000-000000000105") as ws:
+                ws.send_bytes(b"\x00" * 50)  # turn one — self_speaker None → OTHER
+                assert llm.started.wait(timeout=5)  # worker is inside the LLM
+                transcript = json.loads(ws.receive_text())  # immediate transcript
+                assert transcript["type"] == "transcript"
+                # Flip self_speaker AFTER the turn was snapshotted at enqueue.
+                ws.send_text(json.dumps({
+                    "type": "config", "self_speaker": "Speaker A",
+                }))
+                assert json.loads(ws.receive_text())["type"] == "config_ack"
+                llm.release.set()
+                resp = recv_skipping_transcripts(ws)
+        finally:
+            _clear_overrides()
+
+        assert resp["type"] == "suggestion"
+        assert resp["kind"] == "response"  # OTHER — the queued turn was not retyped
+        assert len(resp["suggestions"]) == 3
+
+
+class TestSelfFeedbackPrompt:
+    """The nudge prompt follows the empathy dial (owner forbade always-soften)
+    and preserves the byte-identical-when-None voice-profile property."""
+
+    def test_direction_follows_empathy_dial(self):
+        from main import self_feedback_prompt
+
+        assertive = self_feedback_prompt(10, "Husband").lower()
+        assert "assertive" in assertive or "firm" in assertive
+        assert "never tell" in assertive  # explicitly forbids soften at low dial
+
+        empathetic = self_feedback_prompt(90, "Husband").lower()
+        assert "warm" in empathetic or "validat" in empathetic
+
+    def test_voice_profile_none_is_byte_identical(self):
+        from main import self_feedback_prompt
+
+        assert self_feedback_prompt(50, "Wife", None) == self_feedback_prompt(50, "Wife")
+
+    def test_voice_profile_block_appended(self):
+        from main import self_feedback_prompt
+
+        profile = {"pairs": [], "style_notes": "short, dry"}
+        out = self_feedback_prompt(50, "Wife", profile)
+        assert "Style notes: short, dry" in out
+
+
+class TestGenerateNudgeUnit:
+    """Unit coverage for _generate_nudge's fail-open / empty-nudge contract."""
+
+    @pytest.mark.anyio
+    async def test_empty_nudge_returns_zero_importance(self):
+        from audio_pipeline import _generate_nudge
+        from models.audio import Utterance
+
+        llm = MagicMock()
+        llm.complete.return_value = EMPTY_NUDGE_LLM_JSON  # whitespace nudge
+        u = Utterance(
+            session_id="s", speaker="Speaker A", text="hi",
+            start_time=0.0, end_time=1.0,
+        )
+        nudge, importance = await _generate_nudge(llm, u, 50, "Husband")
+        assert nudge == ""
+        assert importance == 0
+
+    @pytest.mark.anyio
+    async def test_missing_importance_fails_open_only_with_nudge(self):
+        from audio_pipeline import _generate_nudge
+        from models.audio import Utterance
+
+        llm = MagicMock()
+        llm.complete.return_value = json.dumps({"nudge": "be firmer"})  # no importance
+        u = Utterance(
+            session_id="s", speaker="Speaker A", text="hi",
+            start_time=0.0, end_time=1.0,
+        )
+        nudge, importance = await _generate_nudge(llm, u, 10, "Husband")
+        assert nudge == "be firmer"
+        assert importance == 100  # fail open — a real nudge is worth voicing
+
+    @pytest.mark.anyio
+    async def test_unparseable_output_raises_suggestion_unavailable(self):
+        from audio_pipeline import SuggestionUnavailable, _generate_nudge
+        from models.audio import Utterance
+
+        llm = MagicMock()
+        llm.complete.return_value = "not json at all"
+        u = Utterance(
+            session_id="s", speaker="Speaker A", text="hi",
+            start_time=0.0, end_time=1.0,
+        )
+        with pytest.raises(SuggestionUnavailable) as excinfo:
+            await _generate_nudge(llm, u, 50, "Husband")
+        assert excinfo.value.reason == "llm_parse_error"

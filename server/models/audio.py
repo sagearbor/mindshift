@@ -43,6 +43,13 @@ class TranscriptEvent(BaseModel):
 class SuggestionEvent(BaseModel):
     """A coaching suggestion sent back over WebSocket."""
     type: str = Field(default="suggestion", description="Event type discriminator")
+    # Which coaching mode produced this: "response" (suggest what to say to the
+    # OTHER person — the original behaviour) or "nudge" (a single delivery
+    # course-correction for the user's OWN just-spoken turn, side-aware
+    # coaching). A plain str with a default keeps the wire back-compatible:
+    # older clients that never read this field still parse the event, and every
+    # legacy event is a "response".
+    kind: str = Field(default="response", description='"response" | "nudge"')
     session_id: str
     utterance_text: str
     speaker: str
