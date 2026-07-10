@@ -31,12 +31,23 @@ export interface TranscriptEntry {
   timestamp: number;
 }
 
+/** "response" = coaching lines about the OTHER person's turn (the normal
+ *  case). "nudge" = a single ≤6-word delivery cue about the user's OWN
+ *  just-finished turn (e.g. "ease up"). Absent on old servers → "response". */
+export type SuggestionKind = "response" | "nudge";
+
 export interface SuggestionEntry {
-  text: string;
+  /** Monotonic, unique per event: a stable React key and a strict ordering
+   *  even for two events landing in the same millisecond. */
+  id: number;
+  kind: SuggestionKind;
+  /** The suggestion strings (a single element for a nudge). */
+  texts: string[];
   tone: string;
   /** True when the server said not to voice this suggestion (speak: false).
    *  Rendered dimmed in the UI and never passed to speakSuggestion. */
-  muted?: boolean;
+  muted: boolean;
+  timestamp: number;
 }
 
 type ConnectionStatus = "idle" | "connecting" | "live" | "disconnected";
@@ -47,8 +58,18 @@ interface UseAudioStreamReturn {
    *  (e.g. web) and no audio is being recorded. Drives the start/stop toggle. */
   sessionActive: boolean;
   transcript: TranscriptEntry[];
+  /** Accumulating suggestion feed, newest FIRST, capped at MAX_SUGGESTION_FEED.
+   *  A live conversation moves fast — replacing on every event means a glance a
+   *  second late finds the advice already gone. */
   suggestions: SuggestionEntry[];
   speakerLabel: string;
+  /** Which diarized speaker is the coached user ("Speaker A" | "Speaker B" |
+   *  null). Diarization labels are assigned PER SESSION by speaking order —
+   *  "Speaker A" is whoever speaks first in THAT session, not a stable
+   *  identity — so this resets to "Speaker A" (the "you speak first"
+   *  convention) at every session start. It toggles freely within a session. */
+  selfSpeaker: string | null;
+  setSelfSpeaker: (label: string) => void;
   connectionStatus: ConnectionStatus;
   transcriptionAvailable: boolean;
   transcriptionMessage: string;
@@ -72,6 +93,9 @@ interface UseAudioStreamReturn {
 
 const RECONNECT_DELAY_MS = 2000;
 const MAX_RECONNECT_ATTEMPTS = 5;
+/** The suggestion feed keeps at most this many entries; older ones drop off
+ *  the bottom. Enough to glance back a few turns without unbounded growth. */
+const MAX_SUGGESTION_FEED = 20;
 /**
  * After a manual stop we keep the socket open so the server can deliver the
  * final utterance's suggestion before `session_complete`. This is an
@@ -147,6 +171,13 @@ export function useAudioStream(): UseAudioStreamReturn {
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [suggestions, setSuggestions] = useState<SuggestionEntry[]>([]);
   const [speakerLabel, setSpeakerLabel] = useState("");
+  // Default "Speaker A" encodes the "you speak first" convention — the server
+  // labels the first voice it hears "Speaker A". Reset to this default at
+  // every session start (see startSession): diarization labels are assigned
+  // per session, so a previous session's toggle would mis-type every turn.
+  const [selfSpeaker, setSelfSpeakerState] = useState<string | null>(
+    "Speaker A",
+  );
   const [connectionStatus, setConnectionStatus] =
     useState<ConnectionStatus>("idle");
   const [transcriptionAvailable, setTranscriptionAvailable] = useState(true);
@@ -164,6 +195,12 @@ export function useAudioStream(): UseAudioStreamReturn {
    *  = only the most critical moments). Mirrors empathyRef: read at config-
    *  send time, not captured stale in the onopen closure. */
   const interjectRef = useRef(0);
+  /** Mirrors selfSpeaker so the long-lived onopen closure reads the current
+   *  choice at config-send time, not a stale render's value. */
+  const selfSpeakerRef = useRef<string | null>("Speaker A");
+  /** Monotonic source of suggestion feed entry ids (see SuggestionEntry.id).
+   *  Not reset per session — keeping it strictly increasing avoids key reuse. */
+  const suggestionIdRef = useRef(0);
   /** Sticky per-session flag: true once the server has sent any "transcript"
    *  event. A new server owns the transcript entirely via those events, so
    *  suggestion.utterance_text must then never be appended: suggestions lag
@@ -503,6 +540,9 @@ export function useAudioStream(): UseAudioStreamReturn {
             type: "config",
             empathy_slider: empathyRef.current,
             interject_level: interjectRef.current,
+            // Which diarized voice is the coached user's. Read from the ref so
+            // a toggle made before the socket opened is still honoured here.
+            self_speaker: selfSpeakerRef.current,
             ...(idToken ? { id_token: idToken } : {}),
           }),
         );
@@ -561,12 +601,32 @@ export function useAudioStream(): UseAudioStreamReturn {
               // interjecting on: stay silent and dim it in the UI instead of
               // voicing every suggestion regardless of importance.
               const muted = data.speak === false;
-              setSuggestions(items.map((text) => ({ text, tone, muted })));
+              // kind may be absent on older servers → a normal "response".
+              const kind: SuggestionKind =
+                data.kind === "nudge" ? "nudge" : "response";
+              const id = (suggestionIdRef.current += 1);
+              // Accumulate instead of replace: newest first, capped so the
+              // feed never grows without bound. A glance a second late still
+              // finds the last few turns of advice.
+              setSuggestions((prev) => {
+                const entry: SuggestionEntry = {
+                  id,
+                  kind,
+                  texts: items,
+                  tone,
+                  muted,
+                  timestamp: Date.now(),
+                };
+                const next = [entry, ...prev];
+                return next.length > MAX_SUGGESTION_FEED
+                  ? next.slice(0, MAX_SUGGESTION_FEED)
+                  : next;
+              });
               if (!muted) {
                 // Earpiece mode: speak the newest TOP suggestion with free
-                // on-device TTS. (The event also carries data.audio_b64 —
-                // Deepgram Aura mp3, paid key required — deliberately
-                // ignored; kept as a future premium-playback option.)
+                // on-device TTS — nudges too, they're short. (The event also
+                // carries data.audio_b64 — Deepgram Aura mp3, paid key
+                // required — deliberately ignored; a future premium option.)
                 speakSuggestion(items[0]);
               }
             }
@@ -732,6 +792,14 @@ export function useAudioStream(): UseAudioStreamReturn {
       // Fresh session, fresh protocol detection: don't let the previous
       // server's transcript events silence a legacy server's fallback.
       sawTranscriptEventRef.current = false;
+      // Fresh session, fresh diarization: "Speaker A" is whoever speaks first
+      // in THIS session, so a previous session's toggle must never leak into
+      // the new initial config frame — it could invert coaching entirely
+      // (nudges for the other person, response cards for the user). Reset
+      // BEFORE the socket opens so onopen always sends the per-session
+      // "you speak first" default.
+      selfSpeakerRef.current = "Speaker A";
+      setSelfSpeakerState("Speaker A");
 
       if (Platform.OS === "web") {
         await startWebSession(sessionId);
@@ -828,12 +896,31 @@ export function useAudioStream(): UseAudioStreamReturn {
     }
   }, []);
 
+  /**
+   * Set which diarized speaker is the coached user and, if a session is live,
+   * tell the server immediately via the same `config` channel empathy/interject
+   * use. Mirrors sendInterjectUpdate. Scoped to the CURRENT session: startSession
+   * resets the choice to "Speaker A" because diarization labels are re-assigned
+   * per session by speaking order (a stale toggle would invert the coaching).
+   */
+  const setSelfSpeaker = useCallback((label: string) => {
+    selfSpeakerRef.current = label;
+    setSelfSpeakerState(label);
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({ type: "config", self_speaker: label }),
+      );
+    }
+  }, []);
+
   return {
     isRecording,
     sessionActive,
     transcript,
     suggestions,
     speakerLabel,
+    selfSpeaker,
+    setSelfSpeaker,
     connectionStatus,
     transcriptionAvailable,
     transcriptionMessage,

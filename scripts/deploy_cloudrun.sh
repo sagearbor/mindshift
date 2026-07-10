@@ -93,6 +93,14 @@ fi
 # string; use ^@^ as the delimiter so values may safely contain commas.
 # ---------------------------------------------------------------------------
 ENV_VARS="ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}@DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}"
+# --set-env-vars REPLACES the service's entire env set on every deploy, so any
+# var not listed here is silently wiped. That bit us once: the WS browser
+# origin allowlist was added via `gcloud run services update` and the next
+# deploy erased it, re-breaking the web/iPhone mic. Default it here (it is
+# public config, not a secret) so the web app's origin always survives; a
+# MINDSHIFT_ALLOWED_ORIGINS in .env / the environment still overrides.
+MINDSHIFT_ALLOWED_ORIGINS="${MINDSHIFT_ALLOWED_ORIGINS:-$(read_env MINDSHIFT_ALLOWED_ORIGINS)}"
+MINDSHIFT_ALLOWED_ORIGINS="${MINDSHIFT_ALLOWED_ORIGINS:-https://arborfam-hub.web.app}"
 # Optional config: forwarded to Cloud Run only when present (in .env or a real
 # env var). This is what makes MINDSHIFT_MODEL, STT_PROVIDER, etc. genuinely
 # switch-in-.env — no code change needed as models/config evolve.

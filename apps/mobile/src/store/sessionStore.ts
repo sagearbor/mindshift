@@ -44,6 +44,9 @@ interface SessionState {
   addTurn: (turn: Turn) => void;
   /** Replace all turns from a pasted/typed transcript (async review). */
   loadTranscript: (raw: string) => void;
+  /** Load turns directly (e.g. a finished live-coach conversation handed off
+   *  for post-session review). Clears any stale suggestions. */
+  loadTurns: (turns: { speaker: string; text: string }[]) => void;
   clearTurns: () => void;
   fetchSuggestions: () => Promise<void>;
 }
@@ -59,6 +62,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   setEmpathyLevel: (level) => set({ empathyLevel: level }),
   addTurn: (turn) => set((s) => ({ turns: [...s.turns, turn] })),
   loadTranscript: (raw) => set({ turns: parseTranscript(raw), suggestions: [] }),
+  loadTurns: (turns) =>
+    set({
+      turns: turns.map((t) => ({ speaker: t.speaker, text: t.text })),
+      suggestions: [],
+    }),
   clearTurns: () => set({ turns: [], suggestions: [] }),
 
   fetchSuggestions: async () => {

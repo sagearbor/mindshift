@@ -4,6 +4,27 @@ Versions are numbered here. **App** = Android/EAS `version (versionCode)`.
 **Backend** = Cloud Run revision of `mindshift-api` (project `arborfam-hub`,
 `us-central1`). Newest first.
 
+## App 1.3.0 (versionCode 7) — 2026-07-10 · Backend revs 00009–00010
+**Side-aware coaching — the coach knows who you are** (auto-published to Play
+internal; web redeployed same day):
+- **Identity**: "you speak first" convention (first voice = you) + a
+  "You: Speaker A ⇄" tap-to-swap chip. Reset per session — diarization labels
+  aren't stable across sessions (an Opus adversarial-review catch: a
+  carried-over swap would have inverted coaching on the next session).
+- **Your turns** → one ≤6-word delivery nudge ("ease up" / "be firmer, don't
+  back down"); direction follows the empathy dial — the assertive bucket
+  never softens. Fine delivery → silence.
+- **Their turns** → full suggestions (unchanged).
+- **UX**: suggestion history feed (newest first, older faded), amber nudge
+  banners, header-overlap fix, idle explainer card, and post-session
+  **"Review this conversation →"** handoff into the Session review tab —
+  live coaching and async review are one loop now.
+- **Deploy hardening**: the deploy script now defaults
+  `MINDSHIFT_ALLOWED_ORIGINS` — a redeploy had silently wiped the manually
+  added allowlist (--set-env-vars replaces everything), re-breaking the
+  browser/iPhone mic; caught by post-deploy probe, root-caused, made
+  impossible to recur.
+
 ## App 1.2.0 (versionCode 6) — 2026-07-10 · Backend revs 00007–00008
 Suggestion **timing** overhaul (published to Play internal via the automated
 `play_publish.py` flow; web redeployed same day):

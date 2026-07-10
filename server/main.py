@@ -503,6 +503,76 @@ def empathy_system_prompt(
     return prompt
 
 
+def self_feedback_prompt(
+    slider: int, role: str, voice_profile: dict | None = None,
+) -> str:
+    """System prompt for coaching the user on THEIR OWN just-spoken turn.
+
+    Where :func:`empathy_system_prompt` suggests what to say to the OTHER
+    person, this is a real-time delivery coach whispering in the user's ear:
+    the user themself just spoke, and the model returns ONE tiny, instantly
+    absorbable course-correction on HOW they came across.
+
+    The correction DIRECTION follows the empathy dial — a hard product
+    requirement (the owner explicitly forbade an always-soften coach). At low
+    empathy the user is trying to be MORE assertive, so hedging / over-
+    apologising is what needs fixing; at high empathy harshness is. Same four
+    stance buckets as :func:`empathy_system_prompt`, so the two prompts move in
+    lockstep with the slider.
+    """
+    if slider <= 20:
+        stance = (
+            "The user is working to come across MORE assertive and direct. "
+            "When they hedge, over-apologize, soften too much, or back down, "
+            "nudge them toward firmness and standing their ground. Never tell "
+            "them to soften."
+        )
+    elif slider <= 50:
+        stance = (
+            "The user is working toward balanced, clear delivery. Nudge them "
+            "firmer when they over-hedge or over-apologize, and warmer when "
+            "they turn harsh or blaming — whichever keeps them fair and direct."
+        )
+    elif slider <= 80:
+        stance = (
+            "The user is working to come across warmer and less combative. "
+            "When they sound harsh, blaming, dismissive, or defensive, nudge "
+            "them toward warmth, validation, and softening their tone."
+        )
+    else:
+        stance = (
+            "The user is working to be fully warm and validating. The moment "
+            "any harshness, sarcasm, or defensiveness creeps into their "
+            "delivery, nudge them toward gentleness and validation."
+        )
+
+    prompt = (
+        "You are a real-time delivery coach whispering in the user's ear. The "
+        "user THEMSELF just spoke; coach HOW they came across, not what to say "
+        f"back. {stance}\n\n"
+        f"The user's role in this conversation is: {role}.\n"
+        "Produce ONE nudge: an imperative course-correction of at most 6 "
+        "words, instantly absorbable mid-conversation (e.g. \"ease up\", "
+        "\"that sounded blaming — soften\", \"good — hold that tone\", \"be "
+        "firmer, don't back down\", \"stop apologizing\"). Only speak when "
+        "something should change: if the delivery does NOT need adjusting, "
+        "return an empty string for the nudge.\n"
+        "Return ONLY a JSON object with key \"nudge\" (the string above, or "
+        "\"\" when nothing should change) and \"importance\" (an integer "
+        "0-100: how urgently the user needs THIS nudge right now — 0 when the "
+        "nudge is empty). No other keys — the pipeline reads only these two, "
+        "so anything else is wasted latency on a real-time whisper."
+    )
+    # Append the voice-profile few-shot block AFTER the output contract, exactly
+    # as empathy_system_prompt does — same helper, same byte-identical-when-None
+    # property (no profile → the prompt is unchanged).
+    if voice_profile is not None:
+        block = _render_voice_profile(voice_profile)
+        if block:
+            prompt += "\n\n" + block
+    return prompt
+
+
 # ---------------------------------------------------------------------------
 # LLM helpers
 # ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@ import SessionDetail from "./src/screens/SessionDetail";
 import LiveCoachScreen from "./src/screens/LiveCoachScreen";
 import LoginScreen from "./src/screens/LoginScreen";
 import { useAuthStore, initAuth } from "./src/store/authStore";
+import { useSessionStore } from "./src/store/sessionStore";
 
 type Screen =
   | { name: "session" }
@@ -56,7 +57,17 @@ export default function App() {
       case "session":
         return <SessionScreen />;
       case "live-coach":
-        return <LiveCoachScreen />;
+        return (
+          <LiveCoachScreen
+            onReviewTranscript={(turns) => {
+              // Hand the finished live conversation to the async-review store
+              // and jump to the Session screen, where Get Suggestions works
+              // off the loaded turns. Mirrors the dashboard's onSelectSession.
+              useSessionStore.getState().loadTurns(turns);
+              setScreen({ name: "session" });
+            }}
+          />
+        );
       case "dashboard":
         return (
           <TherapistDashboard

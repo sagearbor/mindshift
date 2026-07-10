@@ -22,11 +22,15 @@ exports[`LiveCoachScreen renders disconnected state 1`] = `
     }
   >
     <Text
+      numberOfLines={1}
       style={
         {
           "color": "#111827",
+          "flex": 1,
+          "flexShrink": 1,
           "fontSize": 24,
           "fontWeight": "700",
+          "marginRight": 8,
         }
       }
     >
@@ -37,6 +41,7 @@ exports[`LiveCoachScreen renders disconnected state 1`] = `
         {
           "alignItems": "center",
           "flexDirection": "row",
+          "flexShrink": 0,
           "gap": 6,
         }
       }
@@ -57,11 +62,14 @@ exports[`LiveCoachScreen renders disconnected state 1`] = `
         testID="connection-status"
       />
       <Text
+        numberOfLines={1}
         style={
           [
             {
               "fontSize": 13,
               "fontWeight": "600",
+              "minWidth": 92,
+              "textAlign": "right",
               "textTransform": "capitalize",
             },
             {
@@ -425,11 +433,15 @@ exports[`LiveCoachScreen renders initial idle state 1`] = `
     }
   >
     <Text
+      numberOfLines={1}
       style={
         {
           "color": "#111827",
+          "flex": 1,
+          "flexShrink": 1,
           "fontSize": 24,
           "fontWeight": "700",
+          "marginRight": 8,
         }
       }
     >
@@ -440,6 +452,7 @@ exports[`LiveCoachScreen renders initial idle state 1`] = `
         {
           "alignItems": "center",
           "flexDirection": "row",
+          "flexShrink": 0,
           "gap": 6,
         }
       }
@@ -460,11 +473,14 @@ exports[`LiveCoachScreen renders initial idle state 1`] = `
         testID="connection-status"
       />
       <Text
+        numberOfLines={1}
         style={
           [
             {
               "fontSize": 13,
               "fontWeight": "600",
+              "minWidth": 92,
+              "textAlign": "right",
               "textTransform": "capitalize",
             },
             {
@@ -730,6 +746,55 @@ exports[`LiveCoachScreen renders initial idle state 1`] = `
   <View
     style={
       {
+        "backgroundColor": "#FFFFFF",
+        "borderColor": "#E5E7EB",
+        "borderRadius": 12,
+        "borderWidth": 1,
+        "gap": 6,
+        "marginHorizontal": 16,
+        "marginVertical": 8,
+        "padding": 14,
+      }
+    }
+    testID="idle-explainer"
+  >
+    <Text
+      style={
+        {
+          "color": "#374151",
+          "fontSize": 13.5,
+          "lineHeight": 19,
+        }
+      }
+    >
+      Place the phone between you.
+    </Text>
+    <Text
+      style={
+        {
+          "color": "#374151",
+          "fontSize": 13.5,
+          "lineHeight": 19,
+        }
+      }
+    >
+      Tap Start, then speak first — the coach learns which voice is yours.
+    </Text>
+    <Text
+      style={
+        {
+          "color": "#374151",
+          "fontSize": 13.5,
+          "lineHeight": 19,
+        }
+      }
+    >
+      Earpiece = private coaching in your ear; Visual = on-screen only.
+    </Text>
+  </View>
+  <View
+    style={
+      {
         "alignItems": "center",
         "flex": 1,
         "justifyContent": "center",
@@ -828,11 +893,15 @@ exports[`LiveCoachScreen renders recording state with transcript and suggestions
     }
   >
     <Text
+      numberOfLines={1}
       style={
         {
           "color": "#111827",
+          "flex": 1,
+          "flexShrink": 1,
           "fontSize": 24,
           "fontWeight": "700",
+          "marginRight": 8,
         }
       }
     >
@@ -843,6 +912,7 @@ exports[`LiveCoachScreen renders recording state with transcript and suggestions
         {
           "alignItems": "center",
           "flexDirection": "row",
+          "flexShrink": 0,
           "gap": 6,
         }
       }
@@ -863,11 +933,14 @@ exports[`LiveCoachScreen renders recording state with transcript and suggestions
         testID="connection-status"
       />
       <Text
+        numberOfLines={1}
         style={
           [
             {
               "fontSize": 13,
               "fontWeight": "600",
+              "minWidth": 92,
+              "textAlign": "right",
               "textTransform": "capitalize",
             },
             {
@@ -877,6 +950,73 @@ exports[`LiveCoachScreen renders recording state with transcript and suggestions
         }
       >
         live
+      </Text>
+    </View>
+  </View>
+  <View
+    style={
+      {
+        "alignItems": "center",
+        "flexDirection": "row",
+        "gap": 8,
+        "paddingBottom": 4,
+        "paddingHorizontal": 16,
+      }
+    }
+  >
+    <View
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": undefined,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#EFF6FF",
+          "borderColor": "#4A90D9",
+          "borderRadius": 16,
+          "borderWidth": 1,
+          "opacity": 1,
+          "paddingHorizontal": 14,
+          "paddingVertical": 6,
+        }
+      }
+      testID="self-speaker-chip"
+    >
+      <Text
+        style={
+          {
+            "color": "#4A90D9",
+            "fontSize": 13,
+            "fontWeight": "600",
+          }
+        }
+      >
+        You: 
+        Speaker A
+         ⇄
       </Text>
     </View>
   </View>
@@ -1267,67 +1407,75 @@ exports[`LiveCoachScreen renders recording state with transcript and suggestions
       </Text>
       <View
         style={
-          [
-            {
-              "backgroundColor": "#FFFFFF",
-              "borderRadius": 12,
-              "elevation": 2,
-              "marginHorizontal": 16,
-              "marginVertical": 6,
-              "padding": 16,
-              "shadowColor": "#000",
-              "shadowOffset": {
-                "height": 1,
-                "width": 0,
-              },
-              "shadowOpacity": 0.1,
-              "shadowRadius": 3,
-            },
-            false,
-          ]
+          {
+            "opacity": 1,
+          }
         }
-        testID="suggestion-card"
       >
         <View
           style={
             [
               {
-                "alignSelf": "flex-start",
+                "backgroundColor": "#FFFFFF",
                 "borderRadius": 12,
-                "marginBottom": 8,
-                "paddingHorizontal": 10,
-                "paddingVertical": 3,
+                "elevation": 2,
+                "marginHorizontal": 16,
+                "marginVertical": 6,
+                "padding": 16,
+                "shadowColor": "#000",
+                "shadowOffset": {
+                  "height": 1,
+                  "width": 0,
+                },
+                "shadowOpacity": 0.1,
+                "shadowRadius": 3,
               },
-              {
-                "backgroundColor": "#10B981",
-              },
+              false,
             ]
           }
+          testID="suggestion-card"
         >
+          <View
+            style={
+              [
+                {
+                  "alignSelf": "flex-start",
+                  "borderRadius": 12,
+                  "marginBottom": 8,
+                  "paddingHorizontal": 10,
+                  "paddingVertical": 3,
+                },
+                {
+                  "backgroundColor": "#10B981",
+                },
+              ]
+            }
+          >
+            <Text
+              style={
+                {
+                  "color": "#FFFFFF",
+                  "fontSize": 12,
+                  "fontWeight": "600",
+                  "textTransform": "capitalize",
+                }
+              }
+            >
+              empathetic
+            </Text>
+          </View>
           <Text
             style={
               {
-                "color": "#FFFFFF",
-                "fontSize": 12,
-                "fontWeight": "600",
-                "textTransform": "capitalize",
+                "color": "#1F2937",
+                "fontSize": 15,
+                "lineHeight": 22,
               }
             }
           >
-            empathetic
+            I hear that you feel unheard. Can you help me understand what you need?
           </Text>
         </View>
-        <Text
-          style={
-            {
-              "color": "#1F2937",
-              "fontSize": 15,
-              "lineHeight": 22,
-            }
-          }
-        >
-          I hear that you feel unheard. Can you help me understand what you need?
-        </Text>
       </View>
     </View>
   </RCTScrollView>

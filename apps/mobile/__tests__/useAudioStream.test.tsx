@@ -169,8 +169,11 @@ describe("useAudioStream — WebSocket protocol", () => {
     expect(transcript[0].speaker).toBe("Speaker A");
     expect(transcript[0].text).toBe("You never listen to me.");
 
-    expect(suggestions).toHaveLength(3);
-    expect(suggestions[0].text).toBe("I hear you.");
+    // One feed entry carrying all three suggestion strings.
+    expect(suggestions).toHaveLength(1);
+    expect(suggestions[0].kind).toBe("response");
+    expect(suggestions[0].texts).toHaveLength(3);
+    expect(suggestions[0].texts[0]).toBe("I hear you.");
     // Tone reflects the empathy stance (75 -> empathetic), not a fabricated label.
     expect(suggestions[0].tone).toBe("empathetic");
   });
@@ -264,7 +267,7 @@ describe("useAudioStream — WebSocket protocol", () => {
     );
 
     expect(hook.result.current.transcript).toHaveLength(1);
-    expect(hook.result.current.suggestions[0].text).toBe("I hear you.");
+    expect(hook.result.current.suggestions[0].texts[0]).toBe("I hear you.");
   });
 
   it("interleaving: a lagging suggestion for A arriving after transcript B never re-appends A", async () => {
@@ -302,7 +305,7 @@ describe("useAudioStream — WebSocket protocol", () => {
     expect(
       hook.result.current.transcript.map((t) => t.text),
     ).toEqual(["Utterance A.", "Utterance B."]);
-    expect(hook.result.current.suggestions[0].text).toBe("Advice for A.");
+    expect(hook.result.current.suggestions[0].texts[0]).toBe("Advice for A.");
   });
 
   it("still appends the suggestion's utterance_text when no transcript event preceded it (old-server compatibility)", async () => {
@@ -410,6 +413,113 @@ describe("useAudioStream — WebSocket protocol", () => {
     const { ws } = await startLiveSession(50);
     const firstConfig = ws.sentJson().find((m) => m.type === "config");
     expect(firstConfig).not.toHaveProperty("id_token");
+  });
+});
+
+describe("useAudioStream — self-speaker identity", () => {
+  it("defaults to 'Speaker A' and puts it in the initial config frame", async () => {
+    const { hook, ws } = await startLiveSession(50);
+    expect(hook.result.current.selfSpeaker).toBe("Speaker A");
+    const firstConfig = ws.sentJson().find((m) => m.type === "config");
+    expect(firstConfig.self_speaker).toBe("Speaker A");
+  });
+
+  it("setSelfSpeaker updates state and sends a config update when live", async () => {
+    const { hook, ws } = await startLiveSession(50);
+
+    await act(() => hook.result.current.setSelfSpeaker("Speaker B"));
+
+    expect(hook.result.current.selfSpeaker).toBe("Speaker B");
+    const updates = ws
+      .sentJson()
+      .filter((m) => m.type === "config" && m.self_speaker === "Speaker B");
+    expect(updates).toHaveLength(1);
+  });
+
+  it("resets to 'Speaker A' on every new session — a previous session's toggle must not leak", async () => {
+    // Diarization labels are per-session (whoever speaks first is "Speaker A"),
+    // so carrying "Speaker B" from session 1 into session 2's initial config
+    // would invert the coaching until the user re-toggled.
+    const { hook, ws } = await startLiveSession(50);
+
+    await act(() => hook.result.current.setSelfSpeaker("Speaker B"));
+    // The in-session toggle reached the server as a config update.
+    const updates = ws
+      .sentJson()
+      .filter((m) => m.type === "config" && m.self_speaker === "Speaker B");
+    expect(updates).toHaveLength(1);
+
+    // Stop session 1 (server completes the drain handshake).
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    await act(() => ws.emitServer({ type: "session_complete" }));
+
+    // Start session 2: fresh diarization, fresh default.
+    await act(async () => {
+      await hook.result.current.startSession("sess-2", 50);
+    });
+    const ws2 = FakeWebSocket.instances.at(-1)!;
+    expect(ws2).not.toBe(ws);
+    await act(() => ws2.emitOpen());
+
+    expect(hook.result.current.selfSpeaker).toBe("Speaker A");
+    const firstConfig = ws2.sentJson().find((m) => m.type === "config");
+    expect(firstConfig.self_speaker).toBe("Speaker A");
+  });
+});
+
+describe("useAudioStream — suggestion feed", () => {
+  it("accumulates events newest-first instead of replacing", async () => {
+    const { hook, ws } = await startLiveSession();
+
+    await act(() => ws.emitServer(suggestionEvent("First advice.")));
+    await act(() => ws.emitServer(suggestionEvent("Second advice.")));
+
+    const { suggestions } = hook.result.current;
+    expect(suggestions).toHaveLength(2);
+    // Newest first.
+    expect(suggestions[0].texts[0]).toBe("Second advice.");
+    expect(suggestions[1].texts[0]).toBe("First advice.");
+    // Monotonic ids, strictly increasing with arrival order.
+    expect(suggestions[0].id).toBeGreaterThan(suggestions[1].id);
+  });
+
+  it("caps the feed at 20 entries, dropping the oldest", async () => {
+    const { hook, ws } = await startLiveSession();
+
+    for (let i = 0; i < 25; i++) {
+      await act(() => ws.emitServer(suggestionEvent(`Advice ${i}.`)));
+    }
+
+    const { suggestions } = hook.result.current;
+    expect(suggestions).toHaveLength(20);
+    // Newest is the last one emitted; the oldest 5 have dropped off.
+    expect(suggestions[0].texts[0]).toBe("Advice 24.");
+    expect(suggestions.at(-1)!.texts[0]).toBe("Advice 5.");
+  });
+
+  it("appends a nudge event as a kind:'nudge' entry", async () => {
+    const { hook, ws } = await startLiveSession();
+
+    await act(() =>
+      ws.emitServer({
+        ...suggestionEvent("ease up"),
+        kind: "nudge",
+      }),
+    );
+
+    const entry = hook.result.current.suggestions[0];
+    expect(entry.kind).toBe("nudge");
+    expect(entry.texts[0]).toBe("ease up");
+  });
+
+  it("treats an event with no kind as a 'response' (old-server compat)", async () => {
+    const { hook, ws } = await startLiveSession();
+
+    await act(() => ws.emitServer(suggestionEvent("No kind field here.")));
+
+    expect(hook.result.current.suggestions[0].kind).toBe("response");
   });
 });
 
@@ -611,7 +721,7 @@ describe("useAudioStream — on-device speech (expo-speech, free)", () => {
 
     await act(() => ws.emitServer(suggestionEvent("Stay silent about this.")));
 
-    expect(hook.result.current.suggestions[0].text).toBe(
+    expect(hook.result.current.suggestions[0].texts[0]).toBe(
       "Stay silent about this.",
     );
     expect(speakMock).not.toHaveBeenCalled();
@@ -652,7 +762,7 @@ describe("useAudioStream — on-device speech (expo-speech, free)", () => {
     // A late suggestion during the drain window still renders visually but
     // is NOT spoken — the user pressed stop.
     await act(() => ws.emitServer(suggestionEvent("Too late to say aloud.")));
-    expect(hook.result.current.suggestions[0].text).toBe(
+    expect(hook.result.current.suggestions[0].texts[0]).toBe(
       "Too late to say aloud.",
     );
     expect(speakMock).toHaveBeenCalledTimes(1);
@@ -697,13 +807,13 @@ describe("useAudioStream — on-device speech (expo-speech, free)", () => {
       // The failure is surfaced, not hidden — and the visual path still works.
       expect(hook.result.current.speechAvailable).toBe(false);
       expect(warnSpy).toHaveBeenCalledTimes(1);
-      expect(hook.result.current.suggestions[0].text).toBe("Try saying this.");
+      expect(hook.result.current.suggestions[0].texts[0]).toBe("Try saying this.");
 
       // Once known-unavailable, we stop attempting to speak at all.
       speakMock.mockClear();
       await act(() => ws.emitServer(suggestionEvent("Another idea.")));
       expect(speakMock).not.toHaveBeenCalled();
-      expect(hook.result.current.suggestions[0].text).toBe("Another idea.");
+      expect(hook.result.current.suggestions[0].texts[0]).toBe("Another idea.");
       expect(warnSpy).toHaveBeenCalledTimes(1); // logged once, never spammed
     } finally {
       warnSpy.mockRestore();
@@ -735,7 +845,7 @@ describe("useAudioStream — on-device speech (expo-speech, free)", () => {
       expect(warnSpy).toHaveBeenCalledTimes(1);
 
       // Visual transcript + suggestions keep working untouched.
-      expect(hook.result.current.suggestions[0].text).toBe("Say this aloud.");
+      expect(hook.result.current.suggestions[0].texts[0]).toBe("Say this aloud.");
       expect(hook.result.current.transcript.at(-1)?.text).toBe(
         "some utterance",
       );
@@ -744,7 +854,7 @@ describe("useAudioStream — on-device speech (expo-speech, free)", () => {
       speakMock.mockClear();
       await act(() => ws.emitServer(suggestionEvent("Another idea.")));
       expect(speakMock).not.toHaveBeenCalled();
-      expect(hook.result.current.suggestions[0].text).toBe("Another idea.");
+      expect(hook.result.current.suggestions[0].texts[0]).toBe("Another idea.");
       expect(warnSpy).toHaveBeenCalledTimes(1);
     } finally {
       warnSpy.mockRestore();
@@ -792,7 +902,7 @@ describe("useAudioStream — graceful stop handshake", () => {
     expect(hook.result.current.transcript.at(-1)?.text).toBe(
       "one final thought",
     );
-    expect(hook.result.current.suggestions[0].text).toBe(
+    expect(hook.result.current.suggestions[0].texts[0]).toBe(
       "Thanks for talking this through.",
     );
 
@@ -868,7 +978,7 @@ describe("useAudioStream — graceful stop handshake", () => {
       expect(hook.result.current.transcript.at(-1)?.text).toBe(
         "one last thing",
       );
-      expect(hook.result.current.suggestions[0].text).toBe("Closing advice.");
+      expect(hook.result.current.suggestions[0].texts[0]).toBe("Closing advice.");
 
       await act(() => ws.emitServer({ type: "session_complete" }));
       expect(ws.readyState).not.toBe(FakeWebSocket.OPEN);
