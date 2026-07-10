@@ -34,6 +34,9 @@ export interface TranscriptEntry {
 export interface SuggestionEntry {
   text: string;
   tone: string;
+  /** True when the server said not to voice this suggestion (speak: false).
+   *  Rendered dimmed in the UI and never passed to speakSuggestion. */
+  muted?: boolean;
 }
 
 type ConnectionStatus = "idle" | "connecting" | "live" | "disconnected";
@@ -57,9 +60,14 @@ interface UseAudioStreamReturn {
   /** True when new top suggestions should be spoken aloud (earpiece mode). */
   speechEnabled: boolean;
   setSpeechEnabled: (enabled: boolean) => void;
-  startSession: (sessionId: string, empathyLevel: number) => Promise<void>;
+  startSession: (
+    sessionId: string,
+    empathyLevel: number,
+    interjectLevel?: number,
+  ) => Promise<void>;
   stopSession: () => Promise<void>;
   sendEmpathyUpdate: (level: number) => void;
+  sendInterjectUpdate: (value: number) => void;
 }
 
 const RECONNECT_DELAY_MS = 2000;
@@ -152,6 +160,18 @@ export function useAudioStream(): UseAudioStreamReturn {
   const reconnectAttempts = useRef(0);
   const shouldReconnect = useRef(false);
   const empathyRef = useRef(50);
+  /** How often the coach should interject (0 = every turn / old default, 100
+   *  = only the most critical moments). Mirrors empathyRef: read at config-
+   *  send time, not captured stale in the onopen closure. */
+  const interjectRef = useRef(0);
+  /** Sticky per-session flag: true once the server has sent any "transcript"
+   *  event. A new server owns the transcript entirely via those events, so
+   *  suggestion.utterance_text must then never be appended: suggestions lag
+   *  their utterance by seconds of LLM+TTS work while newer utterances keep
+   *  finalizing (transcript A, transcript B, THEN suggestion for A), so a
+   *  last-entry dedupe would miss the interleaving and re-append A out of
+   *  order. Reset per session in startSession alongside the transcript. */
+  const sawTranscriptEventRef = useRef(false);
   /** Synchronous re-entry guard: true from the first line of startSession
    *  until the session fully ends (stop drain finished / failure). A ref, not
    *  state, so a double-tap can never open two WebSockets (state flips too
@@ -482,6 +502,7 @@ export function useAudioStream(): UseAudioStreamReturn {
           JSON.stringify({
             type: "config",
             empathy_slider: empathyRef.current,
+            interject_level: interjectRef.current,
             ...(idToken ? { id_token: idToken } : {}),
           }),
         );
@@ -499,12 +520,29 @@ export function useAudioStream(): UseAudioStreamReturn {
         try {
           const data = JSON.parse(event.data);
 
-          if (data.type === "suggestion") {
+          if (data.type === "transcript") {
+            // New protocol: the finalized utterance arrives on its own,
+            // ahead of the suggestion event for the same turn. From the
+            // first one, the transcript belongs to these events alone.
+            sawTranscriptEventRef.current = true;
+            const speaker = data.speaker || "Unknown";
+            setSpeakerLabel(speaker);
+            setTranscript((prev) => [
+              ...prev,
+              { speaker, text: data.text, timestamp: Date.now() },
+            ]);
+          } else if (data.type === "suggestion") {
             // The server bundles the transcribed utterance and its coaching
             // suggestions in one event (see server SuggestionEvent).
             const speaker = data.speaker || "Unknown";
             setSpeakerLabel(speaker);
-            if (data.utterance_text) {
+            if (data.utterance_text && !sawTranscriptEventRef.current) {
+              // Legacy fallback ONLY: an old server never sends "transcript"
+              // events, so its suggestion event is the sole transcript
+              // source. On a new server this append must never run — its
+              // suggestions lag behind newer transcript events (LLM+TTS take
+              // seconds), so appending here would duplicate the utterance
+              // out of order.
               setTranscript((prev) => [
                 ...prev,
                 { speaker, text: data.utterance_text, timestamp: Date.now() },
@@ -519,12 +557,18 @@ export function useAudioStream(): UseAudioStreamReturn {
               ? data.suggestions
               : [];
             if (items.length > 0) {
-              setSuggestions(items.map((text) => ({ text, tone })));
-              // Earpiece mode: speak the newest TOP suggestion with free
-              // on-device TTS. (The event also carries data.audio_b64 —
-              // Deepgram Aura mp3, paid key required — deliberately ignored;
-              // kept as a future premium-playback option.)
-              speakSuggestion(items[0]);
+              // speak === false means the server judged this turn not worth
+              // interjecting on: stay silent and dim it in the UI instead of
+              // voicing every suggestion regardless of importance.
+              const muted = data.speak === false;
+              setSuggestions(items.map((text) => ({ text, tone, muted })));
+              if (!muted) {
+                // Earpiece mode: speak the newest TOP suggestion with free
+                // on-device TTS. (The event also carries data.audio_b64 —
+                // Deepgram Aura mp3, paid key required — deliberately
+                // ignored; kept as a future premium-playback option.)
+                speakSuggestion(items[0]);
+              }
             }
           } else if (data.type === "transcription_unavailable") {
             // Be explicit instead of silently showing an empty live screen.
@@ -656,7 +700,11 @@ export function useAudioStream(): UseAudioStreamReturn {
   );
 
   const startSession = useCallback(
-    async (sessionId: string, empathyLevel: number) => {
+    async (
+      sessionId: string,
+      empathyLevel: number,
+      interjectLevel: number = 0,
+    ) => {
       // Synchronous double-start guard (a ref: isRecording flips only after
       // the async permission/audio-mode/start chain, far too late to stop a
       // double-tap from opening two WebSockets).
@@ -670,6 +718,7 @@ export function useAudioStream(): UseAudioStreamReturn {
 
       sessionIdRef.current = sessionId;
       empathyRef.current = empathyLevel;
+      interjectRef.current = interjectLevel;
       reconnectAttempts.current = 0;
 
       setTranscript([]);
@@ -680,6 +729,9 @@ export function useAudioStream(): UseAudioStreamReturn {
       setMicError("");
       pendingRef.current = new Int16Array(0);
       resamplerRef.current = null;
+      // Fresh session, fresh protocol detection: don't let the previous
+      // server's transcript events silence a legacy server's fallback.
+      sawTranscriptEventRef.current = false;
 
       if (Platform.OS === "web") {
         await startWebSession(sessionId);
@@ -764,6 +816,18 @@ export function useAudioStream(): UseAudioStreamReturn {
     }
   }, []);
 
+  const sendInterjectUpdate = useCallback((value: number) => {
+    const rounded = Math.round(value);
+    interjectRef.current = rounded;
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      // Same `config` channel as empathy updates — the server rejects
+      // unknown message types.
+      wsRef.current.send(
+        JSON.stringify({ type: "config", interject_level: rounded }),
+      );
+    }
+  }, []);
+
   return {
     isRecording,
     sessionActive,
@@ -780,5 +844,6 @@ export function useAudioStream(): UseAudioStreamReturn {
     startSession,
     stopSession,
     sendEmpathyUpdate,
+    sendInterjectUpdate,
   };
 }

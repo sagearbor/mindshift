@@ -4,6 +4,35 @@ Versions are numbered here. **App** = Android/EAS `version (versionCode)`.
 **Backend** = Cloud Run revision of `mindshift-api` (project `arborfam-hub`,
 `us-central1`). Newest first.
 
+## App 1.2.0 (versionCode 6) — 2026-07-10 · Backend revs 00007–00008
+Suggestion **timing** overhaul (published to Play internal via the automated
+`play_publish.py` flow; web redeployed same day):
+- **Instant transcripts**: new `transcript` WS event per finalized utterance —
+  the words no longer wait seconds behind LLM+TTS.
+- **Latest-wins queue**: stale pending turns are superseded, killing the
+  "suggestions keep coming after I stop talking" backlog flood. At most one
+  final suggestion after you stop, about the last thing said.
+- **Interject slider** (new, orthogonal to empathy): the LLM scores each
+  moment's importance 0-100; the slider sets the voicing threshold
+  (Every turn → Most turns → Key moments → Critical only). Below threshold:
+  earbud stays silent, card renders dimmed. Empathy slider unchanged (style,
+  bidirectional).
+- rev 00008: `MINDSHIFT_ALLOWED_ORIGINS` finally set — **iPhone/browser live
+  mic unblocked** (web-app origin allowed over WS; foreign origins still 403;
+  verified by live handshake test).
+
+## App 1.1.1 (versionCode 5) — 2026-07-06 · Backend rev 00006
+- Fixed the two WS gates that rejected the native app (same-origin Origin +
+  non-UUID session ids) — first build where live audio actually worked.
+- Async **“Review a conversation”**: paste/type a transcript in the Session
+  tab → Load → coached suggestions. No audio needed (train-friendly).
+- Web: fixed blank screen (canonical `index.js` entry + `@expo/metro-runtime`;
+  Google-auth hook isolated so an unconfigured client id can’t crash the app).
+
+## App 1.1.0 (versionCode 4) — 2026-07-06 — ⚠️ never shipped
+Built before the Google-auth-hook crash fix; would crash at the login screen.
+Superseded by 1.1.1.
+
 ## App 1.0.0 (versionCode 1) — 2026-07-06
 First release build. Real icon + adaptive icon, `RECORD_AUDIO`, points at the
 live Cloud Run backend. Two artifacts built on EAS: preview **APK** (sideload)

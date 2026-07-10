@@ -210,6 +210,184 @@ describe("useAudioStream — WebSocket protocol", () => {
     expect(configMsgs.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("appends a transcript event to the transcript and sets the speaker label", async () => {
+    const { hook, ws } = await startLiveSession();
+
+    await act(() =>
+      ws.emitServer({
+        type: "transcript",
+        speaker: "Speaker A",
+        text: "You never listen to me.",
+        start_time: 0,
+        end_time: 1.2,
+      }),
+    );
+
+    expect(hook.result.current.transcript).toHaveLength(1);
+    expect(hook.result.current.transcript[0]).toMatchObject({
+      speaker: "Speaker A",
+      text: "You never listen to me.",
+    });
+    expect(hook.result.current.speakerLabel).toBe("Speaker A");
+  });
+
+  it("defaults the transcript speaker to Unknown when the server omits it", async () => {
+    const { hook, ws } = await startLiveSession();
+
+    await act(() =>
+      ws.emitServer({ type: "transcript", text: "Hello there." }),
+    );
+
+    expect(hook.result.current.transcript[0].speaker).toBe("Unknown");
+    expect(hook.result.current.speakerLabel).toBe("Unknown");
+  });
+
+  it("does not duplicate the line when a suggestion's utterance_text repeats the preceding transcript event", async () => {
+    const { hook, ws } = await startLiveSession();
+
+    await act(() =>
+      ws.emitServer({
+        type: "transcript",
+        speaker: "Speaker A",
+        text: "You never listen to me.",
+      }),
+    );
+    await act(() =>
+      ws.emitServer({
+        type: "suggestion",
+        session_id: "sess-1",
+        utterance_text: "You never listen to me.",
+        speaker: "Speaker A",
+        suggestions: ["I hear you."],
+        empathy_slider: 50,
+      }),
+    );
+
+    expect(hook.result.current.transcript).toHaveLength(1);
+    expect(hook.result.current.suggestions[0].text).toBe("I hear you.");
+  });
+
+  it("interleaving: a lagging suggestion for A arriving after transcript B never re-appends A", async () => {
+    const { hook, ws } = await startLiveSession();
+
+    // Back-to-back speech on the new server: both utterances finalize (and
+    // arrive as transcript events) before A's suggestion finishes its
+    // seconds of LLM+TTS work.
+    await act(() =>
+      ws.emitServer({
+        type: "transcript",
+        speaker: "Speaker A",
+        text: "Utterance A.",
+      }),
+    );
+    await act(() =>
+      ws.emitServer({
+        type: "transcript",
+        speaker: "Speaker B",
+        text: "Utterance B.",
+      }),
+    );
+    await act(() =>
+      ws.emitServer({
+        type: "suggestion",
+        session_id: "sess-1",
+        utterance_text: "Utterance A.",
+        speaker: "Speaker A",
+        suggestions: ["Advice for A."],
+        empathy_slider: 50,
+      }),
+    );
+
+    // Exactly [A, B]: no duplicate of A, original order preserved.
+    expect(
+      hook.result.current.transcript.map((t) => t.text),
+    ).toEqual(["Utterance A.", "Utterance B."]);
+    expect(hook.result.current.suggestions[0].text).toBe("Advice for A.");
+  });
+
+  it("still appends the suggestion's utterance_text when no transcript event preceded it (old-server compatibility)", async () => {
+    const { hook, ws } = await startLiveSession();
+
+    await act(() =>
+      ws.emitServer({
+        type: "suggestion",
+        session_id: "sess-1",
+        utterance_text: "Old server line.",
+        speaker: "Speaker A",
+        suggestions: ["Some advice."],
+        empathy_slider: 50,
+      }),
+    );
+
+    expect(hook.result.current.transcript).toHaveLength(1);
+    expect(hook.result.current.transcript[0].text).toBe("Old server line.");
+  });
+
+  it("does not speak and marks suggestions muted when the server sets speak: false", async () => {
+    const { hook, ws } = await startLiveSession();
+    await act(() => hook.result.current.setSpeechEnabled(true));
+
+    await act(() =>
+      ws.emitServer({
+        type: "suggestion",
+        session_id: "sess-1",
+        utterance_text: "Small talk.",
+        speaker: "Speaker A",
+        suggestions: ["Not worth interrupting for."],
+        empathy_slider: 50,
+        importance: 5,
+        speak: false,
+      }),
+    );
+
+    expect(speakMock).not.toHaveBeenCalled();
+    expect(hook.result.current.suggestions[0].muted).toBe(true);
+  });
+
+  it("speaks and leaves suggestions unmuted when the server sets speak: true", async () => {
+    const { hook, ws } = await startLiveSession();
+    await act(() => hook.result.current.setSpeechEnabled(true));
+
+    await act(() =>
+      ws.emitServer({
+        type: "suggestion",
+        session_id: "sess-1",
+        utterance_text: "Important moment.",
+        speaker: "Speaker A",
+        suggestions: ["Worth saying."],
+        empathy_slider: 50,
+        importance: 90,
+        speak: true,
+      }),
+    );
+
+    expect(speakMock).toHaveBeenCalledTimes(1);
+    expect(hook.result.current.suggestions[0].muted).toBe(false);
+  });
+
+  it("sends interject changes as a config message the server understands", async () => {
+    const { hook, ws } = await startLiveSession(50);
+
+    await act(() => hook.result.current.sendInterjectUpdate(65));
+
+    const configMsgs = ws
+      .sentJson()
+      .filter((m) => m.type === "config" && m.interject_level === 65);
+    expect(configMsgs).toHaveLength(1);
+  });
+
+  it("sends the initial interject level as config on connect", async () => {
+    const hook = await renderHook(() => useAudioStream());
+    await act(async () => {
+      await hook.result.current.startSession("sess-1", 50, 40);
+    });
+    const ws = FakeWebSocket.instances.at(-1)!;
+    await act(() => ws.emitOpen());
+
+    const firstConfig = ws.sentJson().find((m) => m.type === "config");
+    expect(firstConfig.interject_level).toBe(40);
+  });
+
   it("includes the Firebase id_token in the FIRST config frame when signed in", async () => {
     setCachedToken("ws-id-token-42");
     const { hook, ws } = await startLiveSession(50);

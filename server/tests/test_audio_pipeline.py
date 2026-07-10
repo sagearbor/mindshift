@@ -46,6 +46,19 @@ def open_ws(client, path, *, token=FAKE_ID_TOKEN, headers=None):
         assert ack["type"] == "config_ack", ack
         yield ws
 
+
+def recv_skipping_transcripts(ws):
+    """Receive the next non-transcript event.
+
+    Every finalized utterance now emits an immediate ``transcript`` event
+    ahead of its (optional) suggestion; tests asserting on the coaching flow
+    skip those. Transcript events themselves are covered by dedicated tests.
+    """
+    while True:
+        msg = json.loads(ws.receive_text())
+        if msg.get("type") != "transcript":
+            return msg
+
 MOCK_LLM_JSON = json.dumps({
     "suggestions": [
         "I hear what you're saying.",
@@ -155,6 +168,31 @@ class RecordingSegmentTranscriber:
         self.frames.append(audio_bytes)
         segments, self._segments = self._segments, []
         return segments
+
+    async def close(self) -> None:
+        pass
+
+
+class SequentialSegmentTranscriber:
+    """Double that yields ONE queued segment per ``stream()`` call, in order.
+
+    Unlike :class:`RecordingSegmentTranscriber` (which returns every queued
+    segment on the first call — one frame carrying several finalized
+    utterances), this models one utterance finalizing per audio frame, each
+    with distinct text — so a test can tell which suggestion belongs to
+    which frame (the suggestion carries ``utterance_text``).
+    """
+
+    def __init__(self, segments: list[TranscriptSegment]) -> None:
+        self._segments = list(segments)
+
+    async def connect(self) -> None:
+        pass
+
+    async def stream(self, audio_bytes: bytes) -> list[TranscriptSegment]:
+        if not self._segments:
+            return []
+        return [self._segments.pop(0)]
 
     async def close(self) -> None:
         pass
@@ -286,17 +324,42 @@ class TestWebSocketOriginCheck:
             ws.send_text(json.dumps({"type": "config"}))
             assert json.loads(ws.receive_text())["type"] == "config_ack"
 
+    def test_same_origin_connects(self, fake_ws, monkeypatch):
+        """A same-origin client (Origin host == server Host) is allowed even
+        with an empty allowlist — this is how the React Native app arrives."""
+        monkeypatch.setattr(audio_pipeline, "ALLOWED_ORIGINS", frozenset())
+        sid = str(uuid.uuid4())
+        # Starlette's TestClient serves under Host 'testserver'.
+        with open_ws(
+            fake_ws, f"/ws/session/{sid}", headers={"origin": "http://testserver"}
+        ) as ws:
+            ws.send_text(json.dumps({"type": "config"}))
+            assert json.loads(ws.receive_text())["type"] == "config_ack"
+
 
 # ---------------------------------------------------------------------------
 # P2-7: WebSocket session_id must be a UUID
 # ---------------------------------------------------------------------------
 
 class TestWebSocketSessionIdValidation:
-    def test_non_uuid_session_id_rejected_4403(self, fake_ws):
+    def test_unsafe_session_id_rejected_4403(self, fake_ws):
+        # A session id with characters outside [A-Za-z0-9_-] is rejected.
         with pytest.raises(WebSocketDisconnect) as excinfo:
-            with open_ws(fake_ws, "/ws/session/not-a-uuid") as ws:
+            with open_ws(fake_ws, "/ws/session/bad.id.with.dots") as ws:
                 ws.receive_text()
         assert excinfo.value.code == 4403
+
+    def test_overlong_session_id_rejected_4403(self, fake_ws):
+        with pytest.raises(WebSocketDisconnect) as excinfo:
+            with open_ws(fake_ws, "/ws/session/" + "a" * 65) as ws:
+                ws.receive_text()
+        assert excinfo.value.code == 4403
+
+    def test_app_style_session_id_connects(self, fake_ws):
+        # The real mobile client sends "live-<timestamp>" — must be accepted.
+        with open_ws(fake_ws, "/ws/session/live-1783392818146") as ws:
+            ws.send_text(json.dumps({"type": "config"}))
+            assert json.loads(ws.receive_text())["type"] == "config_ack"
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +370,7 @@ class TestUtteranceSuggestionFlow:
     def test_audio_chunk_produces_suggestion(self, fake_ws):
         with open_ws(fake_ws, "/ws/session/ba80d20c-e237-5290-99d8-fc64759ab9db") as ws:
             ws.send_bytes(b"\x00\x01\x02\x03" * 100)
-            resp = json.loads(ws.receive_text())
+            resp = recv_skipping_transcripts(ws)
 
             assert resp["type"] == "suggestion"
             assert resp["session_id"] == "ba80d20c-e237-5290-99d8-fc64759ab9db"
@@ -323,14 +386,14 @@ class TestUtteranceSuggestionFlow:
             assert json.loads(ws.receive_text())["type"] == "config_ack"
 
             ws.send_bytes(b"\xff" * 50)
-            resp = json.loads(ws.receive_text())
+            resp = recv_skipping_transcripts(ws)
             assert resp["empathy_slider"] == 10
 
     def test_multiple_chunks_produce_multiple_suggestions(self, fake_ws):
         with open_ws(fake_ws, "/ws/session/245b20ae-77dc-588d-85c4-c199bbadbaeb") as ws:
             for i in range(3):
                 ws.send_bytes(bytes([i]) * 50)
-                resp = json.loads(ws.receive_text())
+                resp = recv_skipping_transcripts(ws)
                 assert resp["type"] == "suggestion"
                 assert resp["session_id"] == "245b20ae-77dc-588d-85c4-c199bbadbaeb"
 
@@ -340,7 +403,7 @@ class TestUtteranceSuggestionFlow:
 
         with open_ws(fake_ws, "/ws/session/0c7b8bd6-c8dd-5dc3-9210-c0af33cddc7b") as ws:
             ws.send_bytes(b"\x00" * 50)
-            ws.receive_text()
+            recv_skipping_transcripts(ws)
 
         assert mock_llm.complete.called
         call_kwargs = mock_llm.complete.call_args
@@ -358,7 +421,7 @@ class TestUtteranceSuggestionFlow:
         try:
             with open_ws(TestClient(app), "/ws/session/9a2ee749-c067-5e8b-bbe0-82a094cb5d6a") as ws:
                 ws.send_bytes(b"\x00" * 50)
-                resp = json.loads(ws.receive_text())
+                resp = recv_skipping_transcripts(ws)
                 assert resp["type"] == "suggestion"
                 assert resp["audio_b64"] is None
         finally:
@@ -409,7 +472,7 @@ class TestSpeakerDiarization:
             speakers = []
             for _ in range(4):
                 ws.send_bytes(b"\x00" * 50)
-                resp = json.loads(ws.receive_text())
+                resp = recv_skipping_transcripts(ws)
                 speakers.append(resp["speaker"])
             assert speakers == ["Speaker A", "Speaker B", "Speaker A", "Speaker B"]
 
@@ -489,7 +552,7 @@ class TestBadAudioHandling:
         with open_ws(fake_ws, "/ws/session/48ea3fad-753d-5df7-aa35-00f4daf8958a") as ws:
             ws.send_bytes(b"")  # empty
             ws.send_bytes(b"\x01\x02\x03")  # real chunk
-            resp = json.loads(ws.receive_text())
+            resp = recv_skipping_transcripts(ws)
             assert resp["type"] == "suggestion"
 
     def test_invalid_json_text_returns_error(self, fake_ws):
@@ -515,7 +578,7 @@ class TestConfigMessages:
             ws.send_text(json.dumps({"type": "config", "empathy_slider": 90}))
             assert json.loads(ws.receive_text())["type"] == "config_ack"
             ws.send_bytes(b"\x00" * 50)
-            resp = json.loads(ws.receive_text())
+            resp = recv_skipping_transcripts(ws)
             assert resp["empathy_slider"] == 90
 
     def test_config_updates_role(self, fake_ws):
@@ -528,7 +591,7 @@ class TestConfigMessages:
             ws.send_text(json.dumps({"type": "config", "empathy_slider": 200}))
             assert json.loads(ws.receive_text())["type"] == "config_ack"
             ws.send_bytes(b"\x00" * 50)
-            resp = json.loads(ws.receive_text())
+            resp = recv_skipping_transcripts(ws)
             assert resp["empathy_slider"] == 50  # unchanged
 
 
@@ -576,7 +639,16 @@ class TestGracefulStop:
     def test_stop_flushes_final_utterances_before_session_complete(self):
         """F2: every segment drained by finish() flows through the suggestion
         pipeline and is sent BEFORE session_complete; then the server closes
-        with code 1000."""
+        with code 1000.
+
+        Every finalized utterance now emits its ``transcript`` event
+        immediately, ahead of the (async, LLM+TTS-backed) ``suggestion`` for
+        it — this test is explicitly about event ordering, so it asserts the
+        full real sequence rather than skipping transcripts. Reading the
+        "Live one." suggestion before sending "stop" (as before) keeps the
+        worker idle when the two final segments are enqueued, so neither is
+        dropped by the latest-wins supersede policy (see enqueue_segments).
+        """
         t = StoppableTranscriber(
             live=[TranscriptSegment("Live one.", 0.0, 1.0, speaker=0)],
             final=[
@@ -588,8 +660,11 @@ class TestGracefulStop:
         try:
             with open_ws(client, "/ws/session/54b398cb-b43e-596c-966a-f7e17da1d6c0") as ws:
                 ws.send_bytes(b"\x00" * 50)
+                live_transcript = json.loads(ws.receive_text())
                 first = json.loads(ws.receive_text())
                 ws.send_text(json.dumps({"type": "stop"}))
+                final_transcript_1 = json.loads(ws.receive_text())
+                final_transcript_2 = json.loads(ws.receive_text())
                 second = json.loads(ws.receive_text())
                 third = json.loads(ws.receive_text())
                 done = json.loads(ws.receive_text())
@@ -598,7 +673,16 @@ class TestGracefulStop:
         finally:
             _clear_overrides()
 
+        assert live_transcript["type"] == "transcript"
+        assert live_transcript["text"] == "Live one."
+        assert first["type"] == "suggestion"
         assert first["utterance_text"] == "Live one."
+        assert [final_transcript_1["type"], final_transcript_2["type"]] == [
+            "transcript", "transcript",
+        ]
+        assert [final_transcript_1["text"], final_transcript_2["text"]] == [
+            "Final one.", "Final two.",
+        ]
         assert [second["type"], third["type"]] == ["suggestion", "suggestion"]
         assert [second["utterance_text"], third["utterance_text"]] == [
             "Final one.", "Final two.",
@@ -615,11 +699,14 @@ class TestGracefulStop:
         try:
             with open_ws(client, "/ws/session/74542016-975a-5488-a0a4-7a75117e82b1") as ws:
                 ws.send_text(json.dumps({"type": "stop"}))
+                transcript = json.loads(ws.receive_text())
                 suggestion = json.loads(ws.receive_text())
                 done = json.loads(ws.receive_text())
         finally:
             _clear_overrides()
 
+        assert transcript["type"] == "transcript"
+        assert transcript["text"] == "Only final."
         assert suggestion["type"] == "suggestion"
         assert suggestion["utterance_text"] == "Only final."
         assert done == {"type": "session_complete"}
@@ -658,7 +745,7 @@ class TestSuggestionWorker:
                     time.sleep(0.01)
                 frames_while_llm_blocked = len(t.frames)
                 llm.release.set()
-                resp = json.loads(ws.receive_text())
+                resp = recv_skipping_transcripts(ws)
         finally:
             _clear_overrides()
 
@@ -668,7 +755,17 @@ class TestSuggestionWorker:
         assert resp["utterance_text"] == "Blocks the LLM."
 
     def test_suggestion_events_preserve_segment_order(self):
-        """A slow first suggestion must not let later (fast) ones overtake it."""
+        """A slow first suggestion must not let later (fast) ones overtake it.
+
+        All three segments finalize on the SAME ``stream()`` call, so they are
+        enqueued back-to-back inside one ``enqueue_segments`` invocation. The
+        worker picks up "First." (and starts its slow 200ms LLM call) before
+        "Third." is enqueued, so "Second." is still only QUEUED — not yet
+        started — when "Third." lands, and the latest-wins policy (see
+        enqueue_segments) supersedes it. This is the new, intended behavior,
+        not a bug: what matters is that the ones which DO arrive are never
+        reordered — "Third." never overtakes the still-generating "First.".
+        """
         calls: list[str] = []
 
         def slow_first(system: str, user: str) -> str:
@@ -687,11 +784,16 @@ class TestSuggestionWorker:
         try:
             with open_ws(client, "/ws/session/9762d144-4d01-5060-8f11-2d7dba4a761f") as ws:
                 ws.send_bytes(b"\x00" * 50)
-                events = [json.loads(ws.receive_text()) for _ in range(3)]
+                # 3 transcript events (one per segment) + 2 suggestion events
+                # ("Second." is superseded before the worker starts it).
+                events = [json.loads(ws.receive_text()) for _ in range(5)]
         finally:
             _clear_overrides()
 
-        assert [e["utterance_text"] for e in events] == ["First.", "Second.", "Third."]
+        transcripts = [e for e in events if e["type"] == "transcript"]
+        suggestions = [e for e in events if e["type"] == "suggestion"]
+        assert [t["text"] for t in transcripts] == ["First.", "Second.", "Third."]
+        assert [s["utterance_text"] for s in suggestions] == ["First.", "Third."]
 
 
 # ---------------------------------------------------------------------------
@@ -754,7 +856,7 @@ class TestTTSOwnership:
         try:
             with open_ws(client, "/ws/session/838378a4-1e3c-50b3-9f2e-71c3ad374969") as ws:
                 ws.send_bytes(b"\x00" * 50)
-                assert json.loads(ws.receive_text())["type"] == "suggestion"
+                assert recv_skipping_transcripts(ws)["type"] == "suggestion"
         finally:
             _clear_overrides()
 
@@ -777,6 +879,7 @@ class TestSuggestionErrorHonesty:
         try:
             with open_ws(client, "/ws/session/a2358e57-1418-5997-8e8d-7026163bc9f5") as ws:
                 ws.send_bytes(b"\x00" * 50)
+                transcript_raw = ws.receive_text()
                 raw = ws.receive_text()
                 resp = json.loads(raw)
                 # Session survives the failure — control channel still works.
@@ -785,10 +888,12 @@ class TestSuggestionErrorHonesty:
         finally:
             _clear_overrides()
 
+        assert json.loads(transcript_raw)["type"] == "transcript"
         assert resp["type"] == "suggestion_error"
         assert resp["utterance_text"] == FAKE_TRANSCRIPT
         assert resp["reason"] == "RuntimeError"
         assert "SECRET" not in raw  # exception message never hits the wire
+        assert "SECRET" not in transcript_raw
         assert ack["type"] == "config_ack"
 
     def test_unparseable_llm_output_is_error_not_fabrication(self):
@@ -800,7 +905,7 @@ class TestSuggestionErrorHonesty:
         try:
             with open_ws(client, "/ws/session/537c414a-a7df-570c-a344-5203b036cc62") as ws:
                 ws.send_bytes(b"\x00" * 50)
-                resp = json.loads(ws.receive_text())
+                resp = recv_skipping_transcripts(ws)
         finally:
             _clear_overrides()
 
@@ -816,7 +921,7 @@ class TestSuggestionErrorHonesty:
         try:
             with open_ws(client, "/ws/session/38705c3f-22f9-5ab1-93e5-23097150ea63") as ws:
                 ws.send_bytes(b"\x00" * 50)
-                resp = json.loads(ws.receive_text())
+                resp = recv_skipping_transcripts(ws)
         finally:
             _clear_overrides()
 
@@ -852,7 +957,7 @@ class TestTranscriberReconnect:
                 ws.send_bytes(b"\x00" * 50)  # dies → reconnect → restored
                 restored = json.loads(ws.receive_text())
                 ws.send_bytes(b"\x01" * 50)  # flows to the replacement
-                suggestion = json.loads(ws.receive_text())
+                suggestion = recv_skipping_transcripts(ws)
         finally:
             _clear_overrides()
 
@@ -960,12 +1065,18 @@ class TestStopDrainTimeout:
             with open_ws(client, "/ws/session/80d8585e-c7a7-52ec-951f-96b7d1a718ad") as ws:
                 ws.send_bytes(b"\x00" * 50)
                 assert llm.started.wait(timeout=5)  # worker is inside the LLM
+                # The transcript event fires immediately on finalize (before
+                # the LLM is even called), well before the hang — read it now
+                # so it isn't mistaken for session_complete below.
+                transcript = json.loads(ws.receive_text())
                 ws.send_text(json.dumps({"type": "stop"}))
                 done = json.loads(ws.receive_text())
                 llm.release.set()  # unblock the worker thread for teardown
         finally:
             _clear_overrides()
 
+        assert transcript["type"] == "transcript"
+        assert transcript["text"] == "Never finishes."
         assert done == {"type": "session_complete", "pending_dropped": 1}
 
     def test_fast_drain_keeps_bare_session_complete(self):
@@ -977,12 +1088,17 @@ class TestStopDrainTimeout:
         try:
             with open_ws(client, "/ws/session/06057ec0-a9eb-55ad-a1fe-ed066a0b3397") as ws:
                 ws.send_text(json.dumps({"type": "stop"}))
+                # transcript, then suggestion, then session_complete.
+                transcript = json.loads(ws.receive_text())
                 suggestion = json.loads(ws.receive_text())
                 done = json.loads(ws.receive_text())
         finally:
             _clear_overrides()
 
+        assert transcript["type"] == "transcript"
+        assert transcript["text"] == "Quick."
         assert suggestion["type"] == "suggestion"
+        assert suggestion["utterance_text"] == "Quick."
         assert done == {"type": "session_complete"}  # no pending_dropped key
 
 
@@ -1047,6 +1163,10 @@ class TestSessionCaps:
             assert json.loads(ws3.receive_text())["type"] == "config_ack"
 
     def test_utterance_cap_sends_limit_reached_once(self, fake_ws, monkeypatch):
+        """The transcript event is sent unconditionally, before the budget
+        check — the limit check (see enqueue_segments) only gates the
+        suggestion. So even over-budget frames still emit a transcript;
+        the difference is no suggestion (and, once, a limit_reached)."""
         monkeypatch.setattr(audio_pipeline, "MAX_UTTERANCES", 2)
         with open_ws(fake_ws, "/ws/session/206ef3fb-6502-54d8-b7c1-555711c5f449") as ws:
             # Send/receive in lockstep: limit_reached goes out from the receive
@@ -1054,10 +1174,13 @@ class TestSessionCaps:
             # at once could interleave the two streams.
             for i in range(2):  # FakeTranscriber yields one utterance per frame
                 ws.send_bytes(bytes([i]) * 50)
+                assert json.loads(ws.receive_text())["type"] == "transcript"
                 assert json.loads(ws.receive_text())["type"] == "suggestion"
-            ws.send_bytes(b"\x02" * 50)  # over budget → notified once
+            ws.send_bytes(b"\x02" * 50)  # over budget → transcript, then notified once
+            assert json.loads(ws.receive_text())["type"] == "transcript"
             assert json.loads(ws.receive_text())["type"] == "limit_reached"
-            ws.send_bytes(b"\x03" * 50)  # still over budget → silence
+            ws.send_bytes(b"\x03" * 50)  # still over budget → transcript, then silence
+            assert json.loads(ws.receive_text())["type"] == "transcript"
             ws.send_text(json.dumps({"type": "config"}))
             # No second limit_reached, no suggestion — next event is the ack.
             assert json.loads(ws.receive_text())["type"] == "config_ack"
@@ -1075,7 +1198,7 @@ class TestInputValidation:
             assert "audio frame too large" in resp["error"]
             # A contract-sized frame afterwards still flows normally.
             ws.send_bytes(b"\x00" * 3200)
-            assert json.loads(ws.receive_text())["type"] == "suggestion"
+            assert recv_skipping_transcripts(ws)["type"] == "suggestion"
 
     def test_role_is_clamped_to_100_chars(self, fake_ws):
         long_role = "R" * 300
@@ -1083,7 +1206,7 @@ class TestInputValidation:
             ws.send_text(json.dumps({"type": "config", "role": long_role}))
             assert json.loads(ws.receive_text())["type"] == "config_ack"
             ws.send_bytes(b"\x00" * 50)
-            assert json.loads(ws.receive_text())["type"] == "suggestion"
+            assert recv_skipping_transcripts(ws)["type"] == "suggestion"
 
         system = app.state.llm_client.complete.call_args.kwargs["system"]
         assert "R" * 100 in system
@@ -1094,7 +1217,7 @@ class TestInputValidation:
             ws.send_text(json.dumps({"type": "config", "role": ["not", "a", "str"]}))
             assert json.loads(ws.receive_text())["type"] == "config_ack"
             ws.send_bytes(b"\x00" * 50)
-            assert json.loads(ws.receive_text())["type"] == "suggestion"
+            assert recv_skipping_transcripts(ws)["type"] == "suggestion"
 
         system = app.state.llm_client.complete.call_args.kwargs["system"]
         assert "Husband" in system  # default role survived the bad config
@@ -1154,7 +1277,7 @@ class TestVoiceProfileWS:
             }))
             assert json.loads(ws.receive_text())["type"] == "config_ack"
             ws.send_bytes(b"\x00" * 50)
-            assert json.loads(ws.receive_text())["type"] == "suggestion"
+            assert recv_skipping_transcripts(ws)["type"] == "suggestion"
 
         system = app.state.llm_client.complete.call_args.kwargs["system"]
         assert "Okay — I get it, let's just figure it out." in system
@@ -1169,7 +1292,7 @@ class TestVoiceProfileWS:
             fake_ws, "/ws/session/2b8c1e4a-0000-4000-8000-000000000002"
         ) as ws:
             ws.send_bytes(b"\x00" * 50)
-            assert json.loads(ws.receive_text())["type"] == "suggestion"
+            assert recv_skipping_transcripts(ws)["type"] == "suggestion"
 
         system = app.state.llm_client.complete.call_args.kwargs["system"]
         assert system == empathy_system_prompt(50, "Husband")
@@ -1199,7 +1322,7 @@ class TestVoiceProfileWS:
             }))
             assert json.loads(ws.receive_text())["type"] == "config_ack"
             ws.send_bytes(b"\x00" * 50)
-            assert json.loads(ws.receive_text())["type"] == "suggestion"
+            assert recv_skipping_transcripts(ws)["type"] == "suggestion"
 
         system = app.state.llm_client.complete.call_args.kwargs["system"]
         assert system == empathy_system_prompt(50, "Husband")
@@ -1254,7 +1377,7 @@ class TestWebSocketAuth:
         sid = str(uuid.uuid4())
         with open_ws(fake_ws, f"/ws/session/{sid}") as ws:
             ws.send_bytes(b"\x00" * 50)
-            assert json.loads(ws.receive_text())["type"] == "suggestion"
+            assert recv_skipping_transcripts(ws)["type"] == "suggestion"
 
     def test_cannot_open_ws_on_another_users_session(self, fake_ws):
         """A stored session owned by user-a cannot be opened by another user —
@@ -1271,4 +1394,166 @@ class TestWebSocketAuth:
         # The real owner (tok-user-a → "user-a") opens it fine.
         with open_ws(fake_ws, f"/ws/session/{sid}", token="tok-user-a") as ws:
             ws.send_bytes(b"\x00" * 50)
-            assert json.loads(ws.receive_text())["type"] == "suggestion"
+            assert recv_skipping_transcripts(ws)["type"] == "suggestion"
+
+
+# ---------------------------------------------------------------------------
+# NEW: transcript event precedes the suggestion for every finalized utterance
+# ---------------------------------------------------------------------------
+
+class TestTranscriptEvents:
+    def test_audio_frame_yields_transcript_before_suggestion(self, fake_ws):
+        """Every finalized utterance now emits an immediate TranscriptEvent —
+        session_id/speaker/text/timing — strictly BEFORE its suggestion."""
+        sid = str(uuid.uuid4())
+        with open_ws(fake_ws, f"/ws/session/{sid}") as ws:
+            ws.send_bytes(b"\x00" * 50)
+            transcript = json.loads(ws.receive_text())
+            suggestion = json.loads(ws.receive_text())
+
+        assert transcript["type"] == "transcript"
+        assert transcript["session_id"] == sid
+        assert transcript["text"] == FAKE_TRANSCRIPT
+        assert transcript["speaker"] in ("Speaker A", "Speaker B")
+        assert transcript["start_time"] == 0.0
+        assert transcript["end_time"] == 0.0  # FakeTranscriber returns a bare str
+
+        assert suggestion["type"] == "suggestion"
+        assert suggestion["utterance_text"] == FAKE_TRANSCRIPT
+
+
+# ---------------------------------------------------------------------------
+# NEW: interjection gating — importance/speak/audio_b64 (session interject_level)
+# ---------------------------------------------------------------------------
+
+class TestInterjectGating:
+    """SuggestionEvent now carries the LLM-scored ``importance`` (0-100) and
+    ``speak`` (importance >= the session's interject_level). TTS is only
+    synthesized when ``speak`` is True — FakeTTS always returns audio when
+    invoked, so a ``None`` audio_b64 here proves TTS was genuinely skipped,
+    not just that the fake happened to return nothing."""
+
+    def test_below_threshold_suppresses_voice_but_keeps_suggestion(self, fake_ws):
+        app.state.llm_client.complete.return_value = json.dumps({
+            "suggestions": ["Quiet aside."],
+            "importance": 20,
+        })
+        sid = str(uuid.uuid4())
+        with open_ws(fake_ws, f"/ws/session/{sid}") as ws:
+            ws.send_text(json.dumps({"type": "config", "interject_level": 50}))
+            assert json.loads(ws.receive_text())["type"] == "config_ack"
+            ws.send_bytes(b"\x00" * 50)
+            resp = recv_skipping_transcripts(ws)
+
+        assert resp["type"] == "suggestion"  # still delivered, just not voiced
+        assert resp["importance"] == 20
+        assert resp["speak"] is False
+        assert resp["audio_b64"] is None
+
+    def test_at_or_above_threshold_voices_and_synthesizes(self, fake_ws):
+        app.state.llm_client.complete.return_value = json.dumps({
+            "suggestions": ["Urgent nudge."],
+            "importance": 80,
+        })
+        sid = str(uuid.uuid4())
+        with open_ws(fake_ws, f"/ws/session/{sid}") as ws:
+            ws.send_text(json.dumps({"type": "config", "interject_level": 50}))
+            assert json.loads(ws.receive_text())["type"] == "config_ack"
+            ws.send_bytes(b"\x00" * 50)
+            resp = recv_skipping_transcripts(ws)
+
+        assert resp["type"] == "suggestion"
+        assert resp["importance"] == 80
+        assert resp["speak"] is True
+        assert resp["audio_b64"] is not None
+
+    def test_missing_importance_fails_open_to_100_and_speaks(self, fake_ws):
+        """No 'importance' key in the LLM JSON → fail open to 100 (always
+        voice), preserving pre-slider behaviour for an older/non-conforming
+        model response — even with a high interject_level configured."""
+        app.state.llm_client.complete.return_value = json.dumps({
+            "suggestions": ["No importance key at all."],
+        })
+        sid = str(uuid.uuid4())
+        with open_ws(fake_ws, f"/ws/session/{sid}") as ws:
+            ws.send_text(json.dumps({"type": "config", "interject_level": 90}))
+            assert json.loads(ws.receive_text())["type"] == "config_ack"
+            ws.send_bytes(b"\x00" * 50)
+            resp = recv_skipping_transcripts(ws)
+
+        assert resp["importance"] == 100
+        assert resp["speak"] is True
+        assert resp["audio_b64"] is not None
+
+
+# ---------------------------------------------------------------------------
+# NEW: interject_level config parsing (_apply_config), like other config tests
+# ---------------------------------------------------------------------------
+
+class TestInterjectLevelConfigParsing:
+    @pytest.mark.anyio
+    async def test_interject_level_applied_within_range(self):
+        from audio_pipeline import SessionContext, _apply_config
+
+        ctx = SessionContext(session_id="interject-ok")
+        await _apply_config(ctx, {"interject_level": 65})
+        assert ctx.interject_level == 65
+
+    @pytest.mark.anyio
+    async def test_interject_level_out_of_range_is_ignored(self):
+        from audio_pipeline import SessionContext, _apply_config
+
+        ctx = SessionContext(session_id="interject-oob")
+        await _apply_config(ctx, {"interject_level": 150})
+        assert ctx.interject_level == 0  # default unchanged
+
+        await _apply_config(ctx, {"interject_level": -1})
+        assert ctx.interject_level == 0
+
+    @pytest.mark.anyio
+    async def test_interject_level_wrong_type_is_ignored(self):
+        from audio_pipeline import SessionContext, _apply_config
+
+        ctx = SessionContext(session_id="interject-badtype")
+        await _apply_config(ctx, {"interject_level": "50"})
+        assert ctx.interject_level == 0
+
+
+# ---------------------------------------------------------------------------
+# NEW: latest-wins queue — a pending (not-yet-started) turn is superseded by
+# a newer one; the dropped turn still gets its transcript + is remembered.
+# ---------------------------------------------------------------------------
+
+class TestLatestWinsQueue:
+    def test_pending_turn_is_superseded_by_newer_one(self):
+        """While turn one is being generated (LLM blocked), turns two and
+        three both arrive. Turn two is still only QUEUED — never started —
+        when turn three lands, so enqueue_segments's latest-wins policy drops
+        it. All three still get their transcript event; only turn one (in
+        flight) and turn three (the newest) get suggestions."""
+        llm = BlockingLLM(MOCK_LLM_JSON)
+        t = SequentialSegmentTranscriber([
+            TranscriptSegment("Turn one.", 0.0, 1.0, speaker=0),
+            TranscriptSegment("Turn two.", 1.0, 2.0, speaker=1),
+            TranscriptSegment("Turn three.", 2.0, 3.0, speaker=0),
+        ])
+        client = _inject(t)
+        app.state.llm_client = llm
+        try:
+            with open_ws(client, "/ws/session/e3f0a6ac-6f0a-4a53-9a1a-9c5b6a4e2b8a") as ws:
+                ws.send_bytes(b"\x00" * 50)  # turn one — worker picks it up
+                assert llm.started.wait(timeout=5)  # worker is inside the LLM
+                ws.send_bytes(b"\x01" * 50)  # turn two — queues, not started
+                ws.send_bytes(b"\x02" * 50)  # turn three — supersedes turn two
+                transcripts = [json.loads(ws.receive_text()) for _ in range(3)]
+                llm.release.set()  # unblock turn one's suggestion
+                suggestions = [recv_skipping_transcripts(ws) for _ in range(2)]
+        finally:
+            _clear_overrides()
+
+        assert [tr["text"] for tr in transcripts] == [
+            "Turn one.", "Turn two.", "Turn three.",
+        ]
+        assert [s["utterance_text"] for s in suggestions] == [
+            "Turn one.", "Turn three.",
+        ]

@@ -2,7 +2,7 @@
   "name": "mindshift-mobile",
   "version": "0.1.0",
   "private": true,
-  "main": "App.tsx",
+  "main": "index.js",
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
@@ -11,6 +11,7 @@
     "test": "jest"
   },
   "dependencies": {
+    "@expo/metro-runtime": "~57.0.3",
     "@react-native-community/slider": "5.2.0",
     "expo": "^57.0.0",
     "expo-audio": "~57.0.0",

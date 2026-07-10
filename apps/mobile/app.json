@@ -2,7 +2,7 @@
   "expo": {
     "name": "MindShift",
     "slug": "mindshift",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "scheme": "mindshift",
     "orientation": "portrait",
     "platforms": [
@@ -19,7 +19,7 @@
     },
     "android": {
       "package": "com.sagearbor.mindshift.app",
-      "versionCode": 4,
+      "versionCode": 5,
       "permissions": [
         "RECORD_AUDIO",
         "android.permission.RECORD_AUDIO",
