@@ -2,6 +2,9 @@ import React from "react";
 import renderer, { act, ReactTestInstance } from "react-test-renderer";
 import App from "../App";
 import { useAuthStore } from "../src/store/authStore";
+import { useSessionStore } from "../src/store/sessionStore";
+
+const mockFetch = global.fetch as jest.Mock;
 
 /** The firebase/auth mock state from jest-setup. */
 interface FirebaseAuthMock {
@@ -86,6 +89,55 @@ describe("App auth gate", () => {
     expect(queryId(comp, "tab-session")).toBeTruthy();
     expect(queryId(comp, "tab-sign-out")).toBeTruthy();
     expect(queryId(comp, "login-screen")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("navigates from the Session tab to the pushed Dynamics screen", async () => {
+    const user = fakeUser();
+    // Enough turns for the analyze button to appear.
+    act(() => {
+      useSessionStore.setState({
+        turns: [
+          { speaker: "Alice", text: "a" },
+          { speaker: "Bob", text: "b" },
+          { speaker: "Alice", text: "c" },
+          { speaker: "Bob", text: "d" },
+        ],
+      });
+    });
+    // DynamicsScreen fetches /analyze on mount; return a contract-valid, minimal
+    // result so it lands on its content view.
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        per_turn: [],
+        per_speaker: {},
+        dynamics: {
+          coupling: { strength: null, leader: null, description: "" },
+          deescalation: { who_first: null, follow_rate: null, description: "" },
+          triggers: [],
+          requests: [],
+        },
+        narrative: "",
+      }),
+    });
+
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await act(async () => {
+      authMock.currentUser = user;
+      await authMock.idTokenListener?.(user);
+    });
+
+    // Press "Analyze dynamics →" and confirm we land on the pushed screen with
+    // the tab bar hidden.
+    await act(async () => {
+      queryId(comp, "analyze-dynamics-button")?.props.onPress();
+    });
+    expect(queryId(comp, "dynamics-back")).toBeTruthy();
+    expect(queryId(comp, "tab-session")).toBeNull();
     act(() => comp.unmount());
   });
 });

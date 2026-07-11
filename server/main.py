@@ -26,8 +26,9 @@ else:
 import aiosqlite
 from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request, WebSocket
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
+import dynamics
 from audio_pipeline import UUID_PATTERN, audio_ws_endpoint
 from auth import get_current_uid, init_firebase
 from llm_client import LLMClient
@@ -212,6 +213,123 @@ class VoiceProfileOut(BaseModel):
     style_notes: Optional[str] = None
     updated_at: Optional[str] = None
 
+
+# --- POST /analyze — post-hoc conversation-dynamics ("the impartial third
+# chair"). One batch LLM pass scores every turn; Python computes the statistics
+# in dynamics.py. Framing is therapy-adjacent: the DYNAMIC, never a winner. ----
+
+# The exact marker vocabulary (Gottman Four Horsemen + repair/validation). Any
+# marker the LLM emits outside this set is dropped — never fabricated, never
+# renamed. HORSEMEN (a subset) drives the per-speaker horsemen counts.
+ANALYZE_MARKER_VOCAB = frozenset(
+    (*dynamics.HORSEMEN, "repair_attempt", "validation"),
+)
+ANALYZE_REQUEST_OUTCOMES = frozenset(("granted", "denied", "deferred", "unclear"))
+
+# A 2..10-speaker conversation of 4..400 turns. The per-turn upper bound and the
+# total-transcript char cap are independent belts: 400 * 2000 chars is far more
+# than any single LLM pass should carry, so the total cap (a 413) bites first on
+# a pathological payload.
+ANALYZE_MIN_TURNS = 4
+ANALYZE_MAX_TURNS = 400
+ANALYZE_MIN_SPEAKERS = 2
+ANALYZE_MAX_SPEAKERS = 10
+ANALYZE_MAX_TRANSCRIPT_CHARS = 60_000
+
+
+class AnalyzeTurn(BaseModel):
+    speaker: str = Field(min_length=1, max_length=60)
+    text: str = Field(min_length=1, max_length=2000)
+    start_time: Optional[float] = None
+    end_time: Optional[float] = None
+
+
+class AnalyzeRequest(BaseModel):
+    turns: list[AnalyzeTurn] = Field(
+        min_length=ANALYZE_MIN_TURNS, max_length=ANALYZE_MAX_TURNS,
+    )
+    context: str = Field(default="", max_length=500)
+
+    @model_validator(mode="after")
+    def _validate_speaker_count(self) -> "AnalyzeRequest":
+        # 2..10 DISTINCT speakers — a monologue or a crowd is out of scope. This
+        # is a request-shape rule, so it surfaces as a 422 (validation), exactly
+        # like the turn-count/length bounds above.
+        distinct = {t.speaker for t in self.turns}
+        if not (ANALYZE_MIN_SPEAKERS <= len(distinct) <= ANALYZE_MAX_SPEAKERS):
+            raise ValueError(
+                f"conversation must have between {ANALYZE_MIN_SPEAKERS} and "
+                f"{ANALYZE_MAX_SPEAKERS} distinct speakers, got {len(distinct)}"
+            )
+        return self
+
+
+class PerTurnOut(BaseModel):
+    index: int
+    speaker: str
+    heat: int
+    markers: list[str]
+    is_spike: bool
+    trigger_phrase: Optional[str]
+
+
+class HorsemenOut(BaseModel):
+    criticism: int
+    contempt: int
+    defensiveness: int
+    stonewalling: int
+
+
+class PerSpeakerOut(BaseModel):
+    turns: int
+    talk_share: float
+    avg_heat: float
+    peak_heat: int
+    peak_turn_index: int
+    heat_variance: float
+    interruptions: Optional[int]
+    horsemen: HorsemenOut
+    repair_attempts: int
+    repairs_accepted: int
+
+
+class CouplingOut(BaseModel):
+    strength: Optional[float]
+    leader: Optional[str]
+    description: str
+
+
+class DeescalationOut(BaseModel):
+    who_first: Optional[str]
+    follow_rate: Optional[float]
+    description: str
+
+
+class TriggerOut(BaseModel):
+    phrase: str
+    speaker: str
+    turn_index: int
+    heat_delta: int
+
+
+class RequestOut(BaseModel):
+    speaker: str
+    request: str
+    outcome: str
+
+
+class DynamicsOut(BaseModel):
+    coupling: CouplingOut
+    deescalation: DeescalationOut
+    triggers: list[TriggerOut]
+    requests: list[RequestOut]
+
+
+class AnalyzeResponse(BaseModel):
+    per_turn: list[PerTurnOut]
+    per_speaker: dict[str, PerSpeakerOut]
+    dynamics: DynamicsOut
+    narrative: str
 
 
 # ---------------------------------------------------------------------------
@@ -927,6 +1045,246 @@ async def score(
         )
 
     return ScoreResponse(**scores)
+
+
+# ---------------------------------------------------------------------------
+# POST /analyze — conversation-dynamics analysis ("the impartial third chair")
+# ---------------------------------------------------------------------------
+
+ANALYZE_SYSTEM_PROMPT = (
+    "You are an impartial couples therapist observing a conversation from the "
+    "third chair. You read the DYNAMIC between people — never who is right or "
+    "wrong — and you never pick a winner.\n\n"
+    "You will receive a transcript in which every turn is numbered and tagged "
+    "with its speaker, like `0. [Alice] ...`. Analyze EVERY turn.\n\n"
+    "For each turn, produce:\n"
+    "- heat: an integer 0-100 for the emotional escalation/hostility of THAT "
+    "turn, normalized to THIS conversation's OWN baseline (its calmest turns "
+    "near 0, its most heated near 100).\n"
+    "- markers: a list drawn ONLY from this exact vocabulary — criticism, "
+    "contempt, defensiveness, stonewalling, repair_attempt, validation. Label "
+    "a marker only when it is clearly present; use [] when none apply.\n"
+    "- trigger_phrase: the short phrase within THIS turn most likely to have "
+    "provoked the other party, or null if none.\n\n"
+    "Then, across the whole conversation, produce:\n"
+    "- requests: the concrete asks each speaker made and how each landed. Each "
+    "item is {speaker, request, outcome}, where outcome is exactly one of "
+    "granted, denied, deferred, unclear.\n"
+    "- narrative: ONE paragraph describing the DYNAMIC between these people. "
+    "Lead with their strengths FIRST, then name the friction. Describe the "
+    "pattern, never \"X is the problem\". At most 1200 characters.\n\n"
+    "Return ONLY a JSON object of exactly this shape, with per_turn holding "
+    "one entry per input turn in the SAME order and length:\n"
+    '{"per_turn": [{"heat": 0, "markers": [], "trigger_phrase": null}], '
+    '"requests": [{"speaker": "", "request": "", "outcome": "unclear"}], '
+    '"narrative": ""}'
+)
+
+
+def _clamp_heat(value: object) -> int | None:
+    """Coerce an LLM heat to an int in 0-100, or ``None`` if it is not a
+    number. Accepts whole-or-fractional floats (LLMs emit both); rejects bool.
+    ``None`` is an honest contract violation the caller turns into a 502 —
+    never a fabricated score."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return max(0, min(100, int(round(value))))
+    return None
+
+
+def _clean_markers(value: object) -> list[str]:
+    """Keep only markers in the exact vocabulary, de-duplicated in first-seen
+    order. Anything else (unknown label, non-string, non-list) is dropped —
+    the house rule is drop, never invent."""
+    if not isinstance(value, list):
+        return []
+    seen: list[str] = []
+    for m in value:
+        if isinstance(m, str) and m in ANALYZE_MARKER_VOCAB and m not in seen:
+            seen.append(m)
+    return seen
+
+
+def _clean_trigger_phrase(value: object) -> str | None:
+    """A non-empty string trigger phrase, else ``None``."""
+    if isinstance(value, str) and value.strip():
+        return value
+    return None
+
+
+def _clean_requests(value: object) -> list[dict[str, str]]:
+    """Normalize the LLM's requests[]: keep well-formed {speaker, request}
+    items, coerce an unknown/missing outcome to "unclear". Malformed entries
+    are skipped rather than fabricated into the output."""
+    if not isinstance(value, list):
+        return []
+    out: list[dict[str, str]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        speaker = item.get("speaker")
+        request = item.get("request")
+        if not isinstance(speaker, str) or not speaker.strip():
+            continue
+        if not isinstance(request, str) or not request.strip():
+            continue
+        outcome = item.get("outcome")
+        if outcome not in ANALYZE_REQUEST_OUTCOMES:
+            outcome = "unclear"
+        out.append(
+            {"speaker": speaker, "request": request, "outcome": outcome}
+        )
+    return out
+
+
+@app.post("/analyze", response_model=AnalyzeResponse)
+async def analyze(
+    req: AnalyzeRequest,
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    turns = req.turns
+
+    # Total-transcript cap (a 413) — the per-turn length bounds are validation
+    # (422); this guards the aggregate size a single LLM pass must carry.
+    total_chars = sum(len(t.text) for t in turns)
+    if total_chars > ANALYZE_MAX_TRANSCRIPT_CHARS:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"transcript too large: {total_chars} characters exceeds the "
+                f"{ANALYZE_MAX_TRANSCRIPT_CHARS} limit"
+            ),
+        )
+
+    speakers = [t.speaker for t in turns]
+    char_counts = [len(t.text) for t in turns]
+    starts = [t.start_time for t in turns]
+    ends = [t.end_time for t in turns]
+    distinct_speakers = len(set(speakers))
+
+    # Number every turn so per_turn alignment is explicit for the model.
+    numbered = "\n".join(
+        f"{i}. [{t.speaker}] {t.text}" for i, t in enumerate(turns)
+    )
+    user_content = (
+        f"Conversation ({len(turns)} turns, {distinct_speakers} speakers):\n"
+        f"{numbered}"
+    )
+    if req.context:
+        user_content += f"\n\nContext: {req.context}"
+
+    # Output budget scales with turn count (each turn is a small JSON object)
+    # plus headroom for requests + narrative, capped so a huge transcript can
+    # never request an absurd generation. A larger model raises the cap.
+    max_tokens = min(8192, 800 + 16 * len(turns))
+
+    llm = get_llm_client()
+    # to_thread: llm.complete is a blocking SDK call — keep it off the event
+    # loop (see /respond).
+    raw = await asyncio.to_thread(
+        llm.complete,
+        system=ANALYZE_SYSTEM_PROMPT,
+        user=user_content,
+        max_tokens=max_tokens,
+    )
+    try:
+        data = parse_llm_json(raw)
+    except (ValueError, IndexError, KeyError, TypeError):
+        raise HTTPException(status_code=502, detail="LLM returned invalid JSON")
+    # Valid JSON that isn't an object ("[]", "null", a bare number) would slip
+    # past the except above and AttributeError on .get() → an unhandled 500.
+    # Honest 502 instead, consistent with every other failure mode here.
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=502, detail="LLM returned invalid JSON")
+
+    llm_per_turn = data.get("per_turn")
+    # Honest failure: no padding, no truncation. A misaligned length means the
+    # scores cannot be trusted against the transcript at all.
+    if not isinstance(llm_per_turn, list) or len(llm_per_turn) != len(turns):
+        raise HTTPException(
+            status_code=502, detail="LLM returned misaligned analysis",
+        )
+
+    # Extract + clean the per-turn LLM fields into parallel arrays.
+    heats: list[int] = []
+    markers: list[list[str]] = []
+    trigger_phrases: list[str | None] = []
+    bad_heat_indices: list[int] = []
+    for i, entry in enumerate(llm_per_turn):
+        entry = entry if isinstance(entry, dict) else {}
+        heat = _clamp_heat(entry.get("heat"))
+        if heat is None:
+            bad_heat_indices.append(i)
+            heat = 0  # placeholder; request is about to 502 anyway
+        heats.append(heat)
+        markers.append(_clean_markers(entry.get("markers")))
+        trigger_phrases.append(_clean_trigger_phrase(entry.get("trigger_phrase")))
+
+    if bad_heat_indices:
+        raise HTTPException(
+            status_code=502,
+            detail="LLM returned non-numeric heat at turns: "
+            + ", ".join(str(i) for i in bad_heat_indices),
+        )
+
+    narrative = data.get("narrative")
+    if not isinstance(narrative, str) or not narrative.strip():
+        raise HTTPException(
+            status_code=502, detail="LLM returned an empty narrative",
+        )
+
+    # --- Python owns every statistic below (pure functions in dynamics.py) ---
+    spikes = dynamics.spike_flags(speakers, heats)
+    shares = dynamics.talk_share(speakers, char_counts)
+    interruptions = dynamics.count_interruptions(speakers, starts, ends)
+    heat_stats = dynamics.speaker_heat_stats(speakers, heats)
+    attempts, accepted = dynamics.count_repairs(speakers, heats, markers)
+    horsemen = dynamics.count_horsemen(speakers, markers)
+    coupling = dynamics.compute_coupling(speakers, heats)
+    deescalation = dynamics.compute_deescalation(speakers, heats)
+    triggers = dynamics.extract_triggers(speakers, heats, trigger_phrases)
+
+    per_turn = [
+        PerTurnOut(
+            index=i,
+            speaker=speakers[i],
+            heat=heats[i],
+            markers=markers[i],
+            is_spike=spikes[i],
+            trigger_phrase=trigger_phrases[i],
+        )
+        for i in range(len(turns))
+    ]
+
+    per_speaker = {
+        sp: PerSpeakerOut(
+            turns=stats["turns"],
+            talk_share=shares[sp],
+            avg_heat=stats["avg_heat"],
+            peak_heat=stats["peak_heat"],
+            peak_turn_index=stats["peak_turn_index"],
+            heat_variance=stats["heat_variance"],
+            interruptions=(None if interruptions is None else interruptions[sp]),
+            horsemen=HorsemenOut(**horsemen[sp]),
+            repair_attempts=attempts[sp],
+            repairs_accepted=accepted[sp],
+        )
+        for sp, stats in heat_stats.items()
+    }
+
+    return AnalyzeResponse(
+        per_turn=per_turn,
+        per_speaker=per_speaker,
+        dynamics=DynamicsOut(
+            coupling=CouplingOut(**coupling),
+            deescalation=DeescalationOut(**deescalation),
+            triggers=[TriggerOut(**t) for t in triggers],
+            requests=[RequestOut(**r) for r in _clean_requests(data.get("requests"))],
+        ),
+        narrative=narrative,
+    )
 
 
 @app.post("/session", response_model=SessionOut, status_code=201)

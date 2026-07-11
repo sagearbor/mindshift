@@ -1,24 +1,12 @@
 import React, { useRef, useEffect } from "react";
 import { View, Text, ScrollView, StyleSheet } from "react-native";
 import type { TranscriptEntry } from "../hooks/useAudioStream";
+// getSpeakerColor now lives in a shared util so the HeatChart keys speakers to
+// the same hues as the live transcript. Behavior here is unchanged.
+import { getSpeakerColor } from "../utils/speakerColors";
 
 interface LiveTranscriptProps {
   entries: TranscriptEntry[];
-}
-
-const SPEAKER_COLORS: Record<string, string> = {
-  "Speaker A": "#4A90D9",
-  "Speaker B": "#E85D75",
-};
-
-function getSpeakerColor(speaker: string): string {
-  if (SPEAKER_COLORS[speaker]) return SPEAKER_COLORS[speaker];
-  // Assign deterministic color based on speaker name hash
-  const hash = speaker
-    .split("")
-    .reduce((acc, c) => acc + c.charCodeAt(0), 0);
-  const colors = ["#4A90D9", "#E85D75", "#10B981", "#F59E0B", "#8B5CF6"];
-  return colors[hash % colors.length];
 }
 
 export default function LiveTranscript({ entries }: LiveTranscriptProps) {

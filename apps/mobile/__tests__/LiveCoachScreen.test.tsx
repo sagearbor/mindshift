@@ -330,7 +330,15 @@ describe("LiveCoachScreen", () => {
   it("review button shows only after a session ends with a transcript, and hands off the mapped turns", () => {
     const onReviewTranscript = jest.fn();
     const transcript = [
-      { speaker: "Speaker A", text: "You never listen.", timestamp: 1 },
+      // First entry carries live utterance timing; second (legacy-path style)
+      // does not — the handoff must carry timing through only where it exists.
+      {
+        speaker: "Speaker A",
+        text: "You never listen.",
+        timestamp: 1,
+        startTime: 0.5,
+        endTime: 2.1,
+      },
       { speaker: "Speaker B", text: "I'm trying.", timestamp: 2 },
     ];
 
@@ -351,7 +359,8 @@ describe("LiveCoachScreen", () => {
     ).toHaveLength(0);
 
     // Session ended with a transcript: the button appears and hands off the
-    // turns mapped to {speaker, text} (timestamps dropped).
+    // mapped turns — wall-clock timestamps dropped, utterance timing renamed
+    // to the wire's snake_case and kept only where the entry had it.
     mockUseAudioStream.mockReturnValue({
       ...defaultHookState,
       sessionActive: false,
@@ -368,9 +377,18 @@ describe("LiveCoachScreen", () => {
     });
     act(() => button.props.onPress());
     expect(onReviewTranscript).toHaveBeenCalledWith([
-      { speaker: "Speaker A", text: "You never listen." },
+      {
+        speaker: "Speaker A",
+        text: "You never listen.",
+        start_time: 0.5,
+        end_time: 2.1,
+      },
       { speaker: "Speaker B", text: "I'm trying." },
     ]);
+    // The untimed entry must have NO timing keys — absent, not 0.
+    expect(onReviewTranscript.mock.calls[0][0][1]).not.toHaveProperty(
+      "start_time",
+    );
   });
 
   it("renders a nudge entry as a compact banner, not a suggestion card", () => {

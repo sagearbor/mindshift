@@ -22,9 +22,18 @@ const STATUS_COLORS: Record<string, string> = {
 
 interface LiveCoachScreenProps {
   /** Hand the finished live transcript off to the async-review Session screen.
-   *  Optional so the screen still renders standalone (e.g. in isolation tests);
-   *  the review button only calls it when present. */
-  onReviewTranscript?: (turns: { speaker: string; text: string }[]) => void;
+   *  Turns carry utterance timing (seconds) when the live pipeline provided it,
+   *  so post-session /analyze can compute real interruption stats. Optional so
+   *  the screen still renders standalone (e.g. in isolation tests); the review
+   *  button only calls it when present. */
+  onReviewTranscript?: (
+    turns: {
+      speaker: string;
+      text: string;
+      start_time?: number;
+      end_time?: number;
+    }[],
+  ) => void;
 }
 
 export default function LiveCoachScreen({
@@ -80,7 +89,15 @@ export default function LiveCoachScreen({
 
   const handleReview = useCallback(() => {
     onReviewTranscript?.(
-      transcript.map((t) => ({ speaker: t.speaker, text: t.text })),
+      // Carry utterance timing through to review (camelCase hook fields →
+      // snake_case Turn fields, matching the /analyze wire contract). Only
+      // when actually present — legacy-server entries have none.
+      transcript.map((t) => ({
+        speaker: t.speaker,
+        text: t.text,
+        ...(t.startTime !== undefined ? { start_time: t.startTime } : {}),
+        ...(t.endTime !== undefined ? { end_time: t.endTime } : {}),
+      })),
     );
   }, [onReviewTranscript, transcript]);
 
