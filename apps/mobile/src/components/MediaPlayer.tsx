@@ -66,6 +66,14 @@ const MediaPlayer = forwardRef<MediaPlayerHandle, MediaPlayerProps>(
   ) {
     const player = useVideoPlayer(uri, (p) => {
       p.loop = false;
+      // Play audibly, always. expo-video defaults are muted=false / volume=1.0,
+      // but we set them explicitly so no prior state, prop, or platform quirk
+      // can leave a replay silent — the whole point of this screen is to HEAR
+      // the recording back. (audioMixingMode stays at its 'auto' default: the
+      // record-vs-playback audio SESSION is handled at the screen level via
+      // utils/audioMode, not per-player here.)
+      p.muted = false;
+      p.volume = 1;
     });
 
     // Surface a load/decode failure so the parent can fall back to the stored
@@ -85,8 +93,20 @@ const MediaPlayer = forwardRef<MediaPlayerHandle, MediaPlayerProps>(
     const [playing, setPlaying] = useState(false);
     const [position, setPosition] = useState(0);
     const [duration, setDuration] = useState(0);
-    // Emit onDurationChange only once, when duration first resolves.
+    // Emit onDurationChange only once PER SOURCE, when duration first resolves.
     const durationSentRef = useRef(false);
+
+    // A new `uri` means a fresh source to load: expo-video's useVideoPlayer
+    // swaps in a new player, so reset the per-source readout and re-arm the
+    // duration emit. Without this, onDurationChange would fire only for the very
+    // first source and never again — breaking the parent's load-timeout
+    // watchdog and its HD/derivative switching, which rely on a duration signal
+    // for each source they hand us.
+    useEffect(() => {
+      durationSentRef.current = false;
+      setDuration(0);
+      setPosition(0);
+    }, [uri]);
 
     useImperativeHandle(
       ref,

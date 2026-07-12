@@ -8,6 +8,7 @@ import {
   patchRecordingSource,
 } from "../src/api/client";
 import type { RecordingDetail } from "../src/api/client";
+import { setPlaybackMode } from "../src/utils/audioMode";
 
 // Mock the network fns.
 jest.mock("../src/api/client", () => ({
@@ -21,16 +22,22 @@ const mockGetMediaUrl = getRecordingMediaUrl as jest.Mock;
 const mockGetSourceUrl = getRecordingSourceUrl as jest.Mock;
 const mockPatchSource = patchRecordingSource as jest.Mock;
 
+// Mock the audio-session util: ReplayScreen sets a playback mode on mount so
+// replay is audible even after Live Coach's recording session. We assert the
+// call without touching a real native audio session.
+jest.mock("../src/utils/audioMode", () => ({
+  __esModule: true,
+  setPlaybackMode: jest.fn().mockResolvedValue(undefined),
+  setRecordingMode: jest.fn().mockResolvedValue(undefined),
+}));
+const mockSetPlaybackMode = setPlaybackMode as jest.Mock;
+
 // Mock the media player wholesale (per the brief): a host view that forwards a
 // ref exposing a shared `seek` spy, so tap-to-seek can be asserted without
-// touching expo-video. It also records the latest `uri`/`onError` props on
-// `mockPlayerProps` so tests can assert which URL the player received and can
-// drive the player's error callback. (Both names are `mock`-prefixed so jest's
-// factory hoist allows the out-of-scope references.)
+// touching expo-video. It records the latest `uri`/`onError`/`onDurationChange`
+// props on `mockPlayerProps` so tests can assert which URL the player received,
+// drive its error callback, and simulate the media reporting a real duration.
 const mockSeek = jest.fn();
-// `any` (not a typed shape) so the factory can assign props with no in-factory
-// type cast — jest's hoist guard rejects a cast whose parameter name (`message`)
-// reads as an out-of-scope variable.
 const mockPlayerProps: Record<string, any> = {};
 jest.mock("../src/components/MediaPlayer", () => {
   const React = require("react");
@@ -40,6 +47,7 @@ jest.mock("../src/components/MediaPlayer", () => {
       React.useImperativeHandle(ref, () => ({ seek: mockSeek }));
       mockPlayerProps.uri = props.uri;
       mockPlayerProps.onError = props.onError;
+      mockPlayerProps.onDurationChange = props.onDurationChange;
       return React.createElement(View, {
         testID: "media-player",
         uri: props.uri,
@@ -91,8 +99,10 @@ beforeEach(() => {
   mockGetSourceUrl.mockReset();
   mockPatchSource.mockReset();
   mockSeek.mockReset();
+  mockSetPlaybackMode.mockClear();
   mockPlayerProps.uri = undefined;
   mockPlayerProps.onError = undefined;
+  mockPlayerProps.onDurationChange = undefined;
 });
 
 // A link-sourced recording: the user linked their own hosted original.
@@ -105,6 +115,8 @@ const uploadDetail = {
   ...detail,
   source: { type: "upload", url: null },
 };
+
+const LOAD_TIMEOUT_MS = 8000;
 
 describe("ReplayScreen", () => {
   it("fetches the recording + media URL and renders the player and heat chart", async () => {
@@ -122,6 +134,20 @@ describe("ReplayScreen", () => {
     expect(queryId(comp, "replay-content")).toBeTruthy();
     expect(queryId(comp, "media-player")).toBeTruthy();
     expect(queryId(comp, "heat-chart")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("sets a playback audio mode on mount (so replay is audible after Live Coach)", async () => {
+    mockGetRecording.mockResolvedValueOnce(detail);
+    mockGetMediaUrl.mockResolvedValueOnce({ url: "https://signed/x", expires_in: 600 });
+
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(<ReplayScreen recordingId="r1" onBack={() => {}} />);
+    });
+    await act(async () => {});
+
+    expect(mockSetPlaybackMode).toHaveBeenCalled();
     act(() => comp.unmount());
   });
 
@@ -187,33 +213,8 @@ describe("ReplayScreen", () => {
     act(() => comp.unmount());
   });
 
-  it("streams the HD linked source and shows the HD badge for a link-sourced recording", async () => {
+  it("plays the stored derivative first for a link-sourced recording and offers Try-HD (no auto HD, no badge)", async () => {
     mockGetRecording.mockResolvedValueOnce(linkDetail);
-    mockGetSourceUrl.mockResolvedValueOnce({
-      url: "https://cdn.example/hd=dv",
-      content_type: "video/mp4",
-      expires_hint: "may expire; refetch on failure",
-    });
-
-    let comp!: renderer.ReactTestRenderer;
-    await act(async () => {
-      comp = renderer.create(<ReplayScreen recordingId="r1" onBack={() => {}} />);
-    });
-    await act(async () => {});
-
-    // Resolved the linked source, NOT the derivative.
-    expect(mockGetSourceUrl).toHaveBeenCalledWith("r1");
-    expect(mockGetMediaUrl).not.toHaveBeenCalled();
-    // Player received the remote HD URL; badge shown, no fallback note.
-    expect(mockPlayerProps.uri).toBe("https://cdn.example/hd=dv");
-    expect(queryId(comp, "hd-badge")).toBeTruthy();
-    expect(queryId(comp, "source-fallback-note")).toBeNull();
-    act(() => comp.unmount());
-  });
-
-  it("falls back to the stored derivative with a note when the linked source won't resolve", async () => {
-    mockGetRecording.mockResolvedValueOnce(linkDetail);
-    mockGetSourceUrl.mockRejectedValueOnce(new Error("API error: 502"));
     mockGetMediaUrl.mockResolvedValueOnce({
       url: "https://signed.example/deriv",
       expires_in: 600,
@@ -225,28 +226,223 @@ describe("ReplayScreen", () => {
     });
     await act(async () => {});
 
-    expect(mockGetSourceUrl).toHaveBeenCalledWith("r1");
+    // Derivative-first: the reliable stored copy loads; the HD original is NOT
+    // auto-fetched (that stream can buffer forever).
     expect(mockGetMediaUrl).toHaveBeenCalledWith("r1");
-    // Player got the derivative URL; note shown, no HD badge; content still renders.
+    expect(mockGetSourceUrl).not.toHaveBeenCalled();
+    expect(mockPlayerProps.uri).toBe("https://signed.example/deriv");
+    expect(queryId(comp, "hd-badge")).toBeNull();
+    // The opt-in Try-HD affordance is offered (link source only).
+    expect(queryId(comp, "try-hd-button")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("Try-HD switches the player to the resolved HD source and shows the badge", async () => {
+    mockGetRecording.mockResolvedValueOnce(linkDetail);
+    mockGetMediaUrl.mockResolvedValueOnce({
+      url: "https://signed.example/deriv",
+      expires_in: 600,
+    });
+
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(<ReplayScreen recordingId="r1" onBack={() => {}} />);
+    });
+    await act(async () => {});
+
+    expect(mockPlayerProps.uri).toBe("https://signed.example/deriv");
+
+    // User opts into HD; source resolves and the player switches to it.
+    mockGetSourceUrl.mockResolvedValueOnce({
+      url: "https://cdn.example/hd=dv",
+      content_type: "video/mp4",
+      expires_hint: "may expire; refetch on failure",
+    });
+    await act(async () => {
+      queryId(comp, "try-hd-button")!.props.onPress();
+    });
+    await act(async () => {});
+
+    expect(mockGetSourceUrl).toHaveBeenCalledWith("r1");
+    expect(mockPlayerProps.uri).toBe("https://cdn.example/hd=dv");
+    expect(queryId(comp, "hd-badge")).toBeTruthy();
+    // Now the escape hatch back to the stored copy is offered instead.
+    expect(queryId(comp, "force-derivative")).toBeTruthy();
+    expect(queryId(comp, "try-hd-button")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("Back-to-stored (force-derivative) returns the player to the derivative from HD", async () => {
+    mockGetRecording.mockResolvedValueOnce(linkDetail);
+    mockGetMediaUrl
+      .mockResolvedValueOnce({ url: "https://signed.example/deriv", expires_in: 600 })
+      .mockResolvedValueOnce({ url: "https://signed.example/deriv2", expires_in: 600 });
+
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(<ReplayScreen recordingId="r1" onBack={() => {}} />);
+    });
+    await act(async () => {});
+
+    // Go HD first.
+    mockGetSourceUrl.mockResolvedValueOnce({
+      url: "https://cdn.example/hd=dv",
+      content_type: "video/mp4",
+      expires_hint: "may expire",
+    });
+    await act(async () => {
+      queryId(comp, "try-hd-button")!.props.onPress();
+    });
+    await act(async () => {});
+    expect(mockPlayerProps.uri).toBe("https://cdn.example/hd=dv");
+
+    // Tap "Back to stored copy" → derivative again, badge gone.
+    await act(async () => {
+      queryId(comp, "force-derivative")!.props.onPress();
+    });
+    await act(async () => {});
+
+    expect(mockPlayerProps.uri).toBe("https://signed.example/deriv2");
+    expect(queryId(comp, "hd-badge")).toBeNull();
+    expect(queryId(comp, "try-hd-button")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("stays on the derivative with a note when Try-HD can't resolve the linked source", async () => {
+    mockGetRecording.mockResolvedValueOnce(linkDetail);
+    mockGetMediaUrl.mockResolvedValueOnce({
+      url: "https://signed.example/deriv",
+      expires_in: 600,
+    });
+
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(<ReplayScreen recordingId="r1" onBack={() => {}} />);
+    });
+    await act(async () => {});
+
+    mockGetSourceUrl.mockRejectedValueOnce(new Error("API error: 502"));
+    await act(async () => {
+      queryId(comp, "try-hd-button")!.props.onPress();
+    });
+    await act(async () => {});
+
+    // Stayed on the derivative; honest note shown; no HD badge.
     expect(mockPlayerProps.uri).toBe("https://signed.example/deriv");
     expect(queryId(comp, "hd-badge")).toBeNull();
     expect(queryId(comp, "source-fallback-note")).toBeTruthy();
-    expect(queryId(comp, "replay-content")).toBeTruthy();
     act(() => comp.unmount());
   });
 
-  it("falls back to the derivative when the player errors on the remote HD stream", async () => {
+  it("auto-falls back from a stuck HD stream to the derivative after the load timeout", async () => {
+    jest.useFakeTimers();
+    try {
+      mockGetRecording.mockResolvedValueOnce(linkDetail);
+      mockGetMediaUrl
+        .mockResolvedValueOnce({ url: "https://signed.example/deriv", expires_in: 600 })
+        .mockResolvedValueOnce({ url: "https://signed.example/deriv2", expires_in: 600 });
+
+      let comp!: renderer.ReactTestRenderer;
+      await act(async () => {
+        comp = renderer.create(<ReplayScreen recordingId="r1" onBack={() => {}} />);
+      });
+      await act(async () => {});
+
+      // Simulate the derivative loading (duration reported) so the initial
+      // watchdog doesn't fire, then go HD.
+      act(() => mockPlayerProps.onDurationChange?.(12));
+      mockGetSourceUrl.mockResolvedValueOnce({
+        url: "https://cdn.example/hd=dv",
+        content_type: "video/mp4",
+        expires_hint: "may expire",
+      });
+      await act(async () => {
+        queryId(comp, "try-hd-button")!.props.onPress();
+      });
+      await act(async () => {});
+      expect(mockPlayerProps.uri).toBe("https://cdn.example/hd=dv");
+
+      // HD never reports a duration (moov-at-end, no Range → buffers forever).
+      // The watchdog fires and drops back to the derivative with a note.
+      await act(async () => {
+        jest.advanceTimersByTime(LOAD_TIMEOUT_MS);
+      });
+      await act(async () => {});
+
+      expect(mockPlayerProps.uri).toBe("https://signed.example/deriv2");
+      expect(queryId(comp, "hd-badge")).toBeNull();
+      expect(queryId(comp, "source-fallback-note")).toBeTruthy();
+      act(() => comp.unmount());
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("shows an honest note when even the stored copy never loads (load timeout, nothing better to try)", async () => {
+    jest.useFakeTimers();
+    try {
+      mockGetRecording.mockResolvedValueOnce(uploadDetail);
+      mockGetMediaUrl.mockResolvedValueOnce({
+        url: "https://signed.example/deriv",
+        expires_in: 600,
+      });
+
+      let comp!: renderer.ReactTestRenderer;
+      await act(async () => {
+        comp = renderer.create(<ReplayScreen recordingId="r1" onBack={() => {}} />);
+      });
+      await act(async () => {});
+
+      // Derivative never reports a duration → watchdog fires; already on the
+      // derivative, so surface the honest "isn't loading" note (no fallback).
+      await act(async () => {
+        jest.advanceTimersByTime(LOAD_TIMEOUT_MS);
+      });
+      await act(async () => {});
+
+      expect(queryId(comp, "media-stuck-note")).toBeTruthy();
+      // Never fetched an HD source (upload recording) and never fell back.
+      expect(mockGetSourceUrl).not.toHaveBeenCalled();
+      act(() => comp.unmount());
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("no timeout fallback fires once the media reports a real duration", async () => {
+    jest.useFakeTimers();
+    try {
+      mockGetRecording.mockResolvedValueOnce(uploadDetail);
+      mockGetMediaUrl.mockResolvedValueOnce({
+        url: "https://signed.example/deriv",
+        expires_in: 600,
+      });
+
+      let comp!: renderer.ReactTestRenderer;
+      await act(async () => {
+        comp = renderer.create(<ReplayScreen recordingId="r1" onBack={() => {}} />);
+      });
+      await act(async () => {});
+
+      act(() => mockPlayerProps.onDurationChange?.(42.7));
+      await act(async () => {
+        jest.advanceTimersByTime(LOAD_TIMEOUT_MS);
+      });
+      await act(async () => {});
+
+      expect(queryId(comp, "media-stuck-note")).toBeNull();
+      expect(queryId(comp, "source-fallback-note")).toBeNull();
+      act(() => comp.unmount());
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("auto-falls back to the derivative when the player errors on the remote HD stream", async () => {
     mockGetRecording.mockResolvedValueOnce(linkDetail);
-    mockGetSourceUrl.mockResolvedValueOnce({
-      url: "https://cdn.example/hd=dv",
-      content_type: "video/mp4",
-      expires_hint: "may expire; refetch on failure",
-    });
-    // Derivative resolved only once the player reports the remote stream failed.
-    mockGetMediaUrl.mockResolvedValueOnce({
-      url: "https://signed.example/deriv",
-      expires_in: 600,
-    });
+    mockGetMediaUrl
+      .mockResolvedValueOnce({ url: "https://signed.example/deriv", expires_in: 600 })
+      .mockResolvedValueOnce({ url: "https://signed.example/deriv2", expires_in: 600 });
 
     let comp!: renderer.ReactTestRenderer;
     await act(async () => {
@@ -254,10 +450,18 @@ describe("ReplayScreen", () => {
     });
     await act(async () => {});
 
-    // Starts in HD on the remote URL.
-    expect(queryId(comp, "hd-badge")).toBeTruthy();
+    // Opt into HD.
+    mockGetSourceUrl.mockResolvedValueOnce({
+      url: "https://cdn.example/hd=dv",
+      content_type: "video/mp4",
+      expires_hint: "may expire; refetch on failure",
+    });
+    await act(async () => {
+      queryId(comp, "try-hd-button")!.props.onPress();
+    });
+    await act(async () => {});
     expect(mockPlayerProps.uri).toBe("https://cdn.example/hd=dv");
-    expect(mockGetMediaUrl).not.toHaveBeenCalled();
+    expect(queryId(comp, "hd-badge")).toBeTruthy();
 
     // Player errors on the remote stream → automatic fallback.
     await act(async () => {
@@ -265,14 +469,13 @@ describe("ReplayScreen", () => {
     });
     await act(async () => {});
 
-    expect(mockGetMediaUrl).toHaveBeenCalledWith("r1");
-    expect(mockPlayerProps.uri).toBe("https://signed.example/deriv");
+    expect(mockPlayerProps.uri).toBe("https://signed.example/deriv2");
     expect(queryId(comp, "hd-badge")).toBeNull();
     expect(queryId(comp, "source-fallback-note")).toBeTruthy();
     act(() => comp.unmount());
   });
 
-  it("uses the derivative-only path for an upload-sourced recording (no source_url, no badge)", async () => {
+  it("uses the derivative-only path for an upload-sourced recording (no source_url, no badge, no Try-HD)", async () => {
     mockGetRecording.mockResolvedValueOnce(uploadDetail);
     mockGetMediaUrl.mockResolvedValueOnce({
       url: "https://signed.example/deriv",
@@ -290,13 +493,13 @@ describe("ReplayScreen", () => {
     expect(mockPlayerProps.uri).toBe("https://signed.example/deriv");
     expect(queryId(comp, "hd-badge")).toBeNull();
     expect(queryId(comp, "source-fallback-note")).toBeNull();
+    expect(queryId(comp, "try-hd-button")).toBeNull();
     act(() => comp.unmount());
   });
 
   describe("attach HD source", () => {
-    it("attaches a link, refetches, and HD-first playback kicks in (badge appears)", async () => {
-      // Starts as an upload-sourced recording (derivative-only, no attach button
-      // is hidden — the Attach affordance is shown).
+    it("attaches a link, refetches, and the Try-HD opt-in appears (derivative still plays, no auto badge)", async () => {
+      // Starts as an upload-sourced recording (derivative-only, Attach offered).
       mockGetRecording.mockResolvedValueOnce(uploadDetail);
       mockGetMediaUrl.mockResolvedValueOnce({
         url: "https://signed.example/deriv",
@@ -309,10 +512,11 @@ describe("ReplayScreen", () => {
       });
       await act(async () => {});
 
-      // No link yet → "Attach HD source" (not "Replace"), and no HD badge.
+      // No link yet → "Attach HD source" (not "Replace"), no HD badge, no Try-HD.
       expect(queryId(comp, "attach-source-button")).toBeTruthy();
       expect(queryId(comp, "replace-source-button")).toBeNull();
       expect(queryId(comp, "hd-badge")).toBeNull();
+      expect(queryId(comp, "try-hd-button")).toBeNull();
 
       // Open the input and type a link.
       act(() => queryId(comp, "attach-source-button")!.props.onPress());
@@ -323,18 +527,17 @@ describe("ReplayScreen", () => {
         ),
       );
 
-      // The PATCH succeeds; the refetch now returns a link-sourced recording, so
-      // HD-first resolves the remote source and the badge appears.
+      // PATCH succeeds; the refetch returns a link-sourced recording. Playback
+      // stays on the reliable derivative; the Try-HD opt-in now appears.
       mockPatchSource.mockResolvedValueOnce({
         type: "link",
         url: "https://photos.app.goo.gl/abc",
         original_filename: "kitchen-fight.m4a",
       });
       mockGetRecording.mockResolvedValueOnce(linkDetail);
-      mockGetSourceUrl.mockResolvedValueOnce({
-        url: "https://cdn.example/hd=dv",
-        content_type: "video/mp4",
-        expires_hint: "may expire; refetch on failure",
+      mockGetMediaUrl.mockResolvedValueOnce({
+        url: "https://signed.example/deriv2",
+        expires_in: 600,
       });
 
       await act(async () => {
@@ -346,10 +549,11 @@ describe("ReplayScreen", () => {
         "r1",
         "https://photos.app.goo.gl/abc",
       );
-      // Refetched, took the HD path, and the badge is now shown.
-      expect(mockGetSourceUrl).toHaveBeenCalledWith("r1");
-      expect(mockPlayerProps.uri).toBe("https://cdn.example/hd=dv");
-      expect(queryId(comp, "hd-badge")).toBeTruthy();
+      // Refetched, still derivative-first (no auto HD fetch), Try-HD now offered.
+      expect(mockGetSourceUrl).not.toHaveBeenCalled();
+      expect(mockPlayerProps.uri).toBe("https://signed.example/deriv2");
+      expect(queryId(comp, "hd-badge")).toBeNull();
+      expect(queryId(comp, "try-hd-button")).toBeTruthy();
       act(() => comp.unmount());
     });
 
@@ -400,10 +604,9 @@ describe("ReplayScreen", () => {
 
     it("offers a Replace-source affordance when the recording is already link-sourced", async () => {
       mockGetRecording.mockResolvedValueOnce(linkDetail);
-      mockGetSourceUrl.mockResolvedValueOnce({
-        url: "https://cdn.example/hd=dv",
-        content_type: "video/mp4",
-        expires_hint: "may expire; refetch on failure",
+      mockGetMediaUrl.mockResolvedValueOnce({
+        url: "https://signed.example/deriv",
+        expires_in: 600,
       });
 
       let comp!: renderer.ReactTestRenderer;
