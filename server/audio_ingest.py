@@ -293,7 +293,7 @@ def _decode_wav(data: bytes) -> tuple[np.ndarray, int]:
     return np.ascontiguousarray(arr, dtype=np.float32), sr
 
 
-def _decode_via_ffmpeg(data: bytes) -> tuple[np.ndarray, int]:
+def _decode_via_ffmpeg(data: bytes, filename: str = "") -> tuple[np.ndarray, int]:
     """Decode any container via the imageio-ffmpeg static binary.
 
     ``-vn`` drops the video stream, so a video upload yields just its audio
@@ -311,28 +311,42 @@ def _decode_via_ffmpeg(data: bytes) -> tuple[np.ndarray, int]:
             f"could not decode this file: ffmpeg is unavailable ({exc})"
         ) from exc
 
+    # INPUT VIA TEMP FILE, NOT stdin: phone/Photos MP4s put the moov index at
+    # the END of the file, and ffmpeg cannot seek a pipe — piping such a file
+    # fails with "partial file / Invalid data found when processing input"
+    # (bit a real Google-Photos video in production: analysis succeeded but
+    # every voice label was lost). A seekable temp file decodes them fine;
+    # the derivatives path already worked this way for the same reason.
+    with tempfile.NamedTemporaryFile(suffix=_suffix_for(filename), delete=False) as tf:
+        tf.write(data)
+        in_path = tf.name
     cmd = [
         exe, "-nostdin", "-loglevel", "error",
-        "-i", "pipe:0",
+        "-i", in_path,
         "-vn",                       # drop any video track
         "-ac", "1",                  # mono
         "-ar", str(FFMPEG_TARGET_SR),
         "-f", "s16le", "pipe:1",     # raw 16-bit LE PCM to stdout
     ]
     try:
-        proc = subprocess.run(
-            cmd,
-            input=data,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=FFMPEG_TIMEOUT_S,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise AudioDecodeError(
-            "could not decode this file: decoding timed out"
-        ) from exc
-    except Exception as exc:  # noqa: BLE001 — subprocess/OS failure → honest 422
-        raise AudioDecodeError(f"could not decode this file: {exc}") from exc
+        try:
+            proc = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=FFMPEG_TIMEOUT_S,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise AudioDecodeError(
+                "could not decode this file: decoding timed out"
+            ) from exc
+        except Exception as exc:  # noqa: BLE001 — subprocess/OS failure → honest 422
+            raise AudioDecodeError(f"could not decode this file: {exc}") from exc
+    finally:
+        try:
+            os.unlink(in_path)
+        except OSError:
+            pass
 
     if proc.returncode != 0 or not proc.stdout:
         detail = proc.stderr.decode("utf-8", "replace").strip()[-200:]
@@ -344,6 +358,13 @@ def _decode_via_ffmpeg(data: bytes) -> tuple[np.ndarray, int]:
     pcm = np.frombuffer(proc.stdout, dtype=np.int16).astype(np.float32) / 32768.0
     return np.ascontiguousarray(pcm, dtype=np.float32), FFMPEG_TARGET_SR
 
+
+
+def _suffix_for(filename: str) -> str:
+    """A safe file suffix for the temp decode input — the extension helps
+    ffmpeg pick a demuxer; anything unrecognizable becomes ".bin"."""
+    ext = os.path.splitext(filename or "")[1].lower()
+    return ext if ext and len(ext) <= 8 and ext[1:].isalnum() else ".bin"
 
 def decode_to_pcm(data: bytes, filename: str) -> tuple[np.ndarray, int]:
     """Decode uploaded audio/video bytes to (mono float32 PCM, sample_rate).
@@ -360,7 +381,7 @@ def decode_to_pcm(data: bytes, filename: str) -> tuple[np.ndarray, int]:
             logger.info(
                 "stdlib WAV parse failed (%s); falling back to ffmpeg", exc,
             )
-    return _decode_via_ffmpeg(data)
+    return _decode_via_ffmpeg(data, filename)
 
 
 # ---------------------------------------------------------------------------
