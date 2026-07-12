@@ -176,6 +176,77 @@ describe("HeatChart", () => {
     act(() => comp.unmount());
   });
 
+  it("renders outline voice chips (non-baseline only) when the selected turn has voice", () => {
+    // Turn 0 carries voice: loud + fast are notable; pitch "mid" is baseline and
+    // must be omitted (up-to-three chips, not always three).
+    const withVoice: AnalyzePerTurn[] = [
+      {
+        index: 0,
+        speaker: "Alice",
+        heat: 20,
+        markers: [],
+        is_spike: false,
+        trigger_phrase: null,
+        voice: { energy_label: "loud", pitch_label: "mid", rate_label: "fast" },
+      },
+      { index: 1, speaker: "Bob", heat: 30, markers: [], is_spike: false, trigger_phrase: null },
+    ];
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<HeatChart perTurn={withVoice} />);
+    });
+    layout(comp);
+
+    act(() => comp.root.find((n) => n.props?.testID === "scrub-0").props.onPress());
+
+    expect(comp.root.find((n) => n.props?.testID === "voice-chip-energy")).toBeTruthy();
+    expect(comp.root.find((n) => n.props?.testID === "voice-chip-rate")).toBeTruthy();
+    // Baseline pitch ("mid") produces no chip.
+    expect(comp.root.findAll((n) => n.props?.testID === "voice-chip-pitch")).toHaveLength(0);
+    const text = JSON.stringify(comp.toJSON());
+    expect(text).toContain("loud");
+    expect(text).toContain("fast");
+    act(() => comp.unmount());
+  });
+
+  it("renders no pitch chip when pitch is null (unvoiced turn) — never an empty chip", () => {
+    // Regression for a review CRITICAL: the server sends pitch_label null for
+    // turns with too little voiced speech; that must not render a blank chip.
+    const nullPitch: AnalyzePerTurn[] = [
+      {
+        index: 0,
+        speaker: "Alice",
+        heat: 20,
+        markers: [],
+        is_spike: false,
+        trigger_phrase: null,
+        voice: { energy_label: "loud", pitch_label: null, rate_label: "normal" },
+      },
+      { index: 1, speaker: "Bob", heat: 30, markers: [], is_spike: false, trigger_phrase: null },
+    ];
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<HeatChart perTurn={nullPitch} />);
+    });
+    layout(comp);
+    act(() => comp.root.find((n) => n.props?.testID === "scrub-0").props.onPress());
+    expect(comp.root.find((n) => n.props?.testID === "voice-chip-energy")).toBeTruthy();
+    expect(comp.root.findAll((n) => n.props?.testID === "voice-chip-pitch")).toHaveLength(0);
+    act(() => comp.unmount());
+  });
+
+  it("renders no voice chips when the selected turn has no voice data", () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<HeatChart perTurn={perTurn} />);
+    });
+    layout(comp);
+    // perTurn (top of file) carries no voice field at all.
+    act(() => comp.root.find((n) => n.props?.testID === "scrub-3").props.onPress());
+    expect(comp.root.findAll((n) => typeof n.props?.testID === "string" && n.props.testID.startsWith("voice-chip-"))).toHaveLength(0);
+    act(() => comp.unmount());
+  });
+
   it("fires onWhatIf with the selected turn index from the inspector button", () => {
     const onWhatIf = jest.fn();
     let comp!: renderer.ReactTestRenderer;

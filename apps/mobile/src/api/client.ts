@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import type { Suggestion } from "../components/SuggestionCard";
 import { getFreshToken } from "../auth/authToken";
 
@@ -66,6 +67,21 @@ export type ConversationMarker =
   | "repair_attempt"
   | "validation";
 
+/**
+ * Prosody summary for a turn, derived from the recording's audio track by the
+ * /analyze/upload endpoint. Each field is a coarse categorical label. The whole
+ * object is `null` (or absent) when prosody couldn't be measured — degraded
+ * audio, or a text-only /analyze that never had sound to begin with — so the UI
+ * omits the chips rather than inventing a reading (the house "no fake data" rule).
+ */
+export interface Voice {
+  energy_label: "quiet" | "normal" | "loud";
+  // Null when the turn had too little voiced speech to measure pitch — the
+  // server refuses to invent a reading for silence/noise.
+  pitch_label: "low" | "mid" | "high" | null;
+  rate_label: "slow" | "normal" | "fast";
+}
+
 export interface AnalyzePerTurn {
   index: number;
   speaker: string;
@@ -73,6 +89,9 @@ export interface AnalyzePerTurn {
   markers: string[]; // subset of ConversationMarker
   is_spike: boolean;
   trigger_phrase: string | null;
+  // Optional so a pre-voice server (or the text-only /analyze path) simply omits
+  // it; `null` when audio was present but prosody couldn't be measured.
+  voice?: Voice | null;
 }
 
 export interface HorsemenCounts {
@@ -135,6 +154,111 @@ export interface AnalyzeResult {
   report_cards?: Record<string, ReportCard>;
   dynamics: AnalyzeDynamics;
   narrative: string;
+}
+
+/**
+ * One transcribed turn returned by /analyze/upload. The client didn't have the
+ * transcript (the server produced it from the recording), so unlike
+ * AnalyzeTurnInput the timing fields are always present — the server diarized
+ * real utterance boundaries, which is what lets /analyze compute honest
+ * interruption stats downstream.
+ */
+export interface TurnOut {
+  speaker: string;
+  text: string;
+  start_time: number;
+  end_time: number;
+}
+
+/**
+ * Result of POST /analyze/upload. It's a normal AnalyzeResult (its per_turn may
+ * additionally carry `voice`) PLUS the server-produced `turns` transcript the
+ * client never had, and an optional `voice_analysis` note explaining — honestly,
+ * in plain words — when prosody was unavailable. `stored`/`recording_id`/
+ * `storage_note` report what the server actually did with the file: storing
+ * only ever happens when the caller both consented and asked to store, and
+ * `storage_note` carries a plain-language reason (not fabricated) whenever it
+ * didn't happen.
+ */
+export type UploadAnalyzeResult = AnalyzeResult & {
+  turns: TurnOut[];
+  voice_analysis?: string;
+  stored: boolean;
+  recording_id: string | null;
+  storage_note: string | null;
+};
+
+/** Consent/storage choices for a recording upload. `consent` defaults to
+ *  false (nothing is stored without it); `store` defaults to true (storage is
+ *  attempted whenever consent is given, unless the caller opts out). */
+export interface UploadAnalyzeOptions {
+  consent?: boolean;
+  store?: boolean;
+}
+
+/**
+ * POST /analyze/upload — analyze a recording (audio or video; the server
+ * extracts the audio track, transcribes, and analyzes it). Sent as
+ * multipart/form-data so the binary file streams up untouched.
+ *
+ * `file` is the platform-native handle: on web it's a `File` (append it
+ * directly); on native it's the local file URI string, appended as React
+ * Native's `{ uri, name, type }` form-part object. We deliberately do NOT set a
+ * Content-Type header — `fetch` must set `multipart/form-data` itself so it can
+ * append the correct boundary. Bearer auth mirrors the other calls; a non-OK
+ * response throws `API error: <status>` (401/413/422/429/502/503) so the caller
+ * surfaces an honest, mapped message rather than a fabricated analysis.
+ *
+ * `consent`/`store` are sent as the literal strings "true"/"false" (multipart
+ * form fields have no boolean type). The server only stores the recording when
+ * BOTH are true; without consent, upload/analysis still proceeds but nothing
+ * is retained (see `options.consent`'s default of false).
+ */
+export async function postAnalyzeUpload(
+  file: string | File,
+  name: string,
+  mimeType: string,
+  context?: string,
+  options?: UploadAnalyzeOptions,
+): Promise<UploadAnalyzeResult> {
+  const token = await getFreshToken();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const form = new FormData();
+  if (Platform.OS === "web") {
+    // On web `file` is a real File; append it directly (its own name is used,
+    // but we pass `name` too for servers that read the part's filename).
+    form.append("file", file as File, name);
+  } else {
+    // React Native's FormData accepts a { uri, name, type } descriptor for a
+    // local file; the bridge streams it from disk without loading it into JS.
+    form.append(
+      "file",
+      { uri: file as string, name, type: mimeType } as unknown as Blob,
+    );
+  }
+  if (context !== undefined) {
+    form.append("context", context);
+  }
+  const consent = options?.consent ?? false;
+  const store = options?.store ?? true;
+  form.append("consent", consent ? "true" : "false");
+  form.append("store", store ? "true" : "false");
+
+  const res = await fetch(`${API_URL}/analyze/upload`, {
+    method: "POST",
+    headers,
+    body: form,
+  });
+
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+
+  return (await res.json()) as UploadAnalyzeResult;
 }
 
 /** One simulated turn from /analyze/counterfactual: a hypothetical heat value

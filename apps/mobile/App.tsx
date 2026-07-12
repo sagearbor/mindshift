@@ -15,6 +15,7 @@ import LiveCoachScreen from "./src/screens/LiveCoachScreen";
 import LoginScreen from "./src/screens/LoginScreen";
 import { useAuthStore, initAuth } from "./src/store/authStore";
 import { useSessionStore } from "./src/store/sessionStore";
+import type { AnalyzeResult } from "./src/api/client";
 
 type Screen =
   | { name: "session" }
@@ -23,7 +24,18 @@ type Screen =
   | { name: "detail"; sessionId: string }
   // Pushed on top of the Session tab (like "detail"): the tab bar is hidden and
   // onBack returns to the Session screen. Not itself a tab.
-  | { name: "dynamics" };
+  //
+  // `initialData` is a ready-made analysis handed over from the recording-upload
+  // flow — when present, DynamicsScreen renders it directly instead of
+  // re-POSTing /analyze (the transcript came from the upload, not the store's
+  // text path). Absent for the normal "Analyze dynamics" button, which analyzes
+  // the store transcript on mount as before.
+  //
+  // `recordingId` is the server-assigned id of a *stored* recording (set only
+  // when the upload flow's consent+store both landed as true); undefined
+  // otherwise. Carried through so DynamicsScreen can offer a Replay affordance
+  // — that UI itself lives in another branch, this just plumbs the id through.
+  | { name: "dynamics"; initialData?: AnalyzeResult; recordingId?: string | null };
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>({ name: "session" });
@@ -61,12 +73,21 @@ export default function App() {
       case "session":
         return (
           <SessionScreen
-            onAnalyzeDynamics={() => setScreen({ name: "dynamics" })}
+            onAnalyzeDynamics={(initialData, recordingId) =>
+              setScreen({ name: "dynamics", initialData, recordingId })
+            }
           />
         );
       case "dynamics":
         // Post-session analysis, pushed over the Session tab; back returns there.
-        return <DynamicsScreen onBack={() => setScreen({ name: "session" })} />;
+        // initialData (from the upload flow) skips the on-mount fetch.
+        return (
+          <DynamicsScreen
+            onBack={() => setScreen({ name: "session" })}
+            initialData={screen.initialData}
+            recordingId={screen.recordingId}
+          />
+        );
       case "live-coach":
         return (
           <LiveCoachScreen

@@ -358,6 +358,53 @@ describe("DynamicsScreen", () => {
     act(() => comp.unmount());
   });
 
+  it("renders directly from initialData without calling /analyze (upload flow)", async () => {
+    // The upload flow loads the transcript into the store and hands the analysis
+    // over as initialData — Dynamics must render it, never re-fetch.
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(
+        <DynamicsScreen onBack={() => {}} initialData={fixture} />,
+      );
+    });
+
+    expect(mockAnalyze).not.toHaveBeenCalled();
+    expect(queryId(comp, "dynamics-loading")).toBeNull();
+    expect(queryId(comp, "dynamics-content")).toBeTruthy();
+    expect(queryId(comp, "speaker-card-Alice")).toBeTruthy();
+    expect(queryId(comp, "speaker-card-Bob")).toBeTruthy();
+    expect(queryId(comp, "dynamics-narrative")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("shows the voice_analysis note when the upload result carries one", async () => {
+    const withNote = {
+      ...fixture,
+      voice_analysis: "Voice tone couldn’t be measured for this recording.",
+    };
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(
+        <DynamicsScreen onBack={() => {}} initialData={withNote} />,
+      );
+    });
+    expect(queryId(comp, "voice-analysis-note")).toBeTruthy();
+    expect(JSON.stringify(comp.toJSON())).toContain(
+      "Voice tone couldn’t be measured",
+    );
+    act(() => comp.unmount());
+  });
+
+  it("omits the voice_analysis note when absent (normal fetch flow)", async () => {
+    mockAnalyze.mockResolvedValueOnce(fixture);
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(<DynamicsScreen onBack={() => {}} />);
+    });
+    expect(queryId(comp, "voice-analysis-note")).toBeNull();
+    act(() => comp.unmount());
+  });
+
   it("replaces the overlay when a different turn is used as the pivot", async () => {
     const comp = await mountWithSim();
     mockCounterfactual.mockResolvedValueOnce(simFixture);

@@ -7,8 +7,37 @@ import {
   ActivityIndicator,
 } from "react-native";
 import Svg, { Polyline, Circle } from "react-native-svg";
-import type { AnalyzePerTurn, SimulatedTurn } from "../api/client";
+import type { AnalyzePerTurn, SimulatedTurn, Voice } from "../api/client";
 import { getSpeakerColor } from "../utils/speakerColors";
+
+// The baseline prosody label per dimension — a turn at baseline on a dimension
+// isn't noteworthy, so we don't render a chip for it. This keeps the inspector
+// to "up to three" chips that actually say something (e.g. loud + fast), rather
+// than three always-on chips two of which read "normal".
+const VOICE_BASELINE: Record<keyof Voice, string> = {
+  energy_label: "normal",
+  pitch_label: "mid",
+  rate_label: "normal",
+};
+
+/** Non-baseline prosody labels for a turn, as {kind,label} chips in a stable
+ *  order (energy, pitch, rate). Empty when voice is absent or all-baseline. */
+export function voiceChipsFor(voice: Voice | null | undefined): {
+  kind: "energy" | "pitch" | "rate";
+  label: string;
+}[] {
+  if (!voice) return [];
+  const chips: { kind: "energy" | "pitch" | "rate"; label: string }[] = [];
+  if (voice.energy_label !== VOICE_BASELINE.energy_label)
+    chips.push({ kind: "energy", label: voice.energy_label });
+  // pitch_label is null when the turn had too little voiced speech to measure
+  // — no reading means no chip, never an empty one.
+  if (voice.pitch_label !== null && voice.pitch_label !== VOICE_BASELINE.pitch_label)
+    chips.push({ kind: "pitch", label: voice.pitch_label });
+  if (voice.rate_label !== VOICE_BASELINE.rate_label)
+    chips.push({ kind: "rate", label: voice.rate_label });
+  return chips;
+}
 
 // House colors.
 const AMBER = "#F59E0B"; // spikes / triggers
@@ -256,6 +285,9 @@ export default function HeatChart({
       ? perTurn.find((t) => t.index === selected) ?? null
       : null;
 
+  // Non-baseline prosody chips for the selected turn (empty when no voice data).
+  const voiceChips = voiceChipsFor(selectedTurn?.voice);
+
   // Loading/error only belong to the inspector when they pertain to the turn
   // currently selected (the pivot the parent is acting on).
   const isPivotSelected = selected !== null && selected === whatIfPivotIndex;
@@ -395,11 +427,24 @@ export default function HeatChart({
           <Text style={styles.inspectorText}>
             {turns?.[selectedTurn.index]?.text ?? ""}
           </Text>
-          {selectedTurn.markers.length > 0 && (
+          {(selectedTurn.markers.length > 0 || voiceChips.length > 0) && (
             <View style={styles.chipRow}>
+              {/* Behavioral markers: filled chips. */}
               {selectedTurn.markers.map((m) => (
                 <View key={m} style={styles.chip}>
                   <Text style={styles.chipText}>{m.replace(/_/g, " ")}</Text>
+                </View>
+              ))}
+              {/* Voice/prosody: outline chips, visually distinct from the filled
+                  marker chips. Only the non-baseline dimensions appear; nothing
+                  when voice is null/absent (old servers / degraded prosody). */}
+              {voiceChips.map((c) => (
+                <View
+                  key={`voice-${c.kind}`}
+                  testID={`voice-chip-${c.kind}`}
+                  style={styles.voiceChip}
+                >
+                  <Text style={styles.voiceChipText}>{c.label}</Text>
                 </View>
               ))}
             </View>
@@ -527,6 +572,21 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   chipText: {
+    fontSize: 11,
+    color: MUTED,
+    fontWeight: "600",
+  },
+  // Outline (unfilled) chip so prosody reads as a different KIND of tag than the
+  // filled marker chips sitting beside it.
+  voiceChip: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  voiceChipText: {
     fontSize: 11,
     color: MUTED,
     fontWeight: "600",

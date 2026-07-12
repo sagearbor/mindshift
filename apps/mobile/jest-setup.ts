@@ -68,6 +68,14 @@ jest.mock("expo-audio", () => {
   };
 });
 
+// Mock expo-document-picker. Default: the user cancels the picker, so screens
+// that merely import it render fine. Tests that exercise the upload flow
+// override getDocumentAsync with their own mockResolvedValueOnce.
+jest.mock("expo-document-picker", () => ({
+  __esModule: true,
+  getDocumentAsync: jest.fn().mockResolvedValue({ canceled: true, assets: null }),
+}));
+
 // Mock expo-speech (free on-device TTS) for tests. speak/stop/isSpeakingAsync
 // are plain jest.fn()s so tests can assert what would have been spoken.
 jest.mock("expo-speech", () => ({

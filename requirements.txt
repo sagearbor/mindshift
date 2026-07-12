@@ -11,6 +11,12 @@ httpx>=0.27,<1
 websockets>=14
 python-dotenv>=1,<2
 numpy>=1.26,<3
+# POST /analyze/upload decodes non-WAV recordings (mp3/m4a/mp4/mov/…) via a
+# STATIC ffmpeg binary shipped in this wheel — no system ffmpeg required.
+imageio-ffmpeg>=0.4,<1
+# Consent-gated recording persistence (GCS). Uses ADC on Cloud Run; the bucket
+# is set via MINDSHIFT_RECORDINGS_BUCKET (unset → storage disabled).
+google-cloud-storage>=2,<4
 pytest>=8,<9
 anyio>=4,<5
 pytest-anyio>=0.0.0

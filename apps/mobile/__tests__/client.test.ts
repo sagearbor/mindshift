@@ -1,6 +1,7 @@
 import {
   postRespond,
   postAnalyze,
+  postAnalyzeUpload,
   postCounterfactual,
   empathyTone,
 } from "../src/api/client";
@@ -219,6 +220,136 @@ describe("postCounterfactual", () => {
   it("throws an honest error on a non-OK response (no fabricated result)", async () => {
     mockFetch.mockResolvedValueOnce({ ok: false, status: 422 });
     await expect(postCounterfactual(turns, 0)).rejects.toThrow("API error: 422");
+  });
+});
+
+describe("postAnalyzeUpload", () => {
+  // A recorder standing in for FormData so we can inspect the multipart parts
+  // without depending on RN FormData internals.
+  class RecordingFormData {
+    entries: [string, unknown][] = [];
+    append(name: string, value: unknown) {
+      this.entries.push([name, value]);
+    }
+  }
+  const RealFormData = global.FormData;
+  beforeEach(() => {
+    (global as { FormData: unknown }).FormData = RecordingFormData;
+  });
+  afterEach(() => {
+    (global as { FormData: unknown }).FormData = RealFormData;
+  });
+
+  const uploadResult = {
+    per_turn: [],
+    per_speaker: {},
+    dynamics: {
+      coupling: { strength: null, leader: null, description: "" },
+      deescalation: { who_first: null, follow_rate: null, description: "" },
+      triggers: [],
+      requests: [],
+    },
+    narrative: "",
+    turns: [
+      { speaker: "Alice", text: "hi", start_time: 0, end_time: 1 },
+    ],
+    stored: false,
+    recording_id: null,
+    storage_note: "Storage requires consent.",
+  };
+
+  it("builds a multipart FormData with the native file part + context and a Bearer header", async () => {
+    setTokenProvider(async () => "up-token");
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => uploadResult });
+
+    const result = await postAnalyzeUpload(
+      "file:///rec.m4a",
+      "rec.m4a",
+      "audio/m4a",
+      "kitchen argument",
+    );
+
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toMatch(/\/analyze\/upload$/);
+    expect(init.method).toBe("POST");
+
+    // The file part is RN's { uri, name, type } descriptor.
+    const body = init.body as InstanceType<typeof RecordingFormData>;
+    const fileEntry = body.entries.find((e) => e[0] === "file");
+    expect(fileEntry?.[1]).toEqual({
+      uri: "file:///rec.m4a",
+      name: "rec.m4a",
+      type: "audio/m4a",
+    });
+    // Context is appended verbatim.
+    expect(body.entries.find((e) => e[0] === "context")?.[1]).toBe(
+      "kitchen argument",
+    );
+    // Defaults (no options passed): consent false, store true — sent as strings.
+    expect(body.entries.find((e) => e[0] === "consent")?.[1]).toBe("false");
+    expect(body.entries.find((e) => e[0] === "store")?.[1]).toBe("true");
+
+    // Bearer auth present; Content-Type NOT set manually (fetch must add the
+    // multipart boundary itself).
+    expect(init.headers.Authorization).toBe("Bearer up-token");
+    expect(init.headers["Content-Type"]).toBeUndefined();
+
+    expect(result).toEqual(uploadResult);
+  });
+
+  it("omits the context part when none is provided", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => uploadResult });
+    await postAnalyzeUpload("file:///rec.m4a", "rec.m4a", "audio/m4a");
+    const body = mockFetch.mock.calls[0][1].body as InstanceType<
+      typeof RecordingFormData
+    >;
+    expect(body.entries.some((e) => e[0] === "context")).toBe(false);
+    // Signed out: no Authorization header.
+    expect(mockFetch.mock.calls[0][1].headers).not.toHaveProperty(
+      "Authorization",
+    );
+  });
+
+  it("serializes consent/store as literal 'true'/'false' strings when provided", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ ...uploadResult, stored: true, recording_id: "rec_1", storage_note: null }),
+    });
+    await postAnalyzeUpload(
+      "file:///rec.m4a",
+      "rec.m4a",
+      "audio/m4a",
+      undefined,
+      { consent: true, store: true },
+    );
+    const body = mockFetch.mock.calls[0][1].body as InstanceType<
+      typeof RecordingFormData
+    >;
+    expect(body.entries.find((e) => e[0] === "consent")?.[1]).toBe("true");
+    expect(body.entries.find((e) => e[0] === "store")?.[1]).toBe("true");
+  });
+
+  it("sends store: false when consent is given but storage is declined", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => uploadResult });
+    await postAnalyzeUpload(
+      "file:///rec.m4a",
+      "rec.m4a",
+      "audio/m4a",
+      undefined,
+      { consent: true, store: false },
+    );
+    const body = mockFetch.mock.calls[0][1].body as InstanceType<
+      typeof RecordingFormData
+    >;
+    expect(body.entries.find((e) => e[0] === "consent")?.[1]).toBe("true");
+    expect(body.entries.find((e) => e[0] === "store")?.[1]).toBe("false");
+  });
+
+  it("throws an honest error on a non-OK response (e.g. 503 transcription unconfigured)", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 503 });
+    await expect(
+      postAnalyzeUpload("file:///rec.m4a", "rec.m4a", "audio/m4a"),
+    ).rejects.toThrow("API error: 503");
   });
 });
 

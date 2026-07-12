@@ -101,10 +101,16 @@ ENV_VARS="ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}@DEEPGRAM_API_KEY=${DEEPGRAM_API
 # MINDSHIFT_ALLOWED_ORIGINS in .env / the environment still overrides.
 MINDSHIFT_ALLOWED_ORIGINS="${MINDSHIFT_ALLOWED_ORIGINS:-$(read_env MINDSHIFT_ALLOWED_ORIGINS)}"
 MINDSHIFT_ALLOWED_ORIGINS="${MINDSHIFT_ALLOWED_ORIGINS:-https://arborfam-hub.web.app}"
+# Same defaulting for the recordings bucket: --set-env-vars REPLACES the whole
+# env set each deploy, so without a default here a redeploy would silently WIPE
+# the bucket and disable recording storage. Default it (public config, not a
+# secret); a MINDSHIFT_RECORDINGS_BUCKET in .env / the environment overrides.
+MINDSHIFT_RECORDINGS_BUCKET="${MINDSHIFT_RECORDINGS_BUCKET:-$(read_env MINDSHIFT_RECORDINGS_BUCKET)}"
+MINDSHIFT_RECORDINGS_BUCKET="${MINDSHIFT_RECORDINGS_BUCKET:-arborfam-hub-mindshift-recordings}"
 # Optional config: forwarded to Cloud Run only when present (in .env or a real
 # env var). This is what makes MINDSHIFT_MODEL, STT_PROVIDER, etc. genuinely
 # switch-in-.env — no code change needed as models/config evolve.
-for k in MINDSHIFT_MODEL STT_PROVIDER WHISPER_MODEL MINDSHIFT_ALLOWED_ORIGINS LOG_LEVEL RATE_LIMIT_ENABLED RATE_LIMIT_PER_MINUTE; do
+for k in MINDSHIFT_MODEL STT_PROVIDER WHISPER_MODEL MINDSHIFT_ALLOWED_ORIGINS MINDSHIFT_RECORDINGS_BUCKET LOG_LEVEL RATE_LIMIT_ENABLED RATE_LIMIT_PER_MINUTE; do
   v="${!k:-}"
   [[ -n "$v" ]] || v="$(read_env "$k")"
   if [[ -n "$v" ]]; then
