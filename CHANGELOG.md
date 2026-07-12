@@ -4,6 +4,76 @@ Versions are numbered here. **App** = Android/EAS `version (versionCode)`.
 **Backend** = Cloud Run revision of `mindshift-api` (project `arborfam-hub`,
 `us-central1`). Newest first.
 
+## App 1.9.0 (versionCode 15) — 2026-07-12 · Backend rev 00022
+Async analysis + a replay that actually plays (owner live-shakedown fixes):
+- **Submit-and-poll analysis jobs**: `POST /analyze/link/jobs` and
+  `/uploads/{id}/complete/jobs` return a job id and run analysis in the
+  background with staged progress + an honest ETA; survives switching away
+  from the app mid-analysis. Falls back to the old synchronous call on
+  404/503 so nothing gets submitted (and charged) twice. A stalled-job check
+  flags jobs that stop advancing for >120s.
+- **LLM JSON-parse retry**: one corrective retry when the model returns
+  non-JSON or wrong-shape output — recovers roughly 10% of production 502s.
+- **Replay is audible again**: fixed two silent-playback bugs — Live Coach
+  left the audio session in recording mode and never reset it for playback
+  (especially on Android), and HD-first playback of moov-at-end phone MP4s
+  (no HTTP Range support) buffered forever with no error event. Replay now
+  plays the stored derivative first (Range-supported), makes the linked HD
+  source an opt-in "Try HD" button, and adds an ~8s load watchdog that
+  auto-drops back to the derivative if nothing loads.
+
+## App 1.8.0 (versionCode 13) — 2026-07-12 · Backend revs 00017–00021
+The full owner-envisioned loop — record, analyze, attach your own HD copy,
+replay from your own cloud:
+- **In-app recording**: record a conversation directly in the app (480p,
+  10-minute cap), saved to the camera roll, feeding straight into chunked
+  analysis.
+- **Attach/replace an HD source link** on any existing recording — once your
+  own cloud backup exists, PATCH the share link onto the recording and replay
+  streams full-res from YOUR cloud (Google Photos/Drive), with an honest
+  360p-derivative fallback if the linked source dies.
+- **Google Photos share-link ingestion** (`=dv` extraction, SSRF-guarded),
+  plus a same-day fix bypassing the Google Dynamic-Links interstitial that
+  was blocking plain-HTTP fetches of real share links.
+- **Single-speaker analysis**: recordings diarized as one speaker (e.g. two
+  performed voices that didn't separate) are now analyzed honestly instead of
+  bouncing, with two-party stats left honestly null.
+- **Stability**: pinned Cloud Run memory to 2Gi (the 512Mi default was
+  OOM-killing mid-video-analysis), and fixed decoding of moov-at-end phone
+  MP4s (temp-file ffmpeg input instead of a pipe) that had been silently
+  dropping all prosody/voice labels.
+- Web-bundle fix: the in-app record screen's native-only import was blanking
+  the web build; now fully platform-gated.
+
+## App 1.7.0 (versionCode 12) — 2026-07-12 · Backend rev 00016
+Big videos without big storage:
+- **Chunked uploads** (up to 200MB, with a progress bar) for large phone
+  videos.
+- **Paste-a-link analysis**: `POST /analyze/link` fetches a pasted Google
+  Drive share link server-side (SSRF-guarded — blocks redirects into
+  private/internal addresses) and runs it through the same analysis
+  pipeline.
+- **Storage switched to derivatives, never originals**: after analysis, only
+  a compressed derivative is kept — mono 16kHz AAC `audio.m4a` always, plus a
+  360p H.264 clip when the source has a real video track (a few percent the
+  size of the original); the uploaded bytes themselves are discarded. Source
+  provenance is recorded for the HD-replay-from-your-cloud feature that
+  shipped next in 1.8.0.
+
+## App 1.6.0 (versionCode 10) — 2026-07-12 · Backend revs 00013–00015
+**Hear the conversation** — analysis works on audio/video, not just pasted
+text:
+- `POST /analyze/upload` (25MB/40min): diarized transcription via Deepgram
+  pre-recorded (nova-3), plus pure-numpy prosody per turn (energy, pitch,
+  speech rate) — voice-aware Dynamics that can catch tone words alone can't
+  carry (shouting, cold quiet contempt).
+- **Consent-gated recording storage** with token-streamed replay (HMAC media
+  tokens, HTTP Range support for seeking) and a new recordings list/replay
+  screen with a heat-graph playhead synced to playback.
+- Hotfixes shipped same day: pinned `python-multipart` (was crash-looping the
+  container on boot), and raised the analysis output-token budget (real
+  multi-turn transcripts were truncating mid-JSON, returning 502s).
+
 ## App 1.5.0 (versionCode 9) — 2026-07-11 · Backend rev 00012
 Dynamics v2 (Opus-reviewed, zero critical/major):
 - **Absolute heat scale**: one anchored rubric (calm 0-15 → abusive 95+) shared
