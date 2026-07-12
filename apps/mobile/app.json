@@ -19,7 +19,7 @@
     },
     "android": {
       "package": "com.sagearbor.mindshift.app",
-      "versionCode": 10,
+      "versionCode": 12,
       "permissions": [
         "RECORD_AUDIO",
         "android.permission.RECORD_AUDIO",
