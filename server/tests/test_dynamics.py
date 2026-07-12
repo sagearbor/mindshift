@@ -73,6 +73,23 @@ FIXTURE_PER_TURN = [
     {"heat": 14, "markers": [], "trigger_phrase": None},
 ]
 
+def _report_cards(*speakers, **overrides) -> dict:
+    """A well-formed report_cards block: one card per speaker. Individual cards
+    can be replaced via ``overrides={speaker: card}`` to exercise clamping /
+    truncation / omission."""
+    cards = {
+        sp: {
+            "score": 70,
+            "headline": f"{sp} stayed engaged",
+            "did_well": "Kept trying to reconnect under pressure.",
+            "work_on": "Pause and breathe before answering criticism.",
+        }
+        for sp in speakers
+    }
+    cards.update(overrides)
+    return cards
+
+
 FIXTURE_LLM_JSON = json.dumps({
     "per_turn": FIXTURE_PER_TURN,
     "requests": [
@@ -83,6 +100,7 @@ FIXTURE_LLM_JSON = json.dumps({
     "narrative": "You both clearly care and keep trying to reconnect. The "
     "friction shows up as a criticism/defensiveness loop that Alice's repair "
     "attempt eventually breaks.",
+    "report_cards": _report_cards("Alice", "Bob"),
 })
 
 
@@ -229,7 +247,10 @@ async def test_analyze_empty_narrative_is_502(client):
 async def test_analyze_heat_clamped_to_range(client):
     """Out-of-range heats are clamped to 0-100, never rejected."""
     pt = _mock_per_turn(12, heats=[150, -5, 40, 30, 55, 20, 25, 10, 15, 12, 18, 14])
-    payload = json.dumps({"per_turn": pt, "requests": [], "narrative": "ok"})
+    payload = json.dumps({
+        "per_turn": pt, "requests": [], "narrative": "ok",
+        "report_cards": _report_cards("Alice", "Bob"),
+    })
     with patch("main.get_llm_client", return_value=_mock_llm(payload)):
         resp = await client.post("/analyze", json={"turns": FIXTURE_TURNS})
     assert resp.status_code == 200
@@ -303,6 +324,7 @@ async def test_analyze_three_speakers_top_two_coupling(client):
         "per_turn": _mock_per_turn(len(turns), heats=heats),
         "requests": [],
         "narrative": "A working analysis of the group dynamic.",
+        "report_cards": _report_cards("A", "B", "C"),
     })
     with patch("main.get_llm_client", return_value=_mock_llm(payload)):
         resp = await client.post("/analyze", json={"turns": turns})
@@ -339,6 +361,176 @@ async def test_analyze_transcript_too_large_is_413(client):
 async def test_analyze_requires_auth_401(client, monkeypatch):
     monkeypatch.delitem(app.dependency_overrides, get_current_uid)
     resp = await client.post("/analyze", json={"turns": FIXTURE_TURNS})
+    assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# §2 — per-person report cards (present for every speaker, clamped, truncated)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_analyze_report_cards_present_clamped_truncated(client):
+    """Every speaker gets a card; an out-of-range score clamps and over-long
+    strings truncate to their caps (never a rejection)."""
+    payload = json.dumps({
+        "per_turn": FIXTURE_PER_TURN,
+        "requests": [],
+        "narrative": "You both keep showing up for each other.",
+        "report_cards": _report_cards(
+            "Alice", "Bob",
+            Alice={
+                "score": 150,                       # clamps to 100
+                "headline": "H" * 200,              # truncates to 80
+                "did_well": "d" * 300,              # truncates to 200
+                "work_on": "w" * 300,               # truncates to 200
+            },
+        ),
+    })
+    with patch("main.get_llm_client", return_value=_mock_llm(payload)):
+        resp = await client.post("/analyze", json={"turns": FIXTURE_TURNS})
+    assert resp.status_code == 200
+    cards = resp.json()["report_cards"]
+    assert set(cards) == {"Alice", "Bob"}
+    assert cards["Alice"]["score"] == 100
+    assert len(cards["Alice"]["headline"]) == main.REPORT_CARD_HEADLINE_MAX
+    assert len(cards["Alice"]["did_well"]) == main.REPORT_CARD_TEXT_MAX
+    assert len(cards["Alice"]["work_on"]) == main.REPORT_CARD_TEXT_MAX
+    # A well-formed card passes through intact.
+    assert cards["Bob"]["score"] == 70
+    assert cards["Bob"]["headline"] == "Bob stayed engaged"
+
+
+@pytest.mark.anyio
+async def test_analyze_missing_speaker_report_card_is_502(client):
+    """A speaker with no report card is an honest 502 misalignment, never a
+    fabricated card."""
+    payload = json.dumps({
+        "per_turn": FIXTURE_PER_TURN,
+        "requests": [],
+        "narrative": "A working narrative.",
+        "report_cards": _report_cards("Alice"),  # Bob omitted
+    })
+    with patch("main.get_llm_client", return_value=_mock_llm(payload)):
+        resp = await client.post("/analyze", json={"turns": FIXTURE_TURNS})
+    assert resp.status_code == 502
+    detail = resp.json()["detail"].lower()
+    assert "report card" in detail and "bob" in detail
+
+
+# ---------------------------------------------------------------------------
+# §3 — POST /analyze/counterfactual
+# ---------------------------------------------------------------------------
+
+def _counterfactual_json(
+    simulated_heat,
+    rewritten="Let's find a split of the chores that feels fair to us both.",
+    rationale="States the need directly without blame, inviting a partnership.",
+) -> str:
+    return json.dumps({
+        "rewritten_text": rewritten,
+        "rationale": rationale,
+        "simulated_heat": simulated_heat,
+    })
+
+
+@pytest.mark.anyio
+async def test_counterfactual_happy_path(client):
+    """Length/order/speaker mapping correct, heats clamped, disclaimer exact."""
+    pivot_index = 4  # Alice's turn; 12 - 4 = 8 subsequent turns (incl. pivot)
+    # 8 values; first is out-of-range to prove clamping.
+    sim = [150, 10, 14, 8, 11, 9, 13, 7]
+    with patch("main.get_llm_client", return_value=_mock_llm(_counterfactual_json(sim))):
+        resp = await client.post("/analyze/counterfactual", json={
+            "turns": FIXTURE_TURNS,
+            "pivot_index": pivot_index,
+            "context": "Argument about chores",
+        })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["pivot_index"] == 4
+    assert data["rewritten_text"].startswith("Let's find")
+    assert len(data["rationale"]) <= main.COUNTERFACTUAL_RATIONALE_MAX
+    assert data["disclaimer"] == main.COUNTERFACTUAL_DISCLAIMER
+
+    spt = data["simulated_per_turn"]
+    assert len(spt) == 8
+    # index runs pivot..last, in order
+    assert [t["index"] for t in spt] == [4, 5, 6, 7, 8, 9, 10, 11]
+    # speaker sequence mirrors the real transcript (Alice/Bob alternating)
+    assert [t["speaker"] for t in spt] == [
+        "Alice", "Bob", "Alice", "Bob", "Alice", "Bob", "Alice", "Bob",
+    ]
+    # heats clamped; the 150 became 100
+    assert [t["heat"] for t in spt] == [100, 10, 14, 8, 11, 9, 13, 7]
+
+
+@pytest.mark.anyio
+async def test_counterfactual_rationale_truncated(client):
+    sim = [12, 10, 14, 8, 11, 9, 13, 7]
+    long_rationale = "r" * 400
+    payload = _counterfactual_json(sim, rationale=long_rationale)
+    with patch("main.get_llm_client", return_value=_mock_llm(payload)):
+        resp = await client.post("/analyze/counterfactual", json={
+            "turns": FIXTURE_TURNS, "pivot_index": 4,
+        })
+    assert resp.status_code == 200
+    assert len(resp.json()["rationale"]) == main.COUNTERFACTUAL_RATIONALE_MAX
+
+
+@pytest.mark.anyio
+async def test_counterfactual_pivot_out_of_range_is_422(client):
+    with patch("main.get_llm_client", return_value=_mock_llm(_counterfactual_json([0]))):
+        resp = await client.post("/analyze/counterfactual", json={
+            "turns": FIXTURE_TURNS, "pivot_index": 12,  # len == 12 → index 12 invalid
+        })
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_counterfactual_negative_pivot_is_422(client):
+    resp = await client.post("/analyze/counterfactual", json={
+        "turns": FIXTURE_TURNS, "pivot_index": -1,
+    })
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_counterfactual_misaligned_simulated_heat_is_502(client):
+    # pivot 4 needs 8 values; supply 3 → misaligned.
+    with patch("main.get_llm_client", return_value=_mock_llm(_counterfactual_json([1, 2, 3]))):
+        resp = await client.post("/analyze/counterfactual", json={
+            "turns": FIXTURE_TURNS, "pivot_index": 4,
+        })
+    assert resp.status_code == 502
+    assert "misaligned" in resp.json()["detail"].lower()
+
+
+@pytest.mark.anyio
+async def test_counterfactual_non_dict_llm_json_is_502(client):
+    with patch("main.get_llm_client", return_value=_mock_llm("[]")):
+        resp = await client.post("/analyze/counterfactual", json={
+            "turns": FIXTURE_TURNS, "pivot_index": 4,
+        })
+    assert resp.status_code == 502
+
+
+@pytest.mark.anyio
+async def test_counterfactual_non_numeric_simulated_heat_is_502(client):
+    sim = [12, "boiling", 14, 8, 11, 9, 13, 7]
+    with patch("main.get_llm_client", return_value=_mock_llm(_counterfactual_json(sim))):
+        resp = await client.post("/analyze/counterfactual", json={
+            "turns": FIXTURE_TURNS, "pivot_index": 4,
+        })
+    assert resp.status_code == 502
+    assert "heat" in resp.json()["detail"].lower()
+
+
+@pytest.mark.anyio
+async def test_counterfactual_requires_auth_401(client, monkeypatch):
+    monkeypatch.delitem(app.dependency_overrides, get_current_uid)
+    resp = await client.post("/analyze/counterfactual", json={
+        "turns": FIXTURE_TURNS, "pivot_index": 4,
+    })
     assert resp.status_code == 401
 
 

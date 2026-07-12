@@ -1,4 +1,9 @@
-import { postRespond, postAnalyze, empathyTone } from "../src/api/client";
+import {
+  postRespond,
+  postAnalyze,
+  postCounterfactual,
+  empathyTone,
+} from "../src/api/client";
 import {
   setCachedToken,
   setTokenProvider,
@@ -102,6 +107,7 @@ describe("postAnalyze", () => {
   const smallResult = {
     per_turn: [],
     per_speaker: {},
+    report_cards: {},
     dynamics: {
       coupling: { strength: null, leader: null, description: "" },
       deescalation: { who_first: null, follow_rate: null, description: "" },
@@ -150,6 +156,69 @@ describe("postAnalyze", () => {
     await expect(postAnalyze([{ speaker: "A", text: "hi" }])).rejects.toThrow(
       "API error: 429",
     );
+  });
+});
+
+describe("postCounterfactual", () => {
+  const simResult = {
+    pivot_index: 3,
+    rewritten_text: "I feel unseen when the chores pile up.",
+    rationale: "A softened bid invites repair instead of defense.",
+    simulated_per_turn: [
+      { index: 3, speaker: "Bob", heat: 40 },
+      { index: 4, speaker: "Alice", heat: 30 },
+    ],
+    disclaimer: "A hypothetical projection, not a prediction.",
+  };
+
+  const turns = [
+    { speaker: "Alice", text: "You never listen." },
+    { speaker: "Bob", text: "That's not fair." },
+  ];
+
+  it("POSTs turns + pivot_index to /analyze/counterfactual and returns the result", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => simResult });
+
+    const result = await postCounterfactual(turns, 3);
+
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toMatch(/\/analyze\/counterfactual$/);
+    expect(init.method).toBe("POST");
+    const body = JSON.parse(init.body);
+    // Turns verbatim, pivot_index in snake_case, no context key when unset.
+    expect(body).toEqual({ turns, pivot_index: 3 });
+    expect(body).not.toHaveProperty("context");
+    expect(result).toEqual(simResult);
+  });
+
+  it("includes context only when provided", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => simResult });
+    await postCounterfactual(turns, 1, "earlier context");
+    const [, init] = mockFetch.mock.calls[0];
+    const body = JSON.parse(init.body);
+    expect(body.context).toBe("earlier context");
+    expect(body.pivot_index).toBe(1);
+  });
+
+  it("attaches the Firebase ID token as a Bearer header", async () => {
+    setTokenProvider(async () => "cf-token");
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => simResult });
+    await postCounterfactual(turns, 0);
+    const [, init] = mockFetch.mock.calls[0];
+    expect(init.headers.Authorization).toBe("Bearer cf-token");
+    expect(init.headers["Content-Type"]).toBe("application/json");
+  });
+
+  it("omits the Authorization header when signed out", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => simResult });
+    await postCounterfactual(turns, 0);
+    const [, init] = mockFetch.mock.calls[0];
+    expect(init.headers).not.toHaveProperty("Authorization");
+  });
+
+  it("throws an honest error on a non-OK response (no fabricated result)", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 422 });
+    await expect(postCounterfactual(turns, 0)).rejects.toThrow("API error: 422");
   });
 });
 

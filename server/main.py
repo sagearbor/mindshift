@@ -236,6 +236,20 @@ ANALYZE_MIN_SPEAKERS = 2
 ANALYZE_MAX_SPEAKERS = 10
 ANALYZE_MAX_TRANSCRIPT_CHARS = 60_000
 
+# Per-person report-card field caps (§2). Enforced server-side as truncation on
+# write, never rejection — a slightly-too-long LLM string is trimmed, not a 502.
+REPORT_CARD_HEADLINE_MAX = 80
+REPORT_CARD_TEXT_MAX = 200
+
+# Counterfactual (§3): rationale cap + the FIXED server-owned disclaimer. The
+# disclaimer is never LLM-authored — it is a constant so the "this is an
+# estimate, not a measurement" framing can never be softened or dropped.
+COUNTERFACTUAL_RATIONALE_MAX = 200
+COUNTERFACTUAL_DISCLAIMER = (
+    "Simulation — an estimate of how the conversation might have unfolded, not "
+    "a measurement."
+)
+
 
 class AnalyzeTurn(BaseModel):
     speaker: str = Field(min_length=1, max_length=60)
@@ -325,11 +339,64 @@ class DynamicsOut(BaseModel):
     requests: list[RequestOut]
 
 
+class ReportCardOut(BaseModel):
+    # §2 — an overt, comparable per-person report card. score is composure /
+    # constructiveness on the ABSOLUTE scale (higher = better conduct), so it is
+    # comparable across people AND across sessions, exactly like heat.
+    score: int
+    headline: str
+    did_well: str
+    work_on: str
+
+
 class AnalyzeResponse(BaseModel):
     per_turn: list[PerTurnOut]
     per_speaker: dict[str, PerSpeakerOut]
     dynamics: DynamicsOut
     narrative: str
+    # One card per speaker in the request — validated present in the endpoint
+    # (a missing speaker is a 502 misalignment, never a fabricated card).
+    report_cards: dict[str, ReportCardOut]
+
+
+# --- POST /analyze/counterfactual — the "what if they'd said it differently"
+# simulation. One LLM call rewrites ONE pivot turn constructively, then
+# estimates how the REST of the conversation would likely have unfolded on the
+# same absolute heat rubric. Every number is explicitly a simulation, never a
+# measurement (see COUNTERFACTUAL_DISCLAIMER). ------------------------------
+
+
+class CounterfactualRequest(BaseModel):
+    turns: list[AnalyzeTurn] = Field(
+        min_length=ANALYZE_MIN_TURNS, max_length=ANALYZE_MAX_TURNS,
+    )
+    pivot_index: int
+    context: str = Field(default="", max_length=500)
+
+    @model_validator(mode="after")
+    def _validate_pivot_index(self) -> "CounterfactualRequest":
+        # A pivot outside the transcript is a request-shape error → 422 (exactly
+        # like the turn-count bounds), never a 500 on an out-of-range index.
+        if not (0 <= self.pivot_index < len(self.turns)):
+            raise ValueError(
+                f"pivot_index {self.pivot_index} out of range for a "
+                f"{len(self.turns)}-turn conversation"
+            )
+        return self
+
+
+class CounterfactualPerTurnOut(BaseModel):
+    index: int
+    speaker: str
+    heat: int
+
+
+class CounterfactualResponse(BaseModel):
+    pivot_index: int
+    rewritten_text: str
+    rationale: str
+    simulated_per_turn: list[CounterfactualPerTurnOut]
+    disclaimer: str
 
 
 # ---------------------------------------------------------------------------
@@ -1051,16 +1118,35 @@ async def score(
 # POST /analyze — conversation-dynamics analysis ("the impartial third chair")
 # ---------------------------------------------------------------------------
 
+# The absolute, cross-session heat rubric. Heat is scored against these FIXED
+# anchors — NOT normalized to a single conversation's own baseline — so a score
+# means the same thing across turns, speakers, AND separate sessions (which is
+# what lets longitudinal averages be built later). Embedded VERBATIM in both
+# /analyze and /analyze/counterfactual so the two share one thermometer.
+HEAT_ANCHOR_RUBRIC = (
+    "heat is an integer 0-100 on an ABSOLUTE thermometer of emotional "
+    "escalation/hostility. Score each turn against these FIXED anchors — "
+    "explicitly NOT relative to this conversation's own baseline:\n"
+    "- 0-15: calm, neutral, or warm (e.g. \"Could you hand me that?\" / \"I get "
+    "why you'd feel that way\").\n"
+    "- 25-40: tension present — clipped, defensive, or mildly sarcastic.\n"
+    "- 50-65: clearly heated — blame, raised stakes, \"you always/never\".\n"
+    "- 75-90: hostile — contempt, name-calling, shouting-register language.\n"
+    "- 95+: abusive or explosive.\n"
+    "A conversation between calm people should score low throughout; do not "
+    "inflate differences to fill the scale."
+)
+
+
 ANALYZE_SYSTEM_PROMPT = (
     "You are an impartial couples therapist observing a conversation from the "
     "third chair. You read the DYNAMIC between people — never who is right or "
     "wrong — and you never pick a winner.\n\n"
     "You will receive a transcript in which every turn is numbered and tagged "
     "with its speaker, like `0. [Alice] ...`. Analyze EVERY turn.\n\n"
+    f"HEAT SCALE — {HEAT_ANCHOR_RUBRIC}\n\n"
     "For each turn, produce:\n"
-    "- heat: an integer 0-100 for the emotional escalation/hostility of THAT "
-    "turn, normalized to THIS conversation's OWN baseline (its calmest turns "
-    "near 0, its most heated near 100).\n"
+    "- heat: scored on the absolute anchored HEAT SCALE above.\n"
     "- markers: a list drawn ONLY from this exact vocabulary — criticism, "
     "contempt, defensiveness, stonewalling, repair_attempt, validation. Label "
     "a marker only when it is clearly present; use [] when none apply.\n"
@@ -1072,12 +1158,49 @@ ANALYZE_SYSTEM_PROMPT = (
     "granted, denied, deferred, unclear.\n"
     "- narrative: ONE paragraph describing the DYNAMIC between these people. "
     "Lead with their strengths FIRST, then name the friction. Describe the "
-    "pattern, never \"X is the problem\". At most 1200 characters.\n\n"
+    "pattern, never \"X is the problem\". At most 1200 characters.\n"
+    "- report_cards: a per-person report card for EVERY speaker, keyed by the "
+    "EXACT speaker label used in the transcript. Each card is "
+    "{score, headline, did_well, work_on}: score is an integer 0-100 for that "
+    "speaker's composure and constructiveness on the SAME absolute scale "
+    "(higher = better conduct in this conversation — comparable across people "
+    "and across sessions); headline is a <=80-char summary of how they showed "
+    "up; did_well (<=200 chars) names a concrete strength; work_on (<=200 "
+    "chars) is ONE concrete, actionable thing to change (e.g. \"count to three "
+    "before responding to criticism\"), never generic advice. Be honest and "
+    "direct, kind but not mushy — do not soften real feedback away.\n\n"
     "Return ONLY a JSON object of exactly this shape, with per_turn holding "
-    "one entry per input turn in the SAME order and length:\n"
+    "one entry per input turn in the SAME order and length, and report_cards "
+    "holding one card per distinct speaker:\n"
     '{"per_turn": [{"heat": 0, "markers": [], "trigger_phrase": null}], '
     '"requests": [{"speaker": "", "request": "", "outcome": "unclear"}], '
-    '"narrative": ""}'
+    '"narrative": "", '
+    '"report_cards": {"Alice": {"score": 0, "headline": "", "did_well": "", '
+    '"work_on": ""}}}'
+)
+
+
+COUNTERFACTUAL_SYSTEM_PROMPT = (
+    "You are an experienced couples therapist running a 'what if they'd said it "
+    "differently' simulation. You are given a full transcript in which every "
+    "turn is numbered and tagged with its speaker, like `0. [Alice] ...`, plus "
+    "the index of one PIVOT turn.\n\n"
+    "Do BOTH of the following:\n"
+    "1. rewritten_text: rewrite ONLY the pivot turn, spoken by the SAME speaker, "
+    "expressing the SAME underlying need constructively — a balanced, "
+    "empathetic register that keeps their intent and does NOT capitulate for "
+    "them. Return just the rewritten words of that one turn.\n"
+    "2. simulated_heat: assuming the pivot turn HAD BEEN your rewrite, estimate "
+    "the likely heat of each SUBSEQUENT turn's speaker, in the SAME speaker "
+    "order as the real transcript, one value per turn from the pivot index "
+    "through the last turn (INCLUDING the pivot turn's own rewritten heat, "
+    "first). Score every value on this absolute rubric — "
+    f"{HEAT_ANCHOR_RUBRIC}\n\n"
+    "Also give a rationale (<=200 chars) for WHY this phrasing helps.\n\n"
+    "Return ONLY a JSON object of exactly this shape:\n"
+    '{"rewritten_text": "", "rationale": "", "simulated_heat": [0]}\n'
+    "simulated_heat MUST contain exactly one integer per turn from the pivot "
+    "index through the last turn (inclusive) — no more, no fewer."
 )
 
 
@@ -1136,6 +1259,32 @@ def _clean_requests(value: object) -> list[dict[str, str]]:
             {"speaker": speaker, "request": request, "outcome": outcome}
         )
     return out
+
+
+def _clean_report_card(value: object) -> dict | None:
+    """Validate/normalize one speaker's report card, or ``None`` when unusable.
+
+    ``score`` is clamped to 0-100; the three text fields are truncated to their
+    caps (§2 — truncate on write, never reject). ``None`` means the LLM omitted
+    or malformed this speaker's card entirely — the caller turns that missing
+    speaker into an honest 502, never a fabricated card.
+    """
+    if not isinstance(value, dict):
+        return None
+    score = _clamp_heat(value.get("score"))  # score shares heat's 0-100 clamp
+    if score is None:
+        return None
+    headline = value.get("headline")
+    did_well = value.get("did_well")
+    work_on = value.get("work_on")
+    if not all(isinstance(s, str) for s in (headline, did_well, work_on)):
+        return None
+    return {
+        "score": score,
+        "headline": headline[:REPORT_CARD_HEADLINE_MAX],
+        "did_well": did_well[:REPORT_CARD_TEXT_MAX],
+        "work_on": work_on[:REPORT_CARD_TEXT_MAX],
+    }
 
 
 @app.post("/analyze", response_model=AnalyzeResponse)
@@ -1274,6 +1423,26 @@ async def analyze(
         for sp, stats in heat_stats.items()
     }
 
+    # §2 — one report card per speaker. Every request speaker MUST be present;
+    # a missing (or malformed) card is an honest 502 misalignment, never a
+    # fabricated card. per_speaker's keys are exactly the distinct speakers.
+    llm_cards = data.get("report_cards")
+    llm_cards = llm_cards if isinstance(llm_cards, dict) else {}
+    report_cards: dict[str, ReportCardOut] = {}
+    missing_cards: list[str] = []
+    for sp in per_speaker:
+        cleaned = _clean_report_card(llm_cards.get(sp))
+        if cleaned is None:
+            missing_cards.append(sp)
+        else:
+            report_cards[sp] = ReportCardOut(**cleaned)
+    if missing_cards:
+        raise HTTPException(
+            status_code=502,
+            detail="LLM returned misaligned report cards; missing/invalid for: "
+            + ", ".join(missing_cards),
+        )
+
     return AnalyzeResponse(
         per_turn=per_turn,
         per_speaker=per_speaker,
@@ -1284,6 +1453,118 @@ async def analyze(
             requests=[RequestOut(**r) for r in _clean_requests(data.get("requests"))],
         ),
         narrative=narrative,
+        report_cards=report_cards,
+    )
+
+
+@app.post("/analyze/counterfactual", response_model=CounterfactualResponse)
+async def analyze_counterfactual(
+    req: CounterfactualRequest,
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    turns = req.turns
+    pivot_index = req.pivot_index  # already validated in-range (422 otherwise)
+
+    # Same 60k aggregate cap as /analyze (a 413) — one LLM pass, one belt.
+    total_chars = sum(len(t.text) for t in turns)
+    if total_chars > ANALYZE_MAX_TRANSCRIPT_CHARS:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"transcript too large: {total_chars} characters exceeds the "
+                f"{ANALYZE_MAX_TRANSCRIPT_CHARS} limit"
+            ),
+        )
+
+    speakers = [t.speaker for t in turns]
+    pivot = turns[pivot_index]
+    numbered = "\n".join(
+        f"{i}. [{t.speaker}] {t.text}" for i, t in enumerate(turns)
+    )
+    user_content = (
+        f"Conversation ({len(turns)} turns):\n{numbered}\n\n"
+        f"PIVOT turn to rewrite: index {pivot_index}, spoken by "
+        f"[{pivot.speaker}]: {pivot.text}"
+    )
+    if req.context:
+        user_content += f"\n\nContext: {req.context}"
+
+    # One heat per turn from the pivot through the end (pivot included).
+    expected = len(turns) - pivot_index
+    # Output budget scales with the simulated tail plus headroom for the
+    # rewrite + rationale, capped so a huge transcript can't request an absurd
+    # generation (mirrors /analyze).
+    max_tokens = min(8192, 800 + 16 * expected)
+
+    llm = get_llm_client()
+    # to_thread: keep the blocking SDK call off the event loop (see /respond).
+    raw = await asyncio.to_thread(
+        llm.complete,
+        system=COUNTERFACTUAL_SYSTEM_PROMPT,
+        user=user_content,
+        max_tokens=max_tokens,
+    )
+    try:
+        data = parse_llm_json(raw)
+    except (ValueError, IndexError, KeyError, TypeError):
+        raise HTTPException(status_code=502, detail="LLM returned invalid JSON")
+    # Same isinstance(data, dict) guard as /analyze: valid JSON that isn't an
+    # object would AttributeError on .get() → honest 502 instead of a raw 500.
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=502, detail="LLM returned invalid JSON")
+
+    rewritten = data.get("rewritten_text")
+    if not isinstance(rewritten, str) or not rewritten.strip():
+        raise HTTPException(
+            status_code=502, detail="LLM returned an empty rewrite",
+        )
+
+    rationale = data.get("rationale")
+    if not isinstance(rationale, str) or not rationale.strip():
+        raise HTTPException(
+            status_code=502, detail="LLM returned an empty rationale",
+        )
+    rationale = rationale[:COUNTERFACTUAL_RATIONALE_MAX]
+
+    sim = data.get("simulated_heat")
+    # Honest failure: a wrong-length simulation cannot be aligned to the tail of
+    # the transcript at all — no padding, no truncation.
+    if not isinstance(sim, list) or len(sim) != expected:
+        raise HTTPException(
+            status_code=502, detail="LLM returned misaligned simulation",
+        )
+
+    sim_heats: list[int] = []
+    bad_heat_indices: list[int] = []
+    for offset, value in enumerate(sim):
+        heat = _clamp_heat(value)
+        if heat is None:
+            bad_heat_indices.append(pivot_index + offset)
+            heat = 0  # placeholder; request is about to 502 anyway
+        sim_heats.append(heat)
+    if bad_heat_indices:
+        raise HTTPException(
+            status_code=502,
+            detail="LLM returned non-numeric simulated heat at turns: "
+            + ", ".join(str(i) for i in bad_heat_indices),
+        )
+
+    simulated_per_turn = [
+        CounterfactualPerTurnOut(
+            index=pivot_index + offset,
+            speaker=speakers[pivot_index + offset],
+            heat=sim_heats[offset],
+        )
+        for offset in range(expected)
+    ]
+
+    return CounterfactualResponse(
+        pivot_index=pivot_index,
+        rewritten_text=rewritten,
+        rationale=rationale,
+        simulated_per_turn=simulated_per_turn,
+        disclaimer=COUNTERFACTUAL_DISCLAIMER,
     )
 
 
