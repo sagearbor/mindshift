@@ -27,6 +27,13 @@ const AMBER = "#F59E0B";
 
 interface DynamicsScreenProps {
   onBack: () => void;
+  /** When this analysis is backed by a stored recording, its id — enables a
+   *  "Replay recording" entry point that opens the synced media replay. Absent
+   *  for live/pasted transcripts (no media to replay). */
+  recordingId?: string;
+  /** Open the replay for `recordingId`. Wired by App; a no-op guard means the
+   *  button only shows when both are present. */
+  onReplay?: (recordingId: string) => void;
 }
 
 /**
@@ -39,7 +46,11 @@ interface DynamicsScreenProps {
  * Framing rule enforced throughout: there is no "winner". All speakers' stats
  * are always shown together with neutral labels; we never rank or single one out.
  */
-export default function DynamicsScreen({ onBack }: DynamicsScreenProps) {
+export default function DynamicsScreen({
+  onBack,
+  recordingId,
+  onReplay,
+}: DynamicsScreenProps) {
   // Snapshot turns once from the store — the analysis is of a fixed transcript,
   // so we don't want it re-fetching if the store mutates underneath us.
   const [loading, setLoading] = useState(true);
@@ -198,6 +209,18 @@ export default function DynamicsScreen({ onBack }: DynamicsScreenProps) {
           contentContainerStyle={styles.content}
           testID="dynamics-content"
         >
+          {/* Replay entry point — only when this analysis is backed by a stored
+              recording and App wired up navigation. */}
+          {recordingId && onReplay && (
+            <TouchableOpacity
+              testID="replay-recording-button"
+              style={styles.replayButton}
+              onPress={() => onReplay(recordingId)}
+            >
+              <Text style={styles.replayButtonText}>▶ Replay recording</Text>
+            </TouchableOpacity>
+          )}
+
           {/* Heat chart across the whole conversation. */}
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Heat over the conversation</Text>
@@ -477,6 +500,14 @@ const styles = StyleSheet.create({
   },
   retryText: { color: "#FFFFFF", fontSize: 15, fontWeight: "600" },
   content: { padding: 16, paddingBottom: 40 },
+  replayButton: {
+    marginBottom: 16,
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: "center",
+    backgroundColor: PRIMARY,
+  },
+  replayButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
   card: {
     backgroundColor: "#FFFFFF",
     borderRadius: 12,

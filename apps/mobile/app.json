@@ -42,7 +42,8 @@
         {
           "microphonePermission": "MindShift uses your microphone to transcribe the conversation and coach you with suggestions in real time."
         }
-      ]
+      ],
+      "expo-video"
     ],
     "extra": {
       "apiUrl": "${EXPO_PUBLIC_API_URL}",

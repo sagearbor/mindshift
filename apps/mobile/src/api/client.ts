@@ -229,6 +229,134 @@ export async function postCounterfactual(
   return (await res.json()) as CounterfactualResult;
 }
 
+// --- Media replay (stored recordings + synced heat graph) -------------------
+// These types mirror the PINNED persistence contract the backend is being built
+// against. Like the /analyze types they are faithful to the wire shape; the
+// client methods follow postAnalyze exactly (fresh Bearer token, thrown
+// `API error: <status>` on any non-OK so callers surface honest 401/404/503
+// states instead of a fabricated recording).
+
+export type MediaType = "audio" | "video";
+
+/** One entry in GET /recordings — enough to render a list row without fetching
+ *  the full recording. */
+export interface RecordingSummary {
+  id: string;
+  created_at: string; // ISO-8601 timestamp
+  filename: string;
+  media_type: MediaType;
+  duration_seconds: number;
+  has_analysis: boolean;
+}
+
+/** One stored turn. Unlike a pasted transcript, a recorded conversation always
+ *  carries timing (that's what the playhead syncs against). */
+export interface RecordingTurn {
+  speaker: string;
+  text: string;
+  start_time: number;
+  end_time: number;
+}
+
+/** GET /recordings/{id} — the summary fields plus the analyzed transcript and
+ *  full dynamics analysis. `analysis.per_turn` is index-aligned with `turns`. */
+export interface RecordingDetail extends RecordingSummary {
+  turns: RecordingTurn[];
+  analysis: AnalyzeResult;
+}
+
+/** GET /recordings/{id}/media_url — a short-lived signed URL for playback. */
+export interface RecordingMediaUrl {
+  url: string;
+  expires_in: number; // seconds until the signed URL expires
+}
+
+/**
+ * Shared auth-header builder: a fresh Firebase ID token as Bearer (omitted when
+ * signed out so the server answers its own 401). Mirrors the inline header
+ * blocks in postAnalyze/postCounterfactual so every recordings call authes
+ * identically.
+ */
+async function authHeaders(): Promise<Record<string, string>> {
+  const token = await getFreshToken();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+/**
+ * GET /recordings — list the caller's stored recordings. Throws
+ * `API error: <status>` on any non-OK (401 signed out, 503 storage not
+ * configured) so the UI shows an honest state rather than an empty list.
+ */
+export async function listRecordings(): Promise<RecordingSummary[]> {
+  const res = await fetch(`${API_URL}/recordings`, {
+    method: "GET",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+  const data = (await res.json()) as { recordings?: RecordingSummary[] };
+  return Array.isArray(data.recordings) ? data.recordings : [];
+}
+
+/**
+ * GET /recordings/{id} — the full recording: metadata, analyzed transcript, and
+ * dynamics analysis. Throws on any non-OK (401/404/503).
+ */
+export async function getRecording(id: string): Promise<RecordingDetail> {
+  const res = await fetch(`${API_URL}/recordings/${encodeURIComponent(id)}`, {
+    method: "GET",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+  return (await res.json()) as RecordingDetail;
+}
+
+/**
+ * GET /recordings/{id}/media_url — a short-lived signed URL to stream the media.
+ * Fetched separately from the detail so the (larger) analysis payload can render
+ * while playback is still resolving, and so an expiring URL can be re-fetched
+ * without re-downloading the analysis. Throws on any non-OK (401/404/503).
+ */
+export async function getRecordingMediaUrl(
+  id: string,
+): Promise<RecordingMediaUrl> {
+  const res = await fetch(
+    `${API_URL}/recordings/${encodeURIComponent(id)}/media_url`,
+    {
+      method: "GET",
+      headers: await authHeaders(),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+  return (await res.json()) as RecordingMediaUrl;
+}
+
+/**
+ * DELETE /recordings/{id} — remove a stored recording. Resolves on the 204 the
+ * contract specifies; throws `API error: <status>` on any non-OK (401/404/503)
+ * so the caller can keep the row and surface the failure honestly.
+ */
+export async function deleteRecording(id: string): Promise<void> {
+  const res = await fetch(`${API_URL}/recordings/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+}
+
 export async function postRespond(
   payload: RespondRequest,
 ): Promise<RespondResult> {
