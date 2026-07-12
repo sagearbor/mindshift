@@ -442,6 +442,68 @@ export async function postAnalyzeUploadChunked(
   }
 }
 
+/** Options for analyzing a remote recording by link. Same consent/store meaning
+ *  as an upload; both are sent as real JSON booleans. */
+export interface AnalyzeLinkOptions {
+  consent: boolean;
+  store: boolean;
+  context?: string;
+}
+
+/**
+ * POST /analyze/link — analyze a recording the server fetches from a URL (a
+ * direct file link or a Google Drive share link; the server downloads, extracts
+ * audio, transcribes, and analyzes). Returns the same `UploadAnalyzeResult` as
+ * the upload paths.
+ *
+ * Unlike the other calls, a non-OK response's *body message* is user-facing: the
+ * server writes 422 (not a direct link / blocked URL / Google Photos unsupported)
+ * and 413 (over the size cap) messages for humans, so we surface the server's
+ * `detail` verbatim on the thrown error (as `.detail`) while still carrying the
+ * numeric `.status` for the generic branches (401/429/502/503). Callers render
+ * `.detail` when present and fall back to a mapped message otherwise.
+ */
+export async function postAnalyzeLink(
+  url: string,
+  options: AnalyzeLinkOptions,
+): Promise<UploadAnalyzeResult> {
+  const body: Record<string, unknown> = {
+    url,
+    consent: options.consent,
+    store: options.store,
+  };
+  if (options.context !== undefined) {
+    body.context = options.context;
+  }
+
+  const res = await fetch(`${API_URL}/analyze/link`, {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    // FastAPI surfaces user-facing errors as { detail: "..." }; keep that text
+    // so 422/413 explanations reach the user verbatim.
+    let detail: string | undefined;
+    try {
+      const j = (await res.json()) as { detail?: unknown };
+      if (typeof j?.detail === "string") detail = j.detail;
+    } catch {
+      // Non-JSON body — fall back to the status-only message.
+    }
+    const err = new Error(detail ?? `API error: ${res.status}`) as Error & {
+      status?: number;
+      detail?: string;
+    };
+    err.status = res.status;
+    err.detail = detail;
+    throw err;
+  }
+
+  return (await res.json()) as UploadAnalyzeResult;
+}
+
 /** One simulated turn from /analyze/counterfactual: a hypothetical heat value
  *  at that turn's conversation-wide index, from the pivot to the last turn. */
 export interface SimulatedTurn {

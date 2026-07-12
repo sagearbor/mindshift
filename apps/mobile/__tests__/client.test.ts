@@ -3,6 +3,7 @@ import {
   postAnalyze,
   postAnalyzeUpload,
   postAnalyzeUploadChunked,
+  postAnalyzeLink,
   postCounterfactual,
   empathyTone,
   listRecordings,
@@ -544,6 +545,102 @@ describe("postAnalyzeUploadChunked", () => {
     ).rejects.toThrow("API error: 503");
     // Only the start call was made — no chunk PUTs, no DELETE.
     expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("postAnalyzeLink", () => {
+  const uploadResult = {
+    per_turn: [],
+    per_speaker: {},
+    dynamics: {
+      coupling: { strength: null, leader: null, description: "" },
+      deescalation: { who_first: null, follow_rate: null, description: "" },
+      triggers: [],
+      requests: [],
+    },
+    narrative: "",
+    turns: [{ speaker: "Alice", text: "hi", start_time: 0, end_time: 1 }],
+    stored: false,
+    recording_id: null,
+    storage_note: "Storage requires consent.",
+  };
+
+  it("POSTs the url + JSON booleans (and context) with a Bearer header", async () => {
+    setTokenProvider(async () => "link-token");
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => uploadResult });
+
+    const result = await postAnalyzeLink("https://drive.google.com/file/d/abc", {
+      consent: true,
+      store: true,
+      context: "date-night recap",
+    });
+
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toMatch(/\/analyze\/link$/);
+    expect(init.method).toBe("POST");
+    expect(init.headers.Authorization).toBe("Bearer link-token");
+    expect(init.headers["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(init.body)).toEqual({
+      url: "https://drive.google.com/file/d/abc",
+      consent: true,
+      store: true,
+      context: "date-night recap",
+    });
+    expect(result).toEqual(uploadResult);
+  });
+
+  it("omits context when not provided and can be signed out", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => uploadResult });
+    await postAnalyzeLink("https://example.com/rec.mp4", {
+      consent: false,
+      store: false,
+    });
+    const [, init] = mockFetch.mock.calls[0];
+    const body = JSON.parse(init.body);
+    expect(body).toEqual({
+      url: "https://example.com/rec.mp4",
+      consent: false,
+      store: false,
+    });
+    expect(body).not.toHaveProperty("context");
+    expect(init.headers).not.toHaveProperty("Authorization");
+  });
+
+  it("surfaces the server's user-facing 422 message verbatim (detail + status)", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      json: async () => ({
+        detail:
+          "Google Photos links aren’t supported yet — share the file to Drive instead.",
+      }),
+    });
+    await expect(
+      postAnalyzeLink("https://photos.google.com/share/xyz", {
+        consent: false,
+        store: false,
+      }),
+    ).rejects.toMatchObject({
+      status: 422,
+      detail:
+        "Google Photos links aren’t supported yet — share the file to Drive instead.",
+      message:
+        "Google Photos links aren’t supported yet — share the file to Drive instead.",
+    });
+  });
+
+  it("falls back to an `API error: <status>` message when the body has no detail", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      json: async () => ({}),
+    });
+    await expect(
+      postAnalyzeLink("https://example.com/rec.mp4", {
+        consent: false,
+        store: false,
+      }),
+    ).rejects.toThrow("API error: 503");
   });
 });
 
