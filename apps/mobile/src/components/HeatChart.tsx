@@ -6,7 +6,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from "react-native";
-import Svg, { Polyline, Circle } from "react-native-svg";
+import Svg, { Polyline, Circle, Line } from "react-native-svg";
 import type { AnalyzePerTurn, SimulatedTurn, Voice } from "../api/client";
 import { getSpeakerColor } from "../utils/speakerColors";
 
@@ -194,6 +194,73 @@ export function mapSimulatedToLines(
   }));
 }
 
+/** Per-turn timing, index-aligned with `perTurn`, used to place the replay
+ *  playhead. Only the boundaries matter here. */
+export interface TurnTiming {
+  start_time: number;
+  end_time: number;
+}
+
+export interface PlayheadOptions {
+  width: number;
+  padding: number;
+  /** Total turns in the conversation — the same value passed to mapTurnsToLines
+   *  so the playhead shares the real lines' x-scale exactly. */
+  totalTurns: number;
+}
+
+/**
+ * Pure: map a playback position (seconds) to the conversation turn index it
+ * falls in. The turn whose [start_time, end_time) contains `seconds` wins;
+ * failing that we fall back to the nearest EARLIER turn (so a position in the
+ * silent gap between two turns stays anchored to the turn that just spoke).
+ * Before the first turn → first turn; after the last → last turn. Returns null
+ * only when there is no timing at all. Exported for direct unit testing.
+ */
+export function playheadIndexForTime(
+  seconds: number,
+  turnsTiming: TurnTiming[],
+): number | null {
+  if (turnsTiming.length === 0) return null;
+  // Exact containment: [start, end).
+  for (let i = 0; i < turnsTiming.length; i++) {
+    const t = turnsTiming[i];
+    if (seconds >= t.start_time && seconds < t.end_time) return i;
+  }
+  // Before the first turn starts → clamp to the first turn.
+  if (seconds < turnsTiming[0].start_time) return 0;
+  // Otherwise the nearest earlier turn: the last one that has already started.
+  // This covers both between-turns gaps (→ previous turn) and after-last (→ last).
+  let idx = 0;
+  for (let i = 0; i < turnsTiming.length; i++) {
+    if (turnsTiming[i].start_time <= seconds) idx = i;
+    else break;
+  }
+  return idx;
+}
+
+/**
+ * Pure: the pixel x of the replay playhead for a given playback position. Maps
+ * `seconds` → turn index (playheadIndexForTime) → x using the SAME formula as
+ * mapTurnsToLines' xFor (maxIndex = totalTurns - 1), so the playhead lands
+ * exactly on the current turn's point. Returns null when there's no timing.
+ * Exported for direct unit testing of the alignment.
+ */
+export function playheadXForTime(
+  seconds: number,
+  turnsTiming: TurnTiming[],
+  opts: PlayheadOptions,
+): number | null {
+  const idx = playheadIndexForTime(seconds, turnsTiming);
+  if (idx === null) return null;
+  const { width, padding, totalTurns } = opts;
+  const chartWidth = width - padding * 2;
+  const maxIndex = totalTurns - 1;
+  return (
+    padding + (maxIndex <= 0 ? chartWidth / 2 : (idx / maxIndex) * chartWidth)
+  );
+}
+
 interface HeatChartProps {
   perTurn: AnalyzePerTurn[];
   // The original transcript, index-aligned with perTurn. The backend's per_turn
@@ -224,6 +291,18 @@ interface HeatChartProps {
   whatIfError?: string | null;
   /** Retry the last failed counterfactual. */
   onRetryWhatIf?: () => void;
+
+  // --- Replay playhead sync (all optional; the chart is fully usable without
+  // any of these) ---
+  /** Current playback position in seconds. A thin vertical playhead is drawn at
+   *  the x of the turn this position falls in. Null/undefined = no playhead. */
+  playheadSeconds?: number | null;
+  /** Per-turn timing, index-aligned with `perTurn`, that the playhead maps
+   *  against. Without it the playhead can't be placed and is omitted. */
+  turnsTiming?: TurnTiming[];
+  /** Tapping a chart point (or scrubber cell) also seeks playback to that turn's
+   *  start_time. Wired by ReplayScreen to the media player. */
+  onSeekToTurn?: (startTime: number) => void;
 }
 
 /**
@@ -247,11 +326,25 @@ export default function HeatChart({
   whatIfPivotIndex = null,
   whatIfError = null,
   onRetryWhatIf,
+  playheadSeconds = null,
+  turnsTiming,
+  onSeekToTurn,
 }: HeatChartProps) {
   const [width, setWidth] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
 
   const padding = 16;
+
+  // Selecting a turn (via a point or a scrubber cell) also seeks playback to
+  // that turn's start_time when replay is wired up — so the chart doubles as a
+  // tap-to-seek control. Guarded on timing being present for that index.
+  const selectTurn = (index: number) => {
+    setSelected(index);
+    const timing = turnsTiming?.[index];
+    if (onSeekToTurn && timing) {
+      onSeekToTurn(timing.start_time);
+    }
+  };
   // Only compute geometry once we've measured a width (first layout pass).
   // totalTurns is passed EXPLICITLY so the real and simulated lines share one
   // x-scale by construction, not by the (currently true) coincidence that
@@ -279,6 +372,18 @@ export default function HeatChart({
           totalTurns: perTurn.length,
         })
       : [];
+
+  // Replay playhead x: only when we have a position, timing, and a measured
+  // width. Shares the real lines' x-scale (totalTurns = perTurn.length) so it
+  // sits exactly on the current turn's point.
+  const playheadX =
+    playheadSeconds != null && turnsTiming && turnsTiming.length > 0 && width > 0
+      ? playheadXForTime(playheadSeconds, turnsTiming, {
+          width,
+          padding,
+          totalTurns: perTurn.length,
+        })
+      : null;
 
   const selectedTurn =
     selected !== null
@@ -341,6 +446,20 @@ export default function HeatChart({
       >
         {width > 0 && (
           <Svg width={width} height={height}>
+            {/* Replay playhead: a thin vertical ink line at the current turn's
+                x, drawn first so the lines and points sit on top of it. */}
+            {playheadX != null && (
+              <Line
+                testID="playhead-line"
+                x1={playheadX}
+                y1={padding}
+                x2={playheadX}
+                y2={height - padding}
+                stroke={INK}
+                strokeWidth={1.5}
+                strokeOpacity={0.35}
+              />
+            )}
             {/* Simulated overlay FIRST so the real (solid) lines sit on top of
                 the dashed hypothetical. Same per-speaker color, dashed, reduced
                 opacity. */}
@@ -387,7 +506,7 @@ export default function HeatChart({
                   fill={p.isSpike ? AMBER : line.color}
                   stroke={selected === p.index ? INK : "none"}
                   strokeWidth={selected === p.index ? 2 : 0}
-                  onPress={() => setSelected(p.index)}
+                  onPress={() => selectTurn(p.index)}
                 />
               )),
             )}
@@ -404,7 +523,7 @@ export default function HeatChart({
             key={`scrub-${t.index}`}
             testID={`scrub-${t.index}`}
             style={styles.scrubCell}
-            onPress={() => setSelected(t.index)}
+            onPress={() => selectTurn(t.index)}
             accessibilityLabel={`Turn ${t.index + 1}, ${t.speaker}, heat ${t.heat}`}
           />
         ))}

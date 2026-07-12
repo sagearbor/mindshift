@@ -3,6 +3,8 @@ import renderer, { act } from "react-test-renderer";
 import HeatChart, {
   mapTurnsToLines,
   mapSimulatedToLines,
+  playheadIndexForTime,
+  playheadXForTime,
 } from "../src/components/HeatChart";
 import type { AnalyzePerTurn, SimulatedTurn } from "../src/api/client";
 
@@ -96,6 +98,72 @@ describe("mapSimulatedToLines (overlay geometry)", () => {
     // One Alice line, two points; the hotter point sits higher on the chart.
     expect(lines).toHaveLength(1);
     expect(lines[0].points[1].y).toBeLessThan(lines[0].points[0].y);
+  });
+});
+
+describe("playheadIndexForTime (pure)", () => {
+  // Four contiguous turns: [0,3) [3,6) [6,9) [9,12), with a gap [12,14) after
+  // the last one is impossible (it's last), but a gap between turns exists if
+  // end < next start. Add a deliberate gap: turn 1 ends at 6, turn 2 starts at 7.
+  const timing = [
+    { start_time: 0, end_time: 3 },
+    { start_time: 3, end_time: 6 },
+    { start_time: 7, end_time: 9 }, // gap 6→7
+    { start_time: 9, end_time: 12 },
+  ];
+
+  it("returns null when there is no timing", () => {
+    expect(playheadIndexForTime(5, [])).toBeNull();
+  });
+
+  it("returns the turn whose [start,end) contains the time (exact containment)", () => {
+    expect(playheadIndexForTime(0, timing)).toBe(0);
+    expect(playheadIndexForTime(2.9, timing)).toBe(0);
+    expect(playheadIndexForTime(3, timing)).toBe(1); // start is inclusive
+    expect(playheadIndexForTime(8, timing)).toBe(2);
+  });
+
+  it("falls back to the previous turn in a between-turns gap", () => {
+    // 6.5 is in the silent gap between turn 1 (ends 6) and turn 2 (starts 7).
+    expect(playheadIndexForTime(6.5, timing)).toBe(1);
+  });
+
+  it("clamps to the first turn before the conversation starts", () => {
+    expect(playheadIndexForTime(-5, timing)).toBe(0);
+  });
+
+  it("clamps to the last turn after the conversation ends", () => {
+    expect(playheadIndexForTime(100, timing)).toBe(3);
+    expect(playheadIndexForTime(12, timing)).toBe(3); // exactly at last end
+  });
+});
+
+describe("playheadXForTime (pure)", () => {
+  const timing = [
+    { start_time: 0, end_time: 3 },
+    { start_time: 3, end_time: 6 },
+    { start_time: 6, end_time: 9 },
+    { start_time: 9, end_time: 12 },
+  ];
+  const opts = { width: 300, padding: 16, totalTurns: 4 };
+
+  it("returns null when there is no timing", () => {
+    expect(playheadXForTime(5, [], opts)).toBeNull();
+  });
+
+  it("lands the playhead exactly on the current turn's line x", () => {
+    // Real geometry over the same 4-turn conversation shares the x-scale.
+    const real = mapTurnsToLines(perTurn, {
+      width: 300,
+      height: 180,
+      padding: 16,
+      totalTurns: 4,
+    });
+    // A time inside turn 3 → x of the real point at index 3 (Bob's spike).
+    const bobAt3 = real[1].points.find((p) => p.index === 3)!;
+    expect(playheadXForTime(10, timing, opts)).toBeCloseTo(bobAt3.x);
+    // A time inside turn 0 → left padding.
+    expect(playheadXForTime(1, timing, opts)).toBeCloseTo(16);
   });
 });
 
@@ -263,6 +331,58 @@ describe("HeatChart", () => {
       comp.root.find((n) => n.props?.testID === "what-if-button").props.onPress(),
     );
     expect(onWhatIf).toHaveBeenCalledWith(3);
+    act(() => comp.unmount());
+  });
+
+  const timing = [
+    { start_time: 0, end_time: 3 },
+    { start_time: 3, end_time: 6 },
+    { start_time: 6, end_time: 9 },
+    { start_time: 9, end_time: 12 },
+  ];
+
+  it("draws the replay playhead line when a position + timing are given", () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(
+        <HeatChart perTurn={perTurn} turnsTiming={timing} playheadSeconds={7} />,
+      );
+    });
+    layout(comp);
+    expect(
+      comp.root.findAll((n) => n.props?.testID === "playhead-line").length,
+    ).toBeGreaterThan(0);
+    act(() => comp.unmount());
+  });
+
+  it("omits the playhead when there is no position", () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(
+        <HeatChart perTurn={perTurn} turnsTiming={timing} playheadSeconds={null} />,
+      );
+    });
+    layout(comp);
+    expect(comp.root.findAll((n) => n.props?.testID === "playhead-line")).toHaveLength(0);
+    act(() => comp.unmount());
+  });
+
+  it("calls onSeekToTurn with the tapped turn's start_time", () => {
+    const onSeekToTurn = jest.fn();
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(
+        <HeatChart
+          perTurn={perTurn}
+          turnsTiming={timing}
+          onSeekToTurn={onSeekToTurn}
+        />,
+      );
+    });
+    layout(comp);
+    // Tap the scrubber cell for turn 3 → seeks to its start_time (9).
+    act(() => comp.root.find((n) => n.props?.testID === "scrub-3").props.onPress());
+    expect(onSeekToTurn).toHaveBeenCalledWith(9);
     act(() => comp.unmount());
   });
 });

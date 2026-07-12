@@ -31,9 +31,12 @@ interface SessionScreenProps {
    *
    *  `recordingId` is the server-assigned id of a *stored* recording (only set
    *  when the upload flow's consent+store both landed as true); null/omitted
-   *  otherwise. Threaded through so DynamicsScreen can offer a Replay affordance
-   *  — that UI lives in another branch, this just carries the id along. */
+   *  otherwise. Threaded through so DynamicsScreen can offer its Replay
+   *  affordance for the recording. */
   onAnalyzeDynamics?: (initialData?: AnalyzeResult, recordingId?: string | null) => void;
+  /** Open the stored-recordings list (media replay). Optional for the same
+   *  standalone-render reason. */
+  onOpenRecordings?: () => void;
 }
 
 /** A file the user picked but hasn't uploaded yet. `file` (web File) is set only
@@ -77,7 +80,10 @@ function formatSize(bytes?: number): string | null {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export default function SessionScreen({ onAnalyzeDynamics }: SessionScreenProps = {}) {
+export default function SessionScreen({
+  onAnalyzeDynamics,
+  onOpenRecordings,
+}: SessionScreenProps = {}) {
   const {
     role,
     empathyLevel,
@@ -189,6 +195,17 @@ export default function SessionScreen({ onAnalyzeDynamics }: SessionScreenProps 
         keyboardShouldPersistTaps="handled"
       >
         <Text style={styles.heading}>MindShift Session</Text>
+
+        {/* Small link to the stored-recordings list (media replay). */}
+        {onOpenRecordings && (
+          <TouchableOpacity
+            testID="open-recordings-link"
+            style={styles.recordingsLink}
+            onPress={onOpenRecordings}
+          >
+            <Text style={styles.recordingsLinkText}>▶ Recordings</Text>
+          </TouchableOpacity>
+        )}
 
         <RoleSelector selectedRole={role} onSelect={setRole} />
 
@@ -442,6 +459,21 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginBottom: 16,
     color: "#111827",
+  },
+  recordingsLink: {
+    alignSelf: "center",
+    marginBottom: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#FFFFFF",
+  },
+  recordingsLinkText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#4A90D9",
   },
   inputSection: {
     paddingHorizontal: 16,

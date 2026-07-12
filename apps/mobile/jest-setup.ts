@@ -1,3 +1,8 @@
+// First-render transforms of react-native + expo modules can be slow on cold
+// CI/sandbox workers; the 5s default trips on the first test of a suite even
+// though the work itself is fast. Give every test more headroom.
+jest.setTimeout(30000);
+
 // Mock @react-native-community/slider for tests
 jest.mock("@react-native-community/slider", () => {
   const React = require("react");
@@ -75,6 +80,43 @@ jest.mock("expo-document-picker", () => ({
   __esModule: true,
   getDocumentAsync: jest.fn().mockResolvedValue({ canceled: true, assets: null }),
 }));
+
+// Mock expo-video for tests. `useVideoPlayer` returns a controllable mock
+// player exposed on `globalThis.__expoVideoMock` so tests can drive
+// currentTime / playing / duration; `VideoView` renders a plain host View.
+// (Most screen tests mock the MediaPlayer component wholesale; this keeps the
+// module resolvable for anything that imports expo-video directly.)
+jest.mock("expo-video", () => {
+  const React = require("react");
+  const { View } = require("react-native");
+  const player = {
+    currentTime: 0,
+    duration: 0,
+    playing: false,
+    loop: false,
+    muted: false,
+    play: jest.fn(function (this: Record<string, unknown>) {
+      this.playing = true;
+    }),
+    pause: jest.fn(function (this: Record<string, unknown>) {
+      this.playing = false;
+    }),
+    seekBy: jest.fn(),
+    replace: jest.fn(),
+    addListener: jest.fn(() => ({ remove: jest.fn() })),
+  };
+  (globalThis as Record<string, unknown>).__expoVideoMock = player;
+  return {
+    __esModule: true,
+    useVideoPlayer: (_source: unknown, setup?: (p: unknown) => void) => {
+      if (setup) setup(player);
+      return player;
+    },
+    createVideoPlayer: () => player,
+    VideoView: (props: Record<string, unknown>) =>
+      React.createElement(View, { testID: props.testID ?? "video-view" }),
+  };
+});
 
 // Mock expo-speech (free on-device TTS) for tests. speak/stop/isSpeakingAsync
 // are plain jest.fn()s so tests can assert what would have been spoken.

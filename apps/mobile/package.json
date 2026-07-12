@@ -21,6 +21,7 @@
     "expo-document-picker": "~57.0.0",
     "expo-secure-store": "~57.0.0",
     "expo-speech": "~57.0.0",
+    "expo-video": "~57.0.0",
     "expo-web-browser": "~57.0.0",
     "firebase": "^12.15.0",
     "react": "19.2.3",

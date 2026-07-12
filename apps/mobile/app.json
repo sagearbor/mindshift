@@ -2,7 +2,7 @@
   "expo": {
     "name": "MindShift",
     "slug": "mindshift",
-    "version": "1.5.0",
+    "version": "1.6.0",
     "scheme": "mindshift",
     "orientation": "portrait",
     "platforms": [
@@ -42,7 +42,8 @@
         {
           "microphonePermission": "MindShift uses your microphone to transcribe the conversation and coach you with suggestions in real time."
         }
-      ]
+      ],
+      "expo-video"
     ],
     "extra": {
       "apiUrl": "${EXPO_PUBLIC_API_URL}",

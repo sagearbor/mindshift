@@ -4,6 +4,10 @@ import {
   postAnalyzeUpload,
   postCounterfactual,
   empathyTone,
+  listRecordings,
+  getRecording,
+  getRecordingMediaUrl,
+  deleteRecording,
 } from "../src/api/client";
 import {
   setCachedToken,
@@ -350,6 +354,128 @@ describe("postAnalyzeUpload", () => {
     await expect(
       postAnalyzeUpload("file:///rec.m4a", "rec.m4a", "audio/m4a"),
     ).rejects.toThrow("API error: 503");
+  });
+});
+
+describe("listRecordings", () => {
+  it("GETs /recordings with a Bearer token and unwraps the recordings array", async () => {
+    setTokenProvider(async () => "rec-token");
+    const recordings = [
+      {
+        id: "r1",
+        created_at: "2026-07-01T10:00:00Z",
+        filename: "kitchen-fight.m4a",
+        media_type: "audio",
+        duration_seconds: 182,
+        has_analysis: true,
+      },
+    ];
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ recordings }),
+    });
+
+    const result = await listRecordings();
+
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toMatch(/\/recordings$/);
+    expect(init.method).toBe("GET");
+    expect(init.headers.Authorization).toBe("Bearer rec-token");
+    expect(result).toEqual(recordings);
+  });
+
+  it("returns [] when the payload has no recordings key", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({}) });
+    expect(await listRecordings()).toEqual([]);
+  });
+
+  it("throws an honest error on 503 (storage not configured)", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 503 });
+    await expect(listRecordings()).rejects.toThrow("API error: 503");
+  });
+
+  it("omits the Authorization header when signed out", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ recordings: [] }),
+    });
+    await listRecordings();
+    const [, init] = mockFetch.mock.calls[0];
+    expect(init.headers).not.toHaveProperty("Authorization");
+  });
+});
+
+describe("getRecording", () => {
+  const detail = {
+    id: "r1",
+    created_at: "2026-07-01T10:00:00Z",
+    filename: "kitchen-fight.m4a",
+    media_type: "audio",
+    duration_seconds: 182,
+    has_analysis: true,
+    turns: [
+      { speaker: "Alice", text: "You never listen.", start_time: 0, end_time: 3 },
+      { speaker: "Bob", text: "That's not fair.", start_time: 3, end_time: 6 },
+    ],
+    analysis: {
+      per_turn: [],
+      per_speaker: {},
+      dynamics: {
+        coupling: { strength: null, leader: null, description: "" },
+        deescalation: { who_first: null, follow_rate: null, description: "" },
+        triggers: [],
+        requests: [],
+      },
+      narrative: "",
+    },
+  };
+
+  it("GETs /recordings/{id} (id URL-encoded) and returns the detail", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => detail });
+    const result = await getRecording("r 1");
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toMatch(/\/recordings\/r%201$/);
+    expect(init.method).toBe("GET");
+    expect(result).toEqual(detail);
+  });
+
+  it("throws an honest error on 404", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+    await expect(getRecording("nope")).rejects.toThrow("API error: 404");
+  });
+});
+
+describe("getRecordingMediaUrl", () => {
+  it("GETs /recordings/{id}/media_url and returns the signed URL payload", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ url: "https://signed.example/abc", expires_in: 600 }),
+    });
+    const result = await getRecordingMediaUrl("r1");
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toMatch(/\/recordings\/r1\/media_url$/);
+    expect(init.method).toBe("GET");
+    expect(result).toEqual({ url: "https://signed.example/abc", expires_in: 600 });
+  });
+
+  it("throws an honest error on 503", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 503 });
+    await expect(getRecordingMediaUrl("r1")).rejects.toThrow("API error: 503");
+  });
+});
+
+describe("deleteRecording", () => {
+  it("DELETEs /recordings/{id} and resolves on 204", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 204 });
+    await expect(deleteRecording("r1")).resolves.toBeUndefined();
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toMatch(/\/recordings\/r1$/);
+    expect(init.method).toBe("DELETE");
+  });
+
+  it("throws an honest error on a non-OK response", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+    await expect(deleteRecording("r1")).rejects.toThrow("API error: 404");
   });
 });
 

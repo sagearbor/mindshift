@@ -11,6 +11,8 @@ import SessionScreen from "./src/screens/SessionScreen";
 import TherapistDashboard from "./src/screens/TherapistDashboard";
 import SessionDetail from "./src/screens/SessionDetail";
 import DynamicsScreen from "./src/screens/DynamicsScreen";
+import ReplayScreen from "./src/screens/ReplayScreen";
+import RecordingsScreen from "./src/screens/RecordingsScreen";
 import LiveCoachScreen from "./src/screens/LiveCoachScreen";
 import LoginScreen from "./src/screens/LoginScreen";
 import { useAuthStore, initAuth } from "./src/store/authStore";
@@ -34,8 +36,13 @@ type Screen =
   // `recordingId` is the server-assigned id of a *stored* recording (set only
   // when the upload flow's consent+store both landed as true); undefined
   // otherwise. Carried through so DynamicsScreen can offer a Replay affordance
-  // — that UI itself lives in another branch, this just plumbs the id through.
-  | { name: "dynamics"; initialData?: AnalyzeResult; recordingId?: string | null };
+  // that pushes the ReplayScreen for that id.
+  | { name: "dynamics"; initialData?: AnalyzeResult; recordingId?: string | null }
+  // Stored-recordings list, pushed over the Session tab.
+  | { name: "recordings" }
+  // Media replay with the synced heat graph. Pushed; `returnTo` records where
+  // the user came from so Back lands them there.
+  | { name: "replay"; recordingId: string; returnTo: "session" | "recordings" };
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>({ name: "session" });
@@ -76,18 +83,52 @@ export default function App() {
             onAnalyzeDynamics={(initialData, recordingId) =>
               setScreen({ name: "dynamics", initialData, recordingId })
             }
+            onOpenRecordings={() => setScreen({ name: "recordings" })}
           />
         );
       case "dynamics":
         // Post-session analysis, pushed over the Session tab; back returns there.
-        // initialData (from the upload flow) skips the on-mount fetch.
+        // initialData (from the upload flow) skips the on-mount fetch. If a
+        // recording backs this analysis (recordingId present, or one surfaces
+        // from DynamicsScreen's own fetched context), it shows a Replay entry
+        // point that pushes the ReplayScreen for that id.
         return (
           <DynamicsScreen
             onBack={() => setScreen({ name: "session" })}
             initialData={screen.initialData}
             recordingId={screen.recordingId}
+            onReplay={(id) =>
+              setScreen({ name: "replay", recordingId: id, returnTo: "session" })
+            }
           />
         );
+      case "recordings":
+        return (
+          <RecordingsScreen
+            onBack={() => setScreen({ name: "session" })}
+            onSelectRecording={(id) =>
+              setScreen({
+                name: "replay",
+                recordingId: id,
+                returnTo: "recordings",
+              })
+            }
+          />
+        );
+      case "replay": {
+        // Narrow returnTo to a concrete screen so the discriminated union stays
+        // exact (a bare { name: returnTo } widens both variants).
+        const back =
+          screen.returnTo === "recordings"
+            ? { name: "recordings" as const }
+            : { name: "session" as const };
+        return (
+          <ReplayScreen
+            recordingId={screen.recordingId}
+            onBack={() => setScreen(back)}
+          />
+        );
+      }
       case "live-coach":
         return (
           <LiveCoachScreen
@@ -119,8 +160,12 @@ export default function App() {
   return (
     <SafeAreaView style={styles.container}>
       {renderScreen()}
-      {/* Bottom tab bar — hidden on pushed sub-screens (detail, dynamics). */}
-      {screen.name !== "detail" && screen.name !== "dynamics" && (
+      {/* Bottom tab bar — hidden on pushed sub-screens (detail, dynamics,
+          recordings, replay). */}
+      {screen.name !== "detail" &&
+        screen.name !== "dynamics" &&
+        screen.name !== "recordings" &&
+        screen.name !== "replay" && (
         <View style={styles.tabBar}>
           <TouchableOpacity
             testID="tab-session"

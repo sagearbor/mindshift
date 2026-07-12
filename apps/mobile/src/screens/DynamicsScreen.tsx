@@ -37,12 +37,16 @@ interface DynamicsScreenProps {
    */
   initialData?: AnalyzeResult;
   /**
-   * The server-assigned id of a *stored* recording, when the upload flow's
-   * consent+store both landed as true; null/undefined otherwise. Not yet
-   * rendered here — a Replay button consuming it lands from another branch —
-   * this just carries the id through so that branch can use it.
+   * The id of a *stored* recording that backs this analysis, passed from the
+   * upload flow when consent+store both landed as true; null/undefined
+   * otherwise. When absent, the screen falls back to the recording_id on its
+   * own fetched UploadAnalyzeResult. Either source enables the "Replay
+   * recording" entry point that opens the synced media replay.
    */
   recordingId?: string | null;
+  /** Open the replay for the backing recording. Wired by App; the button only
+   *  shows when an effective recording id and this handler are both present. */
+  onReplay?: (recordingId: string) => void;
 }
 
 /**
@@ -59,10 +63,8 @@ export default function DynamicsScreen({
   onBack,
   initialData,
   recordingId,
+  onReplay,
 }: DynamicsScreenProps) {
-  // Not yet consumed here — kept in scope (not destructure-discarded) so the
-  // Replay-button branch can wire it into JSX without touching this signature.
-  void recordingId;
   // Snapshot turns once from the store — the analysis is of a fixed transcript,
   // so we don't want it re-fetching if the store mutates underneath us.
   // When `initialData` is supplied (upload flow) we start already-loaded, so
@@ -205,6 +207,12 @@ export default function DynamicsScreen({
   const overlayVisible = simData !== null && showSim;
   // Prosody-unavailable note, present only on results from /analyze/upload.
   const voiceAnalysis = (data as UploadAnalyzeResult | null)?.voice_analysis;
+  // The recording backing this analysis, from either source: the id handed in
+  // by the upload flow, or — when we fetched the analysis ourselves — the
+  // recording_id the server returned on an UploadAnalyzeResult. Either enables
+  // the Replay entry point below.
+  const effectiveRecordingId =
+    recordingId ?? (data as UploadAnalyzeResult | null)?.recording_id ?? null;
 
   return (
     <View style={styles.flex}>
@@ -244,6 +252,19 @@ export default function DynamicsScreen({
           contentContainerStyle={styles.content}
           testID="dynamics-content"
         >
+          {/* Replay entry point — only when this analysis is backed by a stored
+              recording (from the upload flow or our own fetched result) and App
+              wired up navigation. */}
+          {effectiveRecordingId && onReplay && (
+            <TouchableOpacity
+              testID="replay-recording-button"
+              style={styles.replayButton}
+              onPress={() => onReplay(effectiveRecordingId)}
+            >
+              <Text style={styles.replayButtonText}>▶ Replay recording</Text>
+            </TouchableOpacity>
+          )}
+
           {/* Heat chart across the whole conversation. */}
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Heat over the conversation</Text>
@@ -532,6 +553,14 @@ const styles = StyleSheet.create({
   },
   retryText: { color: "#FFFFFF", fontSize: 15, fontWeight: "600" },
   content: { padding: 16, paddingBottom: 40 },
+  replayButton: {
+    marginBottom: 16,
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: "center",
+    backgroundColor: PRIMARY,
+  },
+  replayButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
   card: {
     backgroundColor: "#FFFFFF",
     borderRadius: 12,
