@@ -321,6 +321,21 @@ def _photos_media_download(
     return data, _content_type(resp) or None
 
 
+
+def _photos_page_url(url: str) -> str:
+    """Short photos.app.goo.gl links serve a Firebase Dynamic-Links interstitial
+    ("open in the app?") to plain HTTP clients instead of redirecting — the
+    share page (and its embedded media URLs) never loads. The interstitial's
+    own "continue in browser" parameter, ``_imcp=1``, deterministically skips
+    it (verified against a real link: without it, a 34KB JS shell; with it, a
+    302 to photos.google.com/share/… whose page embeds the media). Long-form
+    photos.google.com URLs don't need it and are returned unchanged."""
+    parsed = urlparse(url)
+    if (parsed.hostname or "").lower() != "photos.app.goo.gl":
+        return url
+    sep = "&" if parsed.query else "?"
+    return f"{url}{sep}_imcp=1"
+
 def _fetch_photos(
     client: httpx.Client,
     original_url: str,
@@ -337,7 +352,8 @@ def _fetch_photos(
     UNOFFICIAL page format: if Google changes it the regex matches nothing and we
     return a 422 (:data:`_PHOTOS_NO_MEDIA`) rather than crash."""
     page, _resp, _parsed = _run_download(
-        client, original_url, resolver=resolver, max_bytes=PHOTOS_PAGE_MAX_BYTES,
+        client, _photos_page_url(original_url), resolver=resolver,
+        max_bytes=PHOTOS_PAGE_MAX_BYTES,
     )
     html = page.decode("utf-8", "replace")
 
@@ -387,7 +403,8 @@ def _resolve_photos_media_url(client: httpx.Client, original_url: str, *, resolv
     (422) when the page embeds no / multiple items, or its (unofficial) format is
     no longer recognised."""
     page, _resp, _parsed = _run_download(
-        client, original_url, resolver=resolver, max_bytes=PHOTOS_PAGE_MAX_BYTES,
+        client, _photos_page_url(original_url), resolver=resolver,
+        max_bytes=PHOTOS_PAGE_MAX_BYTES,
     )
     html = page.decode("utf-8", "replace")
     candidates = list(dict.fromkeys(_PHOTOS_MEDIA_RE.findall(html)))
