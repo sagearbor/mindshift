@@ -1526,10 +1526,14 @@ async def _run_analysis(
     if voice_labels is not None:
         system_prompt += ANALYZE_VOICE_PROMPT_ADDENDUM
 
-    # Output budget scales with turn count (each turn is a small JSON object)
-    # plus headroom for requests + narrative, capped so a huge transcript can
-    # never request an absurd generation. A larger model raises the cap.
-    max_tokens = min(8192, 800 + 16 * len(turns))
+    # Output budget scales with turn count. Measured reality (production 502
+    # caught by the v1.6.0 ship e2e): each per-turn JSON object costs ~60-90
+    # output tokens, and report cards + requests + narrative need ~1200 on
+    # top — the old 800 + 16/turn budget truncated an 18-turn analysis
+    # mid-JSON, which parse-fails into an honest 502. 90/turn + 1200 fits
+    # ~77 turns inside the 8192 cap; beyond that the cap wins and a very long
+    # transcript may still truncate (chunked analysis is the eventual fix).
+    max_tokens = min(8192, 1200 + 90 * len(turns))
 
     llm = get_llm_client()
     # to_thread: llm.complete is a blocking SDK call — keep it off the event
