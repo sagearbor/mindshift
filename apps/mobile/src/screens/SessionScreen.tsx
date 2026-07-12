@@ -15,7 +15,14 @@ import RoleSelector from "../components/RoleSelector";
 import EmpathySlider from "../components/EmpathySlider";
 import SuggestionCard from "../components/SuggestionCard";
 
-export default function SessionScreen() {
+interface SessionScreenProps {
+  /** Navigate to the post-session Conversation Dynamics analysis. Provided by
+   *  App; optional so the screen still renders standalone (and in tests that
+   *  don't exercise navigation). */
+  onAnalyzeDynamics?: () => void;
+}
+
+export default function SessionScreen({ onAnalyzeDynamics }: SessionScreenProps = {}) {
   const {
     role,
     empathyLevel,
@@ -151,6 +158,19 @@ export default function SessionScreen() {
               </View>
             ))}
           </View>
+        )}
+
+        {/* Analyze dynamics: only meaningful once there's enough back-and-forth
+            to find patterns (>= 4 turns). Pushes the post-session analysis
+            screen; no-op if App didn't wire a handler. */}
+        {turns.length >= 4 && onAnalyzeDynamics && (
+          <TouchableOpacity
+            testID="analyze-dynamics-button"
+            style={styles.analyzeButton}
+            onPress={onAnalyzeDynamics}
+          >
+            <Text style={styles.analyzeButtonText}>Analyze dynamics →</Text>
+          </TouchableOpacity>
         )}
 
         {/* Get Suggestions button */}
@@ -309,6 +329,21 @@ const styles = StyleSheet.create({
   turnText: {
     fontSize: 14,
     color: "#1F2937",
+  },
+  analyzeButton: {
+    marginHorizontal: 16,
+    marginTop: 16,
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: "center",
+    borderWidth: 1.5,
+    borderColor: "#4A90D9",
+    backgroundColor: "#EEF2FF",
+  },
+  analyzeButtonText: {
+    color: "#4A90D9",
+    fontSize: 16,
+    fontWeight: "600",
   },
   suggestButton: {
     backgroundColor: "#4A90D9",

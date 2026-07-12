@@ -1,4 +1,4 @@
-import { postRespond, empathyTone } from "../src/api/client";
+import { postRespond, postAnalyze, empathyTone } from "../src/api/client";
 import {
   setCachedToken,
   setTokenProvider,
@@ -95,6 +95,61 @@ describe("postRespond", () => {
     await expect(
       postRespond({ transcript_turn: "x", role: "r", empathy_slider: 50 }),
     ).rejects.toThrow("API error: 502");
+  });
+});
+
+describe("postAnalyze", () => {
+  const smallResult = {
+    per_turn: [],
+    per_speaker: {},
+    dynamics: {
+      coupling: { strength: null, leader: null, description: "" },
+      deescalation: { who_first: null, follow_rate: null, description: "" },
+      triggers: [],
+      requests: [],
+    },
+    narrative: "",
+  };
+
+  it("POSTs turns to /analyze and returns the parsed result", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => smallResult });
+
+    const turns = [
+      { speaker: "Alice", text: "You never listen." },
+      { speaker: "Bob", text: "That's not fair." },
+    ];
+    const result = await postAnalyze(turns);
+
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toMatch(/\/analyze$/);
+    expect(init.method).toBe("POST");
+    const body = JSON.parse(init.body);
+    // Turns are sent verbatim; no context key when none is passed.
+    expect(body).toEqual({ turns });
+    expect(body).not.toHaveProperty("context");
+    expect(result).toEqual(smallResult);
+  });
+
+  it("includes context only when provided", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => smallResult });
+    await postAnalyze([{ speaker: "A", text: "hi" }], "earlier stuff");
+    const [, init] = mockFetch.mock.calls[0];
+    expect(JSON.parse(init.body).context).toBe("earlier stuff");
+  });
+
+  it("attaches the Firebase ID token as a Bearer header", async () => {
+    setTokenProvider(async () => "analyze-token");
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => smallResult });
+    await postAnalyze([{ speaker: "A", text: "hi" }]);
+    const [, init] = mockFetch.mock.calls[0];
+    expect(init.headers.Authorization).toBe("Bearer analyze-token");
+  });
+
+  it("throws an honest error on a non-OK response (no fabricated result)", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 429 });
+    await expect(postAnalyze([{ speaker: "A", text: "hi" }])).rejects.toThrow(
+      "API error: 429",
+    );
   });
 });
 

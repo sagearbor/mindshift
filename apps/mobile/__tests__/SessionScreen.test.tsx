@@ -72,6 +72,44 @@ describe("SessionScreen", () => {
     expect(component!.toJSON()).toMatchSnapshot();
   });
 
+  it("shows the analyze-dynamics button only at >= 4 turns", () => {
+    const mkTurns = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        speaker: i % 2 === 0 ? "Alice" : "Bob",
+        text: `turn ${i}`,
+      }));
+    const hasButton = (comp: renderer.ReactTestRenderer) =>
+      comp.root.findAll((x) => x.props?.testID === "analyze-dynamics-button")
+        .length > 0;
+
+    // 3 turns: below threshold, hidden even with a handler.
+    act(() => {
+      useSessionStore.setState({ turns: mkTurns(3) });
+    });
+    let three!: renderer.ReactTestRenderer;
+    act(() => {
+      three = renderer.create(<SessionScreen onAnalyzeDynamics={() => {}} />);
+    });
+    expect(hasButton(three)).toBe(false);
+
+    // 4 turns: shown, and pressing it invokes the handler.
+    act(() => {
+      useSessionStore.setState({ turns: mkTurns(4) });
+    });
+    const onAnalyze = jest.fn();
+    let four!: renderer.ReactTestRenderer;
+    act(() => {
+      four = renderer.create(<SessionScreen onAnalyzeDynamics={onAnalyze} />);
+    });
+    expect(hasButton(four)).toBe(true);
+    act(() => {
+      four.root
+        .find((x) => x.props?.testID === "analyze-dynamics-button")
+        .props.onPress();
+    });
+    expect(onAnalyze).toHaveBeenCalledTimes(1);
+  });
+
   it("renders loading state", () => {
     act(() => {
       useSessionStore.setState({

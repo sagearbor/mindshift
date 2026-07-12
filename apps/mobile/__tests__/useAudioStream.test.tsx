@@ -230,8 +230,24 @@ describe("useAudioStream — WebSocket protocol", () => {
     expect(hook.result.current.transcript[0]).toMatchObject({
       speaker: "Speaker A",
       text: "You never listen to me.",
+      // Utterance timing rides along so post-session /analyze can compute
+      // real interruption stats for live conversations.
+      startTime: 0,
+      endTime: 1.2,
     });
     expect(hook.result.current.speakerLabel).toBe("Speaker A");
+  });
+
+  it("leaves startTime/endTime undefined when the transcript event has no timing", async () => {
+    const { hook, ws } = await startLiveSession();
+
+    await act(() =>
+      ws.emitServer({ type: "transcript", speaker: "Speaker B", text: "Hi." }),
+    );
+
+    // Absent on the wire -> genuinely unknown, never fabricated as 0.
+    expect(hook.result.current.transcript[0].startTime).toBeUndefined();
+    expect(hook.result.current.transcript[0].endTime).toBeUndefined();
   });
 
   it("defaults the transcript speaker to Unknown when the server omits it", async () => {
@@ -324,6 +340,9 @@ describe("useAudioStream — WebSocket protocol", () => {
 
     expect(hook.result.current.transcript).toHaveLength(1);
     expect(hook.result.current.transcript[0].text).toBe("Old server line.");
+    // The legacy path carries no utterance timing — it must stay undefined.
+    expect(hook.result.current.transcript[0].startTime).toBeUndefined();
+    expect(hook.result.current.transcript[0].endTime).toBeUndefined();
   });
 
   it("does not speak and marks suggestions muted when the server sets speak: false", async () => {

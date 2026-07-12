@@ -29,6 +29,12 @@ export interface TranscriptEntry {
   speaker: string;
   text: string;
   timestamp: number;
+  /** Utterance boundaries in seconds (from the server's transcript events).
+   *  Undefined on the legacy suggestion-event fallback path, which carries no
+   *  timing — downstream consumers (e.g. /analyze interruption stats) must
+   *  treat them as genuinely unknown there, never as 0. */
+  startTime?: number;
+  endTime?: number;
 }
 
 /** "response" = coaching lines about the OTHER person's turn (the normal
@@ -569,7 +575,21 @@ export function useAudioStream(): UseAudioStreamReturn {
             setSpeakerLabel(speaker);
             setTranscript((prev) => [
               ...prev,
-              { speaker, text: data.text, timestamp: Date.now() },
+              {
+                speaker,
+                text: data.text,
+                timestamp: Date.now(),
+                // Utterance timing (seconds) when the server provides it —
+                // guarded by type so a malformed frame can't smuggle in a
+                // string. This is what makes post-session interruption stats
+                // computable for live conversations.
+                ...(typeof data.start_time === "number"
+                  ? { startTime: data.start_time }
+                  : {}),
+                ...(typeof data.end_time === "number"
+                  ? { endTime: data.end_time }
+                  : {}),
+              },
             ]);
           } else if (data.type === "suggestion") {
             // The server bundles the transcribed utterance and its coaching

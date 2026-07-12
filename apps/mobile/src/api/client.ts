@@ -42,6 +42,120 @@ export function empathyTone(slider: number): string {
   return "validating";
 }
 
+// --- POST /analyze (Conversation Dynamics post-session analysis) ------------
+// These types mirror the backend's /analyze response contract exactly. They are
+// intentionally faithful: nullable fields (interruptions, coupling.strength,
+// leader, follow_rate) stay `| null` so the UI can *omit* rather than fabricate
+// a value the model couldn't determine — the house "no fake data" rule.
+
+/** One turn as sent to /analyze. start/end times are optional (present only
+ *  for diarized live audio; absent for pasted transcripts). */
+export interface AnalyzeTurnInput {
+  speaker: string;
+  text: string;
+  start_time?: number;
+  end_time?: number;
+}
+
+/** Emotional/behavioral markers the backend may attach to a turn. */
+export type ConversationMarker =
+  | "criticism"
+  | "contempt"
+  | "defensiveness"
+  | "stonewalling"
+  | "repair_attempt"
+  | "validation";
+
+export interface AnalyzePerTurn {
+  index: number;
+  speaker: string;
+  heat: number; // 0–100
+  markers: string[]; // subset of ConversationMarker
+  is_spike: boolean;
+  trigger_phrase: string | null;
+}
+
+export interface HorsemenCounts {
+  criticism: number;
+  contempt: number;
+  defensiveness: number;
+  stonewalling: number;
+}
+
+export interface AnalyzePerSpeaker {
+  turns: number;
+  talk_share: number; // 0–1
+  avg_heat: number;
+  peak_heat: number;
+  peak_turn_index: number;
+  heat_variance: number;
+  interruptions: number | null; // null when the backend can't infer it
+  horsemen: HorsemenCounts;
+  repair_attempts: number;
+  repairs_accepted: number;
+}
+
+export interface AnalyzeDynamics {
+  coupling: {
+    strength: number | null;
+    leader: string | null;
+    description: string;
+  };
+  deescalation: {
+    who_first: string | null;
+    follow_rate: number | null;
+    description: string;
+  };
+  triggers: {
+    phrase: string;
+    speaker: string;
+    turn_index: number;
+    heat_delta: number;
+  }[];
+  requests: { speaker: string; request: string; outcome: string }[];
+}
+
+export interface AnalyzeResult {
+  per_turn: AnalyzePerTurn[];
+  per_speaker: Record<string, AnalyzePerSpeaker>;
+  dynamics: AnalyzeDynamics;
+  narrative: string;
+}
+
+/**
+ * POST /analyze — post-session "Conversation Dynamics" analysis. Follows
+ * postRespond exactly: a fresh Firebase ID token as Bearer auth (omitted when
+ * signed out, so the server answers its own 401), JSON body, and a thrown
+ * `API error: <status>` on any non-OK response so the caller can surface an
+ * honest error state (401/429/502/413) rather than a fabricated result.
+ */
+export async function postAnalyze(
+  turns: AnalyzeTurnInput[],
+  context?: string,
+): Promise<AnalyzeResult> {
+  const token = await getFreshToken();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_URL}/analyze`, {
+    method: "POST",
+    headers,
+    // Only include `context` when provided — keeps the body shape minimal and
+    // matches the optional field in the contract.
+    body: JSON.stringify(context !== undefined ? { turns, context } : { turns }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+
+  return (await res.json()) as AnalyzeResult;
+}
+
 export async function postRespond(
   payload: RespondRequest,
 ): Promise<RespondResult> {

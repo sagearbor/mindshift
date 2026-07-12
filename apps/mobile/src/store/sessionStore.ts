@@ -5,6 +5,13 @@ import type { Suggestion } from "../components/SuggestionCard";
 export interface Turn {
   speaker: string;
   text: string;
+  /** Utterance boundaries in seconds, present only when the turn came from a
+   *  live diarized session (its transcript events carry timing). Pasted or
+   *  hand-typed transcripts have no timing, so these stay undefined —
+   *  /analyze then honestly reports interruptions as null for them rather
+   *  than inventing counts from nothing. */
+  start_time?: number;
+  end_time?: number;
 }
 
 /**
@@ -45,8 +52,10 @@ interface SessionState {
   /** Replace all turns from a pasted/typed transcript (async review). */
   loadTranscript: (raw: string) => void;
   /** Load turns directly (e.g. a finished live-coach conversation handed off
-   *  for post-session review). Clears any stale suggestions. */
-  loadTurns: (turns: { speaker: string; text: string }[]) => void;
+   *  for post-session review). Preserves utterance timing when the source has
+   *  it (live sessions) so /analyze can compute real interruption stats.
+   *  Clears any stale suggestions. */
+  loadTurns: (turns: Turn[]) => void;
   clearTurns: () => void;
   fetchSuggestions: () => Promise<void>;
 }
@@ -64,7 +73,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   loadTranscript: (raw) => set({ turns: parseTranscript(raw), suggestions: [] }),
   loadTurns: (turns) =>
     set({
-      turns: turns.map((t) => ({ speaker: t.speaker, text: t.text })),
+      // Copy field-by-field (not spread) so only the Turn contract's fields
+      // enter the store; timing is kept ONLY when the source really had it.
+      turns: turns.map((t) => ({
+        speaker: t.speaker,
+        text: t.text,
+        ...(t.start_time !== undefined ? { start_time: t.start_time } : {}),
+        ...(t.end_time !== undefined ? { end_time: t.end_time } : {}),
+      })),
       suggestions: [],
     }),
   clearTurns: () => set({ turns: [], suggestions: [] }),

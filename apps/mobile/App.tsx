@@ -10,6 +10,7 @@ import {
 import SessionScreen from "./src/screens/SessionScreen";
 import TherapistDashboard from "./src/screens/TherapistDashboard";
 import SessionDetail from "./src/screens/SessionDetail";
+import DynamicsScreen from "./src/screens/DynamicsScreen";
 import LiveCoachScreen from "./src/screens/LiveCoachScreen";
 import LoginScreen from "./src/screens/LoginScreen";
 import { useAuthStore, initAuth } from "./src/store/authStore";
@@ -19,7 +20,10 @@ type Screen =
   | { name: "session" }
   | { name: "live-coach" }
   | { name: "dashboard" }
-  | { name: "detail"; sessionId: string };
+  | { name: "detail"; sessionId: string }
+  // Pushed on top of the Session tab (like "detail"): the tab bar is hidden and
+  // onBack returns to the Session screen. Not itself a tab.
+  | { name: "dynamics" };
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>({ name: "session" });
@@ -55,7 +59,14 @@ export default function App() {
   const renderScreen = () => {
     switch (screen.name) {
       case "session":
-        return <SessionScreen />;
+        return (
+          <SessionScreen
+            onAnalyzeDynamics={() => setScreen({ name: "dynamics" })}
+          />
+        );
+      case "dynamics":
+        // Post-session analysis, pushed over the Session tab; back returns there.
+        return <DynamicsScreen onBack={() => setScreen({ name: "session" })} />;
       case "live-coach":
         return (
           <LiveCoachScreen
@@ -87,8 +98,8 @@ export default function App() {
   return (
     <SafeAreaView style={styles.container}>
       {renderScreen()}
-      {/* Bottom tab bar */}
-      {screen.name !== "detail" && (
+      {/* Bottom tab bar — hidden on pushed sub-screens (detail, dynamics). */}
+      {screen.name !== "detail" && screen.name !== "dynamics" && (
         <View style={styles.tabBar}>
           <TouchableOpacity
             testID="tab-session"
