@@ -1,0 +1,79 @@
+{
+  "_note": "Acted emotion, not physical ground truth: each turn is the model performing the given `instruction`, not a DSP-derived prosody measurement. No expected pitch/energy/rate labels are included here on purpose \u2014 see file docstring.",
+  "variant": "tts",
+  "model_used": "gpt-4o-mini-tts-2025-12-15",
+  "sample_rate": 24000,
+  "silence_gap_sec": 0.4,
+  "turns": [
+    {
+      "speaker": "Speaker A",
+      "text": "Hey, can we talk about the dishes? They've been piling up all week and I wanted to check in before it becomes a thing.",
+      "scripted_emotion": "calm_open",
+      "instruction": "Calm, warm, and a little tentative \u2014 opening a sensitive conversation gently.",
+      "duration_sec": 7.2
+    },
+    {
+      "speaker": "Speaker B",
+      "text": "Sure, but I did them Tuesday night. I don't think it's fair to act like I never touch them.",
+      "scripted_emotion": "calm_guarded",
+      "instruction": "Calm but guarded, a hint of defensiveness under the surface.",
+      "duration_sec": 5.55
+    },
+    {
+      "speaker": "Speaker A",
+      "text": "Tuesday was five days ago. I've done every load since then and I'm getting tired of keeping score.",
+      "scripted_emotion": "tense_rising",
+      "instruction": "Tense and clipped, patience visibly running out.",
+      "duration_sec": 6.0
+    },
+    {
+      "speaker": "Speaker B",
+      "text": "So now I'm the villain because I didn't get to it fast enough? I have a life outside this kitchen too.",
+      "scripted_emotion": "defensive_rising",
+      "instruction": "Defensive and sharp, volume and pace rising.",
+      "duration_sec": 7.2
+    },
+    {
+      "speaker": "Speaker A",
+      "text": "I AM SO SICK OF BEING THE ONLY ONE WHO CARES ABOUT THIS HOUSE! I CANNOT DO THIS BY MYSELF ANYMORE!",
+      "scripted_emotion": "shout_angry",
+      "instruction": "Shout this, furious and losing control.",
+      "duration_sec": 7.1
+    },
+    {
+      "speaker": "Speaker B",
+      "text": "Wow. Impressive speech. You really do love playing the martyr, don't you.",
+      "scripted_emotion": "cold_contempt",
+      "instruction": "Deliver flat, cold, quietly contemptuous \u2014 no warmth at all.",
+      "duration_sec": 5.5
+    },
+    {
+      "speaker": "Speaker A",
+      "text": "I don't want to be the martyr. I just... I wanted us to be a team, and I don't feel like one right now.",
+      "scripted_emotion": "hurt_sad",
+      "instruction": "On the edge of tears, hurt and vulnerable.",
+      "duration_sec": 7.1
+    },
+    {
+      "speaker": "Speaker B",
+      "text": "I don't want that either. I don't want us to be like this. I'm actually scared we're breaking something here.",
+      "scripted_emotion": "scared_shaky",
+      "instruction": "Frightened, voice shaking, close to panic.",
+      "duration_sec": 6.95
+    },
+    {
+      "speaker": "Speaker A",
+      "text": "I don't want that either. Can we just stop and figure out a system together? Something that actually works for both of us?",
+      "scripted_emotion": "repair_hopeful",
+      "instruction": "Soft, hopeful, still raw but reaching out to repair things.",
+      "duration_sec": 8.35
+    },
+    {
+      "speaker": "Speaker B",
+      "text": "Yeah. Let's start over. I'm sorry I got so defensive \u2014 I do want to fix this with you.",
+      "scripted_emotion": "calm_close",
+      "instruction": "Calm and warm, relieved, sincere.",
+      "duration_sec": 5.85
+    }
+  ]
+}
