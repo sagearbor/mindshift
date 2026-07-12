@@ -17,6 +17,13 @@ import {
 import type { RecordingDetail } from "../api/client";
 import HeatChart from "../components/HeatChart";
 import MediaPlayer, { MediaPlayerHandle } from "../components/MediaPlayer";
+import { setPlaybackMode } from "../utils/audioMode";
+
+/** How long we give a source to report a real duration (moov parsed /
+ *  readyToPlay) before treating it as stuck. A moov-at-end HD MP4 served
+ *  without HTTP Range support buffers forever at 0:00 with no error event, so a
+ *  wall-clock watchdog is the only way to recover. */
+const LOAD_TIMEOUT_MS = 8000;
 
 // House colors.
 const PRIMARY = "#4A90D9";
@@ -62,14 +69,25 @@ export default function ReplayScreen({
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<RecordingDetail | null>(null);
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
-  // HD replay: for a link-sourced recording we stream the user's OWN hosted
-  // original (hdMode) and fall back to our stored derivative on any failure
-  // (fellBack drives an honest note). Uploads use neither.
+  // Replay plays our STORED DERIVATIVE first for every source — the /media
+  // endpoint serves it with proper HTTP Range support, so it loads reliably.
+  // For a link-sourced recording the user's OWN hosted original is an opt-in
+  // "Try HD" (hdMode): that remote stream can be a moov-at-end MP4 with no Range
+  // support, which ExoPlayer buffers forever at 0:00, so it must never be the
+  // default. `fellBack` drives an honest "playing stored copy" note.
   const [hdMode, setHdMode] = useState(false);
   const [fellBack, setFellBack] = useState(false);
-  // Mirrors hdMode for the async player-error handler (avoids a stale closure)
-  // and guards the fallback so a burst of player errors triggers it only once.
+  // The current media source never reported a real duration within
+  // LOAD_TIMEOUT_MS and there's nothing better to switch to (we're already on
+  // the derivative) — drives an honest "media isn't loading" note.
+  const [mediaStuck, setMediaStuck] = useState(false);
+  // Mirrors hdMode for the async player-error / watchdog handlers (avoids a
+  // stale closure) and guards the fallback so a burst of errors triggers it once.
   const hdRef = useRef(false);
+  // Set true once the current source reports a real duration; the load-timeout
+  // watchdog reads it to tell "loaded" from "stuck buffering". A ref (not state)
+  // so updating it from the duration callback never re-renders.
+  const durationKnownRef = useRef(false);
 
   // Playback position (seconds), pushed up from MediaPlayer at ~4Hz to drive the
   // heat chart playhead.
@@ -99,6 +117,15 @@ export default function ReplayScreen({
     };
   }, []);
 
+  // Defensively put the device audio session into a PLAYBACK configuration on
+  // mount. The Live Coach flow configures a recording session (allowsRecording),
+  // which on Android leaves media playback silent until it's reset — and its
+  // teardown could be missed. Resetting here guarantees replay is audible no
+  // matter how the user got to this screen. Fire-and-forget; web no-ops.
+  useEffect(() => {
+    void setPlaybackMode().catch(() => {});
+  }, []);
+
   const setHd = useCallback((on: boolean) => {
     hdRef.current = on;
     setHdMode(on);
@@ -120,29 +147,18 @@ export default function ReplayScreen({
     setLoading(true);
     setError(null);
     setFellBack(false);
+    setMediaStuck(false);
     setHd(false);
     try {
-      // Detail first — its `source` decides which playback URL to resolve.
+      // Detail first — its `source` decides whether a "Try HD" opt-in is offered.
       const rec = await getRecording(recordingId);
       if (mountedRef.current) setDetail(rec);
 
-      if (rec.source?.type === "link") {
-        // HD-first: stream the user's own hosted original. On ANY failure to
-        // resolve it, fall back to the stored derivative with an honest note.
-        try {
-          const src = await getRecordingSourceUrl(recordingId);
-          if (mountedRef.current) {
-            setMediaUrl(src.url);
-            setHd(true);
-          }
-        } catch {
-          await loadDerivative();
-          if (mountedRef.current) setFellBack(true);
-        }
-      } else {
-        // Upload (or a server that omits `source`): derivative-only, untouched.
-        await loadDerivative();
-      }
+      // Derivative-FIRST for every source. The stored copy streams from our
+      // /media endpoint with Range support and always loads; the linked HD
+      // original is opt-in (see handleTryHd) precisely because it can buffer
+      // forever. Uploads never had an HD option and are unaffected.
+      await loadDerivative();
     } catch (e) {
       if (mountedRef.current) {
         setError(
@@ -175,13 +191,73 @@ export default function ReplayScreen({
     }
   }, [loadDerivative]);
 
+  // Opt-in HD: resolve and switch to the user's own hosted original. On any
+  // failure to resolve it, stay on the derivative and note it — never leave the
+  // player pointed at nothing.
+  const handleTryHd = useCallback(async () => {
+    try {
+      const src = await getRecordingSourceUrl(recordingId);
+      if (mountedRef.current) {
+        setFellBack(false);
+        setMediaStuck(false);
+        setMediaUrl(src.url);
+        setHd(true);
+      }
+    } catch {
+      if (mountedRef.current) setFellBack(true);
+    }
+  }, [recordingId, setHd]);
+
+  // Manual return to the stored copy (from the HD stream). Also the owner-facing
+  // escape hatch when a remote stream misbehaves in ways we can't detect.
+  const handleBackToDerivative = useCallback(async () => {
+    try {
+      setFellBack(false);
+      setMediaStuck(false);
+      await loadDerivative(); // sets the derivative URL and clears hdMode
+    } catch {
+      if (mountedRef.current) {
+        setError(humanizeError("Something went wrong."));
+      }
+    }
+  }, [loadDerivative]);
+
+  // Marks the current source as loaded once it reports a real duration; the
+  // watchdog reads this ref to distinguish "loaded" from "stuck buffering".
+  const handleDurationChange = useCallback((seconds: number) => {
+    if (seconds > 0) durationKnownRef.current = true;
+  }, []);
+
+  // Load-timeout watchdog. Each time the source URL changes, give it
+  // LOAD_TIMEOUT_MS to report a real duration. If it never does — the classic
+  // moov-at-end-without-Range HD stream buffers forever at 0:00 and emits NO
+  // error event, so handlePlayerError never fires — auto-recover: drop from HD
+  // to the stored derivative, or (if already on the derivative) surface an
+  // honest "isn't loading" note rather than spin at 0:00 indefinitely.
+  useEffect(() => {
+    if (!mediaUrl) return;
+    durationKnownRef.current = false;
+    const id = setTimeout(() => {
+      if (durationKnownRef.current) return; // Loaded fine — nothing to do.
+      if (hdRef.current) {
+        hdRef.current = false; // guard against a double-fire
+        void loadDerivative().then(() => {
+          if (mountedRef.current) setFellBack(true);
+        });
+      } else if (mountedRef.current) {
+        setMediaStuck(true);
+      }
+    }, LOAD_TIMEOUT_MS);
+    return () => clearTimeout(id);
+  }, [mediaUrl, loadDerivative]);
+
   // Tap-to-seek from the chart: drive the player's position directly.
   const handleSeekToTurn = useCallback((startTime: number) => {
     playerRef.current?.seek(startTime);
   }, []);
 
   // Submit the attach/replace link: PATCH the source, then refetch the recording
-  // so HD-first playback kicks in immediately (the badge appears). A 422's
+  // so the "Try HD" opt-in becomes available for the now-linked source. A 422's
   // user-facing detail is shown verbatim; nothing is fabricated on failure.
   const handleAttachSubmit = useCallback(async () => {
     const url = attachUrl.trim();
@@ -213,6 +289,8 @@ export default function ReplayScreen({
   const turns = detail?.turns ?? [];
   const hasChart = perTurn.length > 0 && turns.length > 0;
   const isVideo = detail?.media_type === "video";
+  // Only a link-sourced recording has a user-hosted original to stream in HD.
+  const hdAvailable = detail?.source?.type === "link";
 
   const chart = hasChart ? (
     <HeatChart
@@ -362,11 +440,47 @@ export default function ReplayScreen({
             </View>
           )}
 
+          {/* HD is opt-in: the stored copy plays by default (it loads reliably);
+              streaming the user's own original is offered only for a linked
+              source. Hidden once HD is active (then we show "Back to stored
+              copy" instead). */}
+          {hdAvailable && !hdMode && (
+            <TouchableOpacity
+              testID="try-hd-button"
+              style={styles.tryHdButton}
+              onPress={() => void handleTryHd()}
+            >
+              <Text style={styles.tryHdButtonText}>
+                ▶ Try HD from your linked source
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Escape hatch: manually return to the stored copy when the HD
+              stream misbehaves in ways we can't auto-detect. */}
+          {hdMode && (
+            <TouchableOpacity
+              testID="force-derivative"
+              style={styles.backToStoredButton}
+              onPress={() => void handleBackToDerivative()}
+            >
+              <Text style={styles.backToStoredText}>Back to stored copy</Text>
+            </TouchableOpacity>
+          )}
+
           {/* Honest note when the linked source was unavailable and we fell
-              back to the stored derivative. */}
+              back to (or stayed on) the stored derivative. */}
           {fellBack && (
             <Text style={styles.fallbackNote} testID="source-fallback-note">
               original source unavailable — playing stored copy
+            </Text>
+          )}
+
+          {/* Honest note when even the stored copy never reported a duration —
+              nothing better to switch to. */}
+          {mediaStuck && (
+            <Text style={styles.fallbackNote} testID="media-stuck-note">
+              this recording’s media isn’t loading
             </Text>
           )}
 
@@ -391,6 +505,7 @@ export default function ReplayScreen({
                 uri={mediaUrl}
                 mediaType={detail.media_type}
                 onPositionChange={setPlayheadSeconds}
+                onDurationChange={handleDurationChange}
                 onError={handlePlayerError}
               />
               <View style={styles.overlayChart} pointerEvents="box-none">
@@ -405,6 +520,7 @@ export default function ReplayScreen({
                 uri={mediaUrl}
                 mediaType={detail.media_type}
                 onPositionChange={setPlayheadSeconds}
+                onDurationChange={handleDurationChange}
                 onError={handlePlayerError}
               />
               <View style={styles.chartCard}>
@@ -514,6 +630,29 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   hdBadgeText: { fontSize: 12, fontWeight: "700", color: PRIMARY },
+  tryHdButton: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: PRIMARY,
+    backgroundColor: "#EEF2FF",
+    marginBottom: 10,
+  },
+  tryHdButtonText: { fontSize: 14, fontWeight: "600", color: PRIMARY },
+  backToStoredButton: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginBottom: 10,
+  },
+  backToStoredText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: MUTED,
+    textDecorationLine: "underline",
+  },
   fallbackNote: {
     fontSize: 12,
     color: MUTED,

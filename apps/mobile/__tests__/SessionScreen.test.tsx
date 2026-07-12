@@ -7,9 +7,12 @@ import { useRecorderStore } from "../src/store/recorderStore";
 import {
   postAnalyzeUpload,
   postAnalyzeUploadChunked,
+  postAnalyzeUploadChunkedJob,
   postAnalyzeLink,
+  postAnalyzeLinkJob,
+  getAnalyzeJob,
 } from "../src/api/client";
-import type { UploadAnalyzeResult } from "../src/api/client";
+import type { AnalyzeJobState, UploadAnalyzeResult } from "../src/api/client";
 
 // Keep the real client (the store uses postRespond) but stub the upload calls.
 jest.mock("../src/api/client", () => ({
@@ -17,13 +20,36 @@ jest.mock("../src/api/client", () => ({
   ...jest.requireActual("../src/api/client"),
   postAnalyzeUpload: jest.fn(),
   postAnalyzeUploadChunked: jest.fn(),
+  postAnalyzeUploadChunkedJob: jest.fn(),
   postAnalyzeLink: jest.fn(),
+  postAnalyzeLinkJob: jest.fn(),
+  getAnalyzeJob: jest.fn(),
 }));
 
 const mockPick = DocumentPicker.getDocumentAsync as jest.Mock;
 const mockUpload = postAnalyzeUpload as jest.Mock;
 const mockChunked = postAnalyzeUploadChunked as jest.Mock;
+const mockChunkedJob = postAnalyzeUploadChunkedJob as jest.Mock;
 const mockLink = postAnalyzeLink as jest.Mock;
+const mockLinkJob = postAnalyzeLinkJob as jest.Mock;
+const mockGetJob = getAnalyzeJob as jest.Mock;
+
+/** A terminal "done" job state carrying the given result — the common poll
+ *  response for happy-path job tests (pollJobToDone returns on the first poll,
+ *  so no timers are needed). */
+function doneJob(result: UploadAnalyzeResult): AnalyzeJobState {
+  return {
+    job_id: "job_1",
+    status: "done",
+    created_at: "2026-07-12T00:00:00Z",
+    updated_at: "2026-07-12T00:00:05Z",
+    stage_started_at: "2026-07-12T00:00:05Z",
+    progress_note: null,
+    duration_seconds: 12,
+    error: null,
+    result,
+  };
+}
 
 const MB = 1024 * 1024;
 
@@ -62,7 +88,10 @@ beforeEach(() => {
   mockPick.mockReset();
   mockUpload.mockReset();
   mockChunked.mockReset();
+  mockChunkedJob.mockReset();
   mockLink.mockReset();
+  mockLinkJob.mockReset();
+  mockGetJob.mockReset();
   act(() => {
     useSessionStore.setState({
       role: "Husband / Wife",
@@ -365,7 +394,7 @@ describe("SessionScreen", () => {
       act(() => comp.unmount());
     });
 
-    it("uses the chunked path for a large file and shows a progress bar", async () => {
+    it("uses the chunked JOB path for a large file, shows a progress bar, polls to done", async () => {
       mockPick.mockResolvedValueOnce({
         canceled: false,
         assets: [
@@ -377,21 +406,21 @@ describe("SessionScreen", () => {
           },
         ],
       });
-      // Drive progress mid-flight, then hold the promise open so the bar renders.
-      let finish!: () => void;
-      mockChunked.mockImplementation(
+      // The chunked-job call drives byte-progress mid-flight, then resolves with
+      // a job id to poll. The poll returns "done" immediately (no timers needed).
+      mockChunkedJob.mockImplementation(
         (
           _f: unknown,
           _n: unknown,
           _m: unknown,
           _s: unknown,
           opts: { onProgress?: (f: number) => void },
-        ) =>
-          new Promise((resolve) => {
-            opts.onProgress?.(0.5);
-            finish = () => resolve(uploadFixture);
-          }),
+        ) => {
+          opts.onProgress?.(0.5);
+          return Promise.resolve({ jobId: "job_1" });
+        },
       );
+      mockGetJob.mockResolvedValueOnce(doneJob(uploadFixture));
       const onAnalyze = jest.fn();
 
       let comp!: renderer.ReactTestRenderer;
@@ -405,26 +434,48 @@ describe("SessionScreen", () => {
         queryId(comp, "upload-analyze-button")!.props.onPress();
       });
 
-      // Chunked (not direct) was called with size + consent/store/context opts.
+      // The JOB path (not the synchronous chunked path) was called with the
+      // size + consent/store opts.
       expect(mockUpload).not.toHaveBeenCalled();
-      expect(mockChunked).toHaveBeenCalledTimes(1);
-      const call = mockChunked.mock.calls[0];
+      expect(mockChunked).not.toHaveBeenCalled();
+      expect(mockChunkedJob).toHaveBeenCalledTimes(1);
+      const call = mockChunkedJob.mock.calls[0];
       expect(call[0]).toBe("file:///big.mp4");
-      expect(call[1]).toBe("big.mp4");
-      expect(call[2]).toBe("video/mp4");
       expect(call[3]).toBe(103 * MB);
       expect(call[4]).toEqual(
         expect.objectContaining({ consent: false, store: true }),
       );
+      // Polled the returned job and handed the ready-made analysis to Dynamics.
+      expect(mockGetJob).toHaveBeenCalledWith("job_1");
+      expect(onAnalyze).toHaveBeenCalledWith(uploadFixture, null, false);
+      act(() => comp.unmount());
+    });
 
-      // While the upload is pending, the honest progress bar shows the percentage.
-      expect(queryId(comp, "upload-progress")).toBeTruthy();
-      expect(JSON.stringify(comp.toJSON())).toContain("50%");
-
-      // Completing the upload navigates with the ready-made analysis.
-      await act(async () => {
-        finish();
+    it("falls back to the synchronous chunked result when the job endpoint is unavailable", async () => {
+      mockPick.mockResolvedValueOnce({
+        canceled: false,
+        assets: [
+          { uri: "file:///big.mp4", name: "big.mp4", size: 103 * MB, mimeType: "video/mp4" },
+        ],
       });
+      // The client already fell back internally (old server / storage off) and
+      // returns the finished result directly — no job to poll.
+      mockChunkedJob.mockResolvedValueOnce({ result: uploadFixture });
+      const onAnalyze = jest.fn();
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<SessionScreen onAnalyzeDynamics={onAnalyze} />);
+      });
+      await act(async () => {
+        queryId(comp, "pick-recording-button")!.props.onPress();
+      });
+      await act(async () => {
+        queryId(comp, "upload-analyze-button")!.props.onPress();
+      });
+
+      // No poll (result came back directly), still navigates with the analysis.
+      expect(mockGetJob).not.toHaveBeenCalled();
       expect(onAnalyze).toHaveBeenCalledWith(uploadFixture, null, false);
       act(() => comp.unmount());
     });
@@ -539,13 +590,16 @@ describe("SessionScreen", () => {
       act(() => comp.unmount());
     });
 
-    it("analyzes a link, hydrates the transcript, and navigates with the analysis", async () => {
-      mockLink.mockResolvedValueOnce({
-        ...uploadFixture,
-        stored: true,
-        recording_id: "rec_link",
-        storage_note: null,
-      });
+    it("submits a link JOB, polls to done, hydrates the transcript, navigates", async () => {
+      mockLinkJob.mockResolvedValueOnce({ job_id: "job_link" });
+      mockGetJob.mockResolvedValueOnce(
+        doneJob({
+          ...uploadFixture,
+          stored: true,
+          recording_id: "rec_link",
+          storage_note: null,
+        }),
+      );
       const onAnalyze = jest.fn();
 
       let comp!: renderer.ReactTestRenderer;
@@ -568,13 +622,13 @@ describe("SessionScreen", () => {
         queryId(comp, "analyze-link-button")!.props.onPress();
       });
 
-      expect(mockUpload).not.toHaveBeenCalled();
-      expect(mockChunked).not.toHaveBeenCalled();
-      expect(mockLink).toHaveBeenCalledTimes(1);
-      expect(mockLink).toHaveBeenCalledWith(
+      // The JOB endpoint (not the synchronous link) was used, then polled.
+      expect(mockLink).not.toHaveBeenCalled();
+      expect(mockLinkJob).toHaveBeenCalledWith(
         "https://drive.google.com/file/d/abc",
         { consent: true, store: true, context: undefined },
       );
+      expect(mockGetJob).toHaveBeenCalledWith("job_link");
       // Same handoff as upload: transcript in the store, navigation with the id.
       expect(useSessionStore.getState().turns).toEqual(uploadFixture.turns);
       expect(onAnalyze).toHaveBeenCalledWith(
@@ -585,15 +639,53 @@ describe("SessionScreen", () => {
       act(() => comp.unmount());
     });
 
-    it("renders the server's 422 message verbatim", async () => {
+    it("falls back to the synchronous link when the job endpoint 404s (old server)", async () => {
+      mockLinkJob.mockRejectedValueOnce(
+        Object.assign(new Error("API error: 404"), { status: 404 }),
+      );
+      mockLink.mockResolvedValueOnce(uploadFixture);
+      const onAnalyze = jest.fn();
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<SessionScreen onAnalyzeDynamics={onAnalyze} />);
+      });
+      act(() => {
+        queryId(comp, "mode-link-tab")!.props.onPress();
+      });
+      act(() => {
+        queryId(comp, "link-input")!.props.onChangeText(
+          "https://example.com/clip.mp4",
+        );
+      });
+      await act(async () => {
+        queryId(comp, "analyze-link-button")!.props.onPress();
+      });
+
+      // Job submit failed with 404 → fell back to the synchronous endpoint, no poll.
+      expect(mockLinkJob).toHaveBeenCalledTimes(1);
+      expect(mockLink).toHaveBeenCalledTimes(1);
+      expect(mockGetJob).not.toHaveBeenCalled();
+      expect(onAnalyze).toHaveBeenCalledWith(uploadFixture, null);
+      act(() => comp.unmount());
+    });
+
+    it("shows a failed job's honest error verbatim", async () => {
       const serverMsg =
         "That link isn’t a direct file link — use a direct file URL, a Google " +
         "Drive share link, or a Google Photos share link of a single video.";
-      const err = Object.assign(new Error(serverMsg), {
-        status: 422,
-        detail: serverMsg,
-      });
-      mockLink.mockRejectedValueOnce(err);
+      mockLinkJob.mockResolvedValueOnce({ job_id: "job_bad" });
+      mockGetJob.mockResolvedValueOnce({
+        job_id: "job_bad",
+        status: "failed",
+        created_at: "2026-07-12T00:00:00Z",
+        updated_at: "2026-07-12T00:00:02Z",
+        stage_started_at: "2026-07-12T00:00:02Z",
+        progress_note: null,
+        duration_seconds: null,
+        error: serverMsg,
+        result: null,
+      } as AnalyzeJobState);
       const onAnalyze = jest.fn();
 
       let comp!: renderer.ReactTestRenderer;
@@ -613,10 +705,59 @@ describe("SessionScreen", () => {
       });
 
       expect(queryId(comp, "upload-error")).toBeTruthy();
-      // Verbatim — not a generic "something went wrong".
+      // The server's honest job error is shown verbatim — never fabricated.
       expect(JSON.stringify(comp.toJSON())).toContain(serverMsg);
       expect(onAnalyze).not.toHaveBeenCalled();
       act(() => comp.unmount());
+    });
+
+    it("renders the staged job-progress card with a stage label and an ETA", async () => {
+      jest.useFakeTimers();
+      try {
+        mockLinkJob.mockResolvedValueOnce({ job_id: "job_eta" });
+        // First poll: mid-flight "analyzing" with a known duration → the loop
+        // renders the card, then parks on its (fake) 3s sleep before polling again.
+        mockGetJob.mockResolvedValue({
+          job_id: "job_eta",
+          status: "analyzing",
+          created_at: "2026-07-12T00:00:00Z",
+          updated_at: "2026-07-12T00:00:02Z",
+          stage_started_at: "2026-07-12T00:00:02Z",
+          progress_note: "scoring the conversation",
+          duration_seconds: 120,
+          error: null,
+          result: null,
+        } as AnalyzeJobState);
+        const onAnalyze = jest.fn();
+
+        let comp!: renderer.ReactTestRenderer;
+        act(() => {
+          comp = renderer.create(<SessionScreen onAnalyzeDynamics={onAnalyze} />);
+        });
+        act(() => {
+          queryId(comp, "mode-link-tab")!.props.onPress();
+        });
+        act(() => {
+          queryId(comp, "link-input")!.props.onChangeText(
+            "https://example.com/clip.mp4",
+          );
+        });
+        await act(async () => {
+          queryId(comp, "analyze-link-button")!.props.onPress();
+        });
+
+        // The staged progress card is up with the stage label, the server's note,
+        // and a rough ETA labeled an estimate.
+        expect(queryId(comp, "job-progress")).toBeTruthy();
+        const json = JSON.stringify(comp.toJSON());
+        expect(json).toContain("Analyzing…");
+        expect(json).toContain("scoring the conversation");
+        expect(json).toContain("remaining (estimate)");
+        act(() => comp.unmount());
+      } finally {
+        jest.clearAllTimers();
+        jest.useRealTimers();
+      }
     });
   });
 });

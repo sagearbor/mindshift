@@ -18,9 +18,17 @@ import { useRecorderStore } from "../store/recorderStore";
 import {
   postAnalyzeUpload,
   postAnalyzeUploadChunked,
+  postAnalyzeUploadChunkedJob,
   postAnalyzeLink,
+  postAnalyzeLinkJob,
+  getAnalyzeJob,
 } from "../api/client";
-import type { AnalyzeResult } from "../api/client";
+import type {
+  AnalyzeResult,
+  AnalyzeJobState,
+  JobStatus,
+  UploadAnalyzeResult,
+} from "../api/client";
 import RoleSelector from "../components/RoleSelector";
 import EmpathySlider from "../components/EmpathySlider";
 import SuggestionCard from "../components/SuggestionCard";
@@ -125,12 +133,137 @@ function uploadErrorMessage(
   }
 }
 
+/** Pick the right message for an upload/link failure: a job failure/stall
+ *  already carries a user-written message (surface it verbatim), otherwise map
+ *  the HTTP error. */
+function jobOrUploadErrorMessage(
+  err: unknown,
+  opts?: { chunked?: boolean; link?: boolean; sizeBytes?: number },
+): string {
+  if (err instanceof JobFailedError) return err.message;
+  return uploadErrorMessage(err, opts);
+}
+
 /** Human-readable file size for the picked-file line. */
 function formatSize(bytes?: number): string | null {
   if (bytes === undefined || bytes <= 0) return null;
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// --- Async analysis jobs (submit-and-poll) ----------------------------------
+// A link download or a chunked-upload completion runs server-side as a job we
+// poll; the multi-minute synchronous request it replaces was routinely killed by
+// Android backgrounding. The result survives because it's decoupled from a
+// single long-lived connection.
+
+const JOB_POLL_INTERVAL_MS = 3000;
+
+/** A job that ended in an honest failure/stall — its message is written for the
+ *  user (the server's own detail, or the stalled note), so it's surfaced
+ *  verbatim rather than mapped through {@link uploadErrorMessage}. */
+class JobFailedError extends Error {
+  readonly jobError = true;
+}
+
+/** Human stage label for the progress card. */
+function jobStageLabel(status: JobStatus): string {
+  switch (status) {
+    case "queued":
+      return "Queued…";
+    case "downloading":
+      return "Downloading…";
+    case "transcribing":
+      return "Transcribing…";
+    case "analyzing":
+      return "Analyzing…";
+    case "storing":
+      return "Saving…";
+    case "done":
+      return "Done";
+    default:
+      return "Working…";
+  }
+}
+
+/**
+ * Rough remaining-seconds estimate from the current stage + the (audio)
+ * duration, or null when we can't estimate yet (duration unknown, which is the
+ * case until decode/transcribe finishes). Deliberately approximate — the UI
+ * labels it an estimate. The factors are the fraction of the audio-length's
+ * worth of processing still ahead at each stage, plus a small fixed floor.
+ */
+function estimateRemainingSeconds(
+  status: JobStatus,
+  durationSeconds: number | null,
+): number | null {
+  if (durationSeconds == null || durationSeconds <= 0) return null;
+  const factor: Record<string, number> = {
+    queued: 0.9,
+    downloading: 0.9,
+    transcribing: 0.7,
+    analyzing: 0.4,
+    storing: 0.15,
+  };
+  const f = factor[status];
+  if (f == null) return null;
+  return Math.max(5, Math.round(durationSeconds * f + 5));
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Poll a job to a terminal state, calling `onState` after each poll so the UI
+ * can render staged progress. Returns the result on `done`; throws a
+ * {@link JobFailedError} (message written for the user) on `failed`/`stalled`.
+ * Stateless polling — it survives brief app backgrounding naturally (on resume
+ * the next poll simply catches up). A transient poll error is retried a few
+ * times before giving up, so one dropped request doesn't abort a live job.
+ */
+async function pollJobToDone(
+  jobId: string,
+  onState: (state: AnalyzeJobState) => void,
+): Promise<UploadAnalyzeResult> {
+  let transientErrors = 0;
+  for (;;) {
+    let state: AnalyzeJobState;
+    try {
+      state = await getAnalyzeJob(jobId);
+    } catch (e) {
+      // A 404 means the job is truly gone (or never existed) — stop. Any other
+      // transport hiccup is retried a handful of times.
+      const status = errorStatus(e);
+      if (status === 404 || transientErrors >= 3) throw e;
+      transientErrors += 1;
+      await sleep(JOB_POLL_INTERVAL_MS);
+      continue;
+    }
+    transientErrors = 0;
+    onState(state);
+    if (state.status === "done") {
+      if (!state.result) {
+        throw new JobFailedError(
+          "The analysis finished but returned no result. Please try again.",
+        );
+      }
+      return state.result;
+    }
+    if (state.status === "failed") {
+      throw new JobFailedError(
+        state.error ?? "The analysis failed. Please try again.",
+      );
+    }
+    if (state.status === "stalled") {
+      throw new JobFailedError(
+        state.progress_note ??
+          "The analysis appears to have stalled — please try again.",
+      );
+    }
+    await sleep(JOB_POLL_INTERVAL_MS);
+  }
 }
 
 export default function SessionScreen({
@@ -185,6 +318,10 @@ export default function SessionScreen({
   // a successful upload, so the UI reports fact rather than intent.
   const [uploadStored, setUploadStored] = useState<boolean | null>(null);
   const [uploadStorageNote, setUploadStorageNote] = useState<string | null>(null);
+  // The most recent poll of an in-flight analysis job — drives the staged
+  // progress card. Null when no job is running (small direct uploads, or before
+  // a job is created / after it finishes).
+  const [jobState, setJobState] = useState<AnalyzeJobState | null>(null);
 
   // Consume a freshly-recorded clip handed over from RecordScreen (one-shot):
   // preselect it into the normal upload flow, flag it as recorder-origin, and
@@ -245,30 +382,46 @@ export default function SessionScreen({
     setUploadError(null);
     setUploadStored(null);
     setUploadStorageNote(null);
+    setJobState(null);
     try {
       // Web hands us a File; native hands us the local URI string.
       const fileArg = Platform.OS === "web" && picked.file ? picked.file : picked.uri;
       const trimmedContext = uploadContext.trim();
-      const result = useChunked
-        ? await postAnalyzeUploadChunked(
-            fileArg,
-            picked.name,
-            picked.mimeType,
-            size as number,
-            {
-              consent,
-              store: storeRecording,
-              context: trimmedContext ? trimmedContext : undefined,
-              onProgress: setUploadProgress,
-            },
-          )
-        : await postAnalyzeUpload(
-            fileArg,
-            picked.name,
-            picked.mimeType,
-            trimmedContext ? trimmedContext : undefined,
-            { consent, store: storeRecording },
-          );
+      let result: UploadAnalyzeResult;
+      if (useChunked) {
+        // Stream the parts (byte-progress bar), then complete as a JOB we poll —
+        // the multi-minute synchronous /complete it replaces was routinely
+        // killed by Android backgrounding. On an old server / storage off the
+        // client transparently falls back to synchronous complete.
+        const outcome = await postAnalyzeUploadChunkedJob(
+          fileArg,
+          picked.name,
+          picked.mimeType,
+          size as number,
+          {
+            consent,
+            store: storeRecording,
+            context: trimmedContext ? trimmedContext : undefined,
+            onProgress: setUploadProgress,
+          },
+        );
+        if ("result" in outcome) {
+          result = outcome.result; // synchronous fallback already produced it
+        } else {
+          // Upload finished → swap the byte-progress bar for the staged job card.
+          setUploadProgress(null);
+          result = await pollJobToDone(outcome.jobId, setJobState);
+        }
+      } else {
+        // Small files (<=20MB) stay a single fast synchronous request.
+        result = await postAnalyzeUpload(
+          fileArg,
+          picked.name,
+          picked.mimeType,
+          trimmedContext ? trimmedContext : undefined,
+          { consent, store: storeRecording },
+        );
+      }
       // Load the server-produced transcript so the what-if flow (and inspector
       // text) works off the store, then jump straight to the ready-made analysis
       // — no second /analyze round-trip.
@@ -277,10 +430,13 @@ export default function SessionScreen({
       setUploadStorageNote(result.stored ? null : result.storage_note);
       onAnalyzeDynamics?.(result, result.recording_id ?? null, cameFromRecorder);
     } catch (e) {
-      setUploadError(uploadErrorMessage(e, { chunked: useChunked, sizeBytes: size }));
+      setUploadError(
+        jobOrUploadErrorMessage(e, { chunked: useChunked, sizeBytes: size }),
+      );
     } finally {
       setUploading(false);
       setUploadProgress(null);
+      setJobState(null);
     }
   };
 
@@ -289,18 +445,37 @@ export default function SessionScreen({
     if (!url || uploading) return;
     setUploading(true);
     // The server does the fetching/transcription; there's no client-side chunk
-    // progress to show, so the button falls back to a spinner (progress null).
+    // progress to show — the staged job card (or a spinner) covers it instead.
     setUploadProgress(null);
     setUploadError(null);
     setUploadStored(null);
     setUploadStorageNote(null);
+    setJobState(null);
     try {
       const trimmedContext = uploadContext.trim();
-      const result = await postAnalyzeLink(url, {
+      const opts = {
         consent,
         store: storeRecording,
         context: trimmedContext ? trimmedContext : undefined,
-      });
+      };
+      // Submit as a background JOB and poll it — the synchronous /analyze/link
+      // it replaces is a multi-minute request Android backgrounding routinely
+      // kills. ONLY a failed SUBMIT (old server / storage off → 404/503) falls
+      // back to the synchronous call; a poll failure is a real error (never a
+      // silent re-analysis).
+      const result = await (async (): Promise<UploadAnalyzeResult> => {
+        let created;
+        try {
+          created = await postAnalyzeLinkJob(url, opts);
+        } catch (e) {
+          const status = errorStatus(e);
+          if (status === 404 || status === 503) {
+            return await postAnalyzeLink(url, opts);
+          }
+          throw e;
+        }
+        return pollJobToDone(created.job_id, setJobState);
+      })();
       // Identical handoff to the upload path: hydrate the store transcript, then
       // jump to the ready-made analysis (and thread the recording id if stored).
       loadTurns(result.turns);
@@ -308,10 +483,11 @@ export default function SessionScreen({
       setUploadStorageNote(result.stored ? null : result.storage_note);
       onAnalyzeDynamics?.(result, result.recording_id ?? null);
     } catch (e) {
-      setUploadError(uploadErrorMessage(e, { link: true }));
+      setUploadError(jobOrUploadErrorMessage(e, { link: true }));
     } finally {
       setUploading(false);
       setUploadProgress(null);
+      setJobState(null);
     }
   };
 
@@ -552,6 +728,39 @@ export default function SessionScreen({
                 </TouchableOpacity>
               </>
             )}
+
+            {/* Staged progress for an in-flight analysis job: stage label +
+                spinner, the server's honest progress note, and a rough ETA once
+                the recording's duration is known (labeled an estimate). */}
+            {jobState &&
+              jobState.status !== "done" &&
+              jobState.status !== "failed" &&
+              jobState.status !== "stalled" && (
+                <View style={styles.jobProgress} testID="job-progress">
+                  <View style={styles.uploadingRow}>
+                    <ActivityIndicator color="#4A90D9" />
+                    <Text style={styles.jobStageLabel} testID="job-stage-label">
+                      {jobStageLabel(jobState.status)}
+                    </Text>
+                  </View>
+                  {jobState.progress_note && (
+                    <Text style={styles.jobNote} testID="job-progress-note">
+                      {jobState.progress_note}
+                    </Text>
+                  )}
+                  {(() => {
+                    const eta = estimateRemainingSeconds(
+                      jobState.status,
+                      jobState.duration_seconds,
+                    );
+                    return eta == null ? null : (
+                      <Text style={styles.jobEta} testID="job-eta">
+                        {`~${eta}s remaining (estimate)`}
+                      </Text>
+                    );
+                  })()}
+                </View>
+              )}
 
             {uploadError && (
               <Text style={styles.uploadError} testID="upload-error">
@@ -942,6 +1151,31 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     color: "#DC2626",
+  },
+  jobProgress: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#F9FAFB",
+    gap: 6,
+  },
+  jobStageLabel: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#1F2937",
+  },
+  jobNote: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: "#6B7280",
+  },
+  jobEta: {
+    fontSize: 12.5,
+    lineHeight: 17,
+    color: "#4A90D9",
+    fontWeight: "500",
   },
   pasteRow: {
     flexDirection: "row",
