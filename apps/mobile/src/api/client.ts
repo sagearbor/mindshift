@@ -612,8 +612,12 @@ export interface RecordingSummary {
   created_at: string; // ISO-8601 timestamp
   filename: string;
   media_type: MediaType;
-  duration_seconds: number;
+  // Null when the server couldn't determine a duration (decode degraded and
+  // the transcript carried no end time) — type matches the wire honestly.
+  duration_seconds: number | null;
   has_analysis: boolean;
+  // Provenance: "upload" | "link" (present on newer servers).
+  source_type?: string;
 }
 
 /** One stored turn. Unlike a pasted transcript, a recorded conversation always
@@ -629,7 +633,9 @@ export interface RecordingTurn {
  *  full dynamics analysis. `analysis.per_turn` is index-aligned with `turns`. */
 export interface RecordingDetail extends RecordingSummary {
   turns: RecordingTurn[];
-  analysis: AnalyzeResult;
+  // Null on the wire when a recording was stored without a completed analysis
+  // (rare); the UI must treat it as absent rather than assume it.
+  analysis: AnalyzeResult | null;
 }
 
 /** GET /recordings/{id}/media_url — a short-lived signed URL for playback. */
