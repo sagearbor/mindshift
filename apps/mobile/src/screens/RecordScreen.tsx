@@ -8,7 +8,7 @@ export {
   remainingSeconds,
   isAtCap,
   formatClock,
-} from "./RecordScreenNative";
+} from "./recordTiming";
 
 export interface RecordScreenProps {
   onBack: () => void;
