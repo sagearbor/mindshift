@@ -4,6 +4,7 @@ import * as DocumentPicker from "expo-document-picker";
 import App from "../App";
 import { useAuthStore } from "../src/store/authStore";
 import { useSessionStore } from "../src/store/sessionStore";
+import { useAnalyzeStore } from "../src/store/analyzeStore";
 import { postAnalyzeUpload } from "../src/api/client";
 import type { UploadAnalyzeResult } from "../src/api/client";
 
@@ -46,13 +47,30 @@ function queryId(
   return found.length > 0 ? found[0] : null;
 }
 
+/** Boot the app and resolve auth as signed in — every navigation test starts
+ *  on the two-mode Home screen. */
+async function signIn(comp: renderer.ReactTestRenderer) {
+  const user = fakeUser();
+  await act(async () => {
+    authMock.currentUser = user;
+    await authMock.idTokenListener?.(user);
+  });
+  expect(queryId(comp, "home-live-coach")).toBeTruthy();
+}
+
 beforeEach(() => {
   authMock.currentUser = null;
+  mockPick.mockReset();
+  mockUpload.mockReset();
   useAuthStore.setState({
     user: null,
     initializing: true,
     error: null,
     busy: false,
+  });
+  act(() => {
+    useSessionStore.setState({ turns: [], suggestions: [], loading: false });
+    useAnalyzeStore.setState({ relationship: "partners" });
   });
 });
 
@@ -65,7 +83,7 @@ describe("App auth gate", () => {
     // No auth event yet: neither login nor the app, just the spinner.
     expect(queryId(comp, "auth-loading")).toBeTruthy();
     expect(queryId(comp, "login-screen")).toBeNull();
-    expect(queryId(comp, "tab-session")).toBeNull();
+    expect(queryId(comp, "home-live-coach")).toBeNull();
     act(() => comp.unmount());
   });
 
@@ -81,34 +99,128 @@ describe("App auth gate", () => {
     });
 
     expect(queryId(comp, "login-screen")).toBeTruthy();
-    // The app's tab tree is NOT reachable while signed out.
-    expect(queryId(comp, "tab-session")).toBeNull();
+    // The two-mode home is NOT reachable while signed out.
+    expect(queryId(comp, "home-live-coach")).toBeNull();
     act(() => comp.unmount());
   });
 
-  it("reaches the app (tab tree) when signed in", async () => {
-    const user = fakeUser();
+  it("reaches the two-mode home when signed in", async () => {
     let comp!: renderer.ReactTestRenderer;
     act(() => {
       comp = renderer.create(<App />);
     });
+    await signIn(comp);
 
-    await act(async () => {
-      authMock.currentUser = user;
-      await authMock.idTokenListener?.(user);
-    });
-
-    // The existing coaching UX is intact: the tab bar + Session screen render,
-    // and the login screen is gone.
-    expect(queryId(comp, "tab-session")).toBeTruthy();
-    expect(queryId(comp, "tab-sign-out")).toBeTruthy();
+    // The home surface is exactly the two modes + history + advanced corner.
+    expect(queryId(comp, "home-analyze")).toBeTruthy();
+    expect(queryId(comp, "home-recordings-link")).toBeTruthy();
+    expect(queryId(comp, "home-advanced-button")).toBeTruthy();
     expect(queryId(comp, "login-screen")).toBeNull();
     act(() => comp.unmount());
   });
+});
 
-  it("navigates from the Session tab to the pushed Dynamics screen", async () => {
-    const user = fakeUser();
-    // Enough turns for the analyze button to appear.
+describe("two-mode navigation", () => {
+  it("Home → Live Coach, and back returns Home", async () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+
+    await act(async () => {
+      queryId(comp, "home-live-coach")!.props.onPress();
+    });
+    // Live Coach is up (its connection dot renders); home is gone.
+    expect(queryId(comp, "connection-status")).toBeTruthy();
+    expect(queryId(comp, "home-live-coach")).toBeNull();
+
+    await act(async () => {
+      queryId(comp, "live-coach-back")!.props.onPress();
+    });
+    expect(queryId(comp, "home-live-coach")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("Home → Analyze, and back returns Home", async () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+
+    await act(async () => {
+      queryId(comp, "home-analyze")!.props.onPress();
+    });
+    expect(queryId(comp, "pick-recording-button")).toBeTruthy();
+    expect(queryId(comp, "relationship-picker")).toBeTruthy();
+    expect(queryId(comp, "home-analyze")).toBeNull();
+
+    await act(async () => {
+      queryId(comp, "analyze-back")!.props.onPress();
+    });
+    expect(queryId(comp, "home-analyze")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("Home → recordings history opens the recordings list, back returns Home", async () => {
+    // The list fetch resolves empty — an honest empty state, no fabricated rows.
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ recordings: [] }),
+    });
+
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+
+    await act(async () => {
+      queryId(comp, "home-recordings-link")!.props.onPress();
+    });
+    expect(queryId(comp, "recordings-back")).toBeTruthy();
+
+    await act(async () => {
+      queryId(comp, "recordings-back")!.props.onPress();
+    });
+    expect(queryId(comp, "home-live-coach")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("Home → Advanced → Therapist Dashboard, and back walks the same path", async () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+
+    await act(async () => {
+      queryId(comp, "home-advanced-button")!.props.onPress();
+    });
+    expect(queryId(comp, "advanced-dashboard")).toBeTruthy();
+    expect(queryId(comp, "advanced-sign-out")).toBeTruthy();
+
+    await act(async () => {
+      queryId(comp, "advanced-dashboard")!.props.onPress();
+    });
+    expect(queryId(comp, "therapist-dashboard")).toBeTruthy();
+
+    await act(async () => {
+      queryId(comp, "dashboard-back")!.props.onPress();
+    });
+    expect(queryId(comp, "advanced-dashboard")).toBeTruthy();
+
+    await act(async () => {
+      queryId(comp, "advanced-back")!.props.onPress();
+    });
+    expect(queryId(comp, "home-live-coach")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("Analyze → text tools → Analyze dynamics pushes the Dynamics screen", async () => {
+    // Enough turns for the analyze button to appear in the text tools.
     act(() => {
       useSessionStore.setState({
         turns: [
@@ -121,6 +233,7 @@ describe("App auth gate", () => {
     });
     // DynamicsScreen fetches /analyze on mount; return a contract-valid, minimal
     // result so it lands on its content view.
+    mockFetch.mockReset();
     mockFetch.mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -140,24 +253,36 @@ describe("App auth gate", () => {
     act(() => {
       comp = renderer.create(<App />);
     });
-    await act(async () => {
-      authMock.currentUser = user;
-      await authMock.idTokenListener?.(user);
-    });
+    await signIn(comp);
 
-    // Press "Analyze dynamics →" and confirm we land on the pushed screen with
-    // the tab bar hidden.
     await act(async () => {
-      queryId(comp, "analyze-dynamics-button")?.props.onPress();
+      queryId(comp, "home-analyze")!.props.onPress();
+    });
+    await act(async () => {
+      queryId(comp, "open-text-tools")!.props.onPress();
+    });
+    expect(queryId(comp, "paste-transcript-input")).toBeTruthy();
+
+    // Press "Analyze dynamics →" and confirm we land on the pushed screen.
+    await act(async () => {
+      queryId(comp, "analyze-dynamics-button")!.props.onPress();
     });
     expect(queryId(comp, "dynamics-back")).toBeTruthy();
-    expect(queryId(comp, "tab-session")).toBeNull();
+
+    // Back from Dynamics returns to the text tools, whose back returns to
+    // Analyze — the push chain unwinds honestly.
+    await act(async () => {
+      queryId(comp, "dynamics-back")!.props.onPress();
+    });
+    expect(queryId(comp, "paste-transcript-input")).toBeTruthy();
+    await act(async () => {
+      queryId(comp, "session-back")!.props.onPress();
+    });
+    expect(queryId(comp, "pick-recording-button")).toBeTruthy();
     act(() => comp.unmount());
   });
 
   it("upload flow → Dynamics carries the recording id → Replay opens the replay screen for it", async () => {
-    const user = fakeUser();
-
     // A stored upload: the server analyzed the file, kept it, and returned the
     // recording id alongside the ready-made analysis.
     const uploadResult: UploadAnalyzeResult = {
@@ -226,12 +351,12 @@ describe("App auth gate", () => {
     act(() => {
       comp = renderer.create(<App />);
     });
-    await act(async () => {
-      authMock.currentUser = user;
-      await authMock.idTokenListener?.(user);
-    });
+    await signIn(comp);
 
-    // Upload flow on the Session tab: pick the file, then analyze it.
+    // Enter the Analyze mode, pick the file, then analyze it.
+    await act(async () => {
+      queryId(comp, "home-analyze")!.props.onPress();
+    });
     await act(async () => {
       queryId(comp, "pick-recording-button")!.props.onPress();
     });
@@ -250,10 +375,15 @@ describe("App auth gate", () => {
       replayButton!.props.onPress();
     });
     expect(queryId(comp, "replay-back")).toBeTruthy();
-    expect(queryId(comp, "tab-session")).toBeNull();
     const fetchedUrls = mockFetch.mock.calls.map((c) => String(c[0]));
     expect(fetchedUrls.some((u) => /\/recordings\/rec_42$/.test(u))).toBe(true);
     expect(fetchedUrls.some((u) => /\/recordings\/rec_42\/media_url$/.test(u))).toBe(true);
+
+    // Back from Replay returns to the Analyze screen (where the flow started).
+    await act(async () => {
+      queryId(comp, "replay-back")!.props.onPress();
+    });
+    expect(queryId(comp, "pick-recording-button")).toBeTruthy();
     act(() => comp.unmount());
   });
 });

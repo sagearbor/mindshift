@@ -12,10 +12,14 @@ import ToneSparkline from "../components/ToneSparkline";
 
 interface TherapistDashboardProps {
   onSelectSession: (id: string) => void;
+  /** Return to the Advanced screen (wired by App). Optional so the screen
+   *  still renders standalone in tests; no back affordance without it. */
+  onBack?: () => void;
 }
 
 export default function TherapistDashboard({
   onSelectSession,
+  onBack,
 }: TherapistDashboardProps) {
   const { sessions, roleFilter, loading, fetchSessions, setRoleFilter } =
     useDashboardStore();
@@ -50,6 +54,16 @@ export default function TherapistDashboard({
       contentContainerStyle={styles.content}
       testID="therapist-dashboard"
     >
+      {onBack && (
+        <TouchableOpacity
+          testID="dashboard-back"
+          accessibilityRole="button"
+          style={styles.backButton}
+          onPress={onBack}
+        >
+          <Text style={styles.backButtonText}>← Back</Text>
+        </TouchableOpacity>
+      )}
       <Text style={styles.heading}>Therapist Dashboard</Text>
 
       {/* Role filter chips */}
@@ -160,6 +174,17 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginBottom: 16,
     color: "#111827",
+  },
+  backButton: {
+    alignSelf: "flex-start",
+    minHeight: 44,
+    justifyContent: "center",
+    paddingRight: 12,
+  },
+  backButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#4A90D9",
   },
   filterRow: {
     flexDirection: "row",
