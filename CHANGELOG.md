@@ -4,6 +4,30 @@ Versions are numbered here. **App** = Android/EAS `version (versionCode)`.
 **Backend** = Cloud Run revision of `mindshift-api` (project `arborfam-hub`,
 `us-central1`). Newest first.
 
+## App 1.5.0 (versionCode 9) — 2026-07-11 · Backend rev 00012
+Dynamics v2 (Opus-reviewed, zero critical/major):
+- **Absolute heat scale**: one anchored rubric (calm 0-15 → abusive 95+) shared
+  by analyzer AND simulator — scores comparable across sessions/people
+  (prerequisite for longitudinal averages).
+- **Report cards** (owner decision — overt, comparable): per person, score /100
+  + headline + "did well" + one concrete "work on".
+- **What-If simulation**: `POST /analyze/counterfactual` — tap a turn, see the
+  rewritten line + a dashed simulated heat trajectory overlaid on the real
+  lines (same thermometer, honest disclaimer, one overlay at a time).
+
+## App 1.4.0 (versionCode 8) — 2026-07-11 · Backend rev 00011
+**Conversation Dynamics — "the impartial third chair"** (PR #19):
+- `POST /analyze`: one batch LLM pass per transcript — heat 0-100 per turn,
+  Gottman Four Horsemen + repair/validation markers, trigger phrases, requests
+  & outcomes, strengths-first narrative. Pure-Python stats: talk share,
+  interruptions (from live-session timestamps; honestly null for pasted text),
+  spikes, repairs-accepted, coupling (LOCF + lag-0/1 Pearson, hand-verified
+  lead direction), de-escalation who-first + follow-rate. N speakers (2-10).
+- Client: multi-line SVG heat chart (spike dots, tap/scrub to read the turn),
+  per-speaker stat cards, insights, "The third chair" narrative, ethics footer.
+  Entry: Session tab → "Analyze dynamics" (chains off the live Review handoff
+  or any pasted transcript).
+
 ## App 1.3.0 (versionCode 7) — 2026-07-10 · Backend revs 00009–00010
 **Side-aware coaching — the coach knows who you are** (auto-published to Play
 internal; web redeployed same day):
