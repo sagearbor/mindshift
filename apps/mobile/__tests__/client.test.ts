@@ -9,6 +9,7 @@ import {
   listRecordings,
   getRecording,
   getRecordingMediaUrl,
+  getRecordingSourceUrl,
   deleteRecording,
 } from "../src/api/client";
 import {
@@ -612,20 +613,20 @@ describe("postAnalyzeLink", () => {
       status: 422,
       json: async () => ({
         detail:
-          "Google Photos links aren’t supported yet — share the file to Drive instead.",
+          "That link isn’t a direct file link — use a direct file URL, a Google Drive share link, or a Google Photos share link of a single video.",
       }),
     });
     await expect(
-      postAnalyzeLink("https://photos.google.com/share/xyz", {
+      postAnalyzeLink("https://example.com/share/xyz", {
         consent: false,
         store: false,
       }),
     ).rejects.toMatchObject({
       status: 422,
       detail:
-        "Google Photos links aren’t supported yet — share the file to Drive instead.",
+        "That link isn’t a direct file link — use a direct file URL, a Google Drive share link, or a Google Photos share link of a single video.",
       message:
-        "Google Photos links aren’t supported yet — share the file to Drive instead.",
+        "That link isn’t a direct file link — use a direct file URL, a Google Drive share link, or a Google Photos share link of a single video.",
     });
   });
 
@@ -748,6 +749,33 @@ describe("getRecordingMediaUrl", () => {
   it("throws an honest error on 503", async () => {
     mockFetch.mockResolvedValueOnce({ ok: false, status: 503 });
     await expect(getRecordingMediaUrl("r1")).rejects.toThrow("API error: 503");
+  });
+});
+
+describe("getRecordingSourceUrl", () => {
+  it("GETs /recordings/{id}/source_url and returns the resolved URL payload", async () => {
+    const payload = {
+      url: "https://lh3.googleusercontent.com/pw/XYZ=dv",
+      content_type: "video/mp4",
+      expires_hint: "may expire; refetch on failure",
+    };
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => payload });
+    const result = await getRecordingSourceUrl("r 1");
+    const [url, init] = mockFetch.mock.calls[0];
+    // id is URL-encoded in the path.
+    expect(url).toMatch(/\/recordings\/r%201\/source_url$/);
+    expect(init.method).toBe("GET");
+    expect(result).toEqual(payload);
+  });
+
+  it("throws an honest error on 404 (no remote source)", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+    await expect(getRecordingSourceUrl("r1")).rejects.toThrow("API error: 404");
+  });
+
+  it("throws an honest error on 502 (source unreachable) so the caller falls back", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 502 });
+    await expect(getRecordingSourceUrl("r1")).rejects.toThrow("API error: 502");
   });
 });
 

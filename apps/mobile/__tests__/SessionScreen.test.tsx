@@ -473,9 +473,9 @@ describe("SessionScreen", () => {
       expect(queryId(comp, "pick-recording-button")).toBeNull();
       // The URL field must not autocapitalize.
       expect(queryId(comp, "link-input")!.props.autoCapitalize).toBe("none");
-      // Helper text names the Drive/Photos guidance.
+      // Helper text names the Drive/Photos guidance (Photos is now supported).
       expect(JSON.stringify(comp.toJSON())).toContain(
-        "Google Photos isn’t supported yet",
+        "Google Photos share links (single video)",
       );
       act(() => comp.unmount());
     });
@@ -528,7 +528,8 @@ describe("SessionScreen", () => {
 
     it("renders the server's 422 message verbatim", async () => {
       const serverMsg =
-        "Google Photos links aren’t supported yet — share the file to Drive instead.";
+        "That link isn’t a direct file link — use a direct file URL, a Google " +
+        "Drive share link, or a Google Photos share link of a single video.";
       const err = Object.assign(new Error(serverMsg), {
         status: 422,
         detail: serverMsg,

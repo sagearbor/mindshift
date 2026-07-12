@@ -368,3 +368,89 @@ def _fetch_photos(
 
     # Neither variant yielded usable media — treat as an extraction failure.
     raise LinkError(422, _PHOTOS_NO_MEDIA)
+
+
+# ---------------------------------------------------------------------------
+# Resolve-only (no download) — for HD replay from the user's own source
+# ---------------------------------------------------------------------------
+# The replay feature hands the CLIENT a direct media URL to stream itself from
+# the source CDN; the server must NOT proxy the bytes. So this path re-derives
+# the CURRENT direct URL (Photos pages change; a share link may have been
+# revoked) WITHOUT downloading the media — reusing the same SSRF-guarded fetch
+# and Photos regex as the download path so the two can never drift.
+
+def _resolve_photos_media_url(client: httpx.Client, original_url: str, *, resolver) -> str:
+    """Fetch a Google Photos share page and return the video-variant direct URL
+    (``base + "=dv"``) for its single embedded item — WITHOUT downloading the
+    media. Reuses :func:`_run_download` (SSRF-guarded, size-capped) and the same
+    :data:`_PHOTOS_MEDIA_RE` as :func:`_fetch_photos`. Raises :class:`LinkError`
+    (422) when the page embeds no / multiple items, or its (unofficial) format is
+    no longer recognised."""
+    page, _resp, _parsed = _run_download(
+        client, original_url, resolver=resolver, max_bytes=PHOTOS_PAGE_MAX_BYTES,
+    )
+    html = page.decode("utf-8", "replace")
+    candidates = list(dict.fromkeys(_PHOTOS_MEDIA_RE.findall(html)))
+    if not candidates:
+        raise LinkError(422, _PHOTOS_NO_MEDIA)
+    if len(candidates) > 1:
+        raise LinkError(422, _PHOTOS_MULTIPLE)
+    # "=dv" is the full-res video stream variant (verified against a real link).
+    return candidates[0] + "=dv"
+
+
+def resolve_media_url(
+    url: str,
+    *,
+    resolver=None,
+    transport: "httpx.BaseTransport | None" = None,
+    timeout: float = LINK_TIMEOUT_S,
+) -> tuple[str, str | None]:
+    """Resolve a durable share/link URL to its CURRENT direct media URL WITHOUT
+    downloading the bytes, returning ``(direct_media_url, content_type_hint)``.
+
+    Used by the HD-replay endpoint: the client streams the returned URL straight
+    from the source CDN (we never proxy the media). Three shapes:
+
+    * Google Photos share pages (``photos.app.goo.gl`` / ``photos.google.com``)
+      are re-fetched and re-parsed to their embedded
+      ``lh3.googleusercontent.com/pw/…`` base; the ``=dv`` video variant is
+      returned (hint ``video/mp4``).
+    * Google Drive share links are rewritten to their ``uc?export=download`` form
+      (no download, so no content-type is known → hint ``None``).
+    * Any other http(s) URL passes through unchanged; the hint is guessed from
+      the URL's extension when possible, else ``None``.
+
+    The full SSRF guard applies — every hop of the Photos page fetch is checked,
+    and the host of a direct/Drive URL is resolved-and-checked before it is
+    handed back, so a link that resolves to an internal address can never be
+    surfaced to the client. Raises :class:`LinkError` (422) on a non-http(s)
+    scheme, a blocked host, or an unparseable/empty Photos page — the endpoint
+    surfaces that honestly and the client falls back to the stored derivative.
+    ``resolver`` and ``transport`` are injectable for tests."""
+    resolver = resolver or _default_resolver
+    parsed = urlparse(url)
+    if parsed.scheme.lower() not in ("http", "https"):
+        raise LinkError(422, "only http(s) links are supported")
+    host = (parsed.hostname or "").lower()
+
+    if host in PHOTOS_HOSTS:
+        client = httpx.Client(
+            follow_redirects=False,
+            timeout=timeout,
+            transport=transport,
+            headers={"User-Agent": _DESKTOP_UA},
+        )
+        try:
+            media_url = _resolve_photos_media_url(client, url, resolver=resolver)
+        finally:
+            client.close()
+        return media_url, "video/mp4"
+
+    # Drive share → direct-download; every other URL passes through unchanged.
+    direct = rewrite_url(url)
+    _guard_ssrf((urlparse(direct).hostname or "").lower(), resolver)
+    # Best-effort hint from the ORIGINAL url's extension (a Drive uc? url has
+    # none → None, which is honest: we haven't fetched the bytes to learn it).
+    content_type_hint = mimetypes.guess_type(parsed.path)[0]
+    return direct, content_type_hint

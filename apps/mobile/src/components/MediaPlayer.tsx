@@ -34,6 +34,10 @@ interface MediaPlayerProps {
   onPositionChange?: (seconds: number) => void;
   /** Fired once the media's duration becomes known. */
   onDurationChange?: (seconds: number) => void;
+  /** Fired when the player fails to load/decode the source (e.g. a remote HD
+   *  stream that expired or blocked). ReplayScreen uses this to fall back from
+   *  the linked source to the stored derivative. */
+  onError?: (message?: string) => void;
 }
 
 /** mm:ss for the transport readout. */
@@ -57,12 +61,26 @@ export function formatTime(seconds: number): string {
  */
 const MediaPlayer = forwardRef<MediaPlayerHandle, MediaPlayerProps>(
   function MediaPlayer(
-    { uri, mediaType, onPositionChange, onDurationChange },
+    { uri, mediaType, onPositionChange, onDurationChange, onError },
     ref,
   ) {
     const player = useVideoPlayer(uri, (p) => {
       p.loop = false;
     });
+
+    // Surface a load/decode failure so the parent can fall back to the stored
+    // derivative. expo-video reports it via a `statusChange` event carrying an
+    // `error`; guarded so the wholesale test mock (a plain host View) is unaffected.
+    useEffect(() => {
+      const listener = (payload: { status?: string; error?: unknown }) => {
+        if (payload?.status === "error" || payload?.error) {
+          const err = payload?.error as { message?: string } | undefined;
+          onError?.(err?.message);
+        }
+      };
+      const sub = player?.addListener?.("statusChange", listener);
+      return () => sub?.remove?.();
+    }, [player, onError]);
 
     const [playing, setPlaying] = useState(false);
     const [position, setPosition] = useState(0);

@@ -2228,6 +2228,64 @@ async def get_recording_media_url(
     }
 
 
+@app.get("/recordings/{recording_id}/source_url")
+async def get_recording_source_url(
+    recording_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    """Resolve the CURRENT direct media URL for a LINK-sourced recording so the
+    client can stream the user's own HD original straight from its CDN, falling
+    back to our stored derivative on any failure.
+
+    404 (``no remote source for this recording``) when the recording is an upload
+    or a link recording whose durable url was not kept — the client then uses the
+    derivative path unchanged. Otherwise the stored share URL is re-resolved
+    server-side under the FULL SSRF guard: a Google Photos share page is
+    re-parsed to its current media URL, a Drive share link is rewritten, a direct
+    URL passes through. We do NOT proxy the bytes — only hand back the URL, which
+    ``may expire`` (the client refetches, or falls back, on failure).
+
+    A resolution failure — revoked link, changed Photos page format, dead host —
+    is surfaced honestly (the resolver's 422/413, or a 502 for an unexpected
+    upstream error) so the client falls back to the stored derivative rather than
+    seeing a broken player."""
+    store_backend = _require_store()
+    rec = await store_backend.get_recording(uid, recording_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="Recording not found")
+    source = rec.get("source") or {}
+    url = source.get("url")
+    if source.get("type") != "link" or not url:
+        raise HTTPException(
+            status_code=404, detail="no remote source for this recording",
+        )
+    try:
+        # resolve_media_url is blocking (httpx.Client for the Photos re-parse) —
+        # keep it off the event loop, matching fetch_link on /analyze/link.
+        direct_url, content_type = await asyncio.to_thread(
+            link_fetch.resolve_media_url, url,
+        )
+    except link_fetch.LinkError as exc:
+        # Honest, expected resolution failure (blocked host, revoked/unparseable
+        # link) — surface the resolver's status so the client falls back.
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+    except Exception as exc:  # noqa: BLE001 — resolver hit an unexpected upstream
+        logger.warning(
+            "source_url resolution failed for %s: %s", recording_id, exc,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="couldn't reach the linked source — falling back to the "
+            "stored copy",
+        )
+    return {
+        "url": direct_url,
+        "content_type": content_type,
+        "expires_hint": "may expire; refetch on failure",
+    }
+
+
 # NOTE: deliberately NOT rate-limited (no _rate_limit dependency). A media
 # element seeking through audio/video fires many small Range requests in quick
 # succession; the per-IP limiter would 429 normal playback into uselessness.

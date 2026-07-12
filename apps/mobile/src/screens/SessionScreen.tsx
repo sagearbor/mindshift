@@ -471,8 +471,8 @@ export default function SessionScreen({
                   editable={!uploading}
                 />
                 <Text style={styles.linkHelp}>
-                  Direct file links and Google Drive share links work. Google
-                  Photos isn’t supported yet — share to Drive instead.
+                  Direct file links, Google Drive share links, and Google Photos
+                  share links (single video) all work.
                 </Text>
                 <TextInput
                   testID="link-context-input"

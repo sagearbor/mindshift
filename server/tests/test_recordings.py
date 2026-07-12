@@ -600,3 +600,124 @@ def _now() -> float:
 
 def _future() -> int:
     return int(_now()) + 900
+
+
+# ---------------------------------------------------------------------------
+# source_url — HD replay from a link-sourced recording's original source
+# ---------------------------------------------------------------------------
+
+def _seed_link_recording(store, uid="test-user", url="https://photos.app.goo.gl/abc"):
+    """Inject a link-sourced recording straight into the fake store (bypassing the
+    upload path) so the source_url endpoint has a `source.type == "link"` row with
+    a durable url to re-resolve."""
+    rid = str(uuid.uuid4())
+    meta = {
+        "id": rid,
+        "created_at": "2026-07-01T10:00:00Z",
+        "filename": "linked.mp4",
+        "media_type": "video",
+        "duration_seconds": 12,
+        "size_bytes": len(FAKE_AUDIO_M4A),
+        "stored_variants": ["audio.m4a", "video_360p.mp4"],
+        "original_bytes": 999,
+        "original_filename": "linked.mp4",
+        "original_content_type": "video/mp4",
+        "source": {"type": "link", "url": url, "original_filename": "linked.mp4"},
+    }
+    store._by_uid.setdefault(uid, {})[rid] = {
+        "meta": meta, "turns": [], "analysis": None,
+        "data": FAKE_AUDIO_M4A, "content_type": "video/mp4",
+    }
+    return rid
+
+
+@pytest.mark.anyio
+async def test_source_url_resolves_link_source(client, store, monkeypatch):
+    url = "https://photos.app.goo.gl/abc"
+    rid = _seed_link_recording(store, url=url)
+    seen = {}
+
+    def _fake_resolve(u):
+        seen["url"] = u
+        return "https://lh3.googleusercontent.com/pw/XYZ=dv", "video/mp4"
+
+    monkeypatch.setattr(main.link_fetch, "resolve_media_url", _fake_resolve)
+    resp = await client.get(
+        f"/recordings/{rid}/source_url", headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    # The DURABLE stored url was handed to the resolver (not a derivative).
+    assert seen["url"] == url
+    assert body["url"] == "https://lh3.googleusercontent.com/pw/XYZ=dv"
+    assert body["content_type"] == "video/mp4"
+    assert "expire" in body["expires_hint"].lower()
+
+
+@pytest.mark.anyio
+async def test_source_url_404_for_upload_source(client, store):
+    # A normal upload has source.type "upload" — no remote source to stream.
+    rid = await _store_one(client)
+    resp = await client.get(
+        f"/recordings/{rid}/source_url", headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "no remote source for this recording"
+
+
+@pytest.mark.anyio
+async def test_source_url_resolution_failure_is_honest(client, store, monkeypatch):
+    rid = _seed_link_recording(store)
+
+    # A revoked/unparseable link → the resolver's LinkError status passes through.
+    def _raise_link_error(u):
+        raise main.link_fetch.LinkError(422, "link revoked")
+
+    monkeypatch.setattr(main.link_fetch, "resolve_media_url", _raise_link_error)
+    resp = await client.get(
+        f"/recordings/{rid}/source_url", headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "link revoked"
+
+    # An UNEXPECTED upstream failure → an honest 502 (client falls back).
+    def _boom(u):
+        raise RuntimeError("connection reset")
+
+    monkeypatch.setattr(main.link_fetch, "resolve_media_url", _boom)
+    resp = await client.get(
+        f"/recordings/{rid}/source_url", headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 502
+
+
+@pytest.mark.anyio
+async def test_source_url_404_for_unknown_recording(client, store):
+    rid = str(uuid.uuid4())
+    resp = await client.get(
+        f"/recordings/{rid}/source_url", headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_source_url_cross_uid_isolation(client, store, monkeypatch):
+    rid = _seed_link_recording(store, uid="user-a")
+    monkeypatch.setattr(
+        main.link_fetch, "resolve_media_url",
+        lambda u: ("https://cdn/x=dv", "video/mp4"),
+    )
+    # user-b cannot resolve user-a's link source — reads as a plain 404.
+    resp = await client.get(
+        f"/recordings/{rid}/source_url", headers={"X-Test-Uid": "user-b"},
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_source_url_503_when_storage_disabled(client):
+    rid = str(uuid.uuid4())
+    resp = await client.get(
+        f"/recordings/{rid}/source_url", headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 503
