@@ -278,8 +278,10 @@ async def test_analyze_no_timestamps_interruptions_none(client):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.anyio
-async def test_analyze_single_speaker_rejected_422(client):
-    turns = [{"speaker": "Solo", "text": "hi there"} for _ in range(4)]
+async def test_analyze_zero_speakers_impossible_but_eleven_rejected(client):
+    # Monologues (1 speaker) are now ACCEPTED — see
+    # test_analyze_single_speaker_monologue_succeeds. The upper bound stands.
+    turns = [{"speaker": f"S{i}", "text": "hello"} for i in range(11)]
     resp = await client.post("/analyze", json={"turns": turns})
     assert resp.status_code == 422
 
@@ -662,3 +664,30 @@ class TestClampHeatHelper:
         assert main._clamp_heat(42.6) == 43
         assert main._clamp_heat("hot") is None
         assert main._clamp_heat(True) is None
+
+
+@pytest.mark.anyio
+async def test_analyze_single_speaker_monologue_succeeds(client):
+    """One distinct speaker is IN scope (a real recording of one person doing
+    two voices got diarized as a single speaker and bounced at validation).
+    Pair dynamics come back as honest nulls with plain descriptions."""
+    turns = [
+        {"speaker": "Me", "text": f"turn number {i} of my solo rant"}
+        for i in range(6)
+    ]
+    pt = _mock_per_turn(6, heats=[10, 25, 45, 60, 30, 15])
+    payload = json.dumps({
+        "per_turn": pt,
+        "requests": [],
+        "narrative": "A solo reflection that rose and settled.",
+        "report_cards": _report_cards("Me"),
+    })
+    with patch("main.get_llm_client", return_value=_mock_llm(payload)):
+        resp = await client.post("/analyze", json={"turns": turns})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert set(data["per_speaker"]) == {"Me"}
+    assert data["dynamics"]["coupling"]["strength"] is None
+    assert "one speaker" in data["dynamics"]["coupling"]["description"].lower()
+    assert data["dynamics"]["deescalation"]["follow_rate"] is None
+    assert data["report_cards"]["Me"]["score"] == 70

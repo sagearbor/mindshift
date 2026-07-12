@@ -239,6 +239,18 @@ def compute_coupling(
     ``COUPLING_MIN_TURNS`` turns or the series carry no variation.
     """
     ranked = _rank_speakers(speakers)
+    if len(ranked) < 2:
+        # Monologue (or the diarizer merged everyone — common when one person
+        # performs multiple voices): there is no pair to correlate. Honest
+        # nulls, never a fabricated relationship.
+        return {
+            "strength": None,
+            "leader": None,
+            "description": (
+                "Only one speaker was detected, so there's no escalation "
+                "coupling to measure."
+            ),
+        }
     more_than_two = len(ranked) > 2
     a, a_count = ranked[0]
     b, b_count = ranked[1]
@@ -329,6 +341,20 @@ def compute_deescalation(
         if prev is not None and heat <= prev - DEESCALATION_DROP:
             events.append((i, sp))
         last_heat[sp] = heat
+
+    if len(set(speakers)) < 2 and events:
+        # Monologue: "who cooled first" is still meaningful (the speaker did),
+        # but there is no other party to follow — never report a 0% follow
+        # rate that implies someone ignored them.
+        return {
+            "who_first": events[0][1],
+            "follow_rate": None,
+            "description": (
+                f"{events[0][1]} cooled things down during the recording. "
+                "Only one speaker was detected, so there's no follow-through "
+                "to measure."
+            ),
+        }
 
     if not events:
         return {

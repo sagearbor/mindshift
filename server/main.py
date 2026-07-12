@@ -257,7 +257,7 @@ ANALYZE_REQUEST_OUTCOMES = frozenset(("granted", "denied", "deferred", "unclear"
 # a pathological payload.
 ANALYZE_MIN_TURNS = 4
 ANALYZE_MAX_TURNS = 400
-ANALYZE_MIN_SPEAKERS = 2
+ANALYZE_MIN_SPEAKERS = 1
 ANALYZE_MAX_SPEAKERS = 10
 ANALYZE_MAX_TRANSCRIPT_CHARS = 60_000
 
@@ -291,9 +291,11 @@ class AnalyzeRequest(BaseModel):
 
     @model_validator(mode="after")
     def _validate_speaker_count(self) -> "AnalyzeRequest":
-        # 2..10 DISTINCT speakers — a monologue or a crowd is out of scope. This
-        # is a request-shape rule, so it surfaces as a 422 (validation), exactly
-        # like the turn-count/length bounds above.
+        # 1..10 DISTINCT speakers. Monologues are IN scope (min was 2 until a
+        # real recording of one person performing two voices got diarized as a
+        # single speaker and bounced — the merged-diarization case is common,
+        # and a solo heat timeline / report card is still honest, useful
+        # output; pair dynamics are suppressed with plain descriptions).
         distinct = {t.speaker for t in self.turns}
         if not (ANALYZE_MIN_SPEAKERS <= len(distinct) <= ANALYZE_MAX_SPEAKERS):
             raise ValueError(
