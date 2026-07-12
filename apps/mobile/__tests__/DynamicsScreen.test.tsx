@@ -358,6 +358,127 @@ describe("DynamicsScreen", () => {
     act(() => comp.unmount());
   });
 
+  it("renders directly from initialData without calling /analyze (upload flow)", async () => {
+    // The upload flow loads the transcript into the store and hands the analysis
+    // over as initialData — Dynamics must render it, never re-fetch.
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(
+        <DynamicsScreen onBack={() => {}} initialData={fixture} />,
+      );
+    });
+
+    expect(mockAnalyze).not.toHaveBeenCalled();
+    expect(queryId(comp, "dynamics-loading")).toBeNull();
+    expect(queryId(comp, "dynamics-content")).toBeTruthy();
+    expect(queryId(comp, "speaker-card-Alice")).toBeTruthy();
+    expect(queryId(comp, "speaker-card-Bob")).toBeTruthy();
+    expect(queryId(comp, "dynamics-narrative")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("shows the Replay button for a stored recording and calls onReplay with the id", async () => {
+    // Upload flow: consent+store landed, so App threads the recording id in
+    // alongside the ready-made analysis. The Replay entry point must render and
+    // hand that exact id back through onReplay.
+    const onReplay = jest.fn();
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(
+        <DynamicsScreen
+          onBack={() => {}}
+          initialData={fixture}
+          recordingId="rec_42"
+          onReplay={onReplay}
+        />,
+      );
+    });
+
+    const btn = queryId(comp, "replay-recording-button");
+    expect(btn).toBeTruthy();
+    act(() => {
+      btn!.props.onPress();
+    });
+    expect(onReplay).toHaveBeenCalledWith("rec_42");
+    act(() => comp.unmount());
+  });
+
+  it("falls back to the analysis's own recording_id when no recordingId prop was threaded", async () => {
+    // The screen's fetched/handed-over context can itself carry recording_id
+    // (an UploadAnalyzeResult) — EITHER source enables the Replay entry point.
+    const onReplay = jest.fn();
+    const uploadShaped = {
+      ...fixture,
+      turns: [],
+      stored: true,
+      recording_id: "rec_ctx",
+      storage_note: null,
+    };
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(
+        <DynamicsScreen
+          onBack={() => {}}
+          initialData={uploadShaped}
+          onReplay={onReplay}
+        />,
+      );
+    });
+
+    const btn = queryId(comp, "replay-recording-button");
+    expect(btn).toBeTruthy();
+    act(() => {
+      btn!.props.onPress();
+    });
+    expect(onReplay).toHaveBeenCalledWith("rec_ctx");
+    act(() => comp.unmount());
+  });
+
+  it("hides the Replay button when no recording backs the analysis", async () => {
+    // Plain transcript analysis: no recordingId prop, no recording_id on the
+    // result — nothing to replay, so no button (never a dead affordance).
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(
+        <DynamicsScreen
+          onBack={() => {}}
+          initialData={fixture}
+          onReplay={() => {}}
+        />,
+      );
+    });
+    expect(queryId(comp, "replay-recording-button")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("shows the voice_analysis note when the upload result carries one", async () => {
+    const withNote = {
+      ...fixture,
+      voice_analysis: "Voice tone couldn’t be measured for this recording.",
+    };
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(
+        <DynamicsScreen onBack={() => {}} initialData={withNote} />,
+      );
+    });
+    expect(queryId(comp, "voice-analysis-note")).toBeTruthy();
+    expect(JSON.stringify(comp.toJSON())).toContain(
+      "Voice tone couldn’t be measured",
+    );
+    act(() => comp.unmount());
+  });
+
+  it("omits the voice_analysis note when absent (normal fetch flow)", async () => {
+    mockAnalyze.mockResolvedValueOnce(fixture);
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(<DynamicsScreen onBack={() => {}} />);
+    });
+    expect(queryId(comp, "voice-analysis-note")).toBeNull();
+    act(() => comp.unmount());
+  });
+
   it("replaces the overlay when a different turn is used as the pivot", async () => {
     const comp = await mountWithSim();
     mockCounterfactual.mockResolvedValueOnce(simFixture);

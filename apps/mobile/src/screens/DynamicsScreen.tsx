@@ -15,6 +15,7 @@ import type {
   AnalyzeTurnInput,
   CounterfactualResult,
   ReportCard,
+  UploadAnalyzeResult,
 } from "../api/client";
 import HeatChart from "../components/HeatChart";
 import { getSpeakerColor } from "../utils/speakerColors";
@@ -27,6 +28,25 @@ const AMBER = "#F59E0B";
 
 interface DynamicsScreenProps {
   onBack: () => void;
+  /**
+   * A ready-made analysis from the recording-upload flow. When provided the
+   * screen renders it directly and never calls /analyze on mount — the
+   * transcript already lives in the session store (loaded from the upload's
+   * turns), so the what-if / counterfactual path keeps working off it as usual.
+   * Absent for the normal button-driven flow, which fetches on mount.
+   */
+  initialData?: AnalyzeResult;
+  /**
+   * The id of a *stored* recording that backs this analysis, passed from the
+   * upload flow when consent+store both landed as true; null/undefined
+   * otherwise. When absent, the screen falls back to the recording_id on its
+   * own fetched UploadAnalyzeResult. Either source enables the "Replay
+   * recording" entry point that opens the synced media replay.
+   */
+  recordingId?: string | null;
+  /** Open the replay for the backing recording. Wired by App; the button only
+   *  shows when an effective recording id and this handler are both present. */
+  onReplay?: (recordingId: string) => void;
 }
 
 /**
@@ -39,17 +59,31 @@ interface DynamicsScreenProps {
  * Framing rule enforced throughout: there is no "winner". All speakers' stats
  * are always shown together with neutral labels; we never rank or single one out.
  */
-export default function DynamicsScreen({ onBack }: DynamicsScreenProps) {
+export default function DynamicsScreen({
+  onBack,
+  initialData,
+  recordingId,
+  onReplay,
+}: DynamicsScreenProps) {
   // Snapshot turns once from the store — the analysis is of a fixed transcript,
   // so we don't want it re-fetching if the store mutates underneath us.
-  const [loading, setLoading] = useState(true);
+  // When `initialData` is supplied (upload flow) we start already-loaded, so
+  // there's no spinner and no on-mount fetch.
+  const [loading, setLoading] = useState(!initialData);
   const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<AnalyzeResult | null>(null);
+  const [data, setData] = useState<AnalyzeResult | null>(initialData ?? null);
   // The transcript the analysis was run against, kept so the HeatChart inspector
   // can show each turn's actual words (the backend's per_turn carries no text).
+  // Seed it from the store immediately when we start with data in hand.
   const [analyzedTurns, setAnalyzedTurns] = useState<
     { speaker: string; text: string }[]
-  >([]);
+  >(() =>
+    initialData
+      ? useSessionStore
+          .getState()
+          .turns.map((t) => ({ speaker: t.speaker, text: t.text }))
+      : [],
+  );
 
   // --- What-if / counterfactual overlay state ---
   const [simData, setSimData] = useState<CounterfactualResult | null>(null);
@@ -123,8 +157,20 @@ export default function DynamicsScreen({ onBack }: DynamicsScreenProps) {
   }, []);
 
   useEffect(() => {
+    if (initialData) {
+      // Upload flow: analysis is already in hand. Skip the fetch entirely, but
+      // seed the counterfactual payload from the store transcript so "what if"
+      // still sends the same turns (with the upload's real utterance timing).
+      analyzedPayloadRef.current = useSessionStore.getState().turns.map((t) => ({
+        speaker: t.speaker,
+        text: t.text,
+        ...(t.start_time !== undefined ? { start_time: t.start_time } : {}),
+        ...(t.end_time !== undefined ? { end_time: t.end_time } : {}),
+      }));
+      return;
+    }
     void runAnalyze();
-  }, [runAnalyze]);
+  }, [runAnalyze, initialData]);
 
   // Run a counterfactual for a given pivot turn. Replaces any prior overlay on
   // success (one simulation at a time). Honest error state on failure; never a
@@ -159,6 +205,14 @@ export default function DynamicsScreen({ onBack }: DynamicsScreenProps) {
     simData !== null ? analyzedTurns[simData.pivot_index]?.speaker ?? "" : "";
   // The overlay is visible only when we have a sim AND the toggle is on.
   const overlayVisible = simData !== null && showSim;
+  // Prosody-unavailable note, present only on results from /analyze/upload.
+  const voiceAnalysis = (data as UploadAnalyzeResult | null)?.voice_analysis;
+  // The recording backing this analysis, from either source: the id handed in
+  // by the upload flow, or — when we fetched the analysis ourselves — the
+  // recording_id the server returned on an UploadAnalyzeResult. Either enables
+  // the Replay entry point below.
+  const effectiveRecordingId =
+    recordingId ?? (data as UploadAnalyzeResult | null)?.recording_id ?? null;
 
   return (
     <View style={styles.flex}>
@@ -198,6 +252,19 @@ export default function DynamicsScreen({ onBack }: DynamicsScreenProps) {
           contentContainerStyle={styles.content}
           testID="dynamics-content"
         >
+          {/* Replay entry point — only when this analysis is backed by a stored
+              recording (from the upload flow or our own fetched result) and App
+              wired up navigation. */}
+          {effectiveRecordingId && onReplay && (
+            <TouchableOpacity
+              testID="replay-recording-button"
+              style={styles.replayButton}
+              onPress={() => onReplay(effectiveRecordingId)}
+            >
+              <Text style={styles.replayButtonText}>▶ Replay recording</Text>
+            </TouchableOpacity>
+          )}
+
           {/* Heat chart across the whole conversation. */}
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Heat over the conversation</Text>
@@ -215,6 +282,15 @@ export default function DynamicsScreen({ onBack }: DynamicsScreenProps) {
                 simPivot !== null && void runCounterfactual(simPivot)
               }
             />
+
+            {/* Honest prosody note from /analyze/upload: shown only when the
+                server told us voice analysis was unavailable (degraded audio,
+                etc.). Small and muted — never a claim we couldn't back up. */}
+            {voiceAnalysis && (
+              <Text style={styles.voiceNote} testID="voice-analysis-note">
+                {voiceAnalysis}
+              </Text>
+            )}
 
             {/* "What if" card — the rewritten pivot, its rationale, and the
                 server's disclaimer verbatim. Only while an overlay is shown. */}
@@ -477,6 +553,14 @@ const styles = StyleSheet.create({
   },
   retryText: { color: "#FFFFFF", fontSize: 15, fontWeight: "600" },
   content: { padding: 16, paddingBottom: 40 },
+  replayButton: {
+    marginBottom: 16,
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: "center",
+    backgroundColor: PRIMARY,
+  },
+  replayButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
   card: {
     backgroundColor: "#FFFFFF",
     borderRadius: 12,
@@ -623,6 +707,13 @@ const styles = StyleSheet.create({
   whatIfDisclaimer: {
     fontSize: 11,
     lineHeight: 16,
+    color: "#9CA3AF",
+    fontStyle: "italic",
+  },
+  voiceNote: {
+    marginTop: 10,
+    fontSize: 12,
+    lineHeight: 17,
     color: "#9CA3AF",
     fontStyle: "italic",
   },

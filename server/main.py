@@ -1,4 +1,7 @@
 import asyncio
+import base64
+import hashlib
+import hmac
 import io
 import logging
 import os
@@ -24,11 +27,31 @@ else:
     load_dotenv(FilePath(__file__).resolve().parent.parent / ".env")
 
 import aiosqlite
-from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request, WebSocket
-from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, Field, model_validator
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    UploadFile,
+    WebSocket,
+)
+from fastapi.responses import JSONResponse, Response, StreamingResponse
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 import dynamics
+import prosody
+import recordings_store
+from audio_ingest import (
+    AudioDecodeError,
+    NoSpeechFound,
+    TranscriptionUnavailable,
+    decode_to_pcm,
+    transcribe_prerecorded,
+)
 from audio_pipeline import UUID_PATTERN, audio_ws_endpoint
 from auth import get_current_uid, init_firebase
 from llm_client import LLMClient
@@ -278,6 +301,16 @@ class AnalyzeRequest(BaseModel):
         return self
 
 
+class VoiceOut(BaseModel):
+    # Compact per-turn delivery labels, RELATIVE to this recording's own
+    # distribution (see prosody.py). Only present on /analyze/upload turns when
+    # prosody succeeded; absent/null on /analyze and on decode-degraded uploads.
+    # pitch_label is None for an unvoiced turn (silence/noise) — never invented.
+    energy_label: str
+    pitch_label: Optional[str]
+    rate_label: str
+
+
 class PerTurnOut(BaseModel):
     index: int
     speaker: str
@@ -285,6 +318,10 @@ class PerTurnOut(BaseModel):
     markers: list[str]
     is_spike: bool
     trigger_phrase: Optional[str]
+    # None on /analyze (no audio) and on uploads where decode failed. Adding it
+    # here as an Optional default keeps the /analyze response byte-compatible
+    # (voice is simply null), while /analyze/upload fills it when prosody ran.
+    voice: Optional[VoiceOut] = None
 
 
 class HorsemenOut(BaseModel):
@@ -357,6 +394,46 @@ class AnalyzeResponse(BaseModel):
     # One card per speaker in the request — validated present in the endpoint
     # (a missing speaker is a 502 misalignment, never a fabricated card).
     report_cards: dict[str, ReportCardOut]
+
+
+# --- POST /analyze/upload — analyze a RECORDING (audio, or a video whose audio
+# track we extract). Process-and-discard: nothing is persisted. The response is
+# a superset of AnalyzeResponse: it ADDS the transcribed turns (the client never
+# had a transcript — the recording was raw audio) and an optional top-level note
+# when prosody had to be skipped. Per-turn voice labels ride on PerTurnOut.voice.
+
+
+class TranscribedTurn(BaseModel):
+    """One diarized turn recovered from the recording, echoed back so the
+    client can render the transcript it never had."""
+    speaker: str
+    text: str
+    start_time: Optional[float] = None
+    end_time: Optional[float] = None
+
+
+class AnalyzeUploadResponse(AnalyzeResponse):
+    turns: list[TranscribedTurn]
+    # Set to "unavailable: <reason>" when transcription succeeded but the audio
+    # could not be decoded for prosody — an HONEST degrade (voice is null on
+    # every turn) rather than a hard failure or fabricated labels. None when
+    # prosody ran normally.
+    voice_analysis: Optional[str] = None
+    # Consent-gated persistence outcome (defaults keep the /analyze response
+    # byte-compatible for callers that ignore them). ``stored`` is True only
+    # when the recording was actually written; ``storage_note`` states plainly
+    # why it was NOT ("consent not given" / "storage not enabled" / "storage
+    # failed: <class>"). A storage failure never fails the analysis.
+    stored: bool = False
+    recording_id: Optional[str] = None
+    storage_note: Optional[str] = None
+
+
+# Upload caps (a 413 when exceeded). File-size is a cheap first gate; the
+# decoded-duration cap bounds LLM + prosody work on a legitimately-typed but
+# very long recording. Both are deliberate product limits, tunable via env.
+MAX_UPLOAD_BYTES = int(os.getenv("ANALYZE_UPLOAD_MAX_BYTES", str(25 * 1024 * 1024)))
+MAX_UPLOAD_DURATION_S = float(os.getenv("ANALYZE_UPLOAD_MAX_SECONDS", str(40 * 60)))
 
 
 # --- POST /analyze/counterfactual — the "what if they'd said it differently"
@@ -553,6 +630,10 @@ async def lifespan(app: FastAPI):
     init_firebase()
     app.state.llm_client = LLMClient(model=MINDSHIFT_MODEL)
     _configure_stt(app)
+    # Recording persistence (opt-in). None when MINDSHIFT_RECORDINGS_BUCKET is
+    # unset → the recordings endpoints report an honest 503 and /analyze/upload
+    # keeps its process-and-discard behaviour.
+    app.state.recordings_store = recordings_store.create_store()
     logger.info(
         "MindShift API started — model=%s provider=%s llm_key_present=%s "
         "stt_provider=%s db_path=%s",
@@ -835,6 +916,90 @@ async def _rate_limit(request: Request) -> None:
             status_code=429,
             detail="Rate limit exceeded — too many requests; please slow down.",
         )
+
+
+# ---------------------------------------------------------------------------
+# Recording persistence — store accessor + short-lived media tokens
+# ---------------------------------------------------------------------------
+
+def get_recordings_store() -> "recordings_store.RecordingsStore | None":
+    """The process-wide recordings store, or ``None`` when storage is disabled.
+
+    Read from ``app.state`` (set in lifespan). ``getattr`` with a None default
+    means the test suite — which never runs lifespan — is "storage disabled" by
+    default; a test enables storage by injecting a fake into app.state.
+    """
+    return getattr(app.state, "recordings_store", None)
+
+
+# Per-process HMAC secret for media-stream tokens. Minted fresh each boot (like
+# _REDACT_SALT), so a restart invalidates outstanding links — acceptable for
+# 15-minute URLs and cheaper than a shared secret store. Tokens let a media
+# element (which cannot send an Authorization header) fetch a private object.
+_MEDIA_TOKEN_SECRET = os.urandom(32)
+MEDIA_TOKEN_TTL_SECONDS = 900  # 15 minutes
+
+
+def _b64url(raw: bytes) -> str:
+    """URL-safe base64 without padding (safe in a query string)."""
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+def _b64url_decode(text: str) -> bytes:
+    """Inverse of :func:`_b64url`, re-adding the stripped padding."""
+    padding = "=" * (-len(text) % 4)
+    return base64.urlsafe_b64decode(text + padding)
+
+
+def _make_media_token(uid: str, recording_id: str, expiry_ts: int) -> str:
+    """Mint an opaque token binding (uid, recording_id, expiry) under the
+    per-process secret. The uid+expiry travel in the token (the media endpoint
+    has no Authorization header to recover them from); the signature covers all
+    three so neither can be tampered with, and a token for one recording can
+    never address another. Encoded as ``b64(uid).b64(expiry).b64(sig)``."""
+    msg = f"{uid}:{recording_id}:{expiry_ts}".encode("utf-8")
+    sig = hmac.new(_MEDIA_TOKEN_SECRET, msg, hashlib.sha256).digest()
+    return ".".join((
+        _b64url(uid.encode("utf-8")),
+        _b64url(str(expiry_ts).encode("ascii")),
+        _b64url(sig),
+    ))
+
+
+def _verify_media_token(token: str, recording_id: str) -> str | None:
+    """Return the token's uid when valid (good signature, unexpired) for THIS
+    recording_id, else ``None``. Constant-time signature comparison."""
+    try:
+        uid_part, exp_part, sig_part = token.split(".")
+        uid = _b64url_decode(uid_part).decode("utf-8")
+        expiry_ts = int(_b64url_decode(exp_part).decode("ascii"))
+        sig = _b64url_decode(sig_part)
+    except Exception:  # noqa: BLE001 — any malformed token is simply invalid
+        return None
+    if expiry_ts < int(time.time()):
+        return None  # expired
+    msg = f"{uid}:{recording_id}:{expiry_ts}".encode("utf-8")
+    expected = hmac.new(_MEDIA_TOKEN_SECRET, msg, hashlib.sha256).digest()
+    if not hmac.compare_digest(sig, expected):
+        return None
+    return uid
+
+
+def _request_base_url(request: Request) -> str:
+    """Absolute scheme://host for building media URLs, honoring Cloud Run's
+    X-Forwarded-Proto / X-Forwarded-Host (the app sits behind Google's proxy,
+    so request.url.scheme/netloc would otherwise read the internal http/host).
+    Takes the first value of any comma-list the proxy may send."""
+    proto = (
+        request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
+        or request.url.scheme
+    )
+    host = (
+        request.headers.get("x-forwarded-host", "").split(",")[0].strip()
+        or request.headers.get("host", "").strip()
+        or request.url.netloc
+    )
+    return f"{proto}://{host}"
 
 
 # ---------------------------------------------------------------------------
@@ -1180,6 +1345,25 @@ ANALYZE_SYSTEM_PROMPT = (
 )
 
 
+# Appended to ANALYZE_SYSTEM_PROMPT ONLY when the transcript carries per-turn
+# voice annotations (an /analyze/upload recording with successful prosody). It
+# is never added for text /analyze, so that prompt stays byte-identical. It
+# tells the model to read DELIVERY alongside words — the whole point of adding
+# audio: a shouted line is hotter than its words; a cold, flat, quiet line with
+# hostile words is still high heat and often contempt.
+ANALYZE_VOICE_PROMPT_ADDENDUM = (
+    "\n\nSome turns include a bracketed voice annotation, e.g. "
+    "`[voice: loud, fast, pitch varied]`, describing HOW that turn was "
+    "delivered (vocal energy, speech rate, pitch movement). These are relative "
+    "delivery cues for THIS recording, not absolute measurements. Weigh "
+    "delivery ALONGSIDE the words when scoring heat and markers: an aggressive, "
+    "raised-voice ('loud') delivery RAISES heat even when the words are mild; a "
+    "cold, flat, quiet delivery paired with hostile or dismissive words is "
+    "still HIGH heat and often contempt. Let tone corroborate or intensify what "
+    "the words imply — never ignore the words themselves."
+)
+
+
 COUNTERFACTUAL_SYSTEM_PROMPT = (
     "You are an experienced couples therapist running a 'what if they'd said it "
     "differently' simulation. You are given a full transcript in which every "
@@ -1287,14 +1471,20 @@ def _clean_report_card(value: object) -> dict | None:
     }
 
 
-@app.post("/analyze", response_model=AnalyzeResponse)
-async def analyze(
-    req: AnalyzeRequest,
-    uid: str = Depends(get_current_uid),
-    _rl: None = Depends(_rate_limit),
-):
-    turns = req.turns
+async def _run_analysis(
+    turns: list[AnalyzeTurn],
+    context: str,
+    voice_labels: list[dict] | None = None,
+) -> AnalyzeResponse:
+    """Shared /analyze pipeline body — one implementation for both endpoints.
 
+    ``voice_labels`` (one dict per turn, from :func:`prosody.label_turns`) is
+    the ONLY difference between the text and recording paths: when present, each
+    numbered turn gains a bracketed ``[voice: …]`` delivery cue, the system
+    prompt gains the voice addendum, and each PerTurnOut carries its labels.
+    When ``None`` (text /analyze) the prompt and output are byte-identical to
+    before — the working text analyzer cannot regress.
+    """
     # Total-transcript cap (a 413) — the per-turn length bounds are validation
     # (422); this guards the aggregate size a single LLM pass must carry.
     total_chars = sum(len(t.text) for t in turns)
@@ -1313,16 +1503,28 @@ async def analyze(
     ends = [t.end_time for t in turns]
     distinct_speakers = len(set(speakers))
 
-    # Number every turn so per_turn alignment is explicit for the model.
-    numbered = "\n".join(
-        f"{i}. [{t.speaker}] {t.text}" for i, t in enumerate(turns)
-    )
+    # Number every turn so per_turn alignment is explicit for the model. With
+    # voice labels, each line also carries a bracketed delivery cue between the
+    # speaker tag and the text: `7. [Bob] [voice: loud, fast, pitch varied] …`.
+    numbered_lines = []
+    for i, t in enumerate(turns):
+        prefix = f"{i}. [{t.speaker}]"
+        if voice_labels is not None:
+            prefix += f" [voice: {prosody.annotate(voice_labels[i])}]"
+        numbered_lines.append(f"{prefix} {t.text}")
+    numbered = "\n".join(numbered_lines)
     user_content = (
         f"Conversation ({len(turns)} turns, {distinct_speakers} speakers):\n"
         f"{numbered}"
     )
-    if req.context:
-        user_content += f"\n\nContext: {req.context}"
+    if context:
+        user_content += f"\n\nContext: {context}"
+
+    # Build the system prompt conditionally: the voice addendum is added ONLY
+    # when delivery cues are present, so text /analyze stays byte-identical.
+    system_prompt = ANALYZE_SYSTEM_PROMPT
+    if voice_labels is not None:
+        system_prompt += ANALYZE_VOICE_PROMPT_ADDENDUM
 
     # Output budget scales with turn count (each turn is a small JSON object)
     # plus headroom for requests + narrative, capped so a huge transcript can
@@ -1334,7 +1536,7 @@ async def analyze(
     # loop (see /respond).
     raw = await asyncio.to_thread(
         llm.complete,
-        system=ANALYZE_SYSTEM_PROMPT,
+        system=system_prompt,
         user=user_content,
         max_tokens=max_tokens,
     )
@@ -1403,6 +1605,14 @@ async def analyze(
             markers=markers[i],
             is_spike=spikes[i],
             trigger_phrase=trigger_phrases[i],
+            voice=(
+                None if voice_labels is None
+                else VoiceOut(
+                    energy_label=voice_labels[i]["energy_label"],
+                    pitch_label=voice_labels[i]["pitch_label"],
+                    rate_label=voice_labels[i]["rate_label"],
+                )
+            ),
         )
         for i in range(len(turns))
     ]
@@ -1455,6 +1665,173 @@ async def analyze(
         narrative=narrative,
         report_cards=report_cards,
     )
+
+
+@app.post("/analyze", response_model=AnalyzeResponse)
+async def analyze(
+    req: AnalyzeRequest,
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    # Text path: no audio, so no voice labels — the shared helper produces the
+    # exact same prompt and response it always did.
+    return await _run_analysis(req.turns, req.context, voice_labels=None)
+
+
+@app.post("/analyze/upload", response_model=AnalyzeUploadResponse)
+async def analyze_upload(
+    file: UploadFile = File(...),
+    context: str = Form(default="", max_length=500),
+    consent: str = Form(default="false"),
+    store: str = Form(default="true"),
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    """Analyze a RECORDING: an audio file, or a video whose audio track we
+    extract. By default process-and-discard; with explicit consent the original
+    bytes + turns + analysis are persisted so the user can replay/delete later.
+
+    Flow: read bytes → transcribe the ORIGINAL bytes via Deepgram pre-recorded
+    (diarized turns) → decode to PCM for local prosody (degrade honestly to
+    voice=None if decode fails) → run the SHARED analysis pipeline with the
+    per-turn voice labels → OPTIONALLY persist. Honest failures throughout:
+    transcription unconfigured → 503, undecodable/speechless → 422, over caps →
+    413. A storage failure never fails the analysis — the response still returns
+    with stored=false and a note carrying the failure's class name.
+    """
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"file too large: {len(data)} bytes exceeds the "
+                f"{MAX_UPLOAD_BYTES}-byte limit"
+            ),
+        )
+    if not data:
+        raise HTTPException(status_code=422, detail="empty file")
+
+    # 1) Transcribe the ORIGINAL container bytes (Deepgram decodes it itself).
+    #    to_thread: transcribe_prerecorded is a blocking HTTP call.
+    try:
+        raw_turns = await asyncio.to_thread(
+            transcribe_prerecorded, data, file.content_type,
+        )
+    except TranscriptionUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except NoSpeechFound as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    # 2) The recovered conversation must satisfy the same shape rules as text
+    #    /analyze (2-10 speakers, 4-400 turns, per-turn length). Reuse the
+    #    AnalyzeRequest validators; a violation is an honest 422.
+    try:
+        analyze_req = AnalyzeRequest(turns=raw_turns, context=context)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "transcribed conversation is out of bounds for analysis "
+                f"({exc.error_count()} issue(s)): "
+                + "; ".join(e["msg"] for e in exc.errors()[:3])
+            ),
+        )
+    turns = analyze_req.turns
+
+    # 3) Decode to PCM for prosody. If decoding fails we DEGRADE HONESTLY:
+    #    transcription already succeeded, so we still analyze — just without
+    #    voice labels — and flag it in voice_analysis rather than 422-ing or
+    #    inventing prosody.
+    voice_labels: list[dict] | None = None
+    voice_note: str | None = None
+    decoded_duration: float | None = None
+    try:
+        pcm, sr = await asyncio.to_thread(
+            decode_to_pcm, data, file.filename or "",
+        )
+        duration = pcm.shape[0] / sr if sr else 0.0
+        decoded_duration = duration
+        if duration > MAX_UPLOAD_DURATION_S:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"recording too long: {duration:.0f}s exceeds the "
+                    f"{MAX_UPLOAD_DURATION_S:.0f}s limit"
+                ),
+            )
+        features = [
+            prosody.turn_features(
+                pcm, sr, t.start_time or 0.0, t.end_time or 0.0,
+            )
+            for t in turns
+        ]
+        voice_labels = prosody.label_turns(
+            features, [t.model_dump() for t in turns],
+        )
+    except AudioDecodeError as exc:
+        voice_labels = None
+        voice_note = f"unavailable: {exc}"
+
+    # 4) Run the shared analysis with the voice labels (or None on degrade).
+    core = await _run_analysis(turns, context, voice_labels=voice_labels)
+
+    transcribed = [
+        TranscribedTurn(
+            speaker=t.speaker,
+            text=t.text,
+            start_time=t.start_time,
+            end_time=t.end_time,
+        )
+        for t in turns
+    ]
+    response = AnalyzeUploadResponse(
+        **core.model_dump(),
+        turns=transcribed,
+        voice_analysis=voice_note,
+    )
+
+    # 5) Consent-gated persistence. Store ONLY when the user consented, did not
+    #    opt this recording out, and storage is enabled — and NEVER let a
+    #    storage failure sink the analysis (the response is already complete).
+    store_backend = get_recordings_store()
+    if consent.strip().lower() != "true":
+        response.storage_note = "consent not given"
+    elif store.strip().lower() != "true":
+        response.storage_note = "storage not requested"
+    elif store_backend is None:
+        response.storage_note = "storage not enabled"
+    else:
+        # analysis.json holds the full analysis payload (turns + voice included);
+        # turns.json is the transcript on its own for the lighter detail read.
+        # Mark stored=True BEFORE dumping so the persisted blob describes its
+        # own stored state truthfully (it only gets written on a successful
+        # save); the except arm resets it on failure. recording_id inside the
+        # blob stays null — the id is the blob's own storage key, returned by
+        # GET /recordings/{id} alongside it.
+        response.stored = True
+        analysis_json = response.model_dump()
+        turns_json = [t.model_dump() for t in transcribed]
+        # Prefer the decoded duration; fall back to the transcript's last end.
+        duration_seconds = decoded_duration
+        if duration_seconds is None:
+            duration_seconds = max((t.end_time or 0.0 for t in turns), default=0.0) or None
+        try:
+            recording_id = await store_backend.save_recording(
+                uid,
+                data=data,
+                filename=file.filename,
+                content_type=file.content_type,
+                duration_seconds=duration_seconds,
+                turns=turns_json,
+                analysis=analysis_json,
+            )
+            response.recording_id = recording_id
+        except Exception as exc:  # noqa: BLE001 — persistence must not fail analysis
+            logger.warning("Recording persistence failed for uid=%s: %s", uid, exc)
+            response.stored = False
+            response.storage_note = f"storage failed: {type(exc).__name__}"
+
+    return response
 
 
 @app.post("/analyze/counterfactual", response_model=CounterfactualResponse)
@@ -1566,6 +1943,129 @@ async def analyze_counterfactual(
         simulated_per_turn=simulated_per_turn,
         disclaimer=COUNTERFACTUAL_DISCLAIMER,
     )
+
+
+# ---------------------------------------------------------------------------
+# Recordings — list / detail / delete / media (persisted /analyze/upload runs)
+# ---------------------------------------------------------------------------
+
+_STORAGE_DISABLED_DETAIL = "recording storage is not enabled"
+
+
+def _require_store() -> "recordings_store.RecordingsStore":
+    """Return the store or raise an honest 503 when storage is disabled."""
+    store_backend = get_recordings_store()
+    if store_backend is None:
+        raise HTTPException(status_code=503, detail=_STORAGE_DISABLED_DETAIL)
+    return store_backend
+
+
+@app.get("/recordings")
+async def list_recordings(uid: str = Depends(get_current_uid)):
+    """List the caller's stored recordings, newest first. 503 when storage is
+    disabled. Scoped to ``uid`` — another user's recordings are never listed."""
+    store_backend = _require_store()
+    metas = await store_backend.list_recordings(uid)
+    return {
+        "recordings": [
+            {
+                "id": m["id"],
+                "created_at": m["created_at"],
+                "filename": m["filename"],
+                "media_type": m["media_type"],
+                "duration_seconds": m.get("duration_seconds"),
+                "has_analysis": m.get("has_analysis", False),
+            }
+            for m in metas
+        ]
+    }
+
+
+@app.get("/recordings/{recording_id}")
+async def get_recording(
+    recording_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    uid: str = Depends(get_current_uid),
+):
+    """One recording's transcript + full analysis. 404 when it does not exist
+    for THIS user (a foreign recording reads as 404, never confirming it)."""
+    store_backend = _require_store()
+    rec = await store_backend.get_recording(uid, recording_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="Recording not found")
+    return {
+        "id": rec["id"],
+        "created_at": rec["created_at"],
+        "filename": rec["filename"],
+        "media_type": rec["media_type"],
+        "duration_seconds": rec.get("duration_seconds"),
+        "turns": rec.get("turns", []),
+        "analysis": rec.get("analysis"),
+    }
+
+
+@app.delete("/recordings/{recording_id}", status_code=204)
+async def delete_recording(
+    recording_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    uid: str = Depends(get_current_uid),
+):
+    """Delete a recording and all its objects. 404 when nothing was deleted
+    (missing, or owned by another user). 204 on success."""
+    store_backend = _require_store()
+    deleted = await store_backend.delete_recording(uid, recording_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Recording not found")
+    return Response(status_code=204)
+
+
+@app.get("/recordings/{recording_id}/media_url")
+async def get_recording_media_url(
+    recording_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    request: Request,
+    uid: str = Depends(get_current_uid),
+):
+    """Mint a short-lived, absolute media URL a player can hit WITHOUT an
+    Authorization header (media elements cannot send one). The token binds the
+    caller's uid + this recording + an expiry under the per-process secret; a
+    process restart invalidates outstanding links (acceptable for 15-min URLs).
+    404 when the recording does not exist for this user."""
+    store_backend = _require_store()
+    if not await store_backend.recording_exists(uid, recording_id):
+        raise HTTPException(status_code=404, detail="Recording not found")
+    expiry_ts = int(time.time()) + MEDIA_TOKEN_TTL_SECONDS
+    token = _make_media_token(uid, recording_id, expiry_ts)
+    base = _request_base_url(request)
+    return {
+        "url": f"{base}/recordings/{recording_id}/media?tk={token}",
+        "expires_in": MEDIA_TOKEN_TTL_SECONDS,
+    }
+
+
+# NOTE: deliberately NOT rate-limited (no _rate_limit dependency). A media
+# element seeking through audio/video fires many small Range requests in quick
+# succession; the per-IP limiter would 429 normal playback into uselessness.
+# Access is instead gated by the unforgeable, short-lived, uid+recording-bound
+# token — and it is a pure GCS read, not an LLM-cost endpoint. Also NO auth
+# dependency: a <video>/<audio> src cannot carry an Authorization header, so the
+# token in the query string is the sole credential.
+@app.get("/recordings/{recording_id}/media")
+async def get_recording_media(
+    recording_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    request: Request,
+    tk: str = Query(default=""),
+):
+    uid = _verify_media_token(tk, recording_id)
+    if uid is None:
+        raise HTTPException(status_code=403, detail="invalid or expired token")
+    store_backend = _require_store()
+    result = await store_backend.open_media_stream(
+        uid, recording_id, request.headers.get("range"),
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Recording not found")
+    iterator, status, headers = result
+    # Content-Type is already in `headers` (read from the stored blob metadata),
+    # so it is not passed again as media_type — avoids a duplicated header.
+    return StreamingResponse(iterator, status_code=status, headers=headers)
 
 
 @app.post("/session", response_model=SessionOut, status_code=201)

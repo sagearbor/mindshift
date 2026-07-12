@@ -6,9 +6,38 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from "react-native";
-import Svg, { Polyline, Circle } from "react-native-svg";
-import type { AnalyzePerTurn, SimulatedTurn } from "../api/client";
+import Svg, { Polyline, Circle, Line } from "react-native-svg";
+import type { AnalyzePerTurn, SimulatedTurn, Voice } from "../api/client";
 import { getSpeakerColor } from "../utils/speakerColors";
+
+// The baseline prosody label per dimension — a turn at baseline on a dimension
+// isn't noteworthy, so we don't render a chip for it. This keeps the inspector
+// to "up to three" chips that actually say something (e.g. loud + fast), rather
+// than three always-on chips two of which read "normal".
+const VOICE_BASELINE: Record<keyof Voice, string> = {
+  energy_label: "normal",
+  pitch_label: "mid",
+  rate_label: "normal",
+};
+
+/** Non-baseline prosody labels for a turn, as {kind,label} chips in a stable
+ *  order (energy, pitch, rate). Empty when voice is absent or all-baseline. */
+export function voiceChipsFor(voice: Voice | null | undefined): {
+  kind: "energy" | "pitch" | "rate";
+  label: string;
+}[] {
+  if (!voice) return [];
+  const chips: { kind: "energy" | "pitch" | "rate"; label: string }[] = [];
+  if (voice.energy_label !== VOICE_BASELINE.energy_label)
+    chips.push({ kind: "energy", label: voice.energy_label });
+  // pitch_label is null when the turn had too little voiced speech to measure
+  // — no reading means no chip, never an empty one.
+  if (voice.pitch_label !== null && voice.pitch_label !== VOICE_BASELINE.pitch_label)
+    chips.push({ kind: "pitch", label: voice.pitch_label });
+  if (voice.rate_label !== VOICE_BASELINE.rate_label)
+    chips.push({ kind: "rate", label: voice.rate_label });
+  return chips;
+}
 
 // House colors.
 const AMBER = "#F59E0B"; // spikes / triggers
@@ -165,6 +194,73 @@ export function mapSimulatedToLines(
   }));
 }
 
+/** Per-turn timing, index-aligned with `perTurn`, used to place the replay
+ *  playhead. Only the boundaries matter here. */
+export interface TurnTiming {
+  start_time: number;
+  end_time: number;
+}
+
+export interface PlayheadOptions {
+  width: number;
+  padding: number;
+  /** Total turns in the conversation — the same value passed to mapTurnsToLines
+   *  so the playhead shares the real lines' x-scale exactly. */
+  totalTurns: number;
+}
+
+/**
+ * Pure: map a playback position (seconds) to the conversation turn index it
+ * falls in. The turn whose [start_time, end_time) contains `seconds` wins;
+ * failing that we fall back to the nearest EARLIER turn (so a position in the
+ * silent gap between two turns stays anchored to the turn that just spoke).
+ * Before the first turn → first turn; after the last → last turn. Returns null
+ * only when there is no timing at all. Exported for direct unit testing.
+ */
+export function playheadIndexForTime(
+  seconds: number,
+  turnsTiming: TurnTiming[],
+): number | null {
+  if (turnsTiming.length === 0) return null;
+  // Exact containment: [start, end).
+  for (let i = 0; i < turnsTiming.length; i++) {
+    const t = turnsTiming[i];
+    if (seconds >= t.start_time && seconds < t.end_time) return i;
+  }
+  // Before the first turn starts → clamp to the first turn.
+  if (seconds < turnsTiming[0].start_time) return 0;
+  // Otherwise the nearest earlier turn: the last one that has already started.
+  // This covers both between-turns gaps (→ previous turn) and after-last (→ last).
+  let idx = 0;
+  for (let i = 0; i < turnsTiming.length; i++) {
+    if (turnsTiming[i].start_time <= seconds) idx = i;
+    else break;
+  }
+  return idx;
+}
+
+/**
+ * Pure: the pixel x of the replay playhead for a given playback position. Maps
+ * `seconds` → turn index (playheadIndexForTime) → x using the SAME formula as
+ * mapTurnsToLines' xFor (maxIndex = totalTurns - 1), so the playhead lands
+ * exactly on the current turn's point. Returns null when there's no timing.
+ * Exported for direct unit testing of the alignment.
+ */
+export function playheadXForTime(
+  seconds: number,
+  turnsTiming: TurnTiming[],
+  opts: PlayheadOptions,
+): number | null {
+  const idx = playheadIndexForTime(seconds, turnsTiming);
+  if (idx === null) return null;
+  const { width, padding, totalTurns } = opts;
+  const chartWidth = width - padding * 2;
+  const maxIndex = totalTurns - 1;
+  return (
+    padding + (maxIndex <= 0 ? chartWidth / 2 : (idx / maxIndex) * chartWidth)
+  );
+}
+
 interface HeatChartProps {
   perTurn: AnalyzePerTurn[];
   // The original transcript, index-aligned with perTurn. The backend's per_turn
@@ -195,6 +291,18 @@ interface HeatChartProps {
   whatIfError?: string | null;
   /** Retry the last failed counterfactual. */
   onRetryWhatIf?: () => void;
+
+  // --- Replay playhead sync (all optional; the chart is fully usable without
+  // any of these) ---
+  /** Current playback position in seconds. A thin vertical playhead is drawn at
+   *  the x of the turn this position falls in. Null/undefined = no playhead. */
+  playheadSeconds?: number | null;
+  /** Per-turn timing, index-aligned with `perTurn`, that the playhead maps
+   *  against. Without it the playhead can't be placed and is omitted. */
+  turnsTiming?: TurnTiming[];
+  /** Tapping a chart point (or scrubber cell) also seeks playback to that turn's
+   *  start_time. Wired by ReplayScreen to the media player. */
+  onSeekToTurn?: (startTime: number) => void;
 }
 
 /**
@@ -218,11 +326,25 @@ export default function HeatChart({
   whatIfPivotIndex = null,
   whatIfError = null,
   onRetryWhatIf,
+  playheadSeconds = null,
+  turnsTiming,
+  onSeekToTurn,
 }: HeatChartProps) {
   const [width, setWidth] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
 
   const padding = 16;
+
+  // Selecting a turn (via a point or a scrubber cell) also seeks playback to
+  // that turn's start_time when replay is wired up — so the chart doubles as a
+  // tap-to-seek control. Guarded on timing being present for that index.
+  const selectTurn = (index: number) => {
+    setSelected(index);
+    const timing = turnsTiming?.[index];
+    if (onSeekToTurn && timing) {
+      onSeekToTurn(timing.start_time);
+    }
+  };
   // Only compute geometry once we've measured a width (first layout pass).
   // totalTurns is passed EXPLICITLY so the real and simulated lines share one
   // x-scale by construction, not by the (currently true) coincidence that
@@ -251,10 +373,25 @@ export default function HeatChart({
         })
       : [];
 
+  // Replay playhead x: only when we have a position, timing, and a measured
+  // width. Shares the real lines' x-scale (totalTurns = perTurn.length) so it
+  // sits exactly on the current turn's point.
+  const playheadX =
+    playheadSeconds != null && turnsTiming && turnsTiming.length > 0 && width > 0
+      ? playheadXForTime(playheadSeconds, turnsTiming, {
+          width,
+          padding,
+          totalTurns: perTurn.length,
+        })
+      : null;
+
   const selectedTurn =
     selected !== null
       ? perTurn.find((t) => t.index === selected) ?? null
       : null;
+
+  // Non-baseline prosody chips for the selected turn (empty when no voice data).
+  const voiceChips = voiceChipsFor(selectedTurn?.voice);
 
   // Loading/error only belong to the inspector when they pertain to the turn
   // currently selected (the pivot the parent is acting on).
@@ -309,6 +446,20 @@ export default function HeatChart({
       >
         {width > 0 && (
           <Svg width={width} height={height}>
+            {/* Replay playhead: a thin vertical ink line at the current turn's
+                x, drawn first so the lines and points sit on top of it. */}
+            {playheadX != null && (
+              <Line
+                testID="playhead-line"
+                x1={playheadX}
+                y1={padding}
+                x2={playheadX}
+                y2={height - padding}
+                stroke={INK}
+                strokeWidth={1.5}
+                strokeOpacity={0.35}
+              />
+            )}
             {/* Simulated overlay FIRST so the real (solid) lines sit on top of
                 the dashed hypothetical. Same per-speaker color, dashed, reduced
                 opacity. */}
@@ -355,7 +506,7 @@ export default function HeatChart({
                   fill={p.isSpike ? AMBER : line.color}
                   stroke={selected === p.index ? INK : "none"}
                   strokeWidth={selected === p.index ? 2 : 0}
-                  onPress={() => setSelected(p.index)}
+                  onPress={() => selectTurn(p.index)}
                 />
               )),
             )}
@@ -372,7 +523,7 @@ export default function HeatChart({
             key={`scrub-${t.index}`}
             testID={`scrub-${t.index}`}
             style={styles.scrubCell}
-            onPress={() => setSelected(t.index)}
+            onPress={() => selectTurn(t.index)}
             accessibilityLabel={`Turn ${t.index + 1}, ${t.speaker}, heat ${t.heat}`}
           />
         ))}
@@ -395,11 +546,24 @@ export default function HeatChart({
           <Text style={styles.inspectorText}>
             {turns?.[selectedTurn.index]?.text ?? ""}
           </Text>
-          {selectedTurn.markers.length > 0 && (
+          {(selectedTurn.markers.length > 0 || voiceChips.length > 0) && (
             <View style={styles.chipRow}>
+              {/* Behavioral markers: filled chips. */}
               {selectedTurn.markers.map((m) => (
                 <View key={m} style={styles.chip}>
                   <Text style={styles.chipText}>{m.replace(/_/g, " ")}</Text>
+                </View>
+              ))}
+              {/* Voice/prosody: outline chips, visually distinct from the filled
+                  marker chips. Only the non-baseline dimensions appear; nothing
+                  when voice is null/absent (old servers / degraded prosody). */}
+              {voiceChips.map((c) => (
+                <View
+                  key={`voice-${c.kind}`}
+                  testID={`voice-chip-${c.kind}`}
+                  style={styles.voiceChip}
+                >
+                  <Text style={styles.voiceChipText}>{c.label}</Text>
                 </View>
               ))}
             </View>
@@ -527,6 +691,21 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   chipText: {
+    fontSize: 11,
+    color: MUTED,
+    fontWeight: "600",
+  },
+  // Outline (unfilled) chip so prosody reads as a different KIND of tag than the
+  // filled marker chips sitting beside it.
+  voiceChip: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  voiceChipText: {
     fontSize: 11,
     color: MUTED,
     fontWeight: "600",

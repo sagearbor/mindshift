@@ -4,13 +4,18 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  Pressable,
+  Switch,
   ScrollView,
   ActivityIndicator,
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
+import * as DocumentPicker from "expo-document-picker";
 import { useSessionStore } from "../store/sessionStore";
+import { postAnalyzeUpload } from "../api/client";
+import type { AnalyzeResult } from "../api/client";
 import RoleSelector from "../components/RoleSelector";
 import EmpathySlider from "../components/EmpathySlider";
 import SuggestionCard from "../components/SuggestionCard";
@@ -18,11 +23,67 @@ import SuggestionCard from "../components/SuggestionCard";
 interface SessionScreenProps {
   /** Navigate to the post-session Conversation Dynamics analysis. Provided by
    *  App; optional so the screen still renders standalone (and in tests that
-   *  don't exercise navigation). */
-  onAnalyzeDynamics?: () => void;
+   *  don't exercise navigation).
+   *
+   *  `initialData` carries a ready-made analysis (from the recording-upload
+   *  flow) so DynamicsScreen can render it without re-fetching; omitted for the
+   *  plain "Analyze dynamics" button, which analyzes the store transcript.
+   *
+   *  `recordingId` is the server-assigned id of a *stored* recording (only set
+   *  when the upload flow's consent+store both landed as true); null/omitted
+   *  otherwise. Threaded through so DynamicsScreen can offer its Replay
+   *  affordance for the recording. */
+  onAnalyzeDynamics?: (initialData?: AnalyzeResult, recordingId?: string | null) => void;
+  /** Open the stored-recordings list (media replay). Optional for the same
+   *  standalone-render reason. */
+  onOpenRecordings?: () => void;
 }
 
-export default function SessionScreen({ onAnalyzeDynamics }: SessionScreenProps = {}) {
+/** A file the user picked but hasn't uploaded yet. `file` (web File) is set only
+ *  on web; native carries just the `uri`. */
+interface PickedRecording {
+  uri: string;
+  name: string;
+  mimeType: string;
+  size?: number;
+  file?: File;
+}
+
+/** Map an `API error: <status>` from postAnalyzeUpload to an honest, human
+ *  message. Never invents a result — every branch tells the user what happened. */
+function uploadErrorMessage(err: unknown): string {
+  const msg = err instanceof Error ? err.message : "";
+  const status = Number(msg.match(/API error: (\d+)/)?.[1] ?? 0);
+  switch (status) {
+    case 401:
+      return "Please sign in again to analyze a recording.";
+    case 413:
+      return "That file is too large or too long. Try a shorter clip.";
+    case 422:
+      return "We couldn’t read that file — no clear speech found. Try another recording.";
+    case 429:
+      return "Too many requests right now. Give it a moment and try again.";
+    case 503:
+      return "Recording analysis isn’t configured on the server yet.";
+    case 502:
+      return "The analysis service is unavailable right now. Please try again.";
+    default:
+      return "Something went wrong analyzing that recording. Please try again.";
+  }
+}
+
+/** Human-readable file size for the picked-file line. */
+function formatSize(bytes?: number): string | null {
+  if (bytes === undefined || bytes <= 0) return null;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export default function SessionScreen({
+  onAnalyzeDynamics,
+  onOpenRecordings,
+}: SessionScreenProps = {}) {
   const {
     role,
     empathyLevel,
@@ -33,6 +94,7 @@ export default function SessionScreen({ onAnalyzeDynamics }: SessionScreenProps 
     setEmpathyLevel,
     addTurn,
     loadTranscript,
+    loadTurns,
     clearTurns,
     fetchSuggestions,
   } = useSessionStore();
@@ -40,6 +102,75 @@ export default function SessionScreen({ onAnalyzeDynamics }: SessionScreenProps 
   const [speaker, setSpeaker] = useState("");
   const [text, setText] = useState("");
   const [pasted, setPasted] = useState("");
+
+  // --- Analyze-a-recording flow ---
+  const [picked, setPicked] = useState<PickedRecording | null>(null);
+  const [uploadContext, setUploadContext] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  // Consent to have this recording analyzed & (optionally) stored. Unchecked
+  // by default — nothing is ever stored without an explicit opt-in.
+  const [consent, setConsent] = useState(false);
+  // Whether a consenting upload should also be retained for replay. Defaults
+  // on so a consenting user gets storage unless they turn it off; irrelevant
+  // (and disabled) while consent is unchecked.
+  const [storeRecording, setStoreRecording] = useState(true);
+  // What the server actually did with the last uploaded file — set only after
+  // a successful upload, so the UI reports fact rather than intent.
+  const [uploadStored, setUploadStored] = useState<boolean | null>(null);
+  const [uploadStorageNote, setUploadStorageNote] = useState<string | null>(null);
+
+  const handlePickRecording = async () => {
+    setUploadError(null);
+    setUploadStored(null);
+    setUploadStorageNote(null);
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ["audio/*", "video/*"],
+      copyToCacheDirectory: true,
+      multiple: false,
+    });
+    if (result.canceled) return;
+    const asset = result.assets[0];
+    if (!asset) return;
+    setPicked({
+      uri: asset.uri,
+      name: asset.name,
+      mimeType: asset.mimeType ?? "application/octet-stream",
+      size: asset.size,
+      file: asset.file,
+    });
+  };
+
+  const handleUploadAnalyze = async () => {
+    if (!picked || uploading) return;
+    setUploading(true);
+    setUploadError(null);
+    setUploadStored(null);
+    setUploadStorageNote(null);
+    try {
+      // Web hands us a File; native hands us the local URI string.
+      const fileArg = Platform.OS === "web" && picked.file ? picked.file : picked.uri;
+      const trimmedContext = uploadContext.trim();
+      const result = await postAnalyzeUpload(
+        fileArg,
+        picked.name,
+        picked.mimeType,
+        trimmedContext ? trimmedContext : undefined,
+        { consent, store: storeRecording },
+      );
+      // Load the server-produced transcript so the what-if flow (and inspector
+      // text) works off the store, then jump straight to the ready-made analysis
+      // — no second /analyze round-trip.
+      loadTurns(result.turns);
+      setUploadStored(result.stored);
+      setUploadStorageNote(result.stored ? null : result.storage_note);
+      onAnalyzeDynamics?.(result, result.recording_id ?? null);
+    } catch (e) {
+      setUploadError(uploadErrorMessage(e));
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const handleAddTurn = () => {
     const trimmedText = text.trim();
@@ -65,9 +196,121 @@ export default function SessionScreen({ onAnalyzeDynamics }: SessionScreenProps 
       >
         <Text style={styles.heading}>MindShift Session</Text>
 
+        {/* Small link to the stored-recordings list (media replay). */}
+        {onOpenRecordings && (
+          <TouchableOpacity
+            testID="open-recordings-link"
+            style={styles.recordingsLink}
+            onPress={onOpenRecordings}
+          >
+            <Text style={styles.recordingsLinkText}>▶ Recordings</Text>
+          </TouchableOpacity>
+        )}
+
         <RoleSelector selectedRole={role} onSelect={setRole} />
 
         <EmpathySlider value={empathyLevel} onValueChange={setEmpathyLevel} />
+
+        {/* Analyze a recording: pick an audio/video file, upload it, and land on
+            the ready-made Conversation Dynamics analysis. */}
+        <View style={styles.inputSection}>
+          <View style={styles.recordingCard}>
+            <Text style={styles.sectionTitle}>Analyze a recording</Text>
+            <Text style={styles.recordingNote}>
+              Without consent to store, we analyze the sound and discard the file.
+            </Text>
+
+            <Pressable
+              testID="consent-checkbox"
+              style={styles.consentRow}
+              onPress={() => setConsent((v) => !v)}
+            >
+              <Text style={styles.consentCheckbox}>{consent ? "☑" : "☐"}</Text>
+              <Text style={styles.consentLabel}>
+                Everyone in this recording knows it was recorded and agrees to
+                it being analyzed and stored.
+              </Text>
+            </Pressable>
+
+            <View style={[styles.storeRow, !consent && styles.storeRowDisabled]}>
+              <Text style={styles.storeLabel}>Store for replay</Text>
+              <Switch
+                testID="store-toggle"
+                value={storeRecording}
+                onValueChange={setStoreRecording}
+                disabled={!consent}
+              />
+            </View>
+
+            <TouchableOpacity
+              testID="pick-recording-button"
+              style={styles.pickButton}
+              onPress={() => void handlePickRecording()}
+              disabled={uploading}
+            >
+              <Text style={styles.pickButtonText}>
+                {picked ? "Choose a different file" : "Choose a recording"}
+              </Text>
+            </TouchableOpacity>
+
+            {picked && (
+              <Text style={styles.pickedFile} testID="picked-file">
+                {picked.name}
+                {formatSize(picked.size) ? `  ·  ${formatSize(picked.size)}` : ""}
+              </Text>
+            )}
+
+            {picked && (
+              <>
+                <TextInput
+                  testID="recording-context-input"
+                  style={styles.recordingContextInput}
+                  placeholder="Optional: any context about this conversation"
+                  value={uploadContext}
+                  onChangeText={setUploadContext}
+                  multiline
+                  placeholderTextColor="#9CA3AF"
+                  editable={!uploading}
+                />
+                <TouchableOpacity
+                  testID="upload-analyze-button"
+                  style={[
+                    styles.uploadButton,
+                    uploading && styles.suggestButtonDisabled,
+                  ]}
+                  onPress={() => void handleUploadAnalyze()}
+                  disabled={uploading}
+                >
+                  {uploading ? (
+                    <View style={styles.uploadingRow}>
+                      <ActivityIndicator color="#FFFFFF" />
+                      <Text style={styles.uploadButtonText}>Analyzing…</Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.uploadButtonText}>Upload &amp; analyze</Text>
+                  )}
+                </TouchableOpacity>
+              </>
+            )}
+
+            {uploadError && (
+              <Text style={styles.uploadError} testID="upload-error">
+                {uploadError}
+              </Text>
+            )}
+
+            {uploadStored === true && (
+              <Text style={styles.storedNote} testID="stored-note">
+                Saved for replay ✓
+              </Text>
+            )}
+            {uploadStored === false && uploadStorageNote && (
+              <Text style={styles.storageNote} testID="storage-note">
+                {uploadStorageNote}
+              </Text>
+            )}
+          </View>
+        </View>
 
         {/* Async review: paste or type a whole conversation, then Load it. */}
         <View style={styles.inputSection}>
@@ -167,7 +410,8 @@ export default function SessionScreen({ onAnalyzeDynamics }: SessionScreenProps 
           <TouchableOpacity
             testID="analyze-dynamics-button"
             style={styles.analyzeButton}
-            onPress={onAnalyzeDynamics}
+            // No arg: the plain button analyzes the store transcript on mount.
+            onPress={() => onAnalyzeDynamics()}
           >
             <Text style={styles.analyzeButtonText}>Analyze dynamics →</Text>
           </TouchableOpacity>
@@ -216,6 +460,21 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     color: "#111827",
   },
+  recordingsLink: {
+    alignSelf: "center",
+    marginBottom: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#FFFFFF",
+  },
+  recordingsLinkText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#4A90D9",
+  },
   inputSection: {
     paddingHorizontal: 16,
     marginTop: 8,
@@ -242,6 +501,117 @@ const styles = StyleSheet.create({
     textAlignVertical: "top",
     color: "#1F2937",
     backgroundColor: "#FFFFFF",
+  },
+  recordingCard: {
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 12,
+    padding: 14,
+    backgroundColor: "#FFFFFF",
+  },
+  recordingNote: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: "#6B7280",
+    marginBottom: 12,
+  },
+  consentRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    marginBottom: 10,
+  },
+  consentCheckbox: {
+    fontSize: 18,
+    lineHeight: 20,
+    color: "#4A90D9",
+  },
+  consentLabel: {
+    flex: 1,
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: "#374151",
+  },
+  storeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  storeRowDisabled: {
+    opacity: 0.5,
+  },
+  storeLabel: {
+    fontSize: 14,
+    color: "#1F2937",
+    fontWeight: "500",
+  },
+  storedNote: {
+    marginTop: 10,
+    fontSize: 13,
+    lineHeight: 19,
+    color: "#059669",
+    fontWeight: "600",
+  },
+  storageNote: {
+    marginTop: 10,
+    fontSize: 13,
+    lineHeight: 19,
+    color: "#6B7280",
+  },
+  pickButton: {
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    borderWidth: 1.5,
+    borderColor: "#4A90D9",
+    backgroundColor: "#EEF2FF",
+  },
+  pickButtonText: {
+    color: "#4A90D9",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  pickedFile: {
+    marginTop: 10,
+    fontSize: 13,
+    color: "#1F2937",
+    fontWeight: "600",
+  },
+  recordingContextInput: {
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 8,
+    padding: 10,
+    fontSize: 14,
+    minHeight: 60,
+    textAlignVertical: "top",
+    color: "#1F2937",
+    backgroundColor: "#FFFFFF",
+    marginTop: 10,
+  },
+  uploadButton: {
+    backgroundColor: "#4A90D9",
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    marginTop: 10,
+  },
+  uploadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  uploadButtonText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  uploadError: {
+    marginTop: 10,
+    fontSize: 13,
+    lineHeight: 19,
+    color: "#DC2626",
   },
   pasteRow: {
     flexDirection: "row",

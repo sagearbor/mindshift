@@ -1,0 +1,75 @@
+{
+  "sample_rate": 16000,
+  "turns": [
+    {
+      "speaker": "Speaker A",
+      "text": "Hey, can we talk about the weekend plan?",
+      "scripted_emotion": "calm",
+      "start_time": 0.0,
+      "end_time": 2.28,
+      "expected": {}
+    },
+    {
+      "speaker": "Speaker B",
+      "text": "Sure, I have a few minutes right now.",
+      "scripted_emotion": "calm",
+      "start_time": 2.68,
+      "end_time": 5.28,
+      "expected": {}
+    },
+    {
+      "speaker": "Speaker A",
+      "text": "You always cancel and never tell me why!",
+      "scripted_emotion": "shouting",
+      "start_time": 5.68,
+      "end_time": 8.115,
+      "expected": {
+        "energy_label": "loud",
+        "rate_label": "fast"
+      }
+    },
+    {
+      "speaker": "Speaker B",
+      "text": "Please stop yelling, you are scaring me now.",
+      "scripted_emotion": "agitated",
+      "start_time": 8.515,
+      "end_time": 11.115,
+      "expected": {}
+    },
+    {
+      "speaker": "Speaker A",
+      "text": "Fine. Do whatever you want. I am done.",
+      "scripted_emotion": "cold",
+      "start_time": 11.515,
+      "end_time": 15.514,
+      "expected": {
+        "energy_label": "quiet",
+        "rate_label": "slow"
+      }
+    },
+    {
+      "speaker": "Speaker B",
+      "text": "I hear you. Let us slow down together.",
+      "scripted_emotion": "calm",
+      "start_time": 15.915,
+      "end_time": 19.434,
+      "expected": {}
+    },
+    {
+      "speaker": "Speaker A",
+      "text": "Okay. I am sorry I raised my voice.",
+      "scripted_emotion": "calm",
+      "start_time": 19.834,
+      "end_time": 22.754,
+      "expected": {}
+    },
+    {
+      "speaker": "Speaker B",
+      "text": "Thank you. That really means a lot to me.",
+      "scripted_emotion": "calm",
+      "start_time": 23.154,
+      "end_time": 26.034,
+      "expected": {}
+    }
+  ]
+}
