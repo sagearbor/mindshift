@@ -26,7 +26,9 @@ import io
 import logging
 import os
 import subprocess
+import tempfile
 import wave
+from dataclasses import dataclass
 
 import httpx
 import numpy as np
@@ -84,6 +86,169 @@ class TranscriptionUnavailable(RuntimeError):
 
 class NoSpeechFound(RuntimeError):
     """Transcription returned no usable speech (endpoint → 422)."""
+
+
+class TranscodeError(RuntimeError):
+    """A storage derivative could not be produced by ffmpeg.
+
+    Raised by :func:`build_derivatives` when the ALWAYS-required audio.m4a
+    extraction fails (ffmpeg missing, bad input, timeout). A FAILED optional
+    video derivative does NOT raise — it degrades to audio-only with a note (see
+    :class:`Derivatives`), so replay of the audio still works.
+    """
+
+
+# ---------------------------------------------------------------------------
+# Storage derivatives — we persist compressed AAC audio (and, for a video
+# input, a small 360p H.264 clip), NEVER the original bytes. A phone video is
+# 50-300MB; the audio derivative is ~0.5MB/min and the 360p clip a few percent
+# of the original, so replay stays cheap. All ffmpeg work uses temp FILES (not
+# stdin/stdout pipes): an MP4 muxer needs a seekable output, and a phone MP4
+# often carries its moov atom at the end, needing a seekable INPUT — pipes
+# satisfy neither reliably.
+# ---------------------------------------------------------------------------
+
+# 5 minutes per transcode — generous for a long recording, bounded so a
+# pathological input can never wedge a worker thread. A video transcode that
+# hits it degrades to audio-only (honest note); an audio transcode that hits it
+# is a TranscodeError (nothing useful to store).
+DERIVATIVE_TIMEOUT_S = 300
+
+# Mono 16 kHz AAC in an MP4/m4a container. 48 kbps is ample for speech.
+_AUDIO_M4A_ARGS = [
+    "-vn", "-ac", "1", "-ar", "16000",
+    "-c:a", "aac", "-b:a", "48k",
+    "-movflags", "+faststart",
+]
+# 360p H.264 + AAC. scale=-2:360 keeps the aspect ratio (width rounded to an
+# even number, required by libx264). CRF 28 / veryfast keeps it small and fast.
+_VIDEO_360P_ARGS = [
+    "-vf", "scale=-2:360",
+    "-c:v", "libx264", "-crf", "28", "-preset", "veryfast",
+    "-c:a", "aac", "-b:a", "48k",
+    "-movflags", "+faststart",
+]
+
+
+@dataclass
+class Derivatives:
+    """Result of :func:`build_derivatives`.
+
+    ``audio_m4a`` is always present (its failure raises TranscodeError instead).
+    ``video_360p`` is bytes only when the input carried a video stream AND the
+    360p transcode succeeded; when a video was present but the transcode failed
+    or timed out, ``video_360p`` is None and ``video_note`` explains why (the
+    caller surfaces it as a storage_note — audio replay still works).
+    """
+    audio_m4a: bytes
+    video_360p: bytes | None
+    has_video: bool
+    video_note: str | None
+
+
+def _ffmpeg_exe() -> str:
+    try:
+        import imageio_ffmpeg
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception as exc:  # noqa: BLE001 — report honestly, never fabricate
+        raise TranscodeError(f"ffmpeg unavailable: {exc}") from exc
+
+
+def _probe_has_video(exe: str, in_path: str) -> bool:
+    """True when the input has a real video stream (not just cover art).
+
+    imageio-ffmpeg ships only ffmpeg (no ffprobe), so we parse ``ffmpeg -i``'s
+    stderr. An audio file's embedded album art appears as a ``Video:`` line
+    tagged ``(attached pic)`` — excluded so a cover-art MP3 is not mistaken for
+    a video. A probe failure returns False (treat as audio-only, honestly).
+    """
+    try:
+        proc = subprocess.run(
+            [exe, "-hide_banner", "-i", in_path],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60,
+        )
+    except Exception:  # noqa: BLE001 — probe failure → assume audio-only
+        return False
+    stderr = proc.stderr.decode("utf-8", "replace")
+    for line in stderr.splitlines():
+        if "Video:" in line and "attached pic" not in line.lower():
+            return True
+    return False
+
+
+def _transcode(exe: str, in_path: str, out_args: list[str], suffix: str,
+               timeout: int) -> bytes:
+    """Run one ffmpeg transcode from ``in_path`` to a temp file; return bytes.
+
+    Raises :class:`TranscodeError` on a non-zero exit, empty output, or timeout
+    (timeout is normalized to TranscodeError so callers handle one type).
+    """
+    fd, out_path = tempfile.mkstemp(suffix=suffix)
+    os.close(fd)
+    try:
+        cmd = [exe, "-nostdin", "-loglevel", "error", "-y", "-i", in_path,
+               *out_args, out_path]
+        try:
+            proc = subprocess.run(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise TranscodeError("transcode timed out") from exc
+        if proc.returncode != 0:
+            detail = proc.stderr.decode("utf-8", "replace").strip()[-200:]
+            raise TranscodeError(detail or "ffmpeg transcode failed")
+        with open(out_path, "rb") as f:
+            data = f.read()
+        if not data:
+            raise TranscodeError("transcode produced no output")
+        return data
+    finally:
+        try:
+            os.unlink(out_path)
+        except OSError:
+            pass
+
+
+def build_derivatives(
+    data: bytes, *, timeout: int = DERIVATIVE_TIMEOUT_S,
+) -> Derivatives:
+    """Build the compressed storage derivatives for a recording's raw bytes.
+
+    Always produces a mono AAC ``audio.m4a``; when the input has a video stream,
+    additionally produces a 360p ``video_360p.mp4`` (degrading to audio-only
+    with a note on transcode failure/timeout). The input is written to ONE temp
+    file that the probe + both transcodes share. This is blocking (subprocess +
+    file I/O) — the caller runs it in a worker thread.
+    """
+    exe = _ffmpeg_exe()
+    fd, in_path = tempfile.mkstemp(suffix=".src")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        has_video = _probe_has_video(exe, in_path)
+        # Audio is mandatory — its failure is a TranscodeError (nothing to store).
+        audio = _transcode(exe, in_path, _AUDIO_M4A_ARGS, ".m4a", timeout)
+        video: bytes | None = None
+        note: str | None = None
+        if has_video:
+            try:
+                video = _transcode(
+                    exe, in_path, _VIDEO_360P_ARGS, ".mp4", timeout,
+                )
+            except TranscodeError as exc:
+                video = None
+                note = f"video replay unavailable: {exc}"
+        return Derivatives(
+            audio_m4a=audio, video_360p=video, has_video=has_video,
+            video_note=note,
+        )
+    finally:
+        try:
+            os.unlink(in_path)
+        except OSError:
+            pass
 
 
 # ---------------------------------------------------------------------------

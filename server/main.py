@@ -43,12 +43,14 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
 import dynamics
+import link_fetch
 import prosody
 import recordings_store
 from audio_ingest import (
     AudioDecodeError,
     NoSpeechFound,
     TranscriptionUnavailable,
+    build_derivatives,
     decode_to_pcm,
     transcribe_prerecorded,
 )
@@ -479,6 +481,15 @@ class UploadStartResponse(BaseModel):
     upload_id: str
     chunk_bytes: int
     expected_chunks: int
+
+
+class AnalyzeLinkRequest(BaseModel):
+    # A user-pasted share URL (Drive share links are rewritten server-side). The
+    # server downloads it itself — see link_fetch for the SSRF/size/HTML guards.
+    url: str = Field(min_length=1, max_length=2000)
+    context: str = Field(default="", max_length=500)
+    consent: bool = False
+    store: bool = True
 
 
 # --- POST /analyze/counterfactual — the "what if they'd said it differently"
@@ -1736,15 +1747,21 @@ async def _analyze_recording_bytes(
     context: str,
     consent: bool,
     store: bool,
+    source: dict,
 ) -> AnalyzeUploadResponse:
     """Analyze one recording's raw bytes and optionally persist the result.
 
     This is the WHOLE /analyze/upload pipeline minus the transport-level read +
     size gate: it is shared VERBATIM by the direct ``/analyze/upload`` endpoint
-    (which reads a multipart body) and the chunked ``/uploads/{id}/complete``
-    endpoint (which reassembles ``data`` from GCS parts), so both paths run the
-    exact same transcription/prosody/_run_analysis/storage code. ``consent`` and
-    ``store`` are booleans (each caller parses its own form field / manifest).
+    (which reads a multipart body), the chunked ``/uploads/{id}/complete``
+    endpoint (which reassembles ``data`` from GCS parts), and ``/analyze/link``
+    (which downloads ``data`` from a URL), so every path runs the exact same
+    transcription/prosody/_run_analysis/storage code. ``consent`` and ``store``
+    are booleans (each caller parses its own form field / manifest / JSON).
+    ``source`` is provenance stored verbatim in the recording's meta.json — a
+    future replay feature can stream the user's own hosted copy instead of our
+    derivative (``{"type": "upload"|"link", "url": str|None,
+    "original_filename": str|None}``).
 
     Honest failures throughout: transcription unconfigured → 503, undecodable or
     speechless → 422, over the duration cap → 413. A storage failure never sinks
@@ -1843,35 +1860,57 @@ async def _analyze_recording_bytes(
     elif store_backend is None:
         response.storage_note = "storage not enabled"
     else:
-        # analysis.json holds the full analysis payload (turns + voice included);
-        # turns.json is the transcript on its own for the lighter detail read.
-        # Mark stored=True BEFORE dumping so the persisted blob describes its
-        # own stored state truthfully (it only gets written on a successful
-        # save); the except arm resets it on failure. recording_id inside the
-        # blob stays null — the id is the blob's own storage key, returned by
-        # GET /recordings/{id} alongside it.
-        response.stored = True
-        analysis_json = response.model_dump()
-        turns_json = [t.model_dump() for t in transcribed]
-        # Prefer the decoded duration; fall back to the transcript's last end.
-        duration_seconds = decoded_duration
-        if duration_seconds is None:
-            duration_seconds = max((t.end_time or 0.0 for t in turns), default=0.0) or None
+        # We persist compressed DERIVATIVES, never the original bytes (a cost
+        # decision): always an AAC audio.m4a, plus a 360p video_360p.mp4 when the
+        # input carried video. Build them off the event loop. A failed AUDIO
+        # derivative means there is nothing useful to store → honest stored=false;
+        # a failed VIDEO derivative degrades to audio-only with a note (replay of
+        # the audio still works).
         try:
-            recording_id = await store_backend.save_recording(
-                uid,
-                data=data,
-                filename=filename,
-                content_type=content_type,
-                duration_seconds=duration_seconds,
-                turns=turns_json,
-                analysis=analysis_json,
-            )
-            response.recording_id = recording_id
+            derivatives = await asyncio.to_thread(build_derivatives, data)
         except Exception as exc:  # noqa: BLE001 — persistence must not fail analysis
-            logger.warning("Recording persistence failed for uid=%s: %s", uid, exc)
-            response.stored = False
+            logger.warning("Derivative transcode failed for uid=%s: %s", uid, exc)
             response.storage_note = f"storage failed: {type(exc).__name__}"
+        else:
+            # Mark stored=True BEFORE dumping so the persisted analysis blob
+            # describes its own stored state truthfully; the except arm below
+            # resets it on a save failure. A video-derivative note rides along in
+            # storage_note (the recording IS stored — just audio-only).
+            response.stored = True
+            if derivatives.video_note:
+                response.storage_note = derivatives.video_note
+            # analysis.json holds the full analysis payload (turns + voice
+            # included); turns.json is the transcript alone for the lighter
+            # detail read. recording_id inside the blob stays null — the id is
+            # the blob's own storage key, returned by GET /recordings/{id}.
+            analysis_json = response.model_dump()
+            turns_json = [t.model_dump() for t in transcribed]
+            # Prefer the decoded duration; fall back to the transcript's last end.
+            duration_seconds = decoded_duration
+            if duration_seconds is None:
+                duration_seconds = max(
+                    (t.end_time or 0.0 for t in turns), default=0.0
+                ) or None
+            try:
+                recording_id = await store_backend.save_recording(
+                    uid,
+                    audio_m4a=derivatives.audio_m4a,
+                    video_360p=derivatives.video_360p,
+                    original_filename=filename,
+                    original_content_type=content_type,
+                    original_bytes=len(data),
+                    duration_seconds=duration_seconds,
+                    turns=turns_json,
+                    analysis=analysis_json,
+                    source=source,
+                )
+                response.recording_id = recording_id
+            except Exception as exc:  # noqa: BLE001 — persistence must not fail analysis
+                logger.warning("Recording persistence failed for uid=%s: %s", uid, exc)
+                response.stored = False
+                response.recording_id = None
+                # Preserve a video note if there was one; otherwise report the save failure.
+                response.storage_note = f"storage failed: {type(exc).__name__}"
 
     return response
 
@@ -1925,6 +1964,55 @@ async def analyze_upload(
         context=context,
         consent=_parse_bool_form(consent),
         store=_parse_bool_form(store),
+        source={
+            "type": "upload",
+            "url": None,
+            "original_filename": file.filename,
+        },
+    )
+
+
+@app.post("/analyze/link", response_model=AnalyzeUploadResponse)
+async def analyze_link(
+    req: AnalyzeLinkRequest,
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    """Analyze a recording the user links to instead of uploading.
+
+    The server downloads the bytes itself (Drive share links are rewritten to
+    their direct-download form; the body is streamed with a hard 200MB cap and a
+    10-minute timeout), guarding against SSRF (private/internal addresses are
+    rejected) and against a share/preview HTML page being mistaken for a file.
+    The downloaded bytes then run the EXACT same analyze+derivative-store
+    pipeline as an upload. The ORIGINAL user-provided URL (pre-Drive-rewrite —
+    the durable share link) is kept in the recording's source metadata."""
+    try:
+        # fetch_link is blocking (httpx.Client) — keep it off the event loop.
+        data, filename, content_type = await asyncio.to_thread(
+            link_fetch.fetch_link, req.url,
+        )
+    except link_fetch.LinkError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+
+    if not data:
+        raise HTTPException(status_code=422, detail="linked file is empty")
+
+    return await _analyze_recording_bytes(
+        uid,
+        data=data,
+        filename=filename,
+        content_type=content_type,
+        context=req.context,
+        consent=req.consent,
+        store=req.store,
+        source={
+            "type": "link",
+            # The ORIGINAL pasted URL, not the Drive-rewritten one — that is the
+            # durable share link a future replay feature would re-fetch.
+            "url": req.url,
+            "original_filename": filename,
+        },
     )
 
 
@@ -2069,6 +2157,9 @@ async def list_recordings(uid: str = Depends(get_current_uid)):
                 "media_type": m["media_type"],
                 "duration_seconds": m.get("duration_seconds"),
                 "has_analysis": m.get("has_analysis", False),
+                # List carries only the source TYPE (upload/link); the full
+                # source object (incl. the durable url) is on the detail read.
+                "source_type": (m.get("source") or {}).get("type"),
             }
             for m in metas
         ]
@@ -2094,6 +2185,9 @@ async def get_recording(
         "duration_seconds": rec.get("duration_seconds"),
         "turns": rec.get("turns", []),
         "analysis": rec.get("analysis"),
+        # Provenance verbatim (type/url/original_filename) so a future replay
+        # feature can stream the user's own hosted copy. Metadata only.
+        "source": rec.get("source"),
     }
 
 
@@ -2351,6 +2445,11 @@ async def complete_upload(
             context=manifest.get("context", "") or "",
             consent=bool(manifest.get("consent", False)),
             store=bool(manifest.get("store", True)),
+            source={
+                "type": "upload",
+                "url": None,
+                "original_filename": manifest.get("filename"),
+            },
         )
     finally:
         # Best-effort cleanup: the reassembled bytes are analyzed (and, on

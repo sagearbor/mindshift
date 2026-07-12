@@ -23,11 +23,15 @@ import numpy as np
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+import audio_ingest
 import main
-import recordings_store
 from main import app, init_db
 
 SR = 16000
+
+# Deterministic ffmpeg-derivative stand-in (build_derivatives is patched in the
+# `store` fixture so complete() never invokes real ffmpeg).
+FAKE_AUDIO_M4A = b"FAKE-M4A-AUDIO-DERIVATIVE-" * 20
 
 
 # ---------------------------------------------------------------------------
@@ -46,23 +50,27 @@ class FakeUploadStore:
 
     # -- recording persistence (only used on the store=true complete path) --
     async def save_recording(
-        self, uid, *, data, filename, content_type, duration_seconds, turns,
-        analysis,
+        self, uid, *, audio_m4a, video_360p, original_filename,
+        original_content_type, original_bytes, duration_seconds, turns,
+        analysis, source=None,
     ):
         recording_id = str(uuid.uuid4())
         meta = {
             "id": recording_id,
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "filename": filename or "recording.bin",
-            "media_type": recordings_store._media_type_for(content_type),
+            "filename": original_filename or "recording",
+            "media_type": "video" if video_360p is not None else "audio",
             "duration_seconds": duration_seconds,
-            "size_bytes": len(data),
+            "size_bytes": len(audio_m4a) + (len(video_360p) if video_360p else 0),
+            "source": source,
         }
         self._recordings.setdefault(uid, {})[recording_id] = {
-            "meta": meta, "turns": turns, "analysis": analysis, "data": data,
+            "meta": meta, "turns": turns, "analysis": analysis,
+            "audio_m4a": audio_m4a, "video_360p": video_360p,
         }
         self.save_calls.append({"uid": uid, "recording_id": recording_id,
-                                "data": data})
+                                "audio_m4a": audio_m4a, "video_360p": video_360p,
+                                "source": source})
         return recording_id
 
     # -- chunked upload sessions -------------------------------------------
@@ -187,9 +195,17 @@ async def client():
 
 @pytest.fixture
 def store(monkeypatch):
-    """Inject a fake store + shrink the chunk size so the tiny fixture is
-    genuinely multi-part."""
+    """Inject a fake store, shrink the chunk size so the tiny fixture is
+    genuinely multi-part, and patch build_derivatives to deterministic bytes so
+    complete()'s persistence path never invokes real ffmpeg."""
     monkeypatch.setattr(main, "UPLOAD_CHUNK_BYTES", SMALL_CHUNK)
+    monkeypatch.setattr(
+        main, "build_derivatives",
+        lambda data, **kw: audio_ingest.Derivatives(
+            audio_m4a=FAKE_AUDIO_M4A, video_360p=None, has_video=False,
+            video_note=None,
+        ),
+    )
     fake = FakeUploadStore()
     app.state.recordings_store = fake
     yield fake
@@ -284,9 +300,14 @@ async def test_chunked_complete_honors_consent_true_persists(client, store):
     assert data["stored"] is True
     assert data["recording_id"]
     assert data["storage_note"] is None
-    # The reassembled bytes reached the recording store intact.
+    # The reassembled bytes were transcoded to a derivative and persisted; the
+    # chunked path is an upload, so source.type is "upload" with no url.
     assert len(store.save_calls) == 1
-    assert store.save_calls[0]["data"] == FIXTURE_WAV
+    call = store.save_calls[0]
+    assert call["audio_m4a"] == FAKE_AUDIO_M4A
+    assert call["source"] == {
+        "type": "upload", "url": None, "original_filename": "clip.wav",
+    }
 
 
 @pytest.mark.anyio
