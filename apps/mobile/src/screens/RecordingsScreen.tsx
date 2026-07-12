@@ -163,8 +163,12 @@ export default function RecordingsScreen({
                     {rec.filename}
                   </Text>
                   <Text style={styles.meta}>
-                    {new Date(rec.created_at).toLocaleDateString()} ·{" "}
-                    {formatTime(rec.duration_seconds)}
+                    {new Date(rec.created_at).toLocaleDateString()}
+                    {/* duration can be null (decode degraded, no transcript end
+                        time) — omit it rather than render a fake 0:00 */}
+                    {rec.duration_seconds !== null
+                      ? ` · ${formatTime(rec.duration_seconds)}`
+                      : ""}
                     {rec.has_analysis ? " · analyzed" : ""}
                   </Text>
                 </View>

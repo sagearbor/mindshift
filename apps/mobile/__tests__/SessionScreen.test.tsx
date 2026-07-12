@@ -3,18 +3,28 @@ import renderer, { act, ReactTestInstance } from "react-test-renderer";
 import * as DocumentPicker from "expo-document-picker";
 import SessionScreen from "../src/screens/SessionScreen";
 import { useSessionStore } from "../src/store/sessionStore";
-import { postAnalyzeUpload } from "../src/api/client";
+import {
+  postAnalyzeUpload,
+  postAnalyzeUploadChunked,
+  postAnalyzeLink,
+} from "../src/api/client";
 import type { UploadAnalyzeResult } from "../src/api/client";
 
-// Keep the real client (the store uses postRespond) but stub the upload call.
+// Keep the real client (the store uses postRespond) but stub the upload calls.
 jest.mock("../src/api/client", () => ({
   __esModule: true,
   ...jest.requireActual("../src/api/client"),
   postAnalyzeUpload: jest.fn(),
+  postAnalyzeUploadChunked: jest.fn(),
+  postAnalyzeLink: jest.fn(),
 }));
 
 const mockPick = DocumentPicker.getDocumentAsync as jest.Mock;
 const mockUpload = postAnalyzeUpload as jest.Mock;
+const mockChunked = postAnalyzeUploadChunked as jest.Mock;
+const mockLink = postAnalyzeLink as jest.Mock;
+
+const MB = 1024 * 1024;
 
 function queryId(
   comp: renderer.ReactTestRenderer,
@@ -50,6 +60,8 @@ const uploadFixture: UploadAnalyzeResult = {
 beforeEach(() => {
   mockPick.mockReset();
   mockUpload.mockReset();
+  mockChunked.mockReset();
+  mockLink.mockReset();
   act(() => {
     useSessionStore.setState({
       role: "Husband / Wife",
@@ -311,6 +323,238 @@ describe("SessionScreen", () => {
       expect(queryId(comp, "upload-error")).toBeTruthy();
       expect(JSON.stringify(comp.toJSON())).toContain("no clear speech found");
       // No navigation on failure — never a fabricated analysis.
+      expect(onAnalyze).not.toHaveBeenCalled();
+      act(() => comp.unmount());
+    });
+
+    it("refuses a >200MB file up front with an honest size message and no network call", async () => {
+      mockPick.mockResolvedValueOnce({
+        canceled: false,
+        assets: [
+          {
+            uri: "file:///huge.mov",
+            name: "huge.mov",
+            size: 250 * MB,
+            mimeType: "video/quicktime",
+          },
+        ],
+      });
+      const onAnalyze = jest.fn();
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<SessionScreen onAnalyzeDynamics={onAnalyze} />);
+      });
+      await act(async () => {
+        queryId(comp, "pick-recording-button")!.props.onPress();
+      });
+      await act(async () => {
+        queryId(comp, "upload-analyze-button")!.props.onPress();
+      });
+
+      // Honest size message, and NOTHING went to the network.
+      expect(queryId(comp, "upload-error")).toBeTruthy();
+      expect(JSON.stringify(comp.toJSON())).toContain("the limit is 200 MB");
+      expect(mockUpload).not.toHaveBeenCalled();
+      expect(mockChunked).not.toHaveBeenCalled();
+      expect(onAnalyze).not.toHaveBeenCalled();
+      act(() => comp.unmount());
+    });
+
+    it("uses the chunked path for a large file and shows a progress bar", async () => {
+      mockPick.mockResolvedValueOnce({
+        canceled: false,
+        assets: [
+          {
+            uri: "file:///big.mp4",
+            name: "big.mp4",
+            size: 103 * MB,
+            mimeType: "video/mp4",
+          },
+        ],
+      });
+      // Drive progress mid-flight, then hold the promise open so the bar renders.
+      let finish!: () => void;
+      mockChunked.mockImplementation(
+        (
+          _f: unknown,
+          _n: unknown,
+          _m: unknown,
+          _s: unknown,
+          opts: { onProgress?: (f: number) => void },
+        ) =>
+          new Promise((resolve) => {
+            opts.onProgress?.(0.5);
+            finish = () => resolve(uploadFixture);
+          }),
+      );
+      const onAnalyze = jest.fn();
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<SessionScreen onAnalyzeDynamics={onAnalyze} />);
+      });
+      await act(async () => {
+        queryId(comp, "pick-recording-button")!.props.onPress();
+      });
+      await act(async () => {
+        queryId(comp, "upload-analyze-button")!.props.onPress();
+      });
+
+      // Chunked (not direct) was called with size + consent/store/context opts.
+      expect(mockUpload).not.toHaveBeenCalled();
+      expect(mockChunked).toHaveBeenCalledTimes(1);
+      const call = mockChunked.mock.calls[0];
+      expect(call[0]).toBe("file:///big.mp4");
+      expect(call[1]).toBe("big.mp4");
+      expect(call[2]).toBe("video/mp4");
+      expect(call[3]).toBe(103 * MB);
+      expect(call[4]).toEqual(
+        expect.objectContaining({ consent: false, store: true }),
+      );
+
+      // While the upload is pending, the honest progress bar shows the percentage.
+      expect(queryId(comp, "upload-progress")).toBeTruthy();
+      expect(JSON.stringify(comp.toJSON())).toContain("50%");
+
+      // Completing the upload navigates with the ready-made analysis.
+      await act(async () => {
+        finish();
+      });
+      expect(onAnalyze).toHaveBeenCalledWith(uploadFixture, null);
+      act(() => comp.unmount());
+    });
+
+    it("keeps the direct path (no chunking) for a small file", async () => {
+      mockPick.mockResolvedValueOnce({
+        canceled: false,
+        assets: [
+          { uri: "file:///small.m4a", name: "small.m4a", size: 2 * MB, mimeType: "audio/m4a" },
+        ],
+      });
+      mockUpload.mockResolvedValueOnce(uploadFixture);
+      const onAnalyze = jest.fn();
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<SessionScreen onAnalyzeDynamics={onAnalyze} />);
+      });
+      await act(async () => {
+        queryId(comp, "pick-recording-button")!.props.onPress();
+      });
+      await act(async () => {
+        queryId(comp, "upload-analyze-button")!.props.onPress();
+      });
+
+      expect(mockUpload).toHaveBeenCalledTimes(1);
+      expect(mockChunked).not.toHaveBeenCalled();
+      expect(onAnalyze).toHaveBeenCalledWith(uploadFixture, null);
+      act(() => comp.unmount());
+    });
+  });
+
+  describe("analyze a link", () => {
+    it("toggles to link mode: swaps the file picker for the URL input", async () => {
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<SessionScreen />);
+      });
+
+      // File mode by default: picker present, link input absent.
+      expect(queryId(comp, "pick-recording-button")).toBeTruthy();
+      expect(queryId(comp, "link-input")).toBeNull();
+
+      // Switch to link mode via the toggle.
+      act(() => {
+        queryId(comp, "mode-link-tab")!.props.onPress();
+      });
+      expect(queryId(comp, "link-input")).toBeTruthy();
+      expect(queryId(comp, "analyze-link-button")).toBeTruthy();
+      expect(queryId(comp, "pick-recording-button")).toBeNull();
+      // The URL field must not autocapitalize.
+      expect(queryId(comp, "link-input")!.props.autoCapitalize).toBe("none");
+      // Helper text names the Drive/Photos guidance.
+      expect(JSON.stringify(comp.toJSON())).toContain(
+        "Google Photos isn’t supported yet",
+      );
+      act(() => comp.unmount());
+    });
+
+    it("analyzes a link, hydrates the transcript, and navigates with the analysis", async () => {
+      mockLink.mockResolvedValueOnce({
+        ...uploadFixture,
+        stored: true,
+        recording_id: "rec_link",
+        storage_note: null,
+      });
+      const onAnalyze = jest.fn();
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<SessionScreen onAnalyzeDynamics={onAnalyze} />);
+      });
+
+      // Consent so store lands true, then switch to link mode and type a URL.
+      act(() => {
+        queryId(comp, "consent-checkbox")!.props.onPress();
+        queryId(comp, "mode-link-tab")!.props.onPress();
+      });
+      act(() => {
+        queryId(comp, "link-input")!.props.onChangeText(
+          "https://drive.google.com/file/d/abc",
+        );
+      });
+
+      await act(async () => {
+        queryId(comp, "analyze-link-button")!.props.onPress();
+      });
+
+      expect(mockUpload).not.toHaveBeenCalled();
+      expect(mockChunked).not.toHaveBeenCalled();
+      expect(mockLink).toHaveBeenCalledTimes(1);
+      expect(mockLink).toHaveBeenCalledWith(
+        "https://drive.google.com/file/d/abc",
+        { consent: true, store: true, context: undefined },
+      );
+      // Same handoff as upload: transcript in the store, navigation with the id.
+      expect(useSessionStore.getState().turns).toEqual(uploadFixture.turns);
+      expect(onAnalyze).toHaveBeenCalledWith(
+        expect.objectContaining({ recording_id: "rec_link" }),
+        "rec_link",
+      );
+      expect(queryId(comp, "stored-note")).toBeTruthy();
+      act(() => comp.unmount());
+    });
+
+    it("renders the server's 422 message verbatim", async () => {
+      const serverMsg =
+        "Google Photos links aren’t supported yet — share the file to Drive instead.";
+      const err = Object.assign(new Error(serverMsg), {
+        status: 422,
+        detail: serverMsg,
+      });
+      mockLink.mockRejectedValueOnce(err);
+      const onAnalyze = jest.fn();
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<SessionScreen onAnalyzeDynamics={onAnalyze} />);
+      });
+      act(() => {
+        queryId(comp, "mode-link-tab")!.props.onPress();
+      });
+      act(() => {
+        queryId(comp, "link-input")!.props.onChangeText(
+          "https://photos.google.com/share/xyz",
+        );
+      });
+      await act(async () => {
+        queryId(comp, "analyze-link-button")!.props.onPress();
+      });
+
+      expect(queryId(comp, "upload-error")).toBeTruthy();
+      // Verbatim — not a generic "something went wrong".
+      expect(JSON.stringify(comp.toJSON())).toContain(serverMsg);
       expect(onAnalyze).not.toHaveBeenCalled();
       act(() => comp.unmount());
     });

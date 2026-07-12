@@ -14,12 +14,17 @@ Design constraints (see the feature spec):
   the SDK is synchronous and must never sit on the event loop (house pattern,
   matching the Deepgram/ffmpeg calls in the upload path).
 
-Object layout, per recording::
+Object layout, per recording (we store compressed DERIVATIVES, never the
+original bytes — see :meth:`RecordingsStore.save_recording`)::
 
-    recordings/{uid}/{recording_id}/original.{ext}   # raw uploaded bytes
-    recordings/{uid}/{recording_id}/meta.json        # {id, created_at, ...}
+    recordings/{uid}/{recording_id}/audio.m4a        # AAC audio derivative
+    recordings/{uid}/{recording_id}/video_360p.mp4   # 360p H.264 (video only)
+    recordings/{uid}/{recording_id}/meta.json        # {id, created_at, source, ...}
     recordings/{uid}/{recording_id}/turns.json       # transcribed turns
     recordings/{uid}/{recording_id}/analysis.json    # full analysis response
+
+In-progress chunked uploads live under a separate ``uploads/{uid}/{upload_id}/``
+namespace (manifest.json + parts/) — see the upload-session methods.
 
 ``uid`` comes from the verified Firebase token (trusted); ``recording_id`` is a
 server-minted uuid4 validated against ``UUID_PATTERN`` at the endpoint. Every
@@ -41,25 +46,6 @@ logger = logging.getLogger(__name__)
 # Streaming chunk size for the in-memory body iterator (the bytes are already
 # downloaded off the event loop; this only slices what to hand the transport).
 _STREAM_CHUNK = 64 * 1024
-
-# Content types we map to a friendly file extension when the upload's filename
-# carried none. Best-effort only — a wrong guess affects the stored object name,
-# never correctness (the real Content-Type is read back from blob metadata).
-_EXT_BY_CONTENT_TYPE = {
-    "audio/wav": "wav",
-    "audio/x-wav": "wav",
-    "audio/mpeg": "mp3",
-    "audio/mp3": "mp3",
-    "audio/mp4": "m4a",
-    "audio/x-m4a": "m4a",
-    "audio/aac": "aac",
-    "audio/ogg": "ogg",
-    "audio/webm": "webm",
-    "audio/flac": "flac",
-    "video/mp4": "mp4",
-    "video/quicktime": "mov",
-    "video/webm": "webm",
-}
 
 
 def create_store() -> "RecordingsStore | None":
@@ -88,23 +74,6 @@ def create_store() -> "RecordingsStore | None":
 # ---------------------------------------------------------------------------
 # Pure helpers (no I/O) — unit-testable and shared by the GCS store + fakes
 # ---------------------------------------------------------------------------
-
-def _ext_for(filename: str | None, content_type: str | None) -> str:
-    """Pick a lowercase extension for ``original.{ext}`` from the filename, then
-    the content type, defaulting to ``bin``. Purely cosmetic on the object name.
-    """
-    if filename:
-        _, _, ext = filename.rpartition(".")
-        if ext and "/" not in ext and len(ext) <= 8:
-            return ext.lower()
-    ct = (content_type or "").split(";", 1)[0].strip().lower()
-    return _EXT_BY_CONTENT_TYPE.get(ct, "bin")
-
-
-def _media_type_for(content_type: str | None) -> str:
-    """"video" for a video/* mime, else "audio" (audio is the default kind)."""
-    return "video" if (content_type or "").lower().startswith("video/") else "audio"
-
 
 def _parse_range(range_header: str | None, size: int) -> "tuple[int, int] | None":
     """Parse a single HTTP ``Range`` into inclusive ``(start, end)`` byte
@@ -198,39 +167,67 @@ class RecordingsStore:
         self,
         uid: str,
         *,
-        data: bytes,
-        filename: str | None,
-        content_type: str | None,
+        audio_m4a: bytes,
+        video_360p: bytes | None,
+        original_filename: str | None,
+        original_content_type: str | None,
+        original_bytes: int,
         duration_seconds: float | None,
         turns: list[dict],
         analysis: dict,
+        source: dict | None = None,
     ) -> str:
-        """Persist one recording (original bytes + meta + turns + analysis) and
-        return its new uuid4 id. All four objects are written in one worker
-        thread; created_at is the server clock (ISO-8601 UTC)."""
+        """Persist one recording's DERIVATIVES (never the original bytes) + meta
+        + turns + analysis and return its new uuid4 id.
+
+        We always store a compressed ``audio.m4a`` and, when the input carried a
+        video stream, a small ``video_360p.mp4`` — a deliberate cost decision (a
+        50-300MB phone original becomes a handful of MB). ``media_type`` is
+        derived from what was actually STORED (video only when the 360p clip is
+        present), and ``original_bytes``/``original_filename`` are kept for
+        provenance. All objects are written in one worker thread; created_at is
+        the server clock (ISO-8601 UTC)."""
         recording_id = str(uuid.uuid4())
-        ext = _ext_for(filename, content_type)
+        stored_variants = ["audio.m4a"]
+        if video_360p is not None:
+            stored_variants.append("video_360p.mp4")
+        stored_bytes = len(audio_m4a) + (len(video_360p) if video_360p else 0)
         meta = {
             "id": recording_id,
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "filename": filename or f"recording.{ext}",
-            "media_type": _media_type_for(content_type),
+            "filename": original_filename or "recording",
+            # media_type reflects the STORED artifact, not the upload's mime.
+            "media_type": "video" if video_360p is not None else "audio",
             "duration_seconds": duration_seconds,
-            "size_bytes": len(data),
+            "size_bytes": stored_bytes,
+            "stored_variants": stored_variants,
+            "original_bytes": original_bytes,
+            "original_filename": original_filename,
+            "original_content_type": original_content_type,
+            # Provenance for a future replay feature (stream the user's own hosted
+            # HD copy instead of our derivative). Metadata only — no playback here.
+            "source": source or {
+                "type": "upload", "url": None,
+                "original_filename": original_filename,
+            },
         }
         await asyncio.to_thread(
-            self._save_sync, uid, recording_id, ext, data, content_type,
+            self._save_sync, uid, recording_id, audio_m4a, video_360p,
             meta, turns, analysis,
         )
         return recording_id
 
     def _save_sync(
-        self, uid, recording_id, ext, data, content_type, meta, turns, analysis,
+        self, uid, recording_id, audio_m4a, video_360p, meta, turns, analysis,
     ) -> None:
         prefix = self._prefix(uid, recording_id)
-        self._bucket.blob(prefix + f"original.{ext}").upload_from_string(
-            data, content_type=content_type or "application/octet-stream",
+        self._bucket.blob(prefix + "audio.m4a").upload_from_string(
+            audio_m4a, content_type="audio/mp4",
         )
+        if video_360p is not None:
+            self._bucket.blob(prefix + "video_360p.mp4").upload_from_string(
+                video_360p, content_type="video/mp4",
+            )
         self._bucket.blob(prefix + "meta.json").upload_from_string(
             json.dumps(meta), content_type="application/json",
         )
@@ -332,11 +329,16 @@ class RecordingsStore:
 
     def _open_media_stream_sync(self, uid, recording_id, range_header):
         prefix = self._prefix(uid, recording_id)
-        # The extension is unknown here, so locate the original.* object.
-        candidates = list(self._bucket.list_blobs(prefix=prefix + "original."))
-        if not candidates:
+        # Serve the richest stored derivative: the 360p video when present, else
+        # the audio. Both have fixed names now (no original.* to locate).
+        blob = None
+        for name in ("video_360p.mp4", "audio.m4a"):
+            candidate = self._bucket.blob(prefix + name)
+            if candidate.exists():
+                blob = candidate
+                break
+        if blob is None:
             return None
-        blob = candidates[0]
         blob.reload()  # populate size + content_type
         size = blob.size or 0
         content_type = blob.content_type or "application/octet-stream"
@@ -350,3 +352,123 @@ class RecordingsStore:
         else:
             data = blob.download_as_bytes()
         return _iter_bytes(data), status, headers
+
+    # -- chunked upload sessions ------------------------------------------
+    # A large recording (phone video, 50-300MB) is streamed to the server in 8MB
+    # parts because Cloud Run's ~32MB request limit forbids a single big body.
+    # The session state lives entirely in GCS under a separate ``uploads/``
+    # namespace (NOT ``recordings/``), scoped per uid so one user can never touch
+    # another's in-progress upload::
+    #
+    #     uploads/{uid}/{upload_id}/manifest.json    # start()'s declared metadata
+    #     uploads/{uid}/{upload_id}/parts/{i:05d}    # one object per 8MB chunk
+    #     uploads/{uid}/{upload_id}/assembled        # transient compose target
+    #
+    # Everything under the prefix is deleted by :meth:`cleanup_upload` on
+    # complete or abort.
+    @staticmethod
+    def _upload_prefix(uid: str, upload_id: str) -> str:
+        return f"uploads/{uid}/{upload_id}/"
+
+    async def write_upload_manifest(
+        self, uid: str, upload_id: str, manifest: dict,
+    ) -> None:
+        """Write the session manifest (start())."""
+        await asyncio.to_thread(
+            self._write_upload_manifest_sync, uid, upload_id, manifest,
+        )
+
+    def _write_upload_manifest_sync(self, uid, upload_id, manifest) -> None:
+        self._bucket.blob(
+            self._upload_prefix(uid, upload_id) + "manifest.json"
+        ).upload_from_string(
+            json.dumps(manifest), content_type="application/json",
+        )
+
+    async def read_upload_manifest(
+        self, uid: str, upload_id: str,
+    ) -> dict | None:
+        """The session manifest, or ``None`` when it does not exist for this uid
+        (→ 404). uid-scoped: a foreign upload_id reads as absent."""
+        return await asyncio.to_thread(
+            self._read_upload_manifest_sync, uid, upload_id,
+        )
+
+    def _read_upload_manifest_sync(self, uid, upload_id) -> dict | None:
+        blob = self._bucket.blob(
+            self._upload_prefix(uid, upload_id) + "manifest.json"
+        )
+        if not blob.exists():
+            return None
+        return json.loads(blob.download_as_bytes())
+
+    async def write_upload_part(
+        self, uid: str, upload_id: str, index: int, data: bytes,
+    ) -> None:
+        """Store (or overwrite — idempotent) one part at ``parts/{index:05d}``."""
+        await asyncio.to_thread(
+            self._write_upload_part_sync, uid, upload_id, index, data,
+        )
+
+    def _write_upload_part_sync(self, uid, upload_id, index, data) -> None:
+        self._bucket.blob(
+            self._upload_prefix(uid, upload_id) + f"parts/{index:05d}"
+        ).upload_from_string(data, content_type="application/octet-stream")
+
+    async def get_upload_part_sizes(
+        self, uid: str, upload_id: str,
+    ) -> dict[int, int]:
+        """Map ``{part_index: size_bytes}`` for every part currently present —
+        the endpoint uses it to list missing indexes and verify the total."""
+        return await asyncio.to_thread(
+            self._get_upload_part_sizes_sync, uid, upload_id,
+        )
+
+    def _get_upload_part_sizes_sync(self, uid, upload_id) -> dict[int, int]:
+        prefix = self._upload_prefix(uid, upload_id) + "parts/"
+        sizes: dict[int, int] = {}
+        for blob in self._bucket.list_blobs(prefix=prefix):
+            name = blob.name[len(prefix):]
+            if not name.isdigit():
+                continue
+            sizes[int(name)] = blob.size or 0
+        return sizes
+
+    async def assemble_upload(
+        self, uid: str, upload_id: str, expected_chunks: int,
+    ) -> bytes:
+        """Reassemble all parts (in index order) into the original bytes."""
+        return await asyncio.to_thread(
+            self._assemble_upload_sync, uid, upload_id, expected_chunks,
+        )
+
+    def _assemble_upload_sync(self, uid, upload_id, expected_chunks) -> bytes:
+        prefix = self._upload_prefix(uid, upload_id)
+        part_blobs = [
+            self._bucket.blob(prefix + f"parts/{i:05d}")
+            for i in range(expected_chunks)
+        ]
+        # GCS `compose` concatenates up to 32 source objects server-side in ONE
+        # operation — no download/re-upload of the intermediate bytes. With 8MB
+        # chunks and the 200MB cap there are at most 25 parts, so compose always
+        # applies here. The download-concat branch is a correctness fallback for
+        # a hypothetical larger part count (e.g. a smaller chunk size).
+        if expected_chunks <= 32:
+            assembled = self._bucket.blob(prefix + "assembled")
+            assembled.compose(part_blobs)
+            return assembled.download_as_bytes()
+        return b"".join(b.download_as_bytes() for b in part_blobs)
+
+    async def cleanup_upload(self, uid: str, upload_id: str) -> None:
+        """Delete every object for an upload session (parts + manifest +
+        transient assembled blob). Best-effort per blob so one failed delete does
+        not abort the rest."""
+        await asyncio.to_thread(self._cleanup_upload_sync, uid, upload_id)
+
+    def _cleanup_upload_sync(self, uid, upload_id) -> None:
+        prefix = self._upload_prefix(uid, upload_id)
+        for blob in self._bucket.list_blobs(prefix=prefix):
+            try:
+                blob.delete()
+            except Exception:  # noqa: BLE001 — best-effort cleanup, per blob
+                logger.warning("Failed to delete upload blob %s", blob.name)

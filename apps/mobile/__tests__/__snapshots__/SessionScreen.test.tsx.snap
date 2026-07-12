@@ -561,6 +561,140 @@ exports[`SessionScreen renders loading state 1`] = `
             />
           </View>
           <View
+            style={
+              {
+                "borderColor": "#D1D5DB",
+                "borderRadius": 10,
+                "borderWidth": 1,
+                "flexDirection": "row",
+                "marginBottom": 12,
+                "overflow": "hidden",
+              }
+            }
+            testID="link-mode-toggle"
+          >
+            <View
+              accessibilityState={
+                {
+                  "busy": undefined,
+                  "checked": undefined,
+                  "disabled": false,
+                  "expanded": undefined,
+                  "selected": undefined,
+                }
+              }
+              accessibilityValue={
+                {
+                  "max": undefined,
+                  "min": undefined,
+                  "now": undefined,
+                  "text": undefined,
+                }
+              }
+              accessible={true}
+              collapsable={false}
+              focusable={true}
+              onBlur={[Function]}
+              onClick={[Function]}
+              onFocus={[Function]}
+              onResponderGrant={[Function]}
+              onResponderMove={[Function]}
+              onResponderRelease={[Function]}
+              onResponderTerminate={[Function]}
+              onResponderTerminationRequest={[Function]}
+              onStartShouldSetResponder={[Function]}
+              style={
+                [
+                  {
+                    "alignItems": "center",
+                    "backgroundColor": "#FFFFFF",
+                    "flex": 1,
+                    "paddingVertical": 10,
+                  },
+                  {
+                    "backgroundColor": "#EEF2FF",
+                  },
+                ]
+              }
+              testID="mode-file-tab"
+            >
+              <Text
+                style={
+                  [
+                    {
+                      "color": "#6B7280",
+                      "fontSize": 14,
+                      "fontWeight": "600",
+                    },
+                    {
+                      "color": "#4A90D9",
+                    },
+                  ]
+                }
+              >
+                Upload file
+              </Text>
+            </View>
+            <View
+              accessibilityState={
+                {
+                  "busy": undefined,
+                  "checked": undefined,
+                  "disabled": false,
+                  "expanded": undefined,
+                  "selected": undefined,
+                }
+              }
+              accessibilityValue={
+                {
+                  "max": undefined,
+                  "min": undefined,
+                  "now": undefined,
+                  "text": undefined,
+                }
+              }
+              accessible={true}
+              collapsable={false}
+              focusable={true}
+              onBlur={[Function]}
+              onClick={[Function]}
+              onFocus={[Function]}
+              onResponderGrant={[Function]}
+              onResponderMove={[Function]}
+              onResponderRelease={[Function]}
+              onResponderTerminate={[Function]}
+              onResponderTerminationRequest={[Function]}
+              onStartShouldSetResponder={[Function]}
+              style={
+                [
+                  {
+                    "alignItems": "center",
+                    "backgroundColor": "#FFFFFF",
+                    "flex": 1,
+                    "paddingVertical": 10,
+                  },
+                  false,
+                ]
+              }
+              testID="mode-link-tab"
+            >
+              <Text
+                style={
+                  [
+                    {
+                      "color": "#6B7280",
+                      "fontSize": 14,
+                      "fontWeight": "600",
+                    },
+                    false,
+                  ]
+                }
+              >
+                Paste link
+              </Text>
+            </View>
+          </View>
+          <View
             accessibilityState={
               {
                 "busy": undefined,
@@ -1560,6 +1694,140 @@ exports[`SessionScreen renders the initial screen 1`] = `
             />
           </View>
           <View
+            style={
+              {
+                "borderColor": "#D1D5DB",
+                "borderRadius": 10,
+                "borderWidth": 1,
+                "flexDirection": "row",
+                "marginBottom": 12,
+                "overflow": "hidden",
+              }
+            }
+            testID="link-mode-toggle"
+          >
+            <View
+              accessibilityState={
+                {
+                  "busy": undefined,
+                  "checked": undefined,
+                  "disabled": false,
+                  "expanded": undefined,
+                  "selected": undefined,
+                }
+              }
+              accessibilityValue={
+                {
+                  "max": undefined,
+                  "min": undefined,
+                  "now": undefined,
+                  "text": undefined,
+                }
+              }
+              accessible={true}
+              collapsable={false}
+              focusable={true}
+              onBlur={[Function]}
+              onClick={[Function]}
+              onFocus={[Function]}
+              onResponderGrant={[Function]}
+              onResponderMove={[Function]}
+              onResponderRelease={[Function]}
+              onResponderTerminate={[Function]}
+              onResponderTerminationRequest={[Function]}
+              onStartShouldSetResponder={[Function]}
+              style={
+                [
+                  {
+                    "alignItems": "center",
+                    "backgroundColor": "#FFFFFF",
+                    "flex": 1,
+                    "paddingVertical": 10,
+                  },
+                  {
+                    "backgroundColor": "#EEF2FF",
+                  },
+                ]
+              }
+              testID="mode-file-tab"
+            >
+              <Text
+                style={
+                  [
+                    {
+                      "color": "#6B7280",
+                      "fontSize": 14,
+                      "fontWeight": "600",
+                    },
+                    {
+                      "color": "#4A90D9",
+                    },
+                  ]
+                }
+              >
+                Upload file
+              </Text>
+            </View>
+            <View
+              accessibilityState={
+                {
+                  "busy": undefined,
+                  "checked": undefined,
+                  "disabled": false,
+                  "expanded": undefined,
+                  "selected": undefined,
+                }
+              }
+              accessibilityValue={
+                {
+                  "max": undefined,
+                  "min": undefined,
+                  "now": undefined,
+                  "text": undefined,
+                }
+              }
+              accessible={true}
+              collapsable={false}
+              focusable={true}
+              onBlur={[Function]}
+              onClick={[Function]}
+              onFocus={[Function]}
+              onResponderGrant={[Function]}
+              onResponderMove={[Function]}
+              onResponderRelease={[Function]}
+              onResponderTerminate={[Function]}
+              onResponderTerminationRequest={[Function]}
+              onStartShouldSetResponder={[Function]}
+              style={
+                [
+                  {
+                    "alignItems": "center",
+                    "backgroundColor": "#FFFFFF",
+                    "flex": 1,
+                    "paddingVertical": 10,
+                  },
+                  false,
+                ]
+              }
+              testID="mode-link-tab"
+            >
+              <Text
+                style={
+                  [
+                    {
+                      "color": "#6B7280",
+                      "fontSize": 14,
+                      "fontWeight": "600",
+                    },
+                    false,
+                  ]
+                }
+              >
+                Paste link
+              </Text>
+            </View>
+          </View>
+          <View
             accessibilityState={
               {
                 "busy": undefined,
@@ -2471,6 +2739,140 @@ exports[`SessionScreen renders with suggestions 1`] = `
               testID="store-toggle"
               value={true}
             />
+          </View>
+          <View
+            style={
+              {
+                "borderColor": "#D1D5DB",
+                "borderRadius": 10,
+                "borderWidth": 1,
+                "flexDirection": "row",
+                "marginBottom": 12,
+                "overflow": "hidden",
+              }
+            }
+            testID="link-mode-toggle"
+          >
+            <View
+              accessibilityState={
+                {
+                  "busy": undefined,
+                  "checked": undefined,
+                  "disabled": false,
+                  "expanded": undefined,
+                  "selected": undefined,
+                }
+              }
+              accessibilityValue={
+                {
+                  "max": undefined,
+                  "min": undefined,
+                  "now": undefined,
+                  "text": undefined,
+                }
+              }
+              accessible={true}
+              collapsable={false}
+              focusable={true}
+              onBlur={[Function]}
+              onClick={[Function]}
+              onFocus={[Function]}
+              onResponderGrant={[Function]}
+              onResponderMove={[Function]}
+              onResponderRelease={[Function]}
+              onResponderTerminate={[Function]}
+              onResponderTerminationRequest={[Function]}
+              onStartShouldSetResponder={[Function]}
+              style={
+                [
+                  {
+                    "alignItems": "center",
+                    "backgroundColor": "#FFFFFF",
+                    "flex": 1,
+                    "paddingVertical": 10,
+                  },
+                  {
+                    "backgroundColor": "#EEF2FF",
+                  },
+                ]
+              }
+              testID="mode-file-tab"
+            >
+              <Text
+                style={
+                  [
+                    {
+                      "color": "#6B7280",
+                      "fontSize": 14,
+                      "fontWeight": "600",
+                    },
+                    {
+                      "color": "#4A90D9",
+                    },
+                  ]
+                }
+              >
+                Upload file
+              </Text>
+            </View>
+            <View
+              accessibilityState={
+                {
+                  "busy": undefined,
+                  "checked": undefined,
+                  "disabled": false,
+                  "expanded": undefined,
+                  "selected": undefined,
+                }
+              }
+              accessibilityValue={
+                {
+                  "max": undefined,
+                  "min": undefined,
+                  "now": undefined,
+                  "text": undefined,
+                }
+              }
+              accessible={true}
+              collapsable={false}
+              focusable={true}
+              onBlur={[Function]}
+              onClick={[Function]}
+              onFocus={[Function]}
+              onResponderGrant={[Function]}
+              onResponderMove={[Function]}
+              onResponderRelease={[Function]}
+              onResponderTerminate={[Function]}
+              onResponderTerminationRequest={[Function]}
+              onStartShouldSetResponder={[Function]}
+              style={
+                [
+                  {
+                    "alignItems": "center",
+                    "backgroundColor": "#FFFFFF",
+                    "flex": 1,
+                    "paddingVertical": 10,
+                  },
+                  false,
+                ]
+              }
+              testID="mode-link-tab"
+            >
+              <Text
+                style={
+                  [
+                    {
+                      "color": "#6B7280",
+                      "fontSize": 14,
+                      "fontWeight": "600",
+                    },
+                    false,
+                  ]
+                }
+              >
+                Paste link
+              </Text>
+            </View>
           </View>
           <View
             accessibilityState={
@@ -3691,6 +4093,140 @@ exports[`SessionScreen renders with turns in the transcript 1`] = `
               testID="store-toggle"
               value={true}
             />
+          </View>
+          <View
+            style={
+              {
+                "borderColor": "#D1D5DB",
+                "borderRadius": 10,
+                "borderWidth": 1,
+                "flexDirection": "row",
+                "marginBottom": 12,
+                "overflow": "hidden",
+              }
+            }
+            testID="link-mode-toggle"
+          >
+            <View
+              accessibilityState={
+                {
+                  "busy": undefined,
+                  "checked": undefined,
+                  "disabled": false,
+                  "expanded": undefined,
+                  "selected": undefined,
+                }
+              }
+              accessibilityValue={
+                {
+                  "max": undefined,
+                  "min": undefined,
+                  "now": undefined,
+                  "text": undefined,
+                }
+              }
+              accessible={true}
+              collapsable={false}
+              focusable={true}
+              onBlur={[Function]}
+              onClick={[Function]}
+              onFocus={[Function]}
+              onResponderGrant={[Function]}
+              onResponderMove={[Function]}
+              onResponderRelease={[Function]}
+              onResponderTerminate={[Function]}
+              onResponderTerminationRequest={[Function]}
+              onStartShouldSetResponder={[Function]}
+              style={
+                [
+                  {
+                    "alignItems": "center",
+                    "backgroundColor": "#FFFFFF",
+                    "flex": 1,
+                    "paddingVertical": 10,
+                  },
+                  {
+                    "backgroundColor": "#EEF2FF",
+                  },
+                ]
+              }
+              testID="mode-file-tab"
+            >
+              <Text
+                style={
+                  [
+                    {
+                      "color": "#6B7280",
+                      "fontSize": 14,
+                      "fontWeight": "600",
+                    },
+                    {
+                      "color": "#4A90D9",
+                    },
+                  ]
+                }
+              >
+                Upload file
+              </Text>
+            </View>
+            <View
+              accessibilityState={
+                {
+                  "busy": undefined,
+                  "checked": undefined,
+                  "disabled": false,
+                  "expanded": undefined,
+                  "selected": undefined,
+                }
+              }
+              accessibilityValue={
+                {
+                  "max": undefined,
+                  "min": undefined,
+                  "now": undefined,
+                  "text": undefined,
+                }
+              }
+              accessible={true}
+              collapsable={false}
+              focusable={true}
+              onBlur={[Function]}
+              onClick={[Function]}
+              onFocus={[Function]}
+              onResponderGrant={[Function]}
+              onResponderMove={[Function]}
+              onResponderRelease={[Function]}
+              onResponderTerminate={[Function]}
+              onResponderTerminationRequest={[Function]}
+              onStartShouldSetResponder={[Function]}
+              style={
+                [
+                  {
+                    "alignItems": "center",
+                    "backgroundColor": "#FFFFFF",
+                    "flex": 1,
+                    "paddingVertical": 10,
+                  },
+                  false,
+                ]
+              }
+              testID="mode-link-tab"
+            >
+              <Text
+                style={
+                  [
+                    {
+                      "color": "#6B7280",
+                      "fontSize": 14,
+                      "fontWeight": "600",
+                    },
+                    false,
+                  ]
+                }
+              >
+                Paste link
+              </Text>
+            </View>
           </View>
           <View
             accessibilityState={

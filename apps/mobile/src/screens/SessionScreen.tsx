@@ -14,7 +14,11 @@ import {
 } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import { useSessionStore } from "../store/sessionStore";
-import { postAnalyzeUpload } from "../api/client";
+import {
+  postAnalyzeUpload,
+  postAnalyzeUploadChunked,
+  postAnalyzeLink,
+} from "../api/client";
 import type { AnalyzeResult } from "../api/client";
 import RoleSelector from "../components/RoleSelector";
 import EmpathySlider from "../components/EmpathySlider";
@@ -49,11 +53,52 @@ interface PickedRecording {
   file?: File;
 }
 
-/** Map an `API error: <status>` from postAnalyzeUpload to an honest, human
- *  message. Never invents a result — every branch tells the user what happened. */
-function uploadErrorMessage(err: unknown): string {
+// Files at/under this size take the plain multipart /analyze/upload path; larger
+// ones are streamed in chunks (see postAnalyzeUploadChunked) so no single request
+// trips the platform's ~32MB body ceiling. Above the hard cap we refuse up front,
+// before touching the network, with an honest size message.
+const DIRECT_UPLOAD_MAX_BYTES = 20 * 1024 * 1024; // 20 MB
+const MAX_UPLOAD_BYTES = 200 * 1024 * 1024; // 200 MB
+
+/** Honest "too big" message naming the actual size and the hard limit. Used both
+ *  for the pre-flight refusal (>200MB, no network) and a server 413. */
+function sizeLimitMessage(bytes?: number): string {
+  const size = formatSize(bytes);
+  return `That file is ${size ?? "too large"} — the limit is 200 MB. Try a shorter clip.`;
+}
+
+/** Read the HTTP status off an upload/link error — from the `.status` property
+ *  the link client attaches, else parsed from the `API error: <status>` message. */
+function errorStatus(err: unknown): number {
+  const withStatus = err as { status?: number };
+  if (typeof withStatus?.status === "number") return withStatus.status;
   const msg = err instanceof Error ? err.message : "";
-  const status = Number(msg.match(/API error: (\d+)/)?.[1] ?? 0);
+  return Number(msg.match(/API error: (\d+)/)?.[1] ?? 0);
+}
+
+/** Map an upload/link error to an honest, human message. Never invents a result
+ *  — every branch tells the user what happened. When the file went up the chunked
+ *  path, 413/503 mean something different (the size cap and recording-storage
+ *  being off, respectively). For the link path, the server's 422/413 `detail` is
+ *  written for users, so it's rendered verbatim. */
+function uploadErrorMessage(
+  err: unknown,
+  opts?: { chunked?: boolean; link?: boolean; sizeBytes?: number },
+): string {
+  const status = errorStatus(err);
+  if (opts?.link) {
+    // The server's 422 (not a direct link / blocked URL / Google Photos) and
+    // 413 (too large) messages are user-facing — show them verbatim.
+    const detail = (err as { detail?: string })?.detail;
+    if ((status === 422 || status === 413) && detail) return detail;
+  }
+  if (opts?.chunked) {
+    // The chunked path only exists for large files that need recording storage;
+    // a 503 there means that storage isn't enabled, not that analysis is missing.
+    if (status === 503)
+      return "Large uploads need recording storage enabled on the server.";
+    if (status === 413) return sizeLimitMessage(opts.sizeBytes);
+  }
   switch (status) {
     case 401:
       return "Please sign in again to analyze a recording.";
@@ -104,9 +149,16 @@ export default function SessionScreen({
   const [pasted, setPasted] = useState("");
 
   // --- Analyze-a-recording flow ---
+  // Two entry modes share the consent/store/context controls: upload a local
+  // file, or hand the server a link to fetch.
+  const [mode, setMode] = useState<"file" | "link">("file");
+  const [linkUrl, setLinkUrl] = useState("");
   const [picked, setPicked] = useState<PickedRecording | null>(null);
   const [uploadContext, setUploadContext] = useState("");
   const [uploading, setUploading] = useState(false);
+  // Chunked-upload progress as a 0→1 fraction; null on the direct path (which
+  // shows a plain spinner instead of a bar).
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   // Consent to have this recording analyzed & (optionally) stored. Unchecked
   // by default — nothing is ever stored without an explicit opt-in.
@@ -143,7 +195,18 @@ export default function SessionScreen({
 
   const handleUploadAnalyze = async () => {
     if (!picked || uploading) return;
+    const size = picked.size;
+    // Refuse an over-cap file up front — no network call, an honest size message.
+    if (size !== undefined && size > MAX_UPLOAD_BYTES) {
+      setUploadError(sizeLimitMessage(size));
+      return;
+    }
+    // Anything above the direct-upload ceiling streams in chunks so the platform
+    // doesn't reject the body before the server can respond. Size must be known
+    // to chunk (we slice against it); an unknown size falls back to direct.
+    const useChunked = size !== undefined && size > DIRECT_UPLOAD_MAX_BYTES;
     setUploading(true);
+    setUploadProgress(useChunked ? 0 : null);
     setUploadError(null);
     setUploadStored(null);
     setUploadStorageNote(null);
@@ -151,13 +214,26 @@ export default function SessionScreen({
       // Web hands us a File; native hands us the local URI string.
       const fileArg = Platform.OS === "web" && picked.file ? picked.file : picked.uri;
       const trimmedContext = uploadContext.trim();
-      const result = await postAnalyzeUpload(
-        fileArg,
-        picked.name,
-        picked.mimeType,
-        trimmedContext ? trimmedContext : undefined,
-        { consent, store: storeRecording },
-      );
+      const result = useChunked
+        ? await postAnalyzeUploadChunked(
+            fileArg,
+            picked.name,
+            picked.mimeType,
+            size as number,
+            {
+              consent,
+              store: storeRecording,
+              context: trimmedContext ? trimmedContext : undefined,
+              onProgress: setUploadProgress,
+            },
+          )
+        : await postAnalyzeUpload(
+            fileArg,
+            picked.name,
+            picked.mimeType,
+            trimmedContext ? trimmedContext : undefined,
+            { consent, store: storeRecording },
+          );
       // Load the server-produced transcript so the what-if flow (and inspector
       // text) works off the store, then jump straight to the ready-made analysis
       // — no second /analyze round-trip.
@@ -166,9 +242,41 @@ export default function SessionScreen({
       setUploadStorageNote(result.stored ? null : result.storage_note);
       onAnalyzeDynamics?.(result, result.recording_id ?? null);
     } catch (e) {
-      setUploadError(uploadErrorMessage(e));
+      setUploadError(uploadErrorMessage(e, { chunked: useChunked, sizeBytes: size }));
     } finally {
       setUploading(false);
+      setUploadProgress(null);
+    }
+  };
+
+  const handleAnalyzeLink = async () => {
+    const url = linkUrl.trim();
+    if (!url || uploading) return;
+    setUploading(true);
+    // The server does the fetching/transcription; there's no client-side chunk
+    // progress to show, so the button falls back to a spinner (progress null).
+    setUploadProgress(null);
+    setUploadError(null);
+    setUploadStored(null);
+    setUploadStorageNote(null);
+    try {
+      const trimmedContext = uploadContext.trim();
+      const result = await postAnalyzeLink(url, {
+        consent,
+        store: storeRecording,
+        context: trimmedContext ? trimmedContext : undefined,
+      });
+      // Identical handoff to the upload path: hydrate the store transcript, then
+      // jump to the ready-made analysis (and thread the recording id if stored).
+      loadTurns(result.turns);
+      setUploadStored(result.stored);
+      setUploadStorageNote(result.stored ? null : result.storage_note);
+      onAnalyzeDynamics?.(result, result.recording_id ?? null);
+    } catch (e) {
+      setUploadError(uploadErrorMessage(e, { link: true }));
+    } finally {
+      setUploading(false);
+      setUploadProgress(null);
     }
   };
 
@@ -242,28 +350,132 @@ export default function SessionScreen({
               />
             </View>
 
-            <TouchableOpacity
-              testID="pick-recording-button"
-              style={styles.pickButton}
-              onPress={() => void handlePickRecording()}
-              disabled={uploading}
-            >
-              <Text style={styles.pickButtonText}>
-                {picked ? "Choose a different file" : "Choose a recording"}
-              </Text>
-            </TouchableOpacity>
+            {/* Entry mode: upload a local file, or paste a link the server fetches. */}
+            <View style={styles.modeToggle} testID="link-mode-toggle">
+              <Pressable
+                testID="mode-file-tab"
+                style={[styles.modeTab, mode === "file" && styles.modeTabActive]}
+                onPress={() => setMode("file")}
+                disabled={uploading}
+              >
+                <Text
+                  style={[
+                    styles.modeTabText,
+                    mode === "file" && styles.modeTabTextActive,
+                  ]}
+                >
+                  Upload file
+                </Text>
+              </Pressable>
+              <Pressable
+                testID="mode-link-tab"
+                style={[styles.modeTab, mode === "link" && styles.modeTabActive]}
+                onPress={() => setMode("link")}
+                disabled={uploading}
+              >
+                <Text
+                  style={[
+                    styles.modeTabText,
+                    mode === "link" && styles.modeTabTextActive,
+                  ]}
+                >
+                  Paste link
+                </Text>
+              </Pressable>
+            </View>
 
-            {picked && (
-              <Text style={styles.pickedFile} testID="picked-file">
-                {picked.name}
-                {formatSize(picked.size) ? `  ·  ${formatSize(picked.size)}` : ""}
-              </Text>
+            {mode === "file" && (
+              <>
+                <TouchableOpacity
+                  testID="pick-recording-button"
+                  style={styles.pickButton}
+                  onPress={() => void handlePickRecording()}
+                  disabled={uploading}
+                >
+                  <Text style={styles.pickButtonText}>
+                    {picked ? "Choose a different file" : "Choose a recording"}
+                  </Text>
+                </TouchableOpacity>
+
+                {picked && (
+                  <Text style={styles.pickedFile} testID="picked-file">
+                    {picked.name}
+                    {formatSize(picked.size) ? `  ·  ${formatSize(picked.size)}` : ""}
+                  </Text>
+                )}
+
+                {picked && (
+                  <>
+                    <TextInput
+                      testID="recording-context-input"
+                      style={styles.recordingContextInput}
+                      placeholder="Optional: any context about this conversation"
+                      value={uploadContext}
+                      onChangeText={setUploadContext}
+                      multiline
+                      placeholderTextColor="#9CA3AF"
+                      editable={!uploading}
+                    />
+                    <TouchableOpacity
+                      testID="upload-analyze-button"
+                      style={[
+                        styles.uploadButton,
+                        uploading && styles.suggestButtonDisabled,
+                      ]}
+                      onPress={() => void handleUploadAnalyze()}
+                      disabled={uploading}
+                    >
+                      {uploading ? (
+                        uploadProgress !== null ? (
+                          // Chunked upload: an honest progress bar + percentage.
+                          <View style={styles.uploadProgress} testID="upload-progress">
+                            <View style={styles.progressTrack}>
+                              <View
+                                style={[
+                                  styles.progressFill,
+                                  { width: `${Math.round(uploadProgress * 100)}%` },
+                                ]}
+                              />
+                            </View>
+                            <Text style={styles.uploadButtonText}>
+                              {`Uploading… ${Math.round(uploadProgress * 100)}%`}
+                            </Text>
+                          </View>
+                        ) : (
+                          <View style={styles.uploadingRow}>
+                            <ActivityIndicator color="#FFFFFF" />
+                            <Text style={styles.uploadButtonText}>Analyzing…</Text>
+                          </View>
+                        )
+                      ) : (
+                        <Text style={styles.uploadButtonText}>Upload &amp; analyze</Text>
+                      )}
+                    </TouchableOpacity>
+                  </>
+                )}
+              </>
             )}
 
-            {picked && (
+            {mode === "link" && (
               <>
                 <TextInput
-                  testID="recording-context-input"
+                  testID="link-input"
+                  style={styles.linkInput}
+                  placeholder="https://…"
+                  value={linkUrl}
+                  onChangeText={setLinkUrl}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  placeholderTextColor="#9CA3AF"
+                  editable={!uploading}
+                />
+                <Text style={styles.linkHelp}>
+                  Direct file links and Google Drive share links work. Google
+                  Photos isn’t supported yet — share to Drive instead.
+                </Text>
+                <TextInput
+                  testID="link-context-input"
                   style={styles.recordingContextInput}
                   placeholder="Optional: any context about this conversation"
                   value={uploadContext}
@@ -273,13 +485,13 @@ export default function SessionScreen({
                   editable={!uploading}
                 />
                 <TouchableOpacity
-                  testID="upload-analyze-button"
+                  testID="analyze-link-button"
                   style={[
                     styles.uploadButton,
-                    uploading && styles.suggestButtonDisabled,
+                    (uploading || !linkUrl.trim()) && styles.suggestButtonDisabled,
                   ]}
-                  onPress={() => void handleUploadAnalyze()}
-                  disabled={uploading}
+                  onPress={() => void handleAnalyzeLink()}
+                  disabled={uploading || !linkUrl.trim()}
                 >
                   {uploading ? (
                     <View style={styles.uploadingRow}>
@@ -287,7 +499,7 @@ export default function SessionScreen({
                       <Text style={styles.uploadButtonText}>Analyzing…</Text>
                     </View>
                   ) : (
-                    <Text style={styles.uploadButtonText}>Upload &amp; analyze</Text>
+                    <Text style={styles.uploadButtonText}>Analyze link</Text>
                   )}
                 </TouchableOpacity>
               </>
@@ -559,6 +771,47 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     color: "#6B7280",
   },
+  modeToggle: {
+    flexDirection: "row",
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 10,
+    overflow: "hidden",
+    marginBottom: 12,
+  },
+  modeTab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+  },
+  modeTabActive: {
+    backgroundColor: "#EEF2FF",
+  },
+  modeTabText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+  modeTabTextActive: {
+    color: "#4A90D9",
+  },
+  linkInput: {
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 8,
+    padding: 10,
+    fontSize: 14,
+    color: "#1F2937",
+    backgroundColor: "#FFFFFF",
+  },
+  linkHelp: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: "#6B7280",
+    marginTop: 8,
+    marginBottom: 4,
+  },
   pickButton: {
     paddingVertical: 12,
     borderRadius: 10,
@@ -601,6 +854,23 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+  },
+  uploadProgress: {
+    width: "100%",
+    alignItems: "center",
+    gap: 6,
+  },
+  progressTrack: {
+    width: "100%",
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "rgba(255,255,255,0.35)",
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#FFFFFF",
   },
   uploadButtonText: {
     color: "#FFFFFF",

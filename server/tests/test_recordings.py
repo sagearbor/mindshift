@@ -20,11 +20,17 @@ import numpy as np
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+import audio_ingest
 import main
 import recordings_store
 from main import app, init_db
 
 SR = 16000
+
+# Deterministic stand-in for the ffmpeg audio derivative (build_derivatives is
+# patched in the `store` fixture so the storage tests never invoke real ffmpeg
+# and never depend on its output bytes). Long enough to slice a Range from.
+FAKE_AUDIO_M4A = b"FAKE-M4A-AUDIO-DERIVATIVE-" * 20  # 500 bytes
 
 
 # ---------------------------------------------------------------------------
@@ -39,27 +45,46 @@ class FakeRecordingsStore:
         self._fail_on_save = fail_on_save
 
     async def save_recording(
-        self, uid, *, data, filename, content_type, duration_seconds, turns,
-        analysis,
+        self, uid, *, audio_m4a, video_360p, original_filename,
+        original_content_type, original_bytes, duration_seconds, turns,
+        analysis, source=None,
     ):
         if self._fail_on_save:
             raise RuntimeError("simulated GCS outage")
         recording_id = str(uuid.uuid4())
+        stored_variants = ["audio.m4a"]
+        if video_360p is not None:
+            stored_variants.append("video_360p.mp4")
+        media_type = "video" if video_360p is not None else "audio"
+        # open_media_stream serves the richest stored derivative.
+        if video_360p is not None:
+            media_bytes, media_ct = video_360p, "video/mp4"
+        else:
+            media_bytes, media_ct = audio_m4a, "audio/mp4"
         meta = {
             "id": recording_id,
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "filename": filename or "recording.bin",
-            "media_type": recordings_store._media_type_for(content_type),
+            "filename": original_filename or "recording",
+            "media_type": media_type,
             "duration_seconds": duration_seconds,
-            "size_bytes": len(data),
+            "size_bytes": len(audio_m4a) + (len(video_360p) if video_360p else 0),
+            "stored_variants": stored_variants,
+            "original_bytes": original_bytes,
+            "original_filename": original_filename,
+            "original_content_type": original_content_type,
+            "source": source or {
+                "type": "upload", "url": None,
+                "original_filename": original_filename,
+            },
         }
         self._by_uid.setdefault(uid, {})[recording_id] = {
             "meta": meta, "turns": turns, "analysis": analysis,
-            "data": data, "content_type": content_type or "application/octet-stream",
+            "data": media_bytes, "content_type": media_ct,
         }
         self.save_calls.append(
-            {"uid": uid, "recording_id": recording_id, "data": data,
-             "turns": turns, "analysis": analysis}
+            {"uid": uid, "recording_id": recording_id, "audio_m4a": audio_m4a,
+             "video_360p": video_360p, "turns": turns, "analysis": analysis,
+             "source": source}
         )
         return recording_id
 
@@ -175,8 +200,17 @@ async def client():
 
 
 @pytest.fixture
-def store():
-    """Inject a fake store, tearing it back down so other modules see disabled."""
+def store(monkeypatch):
+    """Inject a fake store + patch build_derivatives to deterministic audio-only
+    bytes (the storage tests use audio WAV → no real ffmpeg, no ffmpeg-output
+    dependency). Torn back down so other modules see storage disabled."""
+    monkeypatch.setattr(
+        main, "build_derivatives",
+        lambda data, **kw: audio_ingest.Derivatives(
+            audio_m4a=FAKE_AUDIO_M4A, video_360p=None, has_video=False,
+            video_note=None,
+        ),
+    )
     fake = FakeRecordingsStore()
     app.state.recordings_store = fake
     yield fake
@@ -214,11 +248,16 @@ async def test_upload_with_consent_stores(client, store):
     assert data["stored"] is True
     assert data["recording_id"]
     assert data["storage_note"] is None
-    # The fake actually received the write.
+    # The fake actually received the write — of the DERIVATIVE, not the original.
     assert len(store.save_calls) == 1
     call = store.save_calls[0]
     assert call["uid"] == "test-user"
-    assert call["data"] == FIXTURE_WAV
+    assert call["audio_m4a"] == FAKE_AUDIO_M4A  # compressed audio, not raw WAV
+    assert call["video_360p"] is None           # WAV input → audio-only
+    # Provenance: an upload has type "upload" and no url.
+    assert call["source"] == {
+        "type": "upload", "url": None, "original_filename": "clip.wav",
+    }
     assert [t["text"] for t in call["turns"]] == [t["text"] for t in MOCK_TURNS]
     # Analysis is unchanged by storage.
     assert len(data["per_turn"]) == len(MOCK_TURNS)
@@ -251,7 +290,14 @@ async def test_upload_storage_disabled_note(client):
 
 
 @pytest.mark.anyio
-async def test_upload_storage_failure_degrades_but_analysis_ok(client):
+async def test_upload_storage_failure_degrades_but_analysis_ok(client, monkeypatch):
+    monkeypatch.setattr(
+        main, "build_derivatives",
+        lambda data, **kw: audio_ingest.Derivatives(
+            audio_m4a=FAKE_AUDIO_M4A, video_360p=None, has_video=False,
+            video_note=None,
+        ),
+    )
     app.state.recordings_store = FakeRecordingsStore(fail_on_save=True)
     try:
         p1, p2 = _patched_upload()
@@ -267,6 +313,107 @@ async def test_upload_storage_failure_degrades_but_analysis_ok(client):
     # Analysis still fully returned.
     assert len(data["per_turn"]) == len(MOCK_TURNS)
     assert len(data["turns"]) == len(MOCK_TURNS)
+
+
+# ---------------------------------------------------------------------------
+# Derivatives — we store compressed audio (+ 360p video), never the original
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_video_input_stores_both_derivatives(client, store, monkeypatch):
+    """A video input yields BOTH an audio.m4a and a video_360p.mp4; media_type
+    reflects the stored video, and the media stream serves the 360p clip."""
+    monkeypatch.setattr(
+        main, "build_derivatives",
+        lambda data, **kw: audio_ingest.Derivatives(
+            audio_m4a=FAKE_AUDIO_M4A, video_360p=b"FAKE-360P-VIDEO",
+            has_video=True, video_note=None,
+        ),
+    )
+    p1, p2 = _patched_upload()
+    with p1, p2:
+        resp = await _upload(client, consent="true", store="true")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["stored"] is True
+    assert data["storage_note"] is None
+    call = store.save_calls[0]
+    assert call["audio_m4a"] == FAKE_AUDIO_M4A
+    assert call["video_360p"] == b"FAKE-360P-VIDEO"
+
+    rid = data["recording_id"]
+    detail = await client.get(
+        f"/recordings/{rid}", headers={"X-Test-Uid": "test-user"},
+    )
+    assert detail.json()["media_type"] == "video"
+    # Media stream serves the 360p video derivative.
+    mu = await client.get(
+        f"/recordings/{rid}/media_url", headers={"X-Test-Uid": "test-user"},
+    )
+    tk = parse_qs(urlparse(mu.json()["url"]).query)["tk"][0]
+    media = await client.get(f"/recordings/{rid}/media?tk={tk}")
+    assert media.headers["content-type"].startswith("video/mp4")
+    assert media.content == b"FAKE-360P-VIDEO"
+
+
+@pytest.mark.anyio
+async def test_video_transcode_failure_degrades_to_audio_only(client, store, monkeypatch):
+    """When the 360p transcode fails, the recording is still stored (audio-only)
+    with an honest note — analysis + audio replay still work."""
+    monkeypatch.setattr(
+        main, "build_derivatives",
+        lambda data, **kw: audio_ingest.Derivatives(
+            audio_m4a=FAKE_AUDIO_M4A, video_360p=None, has_video=True,
+            video_note="video replay unavailable: libx264 not available",
+        ),
+    )
+    p1, p2 = _patched_upload()
+    with p1, p2:
+        resp = await _upload(client, consent="true", store="true")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["stored"] is True
+    assert data["recording_id"]
+    assert data["storage_note"] == "video replay unavailable: libx264 not available"
+    call = store.save_calls[0]
+    assert call["audio_m4a"] == FAKE_AUDIO_M4A
+    assert call["video_360p"] is None  # audio-only degrade
+
+
+@pytest.mark.anyio
+async def test_audio_transcode_failure_is_honest_storage_failure(client, store, monkeypatch):
+    """When even the AUDIO derivative can't be produced, storage fails honestly
+    (stored=false + note) — the analysis still returns."""
+    def _boom(data, **kw):
+        raise audio_ingest.TranscodeError("ffmpeg unavailable")
+
+    monkeypatch.setattr(main, "build_derivatives", _boom)
+    p1, p2 = _patched_upload()
+    with p1, p2:
+        resp = await _upload(client, consent="true", store="true")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["stored"] is False
+    assert data["recording_id"] is None
+    assert data["storage_note"] == "storage failed: TranscodeError"
+    assert store.save_calls == []  # nothing persisted
+    # Analysis still fully returned.
+    assert len(data["per_turn"]) == len(MOCK_TURNS)
+
+
+def test_build_derivatives_real_ffmpeg_audio_only():
+    """Integration: build_derivatives on a real WAV produces a non-empty m4a and
+    (no video track) no 360p. Skips if the bundled ffmpeg is unavailable."""
+    try:
+        derivs = audio_ingest.build_derivatives(FIXTURE_WAV)
+    except audio_ingest.TranscodeError as exc:  # pragma: no cover — env-dependent
+        pytest.skip(f"ffmpeg unavailable: {exc}")
+    assert derivs.has_video is False
+    assert derivs.video_360p is None
+    assert derivs.video_note is None
+    assert len(derivs.audio_m4a) > 0
+    # An MP4/m4a container carries an "ftyp" box near the start.
+    assert b"ftyp" in derivs.audio_m4a[:64]
 
 
 # ---------------------------------------------------------------------------
@@ -293,9 +440,10 @@ async def test_list_and_detail_happy_path(client, store):
     assert row["id"] == rid
     assert row["media_type"] == "audio"
     assert row["has_analysis"] is True
+    assert row["source_type"] == "upload"
     assert set(row) == {
         "id", "created_at", "filename", "media_type", "duration_seconds",
-        "has_analysis",
+        "has_analysis", "source_type",
     }
 
     detail = await client.get(
@@ -306,9 +454,12 @@ async def test_list_and_detail_happy_path(client, store):
     assert d["id"] == rid
     assert [t["text"] for t in d["turns"]] == [t["text"] for t in MOCK_TURNS]
     assert d["analysis"]["narrative"]
+    assert d["source"] == {
+        "type": "upload", "url": None, "original_filename": "clip.wav",
+    }
     assert set(d) == {
         "id", "created_at", "filename", "media_type", "duration_seconds",
-        "turns", "analysis",
+        "turns", "analysis", "source",
     }
 
 
@@ -390,12 +541,12 @@ async def test_media_url_and_full_stream(client, store):
     # Token validates for this recording.
     assert main._verify_media_token(tk, rid) == "test-user"
 
-    # Full fetch (no Range) → 200 + correct content type + full bytes.
+    # Full fetch (no Range) → 200 + correct content type + full derivative bytes.
     media = await client.get(f"/recordings/{rid}/media?tk={tk}")
     assert media.status_code == 200
-    assert media.headers["content-type"].startswith("audio/wav")
+    assert media.headers["content-type"].startswith("audio/mp4")
     assert media.headers["accept-ranges"] == "bytes"
-    assert media.content == FIXTURE_WAV
+    assert media.content == FAKE_AUDIO_M4A
 
 
 @pytest.mark.anyio
@@ -407,9 +558,9 @@ async def test_media_range_request_206(client, store):
         headers={"Range": "bytes=0-99"},
     )
     assert media.status_code == 206
-    assert media.headers["content-range"] == f"bytes 0-99/{len(FIXTURE_WAV)}"
+    assert media.headers["content-range"] == f"bytes 0-99/{len(FAKE_AUDIO_M4A)}"
     assert media.headers["content-length"] == "100"
-    assert media.content == FIXTURE_WAV[:100]
+    assert media.content == FAKE_AUDIO_M4A[:100]
 
 
 @pytest.mark.anyio
