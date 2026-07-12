@@ -3,6 +3,7 @@ import renderer, { act, ReactTestInstance } from "react-test-renderer";
 import * as DocumentPicker from "expo-document-picker";
 import SessionScreen from "../src/screens/SessionScreen";
 import { useSessionStore } from "../src/store/sessionStore";
+import { useRecorderStore } from "../src/store/recorderStore";
 import {
   postAnalyzeUpload,
   postAnalyzeUploadChunked,
@@ -70,6 +71,7 @@ beforeEach(() => {
       suggestions: [],
       loading: false,
     });
+    useRecorderStore.setState({ pendingFile: null });
   });
 });
 
@@ -234,9 +236,10 @@ describe("SessionScreen", () => {
       );
       // The server transcript (with timing) landed in the store.
       expect(useSessionStore.getState().turns).toEqual(uploadFixture.turns);
-      // Navigated with the ready-made analysis and the (null, since unstored)
-      // recording id so Dynamics won't refetch.
-      expect(onAnalyze).toHaveBeenCalledWith(uploadFixture, null);
+      // Navigated with the ready-made analysis, the (null, since unstored)
+      // recording id, and cameFromRecorder=false (a manually-picked file) so
+      // Dynamics won't refetch and won't misfire the HD-later popup.
+      expect(onAnalyze).toHaveBeenCalledWith(uploadFixture, null, false);
       // Not stored: the honest storage_note is shown, not a fabricated "saved".
       expect(queryId(comp, "stored-note")).toBeNull();
       expect(queryId(comp, "storage-note")).toBeTruthy();
@@ -295,6 +298,7 @@ describe("SessionScreen", () => {
       expect(onAnalyze).toHaveBeenCalledWith(
         expect.objectContaining({ stored: true, recording_id: "rec_123" }),
         "rec_123",
+        false,
       );
       act(() => comp.unmount());
     });
@@ -421,7 +425,7 @@ describe("SessionScreen", () => {
       await act(async () => {
         finish();
       });
-      expect(onAnalyze).toHaveBeenCalledWith(uploadFixture, null);
+      expect(onAnalyze).toHaveBeenCalledWith(uploadFixture, null, false);
       act(() => comp.unmount());
     });
 
@@ -448,7 +452,62 @@ describe("SessionScreen", () => {
 
       expect(mockUpload).toHaveBeenCalledTimes(1);
       expect(mockChunked).not.toHaveBeenCalled();
-      expect(onAnalyze).toHaveBeenCalledWith(uploadFixture, null);
+      expect(onAnalyze).toHaveBeenCalledWith(uploadFixture, null, false);
+      act(() => comp.unmount());
+    });
+  });
+
+  describe("preselected recording (from the in-app recorder)", () => {
+    it("consumes the recorder store's pending file into the normal upload flow and flags it as recorder-origin", async () => {
+      // A clip just recorded in-app, handed over via the recorder store.
+      act(() => {
+        useRecorderStore.setState({
+          pendingFile: {
+            uri: "file:///recorded.mp4",
+            name: "mindshift-123.mp4",
+            mimeType: "video/mp4",
+            size: 3 * MB,
+          },
+        });
+      });
+      mockUpload.mockResolvedValueOnce({
+        ...uploadFixture,
+        stored: true,
+        recording_id: "rec_rec",
+        storage_note: null,
+      });
+      const onAnalyze = jest.fn();
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<SessionScreen onAnalyzeDynamics={onAnalyze} />);
+      });
+
+      // The recorded file is preselected — its name shows and the upload button
+      // is ready without touching the document picker. The store was cleared.
+      expect(JSON.stringify(comp.toJSON())).toContain("mindshift-123.mp4");
+      expect(queryId(comp, "upload-analyze-button")).toBeTruthy();
+      expect(mockPick).not.toHaveBeenCalled();
+      expect(useRecorderStore.getState().pendingFile).toBeNull();
+
+      // Upload & analyze goes down the normal path with the recorded file...
+      await act(async () => {
+        queryId(comp, "upload-analyze-button")!.props.onPress();
+      });
+      expect(mockUpload).toHaveBeenCalledWith(
+        "file:///recorded.mp4",
+        "mindshift-123.mp4",
+        "video/mp4",
+        undefined,
+        { consent: false, store: true },
+      );
+      // ...and the handoff marks it recorder-origin (third arg true) so Dynamics
+      // can offer the HD-later popup.
+      expect(onAnalyze).toHaveBeenCalledWith(
+        expect.objectContaining({ recording_id: "rec_rec" }),
+        "rec_rec",
+        true,
+      );
       act(() => comp.unmount());
     });
   });

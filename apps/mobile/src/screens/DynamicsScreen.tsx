@@ -44,9 +44,16 @@ interface DynamicsScreenProps {
    * recording" entry point that opens the synced media replay.
    */
   recordingId?: string | null;
+  /** True when this analysis came from a just-recorded in-app video (saved to
+   *  the camera roll). Gates the "attach HD source later" popup — only shown for
+   *  recorder-origin analyses that were actually stored. */
+  cameFromRecorder?: boolean;
   /** Open the replay for the backing recording. Wired by App; the button only
    *  shows when an effective recording id and this handler are both present. */
   onReplay?: (recordingId: string) => void;
+  /** Jump straight to the attach-HD-source flow (replay with its input open)
+   *  for the backing recording. Wired by App; used by the HD-suggest popup. */
+  onAttachSource?: (recordingId: string) => void;
 }
 
 /**
@@ -63,8 +70,13 @@ export default function DynamicsScreen({
   onBack,
   initialData,
   recordingId,
+  cameFromRecorder,
   onReplay,
+  onAttachSource,
 }: DynamicsScreenProps) {
+  // The HD-later suggestion is dismissible; once the user taps "Later" (or acts
+  // on it) it stays hidden for this analysis.
+  const [hdPopupDismissed, setHdPopupDismissed] = useState(false);
   // Snapshot turns once from the store — the analysis is of a fixed transcript,
   // so we don't want it re-fetching if the store mutates underneath us.
   // When `initialData` is supplied (upload flow) we start already-loaded, so
@@ -213,6 +225,14 @@ export default function DynamicsScreen({
   // the Replay entry point below.
   const effectiveRecordingId =
     recordingId ?? (data as UploadAnalyzeResult | null)?.recording_id ?? null;
+  // The "attach HD source later" popup only makes sense when this analysis came
+  // from an in-app recording (in the camera roll) that was actually STORED
+  // server-side (a recording id means stored) — and only until dismissed.
+  const showHdPopup =
+    !!cameFromRecorder &&
+    !!effectiveRecordingId &&
+    !!onAttachSource &&
+    !hdPopupDismissed;
 
   return (
     <View style={styles.flex}>
@@ -252,6 +272,39 @@ export default function DynamicsScreen({
           contentContainerStyle={styles.content}
           testID="dynamics-content"
         >
+          {/* HD-later suggestion — after analyzing an in-app recording, nudge the
+              user to attach a share link once their camera-roll clip backs up to
+              the cloud, unlocking HD replay. Dismissible. */}
+          {showHdPopup && effectiveRecordingId && (
+            <View style={styles.hdPopup} testID="hd-suggest-popup">
+              <Text style={styles.hdPopupTitle}>Want HD replay later?</Text>
+              <Text style={styles.hdPopupBody}>
+                Your video is in your camera roll. Once it backs up to your cloud
+                (e.g. Google Photos), share a single-item link and attach it to
+                this recording for full-quality replay.
+              </Text>
+              <View style={styles.hdPopupButtons}>
+                <TouchableOpacity
+                  testID="hd-suggest-later"
+                  style={styles.hdPopupLater}
+                  onPress={() => setHdPopupDismissed(true)}
+                >
+                  <Text style={styles.hdPopupLaterText}>Later</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  testID="hd-suggest-attach"
+                  style={styles.hdPopupAttach}
+                  onPress={() => {
+                    setHdPopupDismissed(true);
+                    onAttachSource?.(effectiveRecordingId);
+                  }}
+                >
+                  <Text style={styles.hdPopupAttachText}>Attach link now</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
           {/* Replay entry point — only when this analysis is backed by a stored
               recording (from the upload flow or our own fetched result) and App
               wired up navigation. */}
@@ -561,6 +614,43 @@ const styles = StyleSheet.create({
     backgroundColor: PRIMARY,
   },
   replayButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
+  hdPopup: {
+    marginBottom: 16,
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: "#EAF3FC",
+    borderWidth: 1,
+    borderColor: PRIMARY,
+  },
+  hdPopupTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: INK,
+    marginBottom: 6,
+  },
+  hdPopupBody: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: "#374151",
+    marginBottom: 12,
+  },
+  hdPopupButtons: { flexDirection: "row", gap: 10, justifyContent: "flex-end" },
+  hdPopupLater: {
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#FFFFFF",
+  },
+  hdPopupLaterText: { color: MUTED, fontSize: 14, fontWeight: "600" },
+  hdPopupAttach: {
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 8,
+    backgroundColor: PRIMARY,
+  },
+  hdPopupAttachText: { color: "#FFFFFF", fontSize: 14, fontWeight: "600" },
   card: {
     backgroundColor: "#FFFFFF",
     borderRadius: 12,

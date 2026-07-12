@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
@@ -11,6 +12,7 @@ import {
   getRecording,
   getRecordingMediaUrl,
   getRecordingSourceUrl,
+  patchRecordingSource,
 } from "../api/client";
 import type { RecordingDetail } from "../api/client";
 import HeatChart from "../components/HeatChart";
@@ -24,6 +26,9 @@ const MUTED = "#6B7280";
 interface ReplayScreenProps {
   recordingId: string;
   onBack: () => void;
+  /** Open the attach-HD-source input immediately on mount (from the Dynamics
+   *  "Attach link now" popup). Otherwise the affordance starts collapsed. */
+  initialAttachOpen?: boolean;
 }
 
 /** Turn a client error into an honest, human message. The pinned contract uses
@@ -48,7 +53,11 @@ function humanizeError(message: string): string {
  * the media. Everything is fetched against the pinned recordings contract with
  * honest loading/error/retry states (never a fabricated recording).
  */
-export default function ReplayScreen({ recordingId, onBack }: ReplayScreenProps) {
+export default function ReplayScreen({
+  recordingId,
+  onBack,
+  initialAttachOpen = false,
+}: ReplayScreenProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<RecordingDetail | null>(null);
@@ -67,6 +76,15 @@ export default function ReplayScreen({ recordingId, onBack }: ReplayScreenProps)
   const [playheadSeconds, setPlayheadSeconds] = useState(0);
   // Stretch: for video, overlay the chart on the bottom third of the frame.
   const [overlayMode, setOverlayMode] = useState(false);
+
+  // --- Attach / replace HD source ---
+  // The user can attach a durable share/direct link to their own hosted
+  // original so replay streams it in HD. `attachOpen` reveals the input;
+  // `attachError` renders a 422's user-facing detail verbatim.
+  const [attachOpen, setAttachOpen] = useState(initialAttachOpen);
+  const [attachUrl, setAttachUrl] = useState("");
+  const [attaching, setAttaching] = useState(false);
+  const [attachError, setAttachError] = useState<string | null>(null);
 
   const playerRef = useRef<MediaPlayerHandle>(null);
 
@@ -162,6 +180,35 @@ export default function ReplayScreen({ recordingId, onBack }: ReplayScreenProps)
     playerRef.current?.seek(startTime);
   }, []);
 
+  // Submit the attach/replace link: PATCH the source, then refetch the recording
+  // so HD-first playback kicks in immediately (the badge appears). A 422's
+  // user-facing detail is shown verbatim; nothing is fabricated on failure.
+  const handleAttachSubmit = useCallback(async () => {
+    const url = attachUrl.trim();
+    if (!url || attaching) return;
+    setAttaching(true);
+    setAttachError(null);
+    try {
+      await patchRecordingSource(recordingId, url);
+      if (mountedRef.current) {
+        setAttachOpen(false);
+        setAttachUrl("");
+      }
+      // Refetch: detail.source is now a link, so `load` takes the HD-first path.
+      await load();
+    } catch (e) {
+      if (mountedRef.current) {
+        const detail = (e as { detail?: string })?.detail;
+        setAttachError(
+          detail ??
+            humanizeError(e instanceof Error ? e.message : "Something went wrong."),
+        );
+      }
+    } finally {
+      if (mountedRef.current) setAttaching(false);
+    }
+  }, [attachUrl, attaching, recordingId, load]);
+
   const perTurn = detail?.analysis?.per_turn ?? [];
   const turns = detail?.turns ?? [];
   const hasChart = perTurn.length > 0 && turns.length > 0;
@@ -221,6 +268,91 @@ export default function ReplayScreen({ recordingId, onBack }: ReplayScreenProps)
           contentContainerStyle={styles.content}
           testID="replay-content"
         >
+          {/* Attach / replace HD source. When the recording isn't yet
+              link-sourced we offer "Attach HD source"; when it already is, a
+              quieter "Replace source link". Both reveal the same input. */}
+          <View style={styles.attachSection}>
+            {!attachOpen ? (
+              detail.source?.type === "link" ? (
+                <TouchableOpacity
+                  testID="replace-source-button"
+                  style={styles.replaceSourceButton}
+                  onPress={() => {
+                    setAttachError(null);
+                    setAttachOpen(true);
+                  }}
+                >
+                  <Text style={styles.replaceSourceText}>Replace source link</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  testID="attach-source-button"
+                  style={styles.attachSourceButton}
+                  onPress={() => {
+                    setAttachError(null);
+                    setAttachOpen(true);
+                  }}
+                >
+                  <Text style={styles.attachSourceButtonText}>
+                    Attach HD source
+                  </Text>
+                </TouchableOpacity>
+              )
+            ) : (
+              <View>
+                <Text style={styles.attachHelp}>
+                  Paste a share link to your own hosted original (e.g. a Google
+                  Photos single-item link). We’ll stream it in HD for replay.
+                </Text>
+                <TextInput
+                  testID="attach-source-input"
+                  style={styles.attachInput}
+                  placeholder="https://…"
+                  value={attachUrl}
+                  onChangeText={setAttachUrl}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  placeholderTextColor="#9CA3AF"
+                  editable={!attaching}
+                />
+                <View style={styles.attachButtonRow}>
+                  <TouchableOpacity
+                    testID="attach-source-cancel"
+                    style={styles.attachCancel}
+                    onPress={() => {
+                      setAttachOpen(false);
+                      setAttachError(null);
+                    }}
+                    disabled={attaching}
+                  >
+                    <Text style={styles.attachCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    testID="attach-source-submit"
+                    style={[
+                      styles.attachSubmit,
+                      (attaching || !attachUrl.trim()) && styles.attachDisabled,
+                    ]}
+                    onPress={() => void handleAttachSubmit()}
+                    disabled={attaching || !attachUrl.trim()}
+                  >
+                    {attaching ? (
+                      <ActivityIndicator color="#FFFFFF" />
+                    ) : (
+                      <Text style={styles.attachSubmitText}>Attach</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+                {attachError && (
+                  <Text style={styles.attachError} testID="attach-source-error">
+                    {attachError}
+                  </Text>
+                )}
+              </View>
+            )}
+          </View>
+
           {/* HD badge: streaming the user's own linked source. */}
           {hdMode && (
             <View style={styles.hdBadge} testID="hd-badge">
@@ -387,6 +519,74 @@ const styles = StyleSheet.create({
     color: MUTED,
     fontStyle: "italic",
     marginBottom: 10,
+  },
+  attachSection: { marginBottom: 12 },
+  attachSourceButton: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: PRIMARY,
+    backgroundColor: "#EEF2FF",
+  },
+  attachSourceButtonText: { fontSize: 14, fontWeight: "600", color: PRIMARY },
+  replaceSourceButton: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  replaceSourceText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: MUTED,
+    textDecorationLine: "underline",
+  },
+  attachHelp: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: MUTED,
+    marginBottom: 8,
+  },
+  attachInput: {
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 8,
+    padding: 10,
+    fontSize: 14,
+    color: INK,
+    backgroundColor: "#FFFFFF",
+  },
+  attachButtonRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 10,
+    marginTop: 10,
+  },
+  attachCancel: {
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+  },
+  attachCancelText: { color: MUTED, fontSize: 14, fontWeight: "600" },
+  attachSubmit: {
+    paddingVertical: 10,
+    paddingHorizontal: 22,
+    borderRadius: 8,
+    backgroundColor: PRIMARY,
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 90,
+  },
+  attachDisabled: { opacity: 0.6 },
+  attachSubmitText: { color: "#FFFFFF", fontSize: 14, fontWeight: "600" },
+  attachError: {
+    marginTop: 10,
+    fontSize: 13,
+    lineHeight: 19,
+    color: "#DC2626",
   },
   overlayToggle: {
     alignSelf: "flex-end",

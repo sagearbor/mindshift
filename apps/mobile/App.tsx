@@ -12,11 +12,13 @@ import TherapistDashboard from "./src/screens/TherapistDashboard";
 import SessionDetail from "./src/screens/SessionDetail";
 import DynamicsScreen from "./src/screens/DynamicsScreen";
 import ReplayScreen from "./src/screens/ReplayScreen";
+import RecordScreen from "./src/screens/RecordScreen";
 import RecordingsScreen from "./src/screens/RecordingsScreen";
 import LiveCoachScreen from "./src/screens/LiveCoachScreen";
 import LoginScreen from "./src/screens/LoginScreen";
 import { useAuthStore, initAuth } from "./src/store/authStore";
 import { useSessionStore } from "./src/store/sessionStore";
+import { useRecorderStore } from "./src/store/recorderStore";
 import type { AnalyzeResult } from "./src/api/client";
 
 type Screen =
@@ -37,12 +39,32 @@ type Screen =
   // when the upload flow's consent+store both landed as true); undefined
   // otherwise. Carried through so DynamicsScreen can offer a Replay affordance
   // that pushes the ReplayScreen for that id.
-  | { name: "dynamics"; initialData?: AnalyzeResult; recordingId?: string | null }
+  //
+  // `cameFromRecorder` marks an analysis whose file was just recorded in-app
+  // (and saved to the camera roll). When true AND the recording was stored,
+  // DynamicsScreen offers the "attach HD source later" popup.
+  | {
+      name: "dynamics";
+      initialData?: AnalyzeResult;
+      recordingId?: string | null;
+      cameFromRecorder?: boolean;
+    }
   // Stored-recordings list, pushed over the Session tab.
   | { name: "recordings" }
+  // In-app 480p video recording, pushed over the Session tab; the tab bar is
+  // hidden and onBack returns to Session. On success it hands the recorded file
+  // to the Session upload flow (via the recorder store).
+  | { name: "record" }
   // Media replay with the synced heat graph. Pushed; `returnTo` records where
-  // the user came from so Back lands them there.
-  | { name: "replay"; recordingId: string; returnTo: "session" | "recordings" };
+  // the user came from so Back lands them there. `openAttach` opens the
+  // attach-HD-source input immediately (from the Dynamics popup's "Attach link
+  // now").
+  | {
+      name: "replay";
+      recordingId: string;
+      returnTo: "session" | "recordings";
+      openAttach?: boolean;
+    };
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>({ name: "session" });
@@ -80,10 +102,16 @@ export default function App() {
       case "session":
         return (
           <SessionScreen
-            onAnalyzeDynamics={(initialData, recordingId) =>
-              setScreen({ name: "dynamics", initialData, recordingId })
+            onAnalyzeDynamics={(initialData, recordingId, cameFromRecorder) =>
+              setScreen({
+                name: "dynamics",
+                initialData,
+                recordingId,
+                cameFromRecorder,
+              })
             }
             onOpenRecordings={() => setScreen({ name: "recordings" })}
+            onRecordVideo={() => setScreen({ name: "record" })}
           />
         );
       case "dynamics":
@@ -97,8 +125,17 @@ export default function App() {
             onBack={() => setScreen({ name: "session" })}
             initialData={screen.initialData}
             recordingId={screen.recordingId}
+            cameFromRecorder={screen.cameFromRecorder}
             onReplay={(id) =>
               setScreen({ name: "replay", recordingId: id, returnTo: "session" })
+            }
+            onAttachSource={(id) =>
+              setScreen({
+                name: "replay",
+                recordingId: id,
+                returnTo: "session",
+                openAttach: true,
+              })
             }
           />
         );
@@ -115,6 +152,18 @@ export default function App() {
             }
           />
         );
+      case "record":
+        return (
+          <RecordScreen
+            onBack={() => setScreen({ name: "session" })}
+            onComplete={(file) => {
+              // Hand the recorded clip to the Session upload flow and return to
+              // the Session screen, which consumes it from the recorder store.
+              useRecorderStore.getState().setPendingFile(file);
+              setScreen({ name: "session" });
+            }}
+          />
+        );
       case "replay": {
         // Narrow returnTo to a concrete screen so the discriminated union stays
         // exact (a bare { name: returnTo } widens both variants).
@@ -126,6 +175,7 @@ export default function App() {
           <ReplayScreen
             recordingId={screen.recordingId}
             onBack={() => setScreen(back)}
+            initialAttachOpen={screen.openAttach}
           />
         );
       }
@@ -161,10 +211,11 @@ export default function App() {
     <SafeAreaView style={styles.container}>
       {renderScreen()}
       {/* Bottom tab bar — hidden on pushed sub-screens (detail, dynamics,
-          recordings, replay). */}
+          recordings, record, replay). */}
       {screen.name !== "detail" &&
         screen.name !== "dynamics" &&
         screen.name !== "recordings" &&
+        screen.name !== "record" &&
         screen.name !== "replay" && (
         <View style={styles.tabBar}>
           <TouchableOpacity

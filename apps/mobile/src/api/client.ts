@@ -765,6 +765,57 @@ export async function getRecordingSourceUrl(
   return (await res.json()) as RecordingSourceUrl;
 }
 
+/** Result of PATCH /recordings/{id}/source — the recording is now link-sourced,
+ *  so subsequent replay resolves the user's own hosted original (HD-first). */
+export interface PatchSourceResult {
+  type: "link";
+  url: string;
+  original_filename: string | null;
+}
+
+/**
+ * PATCH /recordings/{id}/source — attach (or replace) the durable share/direct
+ * link to the user's OWN hosted original for a stored recording, so replay can
+ * stream it in HD instead of our stored derivative. Body is `{ url }`.
+ *
+ * Like postAnalyzeLink, a 422 means the link is unusable and its `detail` is
+ * written for the user — surfaced verbatim on the thrown error (`.detail`) while
+ * `.status` carries the code for the generic 404/503 branches. On 200 the server
+ * echoes the new link source; the caller refetches the recording so HD-first
+ * playback kicks in immediately.
+ */
+export async function patchRecordingSource(
+  id: string,
+  url: string,
+): Promise<PatchSourceResult> {
+  const res = await fetch(
+    `${API_URL}/recordings/${encodeURIComponent(id)}/source`,
+    {
+      method: "PATCH",
+      headers: await authHeaders(),
+      body: JSON.stringify({ url }),
+    },
+  );
+  if (!res.ok) {
+    // A 422 carries a user-facing explanation (unusable link) — keep it verbatim.
+    let detail: string | undefined;
+    try {
+      const j = (await res.json()) as { detail?: unknown };
+      if (typeof j?.detail === "string") detail = j.detail;
+    } catch {
+      // Non-JSON body — fall back to the status-only message.
+    }
+    const err = new Error(detail ?? `API error: ${res.status}`) as Error & {
+      status?: number;
+      detail?: string;
+    };
+    err.status = res.status;
+    err.detail = detail;
+    throw err;
+  }
+  return (await res.json()) as PatchSourceResult;
+}
+
 /**
  * DELETE /recordings/{id} — remove a stored recording. Resolves on the 204 the
  * contract specifies; throws `API error: <status>` on any non-OK (401/404/503)

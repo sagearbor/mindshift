@@ -5,6 +5,7 @@ import {
   getRecording,
   getRecordingMediaUrl,
   getRecordingSourceUrl,
+  patchRecordingSource,
 } from "../src/api/client";
 import type { RecordingDetail } from "../src/api/client";
 
@@ -13,10 +14,12 @@ jest.mock("../src/api/client", () => ({
   getRecording: jest.fn(),
   getRecordingMediaUrl: jest.fn(),
   getRecordingSourceUrl: jest.fn(),
+  patchRecordingSource: jest.fn(),
 }));
 const mockGetRecording = getRecording as jest.Mock;
 const mockGetMediaUrl = getRecordingMediaUrl as jest.Mock;
 const mockGetSourceUrl = getRecordingSourceUrl as jest.Mock;
+const mockPatchSource = patchRecordingSource as jest.Mock;
 
 // Mock the media player wholesale (per the brief): a host view that forwards a
 // ref exposing a shared `seek` spy, so tap-to-seek can be asserted without
@@ -86,6 +89,7 @@ beforeEach(() => {
   mockGetRecording.mockReset();
   mockGetMediaUrl.mockReset();
   mockGetSourceUrl.mockReset();
+  mockPatchSource.mockReset();
   mockSeek.mockReset();
   mockPlayerProps.uri = undefined;
   mockPlayerProps.onError = undefined;
@@ -287,5 +291,133 @@ describe("ReplayScreen", () => {
     expect(queryId(comp, "hd-badge")).toBeNull();
     expect(queryId(comp, "source-fallback-note")).toBeNull();
     act(() => comp.unmount());
+  });
+
+  describe("attach HD source", () => {
+    it("attaches a link, refetches, and HD-first playback kicks in (badge appears)", async () => {
+      // Starts as an upload-sourced recording (derivative-only, no attach button
+      // is hidden — the Attach affordance is shown).
+      mockGetRecording.mockResolvedValueOnce(uploadDetail);
+      mockGetMediaUrl.mockResolvedValueOnce({
+        url: "https://signed.example/deriv",
+        expires_in: 600,
+      });
+
+      let comp!: renderer.ReactTestRenderer;
+      await act(async () => {
+        comp = renderer.create(<ReplayScreen recordingId="r1" onBack={() => {}} />);
+      });
+      await act(async () => {});
+
+      // No link yet → "Attach HD source" (not "Replace"), and no HD badge.
+      expect(queryId(comp, "attach-source-button")).toBeTruthy();
+      expect(queryId(comp, "replace-source-button")).toBeNull();
+      expect(queryId(comp, "hd-badge")).toBeNull();
+
+      // Open the input and type a link.
+      act(() => queryId(comp, "attach-source-button")!.props.onPress());
+      expect(queryId(comp, "attach-source-input")).toBeTruthy();
+      act(() =>
+        queryId(comp, "attach-source-input")!.props.onChangeText(
+          "https://photos.app.goo.gl/abc",
+        ),
+      );
+
+      // The PATCH succeeds; the refetch now returns a link-sourced recording, so
+      // HD-first resolves the remote source and the badge appears.
+      mockPatchSource.mockResolvedValueOnce({
+        type: "link",
+        url: "https://photos.app.goo.gl/abc",
+        original_filename: "kitchen-fight.m4a",
+      });
+      mockGetRecording.mockResolvedValueOnce(linkDetail);
+      mockGetSourceUrl.mockResolvedValueOnce({
+        url: "https://cdn.example/hd=dv",
+        content_type: "video/mp4",
+        expires_hint: "may expire; refetch on failure",
+      });
+
+      await act(async () => {
+        queryId(comp, "attach-source-submit")!.props.onPress();
+      });
+      await act(async () => {});
+
+      expect(mockPatchSource).toHaveBeenCalledWith(
+        "r1",
+        "https://photos.app.goo.gl/abc",
+      );
+      // Refetched, took the HD path, and the badge is now shown.
+      expect(mockGetSourceUrl).toHaveBeenCalledWith("r1");
+      expect(mockPlayerProps.uri).toBe("https://cdn.example/hd=dv");
+      expect(queryId(comp, "hd-badge")).toBeTruthy();
+      act(() => comp.unmount());
+    });
+
+    it("renders a 422's user-facing detail verbatim and doesn't refetch", async () => {
+      mockGetRecording.mockResolvedValueOnce(uploadDetail);
+      mockGetMediaUrl.mockResolvedValueOnce({
+        url: "https://signed.example/deriv",
+        expires_in: 600,
+      });
+
+      let comp!: renderer.ReactTestRenderer;
+      await act(async () => {
+        comp = renderer.create(<ReplayScreen recordingId="r1" onBack={() => {}} />);
+      });
+      await act(async () => {});
+
+      act(() => queryId(comp, "attach-source-button")!.props.onPress());
+      act(() =>
+        queryId(comp, "attach-source-input")!.props.onChangeText(
+          "https://example.com/not-a-single-item",
+        ),
+      );
+
+      const serverMsg =
+        "That link points to an album, not a single video — open one item and " +
+        "share just that.";
+      const err = Object.assign(new Error(serverMsg), {
+        status: 422,
+        detail: serverMsg,
+      });
+      mockPatchSource.mockRejectedValueOnce(err);
+
+      // getRecording was called once on mount; a failed PATCH must not refetch.
+      const callsBefore = mockGetRecording.mock.calls.length;
+      await act(async () => {
+        queryId(comp, "attach-source-submit")!.props.onPress();
+      });
+      await act(async () => {});
+
+      const errNode = queryId(comp, "attach-source-error");
+      expect(errNode).toBeTruthy();
+      expect(JSON.stringify(comp.toJSON())).toContain(serverMsg);
+      expect(mockGetRecording.mock.calls.length).toBe(callsBefore);
+      // Still no HD badge — nothing was fabricated.
+      expect(queryId(comp, "hd-badge")).toBeNull();
+      act(() => comp.unmount());
+    });
+
+    it("offers a Replace-source affordance when the recording is already link-sourced", async () => {
+      mockGetRecording.mockResolvedValueOnce(linkDetail);
+      mockGetSourceUrl.mockResolvedValueOnce({
+        url: "https://cdn.example/hd=dv",
+        content_type: "video/mp4",
+        expires_hint: "may expire; refetch on failure",
+      });
+
+      let comp!: renderer.ReactTestRenderer;
+      await act(async () => {
+        comp = renderer.create(<ReplayScreen recordingId="r1" onBack={() => {}} />);
+      });
+      await act(async () => {});
+
+      // Already a link → "Replace source link", not "Attach HD source". Same input.
+      expect(queryId(comp, "replace-source-button")).toBeTruthy();
+      expect(queryId(comp, "attach-source-button")).toBeNull();
+      act(() => queryId(comp, "replace-source-button")!.props.onPress());
+      expect(queryId(comp, "attach-source-input")).toBeTruthy();
+      act(() => comp.unmount());
+    });
   });
 });

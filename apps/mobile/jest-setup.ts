@@ -152,6 +152,71 @@ jest.mock("expo-video", () => {
   };
 });
 
+// Mock expo-camera for tests. `CameraView` is a host view that forwards a ref
+// exposing `recordAsync`/`stopRecording` spies (recordAsync resolves to a fixed
+// recorded-file uri so the finish/handoff path can be driven without a real
+// camera). The permission hooks default to granted; tests override them to
+// exercise the denial gate. Spies live on `globalThis.__expoCameraMock`.
+jest.mock("expo-camera", () => {
+  const React = require("react");
+  const { View } = require("react-native");
+  const recordAsync = jest
+    .fn()
+    .mockResolvedValue({ uri: "file:///recorded.mp4" });
+  const stopRecording = jest.fn();
+  (globalThis as Record<string, unknown>).__expoCameraMock = {
+    recordAsync,
+    stopRecording,
+  };
+  const CameraView = React.forwardRef(
+    (props: Record<string, unknown>, ref: unknown) => {
+      React.useImperativeHandle(ref, () => ({ recordAsync, stopRecording }));
+      return React.createElement(
+        View,
+        { testID: props.testID ?? "camera-view" },
+        props.children as React.ReactNode,
+      );
+    },
+  );
+  const grantedHook = () => [
+    { granted: true, status: "granted", canAskAgain: true },
+    jest.fn().mockResolvedValue({ granted: true, status: "granted" }),
+    jest.fn().mockResolvedValue({ granted: true, status: "granted" }),
+  ];
+  return {
+    __esModule: true,
+    CameraView,
+    useCameraPermissions: jest.fn(grantedHook),
+    useMicrophonePermissions: jest.fn(grantedHook),
+  };
+});
+
+// Mock expo-media-library for tests. `Asset.create` (the SDK-57 save-to-roll
+// entry point) is a spy on `globalThis.__expoMediaLibraryMock`; `usePermissions`
+// defaults to granted. Tests assert the save was attempted on stop.
+jest.mock("expo-media-library", () => {
+  const create = jest
+    .fn()
+    .mockResolvedValue({ id: "asset-1", uri: "ph://asset-1" });
+  (globalThis as Record<string, unknown>).__expoMediaLibraryMock = { create };
+  const grantedHook = () => [
+    { granted: true, status: "granted", canAskAgain: true },
+    jest.fn().mockResolvedValue({ granted: true, status: "granted" }),
+    jest.fn().mockResolvedValue({ granted: true, status: "granted" }),
+  ];
+  return {
+    __esModule: true,
+    Asset: { create },
+    usePermissions: jest.fn(grantedHook),
+    requestPermissionsAsync: jest
+      .fn()
+      .mockResolvedValue({ granted: true, status: "granted" }),
+    getPermissionsAsync: jest
+      .fn()
+      .mockResolvedValue({ granted: true, status: "granted" }),
+  };
+});
+
 // Mock expo-speech (free on-device TTS) for tests. speak/stop/isSpeakingAsync
 // are plain jest.fn()s so tests can assert what would have been spoken.
 jest.mock("expo-speech", () => ({

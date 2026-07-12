@@ -10,6 +10,7 @@ import {
   getRecording,
   getRecordingMediaUrl,
   getRecordingSourceUrl,
+  patchRecordingSource,
   deleteRecording,
 } from "../src/api/client";
 import {
@@ -776,6 +777,53 @@ describe("getRecordingSourceUrl", () => {
   it("throws an honest error on 502 (source unreachable) so the caller falls back", async () => {
     mockFetch.mockResolvedValueOnce({ ok: false, status: 502 });
     await expect(getRecordingSourceUrl("r1")).rejects.toThrow("API error: 502");
+  });
+});
+
+describe("patchRecordingSource", () => {
+  it("PATCHes /recordings/{id}/source with { url } and returns the link source", async () => {
+    const payload = {
+      type: "link",
+      url: "https://photos.app.goo.gl/abc",
+      original_filename: "kitchen-fight.m4a",
+    };
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => payload });
+    const result = await patchRecordingSource(
+      "r 1",
+      "https://photos.app.goo.gl/abc",
+    );
+    const [url, init] = mockFetch.mock.calls[0];
+    // id URL-encoded in the path.
+    expect(url).toMatch(/\/recordings\/r%201\/source$/);
+    expect(init.method).toBe("PATCH");
+    expect(JSON.parse(init.body)).toEqual({
+      url: "https://photos.app.goo.gl/abc",
+    });
+    expect(result).toEqual(payload);
+  });
+
+  it("surfaces a 422's user-facing detail verbatim (unusable link)", async () => {
+    const detail =
+      "That link points to an album, not a single video — share one item.";
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      json: async () => ({ detail }),
+    });
+    await expect(
+      patchRecordingSource("r1", "https://example.com/album"),
+    ).rejects.toMatchObject({ message: detail, status: 422, detail });
+  });
+
+  it("throws an honest status error on 404", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      json: async () => ({}),
+    });
+    await expect(patchRecordingSource("r1", "https://x")).rejects.toThrow(
+      "API error: 404",
+    );
   });
 });
 

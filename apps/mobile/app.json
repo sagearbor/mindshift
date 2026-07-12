@@ -25,7 +25,8 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "android.permission.CAMERA"
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -43,7 +44,23 @@
           "microphonePermission": "MindShift uses your microphone to transcribe the conversation and coach you with suggestions in real time."
         }
       ],
-      "expo-video"
+      "expo-video",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "MindShift uses your camera to record a video of the conversation so you can review it later.",
+          "microphonePermission": "MindShift uses your microphone to record the conversation's audio.",
+          "recordAudioAndroid": true
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "MindShift saves your recorded videos to your camera roll so they can back up to your cloud for HD replay later.",
+          "savePhotosPermission": "MindShift saves your recorded videos to your camera roll so they can back up to your cloud for HD replay later.",
+          "isAccessMediaLocationEnabled": false
+        }
+      ]
     ],
     "extra": {
       "apiUrl": "${EXPO_PUBLIC_API_URL}",
