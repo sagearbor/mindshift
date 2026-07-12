@@ -139,6 +139,11 @@ echo "→ Deploying (this builds the image; first deploy takes a few minutes)"
 # --allow-unauthenticated : the app has no login yet (auth is deferred).
 # --timeout 3600          : WebSocket audio sessions are long-lived.
 # --min-instances 1       : avoid cold starts dropping a live session.
+# --memory 2Gi            : the media pipeline (video download + PCM decode +
+#                           prosody arrays + ffmpeg transcode) OOM-killed the
+#                           default 512Mi container mid-request (surfacing as
+#                           malformed 502/503s). Pinned here so redeploys
+#                           can't silently shrink it back.
 # --port 8080             : matches the Dockerfile's EXPOSE/uvicorn port.
 gcloud run deploy "$SERVICE" \
   --source "$REPO_ROOT" \
@@ -147,6 +152,7 @@ gcloud run deploy "$SERVICE" \
   --allow-unauthenticated \
   --timeout 3600 \
   --min-instances 1 \
+  --memory 2Gi \
   --port 8080 \
   --set-env-vars "^@^${ENV_VARS}"
 
