@@ -121,3 +121,21 @@ def test_resolve_photos_no_media_422():
             transport=httpx.MockTransport(_page_only_handler([])),
         )
     assert ei.value.status_code == 422
+
+
+def test_photos_page_url_appends_interstitial_bypass():
+    """Short goo.gl links get _imcp=1 (skips the Dynamic-Links interstitial —
+    without it the share page never loads for plain HTTP clients); long-form
+    and non-Photos URLs are untouched."""
+    from link_fetch import _photos_page_url
+
+    assert _photos_page_url("https://photos.app.goo.gl/abc") == (
+        "https://photos.app.goo.gl/abc?_imcp=1"
+    )
+    assert _photos_page_url("https://photos.app.goo.gl/abc?x=1") == (
+        "https://photos.app.goo.gl/abc?x=1&_imcp=1"
+    )
+    assert _photos_page_url("https://photos.google.com/share/xyz") == (
+        "https://photos.google.com/share/xyz"
+    )
+    assert _photos_page_url("https://example.com/a.mp4") == "https://example.com/a.mp4"
