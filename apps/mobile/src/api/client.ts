@@ -360,14 +360,36 @@ async function octetStreamHeaders(): Promise<Record<string, string>> {
  * partial upload server-side before the honest error is rethrown, so we never
  * leave orphaned chunks behind.
  */
-export async function postAnalyzeUploadChunked(
+/**
+ * Best-effort abort so a failed upload doesn't leave orphaned chunks. Any error
+ * from the abort itself is swallowed — the original failure is what the caller
+ * needs to see.
+ */
+async function abortChunkedUpload(uploadId: string): Promise<void> {
+  try {
+    await fetch(`${API_URL}/uploads/${encodeURIComponent(uploadId)}`, {
+      method: "DELETE",
+      headers: await authHeaders(),
+    });
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Phase 1 of a chunked upload: negotiate a session and PUT every slice. Returns
+ * the server's `upload_id` once all parts have landed. On a start failure there
+ * is nothing server-side to abort; on a PUT failure the partial upload is aborted
+ * before the honest error is rethrown. Shared by the synchronous-complete and
+ * job-complete flows so the byte-streaming logic lives in one place.
+ */
+async function uploadFileInChunks(
   file: string | File,
   name: string,
   mimeType: string,
   sizeBytes: number,
   opts: ChunkedUploadOptions,
-): Promise<UploadAnalyzeResult> {
-  // 1. Start: negotiate the chunk size and count with the server.
+): Promise<string> {
   const startBody: Record<string, unknown> = {
     filename: name,
     content_type: mimeType,
@@ -392,7 +414,6 @@ export async function postAnalyzeUploadChunked(
 
   const reader = createChunkReader(file);
   try {
-    // 2. PUT each slice as a raw octet-stream body, in order.
     for (let index = 0; index < expected_chunks; index += 1) {
       const start = index * chunk_bytes;
       const length = Math.min(chunk_bytes, sizeBytes - start);
@@ -410,11 +431,30 @@ export async function postAnalyzeUploadChunked(
       }
       opts.onProgress?.((index + 1) / expected_chunks);
     }
+  } catch (err) {
+    await abortChunkedUpload(upload_id);
+    throw err;
+  } finally {
+    reader.close();
+  }
+  return upload_id;
+}
 
-    // 3. Complete: the server transcribes + analyzes and returns the full result.
-    //    No client timeout — a long video can legitimately take minutes here.
+export async function postAnalyzeUploadChunked(
+  file: string | File,
+  name: string,
+  mimeType: string,
+  sizeBytes: number,
+  opts: ChunkedUploadOptions,
+): Promise<UploadAnalyzeResult> {
+  const uploadId = await uploadFileInChunks(file, name, mimeType, sizeBytes, opts);
+  try {
+    // Complete: the server transcribes + analyzes and returns the full result.
+    // No client timeout — a long video can legitimately take minutes here (this
+    // synchronous completion is exactly the multi-minute request the job path
+    // below exists to replace on servers that support it).
     const completeRes = await fetch(
-      `${API_URL}/uploads/${encodeURIComponent(upload_id)}/complete`,
+      `${API_URL}/uploads/${encodeURIComponent(uploadId)}/complete`,
       {
         method: "POST",
         headers: await authHeaders(),
@@ -425,21 +465,67 @@ export async function postAnalyzeUploadChunked(
     }
     return (await completeRes.json()) as UploadAnalyzeResult;
   } catch (err) {
-    // Best-effort abort so a failed upload doesn't leave orphaned chunks. Any
-    // error from the abort itself is swallowed — the original failure is what
-    // the caller needs to see.
-    try {
-      await fetch(`${API_URL}/uploads/${encodeURIComponent(upload_id)}`, {
-        method: "DELETE",
-        headers: await authHeaders(),
-      });
-    } catch {
-      // ignore
-    }
+    await abortChunkedUpload(uploadId);
     throw err;
-  } finally {
-    reader.close();
   }
+}
+
+/** A chunked upload that completes as a submit-and-poll JOB. Either the server
+ *  accepted the job (poll `jobId` via {@link getAnalyzeJob}) or — on an older
+ *  server / storage off (the job endpoint 404s/503s) — it fell back to the
+ *  synchronous complete and already has the `result`. */
+export type ChunkedJobOutcome =
+  | { jobId: string }
+  | { result: UploadAnalyzeResult };
+
+/**
+ * Chunked upload whose completion is a background JOB (fixes the multi-minute
+ * synchronous `/complete` that Android backgrounding routinely kills). Streams
+ * the file exactly as {@link postAnalyzeUploadChunked}, then POSTs
+ * `/uploads/{id}/complete/jobs`:
+ *   - 202 → returns `{ jobId }`; the server now owns the parts (it cleans them
+ *     up when the job finishes), so the caller polls and never aborts.
+ *   - 404/503 (old server / storage off) → falls back to the synchronous
+ *     `/complete` and returns `{ result }` — the parts are still present.
+ * Any other failure aborts the partial upload and rethrows an honest error.
+ */
+export async function postAnalyzeUploadChunkedJob(
+  file: string | File,
+  name: string,
+  mimeType: string,
+  sizeBytes: number,
+  opts: ChunkedUploadOptions,
+): Promise<ChunkedJobOutcome> {
+  const uploadId = await uploadFileInChunks(file, name, mimeType, sizeBytes, opts);
+  const jobRes = await fetch(
+    `${API_URL}/uploads/${encodeURIComponent(uploadId)}/complete/jobs`,
+    { method: "POST", headers: await authHeaders() },
+  );
+  if (jobRes.ok) {
+    // Job accepted — the server owns the parts now; do NOT abort.
+    const { job_id } = (await jobRes.json()) as JobCreated;
+    return { jobId: job_id };
+  }
+  if (jobRes.status === 404 || jobRes.status === 503) {
+    // Jobs unavailable (old server / storage off) — synchronous fallback. The
+    // parts are still on the server; complete() aborts on its own failure.
+    try {
+      const completeRes = await fetch(
+        `${API_URL}/uploads/${encodeURIComponent(uploadId)}/complete`,
+        { method: "POST", headers: await authHeaders() },
+      );
+      if (!completeRes.ok) {
+        throw new Error(`API error: ${completeRes.status}`);
+      }
+      return { result: (await completeRes.json()) as UploadAnalyzeResult };
+    } catch (err) {
+      await abortChunkedUpload(uploadId);
+      throw err;
+    }
+  }
+  // A real error on the job POST — abort the upload and surface it.
+  await abortChunkedUpload(uploadId);
+  throw new Error(`API error: ${jobRes.status}`);
 }
 
 /** Options for analyzing a remote recording by link. Same consent/store meaning
@@ -502,6 +588,139 @@ export async function postAnalyzeLink(
   }
 
   return (await res.json()) as UploadAnalyzeResult;
+}
+
+// --- Submit-and-poll analysis jobs ------------------------------------------
+// A link download or a chunked-upload completion is a multi-minute synchronous
+// request today; Android backgrounding / socket loss routinely kills the
+// response the server already finished producing, so the user sees an error on
+// work that actually succeeded. The job endpoints run that same pipeline as a
+// background task and expose staged progress the client polls (~every 3s),
+// decoupling the result from one fragile long-lived connection.
+
+/** The server-reported lifecycle of an analysis job. `stalled` is COMPUTED by
+ *  the server on read (a non-terminal job whose state stopped advancing — e.g. an
+ *  in-process task orphaned by an instance restart), so the client never spins
+ *  forever. */
+export type JobStatus =
+  | "queued"
+  | "downloading"
+  | "transcribing"
+  | "analyzing"
+  | "storing"
+  | "done"
+  | "failed"
+  | "stalled";
+
+/** 202 body of the job-submit endpoints — the id to poll with. */
+export interface JobCreated {
+  job_id: string;
+}
+
+/** GET /analyze/jobs/{id} — a job's staged progress (and its result once done). */
+export interface AnalyzeJobState {
+  job_id: string;
+  status: JobStatus;
+  created_at: string;
+  updated_at: string;
+  stage_started_at: string | null;
+  // A human string for the current stage (e.g. "38 MB downloaded"), never a
+  // fabricated percentage — the server is honest about what it actually knows.
+  progress_note: string | null;
+  // Known once the recording has been decoded/transcribed; drives the client
+  // ETA. Null until then.
+  duration_seconds: number | null;
+  // Honest failure detail — the SAME message the synchronous path would 4xx/5xx
+  // with. Null unless `status === "failed"`.
+  error: string | null;
+  // The full analysis, present ONLY when `status === "done"`.
+  result: UploadAnalyzeResult | null;
+}
+
+/**
+ * POST /analyze/link/jobs — submit a link analysis as a background job. Returns
+ * `{ job_id }` (202) to poll via {@link getAnalyzeJob}. Throws `API error:
+ * <status>` on any non-OK with the numeric `.status` attached, so the caller can
+ * FALL BACK to the synchronous {@link postAnalyzeLink} on 404/503 (old server /
+ * storage off) and surface a 422/413 `.detail` verbatim otherwise.
+ */
+export async function postAnalyzeLinkJob(
+  url: string,
+  options: AnalyzeLinkOptions,
+): Promise<JobCreated> {
+  const body: Record<string, unknown> = {
+    url,
+    consent: options.consent,
+    store: options.store,
+  };
+  if (options.context !== undefined) {
+    body.context = options.context;
+  }
+  const res = await fetch(`${API_URL}/analyze/link/jobs`, {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw await jobPostError(res);
+  }
+  return (await res.json()) as JobCreated;
+}
+
+/**
+ * POST /uploads/{id}/complete/jobs — submit a completed chunked upload's
+ * analysis as a background job. Used by {@link postAnalyzeUploadChunkedJob}
+ * after the parts are uploaded; returns `{ job_id }` (202) or throws
+ * `API error: <status>` (with `.status`) so the orchestrator can fall back to
+ * the synchronous complete on 404/503.
+ */
+export async function postUploadCompleteJob(
+  uploadId: string,
+): Promise<JobCreated> {
+  const res = await fetch(
+    `${API_URL}/uploads/${encodeURIComponent(uploadId)}/complete/jobs`,
+    { method: "POST", headers: await authHeaders() },
+  );
+  if (!res.ok) {
+    throw await jobPostError(res);
+  }
+  return (await res.json()) as JobCreated;
+}
+
+/**
+ * GET /analyze/jobs/{id} — poll a job's state. Throws `API error: <status>` on
+ * any non-OK (401/404/503) so the caller can stop polling and surface an honest
+ * state rather than an eternal spinner.
+ */
+export async function getAnalyzeJob(jobId: string): Promise<AnalyzeJobState> {
+  const res = await fetch(
+    `${API_URL}/analyze/jobs/${encodeURIComponent(jobId)}`,
+    { method: "GET", headers: await authHeaders() },
+  );
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+  return (await res.json()) as AnalyzeJobState;
+}
+
+/** Build an Error for a failed job-submit POST, carrying `.status` (and the
+ *  server's `.detail` when present, e.g. a link 422/413 written for the user)
+ *  so callers can both branch on the code and render the message verbatim. */
+async function jobPostError(res: Response): Promise<Error> {
+  let detail: string | undefined;
+  try {
+    const j = (await res.json()) as { detail?: unknown };
+    if (typeof j?.detail === "string") detail = j.detail;
+  } catch {
+    // Non-JSON body — fall back to the status-only message.
+  }
+  const err = new Error(detail ?? `API error: ${res.status}`) as Error & {
+    status?: number;
+    detail?: string;
+  };
+  err.status = res.status;
+  err.detail = detail;
+  return err;
 }
 
 /** One simulated turn from /analyze/counterfactual: a hypothetical heat value

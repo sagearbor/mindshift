@@ -222,6 +222,39 @@ async def test_analyze_non_dict_llm_json_is_502(client):
     assert resp.status_code == 502
 
 
+def _mock_llm_seq(*payloads: str) -> MagicMock:
+    """An LLM whose .complete returns each payload in turn (side_effect)."""
+    m = MagicMock()
+    m.complete.side_effect = list(payloads)
+    return m
+
+
+@pytest.mark.anyio
+async def test_analyze_retries_once_after_bad_json(client):
+    """~10% of production analysis calls come back non-JSON; a single corrective
+    retry recovers the request instead of failing the whole thing."""
+    good = FIXTURE_LLM_JSON
+    llm = _mock_llm_seq("not json at all", good)
+    with patch("main.get_llm_client", return_value=llm):
+        resp = await client.post("/analyze", json={"turns": FIXTURE_TURNS})
+    assert resp.status_code == 200, resp.text
+    assert len(resp.json()["per_turn"]) == 12
+    # Exactly one retry — the second call carried the corrective suffix.
+    assert llm.complete.call_count == 2
+    retry_user = llm.complete.call_args_list[1].kwargs["user"]
+    assert "not valid JSON" in retry_user
+
+
+@pytest.mark.anyio
+async def test_analyze_both_attempts_bad_json_is_502(client):
+    """When the retry also fails, the honest 502 is raised — no third attempt."""
+    llm = _mock_llm_seq("garbage one", "garbage two")
+    with patch("main.get_llm_client", return_value=llm):
+        resp = await client.post("/analyze", json={"turns": FIXTURE_TURNS})
+    assert resp.status_code == 502
+    assert llm.complete.call_count == 2
+
+
 @pytest.mark.anyio
 async def test_analyze_non_numeric_heat_is_502(client):
     pt = _mock_per_turn(12)
@@ -464,6 +497,30 @@ async def test_counterfactual_happy_path(client):
     ]
     # heats clamped; the 150 became 100
     assert [t["heat"] for t in spt] == [100, 10, 14, 8, 11, 9, 13, 7]
+
+
+@pytest.mark.anyio
+async def test_counterfactual_retries_once_after_bad_json(client):
+    """The counterfactual endpoint gets the same single corrective retry."""
+    good = _counterfactual_json([10, 12, 8, 11, 9, 13, 7, 6])
+    llm = _mock_llm_seq("not json", good)
+    with patch("main.get_llm_client", return_value=llm):
+        resp = await client.post("/analyze/counterfactual", json={
+            "turns": FIXTURE_TURNS, "pivot_index": 4,
+        })
+    assert resp.status_code == 200, resp.text
+    assert llm.complete.call_count == 2
+
+
+@pytest.mark.anyio
+async def test_counterfactual_both_attempts_bad_json_is_502(client):
+    llm = _mock_llm_seq("garbage", "still garbage")
+    with patch("main.get_llm_client", return_value=llm):
+        resp = await client.post("/analyze/counterfactual", json={
+            "turns": FIXTURE_TURNS, "pivot_index": 4,
+        })
+    assert resp.status_code == 502
+    assert llm.complete.call_count == 2
 
 
 @pytest.mark.anyio

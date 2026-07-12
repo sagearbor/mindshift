@@ -501,3 +501,57 @@ class RecordingsStore:
                 blob.delete()
             except Exception:  # noqa: BLE001 — best-effort cleanup, per blob
                 logger.warning("Failed to delete upload blob %s", blob.name)
+
+    # -- async analysis jobs ----------------------------------------------
+    # A submit-and-poll analysis job (POST /analyze/link/jobs or
+    # /uploads/{id}/complete/jobs) runs as an in-process background task and
+    # records its staged progress in a single JSON object here, under a ``jobs/``
+    # namespace scoped per uid (so one user can never read another's job)::
+    #
+    #     jobs/{uid}/{job_id}/state.json   # {status, progress_note, result, ...}
+    #
+    # The state is rewritten in full between stages (the owning task is the sole
+    # writer), so there is no read-modify-write race. Consistent with the upload
+    # sessions above: jobs REQUIRE a bucket, so storage-disabled means the
+    # job endpoints report an honest 503 while the old synchronous endpoints keep
+    # working.
+    @staticmethod
+    def _job_prefix(uid: str, job_id: str) -> str:
+        return f"jobs/{uid}/{job_id}/"
+
+    async def write_job_state(
+        self, uid: str, job_id: str, state: dict,
+    ) -> None:
+        """Write (or overwrite) a job's full state document."""
+        await asyncio.to_thread(self._write_job_state_sync, uid, job_id, state)
+
+    def _write_job_state_sync(self, uid, job_id, state) -> None:
+        self._bucket.blob(
+            self._job_prefix(uid, job_id) + "state.json"
+        ).upload_from_string(
+            json.dumps(state), content_type="application/json",
+        )
+
+    async def read_job_state(self, uid: str, job_id: str) -> dict | None:
+        """A job's state, or ``None`` when it does not exist for this uid (→ 404).
+        uid-scoped: a foreign job_id reads as absent."""
+        return await asyncio.to_thread(self._read_job_state_sync, uid, job_id)
+
+    def _read_job_state_sync(self, uid, job_id) -> dict | None:
+        blob = self._bucket.blob(self._job_prefix(uid, job_id) + "state.json")
+        if not blob.exists():
+            return None
+        return json.loads(blob.download_as_bytes())
+
+    async def delete_job(self, uid: str, job_id: str) -> None:
+        """Delete a job's state (lazy TTL cleanup on read). Best-effort."""
+        await asyncio.to_thread(self._delete_job_sync, uid, job_id)
+
+    def _delete_job_sync(self, uid, job_id) -> None:
+        for blob in self._bucket.list_blobs(
+            prefix=self._job_prefix(uid, job_id)
+        ):
+            try:
+                blob.delete()
+            except Exception:  # noqa: BLE001 — best-effort cleanup, per blob
+                logger.warning("Failed to delete job blob %s", blob.name)

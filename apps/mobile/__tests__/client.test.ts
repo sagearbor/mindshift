@@ -3,7 +3,11 @@ import {
   postAnalyze,
   postAnalyzeUpload,
   postAnalyzeUploadChunked,
+  postAnalyzeUploadChunkedJob,
   postAnalyzeLink,
+  postAnalyzeLinkJob,
+  postUploadCompleteJob,
+  getAnalyzeJob,
   postCounterfactual,
   empathyTone,
   listRecordings,
@@ -849,5 +853,168 @@ describe("empathyTone", () => {
     expect(empathyTone(50)).toBe("balanced");
     expect(empathyTone(80)).toBe("empathetic");
     expect(empathyTone(100)).toBe("validating");
+  });
+});
+
+// --- Submit-and-poll analysis jobs ------------------------------------------
+
+describe("postAnalyzeLinkJob", () => {
+  it("POSTs to /analyze/link/jobs and returns the job id (202)", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 202,
+      json: async () => ({ job_id: "job_42" }),
+    });
+    const res = await postAnalyzeLinkJob("https://example.com/clip.mp4", {
+      consent: true,
+      store: true,
+      context: "kitchen",
+    });
+    expect(res).toEqual({ job_id: "job_42" });
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toMatch(/\/analyze\/link\/jobs$/);
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({
+      url: "https://example.com/clip.mp4",
+      consent: true,
+      store: true,
+      context: "kitchen",
+    });
+  });
+
+  it("throws with .status and .detail on a non-OK response (for fallback + verbatim)", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      json: async () => ({ detail: "async analysis jobs need storage enabled" }),
+    });
+    await expect(
+      postAnalyzeLinkJob("https://example.com/clip.mp4", {
+        consent: false,
+        store: true,
+      }),
+    ).rejects.toMatchObject({
+      status: 503,
+      detail: "async analysis jobs need storage enabled",
+    });
+  });
+});
+
+describe("postUploadCompleteJob", () => {
+  it("POSTs to /uploads/{id}/complete/jobs and returns the job id", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 202,
+      json: async () => ({ job_id: "job_up" }),
+    });
+    const res = await postUploadCompleteJob("up1");
+    expect(res).toEqual({ job_id: "job_up" });
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toMatch(/\/uploads\/up1\/complete\/jobs$/);
+    expect(init.method).toBe("POST");
+  });
+
+  it("throws with .status on a non-OK response", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) });
+    await expect(postUploadCompleteJob("up1")).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe("getAnalyzeJob", () => {
+  it("GETs /analyze/jobs/{id} and returns the state", async () => {
+    const state = {
+      job_id: "job_1",
+      status: "analyzing",
+      created_at: "t0",
+      updated_at: "t1",
+      stage_started_at: "t1",
+      progress_note: "scoring",
+      duration_seconds: 90,
+      error: null,
+      result: null,
+    };
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => state });
+    const res = await getAnalyzeJob("job_1");
+    expect(res).toEqual(state);
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toMatch(/\/analyze\/jobs\/job_1$/);
+    expect(init.method).toBe("GET");
+  });
+
+  it("throws an honest error on a non-OK response", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+    await expect(getAnalyzeJob("nope")).rejects.toThrow("API error: 404");
+  });
+});
+
+describe("postAnalyzeUploadChunkedJob", () => {
+  const uploadResult = {
+    per_turn: [],
+    per_speaker: {},
+    dynamics: {
+      coupling: { strength: null, leader: null, description: "" },
+      deescalation: { who_first: null, follow_rate: null, description: "" },
+      triggers: [],
+      requests: [],
+    },
+    narrative: "",
+    turns: [],
+    stored: false,
+    recording_id: null,
+    storage_note: "consent not given",
+  };
+
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>).__fsMockBytes;
+  });
+
+  it("uploads chunks then completes as a JOB, returning { jobId }", async () => {
+    (globalThis as Record<string, unknown>).__fsMockBytes = new Uint8Array(10);
+    mockFetch
+      // start
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ upload_id: "u1", chunk_bytes: 100, expected_chunks: 1 }),
+      })
+      // PUT chunk 0
+      .mockResolvedValueOnce({ ok: true, status: 200 })
+      // POST complete/jobs → 202
+      .mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ job_id: "job_c" }) });
+
+    const outcome = await postAnalyzeUploadChunkedJob(
+      "file:///x.mp4",
+      "x.mp4",
+      "video/mp4",
+      10,
+      { consent: false, store: true },
+    );
+    expect(outcome).toEqual({ jobId: "job_c" });
+    // The completion hit the JOB endpoint (not the synchronous one).
+    expect(mockFetch.mock.calls[2][0]).toMatch(/\/uploads\/u1\/complete\/jobs$/);
+    // Job accepted → NO abort DELETE (server owns the parts now).
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("falls back to synchronous complete when complete/jobs 404s (old server)", async () => {
+    (globalThis as Record<string, unknown>).__fsMockBytes = new Uint8Array(10);
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ upload_id: "u2", chunk_bytes: 100, expected_chunks: 1 }),
+      })
+      .mockResolvedValueOnce({ ok: true, status: 200 }) // PUT
+      .mockResolvedValueOnce({ ok: false, status: 404 }) // complete/jobs unavailable
+      .mockResolvedValueOnce({ ok: true, json: async () => uploadResult }); // sync complete
+
+    const outcome = await postAnalyzeUploadChunkedJob(
+      "file:///x.mp4",
+      "x.mp4",
+      "video/mp4",
+      10,
+      { consent: false, store: true },
+    );
+    expect(outcome).toEqual({ result: uploadResult });
+    expect(mockFetch.mock.calls[2][0]).toMatch(/\/complete\/jobs$/);
+    expect(mockFetch.mock.calls[3][0]).toMatch(/\/uploads\/u2\/complete$/);
   });
 });

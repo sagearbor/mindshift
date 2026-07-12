@@ -13,7 +13,7 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path as FilePath
-from typing import Annotated, Optional
+from typing import Annotated, Awaitable, Callable, Optional
 
 # Load a repo-root `.env` (if present) BEFORE any configuration is read below.
 # python-dotenv's default is override=False, so real environment variables
@@ -458,6 +458,14 @@ MAX_CHUNKED_UPLOAD_BYTES = int(
 UPLOAD_CHUNK_BYTES = int(os.getenv("CHUNKED_UPLOAD_CHUNK_BYTES", str(8 * 1024 * 1024)))
 CHUNK_SLACK_BYTES = 4096
 
+# Async-job staleness + TTL. A non-terminal job whose state has not advanced in
+# JOB_STALL_SECONDS is reported as "stalled" (computed on read — an in-process
+# task orphaned by an instance restart never gets to write "failed", so without
+# this the client would spin forever). Terminal (done/failed) states older than
+# JOB_TTL_SECONDS are lazily deleted on read — cheap cleanup, no cron needed.
+JOB_STALL_SECONDS = float(os.getenv("ANALYZE_JOB_STALL_SECONDS", "120"))
+JOB_TTL_SECONDS = float(os.getenv("ANALYZE_JOB_TTL_SECONDS", str(24 * 60 * 60)))
+
 
 # --- Chunked upload session (POST /uploads/start → PUT chunks → complete) -----
 # The session lets a phone video (50-300MB) reach analysis despite Cloud Run's
@@ -498,6 +506,44 @@ class RecordingSourceRequest(BaseModel):
     # A user-pasted share URL to attach as an existing recording's HD source for
     # replay. Only RESOLVED (not downloaded) — see PATCH /recordings/{id}/source.
     url: str = Field(min_length=1, max_length=2000)
+
+
+# --- Submit-and-poll analysis jobs (POST /analyze/link/jobs,
+# /uploads/{id}/complete/jobs → 202 {job_id}; GET /analyze/jobs/{job_id}) -----
+# A link download or a chunked-upload completion is a MULTI-MINUTE synchronous
+# request today: Android backgrounding / socket loss kills the response the
+# server has already finished producing, so the user sees "Something went wrong"
+# on work that actually succeeded. These endpoints run that exact pipeline as an
+# in-process background task and record staged progress in GCS
+# (jobs/{uid}/{job_id}/state.json), which the client polls — decoupling the
+# result from a single fragile long-lived connection.
+
+
+class JobCreatedResponse(BaseModel):
+    # 202 body: the id to poll GET /analyze/jobs/{job_id} with.
+    job_id: str
+
+
+class JobStateResponse(BaseModel):
+    job_id: str
+    # queued|downloading|transcribing|analyzing|storing|done|failed, plus the
+    # COMPUTED "stalled" (a non-terminal job whose state stopped advancing — see
+    # the GET endpoint). Kept a plain str so a future stage needs no client change.
+    status: str
+    created_at: str
+    updated_at: str
+    stage_started_at: Optional[str] = None
+    # A human string for the current stage (e.g. "38 MB downloaded"), never a
+    # fabricated percentage — honest about what the server actually knows.
+    progress_note: Optional[str] = None
+    # Known once the recording has been decoded/transcribed; lets the client
+    # render a rough ETA. None until then.
+    duration_seconds: Optional[float] = None
+    # Honest failure detail — the SAME message the synchronous path would 4xx/5xx
+    # with. None unless status is "failed".
+    error: Optional[str] = None
+    # The full AnalyzeUploadResponse, included ONLY when status is "done".
+    result: Optional[AnalyzeUploadResponse] = None
 
 
 # --- POST /analyze/counterfactual — the "what if they'd said it differently"
@@ -909,6 +955,18 @@ def self_feedback_prompt(
 
 def get_llm_client() -> LLMClient:
     return app.state.llm_client
+
+
+class _LLMResponseError(Exception):
+    """A retryable LLM parse/shape failure carrying the honest 502 detail.
+
+    Raised inside the analyze/counterfactual completion helpers so the caller can
+    retry once and, on a second failure, surface the SAME specific detail the
+    non-retried path used to (e.g. "misaligned analysis" vs "invalid JSON")."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
 
 
 def parse_llm_json(text: str) -> dict:
@@ -1352,6 +1410,14 @@ async def score(
 # means the same thing across turns, speakers, AND separate sessions (which is
 # what lets longitudinal averages be built later). Embedded VERBATIM in both
 # /analyze and /analyze/counterfactual so the two share one thermometer.
+# Appended to the user content on the ONE retry after an LLM JSON parse/shape
+# failure (see _run_analysis / the counterfactual endpoint). Terse on purpose —
+# the model already has the full output contract in its system prompt.
+_LLM_JSON_RETRY_SUFFIX = (
+    "Your previous reply was not valid JSON. Reply with ONLY the JSON object."
+)
+
+
 HEAT_ANCHOR_RUBRIC = (
     "heat is an integer 0-100 on an ABSOLUTE thermometer of emotional "
     "escalation/hostility. Score each turn against these FIXED anchors — "
@@ -1600,31 +1666,51 @@ async def _run_analysis(
     max_tokens = min(8192, 1200 + 90 * len(turns))
 
     llm = get_llm_client()
-    # to_thread: llm.complete is a blocking SDK call — keep it off the event
-    # loop (see /respond).
-    raw = await asyncio.to_thread(
-        llm.complete,
-        system=system_prompt,
-        user=user_content,
-        max_tokens=max_tokens,
-    )
-    try:
-        data = parse_llm_json(raw)
-    except (ValueError, IndexError, KeyError, TypeError):
-        raise HTTPException(status_code=502, detail="LLM returned invalid JSON")
-    # Valid JSON that isn't an object ("[]", "null", a bare number) would slip
-    # past the except above and AttributeError on .get() → an unhandled 500.
-    # Honest 502 instead, consistent with every other failure mode here.
-    if not isinstance(data, dict):
-        raise HTTPException(status_code=502, detail="LLM returned invalid JSON")
 
-    llm_per_turn = data.get("per_turn")
-    # Honest failure: no padding, no truncation. A misaligned length means the
-    # scores cannot be trusted against the transcript at all.
-    if not isinstance(llm_per_turn, list) or len(llm_per_turn) != len(turns):
-        raise HTTPException(
-            status_code=502, detail="LLM returned misaligned analysis",
+    async def _complete_analysis_json(attempt_user: str) -> dict:
+        # to_thread: llm.complete is a blocking SDK call — keep it off the event
+        # loop (see /respond). Raises _LLMResponseError for any non-JSON /
+        # wrong-shape response (not an object, or a per_turn list misaligned with
+        # the transcript) so the caller can retry once before surfacing a 502.
+        raw = await asyncio.to_thread(
+            llm.complete,
+            system=system_prompt,
+            user=attempt_user,
+            max_tokens=max_tokens,
         )
+        try:
+            parsed = parse_llm_json(raw)
+        except (ValueError, IndexError, KeyError, TypeError):
+            raise _LLMResponseError("LLM returned invalid JSON")
+        # Valid JSON that isn't an object ("[]", "null", a bare number) would
+        # AttributeError on .get() downstream — treat it as a parse failure.
+        if not isinstance(parsed, dict):
+            raise _LLMResponseError("LLM returned invalid JSON")
+        # No padding, no truncation: a misaligned per_turn length means the
+        # scores cannot be trusted against the transcript at all.
+        per_turn_field = parsed.get("per_turn")
+        if not isinstance(per_turn_field, list) or len(per_turn_field) != len(turns):
+            raise _LLMResponseError("LLM returned misaligned analysis")
+        return parsed
+
+    # ~10% of production batch-analysis calls come back non-JSON (or truncated
+    # mid-object → invalid JSON). Retry ONCE with a terse corrective suffix
+    # before surfacing the honest 502 — this recovers most of those without
+    # failing the whole request (or, for an async job, the whole job). The retry
+    # re-raises the SAME specific detail so diagnostics stay honest.
+    try:
+        data = await _complete_analysis_json(user_content)
+    except _LLMResponseError:
+        logger.info("analysis LLM retry after parse failure")
+        try:
+            data = await _complete_analysis_json(
+                user_content + "\n\n" + _LLM_JSON_RETRY_SUFFIX
+            )
+        except _LLMResponseError as exc:
+            raise HTTPException(status_code=502, detail=exc.detail)
+
+    # Guaranteed a list of the correct length by _complete_analysis_json above.
+    llm_per_turn = data["per_turn"]
 
     # Extract + clean the per-turn LLM fields into parallel arrays.
     heats: list[int] = []
@@ -1746,6 +1832,24 @@ async def analyze(
     return await _run_analysis(req.turns, req.context, voice_labels=None)
 
 
+# A progress hook the async-job runner injects so the shared pipeline can
+# report stage transitions (status, human progress_note, duration_seconds once
+# known) without knowing anything about jobs. None on the synchronous paths, so
+# they are byte-for-byte unchanged.
+JobProgressFn = Callable[[str, Optional[str], Optional[float]], Awaitable[None]]
+
+
+async def _emit_progress(
+    progress: "JobProgressFn | None",
+    status: str,
+    note: str | None = None,
+    duration_seconds: float | None = None,
+) -> None:
+    """Call the job progress hook if one is wired; a no-op otherwise."""
+    if progress is not None:
+        await progress(status, note, duration_seconds)
+
+
 async def _analyze_recording_bytes(
     uid: str,
     *,
@@ -1756,6 +1860,7 @@ async def _analyze_recording_bytes(
     consent: bool,
     store: bool,
     source: dict,
+    progress: "JobProgressFn | None" = None,
 ) -> AnalyzeUploadResponse:
     """Analyze one recording's raw bytes and optionally persist the result.
 
@@ -1771,6 +1876,10 @@ async def _analyze_recording_bytes(
     derivative (``{"type": "upload"|"link", "url": str|None,
     "original_filename": str|None}``).
 
+    ``progress`` is an optional hook the async-job runner injects to record staged
+    progress (transcribing → analyzing → storing) as it goes; it is None on the
+    synchronous paths, which then run exactly as before.
+
     Honest failures throughout: transcription unconfigured → 503, undecodable or
     speechless → 422, over the duration cap → 413. A storage failure never sinks
     the analysis — the response returns with stored=false and a note carrying the
@@ -1778,6 +1887,10 @@ async def _analyze_recording_bytes(
     """
     # 1) Transcribe the ORIGINAL container bytes (Deepgram decodes it itself).
     #    to_thread: transcribe_prerecorded is a blocking HTTP call.
+    await _emit_progress(
+        progress, "transcribing",
+        f"{len(data) // (1024 * 1024)} MB to transcribe",
+    )
     try:
         raw_turns = await asyncio.to_thread(
             transcribe_prerecorded, data, content_type,
@@ -1839,7 +1952,10 @@ async def _analyze_recording_bytes(
         voice_labels = None
         voice_note = f"unavailable: {exc}"
 
-    # 4) Run the shared analysis with the voice labels (or None on degrade).
+    # 4) Run the shared analysis with the voice labels (or None on degrade). The
+    #    decoded duration (when we have it) rides along so the client can start
+    #    computing an ETA the moment the analysis stage begins.
+    await _emit_progress(progress, "analyzing", None, decoded_duration)
     core = await _run_analysis(turns, context, voice_labels=voice_labels)
 
     transcribed = [
@@ -1868,6 +1984,7 @@ async def _analyze_recording_bytes(
     elif store_backend is None:
         response.storage_note = "storage not enabled"
     else:
+        await _emit_progress(progress, "storing", None, decoded_duration)
         # We persist compressed DERIVATIVES, never the original bytes (a cost
         # decision): always an AAC audio.m4a, plus a 360p video_360p.mp4 when the
         # input carried video. Build them off the event loop. A failed AUDIO
@@ -2065,21 +2182,35 @@ async def analyze_counterfactual(
     max_tokens = min(8192, 800 + 16 * expected)
 
     llm = get_llm_client()
-    # to_thread: keep the blocking SDK call off the event loop (see /respond).
-    raw = await asyncio.to_thread(
-        llm.complete,
-        system=COUNTERFACTUAL_SYSTEM_PROMPT,
-        user=user_content,
-        max_tokens=max_tokens,
-    )
+
+    async def _complete_counterfactual_json(attempt_user: str) -> dict:
+        # to_thread: keep the blocking SDK call off the event loop (see /respond).
+        # Raises _LLMResponseError for a non-JSON / non-object reply so the caller
+        # can retry once — same corrective-retry policy as /analyze.
+        raw = await asyncio.to_thread(
+            llm.complete,
+            system=COUNTERFACTUAL_SYSTEM_PROMPT,
+            user=attempt_user,
+            max_tokens=max_tokens,
+        )
+        try:
+            parsed = parse_llm_json(raw)
+        except (ValueError, IndexError, KeyError, TypeError):
+            raise _LLMResponseError("LLM returned invalid JSON")
+        if not isinstance(parsed, dict):
+            raise _LLMResponseError("LLM returned invalid JSON")
+        return parsed
+
     try:
-        data = parse_llm_json(raw)
-    except (ValueError, IndexError, KeyError, TypeError):
-        raise HTTPException(status_code=502, detail="LLM returned invalid JSON")
-    # Same isinstance(data, dict) guard as /analyze: valid JSON that isn't an
-    # object would AttributeError on .get() → honest 502 instead of a raw 500.
-    if not isinstance(data, dict):
-        raise HTTPException(status_code=502, detail="LLM returned invalid JSON")
+        data = await _complete_counterfactual_json(user_content)
+    except _LLMResponseError:
+        logger.info("analysis LLM retry after parse failure")
+        try:
+            data = await _complete_counterfactual_json(
+                user_content + "\n\n" + _LLM_JSON_RETRY_SUFFIX
+            )
+        except _LLMResponseError as exc:
+            raise HTTPException(status_code=502, detail=exc.detail)
 
     rewritten = data.get("rewritten_text")
     if not isinstance(rewritten, str) or not rewritten.strip():
@@ -2532,32 +2663,8 @@ async def complete_upload(
     the same AnalyzeUploadResponse as the direct path. Long-running: transcribing
     a 200MB video can take minutes (Deepgram pre-recorded timeout is 600s)."""
     store_backend = _require_store_for_uploads()
-    manifest = await store_backend.read_upload_manifest(uid, upload_id)
-    if manifest is None:
-        raise HTTPException(status_code=404, detail="unknown upload")
-
+    manifest = await _validate_upload_complete(store_backend, uid, upload_id)
     expected_chunks = manifest["expected_chunks"]
-    total_bytes = manifest["total_bytes"]
-    part_sizes = await store_backend.get_upload_part_sizes(uid, upload_id)
-    missing = [i for i in range(expected_chunks) if i not in part_sizes]
-    if missing:
-        # Honest, actionable: name exactly which chunks to (re-)PUT before retry.
-        shown = ", ".join(str(i) for i in missing[:50])
-        more = "" if len(missing) <= 50 else f" (+{len(missing) - 50} more)"
-        raise HTTPException(
-            status_code=400,
-            detail=f"upload incomplete — missing chunk index(es): {shown}{more}",
-        )
-
-    assembled_bytes = sum(part_sizes.values())
-    if assembled_bytes != total_bytes:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"assembled size mismatch: parts total {assembled_bytes} bytes "
-                f"but manifest declared {total_bytes}"
-            ),
-        )
 
     data = await store_backend.assemble_upload(uid, upload_id, expected_chunks)
     if not data:
@@ -2606,6 +2713,369 @@ async def abort_upload(
     store_backend = _require_store_for_uploads()
     await store_backend.cleanup_upload(uid, upload_id)
     return Response(status_code=204)
+
+
+async def _validate_upload_complete(
+    store_backend: "recordings_store.RecordingsStore",
+    uid: str,
+    upload_id: str,
+) -> dict:
+    """Read a chunked upload's manifest and verify it is ready to assemble.
+
+    Returns the manifest, or raises the SAME 404/400s as :func:`complete_upload`
+    (unknown upload, missing chunk indexes, size mismatch). Does NOT assemble the
+    bytes — the caller does that when it is ready to run analysis. Shared by the
+    synchronous complete endpoint and the async job endpoint so both validate
+    identically before doing any expensive work."""
+    manifest = await store_backend.read_upload_manifest(uid, upload_id)
+    if manifest is None:
+        raise HTTPException(status_code=404, detail="unknown upload")
+
+    expected_chunks = manifest["expected_chunks"]
+    total_bytes = manifest["total_bytes"]
+    part_sizes = await store_backend.get_upload_part_sizes(uid, upload_id)
+    missing = [i for i in range(expected_chunks) if i not in part_sizes]
+    if missing:
+        # Honest, actionable: name exactly which chunks to (re-)PUT before retry.
+        shown = ", ".join(str(i) for i in missing[:50])
+        more = "" if len(missing) <= 50 else f" (+{len(missing) - 50} more)"
+        raise HTTPException(
+            status_code=400,
+            detail=f"upload incomplete — missing chunk index(es): {shown}{more}",
+        )
+
+    assembled_bytes = sum(part_sizes.values())
+    if assembled_bytes != total_bytes:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"assembled size mismatch: parts total {assembled_bytes} bytes "
+                f"but manifest declared {total_bytes}"
+            ),
+        )
+    return manifest
+
+
+# ---------------------------------------------------------------------------
+# Async analysis jobs — submit-and-poll with staged progress (see the models
+# above). A link download or chunked-upload completion is a multi-minute
+# synchronous request whose response an Android phone routinely loses to
+# backgrounding/socket-death; these run the SAME pipeline as a background task
+# and record staged progress the client polls.
+# ---------------------------------------------------------------------------
+
+_JOBS_DISABLED_DETAIL = (
+    "async analysis jobs need storage enabled — set MINDSHIFT_RECORDINGS_BUCKET "
+    "(the synchronous /analyze/link and /uploads/{id}/complete endpoints remain "
+    "available)"
+)
+
+# Background job tasks are held here so the event loop keeps a strong reference
+# (asyncio only weak-refs tasks) until they finish. HONEST MVP CAVEAT: a job is
+# an in-process asyncio task, so an instance restart orphans it — the task never
+# writes "failed", and the client's poll then sees a stale non-terminal state
+# that GET /analyze/jobs/{id} reports as "stalled" (never an eternal spinner).
+# Acceptable at min-instances 1; a durable queue is the production upgrade.
+_JOB_TASKS: set[asyncio.Task] = set()
+
+
+def _new_job_state() -> dict:
+    """A fresh queued job-state document (all timestamps = now)."""
+    now = datetime.now(timezone.utc).isoformat()
+    return {
+        "status": "queued",
+        "created_at": now,
+        "updated_at": now,
+        "stage_started_at": now,
+        "progress_note": None,
+        "duration_seconds": None,
+        "error": None,
+        "result": None,
+    }
+
+
+def _spawn_job(coro) -> "asyncio.Task":
+    """Run a job coroutine as a tracked background task (strong-ref held)."""
+    task = asyncio.create_task(coro)
+    _JOB_TASKS.add(task)
+    task.add_done_callback(_JOB_TASKS.discard)
+    return task
+
+
+def _parse_iso(value) -> "datetime | None":
+    """Parse an ISO-8601 timestamp to an aware UTC datetime, or None if unusable
+    (a naive value is assumed UTC — every timestamp we write carries a tz)."""
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value)
+    except (ValueError, TypeError):
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+async def _run_analysis_job(
+    uid: str,
+    job_id: str,
+    store_backend: "recordings_store.RecordingsStore",
+    state: dict,
+    *,
+    prepare: "Callable[[JobProgressFn], Awaitable[tuple]]",
+    context: str,
+    consent: bool,
+    store: bool,
+    cleanup: "Callable[[], Awaitable[None]] | None" = None,
+) -> None:
+    """Run one analysis job to a terminal state, writing staged progress.
+
+    ``prepare`` produces ``(data, filename, content_type, source)`` — the link
+    download or the upload reassembly — reporting its own "downloading" stage via
+    the passed hook. The shared :func:`_analyze_recording_bytes` then runs with
+    that same hook (transcribing → analyzing → storing). On success the full
+    response is written under ``result`` with status "done"; on any failure the
+    state is written with status "failed" and the SAME honest detail the
+    synchronous path would 4xx/5xx with. ``cleanup`` (upload parts) always runs.
+    """
+    async def set_stage(
+        status: str,
+        note: str | None = None,
+        duration: float | None = None,
+    ) -> None:
+        # The owning task is the sole writer, so full-document overwrite is safe.
+        state["status"] = status
+        now = datetime.now(timezone.utc).isoformat()
+        state["stage_started_at"] = now
+        state["updated_at"] = now
+        if note is not None:
+            state["progress_note"] = note
+        if duration is not None:
+            state["duration_seconds"] = duration
+        await store_backend.write_job_state(uid, job_id, dict(state))
+
+    try:
+        try:
+            data, filename, content_type, source = await prepare(set_stage)
+            response = await _analyze_recording_bytes(
+                uid,
+                data=data,
+                filename=filename,
+                content_type=content_type,
+                context=context,
+                consent=consent,
+                store=store,
+                source=source,
+                progress=set_stage,
+            )
+        except HTTPException as exc:
+            await _write_job_failed(store_backend, uid, job_id, state, str(exc.detail))
+            return
+        except Exception as exc:  # noqa: BLE001 — a background task must not crash silently
+            logger.exception("Analysis job %s failed for uid=%s", job_id, uid)
+            await _write_job_failed(
+                store_backend, uid, job_id, state,
+                f"analysis failed: {type(exc).__name__}",
+            )
+            return
+
+        now = datetime.now(timezone.utc).isoformat()
+        state["status"] = "done"
+        state["updated_at"] = now
+        state["stage_started_at"] = now
+        state["progress_note"] = None
+        state["error"] = None
+        state["result"] = response.model_dump()
+        try:
+            await store_backend.write_job_state(uid, job_id, dict(state))
+        except Exception:  # noqa: BLE001 — nothing left to salvage the result into
+            logger.exception(
+                "Failed to persist done-state for job %s uid=%s", job_id, uid,
+            )
+    finally:
+        if cleanup is not None:
+            try:
+                await cleanup()
+            except Exception as exc:  # noqa: BLE001 — cleanup is best-effort
+                logger.warning(
+                    "Job cleanup failed for uid=%s job_id=%s: %s",
+                    uid, job_id, exc,
+                )
+
+
+async def _write_job_failed(
+    store_backend: "recordings_store.RecordingsStore",
+    uid: str,
+    job_id: str,
+    state: dict,
+    detail: str,
+) -> None:
+    """Write a job's failed terminal state with an honest error detail."""
+    now = datetime.now(timezone.utc).isoformat()
+    state["status"] = "failed"
+    state["updated_at"] = now
+    state["stage_started_at"] = now
+    state["error"] = detail
+    state["result"] = None
+    try:
+        await store_backend.write_job_state(uid, job_id, dict(state))
+    except Exception:  # noqa: BLE001 — the poll will report "stalled" if this fails
+        logger.exception(
+            "Failed to persist failed-state for job %s uid=%s", job_id, uid,
+        )
+
+
+@app.post("/analyze/link/jobs", response_model=JobCreatedResponse, status_code=202)
+async def analyze_link_job(
+    req: AnalyzeLinkRequest,
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    """Submit a link analysis as a background job → 202 {job_id}. Poll
+    GET /analyze/jobs/{job_id} for staged progress and the final result. The job
+    runs the EXACT pipeline as the synchronous /analyze/link (SSRF/size/HTML
+    guards included), just decoupled from a single long-lived connection. 503
+    when storage is disabled (jobs have nowhere to live — the synchronous
+    endpoint still works)."""
+    store_backend = get_recordings_store()
+    if store_backend is None:
+        raise HTTPException(status_code=503, detail=_JOBS_DISABLED_DETAIL)
+
+    job_id = str(uuid.uuid4())
+    state = _new_job_state()
+    await store_backend.write_job_state(uid, job_id, state)
+
+    url = req.url
+
+    async def _prepare(set_stage: "JobProgressFn") -> tuple:
+        await set_stage("downloading", "starting download", None)
+        try:
+            # fetch_link is blocking (httpx.Client) — keep it off the event loop.
+            data, filename, content_type = await asyncio.to_thread(
+                link_fetch.fetch_link, url,
+            )
+        except link_fetch.LinkError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+        if not data:
+            raise HTTPException(status_code=422, detail="linked file is empty")
+        await set_stage(
+            "downloading", f"{len(data) // (1024 * 1024)} MB downloaded", None,
+        )
+        return data, filename, content_type, {
+            # The ORIGINAL pasted URL (pre-Drive-rewrite), matching /analyze/link.
+            "type": "link", "url": url, "original_filename": filename,
+        }
+
+    _spawn_job(_run_analysis_job(
+        uid, job_id, store_backend, state,
+        prepare=_prepare, context=req.context, consent=req.consent,
+        store=req.store,
+    ))
+    return JobCreatedResponse(job_id=job_id)
+
+
+@app.post(
+    "/uploads/{upload_id}/complete/jobs",
+    response_model=JobCreatedResponse,
+    status_code=202,
+)
+async def complete_upload_job(
+    upload_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    """Submit a chunked-upload completion as a background job → 202 {job_id}.
+
+    Validates every part is present FIRST (the same 404/400 as the synchronous
+    /complete), so a malformed upload fails fast and synchronously; only a
+    ready-to-assemble upload spawns the job. The job reassembles + runs the same
+    pipeline, then cleans up the parts. Poll GET /analyze/jobs/{job_id}."""
+    store_backend = _require_store_for_uploads()
+    manifest = await _validate_upload_complete(store_backend, uid, upload_id)
+    expected_chunks = manifest["expected_chunks"]
+
+    job_id = str(uuid.uuid4())
+    state = _new_job_state()
+    await store_backend.write_job_state(uid, job_id, state)
+
+    async def _prepare(set_stage: "JobProgressFn") -> tuple:
+        await set_stage("downloading", "reassembling upload", None)
+        data = await store_backend.assemble_upload(uid, upload_id, expected_chunks)
+        if not data:
+            raise HTTPException(status_code=400, detail="assembled upload is empty")
+        return data, manifest.get("filename"), manifest.get("content_type"), {
+            "type": "upload", "url": None,
+            "original_filename": manifest.get("filename"),
+        }
+
+    async def _cleanup() -> None:
+        await store_backend.cleanup_upload(uid, upload_id)
+
+    _spawn_job(_run_analysis_job(
+        uid, job_id, store_backend, state,
+        prepare=_prepare,
+        context=manifest.get("context", "") or "",
+        consent=bool(manifest.get("consent", False)),
+        store=bool(manifest.get("store", True)),
+        cleanup=_cleanup,
+    ))
+    return JobCreatedResponse(job_id=job_id)
+
+
+@app.get("/analyze/jobs/{job_id}", response_model=JobStateResponse)
+async def get_analyze_job(
+    job_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    uid: str = Depends(get_current_uid),
+):
+    """Poll an analysis job's staged progress (and its result once done).
+
+    Deliberately NOT rate-limited (no ``_rate_limit`` dependency): the client
+    polls this ~every 3s for the life of a multi-minute job, so the per-IP minute
+    budget would 429 a normal poll into uselessness. It is a cheap uid-scoped GCS
+    read with no LLM cost and is still fully auth-gated — the same reasoning as
+    the /media precedent.
+
+    uid-scoped 404 for an unknown/foreign job. Two computed-on-read behaviours:
+    a non-terminal job whose state stopped advancing for >120s is reported as
+    "stalled" (an orphaned in-process task never writes "failed"), and a terminal
+    state older than 24h is lazily deleted (→ 404) as cheap TTL cleanup."""
+    store_backend = get_recordings_store()
+    if store_backend is None:
+        raise HTTPException(status_code=503, detail=_JOBS_DISABLED_DETAIL)
+
+    state = await store_backend.read_job_state(uid, job_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="unknown job")
+
+    now = datetime.now(timezone.utc)
+    status = state.get("status", "queued")
+    updated_at = _parse_iso(state.get("updated_at"))
+    age = (now - updated_at).total_seconds() if updated_at is not None else 0.0
+
+    # Lazy TTL cleanup — a terminal state older than 24h is dead weight.
+    if status in ("done", "failed") and age > JOB_TTL_SECONDS:
+        await store_backend.delete_job(uid, job_id)
+        raise HTTPException(status_code=404, detail="unknown job")
+
+    # Staleness honesty — a non-terminal job that stopped advancing is stalled.
+    progress_note = state.get("progress_note")
+    if status not in ("done", "failed") and age > JOB_STALL_SECONDS:
+        status = "stalled"
+        progress_note = (
+            "the analysis appears to have stalled — it may have been "
+            "interrupted; try again"
+        )
+
+    return JobStateResponse(
+        job_id=job_id,
+        status=status,
+        created_at=state.get("created_at", ""),
+        updated_at=state.get("updated_at", ""),
+        stage_started_at=state.get("stage_started_at"),
+        progress_note=progress_note,
+        duration_seconds=state.get("duration_seconds"),
+        error=state.get("error"),
+        # Result is only carried once done — excluded on every non-terminal poll.
+        result=state.get("result") if status == "done" else None,
+    )
 
 
 @app.post("/session", response_model=SessionOut, status_code=201)
