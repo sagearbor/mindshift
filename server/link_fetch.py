@@ -15,6 +15,11 @@ upload. Three honest guardrails, each mapping to one HTTP status at the endpoint
   (422 with actionable guidance). Google Drive ``/file/d/<ID>/`` and ``open?id=``
   share forms are rewritten to the direct-download URL first.
 
+Google Photos share links (``photos.app.goo.gl`` / ``photos.google.com``) are a
+special case handled BEFORE the HTML rejection: the share page IS html, but it
+embeds the media's base URL, from which we can fetch the actual video bytes. See
+:func:`_fetch_photos`.
+
 Everything here is synchronous (httpx.Client) — the caller runs it in a worker
 thread, matching the Deepgram/ffmpeg house pattern.
 """
@@ -23,6 +28,7 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+import mimetypes
 import re
 import socket
 from urllib.parse import parse_qs, urlparse
@@ -39,9 +45,41 @@ LINK_TIMEOUT_S = 600.0
 # Bounded redirect chain — each hop is SSRF-checked before it is followed.
 MAX_REDIRECTS = 5
 
+# The Google Photos share page is HTML, never media — cap its fetch far below the
+# media ceiling so a hostile "photos" host can't stream 200MB of "html" at us.
+PHOTOS_PAGE_MAX_BYTES = 5 * 1024 * 1024
+# Hosts whose links are Google Photos share pages (short-link + expanded form).
+PHOTOS_HOSTS = ("photos.app.goo.gl", "photos.google.com")
+# The media base URLs the share page embeds. Appending "=dv" yields the video
+# bytes, "=d" the original photo. Empirically verified against a real link.
+_PHOTOS_MEDIA_RE = re.compile(r"https://lh3\.googleusercontent\.com/pw/[A-Za-z0-9_\-]+")
+# Some Google endpoints (the Photos share page in particular) only serve the
+# real HTML to a browser-shaped User-Agent — send a desktop one on every request
+# (harmless for direct/Drive links, required for the Photos probe).
+_DESKTOP_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+
 _HTML_HINT = (
-    "That link isn't a direct file link. Google Photos links aren't supported "
-    "yet — share the file to Drive or use a direct link."
+    "That link isn't a direct file link — use a direct file URL, a Google Drive "
+    "share link, or a Google Photos share link of a single video."
+)
+
+# Honest failures for the (unofficial) Google Photos share-page parse. If Google
+# changes the page format the regex simply matches nothing and we surface this
+# 422 — we never crash on a format we no longer recognise.
+_PHOTOS_NO_MEDIA = (
+    "couldn't find media in that Google Photos link — make sure the link shares "
+    "a single photo or video"
+)
+_PHOTOS_MULTIPLE = (
+    "that Google Photos link contains multiple items — share a single video "
+    "instead"
+)
+_PHOTOS_IS_PHOTO = (
+    "that link is a photo — MindShift analyzes conversations, share a video or "
+    "audio file"
 )
 
 
@@ -129,9 +167,83 @@ def _filename_from(resp: httpx.Response, parsed_url) -> str | None:
     return tail or None
 
 
+def _content_type(resp: httpx.Response) -> str:
+    """The bare, lower-cased content-type (no ``; charset=…`` suffix)."""
+    return resp.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+
+
 # ---------------------------------------------------------------------------
 # Download
 # ---------------------------------------------------------------------------
+
+def _run_download(
+    client: httpx.Client,
+    start_url: str,
+    *,
+    resolver,
+    max_bytes: int,
+) -> tuple[bytes, httpx.Response, "object"]:
+    """Follow redirects (SSRF-guarding every hop), stream the terminal body with a
+    hard ``max_bytes`` cap, and return ``(data, terminal_response, parsed_url)``.
+
+    Content-type policy (html rejection, video/image checks) is intentionally
+    left to the caller — this is the raw, guarded fetch shared by the direct/Drive
+    path and the Google Photos media path. Raises :class:`LinkError` on a bad
+    scheme, blocked host, HTTP error, oversize body (413), or too many redirects.
+    The returned response is already closed with its body fully read into
+    ``data``; only its headers should be inspected afterward."""
+    current = start_url
+    for _ in range(MAX_REDIRECTS + 1):
+        parsed = urlparse(current)
+        if parsed.scheme not in ("http", "https"):
+            raise LinkError(422, "only http(s) links are supported")
+        _guard_ssrf(parsed.hostname or "", resolver)
+
+        request = client.build_request("GET", current)
+        try:
+            resp = client.send(request, stream=True)
+        except httpx.HTTPError as exc:
+            raise LinkError(422, f"could not fetch link: {exc}") from exc
+
+        if resp.is_redirect:
+            location = resp.headers.get("location")
+            resp.close()
+            if not location:
+                raise LinkError(422, "link redirected without a destination")
+            # Resolve relative redirects against the current URL.
+            current = str(httpx.URL(current).join(location))
+            continue
+
+        # Terminal response — read it (bounded), then hand it back.
+        try:
+            try:
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                raise LinkError(
+                    422, f"could not fetch link (HTTP {resp.status_code})",
+                ) from exc
+            total = 0
+            chunks: list[bytes] = []
+            try:
+                for chunk in resp.iter_bytes():
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise LinkError(
+                            413,
+                            "linked file too large: exceeds the "
+                            f"{max_bytes // (1024 * 1024)}MB limit",
+                        )
+                    chunks.append(chunk)
+            except httpx.HTTPError as exc:
+                raise LinkError(
+                    422, f"could not read link body: {exc}",
+                ) from exc
+            return b"".join(chunks), resp, parsed
+        finally:
+            resp.close()
+
+    raise LinkError(422, "too many redirects")
+
 
 def fetch_link(
     url: str,
@@ -143,78 +255,116 @@ def fetch_link(
 ) -> tuple[bytes, str | None, str | None]:
     """Download the media at ``url`` and return ``(data, filename, content_type)``.
 
-    Rewrites Drive share links, enforces http(s), SSRF-guards every redirect hop,
-    streams the body with a hard size cap, and rejects an HTML response. Raises
-    :class:`LinkError` with the appropriate status on any of these. ``resolver``
-    and ``transport`` are injectable for tests (real DNS / real sockets are used
-    by default)."""
+    Rewrites Drive share links, resolves Google Photos share links to their video
+    bytes, enforces http(s), SSRF-guards every redirect hop, streams the body with
+    a hard size cap, and rejects a bare HTML response. Raises :class:`LinkError`
+    with the appropriate status on any of these. ``resolver`` and ``transport``
+    are injectable for tests (real DNS / real sockets are used by default)."""
     resolver = resolver or _default_resolver
-    current = rewrite_url(url)
 
     client = httpx.Client(
         follow_redirects=False,
         timeout=timeout,
         transport=transport,
-        headers={"User-Agent": "MindShift/1.0 (+link-ingest)"},
+        headers={"User-Agent": _DESKTOP_UA},
     )
     try:
-        for _ in range(MAX_REDIRECTS + 1):
-            parsed = urlparse(current)
-            if parsed.scheme not in ("http", "https"):
-                raise LinkError(422, "only http(s) links are supported")
-            _guard_ssrf(parsed.hostname or "", resolver)
+        host = (urlparse(url).hostname or "").lower()
+        if host in PHOTOS_HOSTS:
+            # Handled BEFORE the generic html rejection: the share page IS html.
+            return _fetch_photos(
+                client, url, resolver=resolver, max_bytes=max_bytes,
+            )
 
-            request = client.build_request("GET", current)
-            try:
-                resp = client.send(request, stream=True)
-            except httpx.HTTPError as exc:
-                raise LinkError(422, f"could not fetch link: {exc}") from exc
-
-            if resp.is_redirect:
-                location = resp.headers.get("location")
-                resp.close()
-                if not location:
-                    raise LinkError(422, "link redirected without a destination")
-                # Resolve relative redirects against the current URL.
-                current = str(httpx.URL(current).join(location))
-                continue
-
-            # Terminal response — read it (bounded), then hand back the bytes.
-            try:
-                try:
-                    resp.raise_for_status()
-                except httpx.HTTPStatusError as exc:
-                    raise LinkError(
-                        422, f"could not fetch link (HTTP {resp.status_code})",
-                    ) from exc
-                content_type = (
-                    resp.headers.get("content-type", "").split(";", 1)[0]
-                    .strip().lower()
-                )
-                if content_type == "text/html":
-                    raise LinkError(422, _HTML_HINT)
-                total = 0
-                chunks: list[bytes] = []
-                try:
-                    for chunk in resp.iter_bytes():
-                        total += len(chunk)
-                        if total > max_bytes:
-                            raise LinkError(
-                                413,
-                                "linked file too large: exceeds the "
-                                f"{max_bytes // (1024 * 1024)}MB limit",
-                            )
-                        chunks.append(chunk)
-                except httpx.HTTPError as exc:
-                    raise LinkError(
-                        422, f"could not read link body: {exc}",
-                    ) from exc
-                data = b"".join(chunks)
-                filename = _filename_from(resp, parsed)
-                return data, filename, content_type or None
-            finally:
-                resp.close()
-
-        raise LinkError(422, "too many redirects")
+        data, resp, parsed = _run_download(
+            client, rewrite_url(url), resolver=resolver, max_bytes=max_bytes,
+        )
+        content_type = _content_type(resp)
+        if content_type == "text/html":
+            raise LinkError(422, _HTML_HINT)
+        filename = _filename_from(resp, parsed)
+        return data, filename, content_type or None
     finally:
         client.close()
+
+
+# ---------------------------------------------------------------------------
+# Google Photos share links
+# ---------------------------------------------------------------------------
+
+def _photos_filename(content_type: str | None) -> str:
+    """A stable share filename for the downloaded Photos media, extension chosen
+    from the served content-type (``photos_share.mp4`` by default)."""
+    ext = mimetypes.guess_extension(content_type) if content_type else None
+    return f"photos_share{ext or '.mp4'}"
+
+
+def _photos_media_download(
+    client: httpx.Client,
+    media_url: str,
+    *,
+    resolver,
+    max_bytes: int,
+) -> tuple[bytes | None, str | None]:
+    """Fetch one Photos media variant URL. Returns ``(data, content_type)`` on a
+    successful fetch, or ``(None, None)`` if the variant is unavailable (an HTTP
+    error) so the caller can fall back to the other variant. An oversize body
+    (413) is a real, actionable error and is re-raised, never swallowed."""
+    try:
+        data, resp, _parsed = _run_download(
+            client, media_url, resolver=resolver, max_bytes=max_bytes,
+        )
+    except LinkError as exc:
+        if exc.status_code == 413:
+            raise
+        return None, None
+    return data, _content_type(resp) or None
+
+
+def _fetch_photos(
+    client: httpx.Client,
+    original_url: str,
+    *,
+    resolver,
+    max_bytes: int,
+) -> tuple[bytes, str | None, str | None]:
+    """Resolve a Google Photos share link to a single video's bytes.
+
+    Fetches the share page (html, capped well below the media ceiling), extracts
+    the embedded ``lh3.googleusercontent.com/pw/…`` base URL(s), and requires
+    exactly one. For that one, tries ``=dv`` (video) then ``=d`` (original) — a
+    video is downloaded and returned; a photo is a clear 422. This parses an
+    UNOFFICIAL page format: if Google changes it the regex matches nothing and we
+    return a 422 (:data:`_PHOTOS_NO_MEDIA`) rather than crash."""
+    page, _resp, _parsed = _run_download(
+        client, original_url, resolver=resolver, max_bytes=PHOTOS_PAGE_MAX_BYTES,
+    )
+    html = page.decode("utf-8", "replace")
+
+    # De-duplicate matches preserving first-seen order (dict keys are ordered).
+    candidates = list(dict.fromkeys(_PHOTOS_MEDIA_RE.findall(html)))
+    if not candidates:
+        raise LinkError(422, _PHOTOS_NO_MEDIA)
+    if len(candidates) > 1:
+        raise LinkError(422, _PHOTOS_MULTIPLE)
+    base = candidates[0]
+
+    # Prefer the video variant.
+    data, ct = _photos_media_download(
+        client, base + "=dv", resolver=resolver, max_bytes=max_bytes,
+    )
+    if data is not None and ct and ct.startswith("video/"):
+        return data, _photos_filename(ct), ct
+
+    # Fall back to the original variant — mainly to give an honest, specific
+    # error when the shared item is a photo (or a video reachable only via =d).
+    data, ct = _photos_media_download(
+        client, base + "=d", resolver=resolver, max_bytes=max_bytes,
+    )
+    if ct and ct.startswith("image/"):
+        raise LinkError(422, _PHOTOS_IS_PHOTO)
+    if data is not None and ct and ct.startswith("video/"):
+        return data, _photos_filename(ct), ct
+
+    # Neither variant yielded usable media — treat as an extraction failure.
+    raise LinkError(422, _PHOTOS_NO_MEDIA)

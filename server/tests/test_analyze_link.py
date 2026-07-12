@@ -247,6 +247,132 @@ def test_fetch_ssrf_guards_redirect_hops():
 
 
 # ===========================================================================
+# Google Photos share-link tests — real _fetch_photos logic, MockTransport
+# routes the short-link → share-page → media-variant hops (never real Google).
+# ===========================================================================
+
+PHOTOS_SHORT = "https://photos.app.goo.gl/abc123XYZ"
+PHOTOS_SHARE = "https://photos.google.com/share/LONGSHAREID"
+PHOTOS_BASE = "https://lh3.googleusercontent.com/pw/AP1GczABC_base-URL"
+PHOTOS_VIDEO_BYTES = b"FAKE-MP4-VIDEO-BYTES-" * 8
+
+
+def _photos_page(base_urls):
+    """A minimal share page embedding the given base URLs, as Google's does."""
+    embeds = ", ".join(f'"{u}"' for u in base_urls)
+    return (
+        f"<html><body><script>var media=[{embeds}];</script></body></html>"
+    ).encode()
+
+
+def _photos_handler(
+    *, base_urls, video_ok=True, video_ct="video/mp4", d_ct="image/jpeg",
+):
+    """MockTransport handler for the three Photos hops. ``=dv`` returns a video
+    (unless ``video_ok`` is False → 404); ``=d`` returns ``d_ct``."""
+    def handler(request):
+        host = request.url.host
+        raw = str(request.url)
+        if host == "photos.app.goo.gl":
+            return httpx.Response(302, headers={"location": PHOTOS_SHARE})
+        if host == "photos.google.com":
+            return httpx.Response(
+                200, headers={"content-type": "text/html; charset=utf-8"},
+                content=_photos_page(base_urls),
+            )
+        if host == "lh3.googleusercontent.com":
+            if raw.endswith("=dv"):
+                if not video_ok:
+                    return httpx.Response(404)
+                return httpx.Response(
+                    200, headers={"content-type": video_ct},
+                    content=PHOTOS_VIDEO_BYTES,
+                )
+            if raw.endswith("=d"):
+                return httpx.Response(
+                    200, headers={"content-type": d_ct}, content=b"original",
+                )
+        return httpx.Response(404)  # pragma: no cover — unexpected hop
+
+    return handler
+
+
+def test_fetch_photos_share_link_downloads_video():
+    """Short-link → share page → single base URL → =dv video, downloaded through
+    the same capped/streaming path as any direct link."""
+    data, filename, ct = link_fetch.fetch_link(
+        PHOTOS_SHORT,
+        resolver=_public_resolver,
+        transport=httpx.MockTransport(_photos_handler(base_urls=[PHOTOS_BASE])),
+    )
+    assert data == PHOTOS_VIDEO_BYTES
+    assert filename == "photos_share.mp4"
+    assert ct == "video/mp4"
+
+
+def test_fetch_photos_multiple_items_422():
+    with pytest.raises(link_fetch.LinkError) as ei:
+        link_fetch.fetch_link(
+            PHOTOS_SHORT,
+            resolver=_public_resolver,
+            transport=httpx.MockTransport(
+                _photos_handler(base_urls=[PHOTOS_BASE, PHOTOS_BASE + "2nd"]),
+            ),
+        )
+    assert ei.value.status_code == 422
+    assert "multiple" in ei.value.detail.lower()
+
+
+def test_fetch_photos_zero_candidates_422():
+    with pytest.raises(link_fetch.LinkError) as ei:
+        link_fetch.fetch_link(
+            PHOTOS_SHORT,
+            resolver=_public_resolver,
+            transport=httpx.MockTransport(_photos_handler(base_urls=[])),
+        )
+    assert ei.value.status_code == 422
+    assert "couldn't find media" in ei.value.detail.lower()
+
+
+def test_fetch_photos_image_only_422():
+    """=dv unavailable, =d is an image → the honest 'that link is a photo' 422."""
+    with pytest.raises(link_fetch.LinkError) as ei:
+        link_fetch.fetch_link(
+            PHOTOS_SHORT,
+            resolver=_public_resolver,
+            transport=httpx.MockTransport(
+                _photos_handler(base_urls=[PHOTOS_BASE], video_ok=False),
+            ),
+        )
+    assert ei.value.status_code == 422
+    assert "photo" in ei.value.detail.lower()
+
+
+def test_fetch_photos_page_over_cap_413(monkeypatch):
+    """A share page larger than the (small, patched) HTML cap is aborted 413,
+    never buffered — a hostile 'photos' host can't stream unbounded 'html'."""
+    monkeypatch.setattr(link_fetch, "PHOTOS_PAGE_MAX_BYTES", 100)
+    big_page = b"<html>" + b"x" * 500 + b"</html>"
+
+    def handler(request):
+        if request.url.host == "photos.app.goo.gl":
+            return httpx.Response(302, headers={"location": PHOTOS_SHARE})
+        if request.url.host == "photos.google.com":
+            return httpx.Response(
+                200, headers={"content-type": "text/html"}, content=big_page,
+            )
+        return httpx.Response(404)  # pragma: no cover
+
+    with pytest.raises(link_fetch.LinkError) as ei:
+        link_fetch.fetch_link(
+            PHOTOS_SHORT,
+            resolver=_public_resolver,
+            transport=httpx.MockTransport(handler),
+        )
+    assert ei.value.status_code == 413
+
+
+# ===========================================================================
 # /analyze/link endpoint tests — fetch patched, analysis mocked
 # ===========================================================================
 
