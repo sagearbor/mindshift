@@ -3,9 +3,9 @@ import { Platform } from "react-native";
 import {
   useAudioStream as useMicrophoneStream,
   requestRecordingPermissionsAsync,
-  setAudioModeAsync,
 } from "expo-audio";
 import type { AudioStreamBuffer } from "expo-audio";
+import { setRecordingMode, setPlaybackMode } from "../utils/audioMode";
 import * as Speech from "expo-speech";
 import {
   concatInt16,
@@ -425,6 +425,10 @@ export function useAudioStream(): UseAudioStreamReturn {
     drainingRef.current = false;
     sessionActiveRef.current = false;
     teardownWebSocket();
+    // The session is over: put the audio session back into a playback config so
+    // a subsequent replay is audible (the record-oriented mode we set on start
+    // silences media playback on Android). Fire-and-forget; web no-ops.
+    void setPlaybackMode().catch(() => {});
     setIsRecording(false);
     setSessionActive(false);
     setConnectionStatus("idle");
@@ -514,6 +518,9 @@ export function useAudioStream(): UseAudioStreamReturn {
       releaseCapture();
       stopSpeechSafely(); // Never keep talking after the screen is gone.
       teardownWebSocket();
+      // Leaving the live screen: hand the audio session back to playback so a
+      // replay elsewhere in the app isn't left silent by our record mode.
+      void setPlaybackMode().catch(() => {});
     };
   }, [teardownWebSocket, releaseCapture]);
 
@@ -704,6 +711,8 @@ export function useAudioStream(): UseAudioStreamReturn {
           pendingRef.current = new Int16Array(0);
           resamplerRef.current = null;
           stopSpeechSafely(); // Session is dead — stop coaching aloud too.
+          // Restore a playback audio session so later replay is audible.
+          void setPlaybackMode().catch(() => {});
           setIsRecording(false);
           setSessionActive(false);
         }
@@ -866,10 +875,11 @@ export function useAudioStream(): UseAudioStreamReturn {
       }
 
       try {
-        await setAudioModeAsync({
-          allowsRecording: true,
-          playsInSilentMode: true,
-        });
+        // Configure the shared audio session for mic capture. This leaves the
+        // session record-oriented, which on Android silences later media
+        // playback — so every path that ends the session resets it to a
+        // playback mode (see finishDrain and the teardown paths below).
+        await setRecordingMode();
         await stream.start();
       } catch (err) {
         // Mic capture failed after the socket opened: close the session
