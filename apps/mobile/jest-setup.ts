@@ -81,6 +81,40 @@ jest.mock("expo-document-picker", () => ({
   getDocumentAsync: jest.fn().mockResolvedValue({ canceled: true, assets: null }),
 }));
 
+// Mock expo-file-system for tests. The chunked-upload path (postAnalyzeUploadChunked)
+// reads byte ranges via the modern `File(uri).open().readBytes()` handle API. The
+// mock handle serves slices out of `globalThis.__fsMockBytes` (a Uint8Array the
+// test sets to stand in for the on-disk file), honoring the seekable `offset`.
+jest.mock("expo-file-system", () => {
+  class FileHandle {
+    offset = 0;
+    size: number | null = null;
+    close = jest.fn();
+    readBytes(length: number): Uint8Array {
+      const buf =
+        ((globalThis as Record<string, unknown>).__fsMockBytes as
+          | Uint8Array
+          | undefined) ?? new Uint8Array(0);
+      return buf.slice(this.offset, this.offset + length);
+    }
+    writeBytes() {}
+  }
+  class File {
+    uri: string;
+    constructor(uri: string) {
+      this.uri = uri;
+    }
+    open() {
+      return new FileHandle();
+    }
+  }
+  return {
+    __esModule: true,
+    File,
+    FileMode: { ReadWrite: "rw", ReadOnly: "r", WriteOnly: "w" },
+  };
+});
+
 // Mock expo-video for tests. `useVideoPlayer` returns a controllable mock
 // player exposed on `globalThis.__expoVideoMock` so tests can drive
 // currentTime / playing / duration; `VideoView` renders a plain host View.

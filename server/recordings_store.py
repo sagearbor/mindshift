@@ -350,3 +350,123 @@ class RecordingsStore:
         else:
             data = blob.download_as_bytes()
         return _iter_bytes(data), status, headers
+
+    # -- chunked upload sessions ------------------------------------------
+    # A large recording (phone video, 50-300MB) is streamed to the server in 8MB
+    # parts because Cloud Run's ~32MB request limit forbids a single big body.
+    # The session state lives entirely in GCS under a separate ``uploads/``
+    # namespace (NOT ``recordings/``), scoped per uid so one user can never touch
+    # another's in-progress upload::
+    #
+    #     uploads/{uid}/{upload_id}/manifest.json    # start()'s declared metadata
+    #     uploads/{uid}/{upload_id}/parts/{i:05d}    # one object per 8MB chunk
+    #     uploads/{uid}/{upload_id}/assembled        # transient compose target
+    #
+    # Everything under the prefix is deleted by :meth:`cleanup_upload` on
+    # complete or abort.
+    @staticmethod
+    def _upload_prefix(uid: str, upload_id: str) -> str:
+        return f"uploads/{uid}/{upload_id}/"
+
+    async def write_upload_manifest(
+        self, uid: str, upload_id: str, manifest: dict,
+    ) -> None:
+        """Write the session manifest (start())."""
+        await asyncio.to_thread(
+            self._write_upload_manifest_sync, uid, upload_id, manifest,
+        )
+
+    def _write_upload_manifest_sync(self, uid, upload_id, manifest) -> None:
+        self._bucket.blob(
+            self._upload_prefix(uid, upload_id) + "manifest.json"
+        ).upload_from_string(
+            json.dumps(manifest), content_type="application/json",
+        )
+
+    async def read_upload_manifest(
+        self, uid: str, upload_id: str,
+    ) -> dict | None:
+        """The session manifest, or ``None`` when it does not exist for this uid
+        (→ 404). uid-scoped: a foreign upload_id reads as absent."""
+        return await asyncio.to_thread(
+            self._read_upload_manifest_sync, uid, upload_id,
+        )
+
+    def _read_upload_manifest_sync(self, uid, upload_id) -> dict | None:
+        blob = self._bucket.blob(
+            self._upload_prefix(uid, upload_id) + "manifest.json"
+        )
+        if not blob.exists():
+            return None
+        return json.loads(blob.download_as_bytes())
+
+    async def write_upload_part(
+        self, uid: str, upload_id: str, index: int, data: bytes,
+    ) -> None:
+        """Store (or overwrite — idempotent) one part at ``parts/{index:05d}``."""
+        await asyncio.to_thread(
+            self._write_upload_part_sync, uid, upload_id, index, data,
+        )
+
+    def _write_upload_part_sync(self, uid, upload_id, index, data) -> None:
+        self._bucket.blob(
+            self._upload_prefix(uid, upload_id) + f"parts/{index:05d}"
+        ).upload_from_string(data, content_type="application/octet-stream")
+
+    async def get_upload_part_sizes(
+        self, uid: str, upload_id: str,
+    ) -> dict[int, int]:
+        """Map ``{part_index: size_bytes}`` for every part currently present —
+        the endpoint uses it to list missing indexes and verify the total."""
+        return await asyncio.to_thread(
+            self._get_upload_part_sizes_sync, uid, upload_id,
+        )
+
+    def _get_upload_part_sizes_sync(self, uid, upload_id) -> dict[int, int]:
+        prefix = self._upload_prefix(uid, upload_id) + "parts/"
+        sizes: dict[int, int] = {}
+        for blob in self._bucket.list_blobs(prefix=prefix):
+            name = blob.name[len(prefix):]
+            if not name.isdigit():
+                continue
+            sizes[int(name)] = blob.size or 0
+        return sizes
+
+    async def assemble_upload(
+        self, uid: str, upload_id: str, expected_chunks: int,
+    ) -> bytes:
+        """Reassemble all parts (in index order) into the original bytes."""
+        return await asyncio.to_thread(
+            self._assemble_upload_sync, uid, upload_id, expected_chunks,
+        )
+
+    def _assemble_upload_sync(self, uid, upload_id, expected_chunks) -> bytes:
+        prefix = self._upload_prefix(uid, upload_id)
+        part_blobs = [
+            self._bucket.blob(prefix + f"parts/{i:05d}")
+            for i in range(expected_chunks)
+        ]
+        # GCS `compose` concatenates up to 32 source objects server-side in ONE
+        # operation — no download/re-upload of the intermediate bytes. With 8MB
+        # chunks and the 200MB cap there are at most 25 parts, so compose always
+        # applies here. The download-concat branch is a correctness fallback for
+        # a hypothetical larger part count (e.g. a smaller chunk size).
+        if expected_chunks <= 32:
+            assembled = self._bucket.blob(prefix + "assembled")
+            assembled.compose(part_blobs)
+            return assembled.download_as_bytes()
+        return b"".join(b.download_as_bytes() for b in part_blobs)
+
+    async def cleanup_upload(self, uid: str, upload_id: str) -> None:
+        """Delete every object for an upload session (parts + manifest +
+        transient assembled blob). Best-effort per blob so one failed delete does
+        not abort the rest."""
+        await asyncio.to_thread(self._cleanup_upload_sync, uid, upload_id)
+
+    def _cleanup_upload_sync(self, uid, upload_id) -> None:
+        prefix = self._upload_prefix(uid, upload_id)
+        for blob in self._bucket.list_blobs(prefix=prefix):
+            try:
+                blob.delete()
+            except Exception:  # noqa: BLE001 — best-effort cleanup, per blob
+                logger.warning("Failed to delete upload blob %s", blob.name)

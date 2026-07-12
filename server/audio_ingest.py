@@ -55,8 +55,10 @@ DEEPGRAM_PRERECORDED_PARAMS: dict[str, str] = {
     "punctuate": "true",
 }
 # Pre-recorded transcription of a long file can take a while server-side; be
-# generous so a legitimately long recording is not cut off mid-decode.
-DEEPGRAM_PRERECORDED_TIMEOUT_S = 300.0
+# generous so a legitimately long recording is not cut off mid-decode. Chunked
+# uploads reach 200MB (a long phone video), whose upload+transcription can run
+# several minutes — 600s keeps httpx from timing out before Deepgram responds.
+DEEPGRAM_PRERECORDED_TIMEOUT_S = 600.0
 
 
 # ---------------------------------------------------------------------------

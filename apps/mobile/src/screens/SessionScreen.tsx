@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import { useSessionStore } from "../store/sessionStore";
-import { postAnalyzeUpload } from "../api/client";
+import { postAnalyzeUpload, postAnalyzeUploadChunked } from "../api/client";
 import type { AnalyzeResult } from "../api/client";
 import RoleSelector from "../components/RoleSelector";
 import EmpathySlider from "../components/EmpathySlider";
@@ -49,11 +49,37 @@ interface PickedRecording {
   file?: File;
 }
 
-/** Map an `API error: <status>` from postAnalyzeUpload to an honest, human
- *  message. Never invents a result — every branch tells the user what happened. */
-function uploadErrorMessage(err: unknown): string {
+// Files at/under this size take the plain multipart /analyze/upload path; larger
+// ones are streamed in chunks (see postAnalyzeUploadChunked) so no single request
+// trips the platform's ~32MB body ceiling. Above the hard cap we refuse up front,
+// before touching the network, with an honest size message.
+const DIRECT_UPLOAD_MAX_BYTES = 20 * 1024 * 1024; // 20 MB
+const MAX_UPLOAD_BYTES = 200 * 1024 * 1024; // 200 MB
+
+/** Honest "too big" message naming the actual size and the hard limit. Used both
+ *  for the pre-flight refusal (>200MB, no network) and a server 413. */
+function sizeLimitMessage(bytes?: number): string {
+  const size = formatSize(bytes);
+  return `That file is ${size ?? "too large"} — the limit is 200 MB. Try a shorter clip.`;
+}
+
+/** Map an `API error: <status>` from an upload call to an honest, human message.
+ *  Never invents a result — every branch tells the user what happened. When the
+ *  file went up the chunked path, 413/503 mean something different (the size cap
+ *  and recording-storage being off, respectively), so those are contextualized. */
+function uploadErrorMessage(
+  err: unknown,
+  opts?: { chunked?: boolean; sizeBytes?: number },
+): string {
   const msg = err instanceof Error ? err.message : "";
   const status = Number(msg.match(/API error: (\d+)/)?.[1] ?? 0);
+  if (opts?.chunked) {
+    // The chunked path only exists for large files that need recording storage;
+    // a 503 there means that storage isn't enabled, not that analysis is missing.
+    if (status === 503)
+      return "Large uploads need recording storage enabled on the server.";
+    if (status === 413) return sizeLimitMessage(opts.sizeBytes);
+  }
   switch (status) {
     case 401:
       return "Please sign in again to analyze a recording.";
@@ -107,6 +133,9 @@ export default function SessionScreen({
   const [picked, setPicked] = useState<PickedRecording | null>(null);
   const [uploadContext, setUploadContext] = useState("");
   const [uploading, setUploading] = useState(false);
+  // Chunked-upload progress as a 0→1 fraction; null on the direct path (which
+  // shows a plain spinner instead of a bar).
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   // Consent to have this recording analyzed & (optionally) stored. Unchecked
   // by default — nothing is ever stored without an explicit opt-in.
@@ -143,7 +172,18 @@ export default function SessionScreen({
 
   const handleUploadAnalyze = async () => {
     if (!picked || uploading) return;
+    const size = picked.size;
+    // Refuse an over-cap file up front — no network call, an honest size message.
+    if (size !== undefined && size > MAX_UPLOAD_BYTES) {
+      setUploadError(sizeLimitMessage(size));
+      return;
+    }
+    // Anything above the direct-upload ceiling streams in chunks so the platform
+    // doesn't reject the body before the server can respond. Size must be known
+    // to chunk (we slice against it); an unknown size falls back to direct.
+    const useChunked = size !== undefined && size > DIRECT_UPLOAD_MAX_BYTES;
     setUploading(true);
+    setUploadProgress(useChunked ? 0 : null);
     setUploadError(null);
     setUploadStored(null);
     setUploadStorageNote(null);
@@ -151,13 +191,26 @@ export default function SessionScreen({
       // Web hands us a File; native hands us the local URI string.
       const fileArg = Platform.OS === "web" && picked.file ? picked.file : picked.uri;
       const trimmedContext = uploadContext.trim();
-      const result = await postAnalyzeUpload(
-        fileArg,
-        picked.name,
-        picked.mimeType,
-        trimmedContext ? trimmedContext : undefined,
-        { consent, store: storeRecording },
-      );
+      const result = useChunked
+        ? await postAnalyzeUploadChunked(
+            fileArg,
+            picked.name,
+            picked.mimeType,
+            size as number,
+            {
+              consent,
+              store: storeRecording,
+              context: trimmedContext ? trimmedContext : undefined,
+              onProgress: setUploadProgress,
+            },
+          )
+        : await postAnalyzeUpload(
+            fileArg,
+            picked.name,
+            picked.mimeType,
+            trimmedContext ? trimmedContext : undefined,
+            { consent, store: storeRecording },
+          );
       // Load the server-produced transcript so the what-if flow (and inspector
       // text) works off the store, then jump straight to the ready-made analysis
       // — no second /analyze round-trip.
@@ -166,9 +219,10 @@ export default function SessionScreen({
       setUploadStorageNote(result.stored ? null : result.storage_note);
       onAnalyzeDynamics?.(result, result.recording_id ?? null);
     } catch (e) {
-      setUploadError(uploadErrorMessage(e));
+      setUploadError(uploadErrorMessage(e, { chunked: useChunked, sizeBytes: size }));
     } finally {
       setUploading(false);
+      setUploadProgress(null);
     }
   };
 
@@ -282,10 +336,27 @@ export default function SessionScreen({
                   disabled={uploading}
                 >
                   {uploading ? (
-                    <View style={styles.uploadingRow}>
-                      <ActivityIndicator color="#FFFFFF" />
-                      <Text style={styles.uploadButtonText}>Analyzing…</Text>
-                    </View>
+                    uploadProgress !== null ? (
+                      // Chunked upload: an honest progress bar + percentage.
+                      <View style={styles.uploadProgress} testID="upload-progress">
+                        <View style={styles.progressTrack}>
+                          <View
+                            style={[
+                              styles.progressFill,
+                              { width: `${Math.round(uploadProgress * 100)}%` },
+                            ]}
+                          />
+                        </View>
+                        <Text style={styles.uploadButtonText}>
+                          {`Uploading… ${Math.round(uploadProgress * 100)}%`}
+                        </Text>
+                      </View>
+                    ) : (
+                      <View style={styles.uploadingRow}>
+                        <ActivityIndicator color="#FFFFFF" />
+                        <Text style={styles.uploadButtonText}>Analyzing…</Text>
+                      </View>
+                    )
                   ) : (
                     <Text style={styles.uploadButtonText}>Upload &amp; analyze</Text>
                   )}
@@ -601,6 +672,23 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+  },
+  uploadProgress: {
+    width: "100%",
+    alignItems: "center",
+    gap: 6,
+  },
+  progressTrack: {
+    width: "100%",
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "rgba(255,255,255,0.35)",
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#FFFFFF",
   },
   uploadButtonText: {
     color: "#FFFFFF",

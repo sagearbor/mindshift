@@ -432,8 +432,53 @@ class AnalyzeUploadResponse(AnalyzeResponse):
 # Upload caps (a 413 when exceeded). File-size is a cheap first gate; the
 # decoded-duration cap bounds LLM + prosody work on a legitimately-typed but
 # very long recording. Both are deliberate product limits, tunable via env.
+#
+# MAX_UPLOAD_BYTES gates the DIRECT /analyze/upload path only. It cannot exceed
+# ~25MB in practice: Cloud Run's HTTP/1 request limit (~32MB) hard-rejects a
+# larger body before FastAPI ever sees it, so a bigger direct upload could never
+# return an honest 413 anyway. Phone videos are routinely 50-300MB — those go
+# through the CHUNKED upload endpoints below (/uploads/*), which stream 8MB
+# parts through this same server and reassemble them server-side.
 MAX_UPLOAD_BYTES = int(os.getenv("ANALYZE_UPLOAD_MAX_BYTES", str(25 * 1024 * 1024)))
 MAX_UPLOAD_DURATION_S = float(os.getenv("ANALYZE_UPLOAD_MAX_SECONDS", str(40 * 60)))
+
+# Chunked-upload caps. The 200MB ceiling bounds total reassembled bytes (a 413
+# at /uploads/start); the 8MB chunk size keeps every PUT far under Cloud Run's
+# ~32MB request limit. With 8MB chunks a 200MB upload is at most 25 parts, which
+# fits GCS compose's 32-source limit (see recordings_store.assemble_upload).
+# CHUNK_SLACK_BYTES tolerates a slightly-over chunk (e.g. a client that rounds
+# up) without rejecting an otherwise-valid part.
+MAX_CHUNKED_UPLOAD_BYTES = int(
+    os.getenv("CHUNKED_UPLOAD_MAX_BYTES", str(200 * 1024 * 1024))
+)
+UPLOAD_CHUNK_BYTES = int(os.getenv("CHUNKED_UPLOAD_CHUNK_BYTES", str(8 * 1024 * 1024)))
+CHUNK_SLACK_BYTES = 4096
+
+
+# --- Chunked upload session (POST /uploads/start → PUT chunks → complete) -----
+# The session lets a phone video (50-300MB) reach analysis despite Cloud Run's
+# ~32MB per-request limit: the client streams 8MB parts, the server reassembles
+# them, then runs the EXACT same pipeline as the direct /analyze/upload path.
+# Session state (manifest + parts) lives in GCS, so the chunked path REQUIRES a
+# recordings bucket; without one every /uploads endpoint returns an honest 503.
+
+
+class UploadStartRequest(BaseModel):
+    filename: Optional[str] = None
+    content_type: Optional[str] = None
+    total_bytes: int = Field(gt=0)
+    context: str = Field(default="", max_length=500)
+    # Consent-gated persistence, exactly as the direct upload's form fields — but
+    # here they are real JSON booleans carried in the manifest and honored at
+    # complete(). Default store=True mirrors the direct endpoint.
+    consent: bool = False
+    store: bool = True
+
+
+class UploadStartResponse(BaseModel):
+    upload_id: str
+    chunk_bytes: int
+    expected_chunks: int
 
 
 # --- POST /analyze/counterfactual — the "what if they'd said it differently"
@@ -1682,44 +1727,35 @@ async def analyze(
     return await _run_analysis(req.turns, req.context, voice_labels=None)
 
 
-@app.post("/analyze/upload", response_model=AnalyzeUploadResponse)
-async def analyze_upload(
-    file: UploadFile = File(...),
-    context: str = Form(default="", max_length=500),
-    consent: str = Form(default="false"),
-    store: str = Form(default="true"),
-    uid: str = Depends(get_current_uid),
-    _rl: None = Depends(_rate_limit),
-):
-    """Analyze a RECORDING: an audio file, or a video whose audio track we
-    extract. By default process-and-discard; with explicit consent the original
-    bytes + turns + analysis are persisted so the user can replay/delete later.
+async def _analyze_recording_bytes(
+    uid: str,
+    *,
+    data: bytes,
+    filename: str | None,
+    content_type: str | None,
+    context: str,
+    consent: bool,
+    store: bool,
+) -> AnalyzeUploadResponse:
+    """Analyze one recording's raw bytes and optionally persist the result.
 
-    Flow: read bytes → transcribe the ORIGINAL bytes via Deepgram pre-recorded
-    (diarized turns) → decode to PCM for local prosody (degrade honestly to
-    voice=None if decode fails) → run the SHARED analysis pipeline with the
-    per-turn voice labels → OPTIONALLY persist. Honest failures throughout:
-    transcription unconfigured → 503, undecodable/speechless → 422, over caps →
-    413. A storage failure never fails the analysis — the response still returns
-    with stored=false and a note carrying the failure's class name.
+    This is the WHOLE /analyze/upload pipeline minus the transport-level read +
+    size gate: it is shared VERBATIM by the direct ``/analyze/upload`` endpoint
+    (which reads a multipart body) and the chunked ``/uploads/{id}/complete``
+    endpoint (which reassembles ``data`` from GCS parts), so both paths run the
+    exact same transcription/prosody/_run_analysis/storage code. ``consent`` and
+    ``store`` are booleans (each caller parses its own form field / manifest).
+
+    Honest failures throughout: transcription unconfigured → 503, undecodable or
+    speechless → 422, over the duration cap → 413. A storage failure never sinks
+    the analysis — the response returns with stored=false and a note carrying the
+    failure's class name.
     """
-    data = await file.read()
-    if len(data) > MAX_UPLOAD_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail=(
-                f"file too large: {len(data)} bytes exceeds the "
-                f"{MAX_UPLOAD_BYTES}-byte limit"
-            ),
-        )
-    if not data:
-        raise HTTPException(status_code=422, detail="empty file")
-
     # 1) Transcribe the ORIGINAL container bytes (Deepgram decodes it itself).
     #    to_thread: transcribe_prerecorded is a blocking HTTP call.
     try:
         raw_turns = await asyncio.to_thread(
-            transcribe_prerecorded, data, file.content_type,
+            transcribe_prerecorded, data, content_type,
         )
     except TranscriptionUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
@@ -1745,13 +1781,15 @@ async def analyze_upload(
     # 3) Decode to PCM for prosody. If decoding fails we DEGRADE HONESTLY:
     #    transcription already succeeded, so we still analyze — just without
     #    voice labels — and flag it in voice_analysis rather than 422-ing or
-    #    inventing prosody.
+    #    inventing prosody. The duration cap (a 413) bounds LLM + prosody COST on
+    #    a legitimately-typed but very long recording; it is NOT an upload-size
+    #    limit (chunked upload already bounds bytes at 200MB).
     voice_labels: list[dict] | None = None
     voice_note: str | None = None
     decoded_duration: float | None = None
     try:
         pcm, sr = await asyncio.to_thread(
-            decode_to_pcm, data, file.filename or "",
+            decode_to_pcm, data, filename or "",
         )
         duration = pcm.shape[0] / sr if sr else 0.0
         decoded_duration = duration
@@ -1798,9 +1836,9 @@ async def analyze_upload(
     #    opt this recording out, and storage is enabled — and NEVER let a
     #    storage failure sink the analysis (the response is already complete).
     store_backend = get_recordings_store()
-    if consent.strip().lower() != "true":
+    if not consent:
         response.storage_note = "consent not given"
-    elif store.strip().lower() != "true":
+    elif not store:
         response.storage_note = "storage not requested"
     elif store_backend is None:
         response.storage_note = "storage not enabled"
@@ -1823,8 +1861,8 @@ async def analyze_upload(
             recording_id = await store_backend.save_recording(
                 uid,
                 data=data,
-                filename=file.filename,
-                content_type=file.content_type,
+                filename=filename,
+                content_type=content_type,
                 duration_seconds=duration_seconds,
                 turns=turns_json,
                 analysis=analysis_json,
@@ -1836,6 +1874,58 @@ async def analyze_upload(
             response.storage_note = f"storage failed: {type(exc).__name__}"
 
     return response
+
+
+def _parse_bool_form(value: str) -> bool:
+    """Parse a multipart form flag ("true"/"false") into a bool, matching the
+    original direct-upload semantics (only an exact case-insensitive "true" is
+    True)."""
+    return value.strip().lower() == "true"
+
+
+@app.post("/analyze/upload", response_model=AnalyzeUploadResponse)
+async def analyze_upload(
+    file: UploadFile = File(...),
+    context: str = Form(default="", max_length=500),
+    consent: str = Form(default="false"),
+    store: str = Form(default="true"),
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    """Analyze a RECORDING in ONE request: an audio file, or a video whose audio
+    track we extract. By default process-and-discard; with explicit consent the
+    original bytes + turns + analysis are persisted so the user can replay/delete
+    later.
+
+    This DIRECT path is capped at ~25MB (MAX_UPLOAD_BYTES) — Cloud Run's ~32MB
+    request limit makes a larger single body impossible anyway. For phone videos
+    (routinely 50-300MB) use the CHUNKED endpoints (/uploads/start → PUT chunks →
+    /uploads/{id}/complete), which stream 8MB parts and reassemble server-side.
+    Both paths converge on :func:`_analyze_recording_bytes`.
+    """
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"file too large: {len(data)} bytes exceeds the "
+                f"{MAX_UPLOAD_BYTES}-byte direct-upload limit — use chunked "
+                "upload (POST /uploads/start) for files above "
+                f"{MAX_UPLOAD_BYTES // (1024 * 1024)}MB"
+            ),
+        )
+    if not data:
+        raise HTTPException(status_code=422, detail="empty file")
+
+    return await _analyze_recording_bytes(
+        uid,
+        data=data,
+        filename=file.filename,
+        content_type=file.content_type,
+        context=context,
+        consent=_parse_bool_form(consent),
+        store=_parse_bool_form(store),
+    )
 
 
 @app.post("/analyze/counterfactual", response_model=CounterfactualResponse)
@@ -2070,6 +2160,226 @@ async def get_recording_media(
     # Content-Type is already in `headers` (read from the stored blob metadata),
     # so it is not passed again as media_type — avoids a duplicated header.
     return StreamingResponse(iterator, status_code=status, headers=headers)
+
+
+# ---------------------------------------------------------------------------
+# Chunked upload sessions — start / PUT chunk / complete / abort
+# ---------------------------------------------------------------------------
+# Phone videos are routinely 50-300MB; Cloud Run's ~32MB per-request limit hard-
+# rejects such a body before FastAPI sees it, so the direct /analyze/upload path
+# can never carry one. These endpoints stream the file in 8MB parts, stash them
+# in GCS, reassemble server-side, then run the SAME analysis pipeline. Session
+# state (manifest + parts) lives in GCS, so the chunked path REQUIRES a bucket:
+# without one, /uploads/start returns an honest 503.
+
+_LARGE_UPLOAD_DISABLED_DETAIL = (
+    "large uploads need storage enabled — set MINDSHIFT_RECORDINGS_BUCKET (the "
+    "direct /analyze/upload path remains available for files up to "
+    f"{MAX_UPLOAD_BYTES // (1024 * 1024)}MB)"
+)
+
+
+def _require_store_for_uploads() -> "recordings_store.RecordingsStore":
+    """Return the store, or raise the chunked-upload-specific 503 when storage
+    is disabled. Distinct message from the recordings 503 so the client knows the
+    *large upload* feature (not replay) is what needs the bucket."""
+    store_backend = get_recordings_store()
+    if store_backend is None:
+        raise HTTPException(status_code=503, detail=_LARGE_UPLOAD_DISABLED_DETAIL)
+    return store_backend
+
+
+@app.post("/uploads/start", response_model=UploadStartResponse)
+async def start_upload(
+    req: UploadStartRequest,
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    """Open a chunked-upload session for a large recording.
+
+    Validates the declared total size (<=200MB, else a plain-message 413),
+    writes a manifest to GCS, and tells the client the fixed 8MB chunk size and
+    how many chunks to expect. 503 when storage is disabled (the manifest + parts
+    have nowhere to live)."""
+    store_backend = _require_store_for_uploads()
+    if req.total_bytes > MAX_CHUNKED_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"upload too large: {req.total_bytes} bytes exceeds the "
+                f"{MAX_CHUNKED_UPLOAD_BYTES // (1024 * 1024)}MB limit"
+            ),
+        )
+
+    upload_id = str(uuid.uuid4())
+    # ceil division — a final short chunk still counts. total_bytes > 0 (model),
+    # so expected_chunks is always >= 1.
+    expected_chunks = (req.total_bytes + UPLOAD_CHUNK_BYTES - 1) // UPLOAD_CHUNK_BYTES
+    manifest = {
+        "filename": req.filename,
+        "content_type": req.content_type,
+        "total_bytes": req.total_bytes,
+        "chunk_bytes": UPLOAD_CHUNK_BYTES,
+        "expected_chunks": expected_chunks,
+        "context": req.context,
+        "consent": req.consent,
+        "store": req.store,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await store_backend.write_upload_manifest(uid, upload_id, manifest)
+    return UploadStartResponse(
+        upload_id=upload_id,
+        chunk_bytes=UPLOAD_CHUNK_BYTES,
+        expected_chunks=expected_chunks,
+    )
+
+
+# NOTE: deliberately NOT rate-limited (no _rate_limit dependency), mirroring the
+# /media precedent. A single 200MB upload fires up to 25 sequential PUTs in quick
+# succession; the per-IP minute budget would 429 a normal large upload into
+# uselessness. This is a pure GCS write (no LLM cost) and is still fully gated:
+# auth (uid from the verified token) + an existing uid-scoped manifest + the
+# per-chunk size cap. The cost-bearing work (transcription/LLM) happens only at
+# /complete, which IS rate-limited.
+@app.put("/uploads/{upload_id}/chunks/{index}")
+async def put_upload_chunk(
+    upload_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    index: int,
+    request: Request,
+    uid: str = Depends(get_current_uid),
+):
+    """Store one part of an in-progress upload. Idempotent: re-PUTting the same
+    index overwrites. 404 for an unknown (or foreign) upload_id, 409 for an index
+    outside the manifest's expected range, 413 for an oversize chunk."""
+    if index < 0:
+        raise HTTPException(status_code=422, detail="chunk index must be >= 0")
+    store_backend = _require_store_for_uploads()
+    manifest = await store_backend.read_upload_manifest(uid, upload_id)
+    if manifest is None:
+        raise HTTPException(status_code=404, detail="unknown upload")
+    expected_chunks = manifest["expected_chunks"]
+    if index >= expected_chunks:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"chunk index {index} out of range for a {expected_chunks}-chunk "
+                "upload"
+            ),
+        )
+
+    limit = manifest.get("chunk_bytes", UPLOAD_CHUNK_BYTES) + CHUNK_SLACK_BYTES
+    # Cheap pre-read gate on the declared Content-Length so a huge body is
+    # rejected before it is buffered. The post-read len() check below is the
+    # authoritative one (a chunked transfer may omit Content-Length).
+    declared = request.headers.get("content-length")
+    if declared is not None:
+        try:
+            if int(declared) > limit:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"chunk too large: exceeds {limit}-byte limit",
+                )
+        except ValueError:
+            pass  # malformed header — fall through to the authoritative check
+
+    body = await request.body()
+    if not body:
+        raise HTTPException(status_code=422, detail="empty chunk")
+    if len(body) > limit:
+        raise HTTPException(
+            status_code=413,
+            detail=f"chunk too large: {len(body)} bytes exceeds {limit}-byte limit",
+        )
+
+    await store_backend.write_upload_part(uid, upload_id, index, body)
+    return {"index": index, "received_bytes": len(body)}
+
+
+@app.post("/uploads/{upload_id}/complete", response_model=AnalyzeUploadResponse)
+async def complete_upload(
+    upload_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    """Reassemble a completed upload and run the FULL analysis pipeline.
+
+    Verifies every part is present (400 listing the missing indexes) and the
+    reassembled size matches the manifest (400), assembles the original bytes
+    (GCS compose, <=32 parts), then hands them to the shared
+    :func:`_analyze_recording_bytes` honoring the manifest's consent/store/
+    context. The parts + manifest are cleaned up best-effort afterward. Returns
+    the same AnalyzeUploadResponse as the direct path. Long-running: transcribing
+    a 200MB video can take minutes (Deepgram pre-recorded timeout is 600s)."""
+    store_backend = _require_store_for_uploads()
+    manifest = await store_backend.read_upload_manifest(uid, upload_id)
+    if manifest is None:
+        raise HTTPException(status_code=404, detail="unknown upload")
+
+    expected_chunks = manifest["expected_chunks"]
+    total_bytes = manifest["total_bytes"]
+    part_sizes = await store_backend.get_upload_part_sizes(uid, upload_id)
+    missing = [i for i in range(expected_chunks) if i not in part_sizes]
+    if missing:
+        # Honest, actionable: name exactly which chunks to (re-)PUT before retry.
+        shown = ", ".join(str(i) for i in missing[:50])
+        more = "" if len(missing) <= 50 else f" (+{len(missing) - 50} more)"
+        raise HTTPException(
+            status_code=400,
+            detail=f"upload incomplete — missing chunk index(es): {shown}{more}",
+        )
+
+    assembled_bytes = sum(part_sizes.values())
+    if assembled_bytes != total_bytes:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"assembled size mismatch: parts total {assembled_bytes} bytes "
+                f"but manifest declared {total_bytes}"
+            ),
+        )
+
+    data = await store_backend.assemble_upload(uid, upload_id, expected_chunks)
+    if not data:
+        raise HTTPException(status_code=400, detail="assembled upload is empty")
+
+    try:
+        response = await _analyze_recording_bytes(
+            uid,
+            data=data,
+            filename=manifest.get("filename"),
+            content_type=manifest.get("content_type"),
+            context=manifest.get("context", "") or "",
+            consent=bool(manifest.get("consent", False)),
+            store=bool(manifest.get("store", True)),
+        )
+    finally:
+        # Best-effort cleanup: the reassembled bytes are analyzed (and, on
+        # consent, already persisted under recordings/), so the temporary
+        # parts/manifest are dead weight regardless of success. A cleanup failure
+        # must never mask the analysis result or its error.
+        try:
+            await store_backend.cleanup_upload(uid, upload_id)
+        except Exception as exc:  # noqa: BLE001 — cleanup is best-effort
+            logger.warning(
+                "Upload cleanup failed for uid=%s upload_id=%s: %s",
+                uid, upload_id, exc,
+            )
+
+    return response
+
+
+@app.delete("/uploads/{upload_id}", status_code=204)
+async def abort_upload(
+    upload_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    """Abort an in-progress upload and delete its parts + manifest. Idempotent:
+    always 204, even for an unknown/foreign upload_id (cleanup is uid-scoped, so
+    it simply deletes nothing and never confirms another user's upload)."""
+    store_backend = _require_store_for_uploads()
+    await store_backend.cleanup_upload(uid, upload_id)
+    return Response(status_code=204)
 
 
 @app.post("/session", response_model=SessionOut, status_code=201)

@@ -1,4 +1,5 @@
 import { Platform } from "react-native";
+import { File as FSFile, FileMode } from "expo-file-system";
 import type { Suggestion } from "../components/SuggestionCard";
 import { getFreshToken } from "../auth/authToken";
 
@@ -259,6 +260,186 @@ export async function postAnalyzeUpload(
   }
 
   return (await res.json()) as UploadAnalyzeResult;
+}
+
+// --- Chunked upload (large recordings) --------------------------------------
+// Some hosting layers (Cloud Run / the app's ingress) reject request bodies over
+// ~32MB *before* the server can answer 413 — a 100MB phone video would surface a
+// generic transport failure, not an honest size message. The chunked path splits
+// the file into server-sized slices so no single request trips that ceiling:
+//   POST   /uploads/start            → { upload_id, chunk_bytes, expected_chunks }
+//   PUT    /uploads/{id}/chunks/{i}  raw octet-stream body → 204/200
+//   POST   /uploads/{id}/complete    → the full UploadAnalyzeResult
+//   DELETE /uploads/{id}             → abort (best-effort on any failure)
+// `complete` can take minutes for a long video (server-side transcription), so we
+// deliberately set no client-side timeout on it.
+
+/** Options for a chunked upload. `consent`/`store` are sent as real JSON booleans
+ *  in the /uploads/start body (unlike the multipart /analyze/upload path, which
+ *  can only carry strings). `onProgress` receives a 0→1 fraction after each chunk
+ *  lands so the UI can render an honest progress bar. */
+export interface ChunkedUploadOptions {
+  consent: boolean;
+  store: boolean;
+  context?: string;
+  onProgress?: (fraction: number) => void;
+}
+
+/** Response of POST /uploads/start. */
+interface UploadStartResult {
+  upload_id: string;
+  chunk_bytes: number;
+  expected_chunks: number;
+}
+
+/**
+ * Reads successive byte ranges of the picked file, uniformly across platforms:
+ *
+ *   - Web: `file` is a DOM `File` (a Blob); `File.slice(start, end)` +
+ *     `arrayBuffer()` yields the bytes without loading the whole file.
+ *   - Native: `file` is a `file://` URI string. expo-file-system's modern `File`
+ *     API opens a read handle whose `offset` we seek and `readBytes(length)`
+ *     returns a `Uint8Array` directly — no base64 encode/decode round-trip (the
+ *     legacy `readAsStringAsync({ encoding: base64, position, length })` path
+ *     would have forced one). The handle is opened once and reused across chunks,
+ *     then closed by `close()`.
+ *
+ * Both branches return a `Uint8Array`, which React Native's networking layer
+ * accepts as a raw binary fetch body (it base64-encodes it for the native bridge
+ * internally), so the PUT sends application/octet-stream on web and native alike.
+ */
+interface ChunkReader {
+  read(start: number, length: number): Promise<Uint8Array>;
+  close(): void;
+}
+
+function createChunkReader(file: string | File): ChunkReader {
+  if (Platform.OS === "web") {
+    const blob = file as File;
+    return {
+      async read(start, length) {
+        const buf = await blob.slice(start, start + length).arrayBuffer();
+        return new Uint8Array(buf);
+      },
+      close() {},
+    };
+  }
+  const handle = new FSFile(file as string).open(FileMode.ReadOnly);
+  return {
+    async read(start, length) {
+      handle.offset = start;
+      return handle.readBytes(length);
+    },
+    close() {
+      handle.close();
+    },
+  };
+}
+
+/** Bearer header for a raw-binary chunk PUT (octet-stream, not JSON). A fresh
+ *  token is fetched per chunk so a multi-minute upload survives token refresh. */
+async function octetStreamHeaders(): Promise<Record<string, string>> {
+  const token = await getFreshToken();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/octet-stream",
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+/**
+ * Upload a large recording in chunks, then analyze it. Mirrors
+ * `postAnalyzeUpload`'s result and honesty contract (a non-OK response throws
+ * `API error: <status>` — 401/404/409/413/503 — so the caller surfaces a mapped
+ * message rather than a fabricated analysis), but streams the file so no single
+ * request exceeds the platform's body ceiling.
+ *
+ * On ANY failure after the upload has started, a best-effort DELETE aborts the
+ * partial upload server-side before the honest error is rethrown, so we never
+ * leave orphaned chunks behind.
+ */
+export async function postAnalyzeUploadChunked(
+  file: string | File,
+  name: string,
+  mimeType: string,
+  sizeBytes: number,
+  opts: ChunkedUploadOptions,
+): Promise<UploadAnalyzeResult> {
+  // 1. Start: negotiate the chunk size and count with the server.
+  const startBody: Record<string, unknown> = {
+    filename: name,
+    content_type: mimeType,
+    total_bytes: sizeBytes,
+    consent: opts.consent,
+    store: opts.store,
+  };
+  if (opts.context !== undefined) {
+    startBody.context = opts.context;
+  }
+  const startRes = await fetch(`${API_URL}/uploads/start`, {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify(startBody),
+  });
+  if (!startRes.ok) {
+    // Nothing was created server-side yet, so there's nothing to abort.
+    throw new Error(`API error: ${startRes.status}`);
+  }
+  const { upload_id, chunk_bytes, expected_chunks } =
+    (await startRes.json()) as UploadStartResult;
+
+  const reader = createChunkReader(file);
+  try {
+    // 2. PUT each slice as a raw octet-stream body, in order.
+    for (let index = 0; index < expected_chunks; index += 1) {
+      const start = index * chunk_bytes;
+      const length = Math.min(chunk_bytes, sizeBytes - start);
+      const chunk = await reader.read(start, length);
+      const res = await fetch(
+        `${API_URL}/uploads/${encodeURIComponent(upload_id)}/chunks/${index}`,
+        {
+          method: "PUT",
+          headers: await octetStreamHeaders(),
+          body: chunk as unknown as BodyInit,
+        },
+      );
+      if (!res.ok) {
+        throw new Error(`API error: ${res.status}`);
+      }
+      opts.onProgress?.((index + 1) / expected_chunks);
+    }
+
+    // 3. Complete: the server transcribes + analyzes and returns the full result.
+    //    No client timeout — a long video can legitimately take minutes here.
+    const completeRes = await fetch(
+      `${API_URL}/uploads/${encodeURIComponent(upload_id)}/complete`,
+      {
+        method: "POST",
+        headers: await authHeaders(),
+      },
+    );
+    if (!completeRes.ok) {
+      throw new Error(`API error: ${completeRes.status}`);
+    }
+    return (await completeRes.json()) as UploadAnalyzeResult;
+  } catch (err) {
+    // Best-effort abort so a failed upload doesn't leave orphaned chunks. Any
+    // error from the abort itself is swallowed — the original failure is what
+    // the caller needs to see.
+    try {
+      await fetch(`${API_URL}/uploads/${encodeURIComponent(upload_id)}`, {
+        method: "DELETE",
+        headers: await authHeaders(),
+      });
+    } catch {
+      // ignore
+    }
+    throw err;
+  } finally {
+    reader.close();
+  }
 }
 
 /** One simulated turn from /analyze/counterfactual: a hypothetical heat value

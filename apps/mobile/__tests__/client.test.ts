@@ -2,6 +2,7 @@ import {
   postRespond,
   postAnalyze,
   postAnalyzeUpload,
+  postAnalyzeUploadChunked,
   postCounterfactual,
   empathyTone,
   listRecordings,
@@ -354,6 +355,195 @@ describe("postAnalyzeUpload", () => {
     await expect(
       postAnalyzeUpload("file:///rec.m4a", "rec.m4a", "audio/m4a"),
     ).rejects.toThrow("API error: 503");
+  });
+});
+
+describe("postAnalyzeUploadChunked", () => {
+  const uploadResult = {
+    per_turn: [],
+    per_speaker: {},
+    dynamics: {
+      coupling: { strength: null, leader: null, description: "" },
+      deescalation: { who_first: null, follow_rate: null, description: "" },
+      triggers: [],
+      requests: [],
+    },
+    narrative: "",
+    turns: [{ speaker: "Alice", text: "hi", start_time: 0, end_time: 1 }],
+    stored: true,
+    recording_id: "rec_9",
+    storage_note: null,
+  };
+
+  // Fill a Uint8Array of `n` bytes with a recognizable ramp so we can assert the
+  // right slice went out on each chunk PUT.
+  const ramp = (n: number) => {
+    const b = new Uint8Array(n);
+    for (let i = 0; i < n; i += 1) b[i] = i % 256;
+    return b;
+  };
+
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>).__fsMockBytes;
+  });
+
+  it("starts, PUTs each chunk (right index/size/body), completes, and reports progress", async () => {
+    setTokenProvider(async () => "chunk-token");
+    (globalThis as Record<string, unknown>).__fsMockBytes = ramp(250);
+
+    mockFetch
+      // POST /uploads/start
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          upload_id: "up1",
+          chunk_bytes: 100,
+          expected_chunks: 3,
+        }),
+      })
+      // PUT chunks 0,1,2
+      .mockResolvedValueOnce({ ok: true, status: 204 })
+      .mockResolvedValueOnce({ ok: true, status: 204 })
+      .mockResolvedValueOnce({ ok: true, status: 204 })
+      // POST /uploads/up1/complete
+      .mockResolvedValueOnce({ ok: true, json: async () => uploadResult });
+
+    const progress: number[] = [];
+    const result = await postAnalyzeUploadChunked(
+      "file:///big.mp4",
+      "big.mp4",
+      "video/mp4",
+      250,
+      {
+        consent: true,
+        store: true,
+        context: "kitchen argument",
+        onProgress: (f) => progress.push(f),
+      },
+    );
+
+    // --- start: JSON body with real booleans + context, Bearer auth ---
+    const [startUrl, startInit] = mockFetch.mock.calls[0];
+    expect(startUrl).toMatch(/\/uploads\/start$/);
+    expect(startInit.method).toBe("POST");
+    expect(startInit.headers.Authorization).toBe("Bearer chunk-token");
+    expect(JSON.parse(startInit.body)).toEqual({
+      filename: "big.mp4",
+      content_type: "video/mp4",
+      total_bytes: 250,
+      consent: true,
+      store: true,
+      context: "kitchen argument",
+    });
+
+    // --- three chunk PUTs at the right indexes, sizes, and bytes ---
+    const chunk0 = mockFetch.mock.calls[1];
+    expect(chunk0[0]).toMatch(/\/uploads\/up1\/chunks\/0$/);
+    expect(chunk0[1].method).toBe("PUT");
+    expect(chunk0[1].headers["Content-Type"]).toBe("application/octet-stream");
+    expect(chunk0[1].headers.Authorization).toBe("Bearer chunk-token");
+    expect(chunk0[1].body).toBeInstanceOf(Uint8Array);
+    expect((chunk0[1].body as Uint8Array).length).toBe(100);
+    expect((chunk0[1].body as Uint8Array)[0]).toBe(0);
+
+    const chunk1 = mockFetch.mock.calls[2];
+    expect(chunk1[0]).toMatch(/\/uploads\/up1\/chunks\/1$/);
+    expect((chunk1[1].body as Uint8Array).length).toBe(100);
+    // Second chunk starts at byte 100 → value 100 % 256.
+    expect((chunk1[1].body as Uint8Array)[0]).toBe(100);
+
+    const chunk2 = mockFetch.mock.calls[3];
+    expect(chunk2[0]).toMatch(/\/uploads\/up1\/chunks\/2$/);
+    // Final short chunk: 250 - 200 = 50 bytes.
+    expect((chunk2[1].body as Uint8Array).length).toBe(50);
+
+    // --- complete ---
+    const [completeUrl, completeInit] = mockFetch.mock.calls[4];
+    expect(completeUrl).toMatch(/\/uploads\/up1\/complete$/);
+    expect(completeInit.method).toBe("POST");
+
+    // Progress fired once per chunk, ending at 1.
+    expect(progress).toEqual([1 / 3, 2 / 3, 1]);
+    expect(result).toEqual(uploadResult);
+  });
+
+  it("omits context and sends consent/store as real JSON booleans when off", async () => {
+    (globalThis as Record<string, unknown>).__fsMockBytes = ramp(10);
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          upload_id: "u3",
+          chunk_bytes: 100,
+          expected_chunks: 1,
+        }),
+      })
+      .mockResolvedValueOnce({ ok: true, status: 204 })
+      .mockResolvedValueOnce({ ok: true, json: async () => uploadResult });
+
+    await postAnalyzeUploadChunked("file:///s.m4a", "s.m4a", "audio/m4a", 10, {
+      consent: false,
+      store: false,
+    });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body).toEqual({
+      filename: "s.m4a",
+      content_type: "audio/m4a",
+      total_bytes: 10,
+      consent: false,
+      store: false,
+    });
+    expect(body).not.toHaveProperty("context");
+    // Single chunk carries the whole (short) file.
+    expect((mockFetch.mock.calls[1][1].body as Uint8Array).length).toBe(10);
+    // Signed out: no Authorization header on start.
+    expect(mockFetch.mock.calls[0][1].headers).not.toHaveProperty(
+      "Authorization",
+    );
+  });
+
+  it("aborts with a DELETE and throws the honest error when a chunk PUT fails", async () => {
+    (globalThis as Record<string, unknown>).__fsMockBytes = ramp(150);
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          upload_id: "up2",
+          chunk_bytes: 100,
+          expected_chunks: 2,
+        }),
+      })
+      .mockResolvedValueOnce({ ok: true, status: 204 }) // chunk 0 OK
+      .mockResolvedValueOnce({ ok: false, status: 413 }) // chunk 1 rejected
+      .mockResolvedValueOnce({ ok: true, status: 204 }); // DELETE abort
+
+    await expect(
+      postAnalyzeUploadChunked("file:///x.mp4", "x.mp4", "video/mp4", 150, {
+        consent: true,
+        store: true,
+      }),
+    ).rejects.toThrow("API error: 413");
+
+    // A best-effort abort was issued for the started upload.
+    const del = mockFetch.mock.calls[3];
+    expect(del[0]).toMatch(/\/uploads\/up2$/);
+    expect(del[1].method).toBe("DELETE");
+    // The completion call never fired (5th call would be it).
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+  });
+
+  it("throws without aborting when /uploads/start itself fails (nothing to abort)", async () => {
+    (globalThis as Record<string, unknown>).__fsMockBytes = ramp(50);
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 503 });
+    await expect(
+      postAnalyzeUploadChunked("file:///x.mp4", "x.mp4", "video/mp4", 50, {
+        consent: true,
+        store: true,
+      }),
+    ).rejects.toThrow("API error: 503");
+    // Only the start call was made — no chunk PUTs, no DELETE.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });
 
