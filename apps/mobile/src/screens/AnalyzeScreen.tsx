@@ -277,8 +277,10 @@ export default function AnalyzeScreen({
 }: AnalyzeScreenProps = {}) {
   const { loadTurns } = useSessionStore();
 
-  // Relationship context: one-tap picker, remembered across mounts (the smart
-  // default is simply the last choice; first run defaults to partners).
+  // Relationship context: one-tap OPTIONAL picker. Starts unselected (null) —
+  // then no relationship sentence is sent and the analysis infers it from the
+  // conversation. A tapped choice is remembered across mounts as the smart
+  // default; tapping the selected chip deselects back to infer mode.
   const relationship = useAnalyzeStore((s) => s.relationship);
   const setRelationship = useAnalyzeStore((s) => s.setRelationship);
 
@@ -334,8 +336,9 @@ export default function AnalyzeScreen({
   }, []);
 
   /** The `context` string sent to the analyze API: the tapped relationship as
-   *  a plain sentence, then any free text the user typed. The relationship is
-   *  a fact the user asserted with the picker — never a guess. */
+   *  a plain sentence (omitted entirely when nothing is selected — the model
+   *  infers it from the conversation), then any free text the user typed. The
+   *  relationship is a fact the user asserted with the picker — never a guess. */
   const composedContext = (): string | undefined => {
     const parts = [relationshipContext(relationship), uploadContext.trim()].filter(
       Boolean,

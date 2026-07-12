@@ -2,10 +2,12 @@ import React from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 
 /**
- * The relationship-context picker for the Analyze flow: one tap answers
- * "who's in this conversation?" so the analysis can be framed correctly
- * (partners vs. coworkers read very differently). Deliberately a single chip
- * row with a default — never a wall of form fields.
+ * The relationship-context picker for the Analyze flow: one OPTIONAL tap
+ * answers "who's in this conversation?" so the analysis can be framed
+ * correctly (partners vs. coworkers read very differently). Deliberately a
+ * single chip row — never a wall of form fields — and never required: with
+ * nothing selected, no relationship context is sent and the analysis infers
+ * it from the conversation. Tapping the selected chip deselects it.
  */
 
 export type RelationshipId =
@@ -53,8 +55,10 @@ export const RELATIONSHIP_OPTIONS: RelationshipOption[] = [
 ];
 
 /** The context sentence for a relationship id (used when composing the
- *  analyze request's `context` field). */
-export function relationshipContext(id: RelationshipId): string {
+ *  analyze request's `context` field). Null — nothing selected — yields ""
+ *  so no relationship sentence is ever sent in infer mode. */
+export function relationshipContext(id: RelationshipId | null): string {
+  if (id === null) return "";
   const opt = RELATIONSHIP_OPTIONS.find((o) => o.id === id);
   // The union type makes a miss impossible at compile time; the fallback keeps
   // runtime honest if the list ever drifts.
@@ -62,8 +66,11 @@ export function relationshipContext(id: RelationshipId): string {
 }
 
 interface RelationshipPickerProps {
-  value: RelationshipId;
-  onSelect: (id: RelationshipId) => void;
+  /** The selected relationship, or null for "not chosen — infer it". */
+  value: RelationshipId | null;
+  /** Called with the tapped id, or null when the user taps the selected chip
+   *  to deselect it (back to infer mode). */
+  onSelect: (id: RelationshipId | null) => void;
   /** Disable taps while an upload/analysis is in flight. */
   disabled?: boolean;
 }
@@ -76,6 +83,9 @@ export default function RelationshipPicker({
   return (
     <View style={styles.container} testID="relationship-picker">
       <Text style={styles.label}>Who’s in this conversation?</Text>
+      <Text style={styles.optionalHint} testID="relationship-optional-hint">
+        Optional — we’ll figure it out if you skip.
+      </Text>
       <View style={styles.chipRow}>
         {RELATIONSHIP_OPTIONS.map((opt) => {
           const selected = opt.id === value;
@@ -86,7 +96,8 @@ export default function RelationshipPicker({
               accessibilityRole="button"
               accessibilityState={{ selected }}
               style={[styles.chip, selected && styles.chipSelected]}
-              onPress={() => onSelect(opt.id)}
+              // Tapping the selected chip deselects (null = infer mode).
+              onPress={() => onSelect(selected ? null : opt.id)}
               disabled={disabled}
             >
               <Text
@@ -110,6 +121,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     color: "#1F2937",
+    marginBottom: 2,
+  },
+  optionalHint: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: "#6B7280",
     marginBottom: 8,
   },
   chipRow: {

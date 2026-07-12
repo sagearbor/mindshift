@@ -36,8 +36,9 @@ const mockLink = postAnalyzeLink as jest.Mock;
 const mockLinkJob = postAnalyzeLinkJob as jest.Mock;
 const mockGetJob = getAnalyzeJob as jest.Mock;
 
-// The relationship picker defaults to "partners"; its sentence is always sent
-// as (the head of) the analyze `context`.
+// The relationship picker starts UNSELECTED (it's optional): no relationship
+// sentence is sent until the user taps a pill. Once tapped, its sentence
+// leads the analyze `context`.
 const PARTNERS_CONTEXT = relationshipContext("partners");
 
 /** A terminal "done" job state carrying the given result — the common poll
@@ -107,7 +108,7 @@ beforeEach(() => {
       loading: false,
     });
     useRecorderStore.setState({ pendingFile: null });
-    useAnalyzeStore.setState({ relationship: "partners" });
+    useAnalyzeStore.setState({ relationship: null });
   });
 });
 
@@ -148,7 +149,7 @@ describe("AnalyzeScreen", () => {
   });
 
   describe("relationship context picker", () => {
-    it("defaults to Partners and offers every option as a single-tap chip", () => {
+    it("starts with NOTHING selected, labeled optional, every option one tap away", () => {
       let comp!: renderer.ReactTestRenderer;
       act(() => {
         comp = renderer.create(<AnalyzeScreen />);
@@ -161,15 +162,20 @@ describe("AnalyzeScreen", () => {
         "just_me",
       ]) {
         expect(queryId(comp, `relationship-${id}`)).toBeTruthy();
+        expect(
+          queryId(comp, `relationship-${id}`)!.props.accessibilityState
+            .selected,
+        ).toBe(false);
       }
-      expect(
-        queryId(comp, "relationship-partners")!.props.accessibilityState
-          .selected,
-      ).toBe(true);
+      // The honest optional hint is visible.
+      expect(queryId(comp, "relationship-optional-hint")).toBeTruthy();
+      expect(JSON.stringify(comp.toJSON())).toContain(
+        "we’ll figure it out if you skip",
+      );
       act(() => comp.unmount());
     });
 
-    it("sends the default (Partners) relationship as the upload context", async () => {
+    it("sends NO relationship context when nothing is selected (infer mode)", async () => {
       mockPick.mockResolvedValueOnce({
         canceled: false,
         assets: [
@@ -189,11 +195,58 @@ describe("AnalyzeScreen", () => {
         queryId(comp, "upload-analyze-button")!.props.onPress();
       });
 
+      // Context is undefined — no fabricated relationship sentence.
       expect(mockUpload).toHaveBeenCalledWith(
         "file:///rec.m4a",
         "rec.m4a",
         "audio/m4a",
-        PARTNERS_CONTEXT,
+        undefined,
+        { consent: false, store: true },
+      );
+      act(() => comp.unmount());
+    });
+
+    it("tapping the selected pill deselects it — back to infer mode, no context sent", async () => {
+      mockPick.mockResolvedValueOnce({
+        canceled: false,
+        assets: [
+          { uri: "file:///rec.m4a", name: "rec.m4a", size: 2048, mimeType: "audio/m4a" },
+        ],
+      });
+      mockUpload.mockResolvedValueOnce(uploadFixture);
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<AnalyzeScreen />);
+      });
+      // Select, then tap the same pill again to deselect.
+      act(() => {
+        queryId(comp, "relationship-coworkers")!.props.onPress();
+      });
+      expect(
+        queryId(comp, "relationship-coworkers")!.props.accessibilityState
+          .selected,
+      ).toBe(true);
+      act(() => {
+        queryId(comp, "relationship-coworkers")!.props.onPress();
+      });
+      expect(
+        queryId(comp, "relationship-coworkers")!.props.accessibilityState
+          .selected,
+      ).toBe(false);
+
+      await act(async () => {
+        queryId(comp, "pick-recording-button")!.props.onPress();
+      });
+      await act(async () => {
+        queryId(comp, "upload-analyze-button")!.props.onPress();
+      });
+      // Deselected → no relationship sentence rides along.
+      expect(mockUpload).toHaveBeenCalledWith(
+        "file:///rec.m4a",
+        "rec.m4a",
+        "audio/m4a",
+        undefined,
         { consent: false, store: true },
       );
       act(() => comp.unmount());
@@ -236,7 +289,7 @@ describe("AnalyzeScreen", () => {
       act(() => comp.unmount());
     });
 
-    it("appends the free-text context after the relationship sentence", async () => {
+    it("appends the free-text context after the tapped relationship sentence", async () => {
       mockPick.mockResolvedValueOnce({
         canceled: false,
         assets: [
@@ -248,6 +301,9 @@ describe("AnalyzeScreen", () => {
       let comp!: renderer.ReactTestRenderer;
       act(() => {
         comp = renderer.create(<AnalyzeScreen />);
+      });
+      act(() => {
+        queryId(comp, "relationship-partners")!.props.onPress();
       });
       await act(async () => {
         queryId(comp, "pick-recording-button")!.props.onPress();
@@ -266,6 +322,41 @@ describe("AnalyzeScreen", () => {
         "rec.m4a",
         "audio/m4a",
         `${PARTNERS_CONTEXT} We were arguing about chores.`,
+        { consent: false, store: true },
+      );
+      act(() => comp.unmount());
+    });
+
+    it("sends just the free text when no relationship is selected", async () => {
+      mockPick.mockResolvedValueOnce({
+        canceled: false,
+        assets: [
+          { uri: "file:///rec.m4a", name: "rec.m4a", size: 2048, mimeType: "audio/m4a" },
+        ],
+      });
+      mockUpload.mockResolvedValueOnce(uploadFixture);
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<AnalyzeScreen />);
+      });
+      await act(async () => {
+        queryId(comp, "pick-recording-button")!.props.onPress();
+      });
+      act(() => {
+        queryId(comp, "recording-context-input")!.props.onChangeText(
+          "We were arguing about chores.",
+        );
+      });
+      await act(async () => {
+        queryId(comp, "upload-analyze-button")!.props.onPress();
+      });
+
+      expect(mockUpload).toHaveBeenCalledWith(
+        "file:///rec.m4a",
+        "rec.m4a",
+        "audio/m4a",
+        "We were arguing about chores.",
         { consent: false, store: true },
       );
       act(() => comp.unmount());
@@ -334,15 +425,15 @@ describe("AnalyzeScreen", () => {
         queryId(comp, "upload-analyze-button")!.props.onPress();
       });
 
-      // Native file arg is the URI; the context is the tapped relationship
-      // (default Partners). Consent/store default to false/true when the
+      // Native file arg is the URI; no context (relationship unselected +
+      // blank free text). Consent/store default to false/true when the
       // checkbox was never touched.
       expect(mockUpload).toHaveBeenCalledTimes(1);
       expect(mockUpload).toHaveBeenCalledWith(
         "file:///rec.m4a",
         "rec.m4a",
         "audio/m4a",
-        PARTNERS_CONTEXT,
+        undefined,
         { consent: false, store: true },
       );
       // The server transcript (with timing) landed in the store.
@@ -400,7 +491,7 @@ describe("AnalyzeScreen", () => {
         "file:///rec.m4a",
         "rec.m4a",
         "audio/m4a",
-        PARTNERS_CONTEXT,
+        undefined,
         { consent: true, store: true },
       );
       // Stored: the confirmation line shows, recording id threaded through.
@@ -517,7 +608,7 @@ describe("AnalyzeScreen", () => {
       });
 
       // The JOB path (not the synchronous chunked path) was called with the
-      // size + consent/store opts (and the relationship context).
+      // size + consent/store opts (no context — relationship unselected).
       expect(mockUpload).not.toHaveBeenCalled();
       expect(mockChunked).not.toHaveBeenCalled();
       expect(mockChunkedJob).toHaveBeenCalledTimes(1);
@@ -528,7 +619,7 @@ describe("AnalyzeScreen", () => {
         expect.objectContaining({
           consent: false,
           store: true,
-          context: PARTNERS_CONTEXT,
+          context: undefined,
         }),
       );
       // Polled the returned job and handed the ready-made analysis to Dynamics.
@@ -635,7 +726,7 @@ describe("AnalyzeScreen", () => {
         "file:///recorded.mp4",
         "mindshift-123.mp4",
         "video/mp4",
-        PARTNERS_CONTEXT,
+        undefined,
         { consent: false, store: true },
       );
       // ...and the handoff marks it recorder-origin (third arg true) so Dynamics
@@ -708,12 +799,12 @@ describe("AnalyzeScreen", () => {
         queryId(comp, "analyze-link-button")!.props.onPress();
       });
 
-      // The JOB endpoint (not the synchronous link) was used, then polled. The
-      // relationship context rides along.
+      // The JOB endpoint (not the synchronous link) was used, then polled.
+      // No context — the relationship picker was left unselected.
       expect(mockLink).not.toHaveBeenCalled();
       expect(mockLinkJob).toHaveBeenCalledWith(
         "https://drive.google.com/file/d/abc",
-        { consent: true, store: true, context: PARTNERS_CONTEXT },
+        { consent: true, store: true, context: undefined },
       );
       expect(mockGetJob).toHaveBeenCalledWith("job_link");
       // Same handoff as upload: transcript in the store, navigation with the id.

@@ -70,7 +70,7 @@ beforeEach(() => {
   });
   act(() => {
     useSessionStore.setState({ turns: [], suggestions: [], loading: false });
-    useAnalyzeStore.setState({ relationship: "partners" });
+    useAnalyzeStore.setState({ relationship: null });
   });
 });
 
