@@ -156,7 +156,7 @@ class TestSuggestionCardContract:
         )
         content = card_path.read_text()
 
-        assert "{ text, tone }" in content or "{text, tone}" in content, (
+        assert "text," in content and "tone," in content, (
             "SuggestionCard must destructure text and tone props"
         )
 

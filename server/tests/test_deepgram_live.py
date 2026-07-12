@@ -428,13 +428,17 @@ class TestPipelineSegmentConsumption:
         try:
             with open_ws(TestClient(app), "/ws/session/b3583132-3ac3-5f01-ad83-bb1590e1b5d4") as ws:
                 ws.send_bytes(b"\x00" * 50)
+                # Since the instant-transcript change, every finalized segment
+                # emits a transcript event immediately — and those carry the
+                # diarized speaker labels this test is about. (Suggestions for
+                # a same-batch backlog are latest-wins and may be superseded.)
                 events = [json.loads(ws.receive_text()) for _ in range(3)]
         finally:
             _clear_overrides()
 
-        assert [e["type"] for e in events] == ["suggestion"] * 3
+        assert [e["type"] for e in events] == ["transcript"] * 3
         assert [e["speaker"] for e in events] == ["Speaker B", "Speaker B", "Speaker A"]
-        assert [e["utterance_text"] for e in events] == [
+        assert [e["text"] for e in events] == [
             "First utterance.", "Second utterance.", "Third utterance.",
         ]
 
@@ -691,6 +695,10 @@ class TestPipelineReconnectLive:
                 for _ in range(10):
                     ws.send_bytes(frame)
                     time.sleep(0.02)
+                # Instant transcript arrives first, then the suggestion.
+                transcript = json.loads(ws.receive_text())
+                assert transcript["type"] == "transcript"
+                assert transcript["text"] == "Back from the dead."
                 suggestion = json.loads(ws.receive_text())
                 assert suggestion["type"] == "suggestion"
                 assert suggestion["utterance_text"] == "Back from the dead."
@@ -707,8 +715,11 @@ class TestPipelineReconnectLive:
 
 @pytest.mark.anyio
 @pytest.mark.skipif(
-    not os.getenv("DEEPGRAM_API_KEY"),
-    reason="DEEPGRAM_API_KEY not set — live Deepgram smoke test skipped",
+    not os.getenv("RUN_LIVE_DEEPGRAM"),
+    # Gate on explicit opt-in, not key presence: main.py's load_dotenv means a
+    # repo-root .env silently populates DEEPGRAM_API_KEY for the whole suite,
+    # and a present-but-stale key made this test 401 instead of skip.
+    reason="live Deepgram smoke test — set RUN_LIVE_DEEPGRAM=1 to opt in",
 )
 async def test_live_deepgram_smoke():
     """Stream one second of silence to the real Deepgram API — asserts the

@@ -85,6 +85,10 @@ export default function RecordScreen({ onBack, onComplete }: RecordScreenProps) 
   const cameraRef = useRef<CameraView>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
+  // Synchronous re-entry latch: `recording` state lags a render, so a
+  // same-frame double tap could start two recordAsync loops and leak the
+  // first timer interval (review MINOR-2).
+  const recordLatchRef = useRef(false);
 
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -139,13 +143,18 @@ export default function RecordScreen({ onBack, onComplete }: RecordScreenProps) 
         if (mountedRef.current) setSaveFailedUri(uri);
         return;
       }
-      onComplete(buildFile(uri));
+      // If the user backed out mid-recording and recordAsync resolved later,
+      // the clip is safely in the camera roll but the handoff must NOT fire —
+      // an unconsumed preselect would ambush the next Session visit with a
+      // stale file (review MINOR-1).
+      if (mountedRef.current) onComplete(buildFile(uri));
     },
     [onComplete],
   );
 
   const handleRecord = useCallback(async () => {
-    if (recording) return;
+    if (recording || recordLatchRef.current) return;
+    recordLatchRef.current = true;
     setError(null);
     setCappedNote(false);
     setRecording(true);
@@ -179,6 +188,7 @@ export default function RecordScreen({ onBack, onComplete }: RecordScreenProps) 
         setError("Recording failed. Please try again.");
       }
     } finally {
+      recordLatchRef.current = false;
       if (mountedRef.current) setRecording(false);
       stopTimer();
     }
