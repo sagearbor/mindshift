@@ -1,6 +1,10 @@
 import React from "react";
 import renderer, { act, ReactTestInstance } from "react-test-renderer";
 import * as Camera from "expo-camera";
+// Force the expo-media-library mock factory to run: the component now
+// lazy-requires the native module (web-bundle fix), so nothing else imports
+// it before the top-level mock-global grab below.
+import "expo-media-library";
 import RecordScreen, {
   remainingSeconds,
   isAtCap,
