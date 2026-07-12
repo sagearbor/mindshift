@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import { useSessionStore } from "../store/sessionStore";
+import { useRecorderStore } from "../store/recorderStore";
 import {
   postAnalyzeUpload,
   postAnalyzeUploadChunked,
@@ -37,10 +38,17 @@ interface SessionScreenProps {
    *  when the upload flow's consent+store both landed as true); null/omitted
    *  otherwise. Threaded through so DynamicsScreen can offer its Replay
    *  affordance for the recording. */
-  onAnalyzeDynamics?: (initialData?: AnalyzeResult, recordingId?: string | null) => void;
+  onAnalyzeDynamics?: (
+    initialData?: AnalyzeResult,
+    recordingId?: string | null,
+    cameFromRecorder?: boolean,
+  ) => void;
   /** Open the stored-recordings list (media replay). Optional for the same
    *  standalone-render reason. */
   onOpenRecordings?: () => void;
+  /** Open the in-app video recorder. Optional for the same standalone-render
+   *  reason. */
+  onRecordVideo?: () => void;
 }
 
 /** A file the user picked but hasn't uploaded yet. `file` (web File) is set only
@@ -128,6 +136,7 @@ function formatSize(bytes?: number): string | null {
 export default function SessionScreen({
   onAnalyzeDynamics,
   onOpenRecordings,
+  onRecordVideo,
 }: SessionScreenProps = {}) {
   const {
     role,
@@ -154,6 +163,11 @@ export default function SessionScreen({
   const [mode, setMode] = useState<"file" | "link">("file");
   const [linkUrl, setLinkUrl] = useState("");
   const [picked, setPicked] = useState<PickedRecording | null>(null);
+  // True when `picked` is a clip just recorded in-app (handed over via the
+  // recorder store). Threaded to onAnalyzeDynamics so the post-analysis
+  // "attach HD later" popup only appears for recorder-origin analyses. Reset the
+  // moment the user picks a different file or switches to link mode.
+  const [cameFromRecorder, setCameFromRecorder] = useState(false);
   const [uploadContext, setUploadContext] = useState("");
   const [uploading, setUploading] = useState(false);
   // Chunked-upload progress as a 0→1 fraction; null on the direct path (which
@@ -172,6 +186,24 @@ export default function SessionScreen({
   const [uploadStored, setUploadStored] = useState<boolean | null>(null);
   const [uploadStorageNote, setUploadStorageNote] = useState<string | null>(null);
 
+  // Consume a freshly-recorded clip handed over from RecordScreen (one-shot):
+  // preselect it into the normal upload flow, flag it as recorder-origin, and
+  // clear the store so a later remount doesn't re-pick a stale file.
+  useEffect(() => {
+    const pending = useRecorderStore.getState().pendingFile;
+    if (pending) {
+      setPicked({
+        uri: pending.uri,
+        name: pending.name,
+        mimeType: pending.mimeType,
+        size: pending.size,
+      });
+      setCameFromRecorder(true);
+      setMode("file");
+      useRecorderStore.getState().setPendingFile(null);
+    }
+  }, []);
+
   const handlePickRecording = async () => {
     setUploadError(null);
     setUploadStored(null);
@@ -184,6 +216,9 @@ export default function SessionScreen({
     if (result.canceled) return;
     const asset = result.assets[0];
     if (!asset) return;
+    // A manually-picked file is not the in-app recording — drop the flag so the
+    // HD-later popup doesn't misfire for it.
+    setCameFromRecorder(false);
     setPicked({
       uri: asset.uri,
       name: asset.name,
@@ -240,7 +275,7 @@ export default function SessionScreen({
       loadTurns(result.turns);
       setUploadStored(result.stored);
       setUploadStorageNote(result.stored ? null : result.storage_note);
-      onAnalyzeDynamics?.(result, result.recording_id ?? null);
+      onAnalyzeDynamics?.(result, result.recording_id ?? null, cameFromRecorder);
     } catch (e) {
       setUploadError(uploadErrorMessage(e, { chunked: useChunked, sizeBytes: size }));
     } finally {
@@ -327,6 +362,19 @@ export default function SessionScreen({
             <Text style={styles.recordingNote}>
               Without consent to store, we analyze the sound and discard the file.
             </Text>
+
+            {/* Record a fresh video in-app (480p, 10-min cap). Saves to the
+                camera roll, then drops straight into this upload flow. */}
+            {onRecordVideo && (
+              <TouchableOpacity
+                testID="record-video-button"
+                style={styles.recordVideoButton}
+                onPress={onRecordVideo}
+                disabled={uploading}
+              >
+                <Text style={styles.recordVideoButtonText}>⏺ Record video</Text>
+              </TouchableOpacity>
+            )}
 
             <Pressable
               testID="consent-checkbox"
@@ -471,8 +519,8 @@ export default function SessionScreen({
                   editable={!uploading}
                 />
                 <Text style={styles.linkHelp}>
-                  Direct file links and Google Drive share links work. Google
-                  Photos isn’t supported yet — share to Drive instead.
+                  Direct file links, Google Drive share links, and Google Photos
+                  share links (single video) all work.
                 </Text>
                 <TextInput
                   testID="link-context-input"
@@ -726,6 +774,18 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: "#6B7280",
     marginBottom: 12,
+  },
+  recordVideoButton: {
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    backgroundColor: "#111827",
+    marginBottom: 12,
+  },
+  recordVideoButtonText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "600",
   },
   consentRow: {
     flexDirection: "row",

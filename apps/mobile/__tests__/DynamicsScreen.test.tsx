@@ -505,3 +505,98 @@ describe("DynamicsScreen", () => {
     act(() => comp.unmount());
   });
 });
+
+describe("DynamicsScreen HD-later popup", () => {
+  // initialData short-circuits the on-mount fetch, so these render content
+  // directly. The popup only makes sense for a stored, recorder-origin analysis.
+  it("shows the popup only for a recorder-origin analysis that was stored", () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(
+        <DynamicsScreen
+          onBack={() => {}}
+          initialData={fixture}
+          recordingId="rec_1"
+          cameFromRecorder
+          onAttachSource={() => {}}
+        />,
+      );
+    });
+    expect(queryId(comp, "hd-suggest-popup")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("hides the popup when the analysis did not come from the recorder", () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(
+        <DynamicsScreen
+          onBack={() => {}}
+          initialData={fixture}
+          recordingId="rec_1"
+          cameFromRecorder={false}
+          onAttachSource={() => {}}
+        />,
+      );
+    });
+    expect(queryId(comp, "hd-suggest-popup")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("hides the popup when nothing was stored (no recording id)", () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(
+        <DynamicsScreen
+          onBack={() => {}}
+          initialData={fixture}
+          recordingId={null}
+          cameFromRecorder
+          onAttachSource={() => {}}
+        />,
+      );
+    });
+    expect(queryId(comp, "hd-suggest-popup")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("Later dismisses the popup", () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(
+        <DynamicsScreen
+          onBack={() => {}}
+          initialData={fixture}
+          recordingId="rec_1"
+          cameFromRecorder
+          onAttachSource={() => {}}
+        />,
+      );
+    });
+    expect(queryId(comp, "hd-suggest-popup")).toBeTruthy();
+    act(() => queryId(comp, "hd-suggest-later")!.props.onPress());
+    expect(queryId(comp, "hd-suggest-popup")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("Attach link now jumps to the attach flow for this recording id", () => {
+    const onAttachSource = jest.fn();
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(
+        <DynamicsScreen
+          onBack={() => {}}
+          initialData={fixture}
+          recordingId="rec_1"
+          cameFromRecorder
+          onAttachSource={onAttachSource}
+        />,
+      );
+    });
+    act(() => queryId(comp, "hd-suggest-attach")!.props.onPress());
+    expect(onAttachSource).toHaveBeenCalledWith("rec_1");
+    // And it dismisses on the way out.
+    expect(queryId(comp, "hd-suggest-popup")).toBeNull();
+    act(() => comp.unmount());
+  });
+});

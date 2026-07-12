@@ -106,6 +106,13 @@ class FakeRecordingsStore:
     async def recording_exists(self, uid, recording_id):
         return recording_id in self._by_uid.get(uid, {})
 
+    async def update_source(self, uid, recording_id, source):
+        r = self._by_uid.get(uid, {}).get(recording_id)
+        if r is None:
+            return None
+        r["meta"]["source"] = source
+        return source
+
     async def delete_recording(self, uid, recording_id):
         return self._by_uid.get(uid, {}).pop(recording_id, None) is not None
 
@@ -600,3 +607,259 @@ def _now() -> float:
 
 def _future() -> int:
     return int(_now()) + 900
+
+
+# ---------------------------------------------------------------------------
+# source_url — HD replay from a link-sourced recording's original source
+# ---------------------------------------------------------------------------
+
+def _seed_link_recording(store, uid="test-user", url="https://photos.app.goo.gl/abc"):
+    """Inject a link-sourced recording straight into the fake store (bypassing the
+    upload path) so the source_url endpoint has a `source.type == "link"` row with
+    a durable url to re-resolve."""
+    rid = str(uuid.uuid4())
+    meta = {
+        "id": rid,
+        "created_at": "2026-07-01T10:00:00Z",
+        "filename": "linked.mp4",
+        "media_type": "video",
+        "duration_seconds": 12,
+        "size_bytes": len(FAKE_AUDIO_M4A),
+        "stored_variants": ["audio.m4a", "video_360p.mp4"],
+        "original_bytes": 999,
+        "original_filename": "linked.mp4",
+        "original_content_type": "video/mp4",
+        "source": {"type": "link", "url": url, "original_filename": "linked.mp4"},
+    }
+    store._by_uid.setdefault(uid, {})[rid] = {
+        "meta": meta, "turns": [], "analysis": None,
+        "data": FAKE_AUDIO_M4A, "content_type": "video/mp4",
+    }
+    return rid
+
+
+@pytest.mark.anyio
+async def test_source_url_resolves_link_source(client, store, monkeypatch):
+    url = "https://photos.app.goo.gl/abc"
+    rid = _seed_link_recording(store, url=url)
+    seen = {}
+
+    def _fake_resolve(u):
+        seen["url"] = u
+        return "https://lh3.googleusercontent.com/pw/XYZ=dv", "video/mp4"
+
+    monkeypatch.setattr(main.link_fetch, "resolve_media_url", _fake_resolve)
+    resp = await client.get(
+        f"/recordings/{rid}/source_url", headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    # The DURABLE stored url was handed to the resolver (not a derivative).
+    assert seen["url"] == url
+    assert body["url"] == "https://lh3.googleusercontent.com/pw/XYZ=dv"
+    assert body["content_type"] == "video/mp4"
+    assert "expire" in body["expires_hint"].lower()
+
+
+@pytest.mark.anyio
+async def test_source_url_404_for_upload_source(client, store):
+    # A normal upload has source.type "upload" — no remote source to stream.
+    rid = await _store_one(client)
+    resp = await client.get(
+        f"/recordings/{rid}/source_url", headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "no remote source for this recording"
+
+
+@pytest.mark.anyio
+async def test_source_url_resolution_failure_is_honest(client, store, monkeypatch):
+    rid = _seed_link_recording(store)
+
+    # A revoked/unparseable link → the resolver's LinkError status passes through.
+    def _raise_link_error(u):
+        raise main.link_fetch.LinkError(422, "link revoked")
+
+    monkeypatch.setattr(main.link_fetch, "resolve_media_url", _raise_link_error)
+    resp = await client.get(
+        f"/recordings/{rid}/source_url", headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "link revoked"
+
+    # An UNEXPECTED upstream failure → an honest 502 (client falls back).
+    def _boom(u):
+        raise RuntimeError("connection reset")
+
+    monkeypatch.setattr(main.link_fetch, "resolve_media_url", _boom)
+    resp = await client.get(
+        f"/recordings/{rid}/source_url", headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 502
+
+
+@pytest.mark.anyio
+async def test_source_url_404_for_unknown_recording(client, store):
+    rid = str(uuid.uuid4())
+    resp = await client.get(
+        f"/recordings/{rid}/source_url", headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_source_url_cross_uid_isolation(client, store, monkeypatch):
+    rid = _seed_link_recording(store, uid="user-a")
+    monkeypatch.setattr(
+        main.link_fetch, "resolve_media_url",
+        lambda u: ("https://cdn/x=dv", "video/mp4"),
+    )
+    # user-b cannot resolve user-a's link source — reads as a plain 404.
+    resp = await client.get(
+        f"/recordings/{rid}/source_url", headers={"X-Test-Uid": "user-b"},
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_source_url_503_when_storage_disabled(client):
+    rid = str(uuid.uuid4())
+    resp = await client.get(
+        f"/recordings/{rid}/source_url", headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# PATCH source — attach an HD source link to an existing recording after the fact
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_patch_source_attaches_link(client, store, monkeypatch):
+    """Happy path: an upload recording gets a durable share link attached; the
+    link is validated by RESOLVING (not downloading), the returned source is the
+    link shape, and the fake store persists it verbatim."""
+    rid = await _store_one(client)
+    url = "https://photos.app.goo.gl/newHD"
+    seen = {}
+
+    def _fake_resolve(u):
+        seen["url"] = u
+        return "https://lh3.googleusercontent.com/pw/XYZ=dv", "video/mp4"
+
+    monkeypatch.setattr(main.link_fetch, "resolve_media_url", _fake_resolve)
+    resp = await client.patch(
+        f"/recordings/{rid}/source",
+        json={"url": url},
+        headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 200, resp.text
+    # The ORIGINAL pasted url was handed to the resolver for validation.
+    assert seen["url"] == url
+    # Response is the link-shaped source; original_filename preserved (clip.wav).
+    assert resp.json() == {
+        "type": "link", "url": url, "original_filename": "clip.wav",
+    }
+    # The fake store actually persisted the new source onto meta.
+    persisted = (await store.get_recording("test-user", rid))["source"]
+    assert persisted == {
+        "type": "link", "url": url, "original_filename": "clip.wav",
+    }
+    # And the detail read now reflects the link provenance.
+    detail = await client.get(
+        f"/recordings/{rid}", headers={"X-Test-Uid": "test-user"},
+    )
+    assert detail.json()["source"]["type"] == "link"
+    assert detail.json()["source"]["url"] == url
+
+
+@pytest.mark.anyio
+async def test_patch_source_unresolvable_link_422_leaves_meta_unchanged(
+    client, store, monkeypatch,
+):
+    """An unusable link surfaces the resolver's LinkError as 422 with its detail
+    passed through, and meta.json's source is UNCHANGED (still the upload)."""
+    rid = await _store_one(client)
+    before = (await store.get_recording("test-user", rid))["source"]
+
+    def _raise(u):
+        raise main.link_fetch.LinkError(
+            422, "that Google Photos link contains multiple items — share a "
+            "single video instead",
+        )
+
+    monkeypatch.setattr(main.link_fetch, "resolve_media_url", _raise)
+    resp = await client.patch(
+        f"/recordings/{rid}/source",
+        json={"url": "https://photos.app.goo.gl/album"},
+        headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 422
+    assert "multiple items" in resp.json()["detail"]
+    # Meta was never touched — still the original upload source.
+    after = (await store.get_recording("test-user", rid))["source"]
+    assert after == before
+    assert after["type"] == "upload"
+
+
+@pytest.mark.anyio
+async def test_patch_source_404_for_unknown_recording(client, store, monkeypatch):
+    # Resolver must never be called for a recording that doesn't exist.
+    called = {"n": 0}
+
+    def _resolve(u):
+        called["n"] += 1
+        return "https://cdn/x=dv", "video/mp4"
+
+    monkeypatch.setattr(main.link_fetch, "resolve_media_url", _resolve)
+    rid = str(uuid.uuid4())
+    resp = await client.patch(
+        f"/recordings/{rid}/source",
+        json={"url": "https://photos.app.goo.gl/x"},
+        headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 404
+    assert called["n"] == 0
+
+
+@pytest.mark.anyio
+async def test_patch_source_cross_uid_404(client, store, monkeypatch):
+    """user-b cannot attach a link to user-a's recording — reads as a plain 404
+    and user-a's source is untouched."""
+    rid = _seed_link_recording(store, uid="user-a", url="https://old/x")
+    monkeypatch.setattr(
+        main.link_fetch, "resolve_media_url",
+        lambda u: ("https://cdn/x=dv", "video/mp4"),
+    )
+    resp = await client.patch(
+        f"/recordings/{rid}/source",
+        json={"url": "https://photos.app.goo.gl/hijack"},
+        headers={"X-Test-Uid": "user-b"},
+    )
+    assert resp.status_code == 404
+    # user-a's original source is unchanged.
+    src = (await store.get_recording("user-a", rid))["source"]
+    assert src["url"] == "https://old/x"
+
+
+@pytest.mark.anyio
+async def test_patch_source_503_when_storage_disabled(client):
+    rid = str(uuid.uuid4())
+    resp = await client.patch(
+        f"/recordings/{rid}/source",
+        json={"url": "https://photos.app.goo.gl/x"},
+        headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 503
+
+
+@pytest.mark.anyio
+async def test_patch_source_requires_auth_401(client, store, monkeypatch):
+    from auth import get_current_uid
+    monkeypatch.delitem(app.dependency_overrides, get_current_uid)
+    rid = str(uuid.uuid4())
+    resp = await client.patch(
+        f"/recordings/{rid}/source",
+        json={"url": "https://photos.app.goo.gl/x"},
+    )
+    assert resp.status_code == 401

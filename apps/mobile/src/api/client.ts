@@ -452,12 +452,12 @@ export interface AnalyzeLinkOptions {
 
 /**
  * POST /analyze/link — analyze a recording the server fetches from a URL (a
- * direct file link or a Google Drive share link; the server downloads, extracts
- * audio, transcribes, and analyzes). Returns the same `UploadAnalyzeResult` as
- * the upload paths.
+ * direct file link, a Google Drive share link, or a Google Photos share link of
+ * a single video; the server downloads, extracts audio, transcribes, and
+ * analyzes). Returns the same `UploadAnalyzeResult` as the upload paths.
  *
  * Unlike the other calls, a non-OK response's *body message* is user-facing: the
- * server writes 422 (not a direct link / blocked URL / Google Photos unsupported)
+ * server writes 422 (not a direct link / blocked URL / unrecognised share page)
  * and 413 (over the size cap) messages for humans, so we surface the server's
  * `detail` verbatim on the thrown error (as `.detail`) while still carrying the
  * numeric `.status` for the generic branches (401/429/502/503). Callers render
@@ -629,6 +629,17 @@ export interface RecordingTurn {
   end_time: number;
 }
 
+/** Provenance of a stored recording. `upload` = we hold the only copy;
+ *  `link` = the user linked their own hosted media (a durable share/direct URL
+ *  we can re-resolve for HD replay from the original source). */
+export interface RecordingSource {
+  type: "upload" | "link";
+  // The durable user-provided URL for a link source; null for an upload (or a
+  // link recording stored before the url was kept).
+  url: string | null;
+  original_filename?: string | null;
+}
+
 /** GET /recordings/{id} — the summary fields plus the analyzed transcript and
  *  full dynamics analysis. `analysis.per_turn` is index-aligned with `turns`. */
 export interface RecordingDetail extends RecordingSummary {
@@ -636,12 +647,26 @@ export interface RecordingDetail extends RecordingSummary {
   // Null on the wire when a recording was stored without a completed analysis
   // (rare); the UI must treat it as absent rather than assume it.
   analysis: AnalyzeResult | null;
+  // Provenance (type/url). Optional: older servers omit it entirely, in which
+  // case replay uses the stored-derivative path (as for an upload).
+  source?: RecordingSource;
 }
 
 /** GET /recordings/{id}/media_url — a short-lived signed URL for playback. */
 export interface RecordingMediaUrl {
   url: string;
   expires_in: number; // seconds until the signed URL expires
+}
+
+/** GET /recordings/{id}/source_url — the CURRENT direct media URL for a
+ *  link-sourced recording, re-resolved server-side from the durable share link
+ *  so the client can stream the user's own HD original straight from its CDN.
+ *  The URL `may expire`; the caller refetches (or falls back to the derivative)
+ *  on failure. */
+export interface RecordingSourceUrl {
+  url: string;
+  content_type: string | null; // best-effort hint; null when unknown
+  expires_hint: string;
 }
 
 /**
@@ -713,6 +738,82 @@ export async function getRecordingMediaUrl(
     throw new Error(`API error: ${res.status}`);
   }
   return (await res.json()) as RecordingMediaUrl;
+}
+
+/**
+ * GET /recordings/{id}/source_url — resolve the CURRENT direct media URL for a
+ * LINK-sourced recording so the player can stream the user's own HD original
+ * straight from its CDN (we never proxy the bytes). Only meaningful when the
+ * detail's `source.type === "link"`; the server answers 404 for an upload or a
+ * link recording whose url wasn't kept. Throws `API error: <status>` on any
+ * non-OK (401/404/422/502/503) so the caller can fall back to the stored
+ * derivative (`getRecordingMediaUrl`) rather than showing a broken player.
+ */
+export async function getRecordingSourceUrl(
+  id: string,
+): Promise<RecordingSourceUrl> {
+  const res = await fetch(
+    `${API_URL}/recordings/${encodeURIComponent(id)}/source_url`,
+    {
+      method: "GET",
+      headers: await authHeaders(),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+  return (await res.json()) as RecordingSourceUrl;
+}
+
+/** Result of PATCH /recordings/{id}/source — the recording is now link-sourced,
+ *  so subsequent replay resolves the user's own hosted original (HD-first). */
+export interface PatchSourceResult {
+  type: "link";
+  url: string;
+  original_filename: string | null;
+}
+
+/**
+ * PATCH /recordings/{id}/source — attach (or replace) the durable share/direct
+ * link to the user's OWN hosted original for a stored recording, so replay can
+ * stream it in HD instead of our stored derivative. Body is `{ url }`.
+ *
+ * Like postAnalyzeLink, a 422 means the link is unusable and its `detail` is
+ * written for the user — surfaced verbatim on the thrown error (`.detail`) while
+ * `.status` carries the code for the generic 404/503 branches. On 200 the server
+ * echoes the new link source; the caller refetches the recording so HD-first
+ * playback kicks in immediately.
+ */
+export async function patchRecordingSource(
+  id: string,
+  url: string,
+): Promise<PatchSourceResult> {
+  const res = await fetch(
+    `${API_URL}/recordings/${encodeURIComponent(id)}/source`,
+    {
+      method: "PATCH",
+      headers: await authHeaders(),
+      body: JSON.stringify({ url }),
+    },
+  );
+  if (!res.ok) {
+    // A 422 carries a user-facing explanation (unusable link) — keep it verbatim.
+    let detail: string | undefined;
+    try {
+      const j = (await res.json()) as { detail?: unknown };
+      if (typeof j?.detail === "string") detail = j.detail;
+    } catch {
+      // Non-JSON body — fall back to the status-only message.
+    }
+    const err = new Error(detail ?? `API error: ${res.status}`) as Error & {
+      status?: number;
+      detail?: string;
+    };
+    err.status = res.status;
+    err.detail = detail;
+    throw err;
+  }
+  return (await res.json()) as PatchSourceResult;
 }
 
 /**

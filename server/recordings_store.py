@@ -296,6 +296,35 @@ class RecordingsStore:
             self._prefix(uid, recording_id) + "meta.json"
         ).exists()
 
+    # -- update source -----------------------------------------------------
+    async def update_source(
+        self, uid: str, recording_id: str, source: dict,
+    ) -> dict | None:
+        """Replace an existing recording's ``source`` provenance, returning the
+        stored source dict, or ``None`` when the recording does not exist for
+        this uid (→ 404).
+
+        Read-modify-write of meta.json only — the derivatives, turns, and
+        analysis are untouched. Used to attach an HD source link to a recording
+        after the fact (the user records in-app, then pastes the durable share
+        link once the original has backed up to their cloud)."""
+        return await asyncio.to_thread(
+            self._update_source_sync, uid, recording_id, source,
+        )
+
+    def _update_source_sync(self, uid, recording_id, source) -> dict | None:
+        blob = self._bucket.blob(
+            self._prefix(uid, recording_id) + "meta.json"
+        )
+        if not blob.exists():
+            return None
+        meta = json.loads(blob.download_as_bytes())
+        meta["source"] = source
+        blob.upload_from_string(
+            json.dumps(meta), content_type="application/json",
+        )
+        return source
+
     # -- delete ------------------------------------------------------------
     async def delete_recording(self, uid: str, recording_id: str) -> bool:
         """Delete every object for a recording. ``False`` when none existed

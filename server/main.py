@@ -492,6 +492,12 @@ class AnalyzeLinkRequest(BaseModel):
     store: bool = True
 
 
+class RecordingSourceRequest(BaseModel):
+    # A user-pasted share URL to attach as an existing recording's HD source for
+    # replay. Only RESOLVED (not downloaded) — see PATCH /recordings/{id}/source.
+    url: str = Field(min_length=1, max_length=2000)
+
+
 # --- POST /analyze/counterfactual — the "what if they'd said it differently"
 # simulation. One LLM call rewrites ONE pivot turn constructively, then
 # estimates how the REST of the conversation would likely have unfolded on the
@@ -2226,6 +2232,125 @@ async def get_recording_media_url(
         "url": f"{base}/recordings/{recording_id}/media?tk={token}",
         "expires_in": MEDIA_TOKEN_TTL_SECONDS,
     }
+
+
+@app.get("/recordings/{recording_id}/source_url")
+async def get_recording_source_url(
+    recording_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    """Resolve the CURRENT direct media URL for a LINK-sourced recording so the
+    client can stream the user's own HD original straight from its CDN, falling
+    back to our stored derivative on any failure.
+
+    404 (``no remote source for this recording``) when the recording is an upload
+    or a link recording whose durable url was not kept — the client then uses the
+    derivative path unchanged. Otherwise the stored share URL is re-resolved
+    server-side under the FULL SSRF guard: a Google Photos share page is
+    re-parsed to its current media URL, a Drive share link is rewritten, a direct
+    URL passes through. We do NOT proxy the bytes — only hand back the URL, which
+    ``may expire`` (the client refetches, or falls back, on failure).
+
+    A resolution failure — revoked link, changed Photos page format, dead host —
+    is surfaced honestly (the resolver's 422/413, or a 502 for an unexpected
+    upstream error) so the client falls back to the stored derivative rather than
+    seeing a broken player."""
+    store_backend = _require_store()
+    rec = await store_backend.get_recording(uid, recording_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="Recording not found")
+    source = rec.get("source") or {}
+    url = source.get("url")
+    if source.get("type") != "link" or not url:
+        raise HTTPException(
+            status_code=404, detail="no remote source for this recording",
+        )
+    try:
+        # resolve_media_url is blocking (httpx.Client for the Photos re-parse) —
+        # keep it off the event loop, matching fetch_link on /analyze/link.
+        direct_url, content_type = await asyncio.to_thread(
+            link_fetch.resolve_media_url, url,
+        )
+    except link_fetch.LinkError as exc:
+        # Honest, expected resolution failure (blocked host, revoked/unparseable
+        # link) — surface the resolver's status so the client falls back.
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+    except Exception as exc:  # noqa: BLE001 — resolver hit an unexpected upstream
+        logger.warning(
+            "source_url resolution failed for %s: %s", recording_id, exc,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="couldn't reach the linked source — falling back to the "
+            "stored copy",
+        )
+    return {
+        "url": direct_url,
+        "content_type": content_type,
+        "expires_hint": "may expire; refetch on failure",
+    }
+
+
+@app.patch("/recordings/{recording_id}/source")
+async def update_recording_source(
+    recording_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    req: RecordingSourceRequest,
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    """Attach (or replace) a recording's HD source link after the fact.
+
+    The flow: the user records in-app (we store a compressed derivative), the
+    original later backs up to their own cloud (Google Photos/Drive), then they
+    paste that durable share link onto the existing recording so replay can
+    stream their HD original instead of our derivative.
+
+    We validate the link by RESOLVING it (``link_fetch.resolve_media_url`` in a
+    worker thread) — an unusable link (not media / a multi-item Photos album /
+    an SSRF-blocked or dead host) surfaces its honest LinkError as the resolver's
+    status (422/413) with the existing user-facing detail. We deliberately do
+    NOT download or re-analyze: the analysis came from the uploaded copy, and
+    the link is playback-only provenance. NOTE: we cannot cheaply verify the
+    link points at the SAME video (no content check without downloading), so we
+    trust the owner here — an acceptable trade for a user attaching their own
+    backup, but stated plainly rather than pretended away.
+
+    404 when the recording does not exist for this user (a foreign recording
+    reads as 404, never confirming it). On success meta.json's source becomes
+    ``{"type": "link", "url": <original pasted url>, "original_filename":
+    <unchanged>}`` and the updated source object is returned (200). Replacing is
+    just another PATCH — the new source overwrites the old."""
+    store_backend = _require_store()
+    rec = await store_backend.get_recording(uid, recording_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="Recording not found")
+    try:
+        # resolve_media_url is blocking (httpx.Client for the Photos re-parse) —
+        # keep it off the event loop, matching /analyze/link and source_url. We
+        # discard the resolved URL: this call is validation only (the client
+        # re-resolves the durable link at replay time via GET .../source_url).
+        await asyncio.to_thread(link_fetch.resolve_media_url, req.url)
+    except link_fetch.LinkError as exc:
+        # Honest, expected failure (not media / blocked / dead) — surface the
+        # resolver's status + user-facing detail; meta.json is left UNCHANGED.
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+
+    # Preserve the recording's existing original_filename; only the type+url
+    # change. The stored url is the ORIGINAL pasted share link (durable), which
+    # source_url re-resolves to a current direct media URL at replay time.
+    existing_source = rec.get("source") or {}
+    new_source = {
+        "type": "link",
+        "url": req.url,
+        "original_filename": existing_source.get("original_filename")
+        or rec.get("original_filename"),
+    }
+    updated = await store_backend.update_source(uid, recording_id, new_source)
+    if updated is None:
+        # Raced with a delete between the read above and the write — honest 404.
+        raise HTTPException(status_code=404, detail="Recording not found")
+    return updated
 
 
 # NOTE: deliberately NOT rate-limited (no _rate_limit dependency). A media
