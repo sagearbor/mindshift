@@ -232,18 +232,34 @@ async def test_upload_no_speech_is_422(client):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.anyio
-async def test_upload_single_speaker_transcript_is_422(client):
+async def test_upload_single_speaker_transcript_succeeds(client):
     solo = [
         {"speaker": "Speaker A", "text": "just me talking",
          "start_time": float(i), "end_time": float(i) + 0.5}
         for i in range(5)
     ]
-    with patch("main.transcribe_prerecorded", return_value=solo):
+    payload = json.dumps({
+        "per_turn": [
+            {"heat": 20, "markers": [], "trigger_phrase": None}
+            for _ in range(5)
+        ],
+        "requests": [],
+        "narrative": "One voice, honestly analyzed.",
+        "report_cards": {"Speaker A": {
+            "score": 70, "headline": "Solo",
+            "did_well": "spoke", "work_on": "pausing",
+        }},
+    })
+    with patch("main.transcribe_prerecorded", return_value=solo), \
+         patch("main.get_llm_client", return_value=_mock_llm(payload)):
         resp = await client.post(
             "/analyze/upload",
             files={"file": ("clip.wav", FIXTURE_WAV, "audio/wav")},
         )
-    assert resp.status_code == 422
+    # A merged-diarization / monologue recording is analyzable now — this is
+    # exactly the "one person performing two voices" real-world case.
+    assert resp.status_code == 200
+    assert set(resp.json()["per_speaker"]) == {"Speaker A"}
 
 
 # ---------------------------------------------------------------------------
