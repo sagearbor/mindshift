@@ -8,8 +8,14 @@ import {
   StyleSheet,
 } from "react-native";
 import { useSessionStore } from "../store/sessionStore";
-import { postAnalyze } from "../api/client";
-import type { AnalyzeResult, AnalyzePerSpeaker } from "../api/client";
+import { postAnalyze, postCounterfactual } from "../api/client";
+import type {
+  AnalyzeResult,
+  AnalyzePerSpeaker,
+  AnalyzeTurnInput,
+  CounterfactualResult,
+  ReportCard,
+} from "../api/client";
 import HeatChart from "../components/HeatChart";
 import { getSpeakerColor } from "../utils/speakerColors";
 
@@ -45,6 +51,22 @@ export default function DynamicsScreen({ onBack }: DynamicsScreenProps) {
     { speaker: string; text: string }[]
   >([]);
 
+  // --- What-if / counterfactual overlay state ---
+  const [simData, setSimData] = useState<CounterfactualResult | null>(null);
+  const [simLoading, setSimLoading] = useState(false);
+  const [simError, setSimError] = useState<string | null>(null);
+  // The pivot the current in-flight/errored/active request pertains to. Drives
+  // which turn's inspector shows the spinner/error and anchors the overlay.
+  const [simPivot, setSimPivot] = useState<number | null>(null);
+  // Toggle the overlay without refetching. Defaults on when a sim arrives.
+  const [showSim, setShowSim] = useState(true);
+  // The exact turns payload sent to /analyze (incl. timing) — reused verbatim
+  // for /analyze/counterfactual so the server sees the same conversation.
+  const analyzedPayloadRef = useRef<AnalyzeTurnInput[]>([]);
+  // In-flight guard for the counterfactual: a real, costed LLM call — one at a
+  // time, and never a duplicate from a double-tap.
+  const simInFlightRef = useRef(false);
+
   // In-flight guard: /analyze is a real LLM call with real cost, and React 18
   // StrictMode double-invokes the mount effect in dev — without this ref a
   // single visit would fire TWO requests. A ref (not state) so the second
@@ -72,15 +94,22 @@ export default function DynamicsScreen({ onBack }: DynamicsScreenProps) {
       // sessions do) — that's what lets the server compute REAL interruption
       // counts. Pasted transcripts carry none; the server then returns
       // interruptions: null and the UI omits the row honestly.
-      const result = await postAnalyze(
-        turns.map((t) => ({
-          speaker: t.speaker,
-          text: t.text,
-          ...(t.start_time !== undefined ? { start_time: t.start_time } : {}),
-          ...(t.end_time !== undefined ? { end_time: t.end_time } : {}),
-        })),
-      );
-      if (mountedRef.current) setData(result);
+      const payload: AnalyzeTurnInput[] = turns.map((t) => ({
+        speaker: t.speaker,
+        text: t.text,
+        ...(t.start_time !== undefined ? { start_time: t.start_time } : {}),
+        ...(t.end_time !== undefined ? { end_time: t.end_time } : {}),
+      }));
+      // Keep the exact payload so a later counterfactual sends the SAME turns.
+      analyzedPayloadRef.current = payload;
+      const result = await postAnalyze(payload);
+      if (mountedRef.current) {
+        setData(result);
+        // A fresh analysis invalidates any prior simulation.
+        setSimData(null);
+        setSimError(null);
+        setSimPivot(null);
+      }
     } catch (e) {
       // Surface the status honestly; the message already reads "API error: 429"
       // etc. from the client. Never fall back to a fake analysis.
@@ -96,6 +125,40 @@ export default function DynamicsScreen({ onBack }: DynamicsScreenProps) {
   useEffect(() => {
     void runAnalyze();
   }, [runAnalyze]);
+
+  // Run a counterfactual for a given pivot turn. Replaces any prior overlay on
+  // success (one simulation at a time). Honest error state on failure; never a
+  // fabricated projection.
+  const runCounterfactual = useCallback(async (pivotIndex: number) => {
+    if (simInFlightRef.current) return; // One costed LLM call at a time.
+    simInFlightRef.current = true;
+    setSimPivot(pivotIndex);
+    setSimLoading(true);
+    setSimError(null);
+    try {
+      const result = await postCounterfactual(
+        analyzedPayloadRef.current,
+        pivotIndex,
+      );
+      if (mountedRef.current) {
+        setSimData(result); // Replaces the previous overlay outright.
+        setShowSim(true);
+      }
+    } catch (e) {
+      if (mountedRef.current) {
+        setSimError(e instanceof Error ? e.message : "Something went wrong.");
+      }
+    } finally {
+      simInFlightRef.current = false;
+      if (mountedRef.current) setSimLoading(false);
+    }
+  }, []);
+
+  // Speaker whose turn was rewritten — its color accents the "What if" card.
+  const pivotSpeaker =
+    simData !== null ? analyzedTurns[simData.pivot_index]?.speaker ?? "" : "";
+  // The overlay is visible only when we have a sim AND the toggle is on.
+  const overlayVisible = simData !== null && showSim;
 
   return (
     <View style={styles.flex}>
@@ -138,7 +201,42 @@ export default function DynamicsScreen({ onBack }: DynamicsScreenProps) {
           {/* Heat chart across the whole conversation. */}
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Heat over the conversation</Text>
-            <HeatChart perTurn={data.per_turn} turns={analyzedTurns} />
+            <HeatChart
+              perTurn={data.per_turn}
+              turns={analyzedTurns}
+              simulated={simData?.simulated_per_turn ?? null}
+              showSimulation={showSim}
+              onToggleSimulation={() => setShowSim((s) => !s)}
+              onWhatIf={(pivotIndex) => void runCounterfactual(pivotIndex)}
+              whatIfLoading={simLoading}
+              whatIfPivotIndex={simPivot}
+              whatIfError={simError}
+              onRetryWhatIf={() =>
+                simPivot !== null && void runCounterfactual(simPivot)
+              }
+            />
+
+            {/* "What if" card — the rewritten pivot, its rationale, and the
+                server's disclaimer verbatim. Only while an overlay is shown. */}
+            {overlayVisible && simData && (
+              <View style={styles.whatIfCard} testID="what-if-card">
+                <Text style={styles.whatIfCardTitle}>
+                  What if {pivotSpeaker || "this"} had said…
+                </Text>
+                <View
+                  style={[
+                    styles.whatIfQuote,
+                    { borderLeftColor: getSpeakerColor(pivotSpeaker) },
+                  ]}
+                >
+                  <Text style={styles.whatIfQuoteText}>
+                    “{simData.rewritten_text}”
+                  </Text>
+                </View>
+                <Text style={styles.whatIfRationale}>{simData.rationale}</Text>
+                <Text style={styles.whatIfDisclaimer}>{simData.disclaimer}</Text>
+              </View>
+            )}
           </View>
 
           {/* Per-speaker stat cards, shown side by side. Never a winner. */}
@@ -147,6 +245,21 @@ export default function DynamicsScreen({ onBack }: DynamicsScreenProps) {
               <SpeakerCard key={label} label={label} stats={stats} />
             ))}
           </View>
+
+          {/* Report cards — one per speaker, directly under the stat cards.
+              Scores are an absolute, intentionally-comparable conduct grade
+              (owner's product decision); rendered plainly, no softening. */}
+          {data.report_cards &&
+            Object.keys(data.report_cards).length > 0 && (
+              <View style={styles.card}>
+                <Text style={styles.sectionTitle}>Report cards</Text>
+                <View style={styles.speakerRow}>
+                  {Object.entries(data.report_cards).map(([label, card]) => (
+                    <ReportCardView key={label} label={label} card={card} />
+                  ))}
+                </View>
+              </View>
+            )}
 
           {/* Relationship dynamics insights. */}
           <View style={styles.card}>
@@ -260,6 +373,40 @@ function SpeakerCard({
         <HorsemanChip label="cont" value={stats.horsemen.contempt} />
         <HorsemanChip label="def" value={stats.horsemen.defensiveness} />
         <HorsemanChip label="stone" value={stats.horsemen.stonewalling} />
+      </View>
+    </View>
+  );
+}
+
+/**
+ * One speaker's "report card". The score is an absolute 0–100 conduct grade
+ * (higher = better) and is intentionally comparable across speakers — so it's
+ * shown plainly, big, with no hedging. The speaker's line color accents the
+ * card so it ties back to the chart and stat card.
+ */
+function ReportCardView({ label, card }: { label: string; card: ReportCard }) {
+  const color = getSpeakerColor(label);
+  return (
+    <View
+      style={[styles.reportCard, { borderTopColor: color }]}
+      testID={`report-card-${label}`}
+    >
+      <View style={styles.reportCardHeader}>
+        <View style={[styles.swatch, { backgroundColor: color }]} />
+        <Text style={styles.speakerName}>{label}</Text>
+      </View>
+      <View style={styles.scoreRow}>
+        <Text style={[styles.scoreNumber, { color }]}>{card.score}</Text>
+        <Text style={styles.scoreOutOf}>/100</Text>
+      </View>
+      <Text style={styles.reportHeadline}>{card.headline}</Text>
+      <View style={styles.reportLine}>
+        <Text style={styles.reportLabelGood}>Did well: </Text>
+        <Text style={styles.reportBody}>{card.did_well}</Text>
+      </View>
+      <View style={styles.reportLine}>
+        <Text style={styles.reportLabelWork}>Work on: </Text>
+        <Text style={styles.reportBody}>{card.work_on}</Text>
       </View>
     </View>
   );
@@ -405,6 +552,80 @@ const styles = StyleSheet.create({
   requestWho: { fontSize: 12, fontWeight: "700", color: MUTED },
   requestText: { fontSize: 14, lineHeight: 20, color: INK },
   requestOutcome: { color: PRIMARY, fontWeight: "600" },
+  // --- Report cards ---
+  reportCard: {
+    flex: 1,
+    minWidth: 150,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    // Accent bar in the speaker's color, tying the card to the chart line.
+    borderTopWidth: 4,
+  },
+  reportCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6,
+  },
+  scoreRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    marginBottom: 6,
+  },
+  scoreNumber: { fontSize: 40, fontWeight: "800", lineHeight: 44 },
+  scoreOutOf: { fontSize: 16, fontWeight: "600", color: MUTED, marginBottom: 6 },
+  reportHeadline: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: INK,
+    marginBottom: 8,
+  },
+  reportLine: { marginBottom: 6 },
+  reportLabelGood: { fontSize: 13, fontWeight: "700", color: "#10B981" },
+  reportLabelWork: { fontSize: 13, fontWeight: "700", color: AMBER },
+  reportBody: { fontSize: 13, lineHeight: 19, color: "#374151" },
+  // --- What-if card (below the chart) ---
+  whatIfCard: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: "#F9FAFB",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  whatIfCardTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: MUTED,
+    textTransform: "uppercase",
+    marginBottom: 8,
+  },
+  whatIfQuote: {
+    borderLeftWidth: 3,
+    paddingLeft: 10,
+    marginBottom: 10,
+  },
+  whatIfQuoteText: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: INK,
+    fontStyle: "italic",
+  },
+  whatIfRationale: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: "#374151",
+    marginBottom: 8,
+  },
+  whatIfDisclaimer: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: "#9CA3AF",
+    fontStyle: "italic",
+  },
   narrativeCard: { backgroundColor: "#F3F4F6", borderColor: "#E5E7EB" },
   narrativeTitle: {
     fontSize: 15,

@@ -1,13 +1,26 @@
 import React, { useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator,
+} from "react-native";
 import Svg, { Polyline, Circle } from "react-native-svg";
-import type { AnalyzePerTurn } from "../api/client";
+import type { AnalyzePerTurn, SimulatedTurn } from "../api/client";
 import { getSpeakerColor } from "../utils/speakerColors";
 
 // House colors.
 const AMBER = "#F59E0B"; // spikes / triggers
 const INK = "#1F2937";
 const MUTED = "#6B7280";
+const PRIMARY = "#4A90D9";
+const DANGER = "#DC2626";
+
+// Simulated overlay: each speaker's own color, drawn dashed at reduced opacity
+// so it reads as a hypothetical laid over the real (solid, full-opacity) lines.
+const SIM_OPACITY = 0.55;
+const SIM_DASH = "6,4";
 
 const HEAT_MIN = 0;
 const HEAT_MAX = 100;
@@ -95,6 +108,63 @@ export function mapTurnsToLines(
   }));
 }
 
+/**
+ * Pure geometry for the "what-if" simulated overlay. Mirrors mapTurnsToLines
+ * exactly for x/y so a simulated point at conversation index `i` lands at the
+ * SAME x as the real point at index `i` — the caller passes `totalTurns` (the
+ * real conversation's length) so both share one x-scale, and the dashed overlay
+ * (which only spans pivot_index → last turn) aligns perfectly with the solid
+ * lines beneath it. Grouped per speaker so each gets a dashed line in its own
+ * color. Simulated points carry no spike/marker data, so isSpike is always
+ * false. Exported for direct unit testing of the alignment + grouping.
+ */
+export function mapSimulatedToLines(
+  simulated: SimulatedTurn[],
+  opts: MapOptions,
+): SpeakerLine[] {
+  const { width, height, padding } = opts;
+  const chartWidth = width - padding * 2;
+  const chartHeight = height - padding * 2;
+
+  const maxIndex =
+    opts.totalTurns !== undefined
+      ? opts.totalTurns - 1
+      : simulated.reduce((m, t) => Math.max(m, t.index), 0);
+
+  const xFor = (index: number) =>
+    padding + (maxIndex <= 0 ? chartWidth / 2 : (index / maxIndex) * chartWidth);
+  const yFor = (heat: number) => {
+    const clamped = Math.max(HEAT_MIN, Math.min(HEAT_MAX, heat));
+    return (
+      padding +
+      (chartHeight -
+        ((clamped - HEAT_MIN) / (HEAT_MAX - HEAT_MIN)) * chartHeight)
+    );
+  };
+
+  const order: string[] = [];
+  const bySpeaker = new Map<string, ChartPoint[]>();
+  for (const t of simulated) {
+    if (!bySpeaker.has(t.speaker)) {
+      bySpeaker.set(t.speaker, []);
+      order.push(t.speaker);
+    }
+    bySpeaker.get(t.speaker)!.push({
+      index: t.index,
+      heat: t.heat,
+      isSpike: false,
+      x: xFor(t.index),
+      y: yFor(t.heat),
+    });
+  }
+
+  return order.map((speaker) => ({
+    speaker,
+    color: getSpeakerColor(speaker),
+    points: bySpeaker.get(speaker)!,
+  }));
+}
+
 interface HeatChartProps {
   perTurn: AnalyzePerTurn[];
   // The original transcript, index-aligned with perTurn. The backend's per_turn
@@ -102,6 +172,29 @@ interface HeatChartProps {
   // words from here by index. Optional so the chart still renders without it.
   turns?: { speaker: string; text: string }[];
   height?: number;
+
+  // --- "What if" simulated overlay (all optional; the chart is fully usable
+  // without any of these) ---
+  /** Simulated per-turn heat (pivot → last turn) to overlay as dashed lines.
+   *  Null/undefined = no simulation available. */
+  simulated?: SimulatedTurn[] | null;
+  /** Whether the overlay is currently shown (toggle state owned by the parent).
+   *  When false the dashed lines + "simulated" legend entry hide, without any
+   *  refetch. */
+  showSimulation?: boolean;
+  /** Toggle the overlay on/off (the chip near the legend). */
+  onToggleSimulation?: () => void;
+  /** Fire a counterfactual for the currently selected turn (the pivot). */
+  onWhatIf?: (pivotIndex: number) => void;
+  /** True while a counterfactual request is in flight (button spinner). */
+  whatIfLoading?: boolean;
+  /** The turn index the in-flight/errored request pertains to, so loading and
+   *  error states only attach to the inspector for that turn. */
+  whatIfPivotIndex?: number | null;
+  /** Honest inline error from the last counterfactual attempt (null = none). */
+  whatIfError?: string | null;
+  /** Retry the last failed counterfactual. */
+  onRetryWhatIf?: () => void;
 }
 
 /**
@@ -117,19 +210,57 @@ export default function HeatChart({
   perTurn,
   turns,
   height = 180,
+  simulated,
+  showSimulation = true,
+  onToggleSimulation,
+  onWhatIf,
+  whatIfLoading = false,
+  whatIfPivotIndex = null,
+  whatIfError = null,
+  onRetryWhatIf,
 }: HeatChartProps) {
   const [width, setWidth] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
 
   const padding = 16;
   // Only compute geometry once we've measured a width (first layout pass).
+  // totalTurns is passed EXPLICITLY so the real and simulated lines share one
+  // x-scale by construction, not by the (currently true) coincidence that
+  // server turn indexes are contiguous 0..n-1.
   const lines =
-    width > 0 ? mapTurnsToLines(perTurn, { width, height, padding }) : [];
+    width > 0
+      ? mapTurnsToLines(perTurn, {
+          width,
+          height,
+          padding,
+          totalTurns: perTurn.length,
+        })
+      : [];
+
+  // Simulated overlay lines share the SAME x-scale as the real lines by pinning
+  // totalTurns to the real conversation length — so the dashed segment lands
+  // exactly over the solid one from the pivot onward.
+  const overlayActive = !!simulated && simulated.length > 0 && showSimulation;
+  const simLines =
+    overlayActive && width > 0
+      ? mapSimulatedToLines(simulated!, {
+          width,
+          height,
+          padding,
+          totalTurns: perTurn.length,
+        })
+      : [];
 
   const selectedTurn =
     selected !== null
       ? perTurn.find((t) => t.index === selected) ?? null
       : null;
+
+  // Loading/error only belong to the inspector when they pertain to the turn
+  // currently selected (the pivot the parent is acting on).
+  const isPivotSelected = selected !== null && selected === whatIfPivotIndex;
+  const showWhatIfLoading = whatIfLoading && isPivotSelected;
+  const showWhatIfError = !!whatIfError && isPivotSelected && !whatIfLoading;
 
   return (
     <View testID="heat-chart">
@@ -144,6 +275,31 @@ export default function HeatChart({
             <Text style={styles.legendText}>{line.speaker}</Text>
           </View>
         ))}
+
+        {/* Dashed-line legend entry, only while the overlay is visible. */}
+        {overlayActive && (
+          <View style={styles.legendItem} testID="legend-simulated">
+            <View style={styles.dashSwatch}>
+              <View style={styles.dashSeg} />
+              <View style={styles.dashSeg} />
+            </View>
+            <Text style={styles.legendText}>simulated</Text>
+          </View>
+        )}
+
+        {/* Toggle chip: show/hide the overlay without refetching. Present
+            whenever a simulation exists (even when currently hidden). */}
+        {!!simulated && simulated.length > 0 && (
+          <TouchableOpacity
+            testID="simulation-toggle"
+            style={styles.simToggle}
+            onPress={onToggleSimulation}
+          >
+            <Text style={styles.simToggleText}>
+              {showSimulation ? "Simulation ✕" : "Show simulation"}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Chart surface — onLayout gives us the responsive width. */}
@@ -153,6 +309,23 @@ export default function HeatChart({
       >
         {width > 0 && (
           <Svg width={width} height={height}>
+            {/* Simulated overlay FIRST so the real (solid) lines sit on top of
+                the dashed hypothetical. Same per-speaker color, dashed, reduced
+                opacity. */}
+            {simLines.map((line) => (
+              <Polyline
+                key={`sim-line-${line.speaker}`}
+                testID={`sim-line-${line.speaker}`}
+                points={line.points.map((p) => `${p.x},${p.y}`).join(" ")}
+                fill="none"
+                stroke={line.color}
+                strokeWidth={2}
+                strokeDasharray={SIM_DASH}
+                strokeOpacity={SIM_OPACITY}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+            ))}
             {lines.map((line) => (
               <Polyline
                 key={`line-${line.speaker}`}
@@ -235,6 +408,46 @@ export default function HeatChart({
             <Text style={styles.trigger} testID="turn-inspector-trigger">
               Trigger: “{selectedTurn.trigger_phrase}”
             </Text>
+          )}
+
+          {/* "What if this was said differently?" — the counterfactual entry
+              point. Only shown when the parent wired up onWhatIf. */}
+          {onWhatIf && (
+            <View style={styles.whatIfBlock}>
+              <TouchableOpacity
+                testID="what-if-button"
+                style={[
+                  styles.whatIfButton,
+                  showWhatIfLoading && styles.whatIfButtonLoading,
+                ]}
+                disabled={showWhatIfLoading}
+                onPress={() => onWhatIf(selectedTurn.index)}
+              >
+                {showWhatIfLoading ? (
+                  <View style={styles.whatIfLoadingRow}>
+                    <ActivityIndicator size="small" color={PRIMARY} />
+                    <Text style={styles.whatIfButtonText}>Imagining…</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.whatIfButtonText}>
+                    What if this was said differently?
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              {/* Honest inline error — never a fabricated simulation. */}
+              {showWhatIfError && (
+                <View style={styles.whatIfError} testID="what-if-error">
+                  <Text style={styles.whatIfErrorText}>{whatIfError}</Text>
+                  <TouchableOpacity
+                    testID="what-if-retry"
+                    onPress={onRetryWhatIf}
+                  >
+                    <Text style={styles.whatIfRetryText}>Try again</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
           )}
         </View>
       )}
@@ -323,5 +536,75 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: AMBER,
     fontStyle: "italic",
+  },
+  // Dashed legend swatch: two short segments with a gap, echoing the overlay.
+  dashSwatch: {
+    width: 16,
+    height: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    opacity: SIM_OPACITY,
+  },
+  dashSeg: {
+    width: 6,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: MUTED,
+  },
+  simToggle: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#F9FAFB",
+  },
+  simToggleText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: MUTED,
+  },
+  whatIfBlock: {
+    marginTop: 12,
+  },
+  whatIfButton: {
+    backgroundColor: "#EFF6FF",
+    borderWidth: 1,
+    borderColor: PRIMARY,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    alignItems: "center",
+  },
+  whatIfButtonLoading: {
+    opacity: 0.7,
+  },
+  whatIfLoadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  whatIfButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: PRIMARY,
+  },
+  whatIfError: {
+    marginTop: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  whatIfErrorText: {
+    flex: 1,
+    fontSize: 13,
+    color: DANGER,
+  },
+  whatIfRetryText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: PRIMARY,
   },
 });

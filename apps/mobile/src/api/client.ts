@@ -115,11 +115,45 @@ export interface AnalyzeDynamics {
   requests: { speaker: string; request: string; outcome: string }[];
 }
 
+/**
+ * Per-speaker "report card" grade. `score` is an ABSOLUTE 0–100 measure of
+ * conduct (higher = better) — intentionally comparable across speakers (owner's
+ * product decision), so the UI renders it plainly without softening qualifiers.
+ */
+export interface ReportCard {
+  score: number; // 0–100, higher = better conduct
+  headline: string;
+  did_well: string;
+  work_on: string;
+}
+
 export interface AnalyzeResult {
   per_turn: AnalyzePerTurn[];
   per_speaker: Record<string, AnalyzePerSpeaker>;
+  // Optional at the type level to match runtime reality: a pre-v2 server omits
+  // this field entirely (the UI already guards and omits the section).
+  report_cards?: Record<string, ReportCard>;
   dynamics: AnalyzeDynamics;
   narrative: string;
+}
+
+/** One simulated turn from /analyze/counterfactual: a hypothetical heat value
+ *  at that turn's conversation-wide index, from the pivot to the last turn. */
+export interface SimulatedTurn {
+  index: number;
+  speaker: string;
+  heat: number; // 0–100
+}
+
+/** Result of POST /analyze/counterfactual — a "what if this turn had been said
+ *  differently" projection. Never fabricated client-side; comes wholesale from
+ *  the server, disclaimer included, and is rendered verbatim. */
+export interface CounterfactualResult {
+  pivot_index: number;
+  rewritten_text: string;
+  rationale: string;
+  simulated_per_turn: SimulatedTurn[];
+  disclaimer: string;
 }
 
 /**
@@ -154,6 +188,45 @@ export async function postAnalyze(
   }
 
   return (await res.json()) as AnalyzeResult;
+}
+
+/**
+ * POST /analyze/counterfactual — the "what if this turn had been said
+ * differently?" projection. Follows postAnalyze exactly: fresh Firebase ID
+ * token as Bearer auth (omitted when signed out so the server answers its own
+ * 401), JSON body carrying the full `turns` (same shape incl. optional
+ * start/end times) plus the `pivot_index` to rewrite, and a thrown
+ * `API error: <status>` on any non-OK response (401/422/429/502/413) so the
+ * caller can show an honest inline error rather than a fabricated simulation.
+ */
+export async function postCounterfactual(
+  turns: AnalyzeTurnInput[],
+  pivotIndex: number,
+  context?: string,
+): Promise<CounterfactualResult> {
+  const token = await getFreshToken();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_URL}/analyze/counterfactual`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(
+      context !== undefined
+        ? { turns, pivot_index: pivotIndex, context }
+        : { turns, pivot_index: pivotIndex },
+    ),
+  });
+
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+
+  return (await res.json()) as CounterfactualResult;
 }
 
 export async function postRespond(
