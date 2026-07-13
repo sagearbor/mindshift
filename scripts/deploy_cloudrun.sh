@@ -145,6 +145,12 @@ echo "→ Deploying (this builds the image; first deploy takes a few minutes)"
 #                           malformed 502/503s). Pinned here so redeploys
 #                           can't silently shrink it back.
 # --port 8080             : matches the Dockerfile's EXPOSE/uvicorn port.
+# --cpu 4                 : software HEVC-10bit (phone HDR video) decode needs
+#                           real cores — at the default allocation the 360p
+#                           transcode of a 48s phone clip exceeded the 600s cap
+#                           (~125s on a laptop). Billed per-second only while
+#                           requests run, so cost impact is small. Pinned so
+#                           redeploys can't silently shrink it back.
 gcloud run deploy "$SERVICE" \
   --source "$REPO_ROOT" \
   --region "$REGION" \
@@ -153,6 +159,7 @@ gcloud run deploy "$SERVICE" \
   --timeout 3600 \
   --min-instances 1 \
   --memory 2Gi \
+  --cpu 4 \
   --port 8080 \
   --set-env-vars "^@^${ENV_VARS}"
 
