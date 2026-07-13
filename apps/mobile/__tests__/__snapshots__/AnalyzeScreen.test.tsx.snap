@@ -1,0 +1,738 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`AnalyzeScreen renders the initial screen 1`] = `
+<View
+  onLayout={[Function]}
+  style={
+    [
+      {
+        "flex": 1,
+      },
+      {
+        "paddingBottom": 0,
+      },
+    ]
+  }
+>
+  <RCTScrollView
+    contentContainerStyle={
+      {
+        "paddingBottom": 40,
+        "paddingTop": 20,
+      }
+    }
+    keyboardShouldPersistTaps="handled"
+    style={
+      {
+        "flex": 1,
+      }
+    }
+    testID="analyze-screen"
+  >
+    <View>
+      <View
+        style={
+          {
+            "alignItems": "center",
+            "flexDirection": "row",
+            "justifyContent": "space-between",
+            "marginBottom": 8,
+            "paddingHorizontal": 16,
+          }
+        }
+      />
+      <Text
+        style={
+          {
+            "color": "#111827",
+            "fontSize": 24,
+            "fontWeight": "700",
+            "marginBottom": 14,
+            "textAlign": "center",
+          }
+        }
+      >
+        Analyze a Conversation
+      </Text>
+      <View
+        style={
+          {
+            "paddingHorizontal": 16,
+          }
+        }
+      >
+        <View
+          style={
+            {
+              "marginBottom": 14,
+            }
+          }
+          testID="relationship-picker"
+        >
+          <Text
+            style={
+              {
+                "color": "#1F2937",
+                "fontSize": 14,
+                "fontWeight": "600",
+                "marginBottom": 2,
+              }
+            }
+          >
+            Who’s in this conversation?
+          </Text>
+          <Text
+            style={
+              {
+                "color": "#6B7280",
+                "fontSize": 12.5,
+                "lineHeight": 18,
+                "marginBottom": 8,
+              }
+            }
+            testID="relationship-optional-hint"
+          >
+            Optional — we’ll figure it out if you skip.
+          </Text>
+          <View
+            style={
+              {
+                "flexDirection": "row",
+                "flexWrap": "wrap",
+                "gap": 8,
+              }
+            }
+          >
+            <View
+              accessibilityRole="button"
+              accessibilityState={
+                {
+                  "busy": undefined,
+                  "checked": undefined,
+                  "disabled": false,
+                  "expanded": undefined,
+                  "selected": false,
+                }
+              }
+              accessibilityValue={
+                {
+                  "max": undefined,
+                  "min": undefined,
+                  "now": undefined,
+                  "text": undefined,
+                }
+              }
+              accessible={true}
+              collapsable={false}
+              focusable={true}
+              onBlur={[Function]}
+              onClick={[Function]}
+              onFocus={[Function]}
+              onResponderGrant={[Function]}
+              onResponderMove={[Function]}
+              onResponderRelease={[Function]}
+              onResponderTerminate={[Function]}
+              onResponderTerminationRequest={[Function]}
+              onStartShouldSetResponder={[Function]}
+              style={
+                [
+                  {
+                    "backgroundColor": "#FFFFFF",
+                    "borderColor": "#D1D5DB",
+                    "borderRadius": 22,
+                    "borderWidth": 1.5,
+                    "justifyContent": "center",
+                    "minHeight": 44,
+                    "paddingHorizontal": 16,
+                  },
+                  false,
+                ]
+              }
+              testID="relationship-partners"
+            >
+              <Text
+                style={
+                  [
+                    {
+                      "color": "#6B7280",
+                      "fontSize": 14,
+                      "fontWeight": "600",
+                    },
+                    false,
+                  ]
+                }
+              >
+                Partners
+              </Text>
+            </View>
+            <View
+              accessibilityRole="button"
+              accessibilityState={
+                {
+                  "busy": undefined,
+                  "checked": undefined,
+                  "disabled": false,
+                  "expanded": undefined,
+                  "selected": false,
+                }
+              }
+              accessibilityValue={
+                {
+                  "max": undefined,
+                  "min": undefined,
+                  "now": undefined,
+                  "text": undefined,
+                }
+              }
+              accessible={true}
+              collapsable={false}
+              focusable={true}
+              onBlur={[Function]}
+              onClick={[Function]}
+              onFocus={[Function]}
+              onResponderGrant={[Function]}
+              onResponderMove={[Function]}
+              onResponderRelease={[Function]}
+              onResponderTerminate={[Function]}
+              onResponderTerminationRequest={[Function]}
+              onStartShouldSetResponder={[Function]}
+              style={
+                [
+                  {
+                    "backgroundColor": "#FFFFFF",
+                    "borderColor": "#D1D5DB",
+                    "borderRadius": 22,
+                    "borderWidth": 1.5,
+                    "justifyContent": "center",
+                    "minHeight": 44,
+                    "paddingHorizontal": 16,
+                  },
+                  false,
+                ]
+              }
+              testID="relationship-parent_child"
+            >
+              <Text
+                style={
+                  [
+                    {
+                      "color": "#6B7280",
+                      "fontSize": 14,
+                      "fontWeight": "600",
+                    },
+                    false,
+                  ]
+                }
+              >
+                Parent & child
+              </Text>
+            </View>
+            <View
+              accessibilityRole="button"
+              accessibilityState={
+                {
+                  "busy": undefined,
+                  "checked": undefined,
+                  "disabled": false,
+                  "expanded": undefined,
+                  "selected": false,
+                }
+              }
+              accessibilityValue={
+                {
+                  "max": undefined,
+                  "min": undefined,
+                  "now": undefined,
+                  "text": undefined,
+                }
+              }
+              accessible={true}
+              collapsable={false}
+              focusable={true}
+              onBlur={[Function]}
+              onClick={[Function]}
+              onFocus={[Function]}
+              onResponderGrant={[Function]}
+              onResponderMove={[Function]}
+              onResponderRelease={[Function]}
+              onResponderTerminate={[Function]}
+              onResponderTerminationRequest={[Function]}
+              onStartShouldSetResponder={[Function]}
+              style={
+                [
+                  {
+                    "backgroundColor": "#FFFFFF",
+                    "borderColor": "#D1D5DB",
+                    "borderRadius": 22,
+                    "borderWidth": 1.5,
+                    "justifyContent": "center",
+                    "minHeight": 44,
+                    "paddingHorizontal": 16,
+                  },
+                  false,
+                ]
+              }
+              testID="relationship-coworkers"
+            >
+              <Text
+                style={
+                  [
+                    {
+                      "color": "#6B7280",
+                      "fontSize": 14,
+                      "fontWeight": "600",
+                    },
+                    false,
+                  ]
+                }
+              >
+                Coworkers
+              </Text>
+            </View>
+            <View
+              accessibilityRole="button"
+              accessibilityState={
+                {
+                  "busy": undefined,
+                  "checked": undefined,
+                  "disabled": false,
+                  "expanded": undefined,
+                  "selected": false,
+                }
+              }
+              accessibilityValue={
+                {
+                  "max": undefined,
+                  "min": undefined,
+                  "now": undefined,
+                  "text": undefined,
+                }
+              }
+              accessible={true}
+              collapsable={false}
+              focusable={true}
+              onBlur={[Function]}
+              onClick={[Function]}
+              onFocus={[Function]}
+              onResponderGrant={[Function]}
+              onResponderMove={[Function]}
+              onResponderRelease={[Function]}
+              onResponderTerminate={[Function]}
+              onResponderTerminationRequest={[Function]}
+              onStartShouldSetResponder={[Function]}
+              style={
+                [
+                  {
+                    "backgroundColor": "#FFFFFF",
+                    "borderColor": "#D1D5DB",
+                    "borderRadius": 22,
+                    "borderWidth": 1.5,
+                    "justifyContent": "center",
+                    "minHeight": 44,
+                    "paddingHorizontal": 16,
+                  },
+                  false,
+                ]
+              }
+              testID="relationship-friends"
+            >
+              <Text
+                style={
+                  [
+                    {
+                      "color": "#6B7280",
+                      "fontSize": 14,
+                      "fontWeight": "600",
+                    },
+                    false,
+                  ]
+                }
+              >
+                Friends
+              </Text>
+            </View>
+            <View
+              accessibilityRole="button"
+              accessibilityState={
+                {
+                  "busy": undefined,
+                  "checked": undefined,
+                  "disabled": false,
+                  "expanded": undefined,
+                  "selected": false,
+                }
+              }
+              accessibilityValue={
+                {
+                  "max": undefined,
+                  "min": undefined,
+                  "now": undefined,
+                  "text": undefined,
+                }
+              }
+              accessible={true}
+              collapsable={false}
+              focusable={true}
+              onBlur={[Function]}
+              onClick={[Function]}
+              onFocus={[Function]}
+              onResponderGrant={[Function]}
+              onResponderMove={[Function]}
+              onResponderRelease={[Function]}
+              onResponderTerminate={[Function]}
+              onResponderTerminationRequest={[Function]}
+              onStartShouldSetResponder={[Function]}
+              style={
+                [
+                  {
+                    "backgroundColor": "#FFFFFF",
+                    "borderColor": "#D1D5DB",
+                    "borderRadius": 22,
+                    "borderWidth": 1.5,
+                    "justifyContent": "center",
+                    "minHeight": 44,
+                    "paddingHorizontal": 16,
+                  },
+                  false,
+                ]
+              }
+              testID="relationship-just_me"
+            >
+              <Text
+                style={
+                  [
+                    {
+                      "color": "#6B7280",
+                      "fontSize": 14,
+                      "fontWeight": "600",
+                    },
+                    false,
+                  ]
+                }
+              >
+                Just me
+              </Text>
+            </View>
+          </View>
+        </View>
+        <View
+          style={
+            {
+              "backgroundColor": "#FFFFFF",
+              "borderColor": "#D1D5DB",
+              "borderRadius": 12,
+              "borderWidth": 1,
+              "padding": 14,
+            }
+          }
+        >
+          <Text
+            style={
+              {
+                "color": "#6B7280",
+                "fontSize": 12.5,
+                "lineHeight": 18,
+                "marginBottom": 12,
+              }
+            }
+          >
+            Without consent to store, we analyze the sound and discard the file.
+          </Text>
+          <View
+            accessibilityState={
+              {
+                "busy": undefined,
+                "checked": undefined,
+                "disabled": undefined,
+                "expanded": undefined,
+                "selected": undefined,
+              }
+            }
+            accessibilityValue={
+              {
+                "max": undefined,
+                "min": undefined,
+                "now": undefined,
+                "text": undefined,
+              }
+            }
+            accessible={true}
+            collapsable={false}
+            focusable={true}
+            onBlur={[Function]}
+            onClick={[Function]}
+            onFocus={[Function]}
+            onResponderGrant={[Function]}
+            onResponderMove={[Function]}
+            onResponderRelease={[Function]}
+            onResponderTerminate={[Function]}
+            onResponderTerminationRequest={[Function]}
+            onStartShouldSetResponder={[Function]}
+            style={
+              {
+                "alignItems": "flex-start",
+                "flexDirection": "row",
+                "gap": 8,
+                "marginBottom": 10,
+              }
+            }
+            testID="consent-checkbox"
+          >
+            <Text
+              style={
+                {
+                  "color": "#4A90D9",
+                  "fontSize": 18,
+                  "lineHeight": 20,
+                }
+              }
+            >
+              ☐
+            </Text>
+            <Text
+              style={
+                {
+                  "color": "#374151",
+                  "flex": 1,
+                  "fontSize": 12.5,
+                  "lineHeight": 18,
+                }
+              }
+            >
+              Everyone in this recording knows it was recorded and agrees to it being analyzed and stored.
+            </Text>
+          </View>
+          <View
+            style={
+              [
+                {
+                  "alignItems": "center",
+                  "flexDirection": "row",
+                  "justifyContent": "space-between",
+                  "marginBottom": 12,
+                },
+                {
+                  "opacity": 0.5,
+                },
+              ]
+            }
+          >
+            <Text
+              style={
+                {
+                  "color": "#1F2937",
+                  "fontSize": 14,
+                  "fontWeight": "500",
+                }
+              }
+            >
+              Store for replay
+            </Text>
+            <RCTSwitch
+              accessibilityRole="switch"
+              disabled={true}
+              onChange={[Function]}
+              onResponderTerminationRequest={[Function]}
+              onStartShouldSetResponder={[Function]}
+              style={
+                {
+                  "alignSelf": "flex-start",
+                }
+              }
+              testID="store-toggle"
+              value={true}
+            />
+          </View>
+          <View
+            style={
+              {
+                "borderColor": "#D1D5DB",
+                "borderRadius": 10,
+                "borderWidth": 1,
+                "flexDirection": "row",
+                "marginBottom": 12,
+                "overflow": "hidden",
+              }
+            }
+            testID="link-mode-toggle"
+          >
+            <View
+              accessibilityState={
+                {
+                  "busy": undefined,
+                  "checked": undefined,
+                  "disabled": false,
+                  "expanded": undefined,
+                  "selected": undefined,
+                }
+              }
+              accessibilityValue={
+                {
+                  "max": undefined,
+                  "min": undefined,
+                  "now": undefined,
+                  "text": undefined,
+                }
+              }
+              accessible={true}
+              collapsable={false}
+              focusable={true}
+              onBlur={[Function]}
+              onClick={[Function]}
+              onFocus={[Function]}
+              onResponderGrant={[Function]}
+              onResponderMove={[Function]}
+              onResponderRelease={[Function]}
+              onResponderTerminate={[Function]}
+              onResponderTerminationRequest={[Function]}
+              onStartShouldSetResponder={[Function]}
+              style={
+                [
+                  {
+                    "alignItems": "center",
+                    "backgroundColor": "#FFFFFF",
+                    "flex": 1,
+                    "paddingVertical": 12,
+                  },
+                  {
+                    "backgroundColor": "#EEF2FF",
+                  },
+                ]
+              }
+              testID="mode-file-tab"
+            >
+              <Text
+                style={
+                  [
+                    {
+                      "color": "#6B7280",
+                      "fontSize": 14,
+                      "fontWeight": "600",
+                    },
+                    {
+                      "color": "#4A90D9",
+                    },
+                  ]
+                }
+              >
+                Upload file
+              </Text>
+            </View>
+            <View
+              accessibilityState={
+                {
+                  "busy": undefined,
+                  "checked": undefined,
+                  "disabled": false,
+                  "expanded": undefined,
+                  "selected": undefined,
+                }
+              }
+              accessibilityValue={
+                {
+                  "max": undefined,
+                  "min": undefined,
+                  "now": undefined,
+                  "text": undefined,
+                }
+              }
+              accessible={true}
+              collapsable={false}
+              focusable={true}
+              onBlur={[Function]}
+              onClick={[Function]}
+              onFocus={[Function]}
+              onResponderGrant={[Function]}
+              onResponderMove={[Function]}
+              onResponderRelease={[Function]}
+              onResponderTerminate={[Function]}
+              onResponderTerminationRequest={[Function]}
+              onStartShouldSetResponder={[Function]}
+              style={
+                [
+                  {
+                    "alignItems": "center",
+                    "backgroundColor": "#FFFFFF",
+                    "flex": 1,
+                    "paddingVertical": 12,
+                  },
+                  false,
+                ]
+              }
+              testID="mode-link-tab"
+            >
+              <Text
+                style={
+                  [
+                    {
+                      "color": "#6B7280",
+                      "fontSize": 14,
+                      "fontWeight": "600",
+                    },
+                    false,
+                  ]
+                }
+              >
+                Paste link
+              </Text>
+            </View>
+          </View>
+          <View
+            accessibilityState={
+              {
+                "busy": undefined,
+                "checked": undefined,
+                "disabled": false,
+                "expanded": undefined,
+                "selected": undefined,
+              }
+            }
+            accessibilityValue={
+              {
+                "max": undefined,
+                "min": undefined,
+                "now": undefined,
+                "text": undefined,
+              }
+            }
+            accessible={true}
+            collapsable={false}
+            focusable={true}
+            onClick={[Function]}
+            onResponderGrant={[Function]}
+            onResponderMove={[Function]}
+            onResponderRelease={[Function]}
+            onResponderTerminate={[Function]}
+            onResponderTerminationRequest={[Function]}
+            onStartShouldSetResponder={[Function]}
+            style={
+              {
+                "alignItems": "center",
+                "backgroundColor": "#EEF2FF",
+                "borderColor": "#4A90D9",
+                "borderRadius": 10,
+                "borderWidth": 1.5,
+                "opacity": 1,
+                "paddingVertical": 14,
+              }
+            }
+            testID="pick-recording-button"
+          >
+            <Text
+              style={
+                {
+                  "color": "#4A90D9",
+                  "fontSize": 15,
+                  "fontWeight": "600",
+                }
+              }
+            >
+              Choose a recording
+            </Text>
+          </View>
+        </View>
+      </View>
+    </View>
+  </RCTScrollView>
+</View>
+`;

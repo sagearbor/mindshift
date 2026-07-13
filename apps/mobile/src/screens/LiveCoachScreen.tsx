@@ -21,6 +21,9 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 interface LiveCoachScreenProps {
+  /** Return to Home (wired by App). Optional so the screen still renders
+   *  standalone in tests; no back affordance is shown without it. */
+  onBack?: () => void;
   /** Hand the finished live transcript off to the async-review Session screen.
    *  Turns carry utterance timing (seconds) when the live pipeline provided it,
    *  so post-session /analyze can compute real interruption stats. Optional so
@@ -37,6 +40,7 @@ interface LiveCoachScreenProps {
 }
 
 export default function LiveCoachScreen({
+  onBack,
   onReviewTranscript,
 }: LiveCoachScreenProps = {}) {
   const {
@@ -128,6 +132,17 @@ export default function LiveCoachScreen({
           and the status pins to the right at a fixed width, so a long status
           word ("disconnected") can never overlap the title (a real Pixel bug). */}
       <View style={styles.header}>
+        {onBack && (
+          <TouchableOpacity
+            testID="live-coach-back"
+            accessibilityRole="button"
+            style={styles.backButton}
+            onPress={onBack}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.backButtonText}>←</Text>
+          </TouchableOpacity>
+        )}
         <Text style={styles.heading} numberOfLines={1}>
           Live Coach
         </Text>
@@ -359,6 +374,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 8,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 8,
+  },
+  backButtonText: {
+    fontSize: 22,
+    fontWeight: "600",
+    color: "#4A90D9",
   },
   heading: {
     fontSize: 24,

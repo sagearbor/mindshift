@@ -1,0 +1,332 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`HomeScreen renders the two primary modes, the history entry, and the advanced corner 1`] = `
+<View
+  style={
+    {
+      "backgroundColor": "#F9FAFB",
+      "flex": 1,
+      "paddingBottom": 20,
+      "paddingHorizontal": 20,
+      "paddingTop": 24,
+    }
+  }
+  testID="home-screen"
+>
+  <View
+    style={
+      {
+        "alignItems": "center",
+        "flexDirection": "row",
+        "justifyContent": "space-between",
+        "marginBottom": 16,
+      }
+    }
+  >
+    <Text
+      style={
+        {
+          "color": "#111827",
+          "fontSize": 22,
+          "fontWeight": "700",
+        }
+      }
+    >
+      MindShift
+    </Text>
+    <View
+      accessibilityLabel="Advanced"
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": undefined,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      hitSlop={
+        {
+          "bottom": 8,
+          "left": 8,
+          "right": 8,
+          "top": 8,
+        }
+      }
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "alignItems": "center",
+          "backgroundColor": "#FFFFFF",
+          "borderColor": "#E5E7EB",
+          "borderRadius": 22,
+          "borderWidth": 1,
+          "height": 44,
+          "justifyContent": "center",
+          "opacity": 1,
+          "width": 44,
+        }
+      }
+      testID="home-advanced-button"
+    >
+      <Text
+        style={
+          {
+            "color": "#6B7280",
+            "fontSize": 22,
+            "fontWeight": "700",
+            "lineHeight": 24,
+          }
+        }
+      >
+        ⋯
+      </Text>
+    </View>
+  </View>
+  <View
+    style={
+      {
+        "flex": 1,
+        "gap": 16,
+      }
+    }
+  >
+    <View
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": undefined,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#4A90D9",
+          "borderRadius": 20,
+          "flex": 1,
+          "justifyContent": "flex-end",
+          "opacity": 1,
+          "padding": 24,
+        }
+      }
+      testID="home-live-coach"
+    >
+      <Text
+        style={
+          {
+            "color": "rgba(255,255,255,0.85)",
+            "fontSize": 13,
+            "fontWeight": "800",
+            "left": 24,
+            "letterSpacing": 2,
+            "position": "absolute",
+            "top": 20,
+          }
+        }
+      >
+        LIVE
+      </Text>
+      <Text
+        style={
+          {
+            "color": "#FFFFFF",
+            "fontSize": 30,
+            "fontWeight": "800",
+            "marginBottom": 6,
+          }
+        }
+      >
+        Live Coach
+      </Text>
+      <Text
+        style={
+          {
+            "color": "rgba(255,255,255,0.92)",
+            "fontSize": 15,
+            "lineHeight": 21,
+          }
+        }
+      >
+        Real-time coaching in your ear while you talk.
+      </Text>
+    </View>
+    <View
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": undefined,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#FFFFFF",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 20,
+          "borderWidth": 1.5,
+          "flex": 1,
+          "justifyContent": "flex-end",
+          "opacity": 1,
+          "padding": 24,
+        }
+      }
+      testID="home-analyze"
+    >
+      <Text
+        style={
+          {
+            "color": "#9CA3AF",
+            "fontSize": 13,
+            "fontWeight": "800",
+            "left": 24,
+            "letterSpacing": 2,
+            "position": "absolute",
+            "top": 20,
+          }
+        }
+      >
+        AFTERWARDS
+      </Text>
+      <Text
+        style={
+          {
+            "color": "#111827",
+            "fontSize": 30,
+            "fontWeight": "800",
+            "marginBottom": 6,
+          }
+        }
+      >
+        Analyze a Conversation
+      </Text>
+      <Text
+        style={
+          {
+            "color": "#6B7280",
+            "fontSize": 15,
+            "lineHeight": 21,
+          }
+        }
+      >
+        Record, upload, or paste a link — get the full breakdown.
+      </Text>
+    </View>
+  </View>
+  <View
+    accessibilityRole="button"
+    accessibilityState={
+      {
+        "busy": undefined,
+        "checked": undefined,
+        "disabled": undefined,
+        "expanded": undefined,
+        "selected": undefined,
+      }
+    }
+    accessibilityValue={
+      {
+        "max": undefined,
+        "min": undefined,
+        "now": undefined,
+        "text": undefined,
+      }
+    }
+    accessible={true}
+    collapsable={false}
+    focusable={true}
+    onClick={[Function]}
+    onResponderGrant={[Function]}
+    onResponderMove={[Function]}
+    onResponderRelease={[Function]}
+    onResponderTerminate={[Function]}
+    onResponderTerminationRequest={[Function]}
+    onStartShouldSetResponder={[Function]}
+    style={
+      {
+        "alignItems": "center",
+        "backgroundColor": "#FFFFFF",
+        "borderColor": "#D1D5DB",
+        "borderRadius": 14,
+        "borderWidth": 1,
+        "justifyContent": "center",
+        "marginTop": 16,
+        "minHeight": 52,
+        "opacity": 1,
+      }
+    }
+    testID="home-recordings-link"
+  >
+    <Text
+      style={
+        {
+          "color": "#4A90D9",
+          "fontSize": 16,
+          "fontWeight": "600",
+        }
+      }
+    >
+      ▶ Past recordings
+    </Text>
+  </View>
+</View>
+`;
