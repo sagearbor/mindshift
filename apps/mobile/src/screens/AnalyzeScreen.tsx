@@ -162,6 +162,18 @@ function formatSize(bytes?: number): string | null {
 
 const JOB_POLL_INTERVAL_MS = 3000;
 
+// How long we keep polling THROUGH a server-computed "stalled" status before
+// giving up. `stalled` is computed on read when a job's state stopped advancing
+// for a while — but a long download can freeze that state without the work
+// having died, and jobs routinely reach "done" AFTER the first "stalled" poll
+// (the reported bug: a 116 MB link download tripped it on a job that succeeded).
+// So we do NOT fail on the first stalled poll; we keep polling and only surface
+// an honest give-up after a generous, stage-aware grace window. If we ever saw a
+// downloading stage (or byte progress), the window is much longer — a big fetch
+// legitimately takes many minutes.
+const JOB_STALL_GRACE_MS = 3 * 60 * 1000;
+const JOB_STALL_GRACE_DOWNLOADING_MS = 20 * 60 * 1000;
+
 /** A job that ended in an honest failure/stall — its message is written for the
  *  user (the server's own detail, or the stalled note), so it's surfaced
  *  verbatim rather than mapped through {@link uploadErrorMessage}. */
@@ -175,7 +187,7 @@ function jobStageLabel(status: JobStatus): string {
     case "queued":
       return "Queued…";
     case "downloading":
-      return "Downloading…";
+      return "Fetching video…";
     case "transcribing":
       return "Transcribing…";
     case "analyzing":
@@ -184,9 +196,25 @@ function jobStageLabel(status: JobStatus): string {
       return "Saving…";
     case "done":
       return "Done";
+    case "stalled":
+      // A computed, potentially-transient state — never labeled as failure.
+      return "Still working…";
     default:
       return "Working…";
   }
+}
+
+/** "N MB downloaded" line for the download heartbeat — honest bytes, never a
+ *  fabricated percentage. Shows a "of M MB" only when the total is known. */
+function downloadProgressText(
+  downloaded: number,
+  total?: number | null,
+): string {
+  const got = formatSize(downloaded) ?? `${downloaded} B`;
+  if (total != null && total > 0) {
+    return `${got} of ${formatSize(total) ?? `${total} B`}`;
+  }
+  return `${got} downloaded`;
 }
 
 /**
@@ -230,6 +258,10 @@ async function pollJobToDone(
   onState: (state: AnalyzeJobState) => void,
 ): Promise<UploadAnalyzeResult> {
   let transientErrors = 0;
+  // When we first saw a (still-polling) "stalled" status, and whether this job
+  // ever went through a downloading stage — together they set the grace window.
+  let stalledSince: number | null = null;
+  let sawDownloadStage = false;
   for (;;) {
     let state: AnalyzeJobState;
     try {
@@ -245,6 +277,9 @@ async function pollJobToDone(
     }
     transientErrors = 0;
     onState(state);
+    if (state.status === "downloading" || state.bytes_downloaded != null) {
+      sawDownloadStage = true;
+    }
     if (state.status === "done") {
       if (!state.result) {
         throw new JobFailedError(
@@ -259,11 +294,25 @@ async function pollJobToDone(
       );
     }
     if (state.status === "stalled") {
-      throw new JobFailedError(
-        state.progress_note ??
-          "The analysis appears to have stalled — please try again.",
-      );
+      // Don't treat the first "stalled" as failure — the job may still finish.
+      // Keep polling within a stage-aware grace window; the UI shows a softened
+      // "still working" note (see the job card), never an error, meanwhile.
+      if (stalledSince === null) stalledSince = Date.now();
+      const grace = sawDownloadStage
+        ? JOB_STALL_GRACE_DOWNLOADING_MS
+        : JOB_STALL_GRACE_MS;
+      if (Date.now() - stalledSince > grace) {
+        throw new JobFailedError(
+          "This is taking much longer than expected and may have been " +
+            "interrupted. If it doesn’t appear in your recordings shortly, " +
+            "try again.",
+        );
+      }
+      await sleep(JOB_POLL_INTERVAL_MS);
+      continue;
     }
+    // Any active, advancing status clears the stall grace window.
+    stalledSince = null;
     await sleep(JOB_POLL_INTERVAL_MS);
   }
 }
@@ -296,6 +345,11 @@ export default function AnalyzeScreen({
   // moment the user picks a different file or switches to link mode.
   const [cameFromRecorder, setCameFromRecorder] = useState(false);
   const [uploadContext, setUploadContext] = useState("");
+  // Optional human name for the conversation, sent with the upload/link so a
+  // stored recording is titled instead of showing the raw filename
+  // ("photos_share.mp4"). Forwarded best-effort — a server without title support
+  // silently ignores it (see client.ts) until the backend adds the field.
+  const [conversationTitle, setConversationTitle] = useState("");
   const [uploading, setUploading] = useState(false);
   // Chunked-upload progress as a 0→1 fraction; null on the direct path (which
   // shows a plain spinner instead of a bar).
@@ -392,6 +446,7 @@ export default function AnalyzeScreen({
       // Web hands us a File; native hands us the local URI string.
       const fileArg = Platform.OS === "web" && picked.file ? picked.file : picked.uri;
       const context = composedContext();
+      const title = conversationTitle.trim() || undefined;
       let result: UploadAnalyzeResult;
       if (useChunked) {
         // Stream the parts (byte-progress bar), then complete as a JOB we poll —
@@ -407,6 +462,7 @@ export default function AnalyzeScreen({
             consent,
             store: storeRecording,
             context,
+            title,
             onProgress: setUploadProgress,
           },
         );
@@ -424,7 +480,7 @@ export default function AnalyzeScreen({
           picked.name,
           picked.mimeType,
           context,
-          { consent, store: storeRecording },
+          { consent, store: storeRecording, title },
         );
       }
       // Load the server-produced transcript so the what-if flow (and inspector
@@ -461,6 +517,7 @@ export default function AnalyzeScreen({
         consent,
         store: storeRecording,
         context: composedContext(),
+        title: conversationTitle.trim() || undefined,
       };
       // Submit as a background JOB and poll it — the synchronous /analyze/link
       // it replaces is a multi-minute request Android backgrounding routinely
@@ -512,8 +569,10 @@ export default function AnalyzeScreen({
             <TouchableOpacity
               testID="analyze-back"
               accessibilityRole="button"
+              accessibilityLabel="Home"
               style={styles.backButton}
               onPress={onBack}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
               <Text style={styles.backText}>← Home</Text>
             </TouchableOpacity>
@@ -521,8 +580,11 @@ export default function AnalyzeScreen({
           {onOpenRecordings && (
             <TouchableOpacity
               testID="open-recordings-link"
+              accessibilityRole="button"
+              accessibilityLabel="Recordings"
               style={styles.recordingsLink}
               onPress={onOpenRecordings}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
               <Text style={styles.recordingsLinkText}>▶ Recordings</Text>
             </TouchableOpacity>
@@ -637,6 +699,16 @@ export default function AnalyzeScreen({
                 {picked && (
                   <>
                     <TextInput
+                      testID="conversation-title-input"
+                      style={styles.titleInput}
+                      placeholder="Name this conversation (optional)"
+                      value={conversationTitle}
+                      onChangeText={setConversationTitle}
+                      placeholderTextColor="#9CA3AF"
+                      editable={!uploading}
+                      maxLength={120}
+                    />
+                    <TextInput
                       testID="recording-context-input"
                       style={styles.recordingContextInput}
                       placeholder="Optional: any context about this conversation"
@@ -705,6 +777,16 @@ export default function AnalyzeScreen({
                   share links (single video) all work.
                 </Text>
                 <TextInput
+                  testID="conversation-title-input"
+                  style={styles.titleInput}
+                  placeholder="Name this conversation (optional)"
+                  value={conversationTitle}
+                  onChangeText={setConversationTitle}
+                  placeholderTextColor="#9CA3AF"
+                  editable={!uploading}
+                  maxLength={120}
+                />
+                <TextInput
                   testID="link-context-input"
                   style={styles.recordingContextInput}
                   placeholder="Optional: any context about this conversation"
@@ -740,8 +822,7 @@ export default function AnalyzeScreen({
                 the recording's duration is known (labeled an estimate). */}
             {jobState &&
               jobState.status !== "done" &&
-              jobState.status !== "failed" &&
-              jobState.status !== "stalled" && (
+              jobState.status !== "failed" && (
                 <View style={styles.jobProgress} testID="job-progress">
                   <View style={styles.uploadingRow}>
                     <ActivityIndicator color="#4A90D9" />
@@ -749,10 +830,54 @@ export default function AnalyzeScreen({
                       {jobStageLabel(jobState.status)}
                     </Text>
                   </View>
-                  {jobState.progress_note && (
+
+                  {/* Download heartbeat: render the byte bar ONLY when the server
+                      reports bytes (defensive — omitted on servers without it). */}
+                  {jobState.bytes_downloaded != null && (
+                    <View style={styles.downloadProgress} testID="download-progress">
+                      {jobState.bytes_total != null && jobState.bytes_total > 0 && (
+                        <View style={styles.downloadTrack}>
+                          <View
+                            style={[
+                              styles.downloadFill,
+                              {
+                                width: `${Math.min(
+                                  100,
+                                  Math.round(
+                                    (jobState.bytes_downloaded /
+                                      jobState.bytes_total) *
+                                      100,
+                                  ),
+                                )}%`,
+                              },
+                            ]}
+                          />
+                        </View>
+                      )}
+                      <Text style={styles.jobNote} testID="download-progress-text">
+                        {downloadProgressText(
+                          jobState.bytes_downloaded,
+                          jobState.bytes_total,
+                        )}
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* A computed "stalled" is softened to an honest "still working"
+                      note — the job keeps polling and can still complete, so we
+                      never render the server's harsher "stalled…try again" text
+                      here (that only surfaces if the grace window is exhausted,
+                      via the upload-error path). */}
+                  {jobState.status === "stalled" ? (
                     <Text style={styles.jobNote} testID="job-progress-note">
-                      {jobState.progress_note}
+                      Still working — this is taking longer than expected.
                     </Text>
+                  ) : (
+                    jobState.progress_note && (
+                      <Text style={styles.jobNote} testID="job-progress-note">
+                        {jobState.progress_note}
+                      </Text>
+                    )
                   )}
                   {(() => {
                     const eta = estimateRemainingSeconds(
@@ -984,6 +1109,16 @@ const styles = StyleSheet.create({
     color: "#1F2937",
     fontWeight: "600",
   },
+  titleInput: {
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 8,
+    padding: 10,
+    fontSize: 14,
+    color: "#1F2937",
+    backgroundColor: "#FFFFFF",
+    marginTop: 10,
+  },
   recordingContextInput: {
     borderWidth: 1,
     borderColor: "#D1D5DB",
@@ -1052,6 +1187,21 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
     color: "#1F2937",
+  },
+  downloadProgress: {
+    gap: 6,
+  },
+  downloadTrack: {
+    width: "100%",
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#E5E7EB",
+    overflow: "hidden",
+  },
+  downloadFill: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#4A90D9",
   },
   jobNote: {
     fontSize: 13,
