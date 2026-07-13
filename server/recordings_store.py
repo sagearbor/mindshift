@@ -177,6 +177,7 @@ class RecordingsStore:
         analysis: dict,
         source: dict | None = None,
         title: str | None = None,
+        storage_note: str | None = None,
     ) -> str:
         """Persist one recording's DERIVATIVES (never the original bytes) + meta
         + turns + analysis and return its new uuid4 id.
@@ -207,6 +208,11 @@ class RecordingsStore:
             "duration_seconds": duration_seconds,
             "size_bytes": stored_bytes,
             "stored_variants": stored_variants,
+            # Honest reason a derivative is absent (e.g. the video transcode timed
+            # out, so only audio.m4a was stored). Carried in meta so the LIST view
+            # — which reads meta.json alone — can explain a video link that landed
+            # as an audio-only recording, instead of silently dropping the video.
+            "storage_note": storage_note,
             "original_bytes": original_bytes,
             "original_filename": original_filename,
             "original_content_type": original_content_type,

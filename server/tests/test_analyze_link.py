@@ -427,7 +427,7 @@ class _LinkFakeStore:
     async def save_recording(
         self, uid, *, audio_m4a, video_360p, original_filename,
         original_content_type, original_bytes, duration_seconds, turns,
-        analysis, source=None, title=None,
+        analysis, source=None, title=None, storage_note=None,
     ):
         import uuid
         from datetime import datetime, timezone
@@ -438,13 +438,15 @@ class _LinkFakeStore:
             "filename": original_filename or "recording",
             "media_type": "video" if video_360p is not None else "audio",
             "duration_seconds": duration_seconds,
+            "storage_note": storage_note,
             "source": source,
         }
         self._by_uid.setdefault(uid, {})[rid] = {
             "meta": meta, "turns": turns, "analysis": analysis,
         }
         self.save_calls.append({"uid": uid, "recording_id": rid,
-                                "audio_m4a": audio_m4a, "source": source})
+                                "audio_m4a": audio_m4a, "video_360p": video_360p,
+                                "storage_note": storage_note, "source": source})
         return rid
 
     async def get_recording(self, uid, recording_id):
@@ -579,3 +581,125 @@ async def test_analyze_link_requires_auth_401(client, monkeypatch):
         "/analyze/link", json={"url": "https://example.com/clip.wav"},
     )
     assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Regression: link-path VIDEO restores the 360p derivative + never-silent notes
+# (bug: a 116MB HEVC video link stored audio-only with NO storage_note — the
+# missing video replay was dropped silently). Covers, in order:
+#   1. build_derivatives receives the ORIGINAL video bytes (not the downmix)
+#      and stores video_360p, while Deepgram transcription is fed independently.
+#   2. A silent skip (probe misses the video stream) still writes an honest note
+#      that reaches meta.json — the LIST view can explain the absent video.
+# ---------------------------------------------------------------------------
+
+# A stand-in for the downloaded video: distinct from the m4a derivative so we can
+# prove build_derivatives is handed the ORIGINAL bytes, not a downmix.
+FAKE_VIDEO_BYTES = b"FAKE-ORIGINAL-VIDEO-CONTAINER-BYTES-" * 100
+
+
+@pytest.mark.anyio
+async def test_analyze_link_video_stores_360p_from_original_bytes(client, monkeypatch):
+    """A video link stores a video_360p derivative, and build_derivatives is
+    handed the ORIGINAL downloaded video (with expect_video=True) — the 16 kHz
+    mono downmix for Deepgram is built INSIDE transcribe_prerecorded and never
+    reaches the derivative builder."""
+    seen: dict = {}
+
+    def _fake_build(data, *, expect_video=False, **kw):
+        seen["build_data"] = data
+        seen["expect_video"] = expect_video
+        return audio_ingest.Derivatives(
+            audio_m4a=FAKE_AUDIO_M4A, video_360p=b"FAKE-360P-CLIP",
+            has_video=True, video_note=None,
+        )
+
+    def _fake_transcribe(data, content_type):
+        seen["transcribe_data"] = data
+        seen["transcribe_ct"] = content_type
+        return MOCK_TURNS
+
+    fake = _LinkFakeStore()
+    app.state.recordings_store = fake
+    try:
+        monkeypatch.setattr(main, "build_derivatives", _fake_build)
+        with patch("main.link_fetch.fetch_link",
+                   return_value=(FAKE_VIDEO_BYTES, "photos_share.mp4", "video/mp4")), \
+             patch("main.transcribe_prerecorded", _fake_transcribe), \
+             patch("main.get_llm_client",
+                   return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))):
+            resp = await client.post(
+                "/analyze/link",
+                json={"url": "https://photos.app.goo.gl/xyz", "consent": True,
+                      "store": True},
+                headers={"X-Test-Uid": "test-user"},
+            )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["stored"] is True
+        assert data["storage_note"] is None  # video succeeded → no note
+        # build_derivatives got the ORIGINAL video bytes and knew to expect video.
+        assert seen["build_data"] == FAKE_VIDEO_BYTES
+        assert seen["expect_video"] is True
+        # Transcription is fed the ORIGINAL container too (it downmixes internally).
+        assert seen["transcribe_data"] == FAKE_VIDEO_BYTES
+        # The 360p clip was persisted and the recording reads back as video.
+        call = fake.save_calls[0]
+        assert call["video_360p"] == b"FAKE-360P-CLIP"
+        assert call["storage_note"] is None
+        rid = data["recording_id"]
+        detail = await client.get(
+            f"/recordings/{rid}", headers={"X-Test-Uid": "test-user"},
+        )
+        assert detail.json()["media_type"] == "video"
+    finally:
+        del app.state.recordings_store
+
+
+@pytest.mark.anyio
+async def test_analyze_link_silent_video_skip_writes_note_to_meta(client, monkeypatch):
+    """When a video yields no 360p clip (transcode timeout / probe miss), the
+    honest storage_note is persisted to meta.json — so the LIST view (meta only)
+    can explain the audio-only degrade instead of dropping it silently."""
+    note = "video replay unavailable: transcode timed out"
+
+    def _fake_build(data, *, expect_video=False, **kw):
+        # Simulate build_derivatives' degrade: audio stored, no video, honest note.
+        return audio_ingest.Derivatives(
+            audio_m4a=FAKE_AUDIO_M4A, video_360p=None,
+            has_video=True, video_note=note,
+        )
+
+    fake = _LinkFakeStore()
+    app.state.recordings_store = fake
+    try:
+        monkeypatch.setattr(main, "build_derivatives", _fake_build)
+        with patch("main.link_fetch.fetch_link",
+                   return_value=(FAKE_VIDEO_BYTES, "photos_share.mp4", "video/mp4")), \
+             patch("main.transcribe_prerecorded", return_value=MOCK_TURNS), \
+             patch("main.get_llm_client",
+                   return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))):
+            resp = await client.post(
+                "/analyze/link",
+                json={"url": "https://photos.app.goo.gl/xyz", "consent": True,
+                      "store": True},
+                headers={"X-Test-Uid": "test-user"},
+            )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["stored"] is True
+        assert data["storage_note"] == note
+        # The note reached the store (and thus meta.json), not just analysis.json.
+        assert fake.save_calls[0]["storage_note"] == note
+        assert fake.save_calls[0]["video_360p"] is None
+        rid = data["recording_id"]
+        detail = await client.get(
+            f"/recordings/{rid}", headers={"X-Test-Uid": "test-user"},
+        )
+        # meta.json (merged into detail) carries the note — an honest audio-only record.
+        assert detail.json()["storage_note"] == note
+        assert detail.json()["media_type"] == "audio"
+    finally:
+        del app.state.recordings_store

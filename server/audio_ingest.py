@@ -223,6 +223,7 @@ def _transcode(exe: str, in_path: str, out_args: list[str], suffix: str,
 
 def build_derivatives(
     data: bytes, *, timeout: int = DERIVATIVE_TIMEOUT_S,
+    expect_video: bool = False,
 ) -> Derivatives:
     """Build the compressed storage derivatives for a recording's raw bytes.
 
@@ -231,6 +232,15 @@ def build_derivatives(
     with a note on transcode failure/timeout). The input is written to ONE temp
     file that the probe + both transcodes share. This is blocking (subprocess +
     file I/O) — the caller runs it in a worker thread.
+
+    ``expect_video`` is the caller's out-of-band signal (from the upload's
+    content-type / filename) that the input SHOULD carry video. It guarantees the
+    honesty invariant: when a video was expected but no ``video_360p`` clip is
+    produced, ``video_note`` is ALWAYS non-None — so a missing video replay can
+    never be dropped silently. This closes the gap where :func:`_probe_has_video`
+    fails to recognise an exotic container's video stream (e.g. a 10-bit HDR HEVC
+    phone video) and returns False, which would otherwise skip the video branch
+    with no note at all.
     """
     exe = _ffmpeg_exe()
     fd, in_path = tempfile.mkstemp(suffix=".src")
@@ -250,8 +260,17 @@ def build_derivatives(
             except TranscodeError as exc:
                 video = None
                 note = f"video replay unavailable: {exc}"
+        # Honesty invariant: a video was expected but we produced no clip AND no
+        # explanation. This is the silent-skip path (probe missed the stream) —
+        # attach an honest note so the recording's meta can always say WHY the
+        # video replay is absent.
+        if video is None and note is None and expect_video:
+            note = (
+                "video replay unavailable: no decodable video stream was found"
+            )
         return Derivatives(
-            audio_m4a=audio, video_360p=video, has_video=has_video,
+            audio_m4a=audio, video_360p=video,
+            has_video=has_video or expect_video,
             video_note=note,
         )
     finally:

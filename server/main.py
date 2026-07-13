@@ -2023,8 +2023,17 @@ async def _analyze_recording_bytes(
         # derivative means there is nothing useful to store → honest stored=false;
         # a failed VIDEO derivative degrades to audio-only with a note (replay of
         # the audio still works).
+        # Whether this recording SHOULD carry video, from its content-type /
+        # filename. build_derivatives receives the ORIGINAL downloaded bytes (the
+        # full video) — the 16 kHz mono downmix is built independently inside
+        # transcribe_prerecorded and never reaches here. expect_video makes the
+        # "missing video with no note" path impossible: a video input that yields
+        # no clip ALWAYS comes back with an honest video_note.
+        expect_video = _looks_like_video(content_type, filename)
         try:
-            derivatives = await asyncio.to_thread(build_derivatives, data)
+            derivatives = await asyncio.to_thread(
+                build_derivatives, data, expect_video=expect_video,
+            )
         except Exception as exc:  # noqa: BLE001 — persistence must not fail analysis
             logger.warning("Derivative transcode failed for uid=%s: %s", uid, exc)
             response.storage_note = f"storage failed: {type(exc).__name__}"
@@ -2061,6 +2070,7 @@ async def _analyze_recording_bytes(
                     analysis=analysis_json,
                     source=source,
                     title=title,
+                    storage_note=response.storage_note,
                 )
                 response.recording_id = recording_id
             except Exception as exc:  # noqa: BLE001 — persistence must not fail analysis
@@ -2071,6 +2081,28 @@ async def _analyze_recording_bytes(
                 response.storage_note = f"storage failed: {type(exc).__name__}"
 
     return response
+
+
+# Container extensions that carry video (used only as a fallback when the
+# content-type is generic, e.g. a Google-Photos download served as
+# application/octet-stream). Not exhaustive — the probe inside build_derivatives
+# is the real detector; this only decides whether an ABSENT video deserves a note.
+_VIDEO_EXTS = frozenset({
+    ".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".hevc", ".3gp", ".mpg",
+    ".mpeg", ".mts", ".m2ts",
+})
+
+
+def _looks_like_video(content_type: str | None, filename: str | None) -> bool:
+    """True when the input SHOULD carry video, by content-type or filename.
+
+    Drives ``build_derivatives(expect_video=...)`` so a video recording that
+    yields no 360p clip is always accompanied by an honest storage note, never a
+    silent audio-only drop."""
+    if (content_type or "").strip().lower().startswith("video/"):
+        return True
+    ext = os.path.splitext((filename or "").lower())[1]
+    return ext in _VIDEO_EXTS
 
 
 def _parse_bool_form(value: str) -> bool:
@@ -2335,6 +2367,10 @@ async def list_recordings(uid: str = Depends(get_current_uid)):
                 "media_type": m["media_type"],
                 "duration_seconds": m.get("duration_seconds"),
                 "has_analysis": m.get("has_analysis", False),
+                # Honest reason a derivative is absent (e.g. video transcode timed
+                # out → audio-only). Surfaced in the LIST so a video link that
+                # landed as audio is explained here, not silently dropped.
+                "storage_note": m.get("storage_note"),
                 # List carries only the source TYPE (upload/link); the full
                 # source object (incl. the durable url) is on the detail read.
                 "source_type": (m.get("source") or {}).get("type"),
@@ -2363,6 +2399,8 @@ async def get_recording(
         "title": rec.get("title") or rec["filename"],
         "media_type": rec["media_type"],
         "duration_seconds": rec.get("duration_seconds"),
+        # Honest reason a derivative is absent (e.g. video transcode timed out).
+        "storage_note": rec.get("storage_note"),
         "turns": rec.get("turns", []),
         "analysis": rec.get("analysis"),
         # Provenance verbatim (type/url/original_filename) so a future replay
