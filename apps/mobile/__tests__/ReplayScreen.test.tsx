@@ -6,6 +6,7 @@ import {
   getRecordingMediaUrl,
   getRecordingSourceUrl,
   patchRecordingSource,
+  patchRecordingTitle,
 } from "../src/api/client";
 import type { RecordingDetail } from "../src/api/client";
 import { setPlaybackMode } from "../src/utils/audioMode";
@@ -16,11 +17,13 @@ jest.mock("../src/api/client", () => ({
   getRecordingMediaUrl: jest.fn(),
   getRecordingSourceUrl: jest.fn(),
   patchRecordingSource: jest.fn(),
+  patchRecordingTitle: jest.fn(),
 }));
 const mockGetRecording = getRecording as jest.Mock;
 const mockGetMediaUrl = getRecordingMediaUrl as jest.Mock;
 const mockGetSourceUrl = getRecordingSourceUrl as jest.Mock;
 const mockPatchSource = patchRecordingSource as jest.Mock;
+const mockPatchTitle = patchRecordingTitle as jest.Mock;
 
 // Mock the audio-session util: ReplayScreen sets a playback mode on mount so
 // replay is audible even after Live Coach's recording session. We assert the
@@ -98,6 +101,7 @@ beforeEach(() => {
   mockGetMediaUrl.mockReset();
   mockGetSourceUrl.mockReset();
   mockPatchSource.mockReset();
+  mockPatchTitle.mockReset();
   mockSeek.mockReset();
   mockSetPlaybackMode.mockClear();
   mockPlayerProps.uri = undefined;
@@ -105,8 +109,16 @@ beforeEach(() => {
   mockPlayerProps.onDurationChange = undefined;
 });
 
-// A link-sourced recording: the user linked their own hosted original.
+// A link-sourced recording: the user linked their own hosted original. Uses a
+// DIRECT/Drive-style link (not Google Photos) so the Try-HD opt-in is offered —
+// Photos links are the one case where HD is impossible (see the dedicated test).
 const linkDetail = {
+  ...detail,
+  source: { type: "link", url: "https://drive.google.com/file/d/abc/view" },
+};
+// A Google-Photos-sourced recording: HD replay is impossible (moov-at-end, no
+// Range), so Try-HD must be suppressed in favor of an honest note.
+const photosDetail = {
   ...detail,
   source: { type: "link", url: "https://photos.app.goo.gl/abc" },
 };
@@ -523,7 +535,7 @@ describe("ReplayScreen", () => {
       expect(queryId(comp, "attach-source-input")).toBeTruthy();
       act(() =>
         queryId(comp, "attach-source-input")!.props.onChangeText(
-          "https://photos.app.goo.gl/abc",
+          "https://drive.google.com/file/d/abc/view",
         ),
       );
 
@@ -531,7 +543,7 @@ describe("ReplayScreen", () => {
       // stays on the reliable derivative; the Try-HD opt-in now appears.
       mockPatchSource.mockResolvedValueOnce({
         type: "link",
-        url: "https://photos.app.goo.gl/abc",
+        url: "https://drive.google.com/file/d/abc/view",
         original_filename: "kitchen-fight.m4a",
       });
       mockGetRecording.mockResolvedValueOnce(linkDetail);
@@ -547,7 +559,7 @@ describe("ReplayScreen", () => {
 
       expect(mockPatchSource).toHaveBeenCalledWith(
         "r1",
-        "https://photos.app.goo.gl/abc",
+        "https://drive.google.com/file/d/abc/view",
       );
       // Refetched, still derivative-first (no auto HD fetch), Try-HD now offered.
       expect(mockGetSourceUrl).not.toHaveBeenCalled();
@@ -620,6 +632,96 @@ describe("ReplayScreen", () => {
       expect(queryId(comp, "attach-source-button")).toBeNull();
       act(() => queryId(comp, "replace-source-button")!.props.onPress());
       expect(queryId(comp, "attach-source-input")).toBeTruthy();
+      act(() => comp.unmount());
+    });
+  });
+
+  describe("Google Photos source (HD impossible)", () => {
+    it("suppresses Try-HD and shows an honest note for a Google Photos link", async () => {
+      mockGetRecording.mockResolvedValueOnce(photosDetail);
+      mockGetMediaUrl.mockResolvedValueOnce({
+        url: "https://signed.example/deriv",
+        expires_in: 600,
+      });
+
+      let comp!: renderer.ReactTestRenderer;
+      await act(async () => {
+        comp = renderer.create(<ReplayScreen recordingId="r1" onBack={() => {}} />);
+      });
+      await act(async () => {});
+
+      // The stored derivative plays; Try-HD is NOT offered (Photos =dv can never
+      // stream), replaced by an honest note. The HD source is never fetched.
+      expect(mockPlayerProps.uri).toBe("https://signed.example/deriv");
+      expect(queryId(comp, "try-hd-button")).toBeNull();
+      expect(queryId(comp, "photos-hd-note")).toBeTruthy();
+      expect(mockGetSourceUrl).not.toHaveBeenCalled();
+      expect(JSON.stringify(comp.toJSON())).toContain("Google Photos");
+      act(() => comp.unmount());
+    });
+  });
+
+  describe("rename in place", () => {
+    it("renames the recording via PATCH and shows the new title", async () => {
+      mockGetRecording.mockResolvedValueOnce(detail);
+      mockGetMediaUrl.mockResolvedValueOnce({ url: "https://signed/x", expires_in: 600 });
+
+      let comp!: renderer.ReactTestRenderer;
+      await act(async () => {
+        comp = renderer.create(<ReplayScreen recordingId="r1" onBack={() => {}} />);
+      });
+      await act(async () => {});
+
+      // Tap the title → edit mode; type a new name.
+      act(() => queryId(comp, "replay-title")!.props.onPress());
+      expect(queryId(comp, "rename-input")).toBeTruthy();
+      act(() =>
+        queryId(comp, "rename-input")!.props.onChangeText("Sunday budget talk"),
+      );
+
+      mockPatchTitle.mockResolvedValueOnce({ id: "r1", title: "Sunday budget talk" });
+      await act(async () => {
+        queryId(comp, "rename-save")!.props.onPress();
+      });
+      await act(async () => {});
+
+      expect(mockPatchTitle).toHaveBeenCalledWith("r1", "Sunday budget talk");
+      // Optimistic rename applied; editor closed; no honest-error note.
+      expect(JSON.stringify(comp.toJSON())).toContain("Sunday budget talk");
+      expect(queryId(comp, "rename-input")).toBeNull();
+      expect(queryId(comp, "rename-note")).toBeNull();
+      act(() => comp.unmount());
+    });
+
+    it("keeps the name and shows an honest note when rename isn't supported (4xx)", async () => {
+      mockGetRecording.mockResolvedValueOnce(detail);
+      mockGetMediaUrl.mockResolvedValueOnce({ url: "https://signed/x", expires_in: 600 });
+
+      let comp!: renderer.ReactTestRenderer;
+      await act(async () => {
+        comp = renderer.create(<ReplayScreen recordingId="r1" onBack={() => {}} />);
+      });
+      await act(async () => {});
+
+      act(() => queryId(comp, "replay-title")!.props.onPress());
+      act(() =>
+        queryId(comp, "rename-input")!.props.onChangeText("New name"),
+      );
+
+      // Backend has no title field/route yet → 405. Name unchanged, honest note.
+      mockPatchTitle.mockRejectedValueOnce(
+        Object.assign(new Error("API error: 405"), { status: 405 }),
+      );
+      await act(async () => {
+        queryId(comp, "rename-save")!.props.onPress();
+      });
+      await act(async () => {});
+
+      const note = queryId(comp, "rename-note");
+      expect(note).toBeTruthy();
+      expect(JSON.stringify(comp.toJSON())).toContain("isn’t supported yet");
+      // The original filename still shows — nothing was fabricated.
+      expect(JSON.stringify(comp.toJSON())).toContain("kitchen-fight.m4a");
       act(() => comp.unmount());
     });
   });

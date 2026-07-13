@@ -3,6 +3,32 @@
 // though the work itself is fast. Give every test more headroom.
 jest.setTimeout(30000);
 
+// Mock react-native-safe-area-context for tests. The redesign wraps the app in
+// a SafeAreaProvider + SafeAreaView so screen headers clear the Android status
+// bar; under react-test-renderer there's no native module, so we passthrough the
+// provider/view as plain Views and report zero insets deterministically.
+jest.mock("react-native-safe-area-context", () => {
+  const React = require("react");
+  const { View } = require("react-native");
+  const insets = { top: 0, right: 0, bottom: 0, left: 0 };
+  const frame = { x: 0, y: 0, width: 320, height: 640 };
+  const SafeAreaInsetsContext = React.createContext(insets);
+  const SafeAreaFrameContext = React.createContext(frame);
+  const passthrough = (props: Record<string, unknown>) =>
+    React.createElement(View, props, props.children as React.ReactNode);
+  return {
+    __esModule: true,
+    SafeAreaProvider: passthrough,
+    SafeAreaView: passthrough,
+    SafeAreaInsetsContext,
+    SafeAreaFrameContext,
+    SafeAreaConsumer: SafeAreaInsetsContext.Consumer,
+    useSafeAreaInsets: () => insets,
+    useSafeAreaFrame: () => frame,
+    initialWindowMetrics: { insets, frame },
+  };
+});
+
 // Mock @react-native-community/slider for tests
 jest.mock("@react-native-community/slider", () => {
   const React = require("react");

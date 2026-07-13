@@ -191,10 +191,17 @@ export type UploadAnalyzeResult = AnalyzeResult & {
 
 /** Consent/storage choices for a recording upload. `consent` defaults to
  *  false (nothing is stored without it); `store` defaults to true (storage is
- *  attempted whenever consent is given, unless the caller opts out). */
+ *  attempted whenever consent is given, unless the caller opts out).
+ *
+ *  `title` is an OPTIONAL human name for the conversation ("Sunday budget
+ *  talk"). It's forwarded to the server so a stored recording can be titled
+ *  instead of showing the raw upload filename ("photos_share.mp4"). Servers that
+ *  don't yet support titling simply ignore the extra field (no schema is
+ *  `extra="forbid"`), so sending it is forward-compatible and harmless. */
 export interface UploadAnalyzeOptions {
   consent?: boolean;
   store?: boolean;
+  title?: string;
 }
 
 /**
@@ -244,6 +251,11 @@ export async function postAnalyzeUpload(
   if (context !== undefined) {
     form.append("context", context);
   }
+  // Optional human title for the stored recording — ignored by servers that
+  // don't support it yet (extra form fields are dropped, not rejected).
+  if (options?.title !== undefined && options.title !== "") {
+    form.append("title", options.title);
+  }
   const consent = options?.consent ?? false;
   const store = options?.store ?? true;
   form.append("consent", consent ? "true" : "false");
@@ -282,6 +294,9 @@ export interface ChunkedUploadOptions {
   consent: boolean;
   store: boolean;
   context?: string;
+  // Optional human title for the stored recording (see UploadAnalyzeOptions.title);
+  // ignored by servers that don't support titling yet.
+  title?: string;
   onProgress?: (fraction: number) => void;
 }
 
@@ -399,6 +414,9 @@ async function uploadFileInChunks(
   };
   if (opts.context !== undefined) {
     startBody.context = opts.context;
+  }
+  if (opts.title !== undefined && opts.title !== "") {
+    startBody.title = opts.title;
   }
   const startRes = await fetch(`${API_URL}/uploads/start`, {
     method: "POST",
@@ -534,6 +552,9 @@ export interface AnalyzeLinkOptions {
   consent: boolean;
   store: boolean;
   context?: string;
+  // Optional human title for the stored recording (see UploadAnalyzeOptions.title);
+  // ignored by servers that don't support titling yet.
+  title?: string;
 }
 
 /**
@@ -560,6 +581,9 @@ export async function postAnalyzeLink(
   };
   if (options.context !== undefined) {
     body.context = options.context;
+  }
+  if (options.title !== undefined && options.title !== "") {
+    body.title = options.title;
   }
 
   const res = await fetch(`${API_URL}/analyze/link`, {
@@ -630,6 +654,12 @@ export interface AnalyzeJobState {
   // Known once the recording has been decoded/transcribed; drives the client
   // ETA. Null until then.
   duration_seconds: number | null;
+  // Download heartbeat for the `downloading` stage: bytes fetched so far and the
+  // total when the source advertised a Content-Length. Both OPTIONAL — a server
+  // without download heartbeats omits them entirely, so the client must render
+  // defensively (absent ⇒ no byte bar). Never a fabricated percentage.
+  bytes_downloaded?: number | null;
+  bytes_total?: number | null;
   // Honest failure detail — the SAME message the synchronous path would 4xx/5xx
   // with. Null unless `status === "failed"`.
   error: string | null;
@@ -655,6 +685,9 @@ export async function postAnalyzeLinkJob(
   };
   if (options.context !== undefined) {
     body.context = options.context;
+  }
+  if (options.title !== undefined && options.title !== "") {
+    body.title = options.title;
   }
   const res = await fetch(`${API_URL}/analyze/link/jobs`, {
     method: "POST",
@@ -830,6 +863,10 @@ export interface RecordingSummary {
   id: string;
   created_at: string; // ISO-8601 timestamp
   filename: string;
+  // Optional human title the user gave the conversation (e.g. via the Analyze
+  // "Name this conversation" field or an in-place rename). Absent on servers
+  // that don't support titling yet — the UI falls back to `filename`.
+  title?: string | null;
   media_type: MediaType;
   // Null when the server couldn't determine a duration (decode degraded and
   // the transcript carried no end time) — type matches the wire honestly.
@@ -1033,6 +1070,44 @@ export async function patchRecordingSource(
     throw err;
   }
   return (await res.json()) as PatchSourceResult;
+}
+
+/** Result of PATCH /recordings/{id} with a `{ title }` body — the recording's
+ *  new human name. */
+export interface PatchTitleResult {
+  id: string;
+  title: string;
+}
+
+/**
+ * PATCH /recordings/{id} — rename a stored recording (body `{ title }`), so
+ * replay/list show the user's name instead of the raw upload filename.
+ *
+ * CAPABILITY-GATED: as of this writing the backend has no title field or this
+ * route (the recordings path only supports GET/DELETE + PATCH …/source), so the
+ * server answers 4xx (typically 405/404). The caller MUST catch that and show an
+ * honest "renaming isn't supported yet" message rather than pretend it worked —
+ * the thrown Error carries `.status` so the caller can tell an unsupported route
+ * (4xx) from a transient failure (5xx/network). Once the backend adds the field
+ * this call starts succeeding with no client change.
+ */
+export async function patchRecordingTitle(
+  id: string,
+  title: string,
+): Promise<PatchTitleResult> {
+  const res = await fetch(`${API_URL}/recordings/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: await authHeaders(),
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) {
+    const err = new Error(`API error: ${res.status}`) as Error & {
+      status?: number;
+    };
+    err.status = res.status;
+    throw err;
+  }
+  return (await res.json()) as PatchTitleResult;
 }
 
 /**

@@ -938,4 +938,168 @@ describe("AnalyzeScreen", () => {
       }
     });
   });
+
+  describe("naming a conversation", () => {
+    it("sends the typed title with a direct upload", async () => {
+      mockPick.mockResolvedValueOnce({
+        canceled: false,
+        assets: [
+          { uri: "file:///rec.m4a", name: "rec.m4a", size: 2048, mimeType: "audio/m4a" },
+        ],
+      });
+      mockUpload.mockResolvedValueOnce(uploadFixture);
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<AnalyzeScreen />);
+      });
+      await act(async () => {
+        queryId(comp, "pick-recording-button")!.props.onPress();
+      });
+      // The "Name this conversation" field sits by the context box.
+      act(() =>
+        queryId(comp, "conversation-title-input")!.props.onChangeText(
+          "Sunday budget talk",
+        ),
+      );
+      await act(async () => {
+        queryId(comp, "upload-analyze-button")!.props.onPress();
+      });
+
+      expect(mockUpload).toHaveBeenCalledWith(
+        "file:///rec.m4a",
+        "rec.m4a",
+        "audio/m4a",
+        undefined,
+        expect.objectContaining({ title: "Sunday budget talk" }),
+      );
+      act(() => comp.unmount());
+    });
+
+    it("sends the typed title with a link analysis", async () => {
+      mockLinkJob.mockResolvedValueOnce({ job_id: "job_t" });
+      mockGetJob.mockResolvedValueOnce(doneJob(uploadFixture));
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<AnalyzeScreen />);
+      });
+      act(() => queryId(comp, "mode-link-tab")!.props.onPress());
+      act(() =>
+        queryId(comp, "link-input")!.props.onChangeText(
+          "https://example.com/clip.mp4",
+        ),
+      );
+      act(() =>
+        queryId(comp, "conversation-title-input")!.props.onChangeText(
+          "Mediation session 3",
+        ),
+      );
+      await act(async () => {
+        queryId(comp, "analyze-link-button")!.props.onPress();
+      });
+
+      expect(mockLinkJob).toHaveBeenCalledWith(
+        "https://example.com/clip.mp4",
+        expect.objectContaining({ title: "Mediation session 3" }),
+      );
+      act(() => comp.unmount());
+    });
+  });
+
+  describe("download progress + honest stall UX (Bug D)", () => {
+    it("renders the download byte-progress bar when the server reports bytes", async () => {
+      jest.useFakeTimers();
+      try {
+        mockLinkJob.mockResolvedValueOnce({ job_id: "job_dl" });
+        mockGetJob.mockResolvedValue({
+          job_id: "job_dl",
+          status: "downloading",
+          created_at: "2026-07-12T00:00:00Z",
+          updated_at: "2026-07-12T00:00:02Z",
+          stage_started_at: "2026-07-12T00:00:02Z",
+          progress_note: "fetching video",
+          duration_seconds: null,
+          bytes_downloaded: 50 * MB,
+          bytes_total: 116 * MB,
+          error: null,
+          result: null,
+        } as AnalyzeJobState);
+
+        let comp!: renderer.ReactTestRenderer;
+        act(() => {
+          comp = renderer.create(<AnalyzeScreen />);
+        });
+        act(() => queryId(comp, "mode-link-tab")!.props.onPress());
+        act(() =>
+          queryId(comp, "link-input")!.props.onChangeText(
+            "https://example.com/big.mp4",
+          ),
+        );
+        await act(async () => {
+          queryId(comp, "analyze-link-button")!.props.onPress();
+        });
+
+        expect(queryId(comp, "job-progress")).toBeTruthy();
+        expect(queryId(comp, "download-progress")).toBeTruthy();
+        const json = JSON.stringify(comp.toJSON());
+        expect(json).toContain("Fetching video…");
+        // Honest bytes, never a fabricated percentage-only readout.
+        expect(json).toContain("of");
+        expect(json).toContain("116.0 MB");
+        act(() => comp.unmount());
+      } finally {
+        jest.clearAllTimers();
+        jest.useRealTimers();
+      }
+    });
+
+    it("softens a computed 'stalled' to a still-working note and keeps polling (no error)", async () => {
+      jest.useFakeTimers();
+      try {
+        mockLinkJob.mockResolvedValueOnce({ job_id: "job_stall" });
+        // The server computes 'stalled' with its harsh note — the client must
+        // NOT treat the first stalled poll as failure.
+        mockGetJob.mockResolvedValue({
+          job_id: "job_stall",
+          status: "stalled",
+          created_at: "2026-07-12T00:00:00Z",
+          updated_at: "2026-07-12T00:00:02Z",
+          stage_started_at: "2026-07-12T00:00:02Z",
+          progress_note:
+            "the analysis appears to have stalled — it may have been " +
+            "interrupted; try again",
+          duration_seconds: null,
+          error: null,
+          result: null,
+        } as AnalyzeJobState);
+
+        let comp!: renderer.ReactTestRenderer;
+        act(() => {
+          comp = renderer.create(<AnalyzeScreen />);
+        });
+        act(() => queryId(comp, "mode-link-tab")!.props.onPress());
+        act(() =>
+          queryId(comp, "link-input")!.props.onChangeText(
+            "https://example.com/clip.mp4",
+          ),
+        );
+        await act(async () => {
+          queryId(comp, "analyze-link-button")!.props.onPress();
+        });
+
+        // The job card is still up (polling continues); the note is softened and
+        // the harsh server "stalled…try again" text is NOT shown. No error yet.
+        expect(queryId(comp, "job-progress")).toBeTruthy();
+        expect(queryId(comp, "upload-error")).toBeNull();
+        const json = JSON.stringify(comp.toJSON());
+        expect(json).toContain("Still working");
+        expect(json).not.toContain("appears to have stalled");
+        act(() => comp.unmount());
+      } finally {
+        jest.clearAllTimers();
+        jest.useRealTimers();
+      }
+    });
+  });
 });

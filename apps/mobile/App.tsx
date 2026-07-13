@@ -1,5 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { SafeAreaView, ActivityIndicator, StyleSheet } from "react-native";
+import { ActivityIndicator, StyleSheet } from "react-native";
+// SafeAreaProvider/SafeAreaView come from react-native-safe-area-context (NOT
+// react-native): the RN SafeAreaView is a no-op on Android, so under Expo's
+// edge-to-edge every screen rendered its header UNDER the status bar — which not
+// only looked wrong but ate taps on the top-corner nav buttons (the reported
+// "Home / Recordings buttons do nothing" bug). The context version reads the real
+// Android/iOS insets and pads the content clear of the system bars.
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import HomeScreen from "./src/screens/HomeScreen";
 import AnalyzeScreen from "./src/screens/AnalyzeScreen";
 import AdvancedScreen from "./src/screens/AdvancedScreen";
@@ -103,18 +110,25 @@ export default function App() {
   // surface to show, so we never flash the wrong screen.
   if (initializing) {
     return (
-      <SafeAreaView style={[styles.container, styles.center]} testID="auth-loading">
-        <ActivityIndicator size="large" color="#4A90D9" />
-      </SafeAreaView>
+      <SafeAreaProvider>
+        <SafeAreaView
+          style={[styles.container, styles.center]}
+          testID="auth-loading"
+        >
+          <ActivityIndicator size="large" color="#4A90D9" />
+        </SafeAreaView>
+      </SafeAreaProvider>
     );
   }
 
   // Auth gate: an unauthenticated user only ever sees the login screen.
   if (!user) {
     return (
-      <SafeAreaView style={styles.container}>
-        <LoginScreen />
-      </SafeAreaView>
+      <SafeAreaProvider>
+        <SafeAreaView style={styles.container}>
+          <LoginScreen />
+        </SafeAreaView>
+      </SafeAreaProvider>
     );
   }
 
@@ -280,7 +294,11 @@ export default function App() {
     }
   };
 
-  return <SafeAreaView style={styles.container}>{renderScreen()}</SafeAreaView>;
+  return (
+    <SafeAreaProvider>
+      <SafeAreaView style={styles.container}>{renderScreen()}</SafeAreaView>
+    </SafeAreaProvider>
+  );
 }
 
 const styles = StyleSheet.create({

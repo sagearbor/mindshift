@@ -160,7 +160,7 @@ export default function RecordingsScreen({
                 </Text>
                 <View style={styles.cardBody}>
                   <Text style={styles.filename} numberOfLines={1}>
-                    {rec.filename}
+                    {rec.title || rec.filename}
                   </Text>
                   <Text style={styles.meta}>
                     {new Date(rec.created_at).toLocaleDateString()}

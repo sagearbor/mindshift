@@ -13,6 +13,7 @@ import {
   getRecordingMediaUrl,
   getRecordingSourceUrl,
   patchRecordingSource,
+  patchRecordingTitle,
 } from "../api/client";
 import type { RecordingDetail } from "../api/client";
 import HeatChart from "../components/HeatChart";
@@ -36,6 +37,27 @@ interface ReplayScreenProps {
   /** Open the attach-HD-source input immediately on mount (from the Dynamics
    *  "Attach link now" popup). Otherwise the affordance starts collapsed. */
   initialAttachOpen?: boolean;
+}
+
+/** True when a source URL is a Google Photos share link. The Photos `=dv` HD
+ *  stream is moov-at-end with NO HTTP Range support, so ExoPlayer can never play
+ *  it (device-proven: buffers forever at 0:00, watchdog reverts). For these we
+ *  suppress the "Try HD" offer entirely and show an honest note instead — HD
+ *  replay is genuinely impossible from a Photos link. Other link types (direct
+ *  file, Drive) may stream fine, so they keep the Try-HD affordance. */
+function isGooglePhotosUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  const u = url.toLowerCase();
+  return u.includes("photos.app.goo.gl") || u.includes("photos.google.com");
+}
+
+/** Read the HTTP status off a client error (the `.status` the client attaches,
+ *  else parsed from the `API error: <status>` message). */
+function statusOf(err: unknown): number {
+  const withStatus = err as { status?: number };
+  if (typeof withStatus?.status === "number") return withStatus.status;
+  const msg = err instanceof Error ? err.message : "";
+  return Number(msg.match(/API error: (\d+)/)?.[1] ?? 0);
 }
 
 /** Turn a client error into an honest, human message. The pinned contract uses
@@ -103,6 +125,17 @@ export default function ReplayScreen({
   const [attachUrl, setAttachUrl] = useState("");
   const [attaching, setAttaching] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
+
+  // --- Rename (tap the title to edit) ---
+  // `renamedTitle` is a local override applied optimistically on a successful
+  // PATCH; `renameNote` carries an honest status line (e.g. the capability-gated
+  // "not supported yet" when the backend has no title field). Nothing is
+  // fabricated — a failed rename never changes the displayed name.
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [savingTitle, setSavingTitle] = useState(false);
+  const [renamedTitle, setRenamedTitle] = useState<string | null>(null);
+  const [renameNote, setRenameNote] = useState<string | null>(null);
 
   const playerRef = useRef<MediaPlayerHandle>(null);
 
@@ -285,6 +318,47 @@ export default function ReplayScreen({
     }
   }, [attachUrl, attaching, recordingId, load]);
 
+  // The name shown in the header: a just-applied rename wins, then any
+  // server-provided title, then the raw filename.
+  const currentTitle =
+    renamedTitle ?? detail?.title ?? detail?.filename ?? "Replay";
+
+  const openRename = useCallback(() => {
+    setTitleDraft(currentTitle === "Replay" ? "" : currentTitle);
+    setRenameNote(null);
+    setEditingTitle(true);
+  }, [currentTitle]);
+
+  // Attempt the rename. The backend may not support titling yet (no field / no
+  // PATCH /recordings/{id} route → a 4xx): in that case we DON'T change the name
+  // and show an honest "not supported yet" note rather than pretend it worked. A
+  // transient 5xx/network failure gets a distinct "try again" note.
+  const handleRenameSubmit = useCallback(async () => {
+    const next = titleDraft.trim();
+    if (!next || savingTitle) return;
+    setSavingTitle(true);
+    setRenameNote(null);
+    try {
+      await patchRecordingTitle(recordingId, next);
+      if (mountedRef.current) {
+        setRenamedTitle(next);
+        setEditingTitle(false);
+      }
+    } catch (e) {
+      if (mountedRef.current) {
+        const status = statusOf(e);
+        setRenameNote(
+          status >= 400 && status < 500
+            ? "Renaming isn’t supported yet — coming soon."
+            : "Couldn’t rename right now — please try again.",
+        );
+        setEditingTitle(false);
+      }
+    } finally {
+      if (mountedRef.current) setSavingTitle(false);
+    }
+  }, [titleDraft, savingTitle, recordingId]);
+
   const perTurn = detail?.analysis?.per_turn ?? [];
   const turns = detail?.turns ?? [];
   const hasChart = perTurn.length > 0 && turns.length > 0;
@@ -311,11 +385,62 @@ export default function ReplayScreen({
         <TouchableOpacity testID="replay-back" onPress={onBack}>
           <Text style={styles.backText}>‹ Back</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>
-          {detail?.filename ?? "Replay"}
-        </Text>
+        {editingTitle ? (
+          <View style={styles.titleEditRow}>
+            <TextInput
+              testID="rename-input"
+              style={styles.renameInput}
+              value={titleDraft}
+              onChangeText={setTitleDraft}
+              placeholder="Name this conversation"
+              placeholderTextColor="#9CA3AF"
+              autoFocus
+              maxLength={120}
+              editable={!savingTitle}
+              onSubmitEditing={() => void handleRenameSubmit()}
+            />
+            <TouchableOpacity
+              testID="rename-save"
+              onPress={() => void handleRenameSubmit()}
+              disabled={savingTitle || !titleDraft.trim()}
+            >
+              {savingTitle ? (
+                <ActivityIndicator size="small" color={PRIMARY} />
+              ) : (
+                <Text style={styles.renameSave}>Save</Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              testID="rename-cancel"
+              onPress={() => {
+                setEditingTitle(false);
+                setRenameNote(null);
+              }}
+            >
+              <Text style={styles.renameCancel}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity
+            testID="replay-title"
+            style={styles.titleWrap}
+            onPress={openRename}
+            accessibilityRole="button"
+            accessibilityLabel="Rename this recording"
+          >
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              {currentTitle}
+            </Text>
+          </TouchableOpacity>
+        )}
         <View style={styles.headerSpacer} />
       </View>
+
+      {renameNote && (
+        <Text style={styles.renameNote} testID="rename-note">
+          {renameNote}
+        </Text>
+      )}
 
       {loading && (
         <View style={styles.centered} testID="replay-loading">
@@ -443,18 +568,31 @@ export default function ReplayScreen({
           {/* HD is opt-in: the stored copy plays by default (it loads reliably);
               streaming the user's own original is offered only for a linked
               source. Hidden once HD is active (then we show "Back to stored
-              copy" instead). */}
-          {hdAvailable && !hdMode && (
-            <TouchableOpacity
-              testID="try-hd-button"
-              style={styles.tryHdButton}
-              onPress={() => void handleTryHd()}
-            >
-              <Text style={styles.tryHdButtonText}>
-                ▶ Try HD from your linked source
+              copy" instead).
+
+              Google Photos links are the ONE case where HD is impossible: the
+              Photos `=dv` stream is moov-at-end with no Range support, so
+              ExoPlayer buffers forever at 0:00. Offering "Try HD" there was
+              dishonest — replace it with a plain note. Other link types keep the
+              opt-in (they may stream fine; the watchdog stays as a backstop). */}
+          {hdAvailable &&
+            !hdMode &&
+            (isGooglePhotosUrl(detail?.source?.url) ? (
+              <Text style={styles.photosHdNote} testID="photos-hd-note">
+                HD replay isn’t possible from Google Photos links — playing the
+                stored copy.
               </Text>
-            </TouchableOpacity>
-          )}
+            ) : (
+              <TouchableOpacity
+                testID="try-hd-button"
+                style={styles.tryHdButton}
+                onPress={() => void handleTryHd()}
+              >
+                <Text style={styles.tryHdButtonText}>
+                  ▶ Try HD from your linked source
+                </Text>
+              </TouchableOpacity>
+            ))}
 
           {/* Escape hatch: manually return to the stored copy when the HD
               stream misbehaves in ways we can't auto-detect. */}
@@ -562,6 +700,7 @@ const styles = StyleSheet.create({
     borderBottomColor: "#E5E7EB",
   },
   backText: { fontSize: 16, color: PRIMARY, fontWeight: "600", width: 64 },
+  titleWrap: { flex: 1, alignItems: "center" },
   headerTitle: {
     flex: 1,
     textAlign: "center",
@@ -570,6 +709,40 @@ const styles = StyleSheet.create({
     color: INK,
   },
   headerSpacer: { width: 64 },
+  titleEditRow: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  renameInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 15,
+    color: INK,
+    backgroundColor: "#FFFFFF",
+  },
+  renameSave: { fontSize: 15, fontWeight: "700", color: PRIMARY },
+  renameCancel: { fontSize: 15, fontWeight: "600", color: MUTED },
+  renameNote: {
+    fontSize: 12.5,
+    color: MUTED,
+    fontStyle: "italic",
+    textAlign: "center",
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  photosHdNote: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: MUTED,
+    fontStyle: "italic",
+    marginBottom: 10,
+  },
   centered: {
     flex: 1,
     alignItems: "center",

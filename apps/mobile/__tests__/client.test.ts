@@ -15,6 +15,7 @@ import {
   getRecordingMediaUrl,
   getRecordingSourceUrl,
   patchRecordingSource,
+  patchRecordingTitle,
   deleteRecording,
 } from "../src/api/client";
 import {
@@ -339,6 +340,29 @@ describe("postAnalyzeUpload", () => {
     >;
     expect(body.entries.find((e) => e[0] === "consent")?.[1]).toBe("true");
     expect(body.entries.find((e) => e[0] === "store")?.[1]).toBe("true");
+  });
+
+  it("appends an optional title part when provided (dropped when empty)", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => uploadResult });
+    await postAnalyzeUpload("file:///rec.m4a", "rec.m4a", "audio/m4a", undefined, {
+      title: "Sunday budget talk",
+    });
+    const body = mockFetch.mock.calls[0][1].body as InstanceType<
+      typeof RecordingFormData
+    >;
+    expect(body.entries.find((e) => e[0] === "title")?.[1]).toBe(
+      "Sunday budget talk",
+    );
+
+    // Empty title is not sent.
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => uploadResult });
+    await postAnalyzeUpload("file:///rec.m4a", "rec.m4a", "audio/m4a", undefined, {
+      title: "",
+    });
+    const body2 = mockFetch.mock.calls[1][1].body as InstanceType<
+      typeof RecordingFormData
+    >;
+    expect(body2.entries.some((e) => e[0] === "title")).toBe(false);
   });
 
   it("sends store: false when consent is given but storage is declined", async () => {
@@ -828,6 +852,30 @@ describe("patchRecordingSource", () => {
     await expect(patchRecordingSource("r1", "https://x")).rejects.toThrow(
       "API error: 404",
     );
+  });
+});
+
+describe("patchRecordingTitle", () => {
+  it("PATCHes /recordings/{id} with { title } and returns the new title", async () => {
+    const payload = { id: "r1", title: "Sunday budget talk" };
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => payload });
+    const result = await patchRecordingTitle("r 1", "Sunday budget talk");
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toMatch(/\/recordings\/r%201$/);
+    expect(init.method).toBe("PATCH");
+    expect(JSON.parse(init.body)).toEqual({ title: "Sunday budget talk" });
+    expect(result).toEqual(payload);
+  });
+
+  it("throws with .status on a 4xx so callers can gate honestly (unsupported yet)", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 405,
+      json: async () => ({}),
+    });
+    await expect(
+      patchRecordingTitle("r1", "New name"),
+    ).rejects.toMatchObject({ status: 405 });
   });
 });
 
