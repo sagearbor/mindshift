@@ -19,6 +19,7 @@ import type {
 } from "../api/client";
 import HeatChart from "../components/HeatChart";
 import { getSpeakerColor } from "../utils/speakerColors";
+import { speakerLabel, type SpeakerLabels } from "../utils/speakerLabels";
 
 // House colors.
 const PRIMARY = "#4A90D9";
@@ -229,6 +230,10 @@ export default function DynamicsScreen({
   // Speaker whose turn was rewritten — its color accents the "What if" card.
   const pivotSpeaker =
     simData !== null ? analyzedTurns[simData.pivot_index]?.speaker ?? "" : "";
+  // §3 — per-speaker display labels from the analysis (name → deeper/higher
+  // voice → raw id). Absent on old/pre-labels analyses; the speakerLabel helper
+  // then falls back to the raw speaker id, so nothing regresses.
+  const speakerLabels: SpeakerLabels = data?.speaker_labels;
   // The overlay is visible only when we have a sim AND the toggle is on.
   const overlayVisible = simData !== null && showSim;
   // Prosody-unavailable note, present only on results from /analyze/upload.
@@ -286,6 +291,15 @@ export default function DynamicsScreen({
           contentContainerStyle={styles.content}
           testID="dynamics-content"
         >
+          {/* §1 — the conversation's title (user-provided, else the LLM's short
+              auto-title). Shown only when the analysis carries one; old analyses
+              omit it and this simply doesn't render. */}
+          {data.title ? (
+            <Text style={styles.analysisTitle} testID="analysis-title">
+              {data.title}
+            </Text>
+          ) : null}
+
           {/* HD-later suggestion — after analyzing an in-app recording, nudge the
               user to attach a share link once their camera-roll clip backs up to
               the cloud, unlocking HD replay. Dismissible. */}
@@ -338,6 +352,7 @@ export default function DynamicsScreen({
             <HeatChart
               perTurn={data.per_turn}
               turns={analyzedTurns}
+              speakerLabels={speakerLabels}
               // Draw the time axis only when EVERY turn has real timing (a
               // diarized/uploaded conversation). A pasted transcript has none, so
               // we omit turnsTiming and the chart falls back to even spacing —
@@ -379,7 +394,11 @@ export default function DynamicsScreen({
             {overlayVisible && simData && (
               <View style={styles.whatIfCard} testID="what-if-card">
                 <Text style={styles.whatIfCardTitle}>
-                  What if {pivotSpeaker || "this"} had said…
+                  What if{" "}
+                  {pivotSpeaker
+                    ? speakerLabel(pivotSpeaker, speakerLabels)
+                    : "this"}{" "}
+                  had said…
                 </Text>
                 <View
                   style={[
@@ -400,7 +419,12 @@ export default function DynamicsScreen({
           {/* Per-speaker stat cards, shown side by side. Never a winner. */}
           <View style={styles.speakerRow}>
             {Object.entries(data.per_speaker).map(([label, stats]) => (
-              <SpeakerCard key={label} label={label} stats={stats} />
+              <SpeakerCard
+                key={label}
+                label={label}
+                stats={stats}
+                speakerLabels={speakerLabels}
+              />
             ))}
           </View>
 
@@ -413,7 +437,12 @@ export default function DynamicsScreen({
                 <Text style={styles.sectionTitle}>Report cards</Text>
                 <View style={styles.speakerRow}>
                   {Object.entries(data.report_cards).map(([label, card]) => (
-                    <ReportCardView key={label} label={label} card={card} />
+                    <ReportCardView
+                      key={label}
+                      label={label}
+                      card={card}
+                      speakerLabels={speakerLabels}
+                    />
                   ))}
                 </View>
               </View>
@@ -437,7 +466,7 @@ export default function DynamicsScreen({
                 <Text style={styles.subTitle}>Triggers</Text>
                 {data.dynamics.triggers.map((trg, i) => (
                   <Text key={i} style={styles.triggerLine}>
-                    “{trg.phrase}” — {trg.speaker}
+                    “{trg.phrase}” — {speakerLabel(trg.speaker, speakerLabels)}
                     {"  "}
                     {/* The server also emits triggers for COOLING phrases, so
                         heat_delta can be negative — a naive "+{delta}" would
@@ -464,7 +493,9 @@ export default function DynamicsScreen({
                 <Text style={styles.subTitle}>Requests &amp; outcomes</Text>
                 {data.dynamics.requests.map((req, i) => (
                   <View key={i} style={styles.requestRow}>
-                    <Text style={styles.requestWho}>{req.speaker}</Text>
+                    <Text style={styles.requestWho}>
+                      {speakerLabel(req.speaker, speakerLabels)}
+                    </Text>
                     <Text style={styles.requestText}>
                       {req.request}
                       {"  "}
@@ -498,16 +529,20 @@ export default function DynamicsScreen({
 function SpeakerCard({
   label,
   stats,
+  speakerLabels,
 }: {
   label: string;
   stats: AnalyzePerSpeaker;
+  speakerLabels?: SpeakerLabels;
 }) {
   const color = getSpeakerColor(label);
   return (
     <View style={styles.speakerCard} testID={`speaker-card-${label}`}>
       <View style={styles.speakerCardHeader}>
         <View style={[styles.swatch, { backgroundColor: color }]} />
-        <Text style={styles.speakerName}>{label}</Text>
+        <Text style={styles.speakerName}>
+          {speakerLabel(label, speakerLabels)}
+        </Text>
       </View>
 
       <StatLine label="Avg heat" value={String(stats.avg_heat)} />
@@ -542,7 +577,15 @@ function SpeakerCard({
  * shown plainly, big, with no hedging. The speaker's line color accents the
  * card so it ties back to the chart and stat card.
  */
-function ReportCardView({ label, card }: { label: string; card: ReportCard }) {
+function ReportCardView({
+  label,
+  card,
+  speakerLabels,
+}: {
+  label: string;
+  card: ReportCard;
+  speakerLabels?: SpeakerLabels;
+}) {
   const color = getSpeakerColor(label);
   return (
     <View
@@ -551,7 +594,9 @@ function ReportCardView({ label, card }: { label: string; card: ReportCard }) {
     >
       <View style={styles.reportCardHeader}>
         <View style={[styles.swatch, { backgroundColor: color }]} />
-        <Text style={styles.speakerName}>{label}</Text>
+        <Text style={styles.speakerName}>
+          {speakerLabel(label, speakerLabels)}
+        </Text>
       </View>
       <View style={styles.scoreRow}>
         <Text style={[styles.scoreNumber, { color }]}>{card.score}</Text>
@@ -693,6 +738,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: INK,
     marginBottom: 12,
+  },
+  analysisTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: INK,
+    marginBottom: 4,
   },
   speakerRow: {
     flexDirection: "row",

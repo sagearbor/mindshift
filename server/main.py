@@ -251,6 +251,25 @@ ANALYZE_MARKER_VOCAB = frozenset(
 )
 ANALYZE_REQUEST_OUTCOMES = frozenset(("granted", "denied", "deferred", "unclear"))
 
+# §2 speaker display-label ladder — the ordered set of provenance rungs, highest
+# precedence FIRST. name (§2a, high-confidence transcript evidence) beats voice
+# (§2b, relative pitch) beats generic (§2c, the raw speaker id). A concurrent
+# agent adds an "enrolled" rung (a matched enrolled voiceprint) ABOVE "name"; the
+# resolver is deliberately data-driven so that rung slots in without a rewrite.
+LABEL_SOURCE_ENROLLED = "enrolled"
+LABEL_SOURCE_NAME = "name"
+LABEL_SOURCE_VOICE = "voice"
+LABEL_SOURCE_GENERIC = "generic"
+
+# Only a name the LLM inferred with EXACTLY this confidence (from direct
+# transcript evidence — §2a) is applied; medium/low are treated as "no name" and
+# fall through to the voice/generic rungs. Never guess.
+_NAME_CONFIDENCE_APPLIED = "high"
+
+# Display names are capped to the same length as a speaker label (AnalyzeTurn.
+# speaker) so a pathological LLM name can't bloat the stored analysis.json.
+SPEAKER_NAME_MAX = 60
+
 # A 2..10-speaker conversation of 4..400 turns. The per-turn upper bound and the
 # total-transcript char cap are independent belts: 400 * 2000 chars is far more
 # than any single LLM pass should carry, so the total cap (a 413) bites first on
@@ -390,6 +409,18 @@ class ReportCardOut(BaseModel):
     work_on: str
 
 
+class SpeakerLabelOut(BaseModel):
+    # §2 — a human-friendlier display name for one speaker, resolved by the
+    # precedence ladder in :func:`_resolve_speaker_labels`. Keyed (in the parent
+    # map) by the SAME canonical speaker id as per_speaker/report_cards, which
+    # keep keying on the id — this map is purely presentational.
+    display_label: str
+    # Which rung produced display_label: "enrolled" > "name" > "voice" >
+    # "generic" (see LABEL_SOURCE_*). Lets the client — and the future
+    # voice-enrollment work — reason about provenance without re-deriving it.
+    label_source: str
+
+
 class AnalyzeResponse(BaseModel):
     per_turn: list[PerTurnOut]
     per_speaker: dict[str, PerSpeakerOut]
@@ -398,6 +429,15 @@ class AnalyzeResponse(BaseModel):
     # One card per speaker in the request — validated present in the endpoint
     # (a missing speaker is a 502 misalignment, never a fabricated card).
     report_cards: dict[str, ReportCardOut]
+    # §2 — per-speaker display labels (name → deeper/higher voice → generic id),
+    # keyed by the canonical speaker id. Additive + backward-compatible: an old
+    # stored analysis.json omits this map and the client falls back to the raw
+    # id. Empty only on the degenerate path where no speakers resolved.
+    speaker_labels: dict[str, SpeakerLabelOut] = Field(default_factory=dict)
+    # §1 — an LLM-suggested short conversation title, present ONLY when the caller
+    # asked for one (an upload with no user-provided title). None otherwise; the
+    # text /analyze path never requests it, so its response stays unchanged.
+    title: Optional[str] = None
 
 
 # --- POST /analyze/upload — analyze a RECORDING (audio, or a video whose audio
@@ -1479,6 +1519,14 @@ ANALYZE_SYSTEM_PROMPT = (
     "- trigger_phrase: the short phrase within THIS turn most likely to have "
     "provoked the other party, or null if none.\n\n"
     "Then, across the whole conversation, produce:\n"
+    "- speaker_names: for EACH speaker label, infer that speaker's real name "
+    "ONLY from DIRECT evidence in the transcript — being addressed by name "
+    "(\"Joe, listen to me\"), signing off (\"— love, Mia\"), or referring to "
+    "themselves by name. Each entry is keyed by the EXACT speaker label and is "
+    "{name, confidence}, where confidence is exactly one of high, medium, low. "
+    "Use \"high\" ONLY when the transcript names that speaker unmistakably. "
+    "NEVER guess a name from speaking style, topic, tone, gender, or role — when "
+    "there is no direct evidence, return an empty name with confidence low.\n"
     "- requests: the concrete asks each speaker made and how each landed. Each "
     "item is {speaker, request, outcome}, where outcome is exactly one of "
     "granted, denied, deferred, unclear.\n"
@@ -1499,10 +1547,23 @@ ANALYZE_SYSTEM_PROMPT = (
     "one entry per input turn in the SAME order and length, and report_cards "
     "holding one card per distinct speaker:\n"
     '{"per_turn": [{"heat": 0, "markers": [], "trigger_phrase": null}], '
+    '"speaker_names": {"Alice": {"name": "", "confidence": "low"}}, '
     '"requests": [{"speaker": "", "request": "", "outcome": "unclear"}], '
     '"narrative": "", '
     '"report_cards": {"Alice": {"score": 0, "headline": "", "did_well": "", '
     '"work_on": ""}}}'
+)
+
+
+# Appended to the analyze system prompt ONLY when the caller asked for a title
+# (§1 — an upload with no user-provided title). It requests one extra top-level
+# field; the text /analyze path never adds it, so no title is ever fabricated for
+# a conversation the user already named or for a non-recording analysis.
+ANALYZE_TITLE_PROMPT_ADDENDUM = (
+    "\n\nAlso add a top-level \"title\" field: a short, specific title for THIS "
+    "conversation, 3-6 words, no surrounding quotes and no trailing punctuation "
+    "(e.g. \"Argument about the cat\", \"Planning the weekend trip\"). Base it "
+    "only on what was actually discussed — never invent details."
 )
 
 
@@ -1632,10 +1693,87 @@ def _clean_report_card(value: object) -> dict | None:
     }
 
 
+def _clean_title(value: object) -> str | None:
+    """A non-empty, trimmed, length-capped LLM title, or ``None`` (§1).
+
+    ``None`` (missing/blank/non-string) means the LLM omitted a usable title —
+    the caller then falls back to the recording's filename, never a fabricated
+    name."""
+    if isinstance(value, str) and value.strip():
+        return value.strip()[:RECORDING_TITLE_MAX]
+    return None
+
+
+def _clean_speaker_names(value: object) -> dict[str, str]:
+    """Map speaker id -> confidently-inferred real name (§2a).
+
+    Keeps ONLY entries whose confidence is exactly ``high`` and whose name is a
+    non-empty string (trimmed, capped). Everything else — wrong shape, missing/
+    medium/low confidence, empty name — is dropped so that speaker falls through
+    to the voice/generic rungs. The house rule holds: drop, never invent."""
+    if not isinstance(value, dict):
+        return {}
+    out: dict[str, str] = {}
+    for speaker, info in value.items():
+        if not isinstance(speaker, str) or not isinstance(info, dict):
+            continue
+        if info.get("confidence") != _NAME_CONFIDENCE_APPLIED:
+            continue
+        name = info.get("name")
+        if not isinstance(name, str):
+            continue
+        name = name.strip()
+        if name:
+            out[speaker] = name[:SPEAKER_NAME_MAX]
+    return out
+
+
+def _resolve_speaker_labels(
+    speakers: list[str],
+    llm_names: dict[str, str],
+    voice_labels: list[dict] | None,
+) -> dict[str, SpeakerLabelOut]:
+    """Per-speaker display label via the §2 precedence ladder.
+
+    name (§2a) > voice (§2b) > generic (§2c). ``llm_names`` is the already-cleaned
+    high-confidence name map; ``voice_labels`` is the per-turn prosody labels
+    (``None`` for text /analyze or a decode-degraded upload). Distinct speakers
+    keep first-seen order for stable rendering. The "enrolled" rung a concurrent
+    agent adds later would slot in ABOVE name here.
+    """
+    distinct = list(dict.fromkeys(speakers))
+    labels: dict[str, SpeakerLabelOut] = {
+        sp: SpeakerLabelOut(display_label=sp, label_source=LABEL_SOURCE_GENERIC)
+        for sp in distinct
+    }
+
+    # §2b voice — ONLY when NO speaker earned a confident name (a relative pair
+    # label is meaningless mixed with a real name) and prosody is available for
+    # exactly two speakers whose median pitches differ meaningfully.
+    if not llm_names and voice_labels is not None and len(distinct) == 2:
+        pitch = prosody.speaker_median_pitch(speakers, voice_labels)
+        voice_pair = prosody.pitch_voice_labels(pitch)
+        if voice_pair:
+            for sp, lbl in voice_pair.items():
+                labels[sp] = SpeakerLabelOut(
+                    display_label=lbl, label_source=LABEL_SOURCE_VOICE,
+                )
+
+    # §2a name — applied last so it OVERRIDES the generic default. Voice only ran
+    # when there were no names, so a name never collides with a voice label.
+    for sp, name in llm_names.items():
+        if sp in labels:  # ignore a name for a speaker not in the transcript
+            labels[sp] = SpeakerLabelOut(
+                display_label=name, label_source=LABEL_SOURCE_NAME,
+            )
+    return labels
+
+
 async def _run_analysis(
     turns: list[AnalyzeTurn],
     context: str,
     voice_labels: list[dict] | None = None,
+    request_title: bool = False,
 ) -> AnalyzeResponse:
     """Shared /analyze pipeline body — one implementation for both endpoints.
 
@@ -1686,6 +1824,10 @@ async def _run_analysis(
     system_prompt = ANALYZE_SYSTEM_PROMPT
     if voice_labels is not None:
         system_prompt += ANALYZE_VOICE_PROMPT_ADDENDUM
+    # §1 — ask for a title only when the caller wants one (an upload with no
+    # user-provided title); the text /analyze path leaves this off.
+    if request_title:
+        system_prompt += ANALYZE_TITLE_PROMPT_ADDENDUM
 
     # Output budget scales with turn count. Measured reality (production 502
     # caught by the v1.6.0 ship e2e): each per-turn JSON object costs ~60-90
@@ -1771,6 +1913,14 @@ async def _run_analysis(
             status_code=502, detail="LLM returned an empty narrative",
         )
 
+    # §1/§2 — additive, presentation-only fields. Both degrade to a safe default
+    # (generic labels / no title) if the LLM omits or malforms them, so a missing
+    # field is never a 502: the core analysis above is unaffected.
+    speaker_labels = _resolve_speaker_labels(
+        speakers, _clean_speaker_names(data.get("speaker_names")), voice_labels,
+    )
+    llm_title = _clean_title(data.get("title")) if request_title else None
+
     # --- Python owns every statistic below (pure functions in dynamics.py) ---
     spikes = dynamics.spike_flags(speakers, heats)
     shares = dynamics.talk_share(speakers, char_counts)
@@ -1849,6 +1999,8 @@ async def _run_analysis(
         ),
         narrative=narrative,
         report_cards=report_cards,
+        speaker_labels=speaker_labels,
+        title=llm_title,
     )
 
 
@@ -1988,7 +2140,14 @@ async def _analyze_recording_bytes(
     #    decoded duration (when we have it) rides along so the client can start
     #    computing an ETA the moment the analysis stage begins.
     await _emit_progress(progress, "analyzing", None, decoded_duration)
-    core = await _run_analysis(turns, context, voice_labels=voice_labels)
+    # §1 — when the user did NOT name this recording, ask the SAME analysis call
+    # for a short title and use it (save_recording falls back to the filename if
+    # the LLM omits one). When the user DID provide a title we neither request nor
+    # override it.
+    core = await _run_analysis(
+        turns, context, voice_labels=voice_labels, request_title=title is None,
+    )
+    effective_title = title or core.title
 
     transcribed = [
         TranscribedTurn(
@@ -2004,6 +2163,9 @@ async def _analyze_recording_bytes(
         turns=transcribed,
         voice_analysis=voice_note,
     )
+    # Surface the EFFECTIVE display title (user-provided, else LLM-suggested, else
+    # None) so the analyze-complete UI can show it without a second round-trip.
+    response.title = effective_title
 
     # 5) Consent-gated persistence. Store ONLY when the user consented, did not
     #    opt this recording out, and storage is enabled — and NEVER let a
@@ -2069,7 +2231,7 @@ async def _analyze_recording_bytes(
                     turns=turns_json,
                     analysis=analysis_json,
                     source=source,
-                    title=title,
+                    title=effective_title,
                     storage_note=response.storage_note,
                 )
                 response.recording_id = recording_id

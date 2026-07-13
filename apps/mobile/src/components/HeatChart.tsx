@@ -9,6 +9,7 @@ import {
 import Svg, { Polyline, Circle, Line } from "react-native-svg";
 import type { AnalyzePerTurn, SimulatedTurn, Voice } from "../api/client";
 import { getSpeakerColor } from "../utils/speakerColors";
+import { speakerLabel, type SpeakerLabels } from "../utils/speakerLabels";
 
 // The baseline prosody label per dimension — a turn at baseline on a dimension
 // isn't noteworthy, so we don't render a chip for it. This keeps the inspector
@@ -515,6 +516,10 @@ interface HeatChartProps {
   // carries no text (only heat/markers), so the inspector resolves each turn's
   // words from here by index. Optional so the chart still renders without it.
   turns?: { speaker: string; text: string }[];
+  // §2/§3 — per-speaker display labels (name → deeper/higher voice → generic).
+  // Optional: when absent (old recording / pre-labels server) every speaker
+  // falls back to its raw id, so the legend + inspector render exactly as before.
+  speakerLabels?: SpeakerLabels;
   height?: number;
 
   // --- "What if" simulated overlay (all optional; the chart is fully usable
@@ -569,6 +574,7 @@ interface HeatChartProps {
 export default function HeatChart({
   perTurn,
   turns,
+  speakerLabels,
   height = 180,
   simulated,
   showSimulation = true,
@@ -720,7 +726,7 @@ export default function HeatChart({
                 testID={`legend-swatch-${s.speaker}`}
               />
               <Text style={styles.legendText}>
-                {s.speaker}
+                {speakerLabel(s.speaker, speakerLabels)}
                 {useTimeAxis && share !== undefined
                   ? ` — ${Math.round(share * 100)}% of talking`
                   : ""}
@@ -974,7 +980,7 @@ export default function HeatChart({
               testID={`scrub-${t.index}`}
               style={styles.scrubCell}
               onPress={() => selectTurn(t.index)}
-              accessibilityLabel={`Turn ${t.index + 1}, ${t.speaker}, heat ${t.heat}`}
+              accessibilityLabel={`Turn ${t.index + 1}, ${speakerLabel(t.speaker, speakerLabels)}, heat ${t.heat}`}
             />
           ))}
         </View>
@@ -990,7 +996,7 @@ export default function HeatChart({
                 { color: getSpeakerColor(selectedTurn.speaker) },
               ]}
             >
-              {selectedTurn.speaker}
+              {speakerLabel(selectedTurn.speaker, speakerLabels)}
             </Text>
             <Text style={styles.inspectorHeat}>heat {selectedTurn.heat}</Text>
           </View>
