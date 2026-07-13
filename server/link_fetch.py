@@ -176,12 +176,19 @@ def _content_type(resp: httpx.Response) -> str:
 # Download
 # ---------------------------------------------------------------------------
 
+# Report download progress at most this often (bytes) so a large body fires a
+# manageable number of callbacks — enough to keep a job's heartbeat fresh without
+# a write per network chunk.
+_PROGRESS_STEP_BYTES = 1024 * 1024
+
+
 def _run_download(
     client: httpx.Client,
     start_url: str,
     *,
     resolver,
     max_bytes: int,
+    progress_cb=None,
 ) -> tuple[bytes, httpx.Response, "object"]:
     """Follow redirects (SSRF-guarding every hop), stream the terminal body with a
     hard ``max_bytes`` cap, and return ``(data, terminal_response, parsed_url)``.
@@ -191,7 +198,12 @@ def _run_download(
     path and the Google Photos media path. Raises :class:`LinkError` on a bad
     scheme, blocked host, HTTP error, oversize body (413), or too many redirects.
     The returned response is already closed with its body fully read into
-    ``data``; only its headers should be inspected afterward."""
+    ``data``; only its headers should be inspected afterward.
+
+    ``progress_cb(bytes_downloaded, bytes_total_or_None)`` — when given — is called
+    as the body streams (throttled to ~1MB steps; ``bytes_total`` from
+    Content-Length, or None when the server omits it). A callback exception is
+    swallowed so a progress hook can never break the download."""
     current = start_url
     for _ in range(MAX_REDIRECTS + 1):
         parsed = urlparse(current)
@@ -224,6 +236,11 @@ def _run_download(
                 ) from exc
             total = 0
             chunks: list[bytes] = []
+            cl = resp.headers.get("content-length")
+            bytes_total = int(cl) if cl and cl.isdigit() else None
+            reported = 0
+            if progress_cb is not None:
+                _safe_progress(progress_cb, 0, bytes_total)
             try:
                 for chunk in resp.iter_bytes():
                     total += len(chunk)
@@ -234,15 +251,32 @@ def _run_download(
                             f"{max_bytes // (1024 * 1024)}MB limit",
                         )
                     chunks.append(chunk)
+                    if (
+                        progress_cb is not None
+                        and total - reported >= _PROGRESS_STEP_BYTES
+                    ):
+                        reported = total
+                        _safe_progress(progress_cb, total, bytes_total)
             except httpx.HTTPError as exc:
                 raise LinkError(
                     422, f"could not read link body: {exc}",
                 ) from exc
+            if progress_cb is not None:
+                _safe_progress(progress_cb, total, bytes_total or total)
             return b"".join(chunks), resp, parsed
         finally:
             resp.close()
 
     raise LinkError(422, "too many redirects")
+
+
+def _safe_progress(progress_cb, done: int, total: "int | None") -> None:
+    """Invoke a download progress hook, swallowing any error — a progress callback
+    must never break the download it is only observing."""
+    try:
+        progress_cb(done, total)
+    except Exception:  # noqa: BLE001 — progress reporting is best-effort
+        logger.debug("download progress callback failed", exc_info=True)
 
 
 def fetch_link(
@@ -252,6 +286,7 @@ def fetch_link(
     transport: "httpx.BaseTransport | None" = None,
     timeout: float = LINK_TIMEOUT_S,
     max_bytes: int = MAX_LINK_BYTES,
+    progress_cb=None,
 ) -> tuple[bytes, str | None, str | None]:
     """Download the media at ``url`` and return ``(data, filename, content_type)``.
 
@@ -259,7 +294,12 @@ def fetch_link(
     bytes, enforces http(s), SSRF-guards every redirect hop, streams the body with
     a hard size cap, and rejects a bare HTML response. Raises :class:`LinkError`
     with the appropriate status on any of these. ``resolver`` and ``transport``
-    are injectable for tests (real DNS / real sockets are used by default)."""
+    are injectable for tests (real DNS / real sockets are used by default).
+
+    ``progress_cb(bytes_downloaded, bytes_total_or_None)`` — when given — is called
+    as the MEDIA body streams so a caller (the async job runner) can surface a live
+    download size and keep its heartbeat fresh. For a Google Photos link it fires
+    only for the actual media fetch, not the small HTML share-page probe."""
     resolver = resolver or _default_resolver
 
     client = httpx.Client(
@@ -274,10 +314,12 @@ def fetch_link(
             # Handled BEFORE the generic html rejection: the share page IS html.
             return _fetch_photos(
                 client, url, resolver=resolver, max_bytes=max_bytes,
+                progress_cb=progress_cb,
             )
 
         data, resp, parsed = _run_download(
             client, rewrite_url(url), resolver=resolver, max_bytes=max_bytes,
+            progress_cb=progress_cb,
         )
         content_type = _content_type(resp)
         if content_type == "text/html":
@@ -305,6 +347,7 @@ def _photos_media_download(
     *,
     resolver,
     max_bytes: int,
+    progress_cb=None,
 ) -> tuple[bytes | None, str | None]:
     """Fetch one Photos media variant URL. Returns ``(data, content_type)`` on a
     successful fetch, or ``(None, None)`` if the variant is unavailable (an HTTP
@@ -313,6 +356,7 @@ def _photos_media_download(
     try:
         data, resp, _parsed = _run_download(
             client, media_url, resolver=resolver, max_bytes=max_bytes,
+            progress_cb=progress_cb,
         )
     except LinkError as exc:
         if exc.status_code == 413:
@@ -342,6 +386,7 @@ def _fetch_photos(
     *,
     resolver,
     max_bytes: int,
+    progress_cb=None,
 ) -> tuple[bytes, str | None, str | None]:
     """Resolve a Google Photos share link to a single video's bytes.
 
@@ -350,7 +395,10 @@ def _fetch_photos(
     exactly one. For that one, tries ``=dv`` (video) then ``=d`` (original) — a
     video is downloaded and returned; a photo is a clear 422. This parses an
     UNOFFICIAL page format: if Google changes it the regex matches nothing and we
-    return a 422 (:data:`_PHOTOS_NO_MEDIA`) rather than crash."""
+    return a 422 (:data:`_PHOTOS_NO_MEDIA`) rather than crash.
+
+    ``progress_cb`` is passed only to the MEDIA fetch (not this small HTML page
+    probe) so a caller sees real video-download progress."""
     page, _resp, _parsed = _run_download(
         client, _photos_page_url(original_url), resolver=resolver,
         max_bytes=PHOTOS_PAGE_MAX_BYTES,
@@ -368,6 +416,7 @@ def _fetch_photos(
     # Prefer the video variant.
     data, ct = _photos_media_download(
         client, base + "=dv", resolver=resolver, max_bytes=max_bytes,
+        progress_cb=progress_cb,
     )
     if data is not None and ct and ct.startswith("video/"):
         return data, _photos_filename(ct), ct
@@ -376,6 +425,7 @@ def _fetch_photos(
     # error when the shared item is a photo (or a video reachable only via =d).
     data, ct = _photos_media_download(
         client, base + "=d", resolver=resolver, max_bytes=max_bytes,
+        progress_cb=progress_cb,
     )
     if ct and ct.startswith("image/"):
         raise LinkError(422, _PHOTOS_IS_PHOTO)

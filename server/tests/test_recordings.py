@@ -47,7 +47,7 @@ class FakeRecordingsStore:
     async def save_recording(
         self, uid, *, audio_m4a, video_360p, original_filename,
         original_content_type, original_bytes, duration_seconds, turns,
-        analysis, source=None,
+        analysis, source=None, title=None,
     ):
         if self._fail_on_save:
             raise RuntimeError("simulated GCS outage")
@@ -61,10 +61,12 @@ class FakeRecordingsStore:
             media_bytes, media_ct = video_360p, "video/mp4"
         else:
             media_bytes, media_ct = audio_m4a, "audio/mp4"
+        filename = original_filename or "recording"
         meta = {
             "id": recording_id,
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "filename": original_filename or "recording",
+            "filename": filename,
+            "title": (title or "").strip() or filename,
             "media_type": media_type,
             "duration_seconds": duration_seconds,
             "size_bytes": len(audio_m4a) + (len(video_360p) if video_360p else 0),
@@ -112,6 +114,13 @@ class FakeRecordingsStore:
             return None
         r["meta"]["source"] = source
         return source
+
+    async def update_title(self, uid, recording_id, title):
+        r = self._by_uid.get(uid, {}).get(recording_id)
+        if r is None:
+            return None
+        r["meta"]["title"] = title
+        return r["meta"]
 
     async def delete_recording(self, uid, recording_id):
         return self._by_uid.get(uid, {}).pop(recording_id, None) is not None
@@ -449,9 +458,11 @@ async def test_list_and_detail_happy_path(client, store):
     assert row["has_analysis"] is True
     assert row["source_type"] == "upload"
     assert set(row) == {
-        "id", "created_at", "filename", "media_type", "duration_seconds",
-        "has_analysis", "source_type",
+        "id", "created_at", "filename", "title", "media_type",
+        "duration_seconds", "has_analysis", "source_type",
     }
+    # No explicit title on store → falls back to the filename.
+    assert row["title"] == row["filename"]
 
     detail = await client.get(
         f"/recordings/{rid}", headers={"X-Test-Uid": "test-user"},
@@ -465,9 +476,10 @@ async def test_list_and_detail_happy_path(client, store):
         "type": "upload", "url": None, "original_filename": "clip.wav",
     }
     assert set(d) == {
-        "id", "created_at", "filename", "media_type", "duration_seconds",
-        "turns", "analysis", "source",
+        "id", "created_at", "filename", "title", "media_type",
+        "duration_seconds", "turns", "analysis", "source",
     }
+    assert d["title"] == d["filename"]
 
 
 @pytest.mark.anyio
@@ -863,3 +875,93 @@ async def test_patch_source_requires_auth_401(client, store, monkeypatch):
         json={"url": "https://photos.app.goo.gl/x"},
     )
     assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Recording title — set on submit (default = filename) + PATCH /recordings/{id}
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_upload_title_persisted_and_returned(client, store):
+    p1, p2 = _patched_upload()
+    with p1, p2:
+        resp = await _upload(
+            client, consent="true", store="true", title="Kitchen argument",
+        )
+    assert resp.status_code == 200, resp.text
+    rid = resp.json()["recording_id"]
+    # The chosen title flows to list + detail (not the filename fallback).
+    lst = await client.get("/recordings", headers={"X-Test-Uid": "test-user"})
+    row = lst.json()["recordings"][0]
+    assert row["title"] == "Kitchen argument"
+    assert row["filename"] == "clip.wav"
+    detail = await client.get(
+        f"/recordings/{rid}", headers={"X-Test-Uid": "test-user"},
+    )
+    assert detail.json()["title"] == "Kitchen argument"
+
+
+@pytest.mark.anyio
+async def test_patch_title_renames_recording(client, store):
+    rid = await _store_one(client)
+    resp = await client.patch(
+        f"/recordings/{rid}",
+        json={"title": "  Renamed talk  "},  # surrounding whitespace is stripped
+        headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"id": rid, "title": "Renamed talk"}
+    # Persisted + reflected on the detail read.
+    detail = await client.get(
+        f"/recordings/{rid}", headers={"X-Test-Uid": "test-user"},
+    )
+    assert detail.json()["title"] == "Renamed talk"
+
+
+@pytest.mark.anyio
+async def test_patch_title_blank_is_422(client, store):
+    rid = await _store_one(client)
+    resp = await client.patch(
+        f"/recordings/{rid}",
+        json={"title": "   "},
+        headers={"X-Test-Uid": "test-user"},
+    )
+    # Whitespace-only is rejected (min_length=1 after the model, guarded again in
+    # the endpoint) — never a silent no-op rename.
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_patch_title_404_for_unknown_recording(client, store):
+    rid = str(uuid.uuid4())
+    resp = await client.patch(
+        f"/recordings/{rid}",
+        json={"title": "whatever"},
+        headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_patch_title_cross_uid_404(client, store):
+    """user-b cannot rename user-a's recording — plain 404, title untouched."""
+    rid = await _store_one(client, uid="user-a")
+    resp = await client.patch(
+        f"/recordings/{rid}",
+        json={"title": "hijacked"},
+        headers={"X-Test-Uid": "user-b"},
+    )
+    assert resp.status_code == 404
+    meta = await store.get_recording("user-a", rid)
+    assert meta["title"] == meta["filename"]
+
+
+@pytest.mark.anyio
+async def test_patch_title_503_when_storage_disabled(client):
+    rid = str(uuid.uuid4())
+    resp = await client.patch(
+        f"/recordings/{rid}",
+        json={"title": "x"},
+        headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 503
