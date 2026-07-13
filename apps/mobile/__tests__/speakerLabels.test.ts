@@ -6,11 +6,16 @@ const labels: Record<string, SpeakerLabel> = {
   "Speaker B": { display_label: "Higher voice", label_source: "voice" },
   "Speaker C": { display_label: "Speaker C", label_source: "generic" },
   "Speaker D": { display_label: "  ", label_source: "name" }, // blank → fallback
+  "Speaker E": { display_label: "You", label_source: "enrolled" },
 };
 
 describe("speakerLabel", () => {
   it("returns the inferred name for a name-sourced speaker", () => {
     expect(speakerLabel("Speaker A", labels)).toBe("Joe");
+  });
+
+  it('renders "You" for an enrolled-voiceprint speaker (top rung)', () => {
+    expect(speakerLabel("Speaker E", labels)).toBe("You");
   });
 
   it("returns the relative voice label for a voice-sourced speaker", () => {

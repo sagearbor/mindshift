@@ -21,6 +21,8 @@ from httpx import ASGITransport, AsyncClient
 
 import main
 from main import (
+    ENROLLED_DISPLAY_LABEL,
+    LABEL_SOURCE_ENROLLED,
     LABEL_SOURCE_GENERIC,
     LABEL_SOURCE_NAME,
     LABEL_SOURCE_VOICE,
@@ -151,6 +153,91 @@ def test_ladder_voice_declines_on_near_tie():
 def test_ladder_ignores_name_for_absent_speaker():
     labels = _resolve_speaker_labels(["A", "B"], {"Ghost": "Nobody"}, None)
     assert set(labels) == {"A", "B"}
+    assert all(v.label_source == LABEL_SOURCE_GENERIC for v in labels.values())
+
+
+# ---------------------------------------------------------------------------
+# Top rung — "enrolled" (voice-enrollment pipeline's speaker_identity, PR #56).
+# The identity object is mocked as a plain dict exactly as that pipeline stores
+# it on the analysis: {matched_speaker, match_threshold, model, speakers}.
+# ---------------------------------------------------------------------------
+
+def _identity(matched="Speaker A"):
+    return {
+        "matched_speaker": matched,
+        "match_threshold": 0.72,
+        "model": "mock-voiceprint-v0",
+        "speakers": {
+            "Speaker A": {"score": 0.81, "is_you": matched == "Speaker A"},
+            "Speaker B": {"score": 0.12, "is_you": matched == "Speaker B"},
+        },
+    }
+
+
+def test_ladder_enrolled_beats_name():
+    labels = _resolve_speaker_labels(
+        ["Speaker A", "Speaker B"],
+        {"Speaker A": "Joe", "Speaker B": "Mia"},
+        None,
+        speaker_identity=_identity("Speaker A"),
+    )
+    assert labels["Speaker A"].display_label == ENROLLED_DISPLAY_LABEL
+    assert labels["Speaker A"].label_source == LABEL_SOURCE_ENROLLED
+    # The OTHER speaker keeps her name rung untouched.
+    assert labels["Speaker B"].display_label == "Mia"
+    assert labels["Speaker B"].label_source == LABEL_SOURCE_NAME
+
+
+def test_ladder_enrolled_beats_voice():
+    speakers = ["Speaker A", "Speaker B"]
+    voice = [_vl(110.0), _vl(210.0)]
+    labels = _resolve_speaker_labels(
+        speakers, {}, voice, speaker_identity=_identity("Speaker A"),
+    )
+    assert labels["Speaker A"].display_label == ENROLLED_DISPLAY_LABEL
+    assert labels["Speaker A"].label_source == LABEL_SOURCE_ENROLLED
+    # The other speaker keeps a coherent relative label (higher than "You").
+    assert labels["Speaker B"].display_label == "Higher voice"
+    assert labels["Speaker B"].label_source == LABEL_SOURCE_VOICE
+
+
+def test_ladder_enrolled_beats_generic():
+    labels = _resolve_speaker_labels(
+        ["Speaker A", "Speaker B"], {}, None,
+        speaker_identity=_identity("Speaker B"),
+    )
+    assert labels["Speaker B"].display_label == ENROLLED_DISPLAY_LABEL
+    assert labels["Speaker B"].label_source == LABEL_SOURCE_ENROLLED
+    assert labels["Speaker A"].label_source == LABEL_SOURCE_GENERIC
+
+
+def test_ladder_enrolled_skipped_when_identity_absent_or_malformed():
+    """Defensive reads: no identity, no match, or a malformed shape all mean the
+    rung is skipped — never a crash, never a fabricated 'You'."""
+    for identity in (
+        None,                                   # field absent (every pre-merge caller)
+        {},                                     # no matched_speaker key
+        {"matched_speaker": None},              # explicit no-match
+        {"matched_speaker": ""},                # empty string
+        {"matched_speaker": "  "},              # whitespace only
+        {"matched_speaker": 42},                # wrong type
+        "Speaker A",                            # not a dict at all
+        {"speakers": {"Speaker A": {"score": 0.9, "is_you": True}}},  # scores but no match
+    ):
+        labels = _resolve_speaker_labels(
+            ["Speaker A", "Speaker B"], {}, None, speaker_identity=identity,
+        )
+        assert all(
+            v.label_source == LABEL_SOURCE_GENERIC for v in labels.values()
+        ), f"identity={identity!r} should not activate the enrolled rung"
+
+
+def test_ladder_enrolled_ignores_speaker_not_in_transcript():
+    labels = _resolve_speaker_labels(
+        ["Speaker A", "Speaker B"], {}, None,
+        speaker_identity=_identity("Speaker Z"),
+    )
+    assert set(labels) == {"Speaker A", "Speaker B"}
     assert all(v.label_source == LABEL_SOURCE_GENERIC for v in labels.values())
 
 

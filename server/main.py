@@ -252,14 +252,22 @@ ANALYZE_MARKER_VOCAB = frozenset(
 ANALYZE_REQUEST_OUTCOMES = frozenset(("granted", "denied", "deferred", "unclear"))
 
 # §2 speaker display-label ladder — the ordered set of provenance rungs, highest
-# precedence FIRST. name (§2a, high-confidence transcript evidence) beats voice
-# (§2b, relative pitch) beats generic (§2c, the raw speaker id). A concurrent
-# agent adds an "enrolled" rung (a matched enrolled voiceprint) ABOVE "name"; the
-# resolver is deliberately data-driven so that rung slots in without a rewrite.
+# precedence FIRST. enrolled (a matched enrolled voiceprint — the viewer's own
+# voice, from the voice-enrollment pipeline's speaker_identity) beats name (§2a,
+# high-confidence transcript evidence) beats voice (§2b, relative pitch) beats
+# generic (§2c, the raw speaker id). The resolver reads speaker_identity
+# defensively: the rung is dormant until the enrollment pipeline (PR #56) merges
+# and passes it, and any absent/malformed shape simply skips the rung.
 LABEL_SOURCE_ENROLLED = "enrolled"
 LABEL_SOURCE_NAME = "name"
 LABEL_SOURCE_VOICE = "voice"
 LABEL_SOURCE_GENERIC = "generic"
+
+# The display label for the speaker matched to the authenticated user's own
+# enrolled voiceprint (speaker_identity.matched_speaker). Second person on
+# purpose: the recording belongs to the viewing uid, so the matched voice IS the
+# viewer — more honest and more useful than any inferred third-person name.
+ENROLLED_DISPLAY_LABEL = "You"
 
 # Only a name the LLM inferred with EXACTLY this confidence (from direct
 # transcript evidence — §2a) is applied; medium/low are treated as "no name" and
@@ -1728,18 +1736,37 @@ def _clean_speaker_names(value: object) -> dict[str, str]:
     return out
 
 
+def _enrolled_speaker(speaker_identity: object) -> str | None:
+    """The speaker id matched to the user's enrolled voiceprint, or ``None``.
+
+    Defensive by design: the voice-enrollment pipeline (PR #56) stores
+    ``speaker_identity`` as ``{matched_speaker, match_threshold, model,
+    speakers: {label: {score, is_you}}}`` and deliberately does NOT set display
+    labels itself — this ladder owns presentation. Anything other than a dict
+    carrying a non-empty string ``matched_speaker`` (absent field, ``None``, a
+    malformed shape) means "no match" and the enrolled rung is skipped."""
+    if not isinstance(speaker_identity, dict):
+        return None
+    matched = speaker_identity.get("matched_speaker")
+    if isinstance(matched, str) and matched.strip():
+        return matched
+    return None
+
+
 def _resolve_speaker_labels(
     speakers: list[str],
     llm_names: dict[str, str],
     voice_labels: list[dict] | None,
+    speaker_identity: dict | None = None,
 ) -> dict[str, SpeakerLabelOut]:
     """Per-speaker display label via the §2 precedence ladder.
 
-    name (§2a) > voice (§2b) > generic (§2c). ``llm_names`` is the already-cleaned
-    high-confidence name map; ``voice_labels`` is the per-turn prosody labels
-    (``None`` for text /analyze or a decode-degraded upload). Distinct speakers
-    keep first-seen order for stable rendering. The "enrolled" rung a concurrent
-    agent adds later would slot in ABOVE name here.
+    enrolled > name (§2a) > voice (§2b) > generic (§2c). ``llm_names`` is the
+    already-cleaned high-confidence name map; ``voice_labels`` is the per-turn
+    prosody labels (``None`` for text /analyze or a decode-degraded upload);
+    ``speaker_identity`` is the voice-enrollment pipeline's match object (PR
+    #56), read defensively — absent/malformed simply skips the enrolled rung.
+    Distinct speakers keep first-seen order for stable rendering.
     """
     distinct = list(dict.fromkeys(speakers))
     labels: dict[str, SpeakerLabelOut] = {
@@ -1759,13 +1786,24 @@ def _resolve_speaker_labels(
                     display_label=lbl, label_source=LABEL_SOURCE_VOICE,
                 )
 
-    # §2a name — applied last so it OVERRIDES the generic default. Voice only ran
-    # when there were no names, so a name never collides with a voice label.
+    # §2a name — OVERRIDES voice/generic. Voice only ran when there were no
+    # names, so a name never collides with a voice label.
     for sp, name in llm_names.items():
         if sp in labels:  # ignore a name for a speaker not in the transcript
             labels[sp] = SpeakerLabelOut(
                 display_label=name, label_source=LABEL_SOURCE_NAME,
             )
+
+    # Top rung — enrolled: a voiceprint match to the viewing user's own enrolled
+    # voice wins over EVERYTHING (name/voice/generic). Applied last, and only to
+    # a speaker actually in this transcript. Other speakers keep their rungs —
+    # "You" + "Higher voice" stays coherent (higher than you).
+    enrolled = _enrolled_speaker(speaker_identity)
+    if enrolled is not None and enrolled in labels:
+        labels[enrolled] = SpeakerLabelOut(
+            display_label=ENROLLED_DISPLAY_LABEL,
+            label_source=LABEL_SOURCE_ENROLLED,
+        )
     return labels
 
 
@@ -1774,6 +1812,7 @@ async def _run_analysis(
     context: str,
     voice_labels: list[dict] | None = None,
     request_title: bool = False,
+    speaker_identity: dict | None = None,
 ) -> AnalyzeResponse:
     """Shared /analyze pipeline body — one implementation for both endpoints.
 
@@ -1783,6 +1822,12 @@ async def _run_analysis(
     prompt gains the voice addendum, and each PerTurnOut carries its labels.
     When ``None`` (text /analyze) the prompt and output are byte-identical to
     before — the working text analyzer cannot regress.
+
+    ``speaker_identity`` is the voice-enrollment pipeline's voiceprint-match
+    object (PR #56 — ``{matched_speaker, ...}``), forwarded to the display-label
+    ladder so a matched speaker is labeled "You" (source "enrolled"). ``None``
+    (every current caller, until the enrollment branch merges and passes it)
+    skips that rung — the ladder resolves exactly as before.
     """
     # Total-transcript cap (a 413) — the per-turn length bounds are validation
     # (422); this guards the aggregate size a single LLM pass must carry.
@@ -1917,7 +1962,10 @@ async def _run_analysis(
     # (generic labels / no title) if the LLM omits or malforms them, so a missing
     # field is never a 502: the core analysis above is unaffected.
     speaker_labels = _resolve_speaker_labels(
-        speakers, _clean_speaker_names(data.get("speaker_names")), voice_labels,
+        speakers,
+        _clean_speaker_names(data.get("speaker_names")),
+        voice_labels,
+        speaker_identity=speaker_identity,
     )
     llm_title = _clean_title(data.get("title")) if request_title else None
 
