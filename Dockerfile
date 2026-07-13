@@ -16,6 +16,22 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Voice enrollment (ECAPA-TDNN speaker embeddings) is OPTIONAL and OFF by default:
+# torch + speechbrain add ~1.5-2GB to the image, so the default build stays light
+# (Deepgram-only). Enable it at build time WITHOUT editing this file:
+#   docker build --build-arg INSTALL_VOICE=1 ...
+# The CPU-only torch wheel is used deliberately (Cloud Run is CPU-only; the CUDA
+# wheel would be far larger). First model load fetches a ~20MB checkpoint from the
+# HF Hub and caches it; measured cold model-load ~2-4s on a Cloud Run vCPU, so run
+# with --min-instances=1 to keep the loaded model warm. See requirements-voice.txt.
+ARG INSTALL_VOICE=0
+COPY requirements-voice.txt ./
+RUN if [ "$INSTALL_VOICE" = "1" ]; then \
+      pip install --no-cache-dir torch torchaudio \
+        --index-url https://download.pytorch.org/whl/cpu && \
+      pip install --no-cache-dir -r requirements-voice.txt ; \
+    fi
+
 # App code (server/ only — apps/, tests/, docs/ are excluded via .dockerignore).
 COPY server/ ./server/
 

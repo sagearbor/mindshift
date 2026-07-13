@@ -1125,6 +1125,96 @@ export async function deleteRecording(id: string): Promise<void> {
   }
 }
 
+// --- Voice enrollment ("This is me" → auto-label "You") --------------------
+
+/** GET /voice/profile — whether the server can do voice ID and whether this
+ *  user has enrolled. `available` is false when the optional embedding deps
+ *  aren't installed server-side; the UI hides the "This is me" affordance then.
+ *  The embedding vector itself is never returned. */
+export interface VoiceProfile {
+  available: boolean;
+  storage_enabled: boolean;
+  enrolled: boolean;
+  enroll_count: number;
+  updated_at?: string | null;
+  model?: string | null;
+  dim?: number | null;
+}
+
+/** POST /voice/enroll response — confirmation the voiceprint was saved/refined. */
+export interface EnrollResult {
+  enrolled: boolean;
+  speaker: string;
+  enroll_count: number;
+  dim: number;
+  updated_at: string;
+  // Plain-language statement of exactly what is stored (biometric transparency).
+  stored: string;
+}
+
+/**
+ * GET /voice/profile — voice-ID availability + this user's enrollment status.
+ * Never throws for the "not available"/"not enrolled" cases (those are normal
+ * states carried in the body); throws only on a real transport/auth failure.
+ */
+export async function getVoiceProfile(): Promise<VoiceProfile> {
+  const res = await fetch(`${API_URL}/voice/profile`, {
+    method: "GET",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+  return (await res.json()) as VoiceProfile;
+}
+
+/**
+ * POST /voice/enroll — "This is me": teach the server your voice from one
+ * diarized speaker in a stored recording. The error carries `.status` so the UI
+ * can distinguish an honest 503 (voice ID not available on this server) or 422
+ * (too little of that speaker's voice) from a transient failure.
+ */
+export async function enrollVoice(
+  recordingId: string,
+  speaker: string,
+): Promise<EnrollResult> {
+  const res = await fetch(`${API_URL}/voice/enroll`, {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify({ recording_id: recordingId, speaker }),
+  });
+  if (!res.ok) {
+    let detail = "";
+    try {
+      detail = ((await res.json()) as { detail?: string }).detail ?? "";
+    } catch {
+      // non-JSON body — leave detail empty
+    }
+    const err = new Error(detail || `API error: ${res.status}`) as Error & {
+      status?: number;
+    };
+    err.status = res.status;
+    throw err;
+  }
+  return (await res.json()) as EnrollResult;
+}
+
+/**
+ * DELETE /voice/voiceprint — "Forget my voice": really delete the stored
+ * biometric signature. Resolves to whether one existed (idempotent); throws
+ * `API error: <status>` on a non-OK so the UI can surface it honestly.
+ */
+export async function forgetVoice(): Promise<{ deleted: boolean }> {
+  const res = await fetch(`${API_URL}/voice/voiceprint`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+  return (await res.json()) as { deleted: boolean };
+}
+
 export async function postRespond(
   payload: RespondRequest,
 ): Promise<RespondResult> {

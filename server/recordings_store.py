@@ -594,3 +594,68 @@ class RecordingsStore:
                 blob.delete()
             except Exception:  # noqa: BLE001 — best-effort cleanup, per blob
                 logger.warning("Failed to delete job blob %s", blob.name)
+
+    # -- stored audio derivative bytes ------------------------------------
+    async def get_audio_bytes(
+        self, uid: str, recording_id: str,
+    ) -> bytes | None:
+        """Return the recording's ``audio.m4a`` derivative bytes, or ``None``
+        when the recording (or its audio) is absent for this uid.
+
+        Voice ENROLLMENT reads this: the stored AAC derivative is decoded back to
+        PCM (audio_ingest.decode_to_pcm) and the enrolled speaker's turns are
+        pooled + embedded. uid-scoped exactly like every other read here."""
+        return await asyncio.to_thread(
+            self._get_audio_bytes_sync, uid, recording_id,
+        )
+
+    def _get_audio_bytes_sync(self, uid, recording_id) -> bytes | None:
+        blob = self._bucket.blob(self._prefix(uid, recording_id) + "audio.m4a")
+        if not blob.exists():
+            return None
+        return blob.download_as_bytes()
+
+    # -- voiceprints -------------------------------------------------------
+    # A user's enrolled voice signature lives in its OWN namespace, deliberately
+    # NOT under ``recordings/`` — it must survive deleting the recording it was
+    # enrolled from, and it is biometric data whose deletion is a first-class
+    # user action (DELETE /voice/voiceprint), scoped per uid::
+    #
+    #     voiceprints/{uid}/profile.json   # {embedding, enroll_count, model, ...}
+    #
+    # Only the numeric signature + metadata is stored — never the user's audio.
+    @staticmethod
+    def _voiceprint_blob_name(uid: str) -> str:
+        return f"voiceprints/{uid}/profile.json"
+
+    async def read_voiceprint(self, uid: str) -> dict | None:
+        """The user's stored voiceprint document, or ``None`` when unenrolled."""
+        return await asyncio.to_thread(self._read_voiceprint_sync, uid)
+
+    def _read_voiceprint_sync(self, uid) -> dict | None:
+        blob = self._bucket.blob(self._voiceprint_blob_name(uid))
+        if not blob.exists():
+            return None
+        return json.loads(blob.download_as_bytes())
+
+    async def write_voiceprint(self, uid: str, profile: dict) -> None:
+        """Persist (overwrite) the user's voiceprint document."""
+        await asyncio.to_thread(self._write_voiceprint_sync, uid, profile)
+
+    def _write_voiceprint_sync(self, uid, profile) -> None:
+        self._bucket.blob(self._voiceprint_blob_name(uid)).upload_from_string(
+            json.dumps(profile), content_type="application/json",
+        )
+
+    async def delete_voiceprint(self, uid: str) -> bool:
+        """Delete the user's voiceprint. ``True`` when one existed and was
+        removed, ``False`` when there was nothing to delete. Deletion is REAL —
+        the biometric signature is gone, not tombstoned."""
+        return await asyncio.to_thread(self._delete_voiceprint_sync, uid)
+
+    def _delete_voiceprint_sync(self, uid) -> bool:
+        blob = self._bucket.blob(self._voiceprint_blob_name(uid))
+        if not blob.exists():
+            return False
+        blob.delete()
+        return True

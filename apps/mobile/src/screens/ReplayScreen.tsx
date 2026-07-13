@@ -18,6 +18,7 @@ import {
 import type { RecordingDetail } from "../api/client";
 import HeatChart from "../components/HeatChart";
 import MediaPlayer, { MediaPlayerHandle } from "../components/MediaPlayer";
+import SpeakerEnrollment from "../components/SpeakerEnrollment";
 import { setPlaybackMode } from "../utils/audioMode";
 
 /** How long we give a source to report a real duration (moov parsed /
@@ -683,6 +684,13 @@ export default function ReplayScreen({
               </View>
             </>
           )}
+
+          {/* "This is me" — enroll a speaker's voice so they're labeled "You"
+              in future recordings. Self-hides when the server can't do voice ID
+              or there are no diarized turns to choose from. */}
+          {turns.length > 0 ? (
+            <SpeakerEnrollment recordingId={recordingId} turns={turns} />
+          ) : null}
         </ScrollView>
       )}
     </View>

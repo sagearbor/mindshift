@@ -212,6 +212,10 @@ __marimo__/
 tmp/
 .tmp/
 
+# Voice enrollment: the ECAPA speaker-model checkpoint is fetched from the HF Hub
+# at runtime and cached here (see server/speaker_id.py) — never commit model weights.
+server/.ecapa_cache/
+
 # Node.js
 node_modules/
 npm-debug.log*
