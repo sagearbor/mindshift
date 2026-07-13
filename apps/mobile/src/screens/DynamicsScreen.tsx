@@ -87,13 +87,20 @@ export default function DynamicsScreen({
   // The transcript the analysis was run against, kept so the HeatChart inspector
   // can show each turn's actual words (the backend's per_turn carries no text).
   // Seed it from the store immediately when we start with data in hand.
+  // Keep optional utterance timing alongside text: a live diarized / uploaded
+  // conversation carries start/end times, which the HeatChart uses to draw its
+  // time axis (dashes over real seconds). A pasted transcript has none, and the
+  // chart falls back to even spacing.
   const [analyzedTurns, setAnalyzedTurns] = useState<
-    { speaker: string; text: string }[]
+    { speaker: string; text: string; start_time?: number; end_time?: number }[]
   >(() =>
     initialData
-      ? useSessionStore
-          .getState()
-          .turns.map((t) => ({ speaker: t.speaker, text: t.text }))
+      ? useSessionStore.getState().turns.map((t) => ({
+          speaker: t.speaker,
+          text: t.text,
+          ...(t.start_time !== undefined ? { start_time: t.start_time } : {}),
+          ...(t.end_time !== undefined ? { end_time: t.end_time } : {}),
+        }))
       : [],
   );
 
@@ -135,7 +142,14 @@ export default function DynamicsScreen({
     setError(null);
     try {
       const turns = useSessionStore.getState().turns;
-      setAnalyzedTurns(turns.map((t) => ({ speaker: t.speaker, text: t.text })));
+      setAnalyzedTurns(
+        turns.map((t) => ({
+          speaker: t.speaker,
+          text: t.text,
+          ...(t.start_time !== undefined ? { start_time: t.start_time } : {}),
+          ...(t.end_time !== undefined ? { end_time: t.end_time } : {}),
+        })),
+      );
       // Send utterance timestamps when the transcript has them (live diarized
       // sessions do) — that's what lets the server compute REAL interruption
       // counts. Pasted transcripts carry none; the server then returns
@@ -324,6 +338,21 @@ export default function DynamicsScreen({
             <HeatChart
               perTurn={data.per_turn}
               turns={analyzedTurns}
+              // Draw the time axis only when EVERY turn has real timing (a
+              // diarized/uploaded conversation). A pasted transcript has none, so
+              // we omit turnsTiming and the chart falls back to even spacing —
+              // never a fabricated timeline.
+              turnsTiming={
+                analyzedTurns.length > 0 &&
+                analyzedTurns.every(
+                  (t) => t.start_time !== undefined && t.end_time !== undefined,
+                )
+                  ? analyzedTurns.map((t) => ({
+                      start_time: t.start_time as number,
+                      end_time: t.end_time as number,
+                    }))
+                  : undefined
+              }
               simulated={simData?.simulated_per_turn ?? null}
               showSimulation={showSim}
               onToggleSimulation={() => setShowSim((s) => !s)}
