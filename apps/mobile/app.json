@@ -2,7 +2,7 @@
   "expo": {
     "name": "MindShift",
     "slug": "mindshift",
-    "version": "1.11.0",
+    "version": "1.12.0",
     "scheme": "mindshift",
     "orientation": "portrait",
     "platforms": [
