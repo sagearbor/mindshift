@@ -56,6 +56,12 @@ DEEPGRAM_PRERECORDED_PARAMS: dict[str, str] = {
     "smart_format": "true",
     "punctuate": "true",
 }
+# Sample rate we downmix to before diarizing (see _audio_for_transcription). A
+# real two-speaker recording proved nova-3's diarizer COLLAPSES both voices into
+# one speaker on 48 kHz input (the phone-video default) but splits them correctly
+# at 16 kHz — the rate the model is trained for. 16 kHz is Deepgram's native ASR
+# rate and matches the live pipeline + our stored audio derivative.
+TRANSCRIBE_TARGET_SR = 16000
 # Pre-recorded transcription of a long file can take a while server-side; be
 # generous so a legitimately long recording is not cut off mid-decode. Chunked
 # uploads reach 200MB (a long phone video), whose upload+transcription can run
@@ -108,11 +114,15 @@ class TranscodeError(RuntimeError):
 # satisfy neither reliably.
 # ---------------------------------------------------------------------------
 
-# 5 minutes per transcode — generous for a long recording, bounded so a
+# 10 minutes per transcode — generous for a long recording, bounded so a
 # pathological input can never wedge a worker thread. A video transcode that
 # hits it degrades to audio-only (honest note); an audio transcode that hits it
-# is a TranscodeError (nothing useful to store).
-DERIVATIVE_TIMEOUT_S = 300
+# is a TranscodeError (nothing useful to store). Raised from 5min after a real
+# 48s HEVC 10-bit HDR 1080p phone video (20 Mbps) blew past 300s on Cloud Run's
+# limited vCPU — software HEVC decode dominates the transcode — and stored
+# audio-only. The async job now heartbeats through the storing stage, so a long
+# transcode no longer trips the client's "stalled" heuristic (see main.py).
+DERIVATIVE_TIMEOUT_S = 600
 
 # Mono 16 kHz AAC in an MP4/m4a container. 48 kbps is ample for speech.
 _AUDIO_M4A_ARGS = [
@@ -388,15 +398,52 @@ def decode_to_pcm(data: bytes, filename: str) -> tuple[np.ndarray, int]:
 # Deepgram pre-recorded transcription
 # ---------------------------------------------------------------------------
 
+def _pcm_to_wav16(pcm: np.ndarray, sr: int) -> bytes:
+    """Wrap mono float32 PCM in [-1, 1] as a 16-bit little-endian WAV in memory."""
+    ints = (np.clip(pcm, -1.0, 1.0) * 32767.0).astype("<i2")
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sr)
+        wf.writeframes(ints.tobytes())
+    return buf.getvalue()
+
+
+def _audio_for_transcription(data: bytes) -> bytes | None:
+    """Downmix a recording's bytes to a 16 kHz mono WAV for Deepgram, or ``None``.
+
+    Why not just send the original container: nova-3's diarizer merged two clearly
+    distinct speakers into one on a real 48 kHz phone video, yet split them
+    correctly once the SAME audio was fed at 16 kHz (:data:`TRANSCRIBE_TARGET_SR`).
+    Downmixing here also shrinks a 100MB+ video to a ~1MB upload, so Deepgram no
+    longer has to demux an exotic HEVC container and the request is far faster.
+    Reuses :func:`_decode_via_ffmpeg`, which already outputs mono 16 kHz.
+
+    Returns ``None`` when the downmix is unavailable (no ffmpeg / undecodable), so
+    the caller falls back to sending the raw container — Deepgram's own decoder is
+    the honest backstop; we never fabricate audio.
+    """
+    try:
+        pcm, sr = _decode_via_ffmpeg(data, "")
+    except AudioDecodeError as exc:
+        logger.info("transcribe downmix unavailable (%s); sending raw container", exc)
+        return None
+    return _pcm_to_wav16(pcm, sr)
+
+
 def transcribe_prerecorded(
     data: bytes, content_type: str | None,
 ) -> list[dict]:
     """Transcribe a recording via Deepgram's pre-recorded API.
 
-    Sends the ORIGINAL file bytes (Deepgram decodes the container itself — we do
-    NOT send our resampled PCM). Returns one dict per diarized utterance:
-    ``{speaker, text, start_time, end_time}``, with ``speaker`` mapped through
-    the SAME :func:`_generated_speaker_label` the live pipeline uses.
+    Sends a 16 kHz mono WAV downmix of the recording (see
+    :func:`_audio_for_transcription` for WHY — nova-3's diarizer collapses
+    speakers on 48 kHz input), falling back to the ORIGINAL container bytes if the
+    downmix is unavailable (Deepgram then decodes the container itself). Returns
+    one dict per diarized utterance: ``{speaker, text, start_time, end_time}``,
+    with ``speaker`` mapped through the SAME :func:`_generated_speaker_label` the
+    live pipeline uses.
 
     * Missing ``DEEPGRAM_API_KEY`` → :class:`TranscriptionUnavailable` (503).
     * Network/HTTP failure → :class:`TranscriptionUnavailable` (503) with the
@@ -407,16 +454,26 @@ def transcribe_prerecorded(
     if not api_key:
         raise TranscriptionUnavailable("transcription not configured")
 
+    # Prefer a 16 kHz mono downmix (reliable diarization + tiny upload); fall back
+    # to the raw container when ffmpeg can't produce it.
+    wav = _audio_for_transcription(data)
+    if wav is not None:
+        send_data: bytes = wav
+        send_content_type = "audio/wav"
+    else:
+        send_data = data
+        send_content_type = content_type or "application/octet-stream"
+
     headers = {
         "Authorization": f"Token {api_key}",
-        "Content-Type": content_type or "application/octet-stream",
+        "Content-Type": send_content_type,
     }
     try:
         resp = httpx.post(
             DEEPGRAM_PRERECORDED_URL,
             params=DEEPGRAM_PRERECORDED_PARAMS,
             headers=headers,
-            content=data,
+            content=send_data,
             timeout=DEEPGRAM_PRERECORDED_TIMEOUT_S,
         )
         resp.raise_for_status()

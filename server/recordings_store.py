@@ -176,6 +176,7 @@ class RecordingsStore:
         turns: list[dict],
         analysis: dict,
         source: dict | None = None,
+        title: str | None = None,
     ) -> str:
         """Persist one recording's DERIVATIVES (never the original bytes) + meta
         + turns + analysis and return its new uuid4 id.
@@ -185,17 +186,22 @@ class RecordingsStore:
         50-300MB phone original becomes a handful of MB). ``media_type`` is
         derived from what was actually STORED (video only when the 360p clip is
         present), and ``original_bytes``/``original_filename`` are kept for
-        provenance. All objects are written in one worker thread; created_at is
-        the server clock (ISO-8601 UTC)."""
+        provenance. ``title`` is the user-facing display name; when absent/blank it
+        falls back to the filename so every recording always has one. All objects
+        are written in one worker thread; created_at is the server clock (ISO-8601
+        UTC)."""
         recording_id = str(uuid.uuid4())
         stored_variants = ["audio.m4a"]
         if video_360p is not None:
             stored_variants.append("video_360p.mp4")
         stored_bytes = len(audio_m4a) + (len(video_360p) if video_360p else 0)
+        filename = original_filename or "recording"
         meta = {
             "id": recording_id,
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "filename": original_filename or "recording",
+            "filename": filename,
+            # User-facing display name; defaults to the filename when not provided.
+            "title": (title or "").strip() or filename,
             # media_type reflects the STORED artifact, not the upload's mime.
             "media_type": "video" if video_360p is not None else "audio",
             "duration_seconds": duration_seconds,
@@ -324,6 +330,33 @@ class RecordingsStore:
             json.dumps(meta), content_type="application/json",
         )
         return source
+
+    # -- update title -----------------------------------------------------
+    async def update_title(
+        self, uid: str, recording_id: str, title: str,
+    ) -> dict | None:
+        """Rename an existing recording, returning its updated meta, or ``None``
+        when it does not exist for this uid (→ 404).
+
+        Read-modify-write of meta.json only (derivatives/turns/analysis untouched)
+        — the same shape as :meth:`update_source`. The caller has already
+        stripped/validated ``title``."""
+        return await asyncio.to_thread(
+            self._update_title_sync, uid, recording_id, title,
+        )
+
+    def _update_title_sync(self, uid, recording_id, title) -> dict | None:
+        blob = self._bucket.blob(
+            self._prefix(uid, recording_id) + "meta.json"
+        )
+        if not blob.exists():
+            return None
+        meta = json.loads(blob.download_as_bytes())
+        meta["title"] = title
+        blob.upload_from_string(
+            json.dumps(meta), content_type="application/json",
+        )
+        return meta
 
     # -- delete ------------------------------------------------------------
     async def delete_recording(self, uid: str, recording_id: str) -> bool:

@@ -109,18 +109,22 @@ class FakeJobStore:
         # jobs: {uid: {job_id: state}}; history: {job_id: [status, ...]}
         self._jobs: dict = {}
         self.status_history: dict = {}
+        # Full per-write snapshots so tests can assert progress_note / bytes fields
+        # (not just the terminal state a poll returns). {job_id: [state, ...]}
+        self.write_history: dict = {}
 
     # -- recording persistence (store=true path) ---------------------------
     async def save_recording(
         self, uid, *, audio_m4a, video_360p, original_filename,
         original_content_type, original_bytes, duration_seconds, turns,
-        analysis, source=None,
+        analysis, source=None, title=None,
     ):
         import uuid
         rid = str(uuid.uuid4())
         self._recordings.setdefault(uid, {})[rid] = {"source": source}
         self.save_calls.append({"uid": uid, "recording_id": rid,
-                                "source": source})
+                                "source": source, "video_360p": video_360p,
+                                "audio_m4a": audio_m4a, "title": title})
         return rid
 
     # -- chunked upload sessions -------------------------------------------
@@ -154,6 +158,7 @@ class FakeJobStore:
     async def write_job_state(self, uid, job_id, state):
         self._jobs.setdefault(uid, {})[job_id] = dict(state)
         self.status_history.setdefault(job_id, []).append(state["status"])
+        self.write_history.setdefault(job_id, []).append(dict(state))
 
     async def read_job_state(self, uid, job_id):
         state = self._jobs.get(uid, {}).get(job_id)
@@ -523,3 +528,169 @@ async def test_complete_job_unknown_upload_404(client, store):
         headers={"X-Test-Uid": "test-user"},
     )
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Bug 3a — a link-sourced recording persists its source_url automatically, so
+# the user never has to re-attach the share link by hand for HD replay.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_link_job_persists_source_url(client, store):
+    url = "https://photos.app.goo.gl/EXAMPLEshareLink"
+    p1, p2 = _patched_pipeline()
+    with p1, p2, patch(
+        "main.link_fetch.fetch_link",
+        return_value=(FIXTURE_WAV, "photos_share.mp4", "video/mp4"),
+    ):
+        resp = await client.post(
+            "/analyze/link/jobs",
+            # consent + store true so the recording is actually persisted.
+            json={"url": url, "consent": True, "store": True},
+            headers={"X-Test-Uid": "test-user"},
+        )
+        assert resp.status_code == 202, resp.text
+        await _drain_jobs()
+
+    # The persisted recording carries the ORIGINAL pasted share link as its source
+    # — automatically, from the submitted URL (no manual PATCH needed).
+    assert len(store.save_calls) == 1
+    source = store.save_calls[0]["source"]
+    assert source["type"] == "link"
+    assert source["url"] == url
+
+
+@pytest.mark.anyio
+async def test_link_job_forwards_title_to_storage(client, store):
+    p1, p2 = _patched_pipeline()
+    with p1, p2, patch(
+        "main.link_fetch.fetch_link",
+        return_value=(FIXTURE_WAV, "photos_share.mp4", "video/mp4"),
+    ):
+        resp = await client.post(
+            "/analyze/link/jobs",
+            json={"url": "https://example.com/v.mp4", "consent": True,
+                  "store": True, "title": "Sunday standup"},
+            headers={"X-Test-Uid": "test-user"},
+        )
+        assert resp.status_code == 202, resp.text
+        await _drain_jobs()
+
+    assert store.save_calls[0]["title"] == "Sunday standup"
+
+
+@pytest.mark.anyio
+async def test_complete_job_forwards_title_from_manifest(client, store):
+    upload_id, _expected = await _upload_all(
+        client, FIXTURE_WAV, consent=True, store=True, title="Team retro",
+    )
+    p1, p2 = _patched_pipeline()
+    with p1, p2:
+        resp = await client.post(
+            f"/uploads/{upload_id}/complete/jobs",
+            headers={"X-Test-Uid": "test-user"},
+        )
+        assert resp.status_code == 202, resp.text
+        await _drain_jobs()
+
+    assert store.save_calls[0]["title"] == "Team retro"
+
+
+# ---------------------------------------------------------------------------
+# Bug 3b — a link-sourced VIDEO stores a video_360p derivative (the video branch
+# is NOT skipped on the link path), so replay is not silently audio-only.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_link_job_stores_video_derivative(client, store, monkeypatch):
+    # This recording has a real video stream → build_derivatives yields a clip.
+    monkeypatch.setattr(
+        main, "build_derivatives",
+        lambda data, **kw: audio_ingest.Derivatives(
+            audio_m4a=FAKE_AUDIO_M4A, video_360p=b"FAKE-360P-CLIP",
+            has_video=True, video_note=None,
+        ),
+    )
+    p1, p2 = _patched_pipeline()
+    with p1, p2, patch(
+        "main.link_fetch.fetch_link",
+        return_value=(FIXTURE_WAV, "photos_share.mp4", "video/mp4"),
+    ):
+        resp = await client.post(
+            "/analyze/link/jobs",
+            json={"url": "https://example.com/v.mp4", "consent": True,
+                  "store": True},
+            headers={"X-Test-Uid": "test-user"},
+        )
+        assert resp.status_code == 202, resp.text
+        job_id = resp.json()["job_id"]
+        await _drain_jobs()
+        done = await _get_job(client, job_id)
+
+    assert done.json()["status"] == "done"
+    # The video derivative reached storage on the LINK path, just like an upload.
+    assert len(store.save_calls) == 1
+    assert store.save_calls[0]["video_360p"] == b"FAKE-360P-CLIP"
+
+
+# ---------------------------------------------------------------------------
+# Bug 2/4 — the download stage reports bytes_downloaded/bytes_total and an
+# honest "fetching video" note (never the download size as "MB to transcribe").
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_link_job_reports_download_bytes_and_honest_note(client, store):
+    total = len(FIXTURE_WAV)
+
+    def _fetch_with_progress(url, **kw):
+        cb = kw.get("progress_cb")
+        # The runner MUST pass a progress hook so the client sees live progress.
+        assert cb is not None
+        cb(total // 2, total)
+        cb(total, total)
+        return (FIXTURE_WAV, "photos_share.mp4", "video/mp4")
+
+    p1, p2 = _patched_pipeline()
+    with p1, p2, patch("main.link_fetch.fetch_link", _fetch_with_progress):
+        resp = await client.post(
+            "/analyze/link/jobs",
+            json={"url": "https://example.com/v.mp4", "consent": False},
+            headers={"X-Test-Uid": "test-user"},
+        )
+        job_id = resp.json()["job_id"]
+        await _drain_jobs()
+        done = await _get_job(client, job_id)
+
+    body = done.json()
+    # Final state carries the fetched byte counts (additive fields, backward-compat).
+    assert body["bytes_downloaded"] == total
+    assert body["bytes_total"] == total
+
+    notes = [s.get("progress_note") for s in store.write_history[job_id]]
+    # An honest download label was surfaced …
+    assert any(n and "fetch" in n.lower() for n in notes)
+    # … and the misleading "<download size> to transcribe" note is gone (Bug 4).
+    assert not any(n and "to transcribe" in n.lower() for n in notes)
+
+
+# ---------------------------------------------------------------------------
+# Bug 2 — the heartbeat keeps updated_at fresh during a long blocking stage, so
+# a slow download/transcode is not misreported as "stalled".
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_job_heartbeat_refreshes_updated_at(store, monkeypatch):
+    monkeypatch.setattr(main, "JOB_HEARTBEAT_SECONDS", 0.02)
+    state = main._new_job_state()
+    state["status"] = "downloading"
+    orig_updated = state["updated_at"]
+
+    async with main._job_heartbeat(store, "u", "job-hb", state):
+        await asyncio.sleep(0.2)  # room for several beats even under load
+
+    writes = store.write_history.get("job-hb", [])
+    # At least one heartbeat wrote while the stage was still "running".
+    assert len(writes) >= 1
+    # It kept the current stage but advanced updated_at past the start.
+    assert writes[-1]["status"] == "downloading"
+    assert store._jobs["u"]["job-hb"]["updated_at"] > orig_updated

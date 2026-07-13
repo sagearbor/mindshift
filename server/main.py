@@ -8,7 +8,7 @@ import os
 import json
 import time
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from enum import Enum
@@ -465,6 +465,12 @@ CHUNK_SLACK_BYTES = 4096
 # JOB_TTL_SECONDS are lazily deleted on read — cheap cleanup, no cron needed.
 JOB_STALL_SECONDS = float(os.getenv("ANALYZE_JOB_STALL_SECONDS", "120"))
 JOB_TTL_SECONDS = float(os.getenv("ANALYZE_JOB_TTL_SECONDS", str(24 * 60 * 60)))
+# While a job sits in ONE long blocking stage (downloading a 100MB+ video, or
+# transcoding an HEVC clip to 360p — either can exceed JOB_STALL_SECONDS), a
+# background heartbeat refreshes updated_at this often so the poll's "stalled"
+# heuristic doesn't false-positive on work that is genuinely still running. Well
+# under JOB_STALL_SECONDS so several beats are missed before a job reads stalled.
+JOB_HEARTBEAT_SECONDS = float(os.getenv("ANALYZE_JOB_HEARTBEAT_SECONDS", "15"))
 
 
 # --- Chunked upload session (POST /uploads/start → PUT chunks → complete) -----
@@ -473,6 +479,12 @@ JOB_TTL_SECONDS = float(os.getenv("ANALYZE_JOB_TTL_SECONDS", str(24 * 60 * 60)))
 # them, then runs the EXACT same pipeline as the direct /analyze/upload path.
 # Session state (manifest + parts) lives in GCS, so the chunked path REQUIRES a
 # recordings bucket; without one every /uploads endpoint returns an honest 503.
+
+
+# User-facing recording title. Optional on submit (falls back to the filename);
+# settable/renamable via PATCH /recordings/{id}. Bounded so a pathological title
+# can't bloat meta.json.
+RECORDING_TITLE_MAX = 200
 
 
 class UploadStartRequest(BaseModel):
@@ -485,6 +497,9 @@ class UploadStartRequest(BaseModel):
     # complete(). Default store=True mirrors the direct endpoint.
     consent: bool = False
     store: bool = True
+    # Optional user-chosen display title; when absent the recording falls back to
+    # its filename (see save_recording). Additive — old clients omit it.
+    title: Optional[str] = Field(default=None, max_length=RECORDING_TITLE_MAX)
 
 
 class UploadStartResponse(BaseModel):
@@ -500,6 +515,14 @@ class AnalyzeLinkRequest(BaseModel):
     context: str = Field(default="", max_length=500)
     consent: bool = False
     store: bool = True
+    # Optional user-chosen display title; falls back to the fetched filename.
+    title: Optional[str] = Field(default=None, max_length=RECORDING_TITLE_MAX)
+
+
+class RecordingTitleRequest(BaseModel):
+    # Rename an existing recording. Stripped + non-empty enforced at the endpoint
+    # (a whitespace-only title is a 422, not a silent no-op).
+    title: str = Field(min_length=1, max_length=RECORDING_TITLE_MAX)
 
 
 class RecordingSourceRequest(BaseModel):
@@ -539,6 +562,14 @@ class JobStateResponse(BaseModel):
     # Known once the recording has been decoded/transcribed; lets the client
     # render a rough ETA. None until then.
     duration_seconds: Optional[float] = None
+    # During the "downloading" stage: bytes fetched so far and the total (from the
+    # source's Content-Length), so the client can render a real "fetching video
+    # (NN/116 MB)" progress bar — the download size is NOT the amount transcribed,
+    # so it stays a separate field from duration_seconds (which paces the
+    # transcription ETA). Both None outside/ before the download stage; bytes_total
+    # stays None when the source omits Content-Length. Additive + backward-compatible.
+    bytes_downloaded: Optional[int] = None
+    bytes_total: Optional[int] = None
     # Honest failure detail — the SAME message the synchronous path would 4xx/5xx
     # with. None unless status is "failed".
     error: Optional[str] = None
@@ -1860,6 +1891,7 @@ async def _analyze_recording_bytes(
     consent: bool,
     store: bool,
     source: dict,
+    title: str | None = None,
     progress: "JobProgressFn | None" = None,
 ) -> AnalyzeUploadResponse:
     """Analyze one recording's raw bytes and optionally persist the result.
@@ -1885,12 +1917,12 @@ async def _analyze_recording_bytes(
     the analysis — the response returns with stored=false and a note carrying the
     failure's class name.
     """
-    # 1) Transcribe the ORIGINAL container bytes (Deepgram decodes it itself).
-    #    to_thread: transcribe_prerecorded is a blocking HTTP call.
-    await _emit_progress(
-        progress, "transcribing",
-        f"{len(data) // (1024 * 1024)} MB to transcribe",
-    )
+    # 1) Transcribe the recording (transcribe_prerecorded downmixes to 16 kHz mono
+    #    for reliable diarization, then sends that to Deepgram). to_thread: it is a
+    #    blocking HTTP call. NOTE: the note is deliberately NOT a byte size — len(data)
+    #    is the DOWNLOAD size (a 116MB video), not the amount transcribed, and
+    #    surfacing it here read as "116 MB to transcribe" on the client (Bug 4).
+    await _emit_progress(progress, "transcribing", "transcribing audio")
     try:
         raw_turns = await asyncio.to_thread(
             transcribe_prerecorded, data, content_type,
@@ -2028,6 +2060,7 @@ async def _analyze_recording_bytes(
                     turns=turns_json,
                     analysis=analysis_json,
                     source=source,
+                    title=title,
                 )
                 response.recording_id = recording_id
             except Exception as exc:  # noqa: BLE001 — persistence must not fail analysis
@@ -2053,6 +2086,7 @@ async def analyze_upload(
     context: str = Form(default="", max_length=500),
     consent: str = Form(default="false"),
     store: str = Form(default="true"),
+    title: str = Form(default="", max_length=RECORDING_TITLE_MAX),
     uid: str = Depends(get_current_uid),
     _rl: None = Depends(_rate_limit),
 ):
@@ -2094,6 +2128,7 @@ async def analyze_upload(
             "url": None,
             "original_filename": file.filename,
         },
+        title=title or None,
     )
 
 
@@ -2138,6 +2173,7 @@ async def analyze_link(
             "url": req.url,
             "original_filename": filename,
         },
+        title=req.title,
     )
 
 
@@ -2293,6 +2329,9 @@ async def list_recordings(uid: str = Depends(get_current_uid)):
                 "id": m["id"],
                 "created_at": m["created_at"],
                 "filename": m["filename"],
+                # Display name; older recordings written before titles fall back
+                # to the filename so the client always has one to render.
+                "title": m.get("title") or m["filename"],
                 "media_type": m["media_type"],
                 "duration_seconds": m.get("duration_seconds"),
                 "has_analysis": m.get("has_analysis", False),
@@ -2320,6 +2359,8 @@ async def get_recording(
         "id": rec["id"],
         "created_at": rec["created_at"],
         "filename": rec["filename"],
+        # Display name; falls back to the filename for pre-title recordings.
+        "title": rec.get("title") or rec["filename"],
         "media_type": rec["media_type"],
         "duration_seconds": rec.get("duration_seconds"),
         "turns": rec.get("turns", []),
@@ -2327,6 +2368,33 @@ async def get_recording(
         # Provenance verbatim (type/url/original_filename) so a future replay
         # feature can stream the user's own hosted copy. Metadata only.
         "source": rec.get("source"),
+    }
+
+
+@app.patch("/recordings/{recording_id}")
+async def update_recording_title(
+    recording_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    req: RecordingTitleRequest,
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    """Rename a recording (set its user-facing ``title``).
+
+    uid-scoped exactly like PATCH …/source: a missing or foreign recording reads
+    as 404 (never confirming another user's recording exists). The title is
+    stripped and must be non-empty after stripping (a whitespace-only title is a
+    422 via the request model + the guard below), bounded at
+    ``RECORDING_TITLE_MAX``. Returns the updated meta (200)."""
+    store_backend = _require_store()
+    title = req.title.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="title must not be empty")
+    updated = await store_backend.update_title(uid, recording_id, title)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Recording not found")
+    return {
+        "id": updated["id"],
+        "title": updated.get("title") or updated.get("filename"),
     }
 
 
@@ -2576,6 +2644,8 @@ async def start_upload(
         "context": req.context,
         "consent": req.consent,
         "store": req.store,
+        # Optional user title carried to complete()/complete-job; None → filename.
+        "title": req.title,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await store_backend.write_upload_manifest(uid, upload_id, manifest)
@@ -2684,6 +2754,7 @@ async def complete_upload(
                 "url": None,
                 "original_filename": manifest.get("filename"),
             },
+            title=manifest.get("title"),
         )
     finally:
         # Best-effort cleanup: the reassembled bytes are analyzed (and, on
@@ -2789,6 +2860,9 @@ def _new_job_state() -> dict:
         "stage_started_at": now,
         "progress_note": None,
         "duration_seconds": None,
+        # Populated during the download stage (see analyze_link_job); additive.
+        "bytes_downloaded": None,
+        "bytes_total": None,
         "error": None,
         "result": None,
     }
@@ -2814,6 +2888,42 @@ def _parse_iso(value) -> "datetime | None":
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
+@asynccontextmanager
+async def _job_heartbeat(
+    store_backend: "recordings_store.RecordingsStore",
+    uid: str,
+    job_id: str,
+    state: dict,
+):
+    """Keep a running job's ``updated_at`` fresh while it sits in one long blocking
+    stage, so GET /analyze/jobs' >120s "stalled" heuristic doesn't false-positive
+    on a legitimately-slow download or transcode.
+
+    Every :data:`JOB_HEARTBEAT_SECONDS` it re-writes the CURRENT ``state`` (which
+    the owning task's set_stage mutates in place, and which the download progress
+    hook mutates with bytes_downloaded/bytes_total) with a bumped ``updated_at`` —
+    no fabricated progress, just an honest "still working" signal. A write failure
+    is logged, never raised, and the beat loop is cancelled on exit."""
+    async def _beat() -> None:
+        while True:
+            await asyncio.sleep(JOB_HEARTBEAT_SECONDS)
+            state["updated_at"] = datetime.now(timezone.utc).isoformat()
+            try:
+                await store_backend.write_job_state(uid, job_id, dict(state))
+            except Exception:  # noqa: BLE001 — heartbeat is best-effort
+                logger.debug(
+                    "job heartbeat write failed for %s", job_id, exc_info=True,
+                )
+
+    task = asyncio.create_task(_beat())
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+
 async def _run_analysis_job(
     uid: str,
     job_id: str,
@@ -2824,6 +2934,7 @@ async def _run_analysis_job(
     context: str,
     consent: bool,
     store: bool,
+    title: str | None = None,
     cleanup: "Callable[[], Awaitable[None]] | None" = None,
 ) -> None:
     """Run one analysis job to a terminal state, writing staged progress.
@@ -2854,18 +2965,23 @@ async def _run_analysis_job(
 
     try:
         try:
-            data, filename, content_type, source = await prepare(set_stage)
-            response = await _analyze_recording_bytes(
-                uid,
-                data=data,
-                filename=filename,
-                content_type=content_type,
-                context=context,
-                consent=consent,
-                store=store,
-                source=source,
-                progress=set_stage,
-            )
+            # The heartbeat keeps updated_at fresh through prepare()'s download and
+            # _analyze_recording_bytes' transcode/store, so neither long blocking
+            # stage reads as "stalled" while it is genuinely still running.
+            async with _job_heartbeat(store_backend, uid, job_id, state):
+                data, filename, content_type, source = await prepare(set_stage)
+                response = await _analyze_recording_bytes(
+                    uid,
+                    data=data,
+                    filename=filename,
+                    content_type=content_type,
+                    context=context,
+                    consent=consent,
+                    store=store,
+                    source=source,
+                    title=title,
+                    progress=set_stage,
+                )
         except HTTPException as exc:
             await _write_job_failed(store_backend, uid, job_id, state, str(exc.detail))
             return
@@ -2946,19 +3062,32 @@ async def analyze_link_job(
     url = req.url
 
     async def _prepare(set_stage: "JobProgressFn") -> tuple:
-        await set_stage("downloading", "starting download", None)
+        await set_stage("downloading", "fetching video", None)
+
+        def _on_progress(done: int, total: "int | None") -> None:
+            # Runs in the fetch worker thread; a plain int assignment into the
+            # shared state dict is GIL-atomic. The heartbeat (event loop) reads and
+            # writes these out — so the client sees live download progress without
+            # this thread touching GCS or the loop.
+            state["bytes_downloaded"] = done
+            state["bytes_total"] = total
+
         try:
             # fetch_link is blocking (httpx.Client) — keep it off the event loop.
             data, filename, content_type = await asyncio.to_thread(
-                link_fetch.fetch_link, url,
+                link_fetch.fetch_link, url, progress_cb=_on_progress,
             )
         except link_fetch.LinkError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.detail)
         if not data:
             raise HTTPException(status_code=422, detail="linked file is empty")
-        await set_stage(
-            "downloading", f"{len(data) // (1024 * 1024)} MB downloaded", None,
-        )
+        # Honest label: this size is the fetched VIDEO, not what gets transcribed
+        # (we downmix to a small audio stream before Deepgram) — Bug-4 fix so the
+        # client no longer renders the download size as "N MB to transcribe".
+        mb = len(data) // (1024 * 1024)
+        state["bytes_downloaded"] = len(data)
+        state["bytes_total"] = state.get("bytes_total") or len(data)
+        await set_stage("downloading", f"fetched video ({mb} MB)", None)
         return data, filename, content_type, {
             # The ORIGINAL pasted URL (pre-Drive-rewrite), matching /analyze/link.
             "type": "link", "url": url, "original_filename": filename,
@@ -2967,7 +3096,7 @@ async def analyze_link_job(
     _spawn_job(_run_analysis_job(
         uid, job_id, store_backend, state,
         prepare=_prepare, context=req.context, consent=req.consent,
-        store=req.store,
+        store=req.store, title=req.title,
     ))
     return JobCreatedResponse(job_id=job_id)
 
@@ -3015,6 +3144,7 @@ async def complete_upload_job(
         context=manifest.get("context", "") or "",
         consent=bool(manifest.get("consent", False)),
         store=bool(manifest.get("store", True)),
+        title=manifest.get("title"),
         cleanup=_cleanup,
     ))
     return JobCreatedResponse(job_id=job_id)
@@ -3072,6 +3202,8 @@ async def get_analyze_job(
         stage_started_at=state.get("stage_started_at"),
         progress_note=progress_note,
         duration_seconds=state.get("duration_seconds"),
+        bytes_downloaded=state.get("bytes_downloaded"),
+        bytes_total=state.get("bytes_total"),
         error=state.get("error"),
         # Result is only carried once done — excluded on every non-terminal poll.
         result=state.get("result") if status == "done" else None,

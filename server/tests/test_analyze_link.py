@@ -145,6 +145,46 @@ def test_fetch_happy_path_returns_bytes_and_filename():
     assert ct == "audio/wav"
 
 
+def test_fetch_reports_download_progress():
+    def handler(request):
+        return httpx.Response(
+            200, headers={"content-type": "video/mp4"}, content=FIXTURE_WAV,
+        )
+
+    calls = []
+    data, _filename, _ct = link_fetch.fetch_link(
+        "https://example.com/dir/clip.mp4",
+        resolver=_public_resolver,
+        transport=httpx.MockTransport(handler),
+        progress_cb=lambda done, total: calls.append((done, total)),
+    )
+    assert data == FIXTURE_WAV
+    # The hook fired, and the final report is the full size with a known total
+    # (MockTransport sets Content-Length), so a caller can render real progress.
+    assert calls, "progress_cb was never called"
+    assert calls[-1] == (len(FIXTURE_WAV), len(FIXTURE_WAV))
+
+
+def test_fetch_progress_hook_error_never_breaks_download():
+    def handler(request):
+        return httpx.Response(
+            200, headers={"content-type": "video/mp4"}, content=FIXTURE_WAV,
+        )
+
+    def _boom(done, total):
+        raise RuntimeError("hook blew up")
+
+    # A misbehaving progress hook must not sink the download it only observes.
+    data, _filename, ct = link_fetch.fetch_link(
+        "https://example.com/dir/clip.mp4",
+        resolver=_public_resolver,
+        transport=httpx.MockTransport(handler),
+        progress_cb=_boom,
+    )
+    assert data == FIXTURE_WAV
+    assert ct == "video/mp4"
+
+
 def test_fetch_filename_from_content_disposition():
     def handler(request):
         return httpx.Response(
@@ -387,7 +427,7 @@ class _LinkFakeStore:
     async def save_recording(
         self, uid, *, audio_m4a, video_360p, original_filename,
         original_content_type, original_bytes, duration_seconds, turns,
-        analysis, source=None,
+        analysis, source=None, title=None,
     ):
         import uuid
         from datetime import datetime, timezone
