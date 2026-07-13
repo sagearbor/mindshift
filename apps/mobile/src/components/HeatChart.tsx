@@ -54,6 +54,10 @@ const SIM_DASH = "6,4";
 const HEAT_MIN = 0;
 const HEAT_MAX = 100;
 
+// Minimum width (px) of a time-axis tap target, so a very short utterance's dash
+// is still comfortably hittable on a phone.
+const MIN_TAP_PX = 28;
+
 export interface ChartPoint {
   index: number; // turn index across the WHOLE conversation
   heat: number; // 0–100
@@ -261,6 +265,250 @@ export function playheadXForTime(
   );
 }
 
+// --- Time-axis geometry (the primary "dashes over real recording time" view) ---
+//
+// Instead of one evenly-spaced dot per turn, each turn is a HORIZONTAL DASH
+// spanning its real [start_time, end_time] on an x-axis that IS the recording's
+// clock. A speaker who talks two-thirds of the time visibly covers two-thirds of
+// the axis; silence is simply empty. The playhead (mapped by the same seconds→x
+// scale) therefore sits on the dash of whoever is actually speaking.
+
+/** One turn drawn as a horizontal dash. x1..x2 is its real span in pixels. */
+export interface DashSegment {
+  index: number;
+  heat: number;
+  isSpike: boolean;
+  x1: number; // px at start_time
+  x2: number; // px at end_time (grown to a minimum so short turns stay visible)
+  xMid: number;
+  y: number;
+}
+
+export interface SpeakerDashes {
+  speaker: string;
+  color: string;
+  dashes: DashSegment[];
+}
+
+export interface TimeMapOptions {
+  width: number;
+  height: number;
+  padding: number;
+  /** Total recording length in seconds — the x-axis span. Must be > 0. */
+  duration: number;
+  /** Floor on a dash's pixel width so a very short utterance is still visible
+   *  and tappable; the dash is grown symmetrically around its center. */
+  minDashPx?: number;
+}
+
+/**
+ * True when timing is present, index-aligned with `count` turns, finite, non-
+ * decreasing (end >= start), and spans a positive duration — the precondition
+ * for the honest time axis. Anything else (missing timing on a pre-timestamp
+ * recording, a pasted transcript) falls back to index spacing.
+ */
+export function timingIsUsable(
+  timing: TurnTiming[] | undefined | null,
+  count: number,
+): boolean {
+  if (!timing || timing.length === 0 || timing.length !== count) return false;
+  let maxEnd = 0;
+  for (const t of timing) {
+    if (!Number.isFinite(t.start_time) || !Number.isFinite(t.end_time))
+      return false;
+    if (t.end_time < t.start_time) return false;
+    if (t.end_time > maxEnd) maxEnd = t.end_time;
+  }
+  return maxEnd > 0;
+}
+
+/** Total x-axis duration: an explicit recording duration wins (it can exceed the
+ *  last utterance's end — trailing silence is real), else the last end_time. */
+export function durationForTiming(
+  timing: TurnTiming[],
+  explicit?: number | null,
+): number {
+  if (explicit != null && explicit > 0) return explicit;
+  return timing.reduce((m, t) => Math.max(m, t.end_time), 0);
+}
+
+/**
+ * Pure: map per-turn heat + real timing into one set of horizontal dashes per
+ * speaker. x spans [start_time, end_time] in recording seconds; y = heat 0–100.
+ * `timing` is index-aligned with `perTurn`. Exported for direct geometry tests.
+ */
+export function mapTurnsToDashes(
+  perTurn: AnalyzePerTurn[],
+  timing: TurnTiming[],
+  opts: TimeMapOptions,
+): SpeakerDashes[] {
+  const { width, height, padding, duration } = opts;
+  const minDashPx = opts.minDashPx ?? 3;
+  const chartWidth = width - padding * 2;
+  const chartHeight = height - padding * 2;
+
+  const xFor = (sec: number) => {
+    const frac = duration <= 0 ? 0 : Math.max(0, Math.min(1, sec / duration));
+    return padding + frac * chartWidth;
+  };
+  const yFor = (heat: number) => {
+    const clamped = Math.max(HEAT_MIN, Math.min(HEAT_MAX, heat));
+    return (
+      padding +
+      (chartHeight - ((clamped - HEAT_MIN) / (HEAT_MAX - HEAT_MIN)) * chartHeight)
+    );
+  };
+
+  const order: string[] = [];
+  const bySpeaker = new Map<string, DashSegment[]>();
+  perTurn.forEach((t, i) => {
+    const tm = timing[i];
+    let x1 = xFor(tm.start_time);
+    let x2 = xFor(tm.end_time);
+    if (x2 - x1 < minDashPx) {
+      const mid = (x1 + x2) / 2;
+      x1 = Math.max(padding, mid - minDashPx / 2);
+      x2 = Math.min(padding + chartWidth, x1 + minDashPx);
+    }
+    if (!bySpeaker.has(t.speaker)) {
+      bySpeaker.set(t.speaker, []);
+      order.push(t.speaker);
+    }
+    bySpeaker.get(t.speaker)!.push({
+      index: t.index,
+      heat: t.heat,
+      isSpike: t.is_spike,
+      x1,
+      x2,
+      xMid: (x1 + x2) / 2,
+      y: yFor(t.heat),
+    });
+  });
+
+  return order.map((speaker) => ({
+    speaker,
+    color: getSpeakerColor(speaker),
+    dashes: bySpeaker.get(speaker)!,
+  }));
+}
+
+/**
+ * Pure: simulated ("what-if") turns as dashes, reusing the REAL turn's time span
+ * at the same conversation index (sim turns carry no timing of their own) so the
+ * dashed hypothetical lands exactly over the solid dash it replaces. Grouped per
+ * speaker, in its own color. Skips any sim turn without a matching real span.
+ */
+export function mapSimulatedToDashes(
+  simulated: SimulatedTurn[],
+  timing: TurnTiming[],
+  opts: TimeMapOptions,
+): SpeakerDashes[] {
+  const asPerTurn: AnalyzePerTurn[] = [];
+  const alignedTiming: TurnTiming[] = [];
+  for (const s of simulated) {
+    const tm = timing[s.index];
+    if (!tm) continue;
+    asPerTurn.push({
+      index: s.index,
+      speaker: s.speaker,
+      heat: s.heat,
+      markers: [],
+      is_spike: false,
+      trigger_phrase: null,
+    });
+    alignedTiming.push(tm);
+  }
+  return mapTurnsToDashes(asPerTurn, alignedTiming, opts);
+}
+
+/** Pure: playhead x for a playback position on the time axis — the SAME seconds→x
+ *  scale as mapTurnsToDashes, so the playhead sits on the current speaker's dash.
+ *  Returns null when there's no positive duration. Exported for alignment tests. */
+export function playheadXForSeconds(
+  seconds: number,
+  opts: { width: number; padding: number; duration: number },
+): number | null {
+  const { width, padding, duration } = opts;
+  if (!(duration > 0)) return null;
+  const chartWidth = width - padding * 2;
+  const frac = Math.max(0, Math.min(1, seconds / duration));
+  return padding + frac * chartWidth;
+}
+
+/**
+ * Pure: each speaker's share (0–1) of total TALKING time, from real durations.
+ * Silence isn't attributed to anyone — the denominator is summed utterance
+ * length — so shares answer "of the talking, who did how much" (the owner's
+ * 2/3-vs-1/3 intuition). `entries` is index-aligned with `timing`.
+ */
+export function computeTalkShares(
+  entries: { speaker: string }[],
+  timing: TurnTiming[],
+): Record<string, number> {
+  const totals: Record<string, number> = {};
+  let grand = 0;
+  entries.forEach((e, i) => {
+    const tm = timing[i];
+    if (!tm) return;
+    const d = Math.max(0, tm.end_time - tm.start_time);
+    totals[e.speaker] = (totals[e.speaker] ?? 0) + d;
+    grand += d;
+  });
+  const shares: Record<string, number> = {};
+  for (const s of Object.keys(totals)) {
+    shares[s] = grand > 0 ? totals[s] / grand : 0;
+  }
+  return shares;
+}
+
+/** A cell in the time-aligned tap strip: either a tappable turn or a silent gap
+ *  spacer. `seconds` drives its flex weight, so the strip mirrors the dashes'
+ *  time positions WITHOUT needing a measured pixel width. */
+export interface ScrubCell {
+  kind: "turn" | "gap";
+  index?: number;
+  speaker?: string;
+  heat?: number;
+  seconds: number;
+}
+
+/**
+ * Pure: lay out the time axis as a sequence of turn cells and silent-gap spacers
+ * proportional to real seconds. Overlapping turns (diarization can overlap) never
+ * produce a negative gap. Exported for direct testing of the layout weights.
+ */
+export function buildTimeScrubCells(
+  perTurn: AnalyzePerTurn[],
+  timing: TurnTiming[],
+  duration: number,
+): ScrubCell[] {
+  const cells: ScrubCell[] = [];
+  let cursor = 0;
+  perTurn.forEach((t, i) => {
+    const tm = timing[i];
+    const start = Math.max(0, tm.start_time);
+    if (start - cursor > 1e-6) cells.push({ kind: "gap", seconds: start - cursor });
+    cells.push({
+      kind: "turn",
+      index: t.index,
+      speaker: t.speaker,
+      heat: t.heat,
+      seconds: Math.max(0, tm.end_time - tm.start_time),
+    });
+    cursor = Math.max(cursor, tm.end_time);
+  });
+  if (duration - cursor > 1e-6) cells.push({ kind: "gap", seconds: duration - cursor });
+  return cells;
+}
+
+/** m:ss for the tiny time-axis end label. */
+export function formatClock(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return `${m}:${rem.toString().padStart(2, "0")}`;
+}
+
 interface HeatChartProps {
   perTurn: AnalyzePerTurn[];
   // The original transcript, index-aligned with perTurn. The backend's per_turn
@@ -303,6 +551,10 @@ interface HeatChartProps {
   /** Tapping a chart point (or scrubber cell) also seeks playback to that turn's
    *  start_time. Wired by ReplayScreen to the media player. */
   onSeekToTurn?: (startTime: number) => void;
+  /** Total recording length in seconds, for the time axis span. Optional; when
+   *  absent (or ≤ 0) the axis falls back to the last utterance's end_time. Only
+   *  meaningful alongside usable `turnsTiming`. */
+  durationSeconds?: number | null;
 }
 
 /**
@@ -329,6 +581,7 @@ export default function HeatChart({
   playheadSeconds = null,
   turnsTiming,
   onSeekToTurn,
+  durationSeconds = null,
 }: HeatChartProps) {
   const [width, setWidth] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
@@ -345,12 +598,68 @@ export default function HeatChart({
       onSeekToTurn(timing.start_time);
     }
   };
+  // Mode selection. When we have honest, index-aligned utterance timing we draw
+  // the TIME AXIS (dashes over real recording seconds). Otherwise — a pre-
+  // timestamp recording, or a pasted transcript that never had timing — we fall
+  // back to the legacy evenly-spaced polyline. `showLegacyNote` distinguishes
+  // "timing was expected but unusable" (worth a subtle note) from "this was
+  // never a timed conversation" (no note).
+  const useTimeAxis = timingIsUsable(turnsTiming, perTurn.length);
+  const timingProvided = !!turnsTiming && turnsTiming.length > 0;
+  const showLegacyNote = timingProvided && !useTimeAxis;
+  const duration =
+    useTimeAxis && turnsTiming ? durationForTiming(turnsTiming, durationSeconds) : 0;
+
+  // Stable speaker order + color for the legend (independent of measured width,
+  // so the legend is populated before the first layout pass), shared by both
+  // modes.
+  const speakerOrder: { speaker: string; color: string }[] = [];
+  {
+    const seen = new Set<string>();
+    for (const t of perTurn) {
+      if (!seen.has(t.speaker)) {
+        seen.add(t.speaker);
+        speakerOrder.push({ speaker: t.speaker, color: getSpeakerColor(t.speaker) });
+      }
+    }
+  }
+
+  const overlayActive = !!simulated && simulated.length > 0 && showSimulation;
+
+  // --- Time-axis geometry (primary) ---
+  const dashLines =
+    useTimeAxis && width > 0 && turnsTiming
+      ? mapTurnsToDashes(perTurn, turnsTiming, { width, height, padding, duration })
+      : [];
+  const simDashLines =
+    overlayActive && useTimeAxis && width > 0 && turnsTiming
+      ? mapSimulatedToDashes(simulated!, turnsTiming, {
+          width,
+          height,
+          padding,
+          duration,
+        })
+      : [];
+  const talkShares =
+    useTimeAxis && turnsTiming ? computeTalkShares(perTurn, turnsTiming) : {};
+  // Time-aligned tap strip, rendered as proportional flex so it needs no measured
+  // width (works before/without a layout pass) yet still mirrors the dashes.
+  const scrubCells =
+    useTimeAxis && turnsTiming
+      ? buildTimeScrubCells(perTurn, turnsTiming, duration)
+      : [];
+  const timePlayheadX =
+    useTimeAxis && playheadSeconds != null && width > 0
+      ? playheadXForSeconds(playheadSeconds, { width, padding, duration })
+      : null;
+
+  // --- Legacy index-spaced geometry (fallback) ---
   // Only compute geometry once we've measured a width (first layout pass).
   // totalTurns is passed EXPLICITLY so the real and simulated lines share one
   // x-scale by construction, not by the (currently true) coincidence that
   // server turn indexes are contiguous 0..n-1.
   const lines =
-    width > 0
+    !useTimeAxis && width > 0
       ? mapTurnsToLines(perTurn, {
           width,
           height,
@@ -358,13 +667,8 @@ export default function HeatChart({
           totalTurns: perTurn.length,
         })
       : [];
-
-  // Simulated overlay lines share the SAME x-scale as the real lines by pinning
-  // totalTurns to the real conversation length — so the dashed segment lands
-  // exactly over the solid one from the pivot onward.
-  const overlayActive = !!simulated && simulated.length > 0 && showSimulation;
   const simLines =
-    overlayActive && width > 0
+    !useTimeAxis && overlayActive && width > 0
       ? mapSimulatedToLines(simulated!, {
           width,
           height,
@@ -372,18 +676,20 @@ export default function HeatChart({
           totalTurns: perTurn.length,
         })
       : [];
-
-  // Replay playhead x: only when we have a position, timing, and a measured
-  // width. Shares the real lines' x-scale (totalTurns = perTurn.length) so it
-  // sits exactly on the current turn's point.
-  const playheadX =
-    playheadSeconds != null && turnsTiming && turnsTiming.length > 0 && width > 0
+  const legacyPlayheadX =
+    !useTimeAxis &&
+    playheadSeconds != null &&
+    turnsTiming &&
+    turnsTiming.length > 0 &&
+    width > 0
       ? playheadXForTime(playheadSeconds, turnsTiming, {
           width,
           padding,
           totalTurns: perTurn.length,
         })
       : null;
+
+  const activePlayheadX = useTimeAxis ? timePlayheadX : legacyPlayheadX;
 
   const selectedTurn =
     selected !== null
@@ -401,17 +707,27 @@ export default function HeatChart({
 
   return (
     <View testID="heat-chart">
-      {/* Legend: color swatch + speaker name, one row. */}
+      {/* Legend: color swatch + speaker name, one row. On the time axis each
+          speaker also carries their share of total talking time (from real
+          utterance durations) — the direct answer to "who spoke more". */}
       <View style={styles.legend}>
-        {lines.map((line) => (
-          <View key={line.speaker} style={styles.legendItem}>
-            <View
-              style={[styles.swatch, { backgroundColor: line.color }]}
-              testID={`legend-swatch-${line.speaker}`}
-            />
-            <Text style={styles.legendText}>{line.speaker}</Text>
-          </View>
-        ))}
+        {speakerOrder.map((s) => {
+          const share = talkShares[s.speaker];
+          return (
+            <View key={s.speaker} style={styles.legendItem}>
+              <View
+                style={[styles.swatch, { backgroundColor: s.color }]}
+                testID={`legend-swatch-${s.speaker}`}
+              />
+              <Text style={styles.legendText}>
+                {s.speaker}
+                {useTimeAxis && share !== undefined
+                  ? ` — ${Math.round(share * 100)}% of talking`
+                  : ""}
+              </Text>
+            </View>
+          );
+        })}
 
         {/* Dashed-line legend entry, only while the overlay is visible. */}
         {overlayActive && (
@@ -439,95 +755,230 @@ export default function HeatChart({
         )}
       </View>
 
-      {/* Chart surface — onLayout gives us the responsive width. */}
+      {/* Chart surface — onLayout gives us the responsive width. position:
+          relative so the time-axis tap overlay can be absolutely placed over the
+          dashes. */}
       <View
-        style={{ height }}
+        style={{ height, position: "relative" }}
         onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
       >
         {width > 0 && (
           <Svg width={width} height={height}>
-            {/* Replay playhead: a thin vertical ink line at the current turn's
-                x, drawn first so the lines and points sit on top of it. */}
-            {playheadX != null && (
+            {/* Replay playhead: a thin vertical ink line, drawn first so the
+                marks sit on top of it. On the time axis it maps by real seconds,
+                so it lands on the dash of whoever is speaking right now. */}
+            {activePlayheadX != null && (
               <Line
                 testID="playhead-line"
-                x1={playheadX}
+                x1={activePlayheadX}
                 y1={padding}
-                x2={playheadX}
+                x2={activePlayheadX}
                 y2={height - padding}
                 stroke={INK}
                 strokeWidth={1.5}
                 strokeOpacity={0.35}
               />
             )}
-            {/* Simulated overlay FIRST so the real (solid) lines sit on top of
-                the dashed hypothetical. Same per-speaker color, dashed, reduced
-                opacity. */}
-            {simLines.map((line) => (
-              <Polyline
-                key={`sim-line-${line.speaker}`}
-                testID={`sim-line-${line.speaker}`}
-                points={line.points.map((p) => `${p.x},${p.y}`).join(" ")}
-                fill="none"
-                stroke={line.color}
-                strokeWidth={2}
-                strokeDasharray={SIM_DASH}
-                strokeOpacity={SIM_OPACITY}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
-            ))}
-            {lines.map((line) => (
-              <Polyline
-                key={`line-${line.speaker}`}
-                testID={`heat-line-${line.speaker}`}
-                points={line.points.map((p) => `${p.x},${p.y}`).join(" ")}
-                fill="none"
-                stroke={line.color}
-                strokeWidth={2}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
-            ))}
-            {/* Points last so they sit above the lines. Spikes are larger and
-                amber; the selected point gets a ring. */}
-            {lines.flatMap((line) =>
-              line.points.map((p) => (
-                <Circle
-                  key={`pt-${line.speaker}-${p.index}`}
-                  testID={
-                    p.isSpike
-                      ? `heat-spike-${p.index}`
-                      : `heat-point-${p.index}`
-                  }
-                  cx={p.x}
-                  cy={p.y}
-                  r={p.isSpike ? 6 : 4}
-                  fill={p.isSpike ? AMBER : line.color}
-                  stroke={selected === p.index ? INK : "none"}
-                  strokeWidth={selected === p.index ? 2 : 0}
-                  onPress={() => selectTurn(p.index)}
-                />
-              )),
+
+            {useTimeAxis ? (
+              <>
+                {/* Faint per-speaker connector through dash midpoints — an aid to
+                    read a speaker's arc, deliberately subordinate to the dashes
+                    (thin, low opacity). */}
+                {dashLines.map((line) =>
+                  line.dashes.length > 1 ? (
+                    <Polyline
+                      key={`connector-${line.speaker}`}
+                      testID={`heat-line-${line.speaker}`}
+                      points={line.dashes.map((d) => `${d.xMid},${d.y}`).join(" ")}
+                      fill="none"
+                      stroke={line.color}
+                      strokeWidth={1}
+                      strokeOpacity={0.25}
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                    />
+                  ) : null,
+                )}
+                {/* Simulated dashes FIRST so the real dashes sit on top. */}
+                {simDashLines.flatMap((line) =>
+                  line.dashes.map((d) => (
+                    <Line
+                      key={`sim-dash-${line.speaker}-${d.index}`}
+                      testID={`sim-dash-${d.index}`}
+                      x1={d.x1}
+                      y1={d.y}
+                      x2={d.x2}
+                      y2={d.y}
+                      stroke={line.color}
+                      strokeWidth={3}
+                      strokeDasharray={SIM_DASH}
+                      strokeOpacity={SIM_OPACITY}
+                      strokeLinecap="round"
+                    />
+                  )),
+                )}
+                {/* The primary mark: one horizontal dash per turn, speaker-
+                    colored, spanning its real talk time. The selected dash reads
+                    thicker; others dim slightly so the selection stands out. */}
+                {dashLines.flatMap((line) =>
+                  line.dashes.map((d) => (
+                    <Line
+                      key={`dash-${line.speaker}-${d.index}`}
+                      testID={`heat-dash-${d.index}`}
+                      x1={d.x1}
+                      y1={d.y}
+                      x2={d.x2}
+                      y2={d.y}
+                      stroke={line.color}
+                      strokeWidth={selected === d.index ? 7 : 4}
+                      strokeOpacity={
+                        selected === null || selected === d.index ? 1 : 0.8
+                      }
+                      strokeLinecap="round"
+                      onPress={() => selectTurn(d.index)}
+                    />
+                  )),
+                )}
+                {/* Spike markers: a small amber dot centered on the dash keeps
+                    spikes legible without discarding the speaker's color. */}
+                {dashLines.flatMap((line) =>
+                  line.dashes
+                    .filter((d) => d.isSpike)
+                    .map((d) => (
+                      <Circle
+                        key={`spikept-${d.index}`}
+                        testID={`heat-spike-${d.index}`}
+                        cx={d.xMid}
+                        cy={d.y}
+                        r={4}
+                        fill={AMBER}
+                        stroke={selected === d.index ? INK : "none"}
+                        strokeWidth={selected === d.index ? 2 : 0}
+                        onPress={() => selectTurn(d.index)}
+                      />
+                    )),
+                )}
+              </>
+            ) : (
+              <>
+                {/* Legacy fallback: evenly-spaced polyline per speaker. */}
+                {simLines.map((line) => (
+                  <Polyline
+                    key={`sim-line-${line.speaker}`}
+                    testID={`sim-line-${line.speaker}`}
+                    points={line.points.map((p) => `${p.x},${p.y}`).join(" ")}
+                    fill="none"
+                    stroke={line.color}
+                    strokeWidth={2}
+                    strokeDasharray={SIM_DASH}
+                    strokeOpacity={SIM_OPACITY}
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                  />
+                ))}
+                {lines.map((line) => (
+                  <Polyline
+                    key={`line-${line.speaker}`}
+                    testID={`heat-line-${line.speaker}`}
+                    points={line.points.map((p) => `${p.x},${p.y}`).join(" ")}
+                    fill="none"
+                    stroke={line.color}
+                    strokeWidth={2}
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                  />
+                ))}
+                {lines.flatMap((line) =>
+                  line.points.map((p) => (
+                    <Circle
+                      key={`pt-${line.speaker}-${p.index}`}
+                      testID={
+                        p.isSpike
+                          ? `heat-spike-${p.index}`
+                          : `heat-point-${p.index}`
+                      }
+                      cx={p.x}
+                      cy={p.y}
+                      r={p.isSpike ? 6 : 4}
+                      fill={p.isSpike ? AMBER : line.color}
+                      stroke={selected === p.index ? INK : "none"}
+                      strokeWidth={selected === p.index ? 2 : 0}
+                      onPress={() => selectTurn(p.index)}
+                    />
+                  )),
+                )}
+              </>
             )}
           </Svg>
         )}
       </View>
 
-      {/* Tap targets: SVG circles are tiny/unreliable to hit, so we also render
-          a row of invisible full-height touch columns, one per turn, as a
-          reliable scrubber. Tapping a column selects that turn. */}
-      <View style={styles.scrubberRow} testID="heat-scrubber">
-        {perTurn.map((t) => (
-          <TouchableOpacity
-            key={`scrub-${t.index}`}
-            testID={`scrub-${t.index}`}
-            style={styles.scrubCell}
-            onPress={() => selectTurn(t.index)}
-            accessibilityLabel={`Turn ${t.index + 1}, ${t.speaker}, heat ${t.heat}`}
-          />
-        ))}
-      </View>
+      {/* Tiny time axis: 0:00 on the left, the recording length on the right, so
+          the dashes read plainly as "position in the recording". */}
+      {useTimeAxis && duration > 0 && (
+        <View style={styles.timeAxis} testID="heat-time-axis">
+          <Text style={styles.timeAxisLabel}>0:00</Text>
+          <Text style={styles.timeAxisLabel}>{formatClock(duration)}</Text>
+        </View>
+      )}
+
+      {/* Subtle honesty note: timing was expected for this recording but isn't
+          usable, so we're showing turns evenly spaced rather than inventing a
+          timeline. */}
+      {showLegacyNote && (
+        <Text style={styles.legacyNote} testID="heat-legacy-note">
+          Timeline unavailable for this recording — turns shown evenly spaced.
+        </Text>
+      )}
+
+      {/* Tap targets: SVG dashes/circles are small/unreliable to hit, so we back
+          them with a full-height touch strip, one cell per turn.
+          - Time axis: cells are flex-weighted by real seconds (with silent-gap
+            spacers), so a cell sits under the dash it selects — no measured width
+            needed. Short turns keep a minimum width so they stay hittable.
+          - Legacy: evenly-spaced columns, one per turn. */}
+      {useTimeAxis ? (
+        <View
+          style={[styles.scrubberRow, styles.scrubberRowTime]}
+          testID="heat-scrubber"
+        >
+          {scrubCells.map((c, i) =>
+            c.kind === "gap" ? (
+              <View
+                key={`gap-${i}`}
+                style={{ flexGrow: c.seconds, flexShrink: 1, flexBasis: 0 }}
+              />
+            ) : (
+              <TouchableOpacity
+                key={`scrub-${c.index}`}
+                testID={`scrub-${c.index}`}
+                onPress={() => selectTurn(c.index!)}
+                accessibilityLabel={`Turn ${c.index! + 1}, ${c.speaker}, heat ${c.heat}`}
+                style={{
+                  flexGrow: Math.max(c.seconds, 1e-3),
+                  flexShrink: 0,
+                  flexBasis: 0,
+                  minWidth: MIN_TAP_PX,
+                  height: 24,
+                }}
+              />
+            ),
+          )}
+        </View>
+      ) : (
+        <View style={styles.scrubberRow} testID="heat-scrubber">
+          {perTurn.map((t) => (
+            <TouchableOpacity
+              key={`scrub-${t.index}`}
+              testID={`scrub-${t.index}`}
+              style={styles.scrubCell}
+              onPress={() => selectTurn(t.index)}
+              accessibilityLabel={`Turn ${t.index + 1}, ${t.speaker}, heat ${t.heat}`}
+            />
+          ))}
+        </View>
+      )}
 
       {/* Turn inspector — shows the selected turn's detail. */}
       {selectedTurn && (
@@ -648,6 +1099,28 @@ const styles = StyleSheet.create({
   scrubCell: {
     flex: 1,
     height: 24,
+  },
+  // Time-axis strip: pad the sides by the chart's inner padding (16) so a cell's
+  // horizontal position lines up with the dash it selects.
+  scrubberRowTime: {
+    paddingHorizontal: 16,
+  },
+  timeAxis: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 4,
+    paddingHorizontal: 16,
+  },
+  timeAxisLabel: {
+    fontSize: 11,
+    color: MUTED,
+    fontVariant: ["tabular-nums"],
+  },
+  legacyNote: {
+    fontSize: 12,
+    color: MUTED,
+    fontStyle: "italic",
+    marginTop: 6,
   },
   inspector: {
     marginTop: 10,

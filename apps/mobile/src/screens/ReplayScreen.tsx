@@ -374,6 +374,7 @@ export default function ReplayScreen({
         start_time: t.start_time,
         end_time: t.end_time,
       }))}
+      durationSeconds={detail?.duration_seconds ?? null}
       playheadSeconds={playheadSeconds}
       onSeekToTurn={handleSeekToTurn}
     />
@@ -669,7 +670,8 @@ export default function ReplayScreen({
                     </Text>
                     {chart}
                     <Text style={styles.hint}>
-                      Tap a point to jump the recording there.
+                      Each dash is one turn across the recording — length shows
+                      how long they spoke. Tap a dash to jump there.
                     </Text>
                   </>
                 ) : (

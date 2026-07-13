@@ -1,0 +1,730 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`HeatChart — time axis rendering matches snapshot in legacy (no-timing) mode 1`] = `
+<View
+  testID="heat-chart"
+>
+  <View
+    style={
+      {
+        "flexDirection": "row",
+        "flexWrap": "wrap",
+        "gap": 14,
+        "marginBottom": 8,
+      }
+    }
+  >
+    <View
+      style={
+        {
+          "alignItems": "center",
+          "flexDirection": "row",
+          "gap": 6,
+        }
+      }
+    >
+      <View
+        style={
+          [
+            {
+              "borderRadius": 3,
+              "height": 12,
+              "width": 12,
+            },
+            {
+              "backgroundColor": "#F59E0B",
+            },
+          ]
+        }
+        testID="legend-swatch-Alice"
+      />
+      <Text
+        style={
+          {
+            "color": "#6B7280",
+            "fontSize": 13,
+            "fontWeight": "600",
+          }
+        }
+      >
+        Alice
+      </Text>
+    </View>
+    <View
+      style={
+        {
+          "alignItems": "center",
+          "flexDirection": "row",
+          "gap": 6,
+        }
+      }
+    >
+      <View
+        style={
+          [
+            {
+              "borderRadius": 3,
+              "height": 12,
+              "width": 12,
+            },
+            {
+              "backgroundColor": "#4A90D9",
+            },
+          ]
+        }
+        testID="legend-swatch-Bob"
+      />
+      <Text
+        style={
+          {
+            "color": "#6B7280",
+            "fontSize": 13,
+            "fontWeight": "600",
+          }
+        }
+      >
+        Bob
+      </Text>
+    </View>
+  </View>
+  <View
+    onLayout={[Function]}
+    style={
+      {
+        "height": 180,
+        "position": "relative",
+      }
+    }
+  >
+    <View
+      height={180}
+      testID="Svg"
+      width={300}
+    >
+      <View
+        fill="none"
+        points="16,134.4 194.66666666666666,97.39999999999999"
+        stroke="#F59E0B"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        testID="heat-line-Alice"
+      />
+      <View
+        fill="none"
+        points="105.33333333333333,119.6 284,30.799999999999983"
+        stroke="#4A90D9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        testID="heat-line-Bob"
+      />
+      <View
+        cx={16}
+        cy={134.4}
+        fill="#F59E0B"
+        onPress={[Function]}
+        r={4}
+        stroke="none"
+        strokeWidth={0}
+        testID="heat-point-0"
+      />
+      <View
+        cx={194.66666666666666}
+        cy={97.39999999999999}
+        fill="#F59E0B"
+        onPress={[Function]}
+        r={4}
+        stroke="none"
+        strokeWidth={0}
+        testID="heat-point-2"
+      />
+      <View
+        cx={105.33333333333333}
+        cy={119.6}
+        fill="#4A90D9"
+        onPress={[Function]}
+        r={4}
+        stroke="none"
+        strokeWidth={0}
+        testID="heat-point-1"
+      />
+      <View
+        cx={284}
+        cy={30.799999999999983}
+        fill="#F59E0B"
+        onPress={[Function]}
+        r={6}
+        stroke="none"
+        strokeWidth={0}
+        testID="heat-spike-3"
+      />
+    </View>
+  </View>
+  <View
+    style={
+      {
+        "flexDirection": "row",
+        "marginTop": 6,
+      }
+    }
+    testID="heat-scrubber"
+  >
+    <View
+      accessibilityLabel="Turn 1, Alice, heat 20"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": undefined,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "flex": 1,
+          "height": 24,
+          "opacity": 1,
+        }
+      }
+      testID="scrub-0"
+    />
+    <View
+      accessibilityLabel="Turn 2, Bob, heat 30"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": undefined,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "flex": 1,
+          "height": 24,
+          "opacity": 1,
+        }
+      }
+      testID="scrub-1"
+    />
+    <View
+      accessibilityLabel="Turn 3, Alice, heat 45"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": undefined,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "flex": 1,
+          "height": 24,
+          "opacity": 1,
+        }
+      }
+      testID="scrub-2"
+    />
+    <View
+      accessibilityLabel="Turn 4, Bob, heat 90"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": undefined,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "flex": 1,
+          "height": 24,
+          "opacity": 1,
+        }
+      }
+      testID="scrub-3"
+    />
+  </View>
+</View>
+`;
+
+exports[`HeatChart — time axis rendering matches snapshot in time-axis mode 1`] = `
+<View
+  testID="heat-chart"
+>
+  <View
+    style={
+      {
+        "flexDirection": "row",
+        "flexWrap": "wrap",
+        "gap": 14,
+        "marginBottom": 8,
+      }
+    }
+  >
+    <View
+      style={
+        {
+          "alignItems": "center",
+          "flexDirection": "row",
+          "gap": 6,
+        }
+      }
+    >
+      <View
+        style={
+          [
+            {
+              "borderRadius": 3,
+              "height": 12,
+              "width": 12,
+            },
+            {
+              "backgroundColor": "#F59E0B",
+            },
+          ]
+        }
+        testID="legend-swatch-Alice"
+      />
+      <Text
+        style={
+          {
+            "color": "#6B7280",
+            "fontSize": 13,
+            "fontWeight": "600",
+          }
+        }
+      >
+        Alice
+         — 80% of talking
+      </Text>
+    </View>
+    <View
+      style={
+        {
+          "alignItems": "center",
+          "flexDirection": "row",
+          "gap": 6,
+        }
+      }
+    >
+      <View
+        style={
+          [
+            {
+              "borderRadius": 3,
+              "height": 12,
+              "width": 12,
+            },
+            {
+              "backgroundColor": "#4A90D9",
+            },
+          ]
+        }
+        testID="legend-swatch-Bob"
+      />
+      <Text
+        style={
+          {
+            "color": "#6B7280",
+            "fontSize": 13,
+            "fontWeight": "600",
+          }
+        }
+      >
+        Bob
+         — 20% of talking
+      </Text>
+    </View>
+  </View>
+  <View
+    onLayout={[Function]}
+    style={
+      {
+        "height": 180,
+        "position": "relative",
+      }
+    }
+  >
+    <View
+      height={180}
+      testID="Svg"
+      width={300}
+    >
+      <View
+        fill="none"
+        points="42.8,134.4 176.8,97.39999999999999"
+        stroke="#F59E0B"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeOpacity={0.25}
+        strokeWidth={1}
+        testID="heat-line-Alice"
+      />
+      <View
+        fill="none"
+        points="83,119.6 270.6,30.799999999999983"
+        stroke="#4A90D9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeOpacity={0.25}
+        strokeWidth={1}
+        testID="heat-line-Bob"
+      />
+      <View
+        onPress={[Function]}
+        stroke="#F59E0B"
+        strokeLinecap="round"
+        strokeOpacity={1}
+        strokeWidth={4}
+        testID="heat-dash-0"
+        x1={16}
+        x2={69.6}
+        y1={134.4}
+        y2={134.4}
+      />
+      <View
+        onPress={[Function]}
+        stroke="#F59E0B"
+        strokeLinecap="round"
+        strokeOpacity={1}
+        strokeWidth={4}
+        testID="heat-dash-2"
+        x1={96.39999999999999}
+        x2={257.20000000000005}
+        y1={97.39999999999999}
+        y2={97.39999999999999}
+      />
+      <View
+        onPress={[Function]}
+        stroke="#4A90D9"
+        strokeLinecap="round"
+        strokeOpacity={1}
+        strokeWidth={4}
+        testID="heat-dash-1"
+        x1={69.6}
+        x2={96.39999999999999}
+        y1={119.6}
+        y2={119.6}
+      />
+      <View
+        onPress={[Function]}
+        stroke="#4A90D9"
+        strokeLinecap="round"
+        strokeOpacity={1}
+        strokeWidth={4}
+        testID="heat-dash-3"
+        x1={257.20000000000005}
+        x2={284}
+        y1={30.799999999999983}
+        y2={30.799999999999983}
+      />
+      <View
+        cx={270.6}
+        cy={30.799999999999983}
+        fill="#F59E0B"
+        onPress={[Function]}
+        r={4}
+        stroke="none"
+        strokeWidth={0}
+        testID="heat-spike-3"
+      />
+    </View>
+  </View>
+  <View
+    style={
+      {
+        "flexDirection": "row",
+        "justifyContent": "space-between",
+        "marginTop": 4,
+        "paddingHorizontal": 16,
+      }
+    }
+    testID="heat-time-axis"
+  >
+    <Text
+      style={
+        {
+          "color": "#6B7280",
+          "fontSize": 11,
+          "fontVariant": [
+            "tabular-nums",
+          ],
+        }
+      }
+    >
+      0:00
+    </Text>
+    <Text
+      style={
+        {
+          "color": "#6B7280",
+          "fontSize": 11,
+          "fontVariant": [
+            "tabular-nums",
+          ],
+        }
+      }
+    >
+      0:10
+    </Text>
+  </View>
+  <View
+    style={
+      [
+        {
+          "flexDirection": "row",
+          "marginTop": 6,
+        },
+        {
+          "paddingHorizontal": 16,
+        },
+      ]
+    }
+    testID="heat-scrubber"
+  >
+    <View
+      accessibilityLabel="Turn 1, Alice, heat 20"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": undefined,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "flexBasis": 0,
+          "flexGrow": 2,
+          "flexShrink": 0,
+          "height": 24,
+          "minWidth": 28,
+          "opacity": 1,
+        }
+      }
+      testID="scrub-0"
+    />
+    <View
+      accessibilityLabel="Turn 2, Bob, heat 30"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": undefined,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "flexBasis": 0,
+          "flexGrow": 1,
+          "flexShrink": 0,
+          "height": 24,
+          "minWidth": 28,
+          "opacity": 1,
+        }
+      }
+      testID="scrub-1"
+    />
+    <View
+      accessibilityLabel="Turn 3, Alice, heat 45"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": undefined,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "flexBasis": 0,
+          "flexGrow": 6,
+          "flexShrink": 0,
+          "height": 24,
+          "minWidth": 28,
+          "opacity": 1,
+        }
+      }
+      testID="scrub-2"
+    />
+    <View
+      accessibilityLabel="Turn 4, Bob, heat 90"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": undefined,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "flexBasis": 0,
+          "flexGrow": 1,
+          "flexShrink": 0,
+          "height": 24,
+          "minWidth": 28,
+          "opacity": 1,
+        }
+      }
+      testID="scrub-3"
+    />
+  </View>
+</View>
+`;
