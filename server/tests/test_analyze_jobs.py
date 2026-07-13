@@ -117,7 +117,7 @@ class FakeJobStore:
     async def save_recording(
         self, uid, *, audio_m4a, video_360p, original_filename,
         original_content_type, original_bytes, duration_seconds, turns,
-        analysis, source=None, title=None,
+        analysis, source=None, title=None, storage_note=None,
     ):
         import uuid
         rid = str(uuid.uuid4())

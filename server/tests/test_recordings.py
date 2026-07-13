@@ -47,7 +47,7 @@ class FakeRecordingsStore:
     async def save_recording(
         self, uid, *, audio_m4a, video_360p, original_filename,
         original_content_type, original_bytes, duration_seconds, turns,
-        analysis, source=None, title=None,
+        analysis, source=None, title=None, storage_note=None,
     ):
         if self._fail_on_save:
             raise RuntimeError("simulated GCS outage")
@@ -71,6 +71,7 @@ class FakeRecordingsStore:
             "duration_seconds": duration_seconds,
             "size_bytes": len(audio_m4a) + (len(video_360p) if video_360p else 0),
             "stored_variants": stored_variants,
+            "storage_note": storage_note,
             "original_bytes": original_bytes,
             "original_filename": original_filename,
             "original_content_type": original_content_type,
@@ -86,7 +87,7 @@ class FakeRecordingsStore:
         self.save_calls.append(
             {"uid": uid, "recording_id": recording_id, "audio_m4a": audio_m4a,
              "video_360p": video_360p, "turns": turns, "analysis": analysis,
-             "source": source}
+             "source": source, "storage_note": storage_note}
         )
         return recording_id
 
@@ -432,6 +433,41 @@ def test_build_derivatives_real_ffmpeg_audio_only():
     assert b"ftyp" in derivs.audio_m4a[:64]
 
 
+def test_build_derivatives_expect_video_but_absent_writes_note():
+    """Honesty invariant: when the caller EXPECTED video (content-type/filename)
+    but the input carries none, build_derivatives ALWAYS returns a video_note —
+    closing the silent-skip path where the probe misses an exotic video stream.
+    A real WAV (no video) stands in for the probe-says-no case."""
+    try:
+        derivs = audio_ingest.build_derivatives(FIXTURE_WAV, expect_video=True)
+    except audio_ingest.TranscodeError as exc:  # pragma: no cover — env-dependent
+        pytest.skip(f"ffmpeg unavailable: {exc}")
+    assert derivs.video_360p is None
+    assert derivs.video_note is not None  # never a silent drop
+    assert "video replay unavailable" in derivs.video_note
+    # Audio derivative is still produced — replay of the audio still works.
+    assert len(derivs.audio_m4a) > 0
+
+
+def test_build_derivatives_probe_miss_with_expect_video_notes(monkeypatch):
+    """Unit: even if the probe wrongly reports a real video as audio-only, an
+    expected-video input comes back with a note (not a silent audio-only drop)."""
+    monkeypatch.setattr(audio_ingest, "_probe_has_video", lambda exe, path: False)
+    monkeypatch.setattr(
+        audio_ingest, "_transcode",
+        lambda exe, in_path, args, suffix, timeout: b"FAKE-AUDIO",
+    )
+    derivs = audio_ingest.build_derivatives(b"pretend-video", expect_video=True)
+    assert derivs.audio_m4a == b"FAKE-AUDIO"
+    assert derivs.video_360p is None
+    assert derivs.video_note == (
+        "video replay unavailable: no decodable video stream was found"
+    )
+    # And without expect_video, an audio-only input stays note-free (honest).
+    derivs2 = audio_ingest.build_derivatives(b"pretend-audio", expect_video=False)
+    assert derivs2.video_note is None
+
+
 # ---------------------------------------------------------------------------
 # list / detail / delete
 # ---------------------------------------------------------------------------
@@ -459,8 +495,10 @@ async def test_list_and_detail_happy_path(client, store):
     assert row["source_type"] == "upload"
     assert set(row) == {
         "id", "created_at", "filename", "title", "media_type",
-        "duration_seconds", "has_analysis", "source_type",
+        "duration_seconds", "has_analysis", "source_type", "storage_note",
     }
+    # Audio-only WAV upload → no missing derivative → no note.
+    assert row["storage_note"] is None
     # No explicit title on store → falls back to the filename.
     assert row["title"] == row["filename"]
 
@@ -477,8 +515,9 @@ async def test_list_and_detail_happy_path(client, store):
     }
     assert set(d) == {
         "id", "created_at", "filename", "title", "media_type",
-        "duration_seconds", "turns", "analysis", "source",
+        "duration_seconds", "turns", "analysis", "source", "storage_note",
     }
+    assert d["storage_note"] is None
     assert d["title"] == d["filename"]
 
 
