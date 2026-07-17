@@ -960,7 +960,7 @@ export default function HeatChart({
                 key={`scrub-${c.index}`}
                 testID={`scrub-${c.index}`}
                 onPress={() => selectTurn(c.index!)}
-                accessibilityLabel={`Turn ${c.index! + 1}, ${c.speaker}, heat ${c.heat}`}
+                accessibilityLabel={`Turn ${c.index! + 1}, ${speakerLabel(c.speaker!, speakerLabels)}, heat ${c.heat}`}
                 style={{
                   flexGrow: Math.max(c.seconds, 1e-3),
                   flexShrink: 0,
