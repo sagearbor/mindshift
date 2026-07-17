@@ -516,9 +516,114 @@ async def test_list_and_detail_happy_path(client, store):
     assert set(d) == {
         "id", "created_at", "filename", "title", "media_type",
         "duration_seconds", "turns", "analysis", "source", "storage_note",
+        "episodes",
     }
     assert d["storage_note"] is None
     assert d["title"] == d["filename"]
+
+    # Companion P1 — a short gap-free recording is exactly ONE episode, and its
+    # heat math comes from the mocked per-turn heats (20,23,26,29,32,35).
+    eps = d["episodes"]
+    assert isinstance(eps, list) and len(eps) == 1
+    ep = eps[0]
+    assert ep["turn_count"] == len(MOCK_TURNS)
+    assert (ep["first_turn_index"], ep["last_turn_index"]) == (0, len(MOCK_TURNS) - 1)
+    assert ep["mean_heat"] == 27.5
+    assert ep["peak_heat"] == 35
+    assert ep["participants"] == ["Speaker A", "Speaker B"]
+    # No user/LLM title in this fixture → the summary is a VERBATIM excerpt of
+    # the opening turn, never an invented description.
+    assert ep["summary"] == MOCK_TURNS[0]["text"]
+    assert ep["summary_source"] == "excerpt"
+    # The stored analysis blob carries the same episodes (persisted, not
+    # recomputed): the detail read served them straight from analysis.json.
+    assert d["analysis"]["episodes"] == eps
+
+
+@pytest.mark.anyio
+async def test_upload_response_carries_episodes(client, store):
+    """The analyze-upload response itself exposes the episode list (additive
+    field), so the client can render the day timeline without a second read."""
+    p1, p2 = _patched_upload()
+    with p1, p2:
+        resp = await _upload(client, consent="true", store="true")
+    assert resp.status_code == 200, resp.text
+    eps = resp.json()["episodes"]
+    assert len(eps) == 1
+    assert eps[0]["peak_heat"] == 35
+
+
+def _seed_pre_episode_recording(store, uid="test-user"):
+    """Inject a recording whose stored analysis PRE-DATES episode segmentation
+    (no "episodes" key) — the detail read must backfill by deriving them from
+    the stored turns + analysis, with no migration."""
+    rid = str(uuid.uuid4())
+    turns = [
+        {"speaker": "Speaker A", "text": "Morning.", "start_time": 0.0,
+         "end_time": 2.0},
+        {"speaker": "Speaker B", "text": "Hey.", "start_time": 3.0,
+         "end_time": 5.0},
+        # 95s silence — two episodes under the default 60s gap.
+        {"speaker": "Speaker A", "text": "Back again.", "start_time": 100.0,
+         "end_time": 102.0},
+    ]
+    analysis = {
+        "per_turn": [{"heat": 10}, {"heat": 20}, {"heat": 50}],
+        "speaker_labels": {
+            "Speaker A": {"display_label": "Sam", "label_source": "name"},
+        },
+        "narrative": "old analysis without episodes",
+    }
+    meta = {
+        "id": rid,
+        "created_at": "2026-07-01T10:00:00Z",
+        "filename": "old.m4a",
+        "media_type": "audio",
+        "duration_seconds": 102,
+        "size_bytes": len(FAKE_AUDIO_M4A),
+        "stored_variants": ["audio.m4a"],
+        "original_bytes": 999,
+        "original_filename": "old.m4a",
+        "original_content_type": "audio/mp4",
+        "source": {"type": "upload", "url": None, "original_filename": "old.m4a"},
+    }
+    store._by_uid.setdefault(uid, {})[rid] = {
+        "meta": meta, "turns": turns, "analysis": analysis,
+        "data": FAKE_AUDIO_M4A, "content_type": "audio/mp4",
+    }
+    return rid
+
+
+@pytest.mark.anyio
+async def test_detail_backfills_episodes_for_pre_episode_analysis(client, store):
+    rid = _seed_pre_episode_recording(store)
+    resp = await client.get(
+        f"/recordings/{rid}", headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 200
+    d = resp.json()
+    # Derived on read: two episodes across the 95s silence, heats + the stored
+    # display label ("Sam") intact.
+    eps = d["episodes"]
+    assert [(e["first_turn_index"], e["last_turn_index"]) for e in eps] == [
+        (0, 1), (2, 2),
+    ]
+    assert eps[0]["participants"] == ["Sam", "Speaker B"]
+    assert (eps[0]["mean_heat"], eps[0]["peak_heat"]) == (15.0, 20)
+    assert (eps[1]["mean_heat"], eps[1]["peak_heat"]) == (50.0, 50)
+    # The stored analysis blob itself is served untouched (no phantom write).
+    assert "episodes" not in d["analysis"]
+
+
+@pytest.mark.anyio
+async def test_detail_episodes_null_without_analysis(client, store):
+    # A stored-but-unanalyzed recording has nothing honest to segment.
+    rid = _seed_link_recording(store)  # seeds analysis=None
+    resp = await client.get(
+        f"/recordings/{rid}", headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["episodes"] is None
 
 
 @pytest.mark.anyio

@@ -273,60 +273,127 @@ exports[`HomeScreen renders the two primary modes, the history entry, and the ad
     </View>
   </View>
   <View
-    accessibilityRole="button"
-    accessibilityState={
-      {
-        "busy": undefined,
-        "checked": undefined,
-        "disabled": undefined,
-        "expanded": undefined,
-        "selected": undefined,
-      }
-    }
-    accessibilityValue={
-      {
-        "max": undefined,
-        "min": undefined,
-        "now": undefined,
-        "text": undefined,
-      }
-    }
-    accessible={true}
-    collapsable={false}
-    focusable={true}
-    onClick={[Function]}
-    onResponderGrant={[Function]}
-    onResponderMove={[Function]}
-    onResponderRelease={[Function]}
-    onResponderTerminate={[Function]}
-    onResponderTerminationRequest={[Function]}
-    onStartShouldSetResponder={[Function]}
     style={
       {
-        "alignItems": "center",
-        "backgroundColor": "#FFFFFF",
-        "borderColor": "#D1D5DB",
-        "borderRadius": 14,
-        "borderWidth": 1,
-        "justifyContent": "center",
-        "marginTop": 16,
-        "minHeight": 52,
-        "opacity": 1,
+        "flexDirection": "row",
+        "gap": 12,
       }
     }
-    testID="home-recordings-link"
   >
-    <Text
-      style={
+    <View
+      accessibilityRole="button"
+      accessibilityState={
         {
-          "color": "#4A90D9",
-          "fontSize": 16,
-          "fontWeight": "600",
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": undefined,
         }
       }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "alignItems": "center",
+          "backgroundColor": "#FFFFFF",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 14,
+          "borderWidth": 1,
+          "flex": 1,
+          "justifyContent": "center",
+          "marginTop": 16,
+          "minHeight": 52,
+          "opacity": 1,
+        }
+      }
+      testID="home-your-day-link"
     >
-      ▶ Past recordings
-    </Text>
+      <Text
+        style={
+          {
+            "color": "#4A90D9",
+            "fontSize": 16,
+            "fontWeight": "600",
+          }
+        }
+      >
+        ☀ Your day
+      </Text>
+    </View>
+    <View
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": undefined,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "alignItems": "center",
+          "backgroundColor": "#FFFFFF",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 14,
+          "borderWidth": 1,
+          "flex": 1,
+          "justifyContent": "center",
+          "marginTop": 16,
+          "minHeight": 52,
+          "opacity": 1,
+        }
+      }
+      testID="home-recordings-link"
+    >
+      <Text
+        style={
+          {
+            "color": "#4A90D9",
+            "fontSize": 16,
+            "fontWeight": "600",
+          }
+        }
+      >
+        ▶ Past recordings
+      </Text>
+    </View>
   </View>
 </View>
 `;

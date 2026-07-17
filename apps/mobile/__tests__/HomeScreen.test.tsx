@@ -15,6 +15,7 @@ function makeHandlers() {
     onLiveCoach: jest.fn(),
     onAnalyze: jest.fn(),
     onOpenRecordings: jest.fn(),
+    onOpenYourDay: jest.fn(),
     onOpenAdvanced: jest.fn(),
   };
 }
@@ -28,6 +29,7 @@ describe("HomeScreen", () => {
     expect(queryId(comp, "home-live-coach")).toBeTruthy();
     expect(queryId(comp, "home-analyze")).toBeTruthy();
     expect(queryId(comp, "home-recordings-link")).toBeTruthy();
+    expect(queryId(comp, "home-your-day-link")).toBeTruthy();
     expect(queryId(comp, "home-advanced-button")).toBeTruthy();
     expect(comp.toJSON()).toMatchSnapshot();
     act(() => comp.unmount());
@@ -49,6 +51,9 @@ describe("HomeScreen", () => {
     act(() => queryId(comp, "home-recordings-link")!.props.onPress());
     expect(handlers.onOpenRecordings).toHaveBeenCalledTimes(1);
 
+    act(() => queryId(comp, "home-your-day-link")!.props.onPress());
+    expect(handlers.onOpenYourDay).toHaveBeenCalledTimes(1);
+
     act(() => queryId(comp, "home-advanced-button")!.props.onPress());
     expect(handlers.onOpenAdvanced).toHaveBeenCalledTimes(1);
 
@@ -56,6 +61,7 @@ describe("HomeScreen", () => {
     expect(handlers.onLiveCoach).toHaveBeenCalledTimes(1);
     expect(handlers.onAnalyze).toHaveBeenCalledTimes(1);
     expect(handlers.onOpenRecordings).toHaveBeenCalledTimes(1);
+    expect(handlers.onOpenYourDay).toHaveBeenCalledTimes(1);
     act(() => comp.unmount());
   });
 });
