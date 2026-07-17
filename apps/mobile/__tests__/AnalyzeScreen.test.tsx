@@ -5,6 +5,7 @@ import AnalyzeScreen from "../src/screens/AnalyzeScreen";
 import { useSessionStore } from "../src/store/sessionStore";
 import { useRecorderStore } from "../src/store/recorderStore";
 import { useAnalyzeStore } from "../src/store/analyzeStore";
+import { useUploadPrefsStore } from "../src/store/uploadPrefsStore";
 import { relationshipContext } from "../src/components/RelationshipPicker";
 import {
   postAnalyzeUpload,
@@ -15,6 +16,10 @@ import {
   getAnalyzeJob,
 } from "../src/api/client";
 import type { AnalyzeJobState, UploadAnalyzeResult } from "../src/api/client";
+import {
+  compressVideo,
+  isCompressionAvailable,
+} from "../src/utils/videoCompression";
 
 // Keep the real client (the store uses postRespond) but stub the upload calls.
 jest.mock("../src/api/client", () => ({
@@ -28,6 +33,15 @@ jest.mock("../src/api/client", () => ({
   getAnalyzeJob: jest.fn(),
 }));
 
+// Mock the platform-gated compression wrapper so tests control the routing
+// without the native module. `isCompressionAvailable` defaults to true (native);
+// the web-gate tests override it to false.
+jest.mock("../src/utils/videoCompression", () => ({
+  __esModule: true,
+  isCompressionAvailable: jest.fn(() => true),
+  compressVideo: jest.fn(),
+}));
+
 const mockPick = DocumentPicker.getDocumentAsync as jest.Mock;
 const mockUpload = postAnalyzeUpload as jest.Mock;
 const mockChunked = postAnalyzeUploadChunked as jest.Mock;
@@ -35,6 +49,8 @@ const mockChunkedJob = postAnalyzeUploadChunkedJob as jest.Mock;
 const mockLink = postAnalyzeLink as jest.Mock;
 const mockLinkJob = postAnalyzeLinkJob as jest.Mock;
 const mockGetJob = getAnalyzeJob as jest.Mock;
+const mockCompress = compressVideo as jest.Mock;
+const mockIsCompressionAvailable = isCompressionAvailable as jest.Mock;
 
 // The relationship picker starts UNSELECTED (it's optional): no relationship
 // sentence is sent until the user taps a pill. Once tapped, its sentence
@@ -99,6 +115,10 @@ beforeEach(() => {
   mockLink.mockReset();
   mockLinkJob.mockReset();
   mockGetJob.mockReset();
+  mockCompress.mockReset();
+  mockIsCompressionAvailable.mockReset();
+  // Default: on-device compression is available (native). Web-gate tests flip it.
+  mockIsCompressionAvailable.mockReturnValue(true);
   act(() => {
     useSessionStore.setState({
       role: "Husband / Wife",
@@ -109,6 +129,12 @@ beforeEach(() => {
     });
     useRecorderStore.setState({ pendingFile: null });
     useAnalyzeStore.setState({ relationship: null });
+    // Default preference: compress (Send original quality OFF). Marked hydrated
+    // so the mount hydrate() (which reads a mocked null) doesn't change it.
+    useUploadPrefsStore.setState({
+      sendOriginalQuality: false,
+      hydrated: true,
+    });
   });
 });
 
@@ -567,7 +593,12 @@ describe("AnalyzeScreen", () => {
       act(() => comp.unmount());
     });
 
-    it("uses the chunked JOB path for a large file, shows a progress bar, polls to done", async () => {
+    it("uses the chunked JOB path for a large file (original quality), shows a progress bar, polls to done", async () => {
+      // Opt into original quality so the large video is NOT compressed — it takes
+      // the raw chunked path unchanged.
+      act(() =>
+        useUploadPrefsStore.setState({ sendOriginalQuality: true, hydrated: true }),
+      );
       mockPick.mockResolvedValueOnce({
         canceled: false,
         assets: [
@@ -611,6 +642,8 @@ describe("AnalyzeScreen", () => {
       // size + consent/store opts (no context — relationship unselected).
       expect(mockUpload).not.toHaveBeenCalled();
       expect(mockChunked).not.toHaveBeenCalled();
+      // Original quality → no compression ran.
+      expect(mockCompress).not.toHaveBeenCalled();
       expect(mockChunkedJob).toHaveBeenCalledTimes(1);
       const call = mockChunkedJob.mock.calls[0];
       expect(call[0]).toBe("file:///big.mp4");
@@ -629,6 +662,9 @@ describe("AnalyzeScreen", () => {
     });
 
     it("falls back to the synchronous chunked result when the job endpoint is unavailable", async () => {
+      act(() =>
+        useUploadPrefsStore.setState({ sendOriginalQuality: true, hydrated: true }),
+      );
       mockPick.mockResolvedValueOnce({
         canceled: false,
         assets: [
@@ -681,6 +717,254 @@ describe("AnalyzeScreen", () => {
       expect(mockUpload).toHaveBeenCalledTimes(1);
       expect(mockChunked).not.toHaveBeenCalled();
       expect(onAnalyze).toHaveBeenCalledWith(uploadFixture, null, false);
+      act(() => comp.unmount());
+    });
+  });
+
+  describe("on-device compression before upload", () => {
+    /** Pick a local video of the given size (default 103MB → over the 20MB
+     *  compress threshold). */
+    function pickVideo(size = 103 * MB, name = "big.mp4") {
+      mockPick.mockResolvedValueOnce({
+        canceled: false,
+        assets: [
+          { uri: `file:///${name}`, name, size, mimeType: "video/mp4" },
+        ],
+      });
+    }
+
+    it("compresses a large local video first, shows a Compressing… bar, then uploads the compressed file (direct)", async () => {
+      pickVideo();
+      // Hold compression pending after reporting 42% so the bar is observable.
+      let resolveCompress!: (r: { uri: string; size: number }) => void;
+      mockCompress.mockImplementation(
+        (_uri: string, opts: { onProgress?: (f: number) => void }) => {
+          opts.onProgress?.(0.42);
+          return new Promise((res) => {
+            resolveCompress = res;
+          });
+        },
+      );
+      mockUpload.mockResolvedValueOnce(uploadFixture);
+      const onAnalyze = jest.fn();
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<AnalyzeScreen onAnalyzeDynamics={onAnalyze} />);
+      });
+      await act(async () => {
+        queryId(comp, "pick-recording-button")!.props.onPress();
+      });
+      // Kick off upload — compression starts and parks on the pending promise.
+      act(() => {
+        queryId(comp, "upload-analyze-button")!.props.onPress();
+      });
+
+      // Honest Compressing… bar with the real percentage (never the upload bar).
+      expect(queryId(comp, "compress-progress")).toBeTruthy();
+      expect(queryId(comp, "upload-progress")).toBeNull();
+      expect(JSON.stringify(comp.toJSON())).toContain("Compressing… 42%");
+      expect(mockCompress).toHaveBeenCalledWith(
+        "file:///big.mp4",
+        expect.any(Object),
+      );
+
+      // Finish compression → the compressed (12MB < 20MB) file uploads DIRECT.
+      await act(async () => {
+        resolveCompress({ uri: "file:///big.compressed.mp4", size: 12 * MB });
+      });
+      expect(mockUpload).toHaveBeenCalledWith(
+        "file:///big.compressed.mp4",
+        "big.mp4",
+        "video/mp4",
+        undefined,
+        { consent: false, store: true },
+      );
+      // Small after compression → never touched the chunked path.
+      expect(mockChunkedJob).not.toHaveBeenCalled();
+      expect(onAnalyze).toHaveBeenCalledWith(uploadFixture, null, false);
+      act(() => comp.unmount());
+    });
+
+    it("routes a still-large compressed file through the chunked path", async () => {
+      pickVideo();
+      // Compression only got it down to 30MB — still over the 20MB ceiling.
+      mockCompress.mockResolvedValueOnce({
+        uri: "file:///big.compressed.mp4",
+        size: 30 * MB,
+      });
+      mockChunkedJob.mockResolvedValueOnce({ result: uploadFixture });
+      const onAnalyze = jest.fn();
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<AnalyzeScreen onAnalyzeDynamics={onAnalyze} />);
+      });
+      await act(async () => {
+        queryId(comp, "pick-recording-button")!.props.onPress();
+      });
+      await act(async () => {
+        queryId(comp, "upload-analyze-button")!.props.onPress();
+      });
+
+      expect(mockCompress).toHaveBeenCalledTimes(1);
+      expect(mockUpload).not.toHaveBeenCalled();
+      // Chunked path used with the COMPRESSED uri and size.
+      expect(mockChunkedJob).toHaveBeenCalledTimes(1);
+      const call = mockChunkedJob.mock.calls[0];
+      expect(call[0]).toBe("file:///big.compressed.mp4");
+      expect(call[3]).toBe(30 * MB);
+      expect(onAnalyze).toHaveBeenCalledWith(uploadFixture, null, false);
+      act(() => comp.unmount());
+    });
+
+    it("does NOT compress a small video under the threshold (no double-compress)", async () => {
+      // A 5MB clip (e.g. the 480p in-app recording) is already small.
+      pickVideo(5 * MB, "small.mp4");
+      mockUpload.mockResolvedValueOnce(uploadFixture);
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<AnalyzeScreen />);
+      });
+      await act(async () => {
+        queryId(comp, "pick-recording-button")!.props.onPress();
+      });
+      await act(async () => {
+        queryId(comp, "upload-analyze-button")!.props.onPress();
+      });
+
+      expect(mockCompress).not.toHaveBeenCalled();
+      expect(mockUpload).toHaveBeenCalledWith(
+        "file:///small.mp4",
+        "small.mp4",
+        "video/mp4",
+        undefined,
+        { consent: false, store: true },
+      );
+      act(() => comp.unmount());
+    });
+
+    it("does NOT compress an audio file, even over the threshold", async () => {
+      mockPick.mockResolvedValueOnce({
+        canceled: false,
+        assets: [
+          {
+            uri: "file:///long.m4a",
+            name: "long.m4a",
+            size: 40 * MB,
+            mimeType: "audio/m4a",
+          },
+        ],
+      });
+      mockChunkedJob.mockResolvedValueOnce({ result: uploadFixture });
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<AnalyzeScreen />);
+      });
+      await act(async () => {
+        queryId(comp, "pick-recording-button")!.props.onPress();
+      });
+      await act(async () => {
+        queryId(comp, "upload-analyze-button")!.props.onPress();
+      });
+
+      // Audio is never compressed; the raw file takes the chunked path.
+      expect(mockCompress).not.toHaveBeenCalled();
+      expect(mockChunkedJob).toHaveBeenCalledTimes(1);
+      expect(mockChunkedJob.mock.calls[0][0]).toBe("file:///long.m4a");
+      act(() => comp.unmount());
+    });
+
+    it("respects the persisted 'Send original quality' toggle (skips compression)", async () => {
+      pickVideo();
+      mockChunkedJob.mockResolvedValueOnce({ result: uploadFixture });
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<AnalyzeScreen />);
+      });
+      await act(async () => {
+        queryId(comp, "pick-recording-button")!.props.onPress();
+      });
+      // Flip the visible toggle ON.
+      expect(queryId(comp, "send-original-toggle")).toBeTruthy();
+      act(() => {
+        queryId(comp, "send-original-toggle")!.props.onValueChange(true);
+      });
+      // The store (and thus the preference) reflects it immediately.
+      expect(useUploadPrefsStore.getState().sendOriginalQuality).toBe(true);
+
+      await act(async () => {
+        queryId(comp, "upload-analyze-button")!.props.onPress();
+      });
+
+      // Original quality → no compression, raw file down the chunked path.
+      expect(mockCompress).not.toHaveBeenCalled();
+      expect(mockChunkedJob.mock.calls[0][0]).toBe("file:///big.mp4");
+      act(() => comp.unmount());
+    });
+
+    it("offers an honest fallback when compression fails, then uploads the original", async () => {
+      pickVideo();
+      mockCompress.mockRejectedValueOnce(new Error("compressor crashed"));
+      mockChunkedJob.mockResolvedValueOnce({ result: uploadFixture });
+      const onAnalyze = jest.fn();
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<AnalyzeScreen onAnalyzeDynamics={onAnalyze} />);
+      });
+      await act(async () => {
+        queryId(comp, "pick-recording-button")!.props.onPress();
+      });
+      await act(async () => {
+        queryId(comp, "upload-analyze-button")!.props.onPress();
+      });
+
+      // No silent failure and no upload yet — the honest fallback card is shown
+      // with a size warning naming the original size.
+      expect(mockChunkedJob).not.toHaveBeenCalled();
+      expect(onAnalyze).not.toHaveBeenCalled();
+      expect(queryId(comp, "compression-fallback")).toBeTruthy();
+      expect(JSON.stringify(comp.toJSON())).toContain("Couldn’t compress");
+      expect(JSON.stringify(comp.toJSON())).toContain("103.0 MB");
+
+      // Upload the original anyway → the raw (large) file takes the chunked path.
+      await act(async () => {
+        queryId(comp, "upload-original-button")!.props.onPress();
+      });
+      expect(mockCompress).toHaveBeenCalledTimes(1); // not retried
+      expect(mockChunkedJob).toHaveBeenCalledTimes(1);
+      const call = mockChunkedJob.mock.calls[0];
+      expect(call[0]).toBe("file:///big.mp4");
+      expect(call[3]).toBe(103 * MB);
+      expect(onAnalyze).toHaveBeenCalledWith(uploadFixture, null, false);
+      act(() => comp.unmount());
+    });
+
+    it("web gate: never compresses when compression is unavailable (web)", async () => {
+      mockIsCompressionAvailable.mockReturnValue(false);
+      pickVideo();
+      mockChunkedJob.mockResolvedValueOnce({ result: uploadFixture });
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<AnalyzeScreen />);
+      });
+      await act(async () => {
+        queryId(comp, "pick-recording-button")!.props.onPress();
+      });
+      // The toggle isn't even offered where compression can't run.
+      expect(queryId(comp, "send-original-toggle")).toBeNull();
+
+      await act(async () => {
+        queryId(comp, "upload-analyze-button")!.props.onPress();
+      });
+      // Unchanged behavior: the raw file goes straight to the chunked path.
+      expect(mockCompress).not.toHaveBeenCalled();
+      expect(mockChunkedJob.mock.calls[0][0]).toBe("file:///big.mp4");
       act(() => comp.unmount());
     });
   });
