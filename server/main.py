@@ -43,6 +43,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
 import dynamics
+import episodes
 import link_fetch
 import prosody
 import recordings_store
@@ -489,6 +490,13 @@ class AnalyzeUploadResponse(AnalyzeResponse):
     # source (display_label="You", label_source="enrolled"); per-speaker cosine
     # scores ride along for debugging.
     speaker_identity: Optional[dict] = None
+    # Companion P1 — conversation episodes: the transcript split on silence gaps
+    # (> EPISODE_GAP_SECONDS with no turns), each with timing, participants,
+    # heat stats, and a derived one-line summary (see episodes.py — pure
+    # derivation, no extra LLM call). Additive: a short recording is exactly one
+    # episode, and callers that ignore the field see the response they always
+    # did. None only when segmentation was skipped (e.g. an empty transcript).
+    episodes: Optional[list[dict]] = None
 
 
 # Upload caps (a 413 when exceeded). File-size is a cheap first gate; the
@@ -503,6 +511,11 @@ class AnalyzeUploadResponse(AnalyzeResponse):
 # parts through this same server and reassemble them server-side.
 MAX_UPLOAD_BYTES = int(os.getenv("ANALYZE_UPLOAD_MAX_BYTES", str(25 * 1024 * 1024)))
 MAX_UPLOAD_DURATION_S = float(os.getenv("ANALYZE_UPLOAD_MAX_SECONDS", str(40 * 60)))
+
+# Companion P1 — silence gap (seconds, no diarized turns) that splits a long
+# recording into separate conversation EPISODES on the "Your Day" timeline.
+# Tunable per deployment; the segmentation itself is pure (episodes.py).
+EPISODE_GAP_SECONDS = float(os.getenv("EPISODE_GAP_SECONDS", "60"))
 
 # Chunked-upload caps. The 200MB ceiling bounds total reassembled bytes (a 413
 # at /uploads/start); the 8MB chunk size keeps every PUT far under Cloud Run's
@@ -2284,6 +2297,21 @@ async def _analyze_recording_bytes(
         uid, decoded_pcm, decoded_sr, turns,
     )
 
+    # Companion P1 — episode segmentation (pure derivation over data this
+    # response already carries; no extra LLM call). Computed AFTER
+    # speaker_identity so an enrolled match labels its participant "You", and
+    # BEFORE persistence so analysis.json stores the episodes verbatim.
+    response.episodes = episodes.segment_episodes(
+        [t.model_dump() for t in transcribed],
+        per_turn=[p.model_dump() for p in response.per_turn],
+        speaker_labels={
+            k: v.model_dump() for k, v in response.speaker_labels.items()
+        },
+        speaker_identity=response.speaker_identity,
+        title=effective_title,
+        gap_seconds=EPISODE_GAP_SECONDS,
+    )
+
     # 5) Consent-gated persistence. Store ONLY when the user consented, did not
     #    opt this recording out, and storage is enabled — and NEVER let a
     #    storage failure sink the analysis (the response is already complete).
@@ -2670,6 +2698,18 @@ async def get_recording(
     rec = await store_backend.get_recording(uid, recording_id)
     if rec is None:
         raise HTTPException(status_code=404, detail="Recording not found")
+    # Companion P1 — episodes for the day timeline. New analyses store them in
+    # analysis.json; older recordings are segmented on the fly from the stored
+    # turns + analysis (episodes.py is pure, so the backfill costs microseconds
+    # and no recording needs a migration). None when there is no analysis.
+    analysis = rec.get("analysis")
+    stored_episodes = (
+        analysis.get("episodes") if isinstance(analysis, dict) else None
+    )
+    if stored_episodes is None:
+        stored_episodes = episodes.episodes_from_analysis(
+            rec.get("turns", []), analysis, gap_seconds=EPISODE_GAP_SECONDS,
+        )
     return {
         "id": rec["id"],
         "created_at": rec["created_at"],
@@ -2681,7 +2721,8 @@ async def get_recording(
         # Honest reason a derivative is absent (e.g. video transcode timed out).
         "storage_note": rec.get("storage_note"),
         "turns": rec.get("turns", []),
-        "analysis": rec.get("analysis"),
+        "analysis": analysis,
+        "episodes": stored_episodes,
         # Provenance verbatim (type/url/original_filename) so a future replay
         # feature can stream the user's own hosted copy. Metadata only.
         "source": rec.get("source"),
