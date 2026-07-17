@@ -4,7 +4,8 @@ import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 /**
  * The two-mode home screen. There are exactly two things you'd do with this
  * app — coach a conversation live, or analyze one afterwards — so the home
- * screen is exactly two huge buttons, a compact "past recordings" entry, and
+ * screen is exactly two huge buttons, a compact history row ("Your day"
+ * timeline + "past recordings"), and
  * a small corner affordance for everything else (Advanced). No forms, no
  * settings, no clutter: users may open this mid-conflict and stressed, so the
  * primary targets are enormous and unambiguous.
@@ -13,6 +14,7 @@ interface HomeScreenProps {
   onLiveCoach: () => void;
   onAnalyze: () => void;
   onOpenRecordings: () => void;
+  onOpenYourDay: () => void;
   onOpenAdvanced: () => void;
 }
 
@@ -20,6 +22,7 @@ export default function HomeScreen({
   onLiveCoach,
   onAnalyze,
   onOpenRecordings,
+  onOpenYourDay,
   onOpenAdvanced,
 }: HomeScreenProps) {
   return (
@@ -70,16 +73,27 @@ export default function HomeScreen({
         </TouchableOpacity>
       </View>
 
-      {/* Compact history entry point — the recordings/replay flow is a
-          flagship feature and stays one tap from home. */}
-      <TouchableOpacity
-        testID="home-recordings-link"
-        accessibilityRole="button"
-        style={styles.recordingsRow}
-        onPress={onOpenRecordings}
-      >
-        <Text style={styles.recordingsRowText}>▶ Past recordings</Text>
-      </TouchableOpacity>
+      {/* Compact history entry points — small third row under the two mode
+          cards: the day timeline (Companion P1) and the recordings/replay
+          flow, each one tap from home without disturbing the two-mode design. */}
+      <View style={styles.historyRow}>
+        <TouchableOpacity
+          testID="home-your-day-link"
+          accessibilityRole="button"
+          style={styles.recordingsRow}
+          onPress={onOpenYourDay}
+        >
+          <Text style={styles.recordingsRowText}>☀ Your day</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          testID="home-recordings-link"
+          accessibilityRole="button"
+          style={styles.recordingsRow}
+          onPress={onOpenRecordings}
+        >
+          <Text style={styles.recordingsRowText}>▶ Past recordings</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -177,7 +191,12 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     color: "#6B7280",
   },
+  historyRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
   recordingsRow: {
+    flex: 1,
     marginTop: 16,
     minHeight: 52,
     borderRadius: 14,

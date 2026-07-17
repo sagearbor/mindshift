@@ -17,6 +17,7 @@ import DynamicsScreen from "./src/screens/DynamicsScreen";
 import ReplayScreen from "./src/screens/ReplayScreen";
 import RecordScreen from "./src/screens/RecordScreen";
 import RecordingsScreen from "./src/screens/RecordingsScreen";
+import YourDayScreen from "./src/screens/YourDayScreen";
 import LiveCoachScreen from "./src/screens/LiveCoachScreen";
 import LoginScreen from "./src/screens/LoginScreen";
 import { useAuthStore, initAuth } from "./src/store/authStore";
@@ -42,7 +43,9 @@ type SessionReturn = "home" | "analyze";
 type ReplayReturn =
   | { name: "recordings"; returnTo: "home" | "analyze" }
   | { name: "analyze" }
-  | { name: "session"; returnTo: SessionReturn };
+  | { name: "session"; returnTo: SessionReturn }
+  // The "Your Day" episode timeline (Companion P1) opens replays too.
+  | { name: "your-day" };
 
 type Screen =
   | { name: "home" }
@@ -82,6 +85,10 @@ type Screen =
   // Stored-recordings list — reachable from Home (compact history entry) and
   // from the Analyze screen.
   | { name: "recordings"; returnTo: "home" | "analyze" }
+  // "Your Day" (Companion P1): the day timeline of recorded conversations and
+  // their episodes. Reachable from Home's compact history row; episode taps
+  // push the existing replay, which returns here.
+  | { name: "your-day" }
   // In-app 480p video recording. On success it hands the recorded file to the
   // Analyze upload flow (via the recorder store).
   | { name: "record" }
@@ -142,6 +149,7 @@ export default function App() {
             onOpenRecordings={() =>
               setScreen({ name: "recordings", returnTo: "home" })
             }
+            onOpenYourDay={() => setScreen({ name: "your-day" })}
             onOpenAdvanced={() => setScreen({ name: "advanced" })}
           />
         );
@@ -253,6 +261,19 @@ export default function App() {
                 name: "replay",
                 recordingId: id,
                 returnTo: { name: "recordings", returnTo: screen.returnTo },
+              })
+            }
+          />
+        );
+      case "your-day":
+        return (
+          <YourDayScreen
+            onBack={() => setScreen({ name: "home" })}
+            onOpenReplay={(id) =>
+              setScreen({
+                name: "replay",
+                recordingId: id,
+                returnTo: { name: "your-day" },
               })
             }
           />

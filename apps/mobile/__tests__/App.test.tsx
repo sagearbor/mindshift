@@ -189,6 +189,33 @@ describe("two-mode navigation", () => {
     act(() => comp.unmount());
   });
 
+  it("Home → Your Day opens the day timeline, back returns Home", async () => {
+    // The list fetch resolves empty — the honest "nothing recorded" state.
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ recordings: [] }),
+    });
+
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+
+    await act(async () => {
+      queryId(comp, "home-your-day-link")!.props.onPress();
+    });
+    expect(queryId(comp, "your-day-screen")).toBeTruthy();
+    expect(queryId(comp, "your-day-empty")).toBeTruthy();
+
+    await act(async () => {
+      queryId(comp, "your-day-back")!.props.onPress();
+    });
+    expect(queryId(comp, "home-live-coach")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
   it("Home → Advanced → Therapist Dashboard, and back walks the same path", async () => {
     let comp!: renderer.ReactTestRenderer;
     act(() => {

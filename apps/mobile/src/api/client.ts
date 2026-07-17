@@ -1268,3 +1268,58 @@ export async function postRespond(
 
   return { suggestions, toneScore: data.tone_score ?? {} };
 }
+
+// ---------------------------------------------------------------------------
+// Companion P1 — "Your Day" episode timeline
+// ---------------------------------------------------------------------------
+
+/** One conversation EPISODE inside a recording: the transcript split on
+ *  silence gaps server-side (episodes.py — pure derivation over the stored
+ *  analysis; no extra LLM cost). A short recording is exactly one episode. */
+export interface Episode {
+  index: number;
+  // Seconds into the recording. Null when the transcript carried no timing
+  // (the server never invents timestamps).
+  start_time: number | null;
+  end_time: number | null;
+  duration_seconds: number | null;
+  first_turn_index: number;
+  last_turn_index: number;
+  turn_count: number;
+  // Canonical speaker ids, first-appearance order.
+  speakers: string[];
+  // Display labels for the same speakers ("You" when the enrolled voiceprint
+  // matched, a real name when the analysis found one, else the raw id).
+  participants: string[];
+  // Null when the stored analysis carried no aligned per-turn heats — honest
+  // absence, never zero.
+  mean_heat: number | null;
+  peak_heat: number | null;
+  // Derived one-liner: the recording's existing title (single-episode
+  // recordings) or a verbatim excerpt of the episode's opening turn. Null when
+  // neither exists — the server never fabricates a description.
+  summary: string | null;
+  summary_source: "title" | "excerpt" | null;
+}
+
+/**
+ * GET /recordings/{id} → its `episodes`. Served straight from analysis.json
+ * for new recordings and derived on the fly for recordings analyzed before
+ * episode segmentation shipped, so every analyzed recording yields a list.
+ * Resolves to null for a stored-but-unanalyzed recording (nothing honest to
+ * segment) and on pre-episode servers that omit the field entirely. Throws on
+ * any non-OK (401/404/503).
+ */
+export async function getRecordingEpisodes(
+  id: string,
+): Promise<Episode[] | null> {
+  const res = await fetch(`${API_URL}/recordings/${encodeURIComponent(id)}`, {
+    method: "GET",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+  const data = (await res.json()) as { episodes?: Episode[] | null };
+  return Array.isArray(data.episodes) ? data.episodes : null;
+}
