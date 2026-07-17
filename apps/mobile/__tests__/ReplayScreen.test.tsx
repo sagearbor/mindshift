@@ -18,6 +18,18 @@ jest.mock("../src/api/client", () => ({
   getRecordingSourceUrl: jest.fn(),
   patchRecordingSource: jest.fn(),
   patchRecordingTitle: jest.fn(),
+  // SpeakerEnrollment (rendered inside ReplayScreen) checks voice-ID
+  // availability on mount; default to "unavailable" so it renders nothing and
+  // these tests stay focused on replay/HD behavior.
+  getVoiceProfile: jest.fn(() =>
+    Promise.resolve({
+      available: false,
+      storage_enabled: false,
+      enrolled: false,
+      enroll_count: 0,
+    }),
+  ),
+  enrollVoice: jest.fn(),
 }));
 const mockGetRecording = getRecording as jest.Mock;
 const mockGetMediaUrl = getRecordingMediaUrl as jest.Mock;

@@ -46,6 +46,7 @@ import dynamics
 import link_fetch
 import prosody
 import recordings_store
+import speaker_id
 from audio_ingest import (
     AudioDecodeError,
     NoSpeechFound,
@@ -479,6 +480,15 @@ class AnalyzeUploadResponse(AnalyzeResponse):
     stored: bool = False
     recording_id: Optional[str] = None
     storage_note: Optional[str] = None
+    # Enrollment-based speaker identity ("You" — top rung of the label ladder).
+    # None when the user hasn't enrolled, the voice deps aren't installed, or the
+    # audio couldn't be decoded — the feature is fully optional and never blocks
+    # analysis. When present it is speaker_id.identify_speakers()'s report:
+    # {matched_speaker, match_threshold, model, speakers:{<label>:{score,is_you}}}.
+    # The label-ladder consumer reads ``matched_speaker`` as the highest-precedence
+    # source (display_label="You", label_source="enrolled"); per-speaker cosine
+    # scores ride along for debugging.
+    speaker_identity: Optional[dict] = None
 
 
 # Upload caps (a 413 when exceeded). File-size is a cheap first gate; the
@@ -838,6 +848,13 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="MindShift API", lifespan=lifespan)
+
+# Voice enrollment ("This is me" + "Forget my voice"). Its own file so the
+# monolith's edit surface stays tiny; the enroll/match path is torch-gated and
+# degrades to honest 503s when the optional deps aren't installed.
+from routers import voice as _voice_router  # noqa: E402
+
+app.include_router(_voice_router.router)
 
 
 @app.middleware("http")
@@ -2081,6 +2098,48 @@ async def _emit_progress(
         await progress(status, note, duration_seconds)
 
 
+async def _identify_enrolled_speakers(
+    uid: str,
+    pcm,
+    sr: int | None,
+    turns: "list[AnalyzeTurn]",
+) -> dict | None:
+    """Match each diarized speaker against the user's enrolled voiceprint.
+
+    The auto-label half of voice enrollment. Fully OPTIONAL and best-effort — it
+    returns ``None`` (skip, no label) whenever any precondition is missing:
+    the voice deps aren't installed, prosody decode failed (``pcm`` is None),
+    storage is disabled, or the user hasn't enrolled. Any unexpected failure is
+    logged and swallowed — enrollment matching must NEVER sink an analysis.
+
+    On success returns :func:`speaker_id.identify_speakers`'s report; the top rung
+    of the label ladder reads ``matched_speaker`` as "You" (label_source
+    "enrolled"), and the per-speaker cosine scores are retained for debugging."""
+    if pcm is None or sr is None or not speaker_id.is_available():
+        return None
+    store_backend = get_recordings_store()
+    if store_backend is None:
+        return None
+    try:
+        profile = await store_backend.read_voiceprint(uid)
+    except Exception:  # noqa: BLE001 — a read failure must not sink analysis
+        logger.warning("Voiceprint read failed for uid=%s", uid, exc_info=True)
+        return None
+    if not profile or not isinstance(profile.get("embedding"), list):
+        return None
+    import numpy as np
+
+    voiceprint = np.asarray(profile["embedding"], dtype=np.float32)
+    try:
+        return await asyncio.to_thread(
+            speaker_id.identify_speakers,
+            pcm, sr, [t.model_dump() for t in turns], voiceprint,
+        )
+    except Exception:  # noqa: BLE001 — matching is optional; degrade to no label
+        logger.warning("Speaker identification failed for uid=%s", uid, exc_info=True)
+        return None
+
+
 async def _analyze_recording_bytes(
     uid: str,
     *,
@@ -2157,10 +2216,13 @@ async def _analyze_recording_bytes(
     voice_labels: list[dict] | None = None
     voice_note: str | None = None
     decoded_duration: float | None = None
+    decoded_pcm = None
+    decoded_sr: int | None = None
     try:
         pcm, sr = await asyncio.to_thread(
             decode_to_pcm, data, filename or "",
         )
+        decoded_pcm, decoded_sr = pcm, sr
         duration = pcm.shape[0] / sr if sr else 0.0
         decoded_duration = duration
         if duration > MAX_UPLOAD_DURATION_S:
@@ -2214,6 +2276,13 @@ async def _analyze_recording_bytes(
     # Surface the EFFECTIVE display title (user-provided, else LLM-suggested, else
     # None) so the analyze-complete UI can show it without a second round-trip.
     response.title = effective_title
+
+    # Enrollment-based identity ("You"). Best-effort: skipped cleanly when the
+    # voice deps aren't installed, storage/voiceprint is absent, or decode failed
+    # (decoded_pcm is None). Never fails the analysis and never forces a label.
+    response.speaker_identity = await _identify_enrolled_speakers(
+        uid, decoded_pcm, decoded_sr, turns,
+    )
 
     # 5) Consent-gated persistence. Store ONLY when the user consented, did not
     #    opt this recording out, and storage is enabled — and NEVER let a

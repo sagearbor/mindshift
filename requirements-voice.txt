@@ -1,0 +1,21 @@
+# Optional — only needed for voice enrollment ("This is me" / auto-label "You").
+#   pip install -r requirements-voice.txt
+#
+# Kept OUT of the base requirements on purpose (mirrors requirements-whisper.txt):
+# torch + speechbrain pull hundreds of MB of native wheels the default
+# Deepgram-based setup does not need. Without this installed the server still
+# runs — server/speaker_id.is_available() reports False, the /voice/enroll
+# endpoint returns an honest 503, and the analysis pipeline skips speaker
+# matching cleanly (no "You" label is ever fabricated).
+#
+# CPU-only build: install the CPU torch wheel to avoid pulling CUDA (much
+# smaller, and Cloud Run is CPU-only anyway):
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   pip install -r requirements-voice.txt
+#
+# ECAPA-TDNN speaker embeddings (192-d) on VoxCeleb via SpeechBrain. The model
+# checkpoint (~20MB) is fetched from the Hugging Face Hub on first use and cached
+# process-wide; the revision is pinned in server/speaker_id.py (ECAPA_REVISION).
+torch>=2.2,<3
+torchaudio>=2.2,<3
+speechbrain>=1.0,<2
