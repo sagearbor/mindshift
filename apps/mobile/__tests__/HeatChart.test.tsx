@@ -785,4 +785,23 @@ describe("HeatChart speaker display labels (§3)", () => {
     expect(rawIds.length).toBe(0);
     act(() => comp.unmount());
   });
+
+  it("uses display labels in the time-axis scrub cells' accessibility labels", () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(
+        <HeatChart
+          perTurn={perTurn}
+          turnsTiming={timedTiming}
+          durationSeconds={10}
+          speakerLabels={speakerLabels}
+        />,
+      );
+    });
+    layout(comp);
+    const cell = comp.root.find((n) => n.props?.testID === "scrub-0");
+    expect(cell.props.accessibilityLabel).toContain("Joe");
+    expect(cell.props.accessibilityLabel).not.toContain("Alice");
+    act(() => comp.unmount());
+  });
 });
