@@ -24,7 +24,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # wheel would be far larger). First model load fetches a ~20MB checkpoint from the
 # HF Hub and caches it; measured cold model-load ~2-4s on a Cloud Run vCPU, so run
 # with --min-instances=1 to keep the loaded model warm. See requirements-voice.txt.
-ARG INSTALL_VOICE=0
+ARG INSTALL_VOICE=1
 COPY requirements-voice.txt ./
 RUN if [ "$INSTALL_VOICE" = "1" ]; then \
       pip install --no-cache-dir torch torchaudio \
