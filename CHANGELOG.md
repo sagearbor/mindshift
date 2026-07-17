@@ -4,6 +4,128 @@ Versions are numbered here. **App** = Android/EAS `version (versionCode)`.
 **Backend** = Cloud Run revision of `mindshift-api` (project `arborfam-hub`,
 `us-central1`). Newest first.
 
+## Unreleased — targeting App 1.13.0
+Merged to `main` (PRs #55–#57, 2026-07-17); **app.json is still 1.12.0 /
+versionCode 18 — no EAS build has shipped these yet.** Backend is already
+live at rev 00024 (deployed 2026-07-17), which also carries the two
+1.12.0 server fixes that had been sitting undeployed since 2026-07-13 (see
+the note on 1.12.0 below).
+- **Auto-titles**: the shared `/analyze` LLM call (Claude Haiku) already
+  sees the whole transcript — when an upload carries no user title, a
+  gated prompt addendum asks for one extra 3–6 word `title` (e.g.
+  "Argument about the cat"), falling back to the filename if omitted. A
+  user-supplied title is never requested or overridden.
+- **Speaker display-label ladder** (server, additive `display_label` +
+  `label_source` per speaker): an ordered, extensible ladder —
+  **enrolled** ("You", from a matched voiceprint below, top rung) →
+  **name** (only from direct transcript evidence — being addressed,
+  sign-offs, self-reference — at `confidence: "high"`, never guessed from
+  style/topic/gender) → **voice** ("Deeper voice" / "Higher voice" from
+  per-speaker median F0 when exactly two speakers' medians differ >15%,
+  never gendered wording) → **generic** (`Speaker A`/`Speaker B`, the
+  existing behavior). Existing `per_speaker`/dynamics keys are untouched;
+  the new fields are additive.
+- **Mobile label rendering**: one `speakerLabel()` helper is now the single
+  rendering path everywhere a speaker name appears — heat-chart legend and
+  talk-share, turn inspector, per-speaker stat cards, report cards,
+  triggers, requests, and the "what if" card — with a graceful fallback to
+  the raw speaker id so old recordings render unchanged.
+- **Voice enrollment P0 — "This is me"** (opt-in, on top of diarization):
+  tapping a speaker on a stored recording pools that speaker's diarized
+  turns, embeds them with **ECAPA-TDNN** (SpeechBrain, CPU), and stores a
+  192-d voiceprint per user in GCS (`voiceprints/{uid}/profile.json`).
+  Later analyses cosine-match each diarized speaker against it and label
+  the best match above a **0.65 threshold** as "You"; below threshold, no
+  label — never forced. Threshold chosen from real validation data:
+  clean same-person matches ran 0.72–0.90 vs. 0.11–0.25 for different
+  people, with merged/degraded-diarization artifacts (0.48–0.56) safely
+  below the cut. `torch`/`speechbrain` stay optional
+  (`requirements-voice.txt`, lazy-imported, gated by
+  `speaker_id.is_available()`) — absent, enrollment returns an honest
+  **503** and the base pytest suite stays green without torch installed.
+- **Deploy**: `INSTALL_VOICE` default flipped to `1` for `gcloud --source`
+  builds so the production image includes the voice-enrollment model;
+  `--min-instances=1` keeps the ~1.5–2GB model process-cached and warm
+  (cold load measured ~21s locally).
+
+## App 1.12.0 (versionCode 18) — 2026-07-13 · Backend rev 00023
+- **Time-axis heat chart** (PR #52): the replay "heat over the
+  conversation" chart used to plot one dot per turn, evenly spaced, so
+  marks never lined up with when people actually spoke. It now draws real
+  **horizontal dashes spanning each turn's `[start_time, end_time]`** —
+  dash length shows how long someone talked — with the playhead mapped by
+  absolute seconds on the same scale, tap-to-seek-and-inspect, and a
+  legend showing each speaker's real share of talking time. Falls back to
+  the legacy evenly-spaced polyline (with a note) when real timing is
+  absent or unusable, e.g. a pasted transcript.
+- **Video-derivative honesty fix** (PR #50): a real Google Photos link (a
+  122MB, 48s HEVC 10-bit HDR 1080p video) had produced a recording with
+  **only** audio and no explanation. `build_derivatives(expect_video=…)`
+  now always returns a note when video was expected but not produced, and
+  that `storage_note` is persisted into `meta.json` and surfaced on the
+  recordings list/detail — a link that degrades to audio-only is always
+  explained, never silently dropped.
+- **Cloud Run `--cpu 4`** (PR #51): the 360p transcode of that same HEVC
+  10-bit HDR clip exceeded the 600s cap on 1 vCPU (125s on a faster
+  laptop CPU) — software HEVC-HDR decode is CPU-heavy. Deploy-config only.
+- ⚠️ **Deploy-lag note (honesty)**: PRs #50 and #51 merged to `main` the
+  same day as this release, but the Cloud Run redeploy that actually
+  shipped them didn't land until **rev 00024 on 2026-07-17** — bundled
+  with the voice-enrollment deploy above. Between 2026-07-13 and
+  2026-07-17, v1.12.0's mobile client was talking to backend rev 00023,
+  i.e. without the video-derivative fix or the extra CPU headroom live yet.
+
+## App 1.11.0 (versionCode 17) — 2026-07-13 · Backend rev 00023
+Bug-wave release fixing four owner-reported issues from live-testing the
+1.10.0 redesign, plus a real diarization root-cause (PRs #46, #47):
+- **Two-speaker diarization fix (the headline)**: Deepgram nova-3 was
+  silently collapsing two real speakers into one on 48kHz phone-video
+  audio (the container's native rate) — it splits them correctly only at
+  **16kHz**, the rate the model is trained for. `transcribe_prerecorded`
+  now downmixes to 16kHz mono before Deepgram (raw-container fallback only
+  if ffmpeg is unavailable — never fabricating audio); verified against
+  the owner's real two-person recording. Bonus: shrinks a 122MB upload to
+  ~1.5MB.
+- **Recording naming**: an optional "Name this conversation" field on
+  upload/link, tap-to-rename on the replay screen, capability-gated (an
+  honest "renaming isn't supported yet" note instead of a fake success) —
+  backed by a new `title` field on recordings and `PATCH /recordings/{id}`.
+- **Fixed dead Home/Recordings nav buttons**: `SafeAreaView` from
+  `react-native` is a no-op on Android, so under Expo's edge-to-edge the
+  header rendered under the status bar — which both looked wrong and ate
+  the taps. Swapped app-wide to `react-native-safe-area-context`.
+- **Honest "Try HD"**: Google Photos share links are moov-at-end with no
+  HTTP Range support and buffer forever — the Try-HD button is now
+  replaced with an explanatory note for Photos sources instead of a link
+  that silently hangs. Direct-file/Drive sources keep Try-HD.
+- **False "stalled" fixed, both sides**: a background **heartbeat**
+  refreshes a running job's `updated_at` every 15s so long downloads/
+  transcodes stop tripping the 120s stall heuristic, and the client now
+  polls *through* a computed "stalled" within a grace window instead of
+  failing on the first stalled poll (jobs can complete after "stalled").
+  Download progress (`bytes_downloaded`/`bytes_total`) is now reported
+  separately from the transcription ETA, so the note never conflates
+  "fetching video" with "to transcribe".
+- Link-path video timeout raised 300s→600s for large HEVC transcodes (a
+  partial fix, superseded by the CPU headroom + honesty fix in 1.12.0
+  above); `source.url` persistence on link recordings confirmed already
+  correct, with a regression test added.
+
+## App 1.10.0 (versionCode 16) — 2026-07-13 · Backend: unchanged (rev 00022)
+**Two-mode home redesign** (PR #43) — the home screen is now two primary
+cards instead of one busy screen:
+- **Live Coach** (live earbud coaching) and **Analyze a Conversation**
+  (record/upload/link) as the two top-level entry points, with an
+  **Advanced** corner menu (dashboard, sign out) and a compact **Past
+  recordings** row.
+- **Optional relationship picker**: sticky, nothing selected on first run
+  — no relationship context is sent to the coach until the user taps one;
+  tap-to-deselect returns to infer mode.
+- Nothing removed: consent/store controls, chunked uploads, job
+  progress/ETA, replay (Try-HD/attach-HD), session detail, and the text
+  tools are all still reachable through the new structure. Web-bundle
+  native-import gate preserved.
+
 ## App 1.9.0 (versionCode 15) — 2026-07-12 · Backend rev 00022
 Async analysis + a replay that actually plays (owner live-shakedown fixes):
 - **Submit-and-poll analysis jobs**: `POST /analyze/link/jobs` and
