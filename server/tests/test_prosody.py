@@ -156,3 +156,73 @@ def test_degenerate_distribution_labels_middle():
 
     assert _tertile_label(5.0, [5.0, 5.0, 5.0], ("a", "b", "c")) == "b"
     assert _tertile_label(5.0, [5.0], ("a", "b", "c")) == "b"
+
+
+# ---------------------------------------------------------------------------
+# Per-speaker pitch aggregation + relative voice labels (§2b)
+# ---------------------------------------------------------------------------
+
+def _vl(f0):
+    """A minimal label_turns-shaped dict carrying just the f0_median the
+    aggregator reads (None = an unvoiced turn)."""
+    return {"f0_median": f0}
+
+
+def test_speaker_median_pitch_ignores_unvoiced_and_orders_first_seen():
+    speakers = ["Speaker B", "Speaker A", "Speaker B", "Speaker A"]
+    labels = [_vl(120.0), _vl(220.0), _vl(None), _vl(200.0)]
+    out = prosody.speaker_median_pitch(speakers, labels)
+    assert list(out) == ["Speaker B", "Speaker A"]   # first-seen order
+    assert out["Speaker B"] == 120.0                 # lone voiced turn
+    assert out["Speaker A"] == 210.0                 # median(220, 200)
+
+
+def test_speaker_median_pitch_all_unvoiced_is_none():
+    out = prosody.speaker_median_pitch(["A", "B"], [_vl(None), _vl(None)])
+    assert out == {"A": None, "B": None}
+
+
+def test_pitch_voice_labels_meaningful_difference():
+    """>15% apart → deeper/higher assigned to the correct speakers."""
+    out = prosody.pitch_voice_labels({"A": 110.0, "B": 200.0})
+    assert out == {"A": "Deeper voice", "B": "Higher voice"}
+    # Order of the input dict must not change WHO is deeper.
+    out2 = prosody.pitch_voice_labels({"B": 200.0, "A": 110.0})
+    assert out2 == {"A": "Deeper voice", "B": "Higher voice"}
+
+
+def test_pitch_voice_labels_never_emits_gender_words():
+    out = prosody.pitch_voice_labels({"A": 110.0, "B": 200.0})
+    joined = " ".join(out.values()).lower()
+    for banned in ("male", "female", "man", "woman", "men", "women"):
+        assert banned not in joined
+
+
+def test_pitch_voice_labels_within_threshold_declines():
+    """A near-tie (≤15%) is honestly left unlabeled."""
+    assert prosody.pitch_voice_labels({"A": 200.0, "B": 210.0}) is None
+    # Exactly at the 15% boundary is NOT "more than" the threshold → None.
+    assert prosody.pitch_voice_labels({"A": 100.0, "B": 115.0}) is None
+    # Just over the boundary IS labeled.
+    assert prosody.pitch_voice_labels({"A": 100.0, "B": 116.0}) == {
+        "A": "Deeper voice", "B": "Higher voice",
+    }
+
+
+def test_pitch_voice_labels_exact_tie_declines():
+    assert prosody.pitch_voice_labels({"A": 180.0, "B": 180.0}) is None
+
+
+def test_pitch_voice_labels_one_speaker_declines():
+    assert prosody.pitch_voice_labels({"A": 180.0}) is None
+
+
+def test_pitch_voice_labels_three_speakers_declines():
+    assert prosody.pitch_voice_labels(
+        {"A": 110.0, "B": 180.0, "C": 250.0}
+    ) is None
+
+
+def test_pitch_voice_labels_missing_pitch_declines():
+    """Two speakers but one has no measured pitch → decline."""
+    assert prosody.pitch_voice_labels({"A": 110.0, "B": None}) is None

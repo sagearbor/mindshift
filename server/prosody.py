@@ -249,6 +249,72 @@ def label_turns(
     return out
 
 
+# ---------------------------------------------------------------------------
+# Per-speaker pitch aggregation → relative voice labels (§2b)
+# ---------------------------------------------------------------------------
+
+# The lower and higher speaker's median F0 must differ by MORE than this fraction
+# (of the lower median) before we assign relative "Deeper/Higher voice" labels.
+# 15% sits comfortably above frame-level F0 estimation noise while still
+# separating typical adult voice pairs; below it we honestly decline to label
+# rather than manufacture a distinction. NOTE: these labels are purely a RELATIVE
+# pitch ordering for THIS recording — never a gender claim.
+PITCH_LABEL_MIN_RATIO = 0.15
+
+DEEPER_VOICE_LABEL = "Deeper voice"
+HIGHER_VOICE_LABEL = "Higher voice"
+
+
+def speaker_median_pitch(
+    speakers: list[str], voice_labels: list[dict],
+) -> dict[str, float | None]:
+    """Median voiced F0 per speaker, from per-turn labels.
+
+    ``voice_labels[i]`` (a :func:`label_turns` dict) corresponds to
+    ``speakers[i]``. A turn's ``f0_median`` is ``None`` when it was unvoiced
+    (silence/noise) — those turns are ignored. A speaker with no voiced turns
+    maps to ``None`` (we never invent a pitch). Speakers keep first-seen order.
+    """
+    by_speaker: dict[str, list[float]] = {}
+    for sp, lbl in zip(speakers, voice_labels):
+        f0 = lbl.get("f0_median")
+        if f0 is not None:
+            by_speaker.setdefault(sp, []).append(float(f0))
+    out: dict[str, float | None] = {}
+    for sp in dict.fromkeys(speakers):  # unique, first-seen order
+        vals = by_speaker.get(sp)
+        out[sp] = float(np.median(vals)) if vals else None
+    return out
+
+
+def pitch_voice_labels(
+    speaker_pitch: dict[str, float | None],
+    min_ratio: float = PITCH_LABEL_MIN_RATIO,
+) -> dict[str, str] | None:
+    """Relative pitch labels for EXACTLY two speakers, or ``None`` (§2b).
+
+    Returns ``{lower_speaker: "Deeper voice", higher_speaker: "Higher voice"}``
+    only when there are exactly two speakers, BOTH have a measured median pitch,
+    and their medians differ by more than ``min_ratio`` (of the lower). Any
+    other case — a single speaker, more than two, a missing pitch, or a
+    within-threshold near-tie — returns ``None`` so the caller falls through to
+    generic labels. NEVER emits gender words: the labels are a relative pitch
+    ordering only.
+    """
+    if len(speaker_pitch) != 2:
+        return None
+    measured = [(sp, p) for sp, p in speaker_pitch.items() if p is not None]
+    if len(measured) != 2:
+        return None
+    (sp_a, pa), (sp_b, pb) = measured
+    (lo_sp, lo), (hi_sp, hi) = (
+        ((sp_a, pa), (sp_b, pb)) if pa <= pb else ((sp_b, pb), (sp_a, pa))
+    )
+    if lo <= 0 or (hi - lo) / lo <= min_ratio:
+        return None
+    return {lo_sp: DEEPER_VOICE_LABEL, hi_sp: HIGHER_VOICE_LABEL}
+
+
 def annotate(labels: dict) -> str:
     """One-line delivery annotation for the LLM prompt, e.g. ``loud, fast,
     pitch varied``. Built purely from the labels — no second model call."""

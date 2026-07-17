@@ -370,6 +370,7 @@ export default function ReplayScreen({
     <HeatChart
       perTurn={perTurn}
       turns={turns.map((t) => ({ speaker: t.speaker, text: t.text }))}
+      speakerLabels={detail?.analysis?.speaker_labels}
       turnsTiming={turns.map((t) => ({
         start_time: t.start_time,
         end_time: t.end_time,

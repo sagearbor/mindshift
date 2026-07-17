@@ -716,3 +716,92 @@ describe("HeatChart — time axis rendering", () => {
     act(() => comp.unmount());
   });
 });
+
+describe("HeatChart speaker display labels (§3)", () => {
+  const speakerLabels = {
+    Alice: { display_label: "Joe", label_source: "name" },
+    Bob: { display_label: "Higher voice", label_source: "voice" },
+  };
+
+  it("renders display labels in the legend, not the raw ids", () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(
+        <HeatChart perTurn={perTurn} speakerLabels={speakerLabels} />,
+      );
+    });
+    layout(comp);
+    const text = JSON.stringify(comp.toJSON());
+    expect(text).toContain("Joe");
+    expect(text).toContain("Higher voice");
+    act(() => comp.unmount());
+  });
+
+  it("falls back to raw speaker ids when no labels are provided (old recording)", () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<HeatChart perTurn={perTurn} />);
+    });
+    layout(comp);
+    const text = JSON.stringify(comp.toJSON());
+    // The raw ids still render exactly as before — nothing regresses.
+    expect(text).toContain("Alice");
+    expect(text).toContain("Bob");
+    act(() => comp.unmount());
+  });
+
+  it("shows the display label in the turn inspector when a turn is tapped", () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(
+        <HeatChart
+          perTurn={perTurn}
+          turns={[
+            { speaker: "Alice", text: "hi" },
+            { speaker: "Bob", text: "hey" },
+            { speaker: "Alice", text: "ok" },
+            { speaker: "Bob", text: "fine" },
+          ]}
+          turnsTiming={timedTiming}
+          durationSeconds={10}
+          speakerLabels={speakerLabels}
+        />,
+      );
+    });
+    layout(comp);
+    // Tap turn 0 (Alice) via its scrub cell, then read the inspector.
+    act(() =>
+      comp.root.find((n) => n.props?.testID === "scrub-0").props.onPress(),
+    );
+    const inspector = comp.root.find(
+      (n) => n.props?.testID === "turn-inspector",
+    );
+    // The inspector's speaker line shows the display label, not the raw id.
+    const named = inspector.findAll(
+      (n) => n.props?.children === "Joe",
+    );
+    expect(named.length).toBeGreaterThan(0);
+    const rawIds = inspector.findAll((n) => n.props?.children === "Alice");
+    expect(rawIds.length).toBe(0);
+    act(() => comp.unmount());
+  });
+
+  it("uses display labels in the time-axis scrub cells' accessibility labels", () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(
+        <HeatChart
+          perTurn={perTurn}
+          turnsTiming={timedTiming}
+          durationSeconds={10}
+          speakerLabels={speakerLabels}
+        />,
+      );
+    });
+    layout(comp);
+    const cell = comp.root.find((n) => n.props?.testID === "scrub-0");
+    expect(cell.props.accessibilityLabel).toContain("Joe");
+    expect(cell.props.accessibilityLabel).not.toContain("Alice");
+    act(() => comp.unmount());
+  });
+});

@@ -147,6 +147,19 @@ export interface ReportCard {
   work_on: string;
 }
 
+/**
+ * Per-speaker display label (§2). `display_label` is a human-friendlier name to
+ * render instead of the raw speaker id; `label_source` records which rung of the
+ * server ladder produced it — "enrolled" (a matched enrolled voiceprint, added
+ * later) > "name" (inferred from the transcript) > "voice" ("Deeper/Higher
+ * voice" from relative pitch) > "generic" (the raw id). Purely presentational:
+ * per_speaker / report_cards / per_turn keep keying on the canonical speaker id.
+ */
+export interface SpeakerLabel {
+  display_label: string;
+  label_source: "enrolled" | "name" | "voice" | "generic" | string;
+}
+
 export interface AnalyzeResult {
   per_turn: AnalyzePerTurn[];
   per_speaker: Record<string, AnalyzePerSpeaker>;
@@ -155,6 +168,14 @@ export interface AnalyzeResult {
   report_cards?: Record<string, ReportCard>;
   dynamics: AnalyzeDynamics;
   narrative: string;
+  // §2 — per-speaker display labels, keyed by canonical speaker id. Optional so
+  // an old stored analysis (or a pre-labels server) simply omits it and the
+  // `speakerLabel` helper falls back to the raw id. Old recordings render
+  // unchanged.
+  speaker_labels?: Record<string, SpeakerLabel>;
+  // §1 — an LLM-suggested short conversation title, present on an upload where
+  // the user provided none. Optional + backward-compatible.
+  title?: string | null;
 }
 
 /**
