@@ -320,26 +320,5 @@ jest.mock("expo-auth-session/providers/google", () => ({
   useAuthRequest: jest.fn(() => [null, null, jest.fn()]),
 }));
 
-// Mock react-native-compressor (a native video compressor with no web/jest
-// implementation). `Video.compress` reports full progress and returns a derived
-// "compressed" URI so the native compression path (videoCompressionNative) is
-// resolvable/executable under jest. Tests that exercise the Analyze compression
-// routing mock `../src/utils/videoCompression` directly instead.
-jest.mock("react-native-compressor", () => ({
-  __esModule: true,
-  Video: {
-    compress: jest.fn(
-      async (
-        uri: string,
-        _options: unknown,
-        onProgress?: (progress: number) => void,
-      ) => {
-        onProgress?.(1);
-        return `${uri}.compressed.mp4`;
-      },
-    ),
-  },
-}));
-
 // Mock fetch globally
 global.fetch = jest.fn();

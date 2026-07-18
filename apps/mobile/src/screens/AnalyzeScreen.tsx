@@ -16,11 +16,6 @@ import * as DocumentPicker from "expo-document-picker";
 import { useSessionStore } from "../store/sessionStore";
 import { useRecorderStore } from "../store/recorderStore";
 import { useAnalyzeStore } from "../store/analyzeStore";
-import { useUploadPrefsStore } from "../store/uploadPrefsStore";
-import {
-  compressVideo,
-  isCompressionAvailable,
-} from "../utils/videoCompression";
 import {
   postAnalyzeUpload,
   postAnalyzeUploadChunkedJob,
@@ -82,14 +77,6 @@ interface PickedRecording {
 // before touching the network, with an honest size message.
 const DIRECT_UPLOAD_MAX_BYTES = 20 * 1024 * 1024; // 20 MB
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024; // 200 MB
-
-// Local videos above this size are compressed on-device before upload (when the
-// user hasn't opted into original quality) to cut mobile data ~85%. It's the
-// same 20 MB line as the direct-upload ceiling on purpose: anything that would
-// have taken the chunked path is worth compressing, and anything already under
-// it (including the 480p in-app recording) is left untouched — no
-// double-compressing a small clip.
-const COMPRESS_MIN_BYTES = DIRECT_UPLOAD_MAX_BYTES; // 20 MB
 
 /** Honest "too big" message naming the actual size and the hard limit. Used both
  *  for the pre-flight refusal (>200MB, no network) and a server 413. */
@@ -384,27 +371,6 @@ export default function AnalyzeScreen({
   // a job is created / after it finishes).
   const [jobState, setJobState] = useState<AnalyzeJobState | null>(null);
 
-  // "Send original quality" override (persisted, default OFF = compress). Read
-  // from the persisted prefs store and hydrated once on mount so the choice
-  // survives restarts.
-  const sendOriginalQuality = useUploadPrefsStore((s) => s.sendOriginalQuality);
-  const setSendOriginalQuality = useUploadPrefsStore(
-    (s) => s.setSendOriginalQuality,
-  );
-  useEffect(() => {
-    void useUploadPrefsStore.getState().hydrate();
-  }, []);
-
-  // On-device compression progress as a 0→1 fraction; null when not compressing
-  // (drives the "Compressing… n%" bar, distinct from the upload bar).
-  const [compressProgress, setCompressProgress] = useState<number | null>(null);
-  // Set when compression FAILED and we're offering the honest fallback: upload
-  // the original instead of silently dropping the upload. Carries the original
-  // size for the size warning.
-  const [compressionFallback, setCompressionFallback] = useState<{
-    size?: number;
-  } | null>(null);
-
   // Consume a freshly-recorded clip handed over from RecordScreen (one-shot):
   // preselect it into the normal upload flow, flag it as recorder-origin, and
   // clear the store so a later remount doesn't re-pick a stale file.
@@ -458,28 +424,27 @@ export default function AnalyzeScreen({
     });
   };
 
-  /**
-   * The actual upload + analyze, given the file to send and its size (which may
-   * be the COMPRESSED file after on-device compression, or the original). Routes
-   * ≤20MB → direct, >20MB → chunked-job, exactly as before — the compression
-   * step upstream just changes which file/size lands here. Assumes `uploading`
-   * is already true; owns the finally-reset.
-   */
-  const runUpload = async (
-    fileArg: string | File,
-    name: string,
-    mimeType: string,
-    size?: number,
-  ) => {
+  const handleUploadAnalyze = async () => {
+    if (!picked || uploading) return;
+    const size = picked.size;
+    // Refuse an over-cap file up front — no network call, an honest size message.
+    if (size !== undefined && size > MAX_UPLOAD_BYTES) {
+      setUploadError(sizeLimitMessage(size));
+      return;
+    }
     // Anything above the direct-upload ceiling streams in chunks so the platform
     // doesn't reject the body before the server can respond. Size must be known
     // to chunk (we slice against it); an unknown size falls back to direct.
     const useChunked = size !== undefined && size > DIRECT_UPLOAD_MAX_BYTES;
+    setUploading(true);
     setUploadProgress(useChunked ? 0 : null);
+    setUploadError(null);
     setUploadStored(null);
     setUploadStorageNote(null);
     setJobState(null);
     try {
+      // Web hands us a File; native hands us the local URI string.
+      const fileArg = Platform.OS === "web" && picked.file ? picked.file : picked.uri;
       const context = composedContext();
       const title = conversationTitle.trim() || undefined;
       let result: UploadAnalyzeResult;
@@ -490,8 +455,8 @@ export default function AnalyzeScreen({
         // client transparently falls back to synchronous complete.
         const outcome = await postAnalyzeUploadChunkedJob(
           fileArg,
-          name,
-          mimeType,
+          picked.name,
+          picked.mimeType,
           size as number,
           {
             consent,
@@ -510,11 +475,13 @@ export default function AnalyzeScreen({
         }
       } else {
         // Small files (<=20MB) stay a single fast synchronous request.
-        result = await postAnalyzeUpload(fileArg, name, mimeType, context, {
-          consent,
-          store: storeRecording,
-          title,
-        });
+        result = await postAnalyzeUpload(
+          fileArg,
+          picked.name,
+          picked.mimeType,
+          context,
+          { consent, store: storeRecording, title },
+        );
       }
       // Load the server-produced transcript so the what-if flow (and inspector
       // text) works off the store, then jump straight to the ready-made analysis
@@ -532,74 +499,6 @@ export default function AnalyzeScreen({
       setUploadProgress(null);
       setJobState(null);
     }
-  };
-
-  /** The platform-native file handle for an upload: web hands us a `File`;
-   *  native hands us the local URI string. */
-  const nativeFileArg = (): string | File =>
-    Platform.OS === "web" && picked?.file ? picked.file : (picked?.uri ?? "");
-
-  const handleUploadAnalyze = async () => {
-    if (!picked || uploading) return;
-    const size = picked.size;
-    // Refuse an over-cap file up front — no network call, an honest size message.
-    if (size !== undefined && size > MAX_UPLOAD_BYTES) {
-      setUploadError(sizeLimitMessage(size));
-      return;
-    }
-    setCompressionFallback(null);
-    setUploadError(null);
-
-    // Compress large LOCAL VIDEOS on-device first (never web — the module is
-    // gated out there; never audio; never when the user opted into original
-    // quality; never a clip already under the threshold, incl. the 480p in-app
-    // recording). Anything that skips compression uploads unchanged.
-    const shouldCompress =
-      isCompressionAvailable() &&
-      Platform.OS !== "web" &&
-      picked.mimeType.startsWith("video/") &&
-      !sendOriginalQuality &&
-      size !== undefined &&
-      size > COMPRESS_MIN_BYTES;
-
-    if (shouldCompress) {
-      setUploading(true);
-      setCompressProgress(0);
-      try {
-        const compressed = await compressVideo(picked.uri, {
-          onProgress: (f) => setCompressProgress(f),
-        });
-        setCompressProgress(null);
-        // Route the COMPRESSED file — its (smaller) size decides direct-vs-chunked.
-        await runUpload(
-          compressed.uri,
-          picked.name,
-          picked.mimeType,
-          compressed.size,
-        );
-      } catch {
-        // Honest fallback: compression failed — don't drop the upload silently.
-        // Offer to send the original (with a size warning) instead.
-        setCompressProgress(null);
-        setUploading(false);
-        setCompressionFallback({ size });
-      }
-      return;
-    }
-
-    // No compression: upload as-is (web, audio, small clips, or original-quality).
-    setUploading(true);
-    await runUpload(nativeFileArg(), picked.name, picked.mimeType, size);
-  };
-
-  /** Honest fallback after a compression failure: upload the ORIGINAL file
-   *  unchanged (routed direct/chunked by its full size). */
-  const handleUploadOriginal = async () => {
-    if (!picked || uploading) return;
-    setCompressionFallback(null);
-    setUploadError(null);
-    setUploading(true);
-    await runUpload(nativeFileArg(), picked.name, picked.mimeType, picked.size);
   };
 
   const handleAnalyzeLink = async () => {
@@ -797,29 +696,6 @@ export default function AnalyzeScreen({
                   </Text>
                 )}
 
-                {/* "Send original quality" override — only meaningful where
-                    on-device compression exists (native, not web). Default OFF:
-                    large videos are compressed before upload to save data. */}
-                {picked && isCompressionAvailable() && (
-                  <View style={styles.compressPref}>
-                    <View style={styles.storeRow}>
-                      <Text style={styles.storeLabel}>Send original quality</Text>
-                      <Switch
-                        testID="send-original-toggle"
-                        value={sendOriginalQuality}
-                        onValueChange={setSendOriginalQuality}
-                        disabled={uploading}
-                      />
-                    </View>
-                    <Text style={styles.compressNote} testID="send-original-note">
-                      Off (recommended) compresses large videos on your device
-                      first to save mobile data. We keep only a compressed copy
-                      on our servers either way — you can link the HD original
-                      from your cloud storage for replay.
-                    </Text>
-                  </View>
-                )}
-
                 {picked && (
                   <>
                     <TextInput
@@ -852,25 +728,7 @@ export default function AnalyzeScreen({
                       disabled={uploading}
                     >
                       {uploading ? (
-                        compressProgress !== null ? (
-                          // On-device compression: an honest progress bar + percentage.
-                          <View
-                            style={styles.uploadProgress}
-                            testID="compress-progress"
-                          >
-                            <View style={styles.progressTrack}>
-                              <View
-                                style={[
-                                  styles.progressFill,
-                                  { width: `${Math.round(compressProgress * 100)}%` },
-                                ]}
-                              />
-                            </View>
-                            <Text style={styles.uploadButtonText}>
-                              {`Compressing… ${Math.round(compressProgress * 100)}%`}
-                            </Text>
-                          </View>
-                        ) : uploadProgress !== null ? (
+                        uploadProgress !== null ? (
                           // Chunked upload: an honest progress bar + percentage.
                           <View style={styles.uploadProgress} testID="upload-progress">
                             <View style={styles.progressTrack}>
@@ -1034,37 +892,6 @@ export default function AnalyzeScreen({
                   })()}
                 </View>
               )}
-
-            {/* Compression failed — honest fallback, never a silent drop: offer
-                to upload the ORIGINAL (with a size warning) or cancel. */}
-            {compressionFallback && !uploading && (
-              <View style={styles.fallbackCard} testID="compression-fallback">
-                <Text style={styles.fallbackText}>
-                  Couldn’t compress this video on your device.
-                  {formatSize(compressionFallback.size)
-                    ? ` You can upload the original (${formatSize(
-                        compressionFallback.size,
-                      )}) — it will use more mobile data.`
-                    : " You can upload the original — it will use more mobile data."}
-                </Text>
-                <TouchableOpacity
-                  testID="upload-original-button"
-                  style={styles.uploadButton}
-                  onPress={() => void handleUploadOriginal()}
-                >
-                  <Text style={styles.uploadButtonText}>
-                    Upload original anyway
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  testID="compression-fallback-cancel"
-                  style={styles.fallbackCancel}
-                  onPress={() => setCompressionFallback(null)}
-                >
-                  <Text style={styles.fallbackCancelText}>Cancel</Text>
-                </TouchableOpacity>
-              </View>
-            )}
 
             {uploadError && (
               <Text style={styles.uploadError} testID="upload-error">
@@ -1346,38 +1173,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     color: "#DC2626",
-  },
-  compressPref: {
-    marginTop: 12,
-  },
-  compressNote: {
-    fontSize: 12.5,
-    lineHeight: 18,
-    color: "#6B7280",
-    marginTop: 6,
-  },
-  fallbackCard: {
-    marginTop: 12,
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#FCD34D",
-    backgroundColor: "#FFFBEB",
-    gap: 8,
-  },
-  fallbackText: {
-    fontSize: 13,
-    lineHeight: 19,
-    color: "#92400E",
-  },
-  fallbackCancel: {
-    alignItems: "center",
-    paddingVertical: 8,
-  },
-  fallbackCancelText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#6B7280",
   },
   jobProgress: {
     marginTop: 12,
