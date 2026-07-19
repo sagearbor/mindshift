@@ -1,15 +1,33 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
+  PanResponder,
+  Platform,
+  type GestureResponderEvent,
+  type PanResponderGestureState,
 } from "react-native";
 import Svg, { Polyline, Circle, Line, Rect } from "react-native-svg";
 import type { AnalyzePerTurn, SimulatedTurn, Voice } from "../api/client";
 import { getSpeakerColor } from "../utils/speakerColors";
 import { speakerLabel, type SpeakerLabels } from "../utils/speakerLabels";
+import {
+  type ZoomWindow,
+  type PlayheadVisibility,
+  fullWindow,
+  windowSpan,
+  isZoomed as windowIsZoomed,
+  secondsToX,
+  xToSeconds,
+  windowForZoom,
+  zoomAt,
+  panBySeconds,
+  playheadVisibility,
+  centerWindowOn,
+} from "./chartZoom";
 
 // The baseline prosody label per dimension — a turn at baseline on a dimension
 // isn't noteworthy, so we don't render a chip for it. This keeps the inspector
@@ -58,6 +76,26 @@ const HEAT_MAX = 100;
 // Minimum width (px) of a time-axis tap target, so a very short utterance's dash
 // is still comfortably hittable on a phone.
 const MIN_TAP_PX = 28;
+
+// --- Touch geometry for pinch zoom (native). Operate on the responder's touch
+// list, using locationX/Y (coordinates relative to the chart surface). ---
+type TouchList = GestureResponderEvent["nativeEvent"]["touches"];
+
+/** Euclidean distance between the first two active touches (the pinch spread). */
+function touchDistance(touches: TouchList): number {
+  if (touches.length < 2) return 0;
+  const dx = touches[0].locationX - touches[1].locationX;
+  const dy = touches[0].locationY - touches[1].locationY;
+  return Math.hypot(dx, dy);
+}
+
+/** The x (relative to the chart surface) midway between the first two touches —
+ *  the point a pinch zooms about. */
+function touchMidX(touches: TouchList): number {
+  if (touches.length === 0) return 0;
+  if (touches.length === 1) return touches[0].locationX;
+  return (touches[0].locationX + touches[1].locationX) / 2;
+}
 
 export interface ChartPoint {
   index: number; // turn index across the WHOLE conversation
@@ -300,6 +338,11 @@ export interface TimeMapOptions {
   /** Floor on a dash's pixel width so a very short utterance is still visible
    *  and tappable; the dash is grown symmetrically around its center. */
   minDashPx?: number;
+  /** Visible time window (zoom). When present, seconds map onto the full width
+   *  through this `[start, end]` slice instead of the whole `[0, duration]`, and
+   *  x is NOT clamped — off-window dashes fall outside the SVG viewport and are
+   *  clipped. Absent = the full unzoomed view (identical to before). */
+  window?: ZoomWindow;
 }
 
 /**
@@ -348,7 +391,12 @@ export function mapTurnsToDashes(
   const chartWidth = width - padding * 2;
   const chartHeight = height - padding * 2;
 
+  // Zoom: when a window is given, map seconds through it (no clamp — the SVG
+  // viewport clips anything off-window). Without one, keep the exact prior
+  // behavior: the full [0, duration] view, clamped into the chart.
+  const win = opts.window;
   const xFor = (sec: number) => {
+    if (win) return secondsToX(sec, win, { width, padding });
     const frac = duration <= 0 ? 0 : Math.max(0, Math.min(1, sec / duration));
     return padding + frac * chartWidth;
   };
@@ -366,7 +414,12 @@ export function mapTurnsToDashes(
     const tm = timing[i];
     let x1 = xFor(tm.start_time);
     let x2 = xFor(tm.end_time);
-    if (x2 - x1 < minDashPx) {
+    // Grow a sub-minimum dash to a hittable width. When zoomed we only apply the
+    // floor to dashes actually within view, so off-window dashes aren't dragged
+    // onto the chart edges (they stay clipped).
+    const bothOffWindow =
+      !!win && (x2 < padding || x1 > padding + chartWidth);
+    if (!bothOffWindow && x2 - x1 < minDashPx) {
       const mid = (x1 + x2) / 2;
       x1 = Math.max(padding, mid - minDashPx / 2);
       x2 = Math.min(padding + chartWidth, x1 + minDashPx);
@@ -427,10 +480,19 @@ export function mapSimulatedToDashes(
  *  Returns null when there's no positive duration. Exported for alignment tests. */
 export function playheadXForSeconds(
   seconds: number,
-  opts: { width: number; padding: number; duration: number },
+  opts: {
+    width: number;
+    padding: number;
+    duration: number;
+    /** Visible zoom window. When present the playhead maps through it and is NOT
+     *  clamped, so a playhead outside the window maps off-screen (the caller then
+     *  shows an honest "off-screen" hint rather than pinning it to an edge). */
+    window?: ZoomWindow;
+  },
 ): number | null {
   const { width, padding, duration } = opts;
   if (!(duration > 0)) return null;
+  if (opts.window) return secondsToX(seconds, opts.window, { width, padding });
   const chartWidth = width - padding * 2;
   const frac = Math.max(0, Math.min(1, seconds / duration));
   return padding + frac * chartWidth;
@@ -649,6 +711,169 @@ export default function HeatChart({
   const duration =
     useTimeAxis && turnsTiming ? durationForTiming(turnsTiming, durationSeconds) : 0;
 
+  // --- Time-axis zoom (view-state only; never persisted, never touches the heat
+  // axis). `zoomWindow` is null in the full view; a `[start,end]` slice when the
+  // user has pinched/dragged (native) or wheel/drag-zoomed (web) in. All the
+  // math lives in ./chartZoom and is unit-tested; here we just hold the state,
+  // wire the gestures, and pass the window down to the pure geometry.
+  const [zoomWindow, setZoomWindow] = useState<ZoomWindow | null>(null);
+  // A new recording (duration changes) drops any prior zoom — never carry one
+  // conversation's window onto another.
+  useEffect(() => {
+    setZoomWindow(null);
+  }, [duration]);
+  const activeWindow = useMemo<ZoomWindow>(
+    () => zoomWindow ?? fullWindow(duration),
+    [zoomWindow, duration],
+  );
+  const zoomed = zoomWindow !== null && windowIsZoomed(activeWindow, duration);
+
+  // Gestures only make sense once we have a measured width and a real time axis.
+  const canZoom = useTimeAxis && duration > 0 && width > 0;
+
+  // Refs so the (stable) gesture handlers always read the latest values without
+  // being rebuilt. Updated every render.
+  const widthRef = useRef(width);
+  widthRef.current = width;
+  const durationRef = useRef(duration);
+  durationRef.current = duration;
+  const windowRef = useRef<ZoomWindow>(activeWindow);
+  windowRef.current = activeWindow;
+  const canZoomRef = useRef(canZoom);
+  canZoomRef.current = canZoom;
+
+  // The in-flight gesture: pan (one finger), pinch (two), or a double-tap reset.
+  const gestureRef = useRef<{
+    mode: "none" | "pan" | "pinch" | "reset";
+    startWindow: ZoomWindow;
+    startDist: number;
+    focusSec: number;
+  }>({ mode: "none", startWindow: fullWindow(0), startDist: 0, focusSec: 0 });
+  const lastTapRef = useRef(0);
+  const surfaceRef = useRef<View>(null);
+
+  const geomOf = () => ({ width: widthRef.current, padding });
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        // Never grab on a plain touch-down: a single tap must reach the dash's
+        // own onPress (tap-to-seek). We only claim the gesture on a real
+        // pan/pinch, or on the second tap of a double-tap (to reset).
+        onStartShouldSetPanResponder: () => false,
+        onStartShouldSetPanResponderCapture: (evt) => {
+          if (!canZoomRef.current) return false;
+          const touches = evt.nativeEvent.touches;
+          if (touches.length >= 2) {
+            beginPinch(touches);
+            return true;
+          }
+          const now = Date.now();
+          if (now - lastTapRef.current < 300) {
+            lastTapRef.current = 0;
+            gestureRef.current.mode = "reset";
+            return true; // double-tap → reset (don't select on this tap)
+          }
+          lastTapRef.current = now;
+          return false; // single tap → let the dash handle it
+        },
+        onMoveShouldSetPanResponder: (_evt, g) => {
+          if (!canZoomRef.current) return false;
+          if (Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6) {
+            gestureRef.current.mode = "pan";
+            gestureRef.current.startWindow = windowRef.current;
+            return true;
+          }
+          return false;
+        },
+        onMoveShouldSetPanResponderCapture: (evt) => {
+          if (!canZoomRef.current) return false;
+          const touches = evt.nativeEvent.touches;
+          if (touches.length >= 2) {
+            beginPinch(touches);
+            return true;
+          }
+          return false;
+        },
+        onPanResponderGrant: () => {
+          if (gestureRef.current.mode === "reset") {
+            setZoomWindow(null);
+            gestureRef.current.mode = "none";
+          }
+        },
+        onPanResponderMove: (
+          evt: GestureResponderEvent,
+          g: PanResponderGestureState,
+        ) => {
+          const touches = evt.nativeEvent.touches;
+          const gs = gestureRef.current;
+          const dur = durationRef.current;
+          if (gs.mode === "pinch" && touches.length >= 2) {
+            const dist = touchDistance(touches);
+            if (dist > 0 && gs.startDist > 0) {
+              const scale = dist / gs.startDist; // fingers apart → zoom in
+              const newSpan = windowSpan(gs.startWindow) / scale;
+              setZoomWindow(
+                windowForZoom(gs.startWindow, gs.focusSec, newSpan, dur),
+              );
+            }
+          } else if (gs.mode === "pan") {
+            const chartWidth = widthRef.current - padding * 2;
+            if (chartWidth > 0) {
+              const span = windowSpan(gs.startWindow);
+              // Drag right → reveal earlier time (window slides left).
+              const deltaSec = -(g.dx / chartWidth) * span;
+              setZoomWindow(panBySeconds(gs.startWindow, deltaSec, dur));
+            }
+          }
+        },
+        onPanResponderRelease: () => {
+          gestureRef.current.mode = "none";
+        },
+        onPanResponderTerminate: () => {
+          gestureRef.current.mode = "none";
+        },
+      }),
+    // Built once; all inputs are read through refs above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  // Begin a pinch: snapshot the window + finger spread + the time under the
+  // pinch midpoint, so the midpoint stays anchored as the span changes.
+  function beginPinch(touches: GestureResponderEvent["nativeEvent"]["touches"]) {
+    gestureRef.current.mode = "pinch";
+    gestureRef.current.startWindow = windowRef.current;
+    gestureRef.current.startDist = touchDistance(touches);
+    gestureRef.current.focusSec = xToSeconds(
+      touchMidX(touches),
+      windowRef.current,
+      geomOf(),
+    );
+  }
+
+  // Web-only: mouse-wheel / trackpad zoom, centered on the cursor. Attached as a
+  // non-passive DOM listener so we can preventDefault the page scroll. Native
+  // has no wheel; this effect no-ops there. (No native-only imports — the DOM
+  // access is guarded by Platform.OS, so the web bundle stays clean too.)
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const node = surfaceRef.current as unknown as HTMLElement | null;
+    if (!node || typeof node.addEventListener !== "function") return;
+    const onWheel = (e: WheelEvent) => {
+      if (!canZoomRef.current) return;
+      e.preventDefault();
+      const rect = node.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const focusSec = xToSeconds(x, windowRef.current, geomOf());
+      const factor = e.deltaY > 0 ? 1.15 : 1 / 1.15; // scroll down = zoom out
+      setZoomWindow(zoomAt(windowRef.current, focusSec, factor, durationRef.current));
+    };
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => node.removeEventListener("wheel", onWheel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Stable speaker order + color for the legend (independent of measured width,
   // so the legend is populated before the first layout pass), shared by both
   // modes.
@@ -689,9 +914,18 @@ export default function HeatChart({
       : null;
 
   // --- Time-axis geometry (primary) ---
+  // Pass the zoom window ONLY when actually zoomed, so the default (full-view)
+  // render path is byte-identical to before (snapshots unaffected).
+  const zoomOpt = zoomed ? { window: activeWindow } : {};
   const dashLines =
     useTimeAxis && width > 0 && turnsTiming
-      ? mapTurnsToDashes(perTurn, turnsTiming, { width, height, padding, duration })
+      ? mapTurnsToDashes(perTurn, turnsTiming, {
+          width,
+          height,
+          padding,
+          duration,
+          ...zoomOpt,
+        })
       : [];
   const simDashLines =
     overlayActive && useTimeAxis && width > 0 && turnsTiming
@@ -700,6 +934,7 @@ export default function HeatChart({
           height,
           padding,
           duration,
+          ...zoomOpt,
         })
       : [];
   const talkShares =
@@ -712,8 +947,20 @@ export default function HeatChart({
       : [];
   const timePlayheadX =
     useTimeAxis && playheadSeconds != null && width > 0
-      ? playheadXForSeconds(playheadSeconds, { width, padding, duration })
+      ? playheadXForSeconds(playheadSeconds, {
+          width,
+          padding,
+          duration,
+          ...zoomOpt,
+        })
       : null;
+  // While zoomed, the playhead can move outside the visible window. Rather than
+  // pin it to an edge (a lie) or silently drop it, we detect that here and show
+  // an honest "off-screen ←/→" hint that recenters the window when tapped.
+  const playheadVis: PlayheadVisibility =
+    useTimeAxis && zoomed && playheadSeconds != null
+      ? playheadVisibility(playheadSeconds, activeWindow)
+      : "visible";
 
   // --- Legacy index-spaced geometry (fallback) ---
   // Only compute geometry once we've measured a width (first layout pass).
@@ -819,11 +1066,54 @@ export default function HeatChart({
 
       {/* Chart surface — onLayout gives us the responsive width. position:
           relative so the time-axis tap overlay can be absolutely placed over the
-          dashes. */}
+          dashes. On the time axis it also hosts the zoom gestures: pinch + drag
+          (native), wheel + drag (web); double-tap/double-click resets. A single
+          tap always falls through to a dash's own onPress (tap-to-seek). */}
       <View
+        ref={surfaceRef}
         style={{ height, position: "relative" }}
         onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
+        {...(useTimeAxis ? panResponder.panHandlers : {})}
       >
+        {/* Zoom affordances, overlaid so they never shift the chart layout.
+            Reset chip: only while zoomed, so the user is never stranded. */}
+        {zoomed && (
+          <TouchableOpacity
+            testID="chart-zoom-reset"
+            style={styles.zoomReset}
+            onPress={() => setZoomWindow(null)}
+            accessibilityRole="button"
+            accessibilityLabel="Reset chart zoom to the full recording"
+          >
+            <Text style={styles.zoomResetText}>⤺ Reset view</Text>
+          </TouchableOpacity>
+        )}
+        {/* Honest playhead-off-screen hint: the playback position has scrolled
+            out of the zoomed window. Tap to recenter on it (never a fake edge
+            playhead). */}
+        {playheadVis !== "visible" && (
+          <TouchableOpacity
+            testID="chart-playhead-offscreen"
+            style={[
+              styles.playheadHint,
+              playheadVis === "before"
+                ? styles.playheadHintLeft
+                : styles.playheadHintRight,
+            ]}
+            onPress={() =>
+              playheadSeconds != null &&
+              setZoomWindow(
+                centerWindowOn(activeWindow, playheadSeconds, duration),
+              )
+            }
+            accessibilityRole="button"
+            accessibilityLabel="Playhead is off-screen — tap to recenter"
+          >
+            <Text style={styles.playheadHintText}>
+              {playheadVis === "before" ? "← playhead" : "playhead →"}
+            </Text>
+          </TouchableOpacity>
+        )}
         {width > 0 && (
           <Svg width={width} height={height}>
             {/* §1 narrow-range band: a subtle shaded strip over the [min,max]
@@ -1026,7 +1316,16 @@ export default function HeatChart({
             spacers), so a cell sits under the dash it selects — no measured width
             needed. Short turns keep a minimum width so they stay hittable.
           - Legacy: evenly-spaced columns, one per turn. */}
-      {useTimeAxis ? (
+      {useTimeAxis && zoomed ? (
+        // Zoomed in: the full-width, time-proportional tap strip would no longer
+        // sit under the (re-windowed) dashes, so we hide it rather than show a
+        // misaligned control. The dashes themselves are correctly positioned
+        // through the zoom transform and carry their own onPress (and are wider
+        // when zoomed in, so they're easy to hit) — plus a plain how-to caption.
+        <Text style={styles.zoomHint} testID="heat-zoom-hint">
+          Zoomed — tap a dash to inspect · drag to pan · double-tap to reset
+        </Text>
+      ) : useTimeAxis ? (
         <View
           style={[styles.scrubberRow, styles.scrubberRowTime]}
           testID="heat-scrubber"
@@ -1215,6 +1514,42 @@ const styles = StyleSheet.create({
     color: MUTED,
     fontStyle: "italic",
     marginTop: 6,
+  },
+  // Zoom "Reset view" chip — floats at the top-right of the chart surface, only
+  // while zoomed, so the user can always get back to the full recording.
+  zoomReset: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    zIndex: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "rgba(249,250,251,0.92)",
+  },
+  zoomResetText: { fontSize: 12, fontWeight: "700", color: MUTED },
+  // Honest "playhead off-screen" hint, pinned to whichever edge the playhead
+  // scrolled past; tapping it recenters the window on the playhead.
+  playheadHint: {
+    position: "absolute",
+    bottom: 6,
+    zIndex: 2,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: "rgba(31,41,55,0.82)",
+  },
+  playheadHintLeft: { left: 4 },
+  playheadHintRight: { right: 4 },
+  playheadHintText: { fontSize: 11, fontWeight: "700", color: "#FFFFFF" },
+  zoomHint: {
+    fontSize: 12,
+    color: MUTED,
+    fontStyle: "italic",
+    marginTop: 6,
+    textAlign: "center",
   },
   inspector: {
     marginTop: 10,

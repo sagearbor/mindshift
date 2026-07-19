@@ -10,6 +10,7 @@ import {
 import { listRecordings, deleteRecording } from "../api/client";
 import type { RecordingSummary } from "../api/client";
 import { formatTime } from "../components/MediaPlayer";
+import { formatDateTime } from "../utils/dateDisplay";
 
 // House colors.
 const PRIMARY = "#4A90D9";
@@ -167,7 +168,10 @@ export default function RecordingsScreen({
                     {rec.title || rec.filename}
                   </Text>
                   <Text style={styles.meta}>
-                    {new Date(rec.created_at).toLocaleDateString()}
+                    {/* Full, unambiguous date + wall-clock time (this year omits
+                        the year). Never fabricated: a missing/invalid created_at
+                        renders nothing rather than a guessed date. */}
+                    {formatDateTime(rec.created_at) ?? ""}
                     {/* duration can be null (decode degraded, no transcript end
                         time) — omit it rather than render a fake 0:00 */}
                     {rec.duration_seconds !== null
@@ -234,7 +238,10 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    paddingTop: 56,
+    // App's SafeAreaView already applies the notch inset; this base pad matches
+    // the hub screens (~20-24) instead of the old hardcoded 56 that double-padded
+    // on notched devices.
+    paddingTop: 24,
     paddingBottom: 12,
     paddingHorizontal: 16,
     backgroundColor: "#FFFFFF",
