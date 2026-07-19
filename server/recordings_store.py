@@ -615,6 +615,50 @@ class RecordingsStore:
             return None
         return blob.download_as_bytes()
 
+    # -- re-analysis overwrite --------------------------------------------
+    async def overwrite_analysis(
+        self,
+        uid: str,
+        recording_id: str,
+        *,
+        turns: list[dict],
+        analysis: dict,
+        reanalyzed_at: str,
+    ) -> dict | None:
+        """Overwrite an existing recording's turns.json + analysis.json in place
+        and stamp ``meta.reanalyzed_at`` — the persistence half of POST
+        …/reanalyze. Returns the updated meta, or ``None`` when the recording
+        does not exist for this uid (→ 404).
+
+        Deliberately preserves everything else: the id, title, source, consent
+        provenance, media_type, duration, and the stored audio/video derivatives
+        are ALL untouched — re-analysis re-runs the pipeline over the SAME stored
+        audio, it does not create a new recording."""
+        return await asyncio.to_thread(
+            self._overwrite_analysis_sync,
+            uid, recording_id, turns, analysis, reanalyzed_at,
+        )
+
+    def _overwrite_analysis_sync(
+        self, uid, recording_id, turns, analysis, reanalyzed_at,
+    ) -> dict | None:
+        prefix = self._prefix(uid, recording_id)
+        meta_blob = self._bucket.blob(prefix + "meta.json")
+        if not meta_blob.exists():
+            return None
+        meta = json.loads(meta_blob.download_as_bytes())
+        meta["reanalyzed_at"] = reanalyzed_at
+        meta_blob.upload_from_string(
+            json.dumps(meta), content_type="application/json",
+        )
+        self._bucket.blob(prefix + "turns.json").upload_from_string(
+            json.dumps(turns), content_type="application/json",
+        )
+        self._bucket.blob(prefix + "analysis.json").upload_from_string(
+            json.dumps(analysis), content_type="application/json",
+        )
+        return meta
+
     # -- voiceprints -------------------------------------------------------
     # A user's enrolled voice signature lives in its OWN namespace, deliberately
     # NOT under ``recordings/`` — it must survive deleting the recording it was

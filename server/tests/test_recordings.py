@@ -516,8 +516,12 @@ async def test_list_and_detail_happy_path(client, store):
     assert set(d) == {
         "id", "created_at", "filename", "title", "media_type",
         "duration_seconds", "turns", "analysis", "source", "storage_note",
-        "episodes",
+        "episodes", "word_metrics", "reanalyzed_at",
     }
+    # Additive fields: transparent word metrics are backfilled on read; a
+    # never-re-analyzed recording reports reanalyzed_at=None.
+    assert d["reanalyzed_at"] is None
+    assert set(d["word_metrics"]["speakers"]) == {"Speaker A", "Speaker B"}
     assert d["storage_note"] is None
     assert d["title"] == d["filename"]
 
