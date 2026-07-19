@@ -49,7 +49,7 @@ export default function AdvancedScreen({
     Alert.alert(
       "Forget my voice?",
       "This permanently deletes the numeric voice signature MindShift uses to " +
-        'label you "You". Your recordings are not affected. You can re-enroll ' +
+        'label you “You”. Your recordings are not affected. You can re-enroll ' +
         "anytime from a recording.",
       [
         { text: "Cancel", style: "cancel" },
@@ -65,7 +65,7 @@ export default function AdvancedScreen({
               })
               .catch(() => {
                 Alert.alert(
-                  "Couldn't forget your voice",
+                  "Couldn’t forget your voice",
                   "Something went wrong. Please try again.",
                 );
               })
@@ -120,7 +120,7 @@ export default function AdvancedScreen({
             ) : null}
           </View>
           <Text style={styles.rowSub}>
-            Delete the numeric voice signature used to label you "You". Your
+            Delete the numeric voice signature used to label you “You”. Your
             recordings are kept; only the voiceprint is removed.
           </Text>
         </TouchableOpacity>

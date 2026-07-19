@@ -259,7 +259,11 @@ export default function DynamicsScreen({
     <View style={styles.flex}>
       {/* Header with back to the Session tab. Mirrors SessionDetail. */}
       <View style={styles.header}>
-        <TouchableOpacity testID="dynamics-back" onPress={onBack}>
+        <TouchableOpacity
+          testID="dynamics-back"
+          onPress={onBack}
+          hitSlop={{ top: 10, bottom: 10, left: 8, right: 16 }}
+        >
           <Text style={styles.backText}>‹ Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Conversation Dynamics</Text>

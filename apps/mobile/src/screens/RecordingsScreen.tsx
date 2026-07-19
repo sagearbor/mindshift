@@ -105,7 +105,11 @@ export default function RecordingsScreen({
   return (
     <View style={styles.flex}>
       <View style={styles.header}>
-        <TouchableOpacity testID="recordings-back" onPress={onBack}>
+        <TouchableOpacity
+          testID="recordings-back"
+          onPress={onBack}
+          hitSlop={{ top: 10, bottom: 10, left: 8, right: 16 }}
+        >
           <Text style={styles.backText}>‹ Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Recordings</Text>

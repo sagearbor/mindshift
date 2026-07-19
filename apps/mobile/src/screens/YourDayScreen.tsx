@@ -122,7 +122,11 @@ export default function YourDayScreen({
   return (
     <View style={styles.flex} testID="your-day-screen">
       <View style={styles.header}>
-        <TouchableOpacity testID="your-day-back" onPress={onBack}>
+        <TouchableOpacity
+          testID="your-day-back"
+          onPress={onBack}
+          hitSlop={{ top: 10, bottom: 10, left: 8, right: 16 }}
+        >
           <Text style={styles.backText}>‹ Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Your Day</Text>
