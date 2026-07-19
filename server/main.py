@@ -862,6 +862,26 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="MindShift API", lifespan=lifespan)
 
+# HTTP CORS for the browser app. Native apps never preflight, so this gap only
+# bit when the web app made authenticated fetch() calls: the OPTIONS preflight
+# hit the router (405) and the browser refused to send the real request. Same
+# allowlist the WebSocket origin gate uses (MINDSHIFT_ALLOWED_ORIGINS), plus
+# localhost fallbacks for local dev. Bearer auth, no cookies → credentials off.
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+
+_cors_origins = [
+    o.strip()
+    for o in os.getenv("MINDSHIFT_ALLOWED_ORIGINS", "").split(",")
+    if o.strip()
+] or ["http://localhost:8081", "http://localhost:19006"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Voice enrollment ("This is me" + "Forget my voice"). Its own file so the
 # monolith's edit surface stays tiny; the enroll/match path is torch-gated and
 # degrades to honest 503s when the optional deps aren't installed.
