@@ -740,6 +740,114 @@ describe("AnalyzeScreen", () => {
     });
   });
 
+  // The upload/link segmented control acts on tap — it doesn't just toggle a
+  // selection (the reported confusion: a user kept tapping "Upload file"
+  // expecting a picker, but it only changed the highlight). "Upload file" opens
+  // the OS picker in the same tap; "Paste link" drops the cursor in the URL field.
+  describe("action tabs (tap acts, doesn't just select)", () => {
+    it("tapping 'Upload file' opens the OS file picker immediately — no separate step", async () => {
+      mockPick.mockResolvedValueOnce({
+        canceled: false,
+        assets: [
+          { uri: "file:///rec.m4a", name: "rec.m4a", size: 2048, mimeType: "audio/m4a" },
+        ],
+      });
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<AnalyzeScreen />);
+      });
+
+      // One tap on the tab opens the picker and lands the file — no intervening
+      // "Choose a recording" press.
+      await act(async () => {
+        queryId(comp, "mode-file-tab")!.props.onPress();
+      });
+
+      expect(mockPick).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(comp.toJSON())).toContain("rec.m4a");
+      expect(queryId(comp, "picked-file")).toBeTruthy();
+      expect(queryId(comp, "upload-analyze-button")).toBeTruthy();
+      act(() => comp.unmount());
+    });
+
+    it("canceling the picker keeps file mode with the pick-a-file affordance visible", async () => {
+      mockPick.mockResolvedValueOnce({ canceled: true });
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<AnalyzeScreen />);
+      });
+
+      await act(async () => {
+        queryId(comp, "mode-file-tab")!.props.onPress();
+      });
+
+      // The picker was asked for, the user backed out — we stay in file mode with
+      // the retry affordance visible and no file selected (never a phantom pick).
+      expect(mockPick).toHaveBeenCalledTimes(1);
+      expect(queryId(comp, "pick-recording-button")).toBeTruthy();
+      expect(queryId(comp, "picked-file")).toBeNull();
+      expect(queryId(comp, "link-input")).toBeNull();
+      act(() => comp.unmount());
+    });
+
+    it("re-tapping the already-active 'Upload file' tab opens the picker again", async () => {
+      mockPick
+        .mockResolvedValueOnce({
+          canceled: false,
+          assets: [
+            { uri: "file:///a.m4a", name: "a.m4a", size: 2048, mimeType: "audio/m4a" },
+          ],
+        })
+        .mockResolvedValueOnce({
+          canceled: false,
+          assets: [
+            { uri: "file:///b.m4a", name: "b.m4a", size: 4096, mimeType: "audio/m4a" },
+          ],
+        });
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<AnalyzeScreen />);
+      });
+
+      // First tap picks a.m4a...
+      await act(async () => {
+        queryId(comp, "mode-file-tab")!.props.onPress();
+      });
+      expect(JSON.stringify(comp.toJSON())).toContain("a.m4a");
+
+      // ...re-tapping the same (already-active) tab opens the picker again and
+      // swaps in b.m4a — the natural expectation.
+      await act(async () => {
+        queryId(comp, "mode-file-tab")!.props.onPress();
+      });
+      expect(mockPick).toHaveBeenCalledTimes(2);
+      expect(JSON.stringify(comp.toJSON())).toContain("b.m4a");
+      act(() => comp.unmount());
+    });
+
+    it("tapping 'Paste link' switches mode AND autofocuses the URL input", () => {
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<AnalyzeScreen />);
+      });
+
+      // File mode by default: no URL field yet.
+      expect(queryId(comp, "link-input")).toBeNull();
+
+      act(() => {
+        queryId(comp, "mode-link-tab")!.props.onPress();
+      });
+
+      // The URL field is now up and set to autofocus. It renders only in link
+      // mode, so autoFocus fires on this very mount — keyboard up on mobile,
+      // cursor in the field on web. The tab acts, it doesn't just select.
+      const linkInput = queryId(comp, "link-input");
+      expect(linkInput).toBeTruthy();
+      expect(linkInput!.props.autoFocus).toBe(true);
+      act(() => comp.unmount());
+    });
+  });
+
   describe("analyze a link", () => {
     it("toggles to link mode: swaps the file picker for the URL input", async () => {
       let comp!: renderer.ReactTestRenderer;
