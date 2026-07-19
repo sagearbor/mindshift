@@ -48,6 +48,7 @@ import link_fetch
 import prosody
 import recordings_store
 import speaker_id
+import word_metrics as word_metrics_mod
 from audio_ingest import (
     AudioDecodeError,
     NoSpeechFound,
@@ -448,6 +449,13 @@ class AnalyzeResponse(BaseModel):
     # asked for one (an upload with no user-provided title). None otherwise; the
     # text /analyze path never requests it, so its response stays unchanged.
     title: Optional[str] = None
+    # Transparent word-level metrics — per-speaker pronoun profile (I/you/we
+    # rates) + emotion-word density (anger/fear/sadness/joy/trust), counted
+    # LOCALLY from the turns with no LLM (see word_metrics.py). Additive +
+    # backward-compatible: an old stored analysis.json omits it and the detail
+    # endpoint backfills from the stored turns on read. None only when there are
+    # no usable turns to count.
+    word_metrics: Optional[dict] = None
 
 
 # --- POST /analyze/upload — analyze a RECORDING (audio, or a video whose audio
@@ -2086,6 +2094,13 @@ async def _run_analysis(
             + ", ".join(missing_cards),
         )
 
+    # Transparent, LLM-free word metrics (pure — word_metrics.py). Keyed by the
+    # same canonical speaker ids as per_speaker; computed straight from the turn
+    # text so it is identical on the text /analyze and recording paths.
+    metrics = word_metrics_mod.compute_word_metrics(
+        [{"speaker": t.speaker, "text": t.text} for t in turns]
+    )
+
     return AnalyzeResponse(
         per_turn=per_turn,
         per_speaker=per_speaker,
@@ -2099,6 +2114,7 @@ async def _run_analysis(
         report_cards=report_cards,
         speaker_labels=speaker_labels,
         title=llm_title,
+        word_metrics=metrics,
     )
 
 
@@ -2730,6 +2746,16 @@ async def get_recording(
         stored_episodes = episodes.episodes_from_analysis(
             rec.get("turns", []), analysis, gap_seconds=EPISODE_GAP_SECONDS,
         )
+    # Transparent word metrics — same read-path backfill as episodes. New analyses
+    # store them in analysis.json; older recordings are recomputed on the fly from
+    # the stored turns (word_metrics.py is pure — no LLM, microseconds).
+    stored_word_metrics = (
+        analysis.get("word_metrics") if isinstance(analysis, dict) else None
+    )
+    if stored_word_metrics is None:
+        stored_word_metrics = word_metrics_mod.compute_word_metrics(
+            rec.get("turns", [])
+        )
     return {
         "id": rec["id"],
         "created_at": rec["created_at"],
@@ -2740,9 +2766,13 @@ async def get_recording(
         "duration_seconds": rec.get("duration_seconds"),
         # Honest reason a derivative is absent (e.g. video transcode timed out).
         "storage_note": rec.get("storage_note"),
+        # When the recording was last re-analyzed (POST …/reanalyze). None for a
+        # recording that has only ever had its original analysis.
+        "reanalyzed_at": rec.get("reanalyzed_at"),
         "turns": rec.get("turns", []),
         "analysis": analysis,
         "episodes": stored_episodes,
+        "word_metrics": stored_word_metrics,
         # Provenance verbatim (type/url/original_filename) so a future replay
         # feature can stream the user's own hosted copy. Metadata only.
         "source": rec.get("source"),
@@ -3314,16 +3344,23 @@ async def _run_analysis_job(
     store: bool,
     title: str | None = None,
     cleanup: "Callable[[], Awaitable[None]] | None" = None,
+    on_success: "Callable[[AnalyzeUploadResponse, JobProgressFn], Awaitable[None]] | None" = None,
 ) -> None:
     """Run one analysis job to a terminal state, writing staged progress.
 
     ``prepare`` produces ``(data, filename, content_type, source)`` — the link
-    download or the upload reassembly — reporting its own "downloading" stage via
-    the passed hook. The shared :func:`_analyze_recording_bytes` then runs with
-    that same hook (transcribing → analyzing → storing). On success the full
-    response is written under ``result`` with status "done"; on any failure the
-    state is written with status "failed" and the SAME honest detail the
-    synchronous path would 4xx/5xx with. ``cleanup`` (upload parts) always runs.
+    download, the upload reassembly, or (re-analysis) the stored audio bytes —
+    reporting its own "downloading" stage via the passed hook. The shared
+    :func:`_analyze_recording_bytes` then runs with that same hook (transcribing →
+    analyzing → storing). ``on_success`` is an optional hook run with the finished
+    response + the stage hook BEFORE the done-state is written — re-analysis uses
+    it to overwrite the existing recording in place (the pipeline itself runs with
+    ``store=False``, so nothing new is persisted); it may raise an HTTPException to
+    fail the job honestly, and any mutation it makes to the response is reflected in
+    the stored ``result``. On success the full response is written under ``result``
+    with status "done"; on any failure the state is written with status "failed"
+    and the SAME honest detail the synchronous path would 4xx/5xx with. ``cleanup``
+    (upload parts) always runs.
     """
     async def set_stage(
         status: str,
@@ -3360,6 +3397,8 @@ async def _run_analysis_job(
                     title=title,
                     progress=set_stage,
                 )
+                if on_success is not None:
+                    await on_success(response, set_stage)
         except HTTPException as exc:
             await _write_job_failed(store_backend, uid, job_id, state, str(exc.detail))
             return
@@ -3524,6 +3563,95 @@ async def complete_upload_job(
         store=bool(manifest.get("store", True)),
         title=manifest.get("title"),
         cleanup=_cleanup,
+    ))
+    return JobCreatedResponse(job_id=job_id)
+
+
+@app.post(
+    "/recordings/{recording_id}/reanalyze",
+    response_model=JobCreatedResponse,
+    status_code=202,
+)
+async def reanalyze_recording(
+    recording_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    """Re-run the CURRENT full analysis pipeline over a stored recording, as a
+    submit-and-poll background job → 202 {job_id}. Poll GET /analyze/jobs/{job_id}
+    for staged progress and the final result.
+
+    "Re-analyze" means re-running from the stored AUDIO derivative (audio.m4a),
+    NOT merely re-scoring the old transcript: transcription + diarization +
+    prosody + voice-enrollment matching + episodes + word metrics ALL re-run, so a
+    recording benefits from every pipeline improvement made since it was first
+    analyzed. The result OVERWRITES analysis.json + turns.json in place and stamps
+    meta.reanalyzed_at; the recording's id, title, source, and stored derivatives
+    are preserved (recordings_store.overwrite_analysis).
+
+    503 when storage is disabled (a job has nowhere to live); uid-scoped 404 for
+    an unknown/foreign recording (never confirming another user's); 422 when the
+    recording has no stored audio to re-analyze."""
+    store_backend = get_recordings_store()
+    if store_backend is None:
+        raise HTTPException(status_code=503, detail=_JOBS_DISABLED_DETAIL)
+
+    # Existence (404) and stored-audio (422) are decided synchronously — a job is
+    # spawned only for a recording we can actually re-analyze. The audio is read
+    # here (to make the 422 honest) and handed straight to the job.
+    rec = await store_backend.get_recording(uid, recording_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="Recording not found")
+    audio_bytes = await store_backend.get_audio_bytes(uid, recording_id)
+    if not audio_bytes:
+        raise HTTPException(
+            status_code=422,
+            detail="recording has no stored audio to re-analyze",
+        )
+
+    # Preserve the recording's own metadata across the re-run (title is passed to
+    # the pipeline so no NEW title is requested; source is stamped back verbatim).
+    preserved_title = rec.get("title")
+    preserved_source = rec.get("source")
+
+    job_id = str(uuid.uuid4())
+    state = _new_job_state()
+    await store_backend.write_job_state(uid, job_id, state)
+
+    async def _prepare(set_stage: "JobProgressFn") -> tuple:
+        # Audio already in hand — hand it straight to the shared pipeline. The
+        # filename/content-type describe the stored AAC derivative so decode +
+        # transcription treat it correctly.
+        await set_stage("transcribing", "re-analyzing recording", None)
+        return audio_bytes, "audio.m4a", "audio/mp4", preserved_source
+
+    async def _persist(
+        response: AnalyzeUploadResponse, set_stage: "JobProgressFn",
+    ) -> None:
+        # The pipeline ran with store=False (no NEW recording was created); persist
+        # the fresh analysis over the EXISTING one, preserving everything else.
+        await set_stage("storing", "saving re-analysis", None)
+        response.stored = True
+        response.recording_id = recording_id
+        response.storage_note = None
+        updated = await store_backend.overwrite_analysis(
+            uid, recording_id,
+            turns=[t.model_dump() for t in response.turns],
+            analysis=response.model_dump(),
+            reanalyzed_at=datetime.now(timezone.utc).isoformat(),
+        )
+        if updated is None:
+            # Deleted between our existence check and this write — fail honestly.
+            raise HTTPException(status_code=404, detail="Recording not found")
+
+    _spawn_job(_run_analysis_job(
+        uid, job_id, store_backend, state,
+        prepare=_prepare,
+        context="",
+        consent=True,
+        store=False,
+        title=preserved_title,
+        on_success=_persist,
     ))
     return JobCreatedResponse(job_id=job_id)
 
