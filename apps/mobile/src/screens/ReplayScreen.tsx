@@ -19,12 +19,15 @@ import {
 } from "../api/client";
 import type {
   RecordingDetail,
+  AnalyzeResult,
   AnalyzeJobState,
   JobStatus,
 } from "../api/client";
 import HeatChart from "../components/HeatChart";
 import MediaPlayer, { MediaPlayerHandle } from "../components/MediaPlayer";
 import SpeakerEnrollment from "../components/SpeakerEnrollment";
+import PulseDot from "../components/PulseDot";
+import { summarizeReanalyze, type ReanalyzeSummary } from "./reanalyzeDelta";
 import { setPlaybackMode } from "../utils/audioMode";
 
 /** How long we give a source to report a real duration (moov parsed /
@@ -65,6 +68,8 @@ function reanalyzeStageLabel(status: JobStatus | undefined): string {
 const PRIMARY = "#4A90D9";
 const INK = "#1F2937";
 const MUTED = "#6B7280";
+const GOOD = "#1B7A4B"; // improved conduct score (house green)
+const DANGER = "#DC2626"; // dropped conduct score
 
 interface ReplayScreenProps {
   recordingId: string;
@@ -180,7 +185,15 @@ export default function ReplayScreen({
   const [reanalyzing, setReanalyzing] = useState(false);
   const [reanalyzeJob, setReanalyzeJob] = useState<AnalyzeJobState | null>(null);
   const [reanalyzeError, setReanalyzeError] = useState<string | null>(null);
+  // The honest before/after read shown once a re-analysis completes (what the
+  // latest engine actually changed). Null until then; cleared when a new re-run
+  // starts.
+  const [reanalyzeSummary, setReanalyzeSummary] =
+    useState<ReanalyzeSummary | null>(null);
   const reanalyzeInFlightRef = useRef(false);
+  // The analysis on screen when re-analyze was tapped, kept to diff against the
+  // fresh one for the "what changed" summary.
+  const preReanalyzeRef = useRef<AnalyzeResult | null>(null);
 
   const playerRef = useRef<MediaPlayerHandle>(null);
 
@@ -219,17 +232,19 @@ export default function ReplayScreen({
     }
   }, [recordingId, setHd]);
 
-  const load = useCallback(async () => {
-    if (inFlightRef.current) return;
+  const load = useCallback(async (): Promise<RecordingDetail | null> => {
+    if (inFlightRef.current) return null;
     inFlightRef.current = true;
     setLoading(true);
     setError(null);
     setFellBack(false);
     setMediaStuck(false);
     setHd(false);
+    let fetched: RecordingDetail | null = null;
     try {
       // Detail first — its `source` decides whether a "Try HD" opt-in is offered.
       const rec = await getRecording(recordingId);
+      fetched = rec;
       if (mountedRef.current) setDetail(rec);
 
       // Derivative-FIRST for every source. The stored copy streams from our
@@ -247,6 +262,7 @@ export default function ReplayScreen({
       inFlightRef.current = false;
       if (mountedRef.current) setLoading(false);
     }
+    return fetched;
   }, [recordingId, loadDerivative, setHd]);
 
   useEffect(() => {
@@ -414,6 +430,9 @@ export default function ReplayScreen({
     setReanalyzing(true);
     setReanalyzeError(null);
     setReanalyzeJob(null);
+    setReanalyzeSummary(null);
+    // Snapshot the analysis on screen now, to diff against the fresh one.
+    preReanalyzeRef.current = detail?.analysis ?? null;
     try {
       const { job_id } = await postReanalyze(recordingId);
       let transientErrors = 0;
@@ -449,8 +468,18 @@ export default function ReplayScreen({
         }
         await sleep(REANALYZE_POLL_MS);
       }
-      // Fresh analysis is stored server-side — refetch so it renders.
-      await load();
+      // Fresh analysis is stored server-side — refetch so it renders, then diff
+      // it against what was on screen so we can honestly say what changed.
+      const fresh = await load();
+      if (fresh && mountedRef.current) {
+        setReanalyzeSummary(
+          summarizeReanalyze(
+            preReanalyzeRef.current,
+            fresh.analysis,
+            fresh.analysis?.speaker_labels,
+          ),
+        );
+      }
     } catch (e) {
       if (mountedRef.current) {
         const status = statusOf(e);
@@ -479,7 +508,7 @@ export default function ReplayScreen({
         setReanalyzeJob(null);
       }
     }
-  }, [recordingId, load]);
+  }, [recordingId, load, detail]);
 
   const perTurn = detail?.analysis?.per_turn ?? [];
   const turns = detail?.turns ?? [];
@@ -506,7 +535,11 @@ export default function ReplayScreen({
   return (
     <View style={styles.flex}>
       <View style={styles.header}>
-        <TouchableOpacity testID="replay-back" onPress={onBack}>
+        <TouchableOpacity
+          testID="replay-back"
+          onPress={onBack}
+          hitSlop={{ top: 10, bottom: 10, left: 8, right: 16 }}
+        >
           <Text style={styles.backText}>‹ Back</Text>
         </TouchableOpacity>
         {editingTitle ? (
@@ -852,13 +885,83 @@ export default function ReplayScreen({
                 {reanalyzeError}
               </Text>
             )}
+
+            {/* Honest "what changed" read after a completed re-analysis. The
+                pulse marker only appears when a comparable number actually
+                moved — it points at real signal, never decorates a no-op. */}
+            {reanalyzeSummary && (
+              <View style={styles.reanalyzeSummary} testID="reanalyze-summary">
+                <View style={styles.reanalyzeSummaryHead}>
+                  {reanalyzeSummary.changed && (
+                    <PulseDot color={PRIMARY} size={9} testID="reanalyze-pulse" />
+                  )}
+                  <Text style={styles.reanalyzeSummaryTitle}>
+                    {reanalyzeSummary.changed
+                      ? "Updated — here’s what changed"
+                      : "No change — the latest engine read this the same"}
+                  </Text>
+                </View>
+
+                {reanalyzeSummary.scoreDeltas.some((d) => d.delta !== 0) && (
+                  <Text style={styles.deltaCaption}>Conduct score</Text>
+                )}
+                {reanalyzeSummary.scoreDeltas
+                  .filter((d) => d.delta !== 0)
+                  .map((d) => (
+                    <View
+                      key={d.id}
+                      style={styles.deltaRow}
+                      testID={`reanalyze-delta-${d.id}`}
+                    >
+                      <Text style={styles.deltaLabel} numberOfLines={1}>
+                        {d.label}
+                      </Text>
+                      <View style={styles.deltaValues}>
+                        <Text style={styles.deltaOld}>{d.before}</Text>
+                        <Text style={styles.deltaArrow}>→</Text>
+                        <Text
+                          style={[
+                            styles.deltaNew,
+                            { color: d.delta > 0 ? GOOD : DANGER },
+                          ]}
+                        >
+                          {d.after}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.deltaBadge,
+                            d.delta > 0
+                              ? styles.deltaBadgeUp
+                              : styles.deltaBadgeDown,
+                          ]}
+                        >
+                          {d.delta > 0 ? `+${d.delta}` : `${d.delta}`}
+                        </Text>
+                      </View>
+                    </View>
+                  ))}
+
+                {reanalyzeSummary.changed &&
+                  reanalyzeSummary.peakDelta != null &&
+                  reanalyzeSummary.peakDelta !== 0 && (
+                    <Text style={styles.deltaPeak} testID="reanalyze-peak-delta">
+                      Peak heat {reanalyzeSummary.peakBefore} →{" "}
+                      {reanalyzeSummary.peakAfter}
+                    </Text>
+                  )}
+              </View>
+            )}
           </View>
 
           {/* "This is me" — enroll a speaker's voice so they're labeled "You"
               in future recordings. Self-hides when the server can't do voice ID
               or there are no diarized turns to choose from. */}
           {turns.length > 0 ? (
-            <SpeakerEnrollment recordingId={recordingId} turns={turns} />
+            <SpeakerEnrollment
+              recordingId={recordingId}
+              turns={turns}
+              speakerLabels={detail?.analysis?.speaker_labels}
+            />
           ) : null}
         </ScrollView>
       )}
@@ -1129,5 +1232,62 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     color: "#DC2626",
+  },
+  reanalyzeSummary: {
+    marginTop: 12,
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  reanalyzeSummaryHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  reanalyzeSummaryTitle: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "700",
+    color: INK,
+  },
+  deltaCaption: {
+    marginTop: 10,
+    fontSize: 11,
+    fontWeight: "700",
+    color: MUTED,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  deltaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 6,
+  },
+  deltaLabel: { flex: 1, fontSize: 14, fontWeight: "600", color: INK },
+  deltaValues: { flexDirection: "row", alignItems: "center", gap: 6 },
+  deltaOld: {
+    fontSize: 14,
+    color: MUTED,
+    textDecorationLine: "line-through",
+  },
+  deltaArrow: { fontSize: 13, color: MUTED },
+  deltaNew: { fontSize: 15, fontWeight: "800" },
+  deltaBadge: {
+    fontSize: 12,
+    fontWeight: "800",
+    overflow: "hidden",
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  deltaBadgeUp: { color: GOOD, backgroundColor: "#E7F6EE" },
+  deltaBadgeDown: { color: DANGER, backgroundColor: "#FEECEC" },
+  deltaPeak: {
+    marginTop: 10,
+    fontSize: 13,
+    color: MUTED,
   },
 });

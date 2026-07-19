@@ -14,6 +14,7 @@ import {
   type VoiceProfile,
 } from "../api/client";
 import { getSpeakerColor } from "../utils/speakerColors";
+import { speakerLabel, type SpeakerLabels } from "../utils/speakerLabels";
 
 const PRIMARY = "#4A90D9";
 const INK = "#1F2937";
@@ -23,6 +24,9 @@ const GOOD = "#0F9D58";
 interface SpeakerEnrollmentProps {
   recordingId: string;
   turns: RecordingTurn[];
+  /** Per-speaker display labels from the analysis (name → deeper/higher
+   *  voice → raw id). Absent → the raw diarization id is shown, as before. */
+  speakerLabels?: SpeakerLabels;
 }
 
 /**
@@ -40,6 +44,7 @@ interface SpeakerEnrollmentProps {
 export default function SpeakerEnrollment({
   recordingId,
   turns,
+  speakerLabels,
 }: SpeakerEnrollmentProps) {
   const [profile, setProfile] = useState<VoiceProfile | null>(null);
   const [enrollingSpeaker, setEnrollingSpeaker] = useState<string | null>(null);
@@ -85,14 +90,14 @@ export default function SpeakerEnrollment({
       } catch (e) {
         const err = e as Error & { status?: number };
         if (err.status === 503) {
-          setError("Voice enrollment isn't available on this server yet.");
+          setError("Voice enrollment isn’t available on this server yet.");
         } else if (err.status === 422) {
           setError(
             err.message ||
-              "There isn't enough of that speaker's voice in this recording to enroll.",
+              "There isn’t enough of that speaker’s voice in this recording to enroll.",
           );
         } else {
-          setError("Couldn't save your voice. Please try again.");
+          setError("Couldn’t save your voice. Please try again.");
         }
       } finally {
         setEnrollingSpeaker(null);
@@ -111,11 +116,11 @@ export default function SpeakerEnrollment({
       <View style={styles.card} testID="speaker-enrollment">
         <Text style={styles.confirmTitle}>Voice saved</Text>
         <Text style={styles.confirmBody}>
-          You'll be labeled "You" in your recordings from now on. We stored a
+          You’ll be labeled “You” in your recordings from now on. We stored a
           numeric voice signature — not your audio.
         </Text>
         <Text style={styles.manageHint}>
-          You can remove it anytime under Advanced → "Forget my voice".
+          You can remove it anytime under Advanced → “Forget my voice”.
         </Text>
       </View>
     );
@@ -125,12 +130,12 @@ export default function SpeakerEnrollment({
     <View style={styles.card} testID="speaker-enrollment">
       <Text style={styles.sectionTitle}>Which voice is you?</Text>
       <Text style={styles.subtitle}>
-        Tap yourself once and MindShift will label you "You" in every recording
+        Tap yourself once and MindShift will label you “You” in every recording
         from now on. It stores a numeric voice signature, not your audio.
       </Text>
       {profile.enrolled ? (
         <Text style={styles.alreadyNote}>
-          You're already enrolled ({profile.enroll_count}{" "}
+          You’re already enrolled ({profile.enroll_count}{" "}
           {profile.enroll_count === 1 ? "sample" : "samples"}). Tapping again
           refines your voiceprint.
         </Text>
@@ -142,12 +147,14 @@ export default function SpeakerEnrollment({
             <View
               style={[styles.dot, { backgroundColor: getSpeakerColor(speaker) }]}
             />
-            <Text style={styles.speakerLabel}>{speaker}</Text>
+            <Text style={styles.speakerLabel}>
+              {speakerLabel(speaker, speakerLabels)}
+            </Text>
           </View>
           <TouchableOpacity
             testID={`enroll-${speaker}`}
             accessibilityRole="button"
-            accessibilityLabel={`Enroll ${speaker} as me`}
+            accessibilityLabel={`Enroll ${speakerLabel(speaker, speakerLabels)} as me`}
             style={styles.enrollButton}
             disabled={enrollingSpeaker !== null}
             onPress={() => void handleEnroll(speaker)}

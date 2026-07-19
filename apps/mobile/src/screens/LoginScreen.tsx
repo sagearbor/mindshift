@@ -138,7 +138,7 @@ export default function LoginScreen() {
         >
           <Text style={styles.toggleText}>
             {mode === "signIn"
-              ? "Don't have an account? Sign up"
+              ? "Don’t have an account? Sign up"
               : "Already have an account? Sign in"}
           </Text>
         </TouchableOpacity>
@@ -153,7 +153,7 @@ export default function LoginScreen() {
           <GoogleSignInButton />
         ) : (
           <Text testID="google-unconfigured" style={styles.googleUnconfigured}>
-            Google sign-in isn't configured yet.
+            Google sign-in isn’t configured yet.
           </Text>
         )}
       </View>
