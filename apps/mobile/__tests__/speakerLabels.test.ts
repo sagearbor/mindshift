@@ -1,4 +1,4 @@
-import { speakerLabel } from "../src/utils/speakerLabels";
+import { speakerLabel, labelProvenanceNote } from "../src/utils/speakerLabels";
 import type { SpeakerLabel } from "../src/api/client";
 
 const labels: Record<string, SpeakerLabel> = {
@@ -43,5 +43,24 @@ describe("speakerLabel", () => {
   it("never returns an empty string", () => {
     expect(speakerLabel("", labels)).toBe("");
     expect(speakerLabel("Bob", {})).toBe("Bob");
+  });
+});
+
+describe("labelProvenanceNote", () => {
+  it('names a manual override "named by you" (top rung)', () => {
+    expect(labelProvenanceNote("manual")).toBe("named by you");
+  });
+
+  it("describes the inferred rungs plainly", () => {
+    expect(labelProvenanceNote("enrolled")).toBe("your enrolled voice");
+    expect(labelProvenanceNote("name")).toBe("detected from the words");
+    expect(labelProvenanceNote("voice")).toBe("detected voice");
+  });
+
+  it("returns null for the raw-id rung and unknown/absent sources", () => {
+    expect(labelProvenanceNote("generic")).toBeNull();
+    expect(labelProvenanceNote("something-new")).toBeNull();
+    expect(labelProvenanceNote(undefined)).toBeNull();
+    expect(labelProvenanceNote(null)).toBeNull();
   });
 });

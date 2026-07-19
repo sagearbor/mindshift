@@ -29,3 +29,27 @@ export function speakerLabel(speaker: string, labels?: SpeakerLabels): string {
   }
   return speaker;
 }
+
+/**
+ * A short, plain-language note for HOW a speaker's current label was decided,
+ * from its `label_source` rung — so the label editor can show provenance subtly
+ * ("named by you" vs "detected voice"). Returns null for the raw-id ("generic")
+ * rung and any unknown/absent source, so nothing misleading is shown when there
+ * is no real provenance to report.
+ */
+export function labelProvenanceNote(
+  source: string | null | undefined,
+): string | null {
+  switch (source) {
+    case "manual":
+      return "named by you";
+    case "enrolled":
+      return "your enrolled voice";
+    case "name":
+      return "detected from the words";
+    case "voice":
+      return "detected voice";
+    default:
+      return null;
+  }
+}

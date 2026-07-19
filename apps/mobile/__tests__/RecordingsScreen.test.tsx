@@ -1,6 +1,8 @@
 import React from "react";
 import renderer, { act, ReactTestInstance } from "react-test-renderer";
-import RecordingsScreen from "../src/screens/RecordingsScreen";
+import RecordingsScreen, {
+  formatParticipants,
+} from "../src/screens/RecordingsScreen";
 import { listRecordings, deleteRecording } from "../src/api/client";
 import type { RecordingSummary } from "../src/api/client";
 
@@ -138,5 +140,49 @@ describe("RecordingsScreen", () => {
     expect(mockDelete).not.toHaveBeenCalled();
     expect(queryId(comp, "recording-r1")).toBeTruthy();
     act(() => comp.unmount());
+  });
+
+  it("shows named participants from the list's manual_speaker_labels, and nothing when none", async () => {
+    mockList.mockResolvedValueOnce([
+      {
+        ...recordings[0],
+        manual_speaker_labels: { "Speaker A": "Linda", "Speaker B": "Sage" },
+      },
+      // r2 has an empty manual map → no participant line (never fabricated).
+      { ...recordings[1], manual_speaker_labels: {} },
+    ]);
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(
+        <RecordingsScreen onSelectRecording={() => {}} onBack={() => {}} />,
+      );
+    });
+    await act(async () => {});
+
+    const parts = queryId(comp, "recording-participants-r1");
+    expect(parts).toBeTruthy();
+    expect(JSON.stringify(parts!.props.children)).toContain("Linda & Sage");
+    // The unnamed recording shows no participant line.
+    expect(queryId(comp, "recording-participants-r2")).toBeNull();
+    act(() => comp.unmount());
+  });
+});
+
+describe("formatParticipants", () => {
+  it("returns null when there are no names (absent, empty, or blank)", () => {
+    expect(formatParticipants(undefined)).toBeNull();
+    expect(formatParticipants({})).toBeNull();
+    expect(formatParticipants({ "Speaker A": "  " })).toBeNull();
+  });
+
+  it("joins names honestly by count", () => {
+    expect(formatParticipants({ a: "Linda" })).toBe("Linda");
+    expect(formatParticipants({ a: "Linda", b: "Sage" })).toBe("Linda & Sage");
+    expect(formatParticipants({ a: "Linda", b: "Sage", c: "Ari" })).toBe(
+      "Linda, Sage & Ari",
+    );
+    expect(
+      formatParticipants({ a: "Linda", b: "Sage", c: "Ari", d: "Bo" }),
+    ).toBe("Linda, Sage & 2 more");
   });
 });
