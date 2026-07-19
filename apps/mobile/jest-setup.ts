@@ -288,13 +288,51 @@ jest.mock("firebase/auth", () => {
     signInWithEmailAndPassword: jest.fn().mockResolvedValue(undefined),
     createUserWithEmailAndPassword: jest.fn().mockResolvedValue(undefined),
     signInWithCredential: jest.fn().mockResolvedValue(undefined),
+    signInWithPopup: jest.fn().mockResolvedValue(undefined),
+    linkWithCredential: jest.fn().mockResolvedValue(undefined),
+    sendPasswordResetEmail: jest.fn().mockResolvedValue(undefined),
     signOut: jest.fn().mockResolvedValue(undefined),
-    GoogleAuthProvider: {
-      credential: jest.fn((idToken) => ({
-        providerId: "google.com",
-        idToken,
-      })),
-    },
+    // Constructable provider with static helpers, matching firebase/auth's API.
+    GoogleAuthProvider: Object.assign(
+      jest.fn(() => ({ providerId: "google.com" })),
+      {
+        credential: jest.fn((idToken: string) => ({
+          providerId: "google.com",
+          idToken,
+        })),
+        // Tests stash the pending credential on the error as `__pendingCred`.
+        credentialFromError: jest.fn(
+          (err: { __pendingCred?: unknown }) => err?.__pendingCred ?? null,
+        ),
+      },
+    ),
+  };
+});
+
+// Mock @react-native-google-signin/google-signin (native Google button). Tests
+// drive the sign-in outcome via `globalThis.__googleSigninMock`.
+jest.mock("@react-native-google-signin/google-signin", () => {
+  const mock = {
+    configure: jest.fn(),
+    hasPlayServices: jest.fn().mockResolvedValue(true),
+    signIn: jest
+      .fn()
+      .mockResolvedValue({ type: "success", data: { idToken: "g-id-token" } }),
+  };
+  (globalThis as Record<string, unknown>).__googleSigninMock = mock;
+  const statusCodes = {
+    SIGN_IN_CANCELLED: "SIGN_IN_CANCELLED",
+    IN_PROGRESS: "IN_PROGRESS",
+    PLAY_SERVICES_NOT_AVAILABLE: "PLAY_SERVICES_NOT_AVAILABLE",
+    SIGN_IN_REQUIRED: "SIGN_IN_REQUIRED",
+  };
+  return {
+    __esModule: true,
+    GoogleSignin: mock,
+    statusCodes,
+    isSuccessResponse: (r: { type?: string } | null) => r?.type === "success",
+    isErrorWithCode: (e: { code?: unknown } | null) =>
+      Boolean(e && typeof e === "object" && "code" in e),
   };
 });
 
@@ -304,20 +342,6 @@ jest.mock("expo-secure-store", () => ({
   getItemAsync: jest.fn().mockResolvedValue(null),
   setItemAsync: jest.fn().mockResolvedValue(undefined),
   deleteItemAsync: jest.fn().mockResolvedValue(undefined),
-}));
-
-// Mock expo-web-browser + the Google auth-session provider so no OAuth
-// browser session is opened during tests.
-jest.mock("expo-web-browser", () => ({
-  __esModule: true,
-  maybeCompleteAuthSession: jest.fn(),
-  warmUpAsync: jest.fn(),
-  coolDownAsync: jest.fn(),
-}));
-
-jest.mock("expo-auth-session/providers/google", () => ({
-  __esModule: true,
-  useAuthRequest: jest.fn(() => [null, null, jest.fn()]),
 }));
 
 // Mock fetch globally

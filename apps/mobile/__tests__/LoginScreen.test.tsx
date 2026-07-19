@@ -2,9 +2,13 @@ import React from "react";
 import renderer, { act, ReactTestInstance } from "react-test-renderer";
 import LoginScreen from "../src/screens/LoginScreen";
 import { useAuthStore } from "../src/store/authStore";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import {
+  signInWithEmailAndPassword,
+  sendPasswordResetEmail,
+} from "firebase/auth";
 
 const signInMock = signInWithEmailAndPassword as jest.Mock;
+const resetMock = sendPasswordResetEmail as jest.Mock;
 
 function queryId(
   comp: renderer.ReactTestRenderer,
@@ -16,11 +20,15 @@ function queryId(
 
 beforeEach(() => {
   signInMock.mockReset().mockResolvedValue(undefined);
+  resetMock.mockReset().mockResolvedValue(undefined);
   useAuthStore.setState({
     user: null,
     initializing: false,
     error: null,
+    notice: null,
     busy: false,
+    pendingGoogleCredential: null,
+    pendingGoogleEmail: null,
   });
 });
 
@@ -59,6 +67,43 @@ describe("LoginScreen", () => {
       comp = renderer.create(<LoginScreen />);
     });
     expect(queryId(comp, "auth-error")!.props.children).toMatch(/incorrect/i);
+    act(() => comp.unmount());
+  });
+
+  it("sends a password reset for the entered email and shows the confirmation", async () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<LoginScreen />);
+    });
+    act(() => {
+      queryId(comp, "email-input")!.props.onChangeText("linda@example.com");
+    });
+
+    await act(async () => {
+      queryId(comp, "forgot-password")!.props.onPress();
+    });
+
+    expect(resetMock).toHaveBeenCalledWith(expect.anything(), "linda@example.com");
+    expect(queryId(comp, "auth-notice")!.props.children).toMatch(
+      /reset email sent to linda@example\.com/i,
+    );
+    act(() => comp.unmount());
+  });
+
+  it("asks for an email first when Forgot password is tapped with none entered", async () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<LoginScreen />);
+    });
+
+    await act(async () => {
+      queryId(comp, "forgot-password")!.props.onPress();
+    });
+
+    expect(resetMock).not.toHaveBeenCalled();
+    expect(queryId(comp, "auth-error")!.props.children).toMatch(
+      /enter your email first/i,
+    );
     act(() => comp.unmount());
   });
 
