@@ -364,6 +364,41 @@ class RecordingsStore:
         )
         return meta
 
+    # -- update manual speaker labels -------------------------------------
+    async def update_manual_speaker_labels(
+        self, uid: str, recording_id: str, labels: dict,
+    ) -> dict | None:
+        """Persist the recording's MANUAL speaker labels, returning the updated
+        meta, or ``None`` when it does not exist for this uid (→ 404).
+
+        Read-modify-write of meta.json ONLY — turns/analysis/derivatives are
+        untouched. Storing manual labels in meta (not analysis.json) is the whole
+        point: a re-analyze overwrites analysis.json but preserves meta, so a
+        human's correction survives every re-run. An empty ``labels`` map removes
+        the key entirely (a fully-cleared recording carries no manual-labels
+        field). The caller has already validated/cleaned the map."""
+        return await asyncio.to_thread(
+            self._update_manual_speaker_labels_sync, uid, recording_id, labels,
+        )
+
+    def _update_manual_speaker_labels_sync(
+        self, uid, recording_id, labels,
+    ) -> dict | None:
+        blob = self._bucket.blob(
+            self._prefix(uid, recording_id) + "meta.json"
+        )
+        if not blob.exists():
+            return None
+        meta = json.loads(blob.download_as_bytes())
+        if labels:
+            meta["manual_speaker_labels"] = labels
+        else:
+            meta.pop("manual_speaker_labels", None)
+        blob.upload_from_string(
+            json.dumps(meta), content_type="application/json",
+        )
+        return meta
+
     # -- delete ------------------------------------------------------------
     async def delete_recording(self, uid: str, recording_id: str) -> bool:
         """Delete every object for a recording. ``False`` when none existed
