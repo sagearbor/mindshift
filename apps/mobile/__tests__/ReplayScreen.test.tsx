@@ -7,6 +7,7 @@ import {
   getRecordingSourceUrl,
   patchRecordingSource,
   patchRecordingTitle,
+  patchSpeakerLabels,
   postReanalyze,
   getAnalyzeJob,
 } from "../src/api/client";
@@ -20,6 +21,7 @@ jest.mock("../src/api/client", () => ({
   getRecordingSourceUrl: jest.fn(),
   patchRecordingSource: jest.fn(),
   patchRecordingTitle: jest.fn(),
+  patchSpeakerLabels: jest.fn(),
   postReanalyze: jest.fn(),
   getAnalyzeJob: jest.fn(),
   // SpeakerEnrollment (rendered inside ReplayScreen) checks voice-ID
@@ -40,6 +42,7 @@ const mockGetMediaUrl = getRecordingMediaUrl as jest.Mock;
 const mockGetSourceUrl = getRecordingSourceUrl as jest.Mock;
 const mockPatchSource = patchRecordingSource as jest.Mock;
 const mockPatchTitle = patchRecordingTitle as jest.Mock;
+const mockPatchLabels = patchSpeakerLabels as jest.Mock;
 const mockReanalyze = postReanalyze as jest.Mock;
 const mockGetJob = getAnalyzeJob as jest.Mock;
 
@@ -120,6 +123,7 @@ beforeEach(() => {
   mockGetSourceUrl.mockReset();
   mockPatchSource.mockReset();
   mockPatchTitle.mockReset();
+  mockPatchLabels.mockReset();
   mockSeek.mockReset();
   mockSetPlaybackMode.mockClear();
   mockReanalyze.mockReset();
@@ -839,6 +843,172 @@ describe("ReplayScreen re-analyze", () => {
     await act(async () => {});
 
     expect(JSON.stringify(comp.toJSON())).toContain("The engine hit a snag.");
+    act(() => comp.unmount());
+  });
+});
+
+describe("ReplayScreen manual speaker naming", () => {
+  // A detail on a manual-labels-capable server: carries the raw manual map (empty
+  // here) and resolved speaker_labels. Speakers start on the generic (raw-id) rung.
+  const namingDetail: RecordingDetail = {
+    ...detail,
+    manual_speaker_labels: {},
+    analysis: {
+      ...detail.analysis!,
+      speaker_labels: {
+        Alice: { display_label: "Alice", label_source: "generic" },
+        Bob: { display_label: "Bob", label_source: "generic" },
+      },
+    },
+  };
+
+  async function mountWith(rec: RecordingDetail): Promise<renderer.ReactTestRenderer> {
+    mockGetRecording.mockResolvedValueOnce(rec);
+    mockGetMediaUrl.mockResolvedValueOnce({ url: "https://signed/x", expires_in: 600 });
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(<ReplayScreen recordingId="r1" onBack={() => {}} />);
+    });
+    await act(async () => {});
+    return comp;
+  }
+
+  it("hides the naming affordance on an older server (no manual_speaker_labels field)", async () => {
+    // `detail` has no manual_speaker_labels field → capability absent.
+    const comp = await mountWith(detail);
+    expect(queryId(comp, "speaker-naming")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("offers a per-speaker name affordance when the server supports manual labels", async () => {
+    const comp = await mountWith(namingDetail);
+    expect(queryId(comp, "speaker-naming")).toBeTruthy();
+    expect(queryId(comp, "name-edit-Alice")).toBeTruthy();
+    expect(queryId(comp, "name-edit-Bob")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("names a speaker and updates every label surface from the response", async () => {
+    const comp = await mountWith(namingDetail);
+
+    // Open Alice's editor, type a name.
+    act(() => queryId(comp, "name-edit-Alice")!.props.onPress());
+    expect(queryId(comp, "name-input-Alice")).toBeTruthy();
+    act(() => queryId(comp, "name-input-Alice")!.props.onChangeText("Mom"));
+
+    // Server merges + resolves: Alice becomes a manual "Mom", Bob unchanged.
+    mockPatchLabels.mockResolvedValueOnce({
+      id: "r1",
+      manual_speaker_labels: { Alice: "Mom" },
+      speaker_labels: {
+        Alice: { display_label: "Mom", label_source: "manual" },
+        Bob: { display_label: "Bob", label_source: "generic" },
+      },
+    });
+
+    await act(async () => {
+      queryId(comp, "name-save-Alice")!.props.onPress();
+    });
+    await act(async () => {});
+
+    // Append-only: only Alice was sent.
+    expect(mockPatchLabels).toHaveBeenCalledWith("r1", { Alice: "Mom" });
+
+    // Naming row shows the new name + "named by you" provenance.
+    const json = JSON.stringify(comp.toJSON());
+    expect(json).toContain("Mom");
+    const prov = queryId(comp, "name-provenance-Alice");
+    expect(prov).toBeTruthy();
+    expect(JSON.stringify(prov!.props.children)).toContain("named by you");
+
+    // "Mom" now appears on more than one surface — the naming row AND the chart
+    // legend — proving the shared effective-labels state re-labeled everywhere.
+    const occurrences = json.split("Mom").length - 1;
+    expect(occurrences).toBeGreaterThanOrEqual(2);
+    act(() => comp.unmount());
+  });
+
+  it("clears a manual label to empty and restores the inferred one", async () => {
+    // Start already-named: Alice manual "Mom".
+    const named: RecordingDetail = {
+      ...namingDetail,
+      manual_speaker_labels: { Alice: "Mom" },
+      analysis: {
+        ...namingDetail.analysis!,
+        speaker_labels: {
+          Alice: { display_label: "Mom", label_source: "manual" },
+          Bob: { display_label: "Bob", label_source: "generic" },
+        },
+      },
+    };
+    const comp = await mountWith(named);
+
+    // Editor prefills with the raw manual name, then the user clears it.
+    act(() => queryId(comp, "name-edit-Alice")!.props.onPress());
+    expect(queryId(comp, "name-input-Alice")!.props.value).toBe("Mom");
+    act(() => queryId(comp, "name-input-Alice")!.props.onChangeText(""));
+
+    // Server clears Alice's manual label; the inferred (generic) label returns.
+    mockPatchLabels.mockResolvedValueOnce({
+      id: "r1",
+      manual_speaker_labels: {},
+      speaker_labels: {
+        Alice: { display_label: "Alice", label_source: "generic" },
+        Bob: { display_label: "Bob", label_source: "generic" },
+      },
+    });
+
+    await act(async () => {
+      queryId(comp, "name-save-Alice")!.props.onPress();
+    });
+    await act(async () => {});
+
+    // Empty string was sent (the clear signal).
+    expect(mockPatchLabels).toHaveBeenCalledWith("r1", { Alice: "" });
+    // Row is back to the inferred label with no "named by you" note.
+    expect(queryId(comp, "name-provenance-Alice")).toBeNull();
+    const json = JSON.stringify(comp.toJSON());
+    expect(json).not.toContain("named by you");
+    act(() => comp.unmount());
+  });
+
+  it("hides the affordance gracefully when a save 404s (older server, no route)", async () => {
+    const comp = await mountWith(namingDetail);
+
+    act(() => queryId(comp, "name-edit-Bob")!.props.onPress());
+    act(() => queryId(comp, "name-input-Bob")!.props.onChangeText("Dad"));
+
+    mockPatchLabels.mockRejectedValueOnce(
+      Object.assign(new Error("API error: 404"), { status: 404 }),
+    );
+    await act(async () => {
+      queryId(comp, "name-save-Bob")!.props.onPress();
+    });
+    await act(async () => {});
+
+    // The whole naming card is gone — no dead affordance on a server without it.
+    expect(queryId(comp, "speaker-naming")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("surfaces an honest error when a save fails transiently (name unchanged)", async () => {
+    const comp = await mountWith(namingDetail);
+
+    act(() => queryId(comp, "name-edit-Alice")!.props.onPress());
+    act(() => queryId(comp, "name-input-Alice")!.props.onChangeText("Mom"));
+
+    mockPatchLabels.mockRejectedValueOnce(
+      Object.assign(new Error("API error: 500"), { status: 500 }),
+    );
+    await act(async () => {
+      queryId(comp, "name-save-Alice")!.props.onPress();
+    });
+    await act(async () => {});
+
+    // Card still there, honest error shown, no fabricated label.
+    expect(queryId(comp, "speaker-naming")).toBeTruthy();
+    expect(queryId(comp, "name-error")).toBeTruthy();
+    expect(JSON.stringify(comp.toJSON())).toContain("Please try again");
     act(() => comp.unmount());
   });
 });

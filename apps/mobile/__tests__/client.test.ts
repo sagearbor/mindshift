@@ -16,6 +16,7 @@ import {
   getRecordingSourceUrl,
   patchRecordingSource,
   patchRecordingTitle,
+  patchSpeakerLabels,
   deleteRecording,
   postReanalyze,
 } from "../src/api/client";
@@ -877,6 +878,72 @@ describe("patchRecordingTitle", () => {
     await expect(
       patchRecordingTitle("r1", "New name"),
     ).rejects.toMatchObject({ status: 405 });
+  });
+});
+
+describe("patchSpeakerLabels", () => {
+  it("PATCHes /recordings/{id}/speaker-labels with { labels } and returns the resolved maps", async () => {
+    const payload = {
+      id: "r1",
+      manual_speaker_labels: { "Speaker A": "Linda" },
+      speaker_labels: {
+        "Speaker A": { display_label: "Linda", label_source: "manual" },
+        "Speaker B": { display_label: "Deeper voice", label_source: "voice" },
+      },
+    };
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => payload });
+
+    const result = await patchSpeakerLabels("r 1", { "Speaker A": "Linda" });
+
+    const [url, init] = mockFetch.mock.calls[0];
+    // id URL-encoded in the path.
+    expect(url).toMatch(/\/recordings\/r%201\/speaker-labels$/);
+    expect(init.method).toBe("PATCH");
+    expect(JSON.parse(init.body)).toEqual({ labels: { "Speaker A": "Linda" } });
+    expect(result).toEqual(payload);
+  });
+
+  it("sends an empty string to clear a label (append-only merge, clear semantics)", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        id: "r1",
+        manual_speaker_labels: {},
+        speaker_labels: {
+          "Speaker A": { display_label: "Speaker A", label_source: "generic" },
+        },
+      }),
+    });
+
+    const result = await patchSpeakerLabels("r1", { "Speaker A": "" });
+    const [, init] = mockFetch.mock.calls[0];
+    expect(JSON.parse(init.body)).toEqual({ labels: { "Speaker A": "" } });
+    // Cleared: the resolved label falls back off the manual rung.
+    expect(result.manual_speaker_labels).toEqual({});
+    expect(result.speaker_labels["Speaker A"].label_source).toBe("generic");
+  });
+
+  it("throws with .status on a 404 so the caller can hide the affordance (older server)", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      json: async () => ({}),
+    });
+    await expect(
+      patchSpeakerLabels("r1", { "Speaker A": "Linda" }),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("surfaces a 422's user-facing detail verbatim (unknown speaker id)", async () => {
+    const detail = "unknown speaker id: 'Speaker Z'";
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      json: async () => ({ detail }),
+    });
+    await expect(
+      patchSpeakerLabels("r1", { "Speaker Z": "Nobody" }),
+    ).rejects.toMatchObject({ message: detail, status: 422, detail });
   });
 });
 

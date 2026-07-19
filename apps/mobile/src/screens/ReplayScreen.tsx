@@ -22,10 +22,13 @@ import type {
   AnalyzeResult,
   AnalyzeJobState,
   JobStatus,
+  SpeakerLabel,
+  PatchSpeakerLabelsResult,
 } from "../api/client";
 import HeatChart from "../components/HeatChart";
 import MediaPlayer, { MediaPlayerHandle } from "../components/MediaPlayer";
 import SpeakerEnrollment from "../components/SpeakerEnrollment";
+import SpeakerNaming from "../components/SpeakerNaming";
 import PulseDot from "../components/PulseDot";
 import { summarizeReanalyze, type ReanalyzeSummary } from "./reanalyzeDelta";
 import { setPlaybackMode } from "../utils/audioMode";
@@ -178,6 +181,22 @@ export default function ReplayScreen({
   const [renamedTitle, setRenamedTitle] = useState<string | null>(null);
   const [renameNote, setRenameNote] = useState<string | null>(null);
 
+  // --- Manual speaker naming ("Name the speakers") ---
+  // A successful PATCH …/speaker-labels returns the RESOLVED effective labels;
+  // we hold them in `labelOverride` so every surface (legend, talk-share,
+  // inspector, enrollment, the naming panel) re-labels at once without a refetch.
+  // Null until the first save — the base labels then come straight from the
+  // stored analysis (which already reflects any manual labels on read).
+  // `manualLabels` is the raw {id: name} map the editor prefills from.
+  // `namingUnsupported` latches true only if a save 404s (older server with no
+  // route) so the affordance hides itself gracefully.
+  const [labelOverride, setLabelOverride] = useState<Record<
+    string,
+    SpeakerLabel
+  > | null>(null);
+  const [manualLabels, setManualLabels] = useState<Record<string, string>>({});
+  const [namingUnsupported, setNamingUnsupported] = useState(false);
+
   // --- Re-analyze with the latest engine ---
   // `reanalyzing` gates the button vs the progress card; `reanalyzeJob` is the
   // latest poll (drives the staged progress); `reanalyzeError` carries an honest
@@ -246,7 +265,14 @@ export default function ReplayScreen({
       // Detail first — its `source` decides whether a "Try HD" opt-in is offered.
       const rec = await getRecording(recordingId);
       fetched = rec;
-      if (mountedRef.current) setDetail(rec);
+      if (mountedRef.current) {
+        setDetail(rec);
+        // Fresh read — the stored analysis already carries any manual overrides
+        // (label_source "manual"), so drop the local override and re-seed the raw
+        // manual map for the editor's prefill.
+        setLabelOverride(null);
+        setManualLabels(rec.manual_speaker_labels ?? {});
+      }
 
       // Derivative-FIRST for every source. The stored copy streams from our
       // /media endpoint with Range support and always loads; the linked HD
@@ -511,6 +537,15 @@ export default function ReplayScreen({
     }
   }, [recordingId, load, detail]);
 
+  // A save's resolved labels win; otherwise the stored analysis labels (which
+  // already reflect any manual overrides applied server-side on read). Shared by
+  // the chart legend/inspector, the enrollment card, and the naming panel so a
+  // rename lands everywhere at once.
+  const handleLabelsSaved = useCallback((result: PatchSpeakerLabelsResult) => {
+    setLabelOverride(result.speaker_labels);
+    setManualLabels(result.manual_speaker_labels);
+  }, []);
+
   const perTurn = detail?.analysis?.per_turn ?? [];
   const turns = detail?.turns ?? [];
   const hasChart = perTurn.length > 0 && turns.length > 0;
@@ -518,11 +553,20 @@ export default function ReplayScreen({
   // Only a link-sourced recording has a user-hosted original to stream in HD.
   const hdAvailable = detail?.source?.type === "link";
 
+  // The labels every surface renders. `labelOverride` (from the latest save) wins;
+  // otherwise the stored analysis labels.
+  const effectiveLabels = labelOverride ?? detail?.analysis?.speaker_labels;
+  // Manual naming is offered only when the server actually supports it: the detail
+  // must carry a `manual_speaker_labels` map (older servers omit it), and no save
+  // has 404'd this session.
+  const namingSupported =
+    detail?.manual_speaker_labels !== undefined && !namingUnsupported;
+
   const chart = hasChart ? (
     <HeatChart
       perTurn={perTurn}
       turns={turns.map((t) => ({ speaker: t.speaker, text: t.text }))}
-      speakerLabels={detail?.analysis?.speaker_labels}
+      speakerLabels={effectiveLabels}
       turnsTiming={turns.map((t) => ({
         start_time: t.start_time,
         end_time: t.end_time,
@@ -963,6 +1007,22 @@ export default function ReplayScreen({
             )}
           </View>
 
+          {/* "Name the speakers" — manually label who each diarized speaker is,
+              for THIS recording (the human override, top of the label ladder).
+              Distinct from "This is me" below: naming labels this one recording;
+              enrollment teaches your voice for every recording. Self-hides on an
+              older server (no `manual_speaker_labels` field / a save 404s). */}
+          {turns.length > 0 && namingSupported ? (
+            <SpeakerNaming
+              recordingId={recordingId}
+              turns={turns}
+              speakerLabels={effectiveLabels}
+              manualLabels={manualLabels}
+              onSaved={handleLabelsSaved}
+              onUnsupported={() => setNamingUnsupported(true)}
+            />
+          ) : null}
+
           {/* "This is me" — enroll a speaker's voice so they're labeled "You"
               in future recordings. Self-hides when the server can't do voice ID
               or there are no diarized turns to choose from. */}
@@ -970,7 +1030,7 @@ export default function ReplayScreen({
             <SpeakerEnrollment
               recordingId={recordingId}
               turns={turns}
-              speakerLabels={detail?.analysis?.speaker_labels}
+              speakerLabels={effectiveLabels}
             />
           ) : null}
         </ScrollView>

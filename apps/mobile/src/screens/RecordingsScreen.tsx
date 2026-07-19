@@ -32,6 +32,28 @@ function humanizeError(message: string): string {
 }
 
 /**
+ * Honest participant line for a list row from the raw `manual_speaker_labels`
+ * the list returns (a {speaker_id: name} map of the user's OWN names). We only
+ * name people the user actually named — the list carries no diarized roster or
+ * inferred labels, so we never invent "Speaker A & B". Returns null when nobody
+ * has been named yet (the row simply shows no participant line). Names join as
+ * "A", "A & B", "A, B & C"; a long roster is trimmed to "A, B & 2 more".
+ */
+export function formatParticipants(
+  manualLabels: Record<string, string> | undefined,
+): string | null {
+  if (!manualLabels) return null;
+  const names = Object.values(manualLabels)
+    .map((n) => (typeof n === "string" ? n.trim() : ""))
+    .filter((n) => n.length > 0);
+  if (names.length === 0) return null;
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return `${names[0]} & ${names[1]}`;
+  if (names.length === 3) return `${names[0]}, ${names[1]} & ${names[2]}`;
+  return `${names[0]}, ${names[1]} & ${names.length - 2} more`;
+}
+
+/**
  * The stored-recordings list: each row shows filename, date, duration, and a
  * type icon; tapping opens the replay. A per-row delete uses an inline confirm
  * (no native Alert, so the flow is deterministic and testable) before calling
@@ -179,6 +201,18 @@ export default function RecordingsScreen({
                       : ""}
                     {rec.has_analysis ? " · analyzed" : ""}
                   </Text>
+                  {/* Named participants — only the people the user actually named
+                      (from the list's manual_speaker_labels). Omitted when none,
+                      so we never fabricate a roster. */}
+                  {formatParticipants(rec.manual_speaker_labels) && (
+                    <Text
+                      style={styles.participants}
+                      numberOfLines={1}
+                      testID={`recording-participants-${rec.id}`}
+                    >
+                      {formatParticipants(rec.manual_speaker_labels)}
+                    </Text>
+                  )}
                 </View>
               </TouchableOpacity>
 
@@ -296,6 +330,12 @@ const styles = StyleSheet.create({
   cardBody: { flex: 1 },
   filename: { fontSize: 15, fontWeight: "700", color: INK },
   meta: { fontSize: 12.5, color: MUTED, marginTop: 2 },
+  participants: {
+    fontSize: 12.5,
+    color: PRIMARY,
+    fontWeight: "600",
+    marginTop: 2,
+  },
   deleteButton: {
     alignSelf: "flex-start",
     marginTop: 10,

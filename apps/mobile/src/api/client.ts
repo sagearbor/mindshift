@@ -157,7 +157,11 @@ export interface ReportCard {
  */
 export interface SpeakerLabel {
   display_label: string;
-  label_source: "enrolled" | "name" | "voice" | "generic" | string;
+  // "manual" is the TOP rung — a human override set via PATCH …/speaker-labels,
+  // beating the enrolled "You", an inferred name, a relative-pitch voice label,
+  // or the raw id. Kept open (`| string`) for forward-compatibility with any new
+  // rung the server adds.
+  label_source: "manual" | "enrolled" | "name" | "voice" | "generic" | string;
 }
 
 export interface AnalyzeResult {
@@ -938,6 +942,11 @@ export interface RecordingSummary {
   has_analysis: boolean;
   // Provenance: "upload" | "link" (present on newer servers).
   source_type?: string;
+  // Raw MANUAL per-speaker name map ({canonical_id: name}) the user set on this
+  // recording — the list carries this straight from meta.json (no analysis load)
+  // so a row can show its named participants ("Linda & Sage"). Absent on servers
+  // that don't support manual labels yet; an empty object when none were set.
+  manual_speaker_labels?: Record<string, string>;
 }
 
 /** One stored turn. Unlike a pasted transcript, a recorded conversation always
@@ -970,6 +979,13 @@ export interface RecordingDetail extends RecordingSummary {
   // Provenance (type/url). Optional: older servers omit it entirely, in which
   // case replay uses the stored-derivative path (as for an upload).
   source?: RecordingSource;
+  // Raw MANUAL per-speaker name map ({canonical_id: name}) — the human overrides,
+  // used to PREFILL the label editor and to tell a "named by you" label from an
+  // inferred one. `analysis.speaker_labels` already reflects these on read (the
+  // server overlays them, `label_source: "manual"`), so this is the editor's
+  // source of truth for the raw text. Absent on servers without manual-label
+  // support (the naming affordance hides itself then); an empty object when none.
+  manual_speaker_labels?: Record<string, string>;
 }
 
 /** GET /recordings/{id}/media_url — a short-lived signed URL for playback. */
@@ -1172,6 +1188,65 @@ export async function patchRecordingTitle(
     throw err;
   }
   return (await res.json()) as PatchTitleResult;
+}
+
+/** Result of PATCH /recordings/{id}/speaker-labels — the raw manual name map the
+ *  editor prefills from, plus the RESOLVED effective labels (with `label_source`)
+ *  the UI renders everywhere. A manually named speaker comes back as
+ *  `label_source: "manual"` — the top rung, above the enrolled "You". */
+export interface PatchSpeakerLabelsResult {
+  id: string;
+  manual_speaker_labels: Record<string, string>;
+  speaker_labels: Record<string, SpeakerLabel>;
+}
+
+/**
+ * PATCH /recordings/{id}/speaker-labels — set MANUAL per-speaker names on a
+ * stored recording (body `{ labels: { "<canonical_id>": "Linda" } }`). This is
+ * the human override at the TOP of the display ladder: it beats the enrolled
+ * "You", an inferred name, and the relative-pitch voice label.
+ *
+ * MERGE (append-only) semantics: speakers omitted from `labels` keep their
+ * existing manual name; an EMPTY-STRING value CLEARS that speaker's manual label,
+ * restoring the inferred one. The response echoes the merged raw map plus the
+ * resolved effective labels so the caller can update every label surface at once.
+ *
+ * CAPABILITY-GATED like the title route: a pre-manual-labels server has no such
+ * route and answers 404, and an unknown speaker id is a 422 whose `.detail` is
+ * written for the user. The thrown Error carries `.status` (and `.detail` when
+ * present) so the caller can hide the affordance on 404 and surface a 422
+ * verbatim, rather than pretend a save that didn't happen.
+ */
+export async function patchSpeakerLabels(
+  id: string,
+  labels: Record<string, string>,
+): Promise<PatchSpeakerLabelsResult> {
+  const res = await fetch(
+    `${API_URL}/recordings/${encodeURIComponent(id)}/speaker-labels`,
+    {
+      method: "PATCH",
+      headers: await authHeaders(),
+      body: JSON.stringify({ labels }),
+    },
+  );
+  if (!res.ok) {
+    // A 422 (unknown speaker id) carries a user-facing detail — keep it verbatim.
+    let detail: string | undefined;
+    try {
+      const j = (await res.json()) as { detail?: unknown };
+      if (typeof j?.detail === "string") detail = j.detail;
+    } catch {
+      // Non-JSON body — fall back to the status-only message.
+    }
+    const err = new Error(detail ?? `API error: ${res.status}`) as Error & {
+      status?: number;
+      detail?: string;
+    };
+    err.status = res.status;
+    err.detail = detail;
+    throw err;
+  }
+  return (await res.json()) as PatchSpeakerLabelsResult;
 }
 
 /**
