@@ -424,6 +424,16 @@ export default function AnalyzeScreen({
     });
   };
 
+  // The "Upload file" tab is an action, not just a selector: switch to file mode
+  // AND open the OS file picker in the same tap. Re-tapping the already-active tab
+  // opens it again (the natural expectation). If the user cancels the picker,
+  // handlePickRecording is a no-op and we stay in file mode with the pick-a-file
+  // affordance visible, so they can retry.
+  const handleSelectFileMode = () => {
+    setMode("file");
+    void handlePickRecording();
+  };
+
   const handleUploadAnalyze = async () => {
     if (!picked || uploading) return;
     const size = picked.size;
@@ -647,7 +657,7 @@ export default function AnalyzeScreen({
               <Pressable
                 testID="mode-file-tab"
                 style={[styles.modeTab, mode === "file" && styles.modeTabActive]}
-                onPress={() => setMode("file")}
+                onPress={handleSelectFileMode}
                 disabled={uploading}
               >
                 <Text
@@ -766,6 +776,10 @@ export default function AnalyzeScreen({
                   placeholder="https://…"
                   value={linkUrl}
                   onChangeText={setLinkUrl}
+                  // The URL field mounts only when the user taps "Paste link", so
+                  // autoFocus fires exactly on that switch — keyboard up on mobile,
+                  // cursor in the field on web. The tab acts, it doesn't just select.
+                  autoFocus
                   autoCapitalize="none"
                   autoCorrect={false}
                   keyboardType="url"
