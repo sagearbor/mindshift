@@ -8,7 +8,8 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://mindshift-api-e5zja2g5bq-uc.a.run.app"
+        "EXPO_PUBLIC_API_URL": "https://mindshift-api-e5zja2g5bq-uc.a.run.app",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "664594784582-id1e3labf1nftmqdhubvf6kltjv31d1r.apps.googleusercontent.com"
       },
       "android": {
         "buildType": "apk"
@@ -18,7 +19,8 @@
       "distribution": "internal",
       "channel": "preview",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://mindshift-api-e5zja2g5bq-uc.a.run.app"
+        "EXPO_PUBLIC_API_URL": "https://mindshift-api-e5zja2g5bq-uc.a.run.app",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "664594784582-id1e3labf1nftmqdhubvf6kltjv31d1r.apps.googleusercontent.com"
       },
       "android": {
         "buildType": "apk"
@@ -29,7 +31,8 @@
       "channel": "production",
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://mindshift-api-e5zja2g5bq-uc.a.run.app"
+        "EXPO_PUBLIC_API_URL": "https://mindshift-api-e5zja2g5bq-uc.a.run.app",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "664594784582-id1e3labf1nftmqdhubvf6kltjv31d1r.apps.googleusercontent.com"
       },
       "android": {
         "buildType": "app-bundle"

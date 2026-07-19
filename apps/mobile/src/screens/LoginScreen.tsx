@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -9,14 +9,9 @@ import {
   Platform,
   StyleSheet,
 } from "react-native";
-import * as WebBrowser from "expo-web-browser";
-import * as Google from "expo-auth-session/providers/google";
 import { useAuthStore } from "../store/authStore";
-import { googleOAuth, googleSignInConfigured } from "../auth/firebaseConfig";
-
-// Completes the auth session if the app was opened via the OAuth redirect
-// (no-op otherwise). Must run at module scope per expo-auth-session docs.
-WebBrowser.maybeCompleteAuthSession();
+import { googleSignInConfigured } from "../auth/firebaseConfig";
+import GoogleSignInButton from "../components/GoogleSignInButton";
 
 type Mode = "signIn" | "signUp";
 
@@ -27,8 +22,10 @@ export default function LoginScreen() {
 
   const signIn = useAuthStore((s) => s.signIn);
   const signUp = useAuthStore((s) => s.signUp);
+  const sendPasswordReset = useAuthStore((s) => s.sendPasswordReset);
   const busy = useAuthStore((s) => s.busy);
   const error = useAuthStore((s) => s.error);
+  const notice = useAuthStore((s) => s.notice);
   const clearError = useAuthStore((s) => s.clearError);
 
   const submit = () => {
@@ -41,6 +38,12 @@ export default function LoginScreen() {
   const toggleMode = () => {
     clearError();
     setMode((m) => (m === "signIn" ? "signUp" : "signIn"));
+  };
+
+  const forgotPassword = () => {
+    // sendPasswordReset handles the empty-email and error states honestly and
+    // surfaces them via the store; nothing to await for the UI here.
+    void sendPasswordReset(email);
   };
 
   const canSubmit = email.trim().length > 0 && password.length > 0 && !busy;
@@ -69,7 +72,7 @@ export default function LoginScreen() {
           textContentType="emailAddress"
           value={email}
           onChangeText={(v) => {
-            if (error) clearError();
+            if (error || notice) clearError();
             setEmail(v);
           }}
         />
@@ -85,14 +88,31 @@ export default function LoginScreen() {
           textContentType="password"
           value={password}
           onChangeText={(v) => {
-            if (error) clearError();
+            if (error || notice) clearError();
             setPassword(v);
           }}
         />
 
+        {mode === "signIn" ? (
+          <TouchableOpacity
+            testID="forgot-password"
+            style={styles.forgot}
+            onPress={forgotPassword}
+            disabled={busy}
+          >
+            <Text style={styles.forgotText}>Forgot password?</Text>
+          </TouchableOpacity>
+        ) : null}
+
         {error ? (
           <Text testID="auth-error" style={styles.error}>
             {error}
+          </Text>
+        ) : null}
+
+        {notice ? (
+          <Text testID="auth-notice" style={styles.notice}>
+            {notice}
           </Text>
         ) : null}
 
@@ -130,7 +150,7 @@ export default function LoginScreen() {
         </View>
 
         {googleSignInConfigured ? (
-          <GoogleSignInButton busy={busy} />
+          <GoogleSignInButton />
         ) : (
           <Text testID="google-unconfigured" style={styles.googleUnconfigured}>
             Google sign-in isn't configured yet.
@@ -138,52 +158,6 @@ export default function LoginScreen() {
         )}
       </View>
     </KeyboardAvoidingView>
-  );
-}
-
-/**
- * Google sign-in button, isolated into its own component so the
- * expo-auth-session `useAuthRequest` hook only runs when Google is actually
- * configured. On web that hook throws synchronously ("Client Id property
- * `webClientId` must be defined to use Google auth on this platform") when the
- * client id is undefined — which crashes the entire app to a blank screen.
- * Rendering this component is gated on `googleSignInConfigured`, so the hook
- * stays out of the React tree entirely until the OAuth client ids exist.
- */
-function GoogleSignInButton({ busy }: { busy: boolean }) {
-  const signInWithGoogleIdToken = useAuthStore((s) => s.signInWithGoogleIdToken);
-  const clearError = useAuthStore((s) => s.clearError);
-
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    webClientId: googleOAuth.webClientId,
-    iosClientId: googleOAuth.iosClientId,
-    androidClientId: googleOAuth.androidClientId,
-  });
-
-  // On a successful Google OAuth round-trip, exchange the Google ID token for a
-  // Firebase session. The provider surfaces the id_token in params (implicit
-  // flow) or on the authentication object depending on platform.
-  useEffect(() => {
-    if (response?.type !== "success") return;
-    const googleIdToken =
-      response.params?.id_token ?? response.authentication?.idToken;
-    if (googleIdToken) {
-      void signInWithGoogleIdToken(googleIdToken);
-    }
-  }, [response, signInWithGoogleIdToken]);
-
-  return (
-    <TouchableOpacity
-      testID="google-button"
-      style={[styles.googleButton, (!request || busy) && styles.buttonDisabled]}
-      disabled={!request || busy}
-      onPress={() => {
-        clearError();
-        void promptAsync();
-      }}
-    >
-      <Text style={styles.googleButtonText}>Continue with Google</Text>
-    </TouchableOpacity>
   );
 }
 
@@ -224,6 +198,20 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     textAlign: "center",
   },
+  notice: {
+    color: "#047857",
+    fontSize: 13,
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  forgot: {
+    alignSelf: "flex-end",
+    marginBottom: 12,
+  },
+  forgotText: {
+    color: "#4A90D9",
+    fontSize: 13,
+  },
   primaryButton: {
     backgroundColor: "#4A90D9",
     paddingVertical: 15,
@@ -261,19 +249,6 @@ const styles = StyleSheet.create({
     marginHorizontal: 12,
     color: "#9CA3AF",
     fontSize: 13,
-  },
-  googleButton: {
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-  },
-  googleButtonText: {
-    color: "#1F2937",
-    fontSize: 15,
-    fontWeight: "600",
   },
   googleUnconfigured: {
     color: "#9CA3AF",

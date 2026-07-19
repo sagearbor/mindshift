@@ -60,6 +60,12 @@
           "savePhotosPermission": "MindShift saves your recorded videos to your camera roll so they can back up to your cloud for HD replay later.",
           "isAccessMediaLocationEnabled": false
         }
+      ],
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.REPLACE_WITH_IOS_CLIENT_ID"
+        }
       ]
     ],
     "extra": {

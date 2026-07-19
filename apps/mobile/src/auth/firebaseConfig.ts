@@ -1,3 +1,5 @@
+import { Platform } from "react-native";
+
 /**
  * Firebase Web client configuration for the `arborfam-hub` project.
  *
@@ -28,15 +30,21 @@ export const firebaseConfig = {
 };
 
 /**
- * OAuth client IDs for Google sign-in via expo-auth-session. These do NOT
- * exist until the owner enables the Google provider in the Firebase console
- * (which auto-creates the Web OAuth client) and registers native OAuth clients.
- * Until then they are undefined and the Google button degrades to an honest
- * "not configured yet" state instead of failing cryptically.
+ * OAuth client IDs for Google sign-in.
  *
- *  - WEB client id  = the ID-token *audience* expo-auth-session requests; it is
- *    also the client the Firebase credential is minted against. Required.
- *  - iOS / Android client ids = only needed for the native standalone builds.
+ * WEB uses the Firebase JS SDK's `signInWithPopup(GoogleAuthProvider)`, which
+ * needs NO client id beyond the Firebase config above — the popup rides the
+ * project's own OAuth client and authorized-domain allowlist. So the web path
+ * is always "configured" as far as the bundle is concerned; a not-enabled
+ * provider surfaces at runtime as an honest `auth/operation-not-allowed`.
+ *
+ * NATIVE (Android) uses `@react-native-google-signin/google-signin`, which does
+ * need a **web** client id: `GoogleSignin.configure({ webClientId })` sets the
+ * audience of the ID token Firebase later verifies. The Android OAuth client
+ * (registered with the build's SHA-1) is matched by package name at Google's
+ * end and is not referenced here. Until the web client id is provided via
+ * EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID, native Google sign-in degrades to an honest
+ * "not configured yet" state instead of failing cryptically.
  */
 export const googleOAuth = {
   webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
@@ -44,5 +52,10 @@ export const googleOAuth = {
   androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
 };
 
-/** True when Google sign-in has the minimum config it needs to be offered. */
-export const googleSignInConfigured = Boolean(googleOAuth.webClientId);
+/**
+ * True when Google sign-in has the minimum config it needs to be offered.
+ *  - web:    always (signInWithPopup needs only the Firebase config).
+ *  - native: only once a web client id exists for GoogleSignin.configure().
+ */
+export const googleSignInConfigured =
+  Platform.OS === "web" ? true : Boolean(googleOAuth.webClientId);
