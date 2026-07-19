@@ -372,14 +372,10 @@ export default function DynamicsScreen({
             }
           />
 
-          {/* §2 — Transparent word metrics. Collapsed by default; hides itself
-              entirely on servers/analyses without word_metrics. */}
-          <WordPatternsPanel
-            wordMetrics={data.word_metrics}
-            speakerLabels={speakerLabels}
-          />
-
-          {/* Heat chart across the whole conversation. */}
+          {/* Heat chart across the whole conversation. Moved directly under the
+              glance summary so the headline visual isn't buried — the word-
+              patterns audit panel now sits LAST (below), as a collapsible detail
+              rather than something between the verdict and the chart. */}
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Heat over the conversation</Text>
             <HeatChart
@@ -548,6 +544,16 @@ export default function DynamicsScreen({
             </Text>
           </View>
 
+          {/* §2 — Transparent word metrics, LAST: a collapsed "📖 Word patterns"
+              audit panel for the reader who wants to hand-check the numbers,
+              deliberately below the headline verdict/chart/detail sections rather
+              than buried above the chart. Hides itself entirely on
+              servers/analyses without word_metrics. */}
+          <WordPatternsPanel
+            wordMetrics={data.word_metrics}
+            speakerLabels={speakerLabels}
+          />
+
           {/* Ethics footer. */}
           <Text style={styles.footer}>
             Analyze only conversations everyone knows about.
@@ -680,7 +686,11 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    paddingTop: 56,
+    // App wraps every screen in a SafeAreaView that already applies the notch
+    // inset, so this is a normal base pad (matching the hub screens' ~20-24) —
+    // NOT the old hardcoded 56, which double-padded under the status bar on
+    // notched devices.
+    paddingTop: 24,
     paddingBottom: 12,
     paddingHorizontal: 16,
     backgroundColor: "#FFFFFF",

@@ -19,6 +19,7 @@ import {
   participantsLine,
   recordingsForDay,
 } from "./dayTimeline";
+import { formatDateTime } from "../utils/dateDisplay";
 
 // House colors.
 const PRIMARY = "#4A90D9";
@@ -220,6 +221,17 @@ export default function YourDayScreen({
               <Text style={styles.recordingHeader} numberOfLines={1}>
                 {recording.title || recording.filename}
               </Text>
+              {/* Full date + wall-clock start, so the day a row belongs to is
+                  never in doubt. From the recording's real created_at; omitted
+                  (never guessed) when that's missing. */}
+              {formatDateTime(recording.created_at) && (
+                <Text
+                  style={styles.recordingWhen}
+                  testID={`day-recording-${recording.id}-when`}
+                >
+                  {formatDateTime(recording.created_at)}
+                </Text>
+              )}
 
               {episodes === null && (
                 <Text
@@ -295,7 +307,10 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    paddingTop: 56,
+    // App's SafeAreaView already applies the notch inset; this base pad matches
+    // the hub screens (~20-24) instead of the old hardcoded 56 that double-padded
+    // on notched devices.
+    paddingTop: 24,
     paddingBottom: 12,
     paddingHorizontal: 16,
     backgroundColor: "#FFFFFF",
@@ -363,6 +378,13 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.5,
     marginTop: 10,
+    marginBottom: 6,
+  },
+  recordingWhen: {
+    fontSize: 12.5,
+    color: MUTED,
+    fontWeight: "600",
+    marginTop: -2,
     marginBottom: 6,
   },
   notAnalyzed: { fontSize: 13, color: MUTED, marginBottom: 8 },

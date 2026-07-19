@@ -29,6 +29,7 @@ import SpeakerEnrollment from "../components/SpeakerEnrollment";
 import PulseDot from "../components/PulseDot";
 import { summarizeReanalyze, type ReanalyzeSummary } from "./reanalyzeDelta";
 import { setPlaybackMode } from "../utils/audioMode";
+import { formatDateTime } from "../utils/dateDisplay";
 
 /** How long we give a source to report a real duration (moov parsed /
  *  readyToPlay) before treating it as stuck. A moov-at-end HD MP4 served
@@ -593,6 +594,15 @@ export default function ReplayScreen({
         <View style={styles.headerSpacer} />
       </View>
 
+      {/* When this conversation was recorded — absolute date + wall-clock time,
+          from the recording's real created_at. Omitted entirely (never guessed)
+          when the timestamp is missing/unparseable. */}
+      {detail && formatDateTime(detail.created_at) && (
+        <Text style={styles.recordedAt} testID="replay-recorded-at">
+          {formatDateTime(detail.created_at)}
+        </Text>
+      )}
+
       {renameNote && (
         <Text style={styles.renameNote} testID="rename-note">
           {renameNote}
@@ -974,7 +984,10 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    paddingTop: 56,
+    // App's SafeAreaView already applies the notch inset; this base pad matches
+    // the hub screens (~20-24) instead of the old hardcoded 56 that double-padded
+    // on notched devices.
+    paddingTop: 24,
     paddingBottom: 12,
     paddingHorizontal: 16,
     backgroundColor: "#FFFFFF",
@@ -1014,6 +1027,14 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     color: MUTED,
     fontStyle: "italic",
+    textAlign: "center",
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  recordedAt: {
+    fontSize: 13,
+    color: MUTED,
+    fontWeight: "600",
     textAlign: "center",
     paddingHorizontal: 16,
     paddingTop: 8,
