@@ -7,6 +7,8 @@ import {
   getRecordingSourceUrl,
   patchRecordingSource,
   patchRecordingTitle,
+  postReanalyze,
+  getAnalyzeJob,
 } from "../src/api/client";
 import type { RecordingDetail } from "../src/api/client";
 import { setPlaybackMode } from "../src/utils/audioMode";
@@ -18,6 +20,8 @@ jest.mock("../src/api/client", () => ({
   getRecordingSourceUrl: jest.fn(),
   patchRecordingSource: jest.fn(),
   patchRecordingTitle: jest.fn(),
+  postReanalyze: jest.fn(),
+  getAnalyzeJob: jest.fn(),
   // SpeakerEnrollment (rendered inside ReplayScreen) checks voice-ID
   // availability on mount; default to "unavailable" so it renders nothing and
   // these tests stay focused on replay/HD behavior.
@@ -36,6 +40,8 @@ const mockGetMediaUrl = getRecordingMediaUrl as jest.Mock;
 const mockGetSourceUrl = getRecordingSourceUrl as jest.Mock;
 const mockPatchSource = patchRecordingSource as jest.Mock;
 const mockPatchTitle = patchRecordingTitle as jest.Mock;
+const mockReanalyze = postReanalyze as jest.Mock;
+const mockGetJob = getAnalyzeJob as jest.Mock;
 
 // Mock the audio-session util: ReplayScreen sets a playback mode on mount so
 // replay is audible even after Live Coach's recording session. We assert the
@@ -116,6 +122,8 @@ beforeEach(() => {
   mockPatchTitle.mockReset();
   mockSeek.mockReset();
   mockSetPlaybackMode.mockClear();
+  mockReanalyze.mockReset();
+  mockGetJob.mockReset();
   mockPlayerProps.uri = undefined;
   mockPlayerProps.onError = undefined;
   mockPlayerProps.onDurationChange = undefined;
@@ -736,5 +744,101 @@ describe("ReplayScreen", () => {
       expect(JSON.stringify(comp.toJSON())).toContain("kitchen-fight.m4a");
       act(() => comp.unmount());
     });
+  });
+});
+
+describe("ReplayScreen re-analyze", () => {
+  async function mountLoaded(): Promise<renderer.ReactTestRenderer> {
+    mockGetRecording.mockResolvedValueOnce(detail);
+    mockGetMediaUrl.mockResolvedValueOnce({ url: "https://signed/x", expires_in: 600 });
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(<ReplayScreen recordingId="r1" onBack={() => {}} />);
+    });
+    await act(async () => {});
+    return comp;
+  }
+
+  it("shows the re-analyze affordance once the recording is loaded", async () => {
+    const comp = await mountLoaded();
+    expect(queryId(comp, "reanalyze-button")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("submits the job, polls to done, and refetches the recording", async () => {
+    const comp = await mountLoaded();
+    mockReanalyze.mockResolvedValueOnce({ job_id: "job_1" });
+    // First poll already done — the poller breaks before any sleep.
+    mockGetJob.mockResolvedValueOnce({
+      job_id: "job_1",
+      status: "done",
+      created_at: "",
+      updated_at: "",
+      stage_started_at: null,
+      progress_note: null,
+      duration_seconds: null,
+      error: null,
+      result: { ...detail.analysis, turns: [], stored: true, recording_id: "r1", storage_note: null },
+    });
+    // load() after done refetches the recording + media url.
+    mockGetRecording.mockResolvedValueOnce(detail);
+    mockGetMediaUrl.mockResolvedValueOnce({ url: "https://signed/y", expires_in: 600 });
+
+    await act(async () => {
+      queryId(comp, "reanalyze-button")!.props.onPress();
+    });
+    await act(async () => {});
+
+    expect(mockReanalyze).toHaveBeenCalledWith("r1");
+    expect(mockGetJob).toHaveBeenCalledWith("job_1");
+    // Refreshed: getRecording called a second time (mount + refresh).
+    expect(mockGetRecording).toHaveBeenCalledTimes(2);
+    // Back to the button, no error.
+    expect(queryId(comp, "reanalyze-error")).toBeNull();
+    expect(queryId(comp, "reanalyze-button")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("shows an honest 422 message when the recording kept no audio", async () => {
+    const comp = await mountLoaded();
+    const err = new Error("API error: 422") as Error & { status?: number };
+    err.status = 422;
+    mockReanalyze.mockRejectedValueOnce(err);
+
+    await act(async () => {
+      queryId(comp, "reanalyze-button")!.props.onPress();
+    });
+    await act(async () => {});
+
+    const errNode = queryId(comp, "reanalyze-error");
+    expect(errNode).toBeTruthy();
+    expect(JSON.stringify(comp.toJSON())).toContain("can’t be re-analyzed");
+    // The job was never polled (the submit itself failed).
+    expect(mockGetJob).not.toHaveBeenCalled();
+    act(() => comp.unmount());
+  });
+
+  it("surfaces a failed job's message honestly", async () => {
+    const comp = await mountLoaded();
+    mockReanalyze.mockResolvedValueOnce({ job_id: "job_2" });
+    mockGetJob.mockResolvedValueOnce({
+      job_id: "job_2",
+      status: "failed",
+      created_at: "",
+      updated_at: "",
+      stage_started_at: null,
+      progress_note: null,
+      duration_seconds: null,
+      error: "The engine hit a snag.",
+      result: null,
+    });
+
+    await act(async () => {
+      queryId(comp, "reanalyze-button")!.props.onPress();
+    });
+    await act(async () => {});
+
+    expect(JSON.stringify(comp.toJSON())).toContain("The engine hit a snag.");
+    act(() => comp.unmount());
   });
 });

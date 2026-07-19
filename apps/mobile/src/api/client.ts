@@ -176,6 +176,49 @@ export interface AnalyzeResult {
   // §1 — an LLM-suggested short conversation title, present on an upload where
   // the user provided none. Optional + backward-compatible.
   title?: string | null;
+  // Transparent, hand-checkable word-pattern counts (see WordMetrics). Added by
+  // a newer server; OPTIONAL so an old server (or old stored analysis) simply
+  // omits it and the "Word patterns" panel hides itself entirely.
+  word_metrics?: WordMetrics;
+}
+
+// --- Transparent word metrics ("the numbers a therapist can check by hand") ---
+// Deterministic per-speaker word counts the server exposes so the analysis is
+// auditable: pronoun-focus (I / you / we statements) and emotion-word densities,
+// all as rates PER 100 WORDS. Every rate is `number | null` — null (with
+// `low_sample: true`) when the speaker said too few words to compute an honest
+// rate, so the UI shows an "not enough words" note rather than a noisy figure.
+
+/** One speaker's word-pattern rates (per 100 words). A null rate means the
+ *  server declined to compute it (too little text) — never a fabricated 0. */
+export interface WordMetricsSpeaker {
+  // Pronoun focus — the star metric. i_rate ≈ "talks about own feelings";
+  // you_rate ≈ "points at the other person"; we_rate ≈ shared framing.
+  i_rate: number | null;
+  you_rate: number | null;
+  we_rate: number | null;
+  // Emotion-word densities (per 100 words), from the server's lexicon.
+  anger_rate: number | null;
+  fear_rate: number | null;
+  sadness_rate: number | null;
+  joy_rate: number | null;
+  trust_rate: number | null;
+  // Total words counted for this speaker — the denominator, shown for honesty.
+  word_count: number;
+  // True when word_count was too low for reliable rates (rates are then null).
+  low_sample?: boolean;
+}
+
+/**
+ * The word-metrics block on an analysis: per-speaker rates keyed by canonical
+ * speaker id, plus a `method` map the UI renders VERBATIM (the whole point is
+ * auditability — the user can read exactly how each number was counted). `method`
+ * values are treated as opaque strings and shown as-is; unknown shapes are
+ * rendered defensively.
+ */
+export interface WordMetrics {
+  speakers: Record<string, WordMetricsSpeaker>;
+  method: Record<string, unknown>;
 }
 
 /**
@@ -1144,6 +1187,32 @@ export async function deleteRecording(id: string): Promise<void> {
   if (!res.ok) {
     throw new Error(`API error: ${res.status}`);
   }
+}
+
+/**
+ * POST /recordings/{id}/reanalyze — re-run the analysis pipeline on a stored
+ * recording with the latest engine. Returns `{ job_id }` (202) to poll via
+ * {@link getAnalyzeJob}, exactly like the other async-analysis jobs; on
+ * completion the recording's stored analysis is refreshed server-side.
+ *
+ * Throws `API error: <status>` with the numeric `.status` attached so the caller
+ * can distinguish the honest 422 ("this recording didn't keep its audio, so it
+ * can't be re-analyzed") from a transient failure — and a 404/503 (old server /
+ * storage off) so the affordance can hide or explain rather than pretend.
+ */
+export async function postReanalyze(id: string): Promise<JobCreated> {
+  const res = await fetch(
+    `${API_URL}/recordings/${encodeURIComponent(id)}/reanalyze`,
+    { method: "POST", headers: await authHeaders() },
+  );
+  if (!res.ok) {
+    const err = new Error(`API error: ${res.status}`) as Error & {
+      status?: number;
+    };
+    err.status = res.status;
+    throw err;
+  }
+  return (await res.json()) as JobCreated;
 }
 
 // --- Voice enrollment ("This is me" → auto-label "You") --------------------

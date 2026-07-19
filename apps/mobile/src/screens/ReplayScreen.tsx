@@ -14,8 +14,14 @@ import {
   getRecordingSourceUrl,
   patchRecordingSource,
   patchRecordingTitle,
+  postReanalyze,
+  getAnalyzeJob,
 } from "../api/client";
-import type { RecordingDetail } from "../api/client";
+import type {
+  RecordingDetail,
+  AnalyzeJobState,
+  JobStatus,
+} from "../api/client";
 import HeatChart from "../components/HeatChart";
 import MediaPlayer, { MediaPlayerHandle } from "../components/MediaPlayer";
 import SpeakerEnrollment from "../components/SpeakerEnrollment";
@@ -26,6 +32,34 @@ import { setPlaybackMode } from "../utils/audioMode";
  *  without HTTP Range support buffers forever at 0:00 with no error event, so a
  *  wall-clock watchdog is the only way to recover. */
 const LOAD_TIMEOUT_MS = 8000;
+
+// --- Re-analyze job polling (mirrors AnalyzeScreen's submit-and-poll pattern) --
+const REANALYZE_POLL_MS = 3000;
+// Keep polling through a computed "stalled" for a while — a re-analysis can
+// legitimately sit before advancing — and only give up (honestly) after this.
+const REANALYZE_STALL_GRACE_MS = 3 * 60 * 1000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Human stage label for the re-analyze progress card. */
+function reanalyzeStageLabel(status: JobStatus | undefined): string {
+  switch (status) {
+    case "queued":
+      return "Queued…";
+    case "transcribing":
+      return "Transcribing…";
+    case "analyzing":
+      return "Analyzing…";
+    case "storing":
+      return "Saving…";
+    case "stalled":
+      return "Still working…";
+    default:
+      return "Re-analyzing…";
+  }
+}
 
 // House colors.
 const PRIMARY = "#4A90D9";
@@ -137,6 +171,16 @@ export default function ReplayScreen({
   const [savingTitle, setSavingTitle] = useState(false);
   const [renamedTitle, setRenamedTitle] = useState<string | null>(null);
   const [renameNote, setRenameNote] = useState<string | null>(null);
+
+  // --- Re-analyze with the latest engine ---
+  // `reanalyzing` gates the button vs the progress card; `reanalyzeJob` is the
+  // latest poll (drives the staged progress); `reanalyzeError` carries an honest
+  // message (e.g. a 422 when the recording kept no audio). On completion we
+  // refetch the recording so the fresh analysis renders.
+  const [reanalyzing, setReanalyzing] = useState(false);
+  const [reanalyzeJob, setReanalyzeJob] = useState<AnalyzeJobState | null>(null);
+  const [reanalyzeError, setReanalyzeError] = useState<string | null>(null);
+  const reanalyzeInFlightRef = useRef(false);
 
   const playerRef = useRef<MediaPlayerHandle>(null);
 
@@ -359,6 +403,83 @@ export default function ReplayScreen({
       if (mountedRef.current) setSavingTitle(false);
     }
   }, [titleDraft, savingTitle, recordingId]);
+
+  // Re-analyze this recording with the latest engine. Submits the job, polls it
+  // to completion (reusing the AnalyzeScreen job pattern), then refetches the
+  // recording so the fresh analysis + chart render. Errors are honest: a 422
+  // means the server kept no audio to re-run, so it plainly can't be redone.
+  const handleReanalyze = useCallback(async () => {
+    if (reanalyzeInFlightRef.current) return; // One costed re-run at a time.
+    reanalyzeInFlightRef.current = true;
+    setReanalyzing(true);
+    setReanalyzeError(null);
+    setReanalyzeJob(null);
+    try {
+      const { job_id } = await postReanalyze(recordingId);
+      let transientErrors = 0;
+      let stalledSince: number | null = null;
+      for (;;) {
+        let state: AnalyzeJobState;
+        try {
+          state = await getAnalyzeJob(job_id);
+        } catch (e) {
+          // A 404 means the job is truly gone; other hiccups get a few retries so
+          // one dropped poll doesn't abort a live re-run.
+          if (statusOf(e) === 404 || transientErrors >= 3) throw e;
+          transientErrors += 1;
+          await sleep(REANALYZE_POLL_MS);
+          continue;
+        }
+        transientErrors = 0;
+        if (mountedRef.current) setReanalyzeJob(state);
+        if (state.status === "done") break;
+        if (state.status === "failed") {
+          throw new Error(state.error ?? "The re-analysis failed. Please try again.");
+        }
+        if (state.status === "stalled") {
+          if (stalledSince === null) stalledSince = Date.now();
+          if (Date.now() - stalledSince > REANALYZE_STALL_GRACE_MS) {
+            throw new Error(
+              "This is taking much longer than expected. If the update doesn’t " +
+                "appear shortly, please try again.",
+            );
+          }
+        } else {
+          stalledSince = null;
+        }
+        await sleep(REANALYZE_POLL_MS);
+      }
+      // Fresh analysis is stored server-side — refetch so it renders.
+      await load();
+    } catch (e) {
+      if (mountedRef.current) {
+        const status = statusOf(e);
+        if (status === 422) {
+          setReanalyzeError(
+            "This recording didn’t keep its audio, so it can’t be re-analyzed.",
+          );
+        } else if (status === 404) {
+          setReanalyzeError("This recording is no longer available.");
+        } else if (status === 503) {
+          setReanalyzeError("Re-analysis isn’t available right now.");
+        } else if (status === 401) {
+          setReanalyzeError("Please sign in again to re-analyze.");
+        } else {
+          setReanalyzeError(
+            e instanceof Error && e.message
+              ? e.message
+              : "Couldn’t re-analyze right now — please try again.",
+          );
+        }
+      }
+    } finally {
+      reanalyzeInFlightRef.current = false;
+      if (mountedRef.current) {
+        setReanalyzing(false);
+        setReanalyzeJob(null);
+      }
+    }
+  }, [recordingId, load]);
 
   const perTurn = detail?.analysis?.per_turn ?? [];
   const turns = detail?.turns ?? [];
@@ -686,6 +807,53 @@ export default function ReplayScreen({
             </>
           )}
 
+          {/* Re-analyze with the latest engine. Reuses the job-progress card
+              pattern; on completion the recording is refetched so the fresh
+              analysis renders. Honest errors (e.g. a 422 when no audio was
+              kept) surface below instead of a silent no-op. */}
+          <View style={styles.reanalyzeSection}>
+            {!reanalyzing ? (
+              <TouchableOpacity
+                testID="reanalyze-button"
+                style={styles.reanalyzeButton}
+                onPress={() => void handleReanalyze()}
+                accessibilityRole="button"
+              >
+                <Text style={styles.reanalyzeButtonText}>
+                  ↻ Re-analyze with the latest engine
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.jobProgress} testID="reanalyze-progress">
+                <View style={styles.reanalyzeRow}>
+                  <ActivityIndicator color={PRIMARY} />
+                  <Text
+                    style={styles.jobStageLabel}
+                    testID="reanalyze-stage-label"
+                  >
+                    {reanalyzeStageLabel(reanalyzeJob?.status)}
+                  </Text>
+                </View>
+                {reanalyzeJob?.status === "stalled" ? (
+                  <Text style={styles.jobNote} testID="reanalyze-progress-note">
+                    Still working — this is taking longer than expected.
+                  </Text>
+                ) : (
+                  reanalyzeJob?.progress_note && (
+                    <Text style={styles.jobNote} testID="reanalyze-progress-note">
+                      {reanalyzeJob.progress_note}
+                    </Text>
+                  )
+                )}
+              </View>
+            )}
+            {reanalyzeError && (
+              <Text style={styles.reanalyzeError} testID="reanalyze-error">
+                {reanalyzeError}
+              </Text>
+            )}
+          </View>
+
           {/* "This is me" — enroll a speaker's voice so they're labeled "You"
               in future recordings. Self-hides when the server can't do voice ID
               or there are no diarized turns to choose from. */}
@@ -934,5 +1102,32 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.75)",
     borderTopLeftRadius: 12,
     borderTopRightRadius: 12,
+  },
+  reanalyzeSection: { marginTop: 16 },
+  reanalyzeButton: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: PRIMARY,
+    backgroundColor: "#EEF2FF",
+  },
+  reanalyzeButtonText: { fontSize: 14, fontWeight: "700", color: PRIMARY },
+  jobProgress: {
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: "#F9FAFB",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  reanalyzeRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  jobStageLabel: { fontSize: 15, fontWeight: "700", color: INK },
+  jobNote: { marginTop: 8, fontSize: 13, color: MUTED },
+  reanalyzeError: {
+    marginTop: 10,
+    fontSize: 13,
+    lineHeight: 19,
+    color: "#DC2626",
   },
 });

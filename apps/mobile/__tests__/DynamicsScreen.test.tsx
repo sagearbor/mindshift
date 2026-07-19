@@ -600,3 +600,57 @@ describe("DynamicsScreen HD-later popup", () => {
     act(() => comp.unmount());
   });
 });
+
+describe("DynamicsScreen glanceable summary + word metrics", () => {
+  it("renders the glanceable summary above the detailed chart", async () => {
+    mockAnalyze.mockResolvedValueOnce(fixture);
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(<DynamicsScreen onBack={() => {}} />);
+    });
+    expect(queryId(comp, "glance-summary")).toBeTruthy();
+    expect(queryId(comp, "glance-verdict")).toBeTruthy();
+    expect(queryId(comp, "glance-row-Alice")).toBeTruthy();
+    expect(queryId(comp, "glance-row-Bob")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("hides the word-patterns panel when the analysis has no word_metrics", async () => {
+    mockAnalyze.mockResolvedValueOnce(fixture);
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(<DynamicsScreen onBack={() => {}} />);
+    });
+    expect(queryId(comp, "word-patterns-panel")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("shows the word-patterns panel when word_metrics is present", async () => {
+    const withMetrics = {
+      ...fixture,
+      word_metrics: {
+        speakers: {
+          Alice: {
+            i_rate: 9, you_rate: 2, we_rate: 1,
+            anger_rate: 0.3, fear_rate: 0.1, sadness_rate: 0.5, joy_rate: 1.2, trust_rate: 0.8,
+            word_count: 210,
+          },
+          Bob: {
+            i_rate: 4, you_rate: 8, we_rate: 0,
+            anger_rate: 1.1, fear_rate: 0.2, sadness_rate: 0.3, joy_rate: 0.4, trust_rate: 0.2,
+            word_count: 190,
+          },
+        },
+        method: { description: "Counted per 100 words with a deterministic lexicon." },
+      },
+    };
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(
+        <DynamicsScreen onBack={() => {}} initialData={withMetrics} />,
+      );
+    });
+    expect(queryId(comp, "word-patterns-panel")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+});

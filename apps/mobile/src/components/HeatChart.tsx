@@ -6,7 +6,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from "react-native";
-import Svg, { Polyline, Circle, Line } from "react-native-svg";
+import Svg, { Polyline, Circle, Line, Rect } from "react-native-svg";
 import type { AnalyzePerTurn, SimulatedTurn, Voice } from "../api/client";
 import { getSpeakerColor } from "../utils/speakerColors";
 import { speakerLabel, type SpeakerLabels } from "../utils/speakerLabels";
@@ -510,6 +510,39 @@ export function formatClock(seconds: number): string {
   return `${m}:${rem.toString().padStart(2, "0")}`;
 }
 
+/** A narrow-range band annotation (§1 y-scale honesty). When the whole
+ *  conversation's heat sits in a narrow window on the absolute 0–100 scale — a
+ *  calm talk renders as a nearly flat line, which is ACCURATE but reads as
+ *  "nothing here" — we keep the honest absolute scale and instead draw a subtle
+ *  shaded band + plain caption ("all turns stayed in the calm range"), rather
+ *  than auto-zooming the y-axis into meaningless noise. Returns null when the
+ *  spread is wide enough that the line already tells the story on its own, or when
+ *  there aren't enough turns to characterize a range. */
+export interface HeatRangeBand {
+  label: string;
+  minHeat: number;
+  maxHeat: number;
+}
+
+export function heatRangeBand(
+  perTurn: Pick<AnalyzePerTurn, "heat">[],
+): HeatRangeBand | null {
+  if (perTurn.length < 2) return null;
+  const heats = perTurn.map((t) => t.heat);
+  const minHeat = Math.min(...heats);
+  const maxHeat = Math.max(...heats);
+  // Wide spread → the line's shape is already informative; no band needed.
+  if (maxHeat - minHeat > 20) return null;
+  const mid = (minHeat + maxHeat) / 2;
+  const label =
+    mid <= 33
+      ? "All turns stayed in the calm range"
+      : mid <= 66
+        ? "All turns stayed in the mid range"
+        : "All turns stayed in the high range";
+  return { label, minHeat, maxHeat };
+}
+
 interface HeatChartProps {
   perTurn: AnalyzePerTurn[];
   // The original transcript, index-aligned with perTurn. The backend's per_turn
@@ -631,6 +664,29 @@ export default function HeatChart({
   }
 
   const overlayActive = !!simulated && simulated.length > 0 && showSimulation;
+
+  // §1 y-scale honesty: when every turn sits in a narrow window we keep the
+  // absolute scale but draw a subtle shaded band + caption (below) instead of
+  // zooming into noise. Band rect spans the [min,max] heat range across the
+  // chart width, with a small floor so a dead-flat conversation still shows.
+  const rangeBand = heatRangeBand(perTurn);
+  const bandRect =
+    rangeBand && width > 0
+      ? (() => {
+          const chartHeight = height - padding * 2;
+          const yOf = (h: number) =>
+            padding +
+            (chartHeight - (Math.max(0, Math.min(100, h)) / 100) * chartHeight);
+          const yTop = yOf(rangeBand.maxHeat);
+          const yBottom = yOf(rangeBand.minHeat);
+          return {
+            x: padding,
+            y: yTop,
+            w: width - padding * 2,
+            h: Math.max(6, yBottom - yTop),
+          };
+        })()
+      : null;
 
   // --- Time-axis geometry (primary) ---
   const dashLines =
@@ -770,6 +826,24 @@ export default function HeatChart({
       >
         {width > 0 && (
           <Svg width={width} height={height}>
+            {/* §1 narrow-range band: a subtle shaded strip over the [min,max]
+                heat window, drawn first so the marks sit on top. Honest — the
+                y-axis is still the absolute 0–100 scale; this just says "the
+                whole talk lived in this narrow band" instead of a flat line that
+                reads as nothing. */}
+            {bandRect && (
+              <Rect
+                testID="heat-range-band"
+                x={bandRect.x}
+                y={bandRect.y}
+                width={bandRect.w}
+                height={bandRect.h}
+                fill={INK}
+                fillOpacity={0.05}
+                rx={4}
+              />
+            )}
+
             {/* Replay playhead: a thin vertical ink line, drawn first so the
                 marks sit on top of it. On the time axis it maps by real seconds,
                 so it lands on the dash of whoever is speaking right now. */}
@@ -919,6 +993,14 @@ export default function HeatChart({
           </Svg>
         )}
       </View>
+
+      {/* §1 narrow-range caption: names the band in plain words so the shaded
+          strip above is self-explanatory (and honest — nothing was zoomed). */}
+      {rangeBand && (
+        <Text style={styles.rangeBandNote} testID="heat-range-band-note">
+          {rangeBand.label} ({rangeBand.minHeat}–{rangeBand.maxHeat} of 100).
+        </Text>
+      )}
 
       {/* Tiny time axis: 0:00 on the left, the recording length on the right, so
           the dashes read plainly as "position in the recording". */}
@@ -1123,6 +1205,12 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
   },
   legacyNote: {
+    fontSize: 12,
+    color: MUTED,
+    fontStyle: "italic",
+    marginTop: 6,
+  },
+  rangeBandNote: {
     fontSize: 12,
     color: MUTED,
     fontStyle: "italic",
