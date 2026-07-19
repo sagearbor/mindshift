@@ -18,6 +18,8 @@ import type {
   UploadAnalyzeResult,
 } from "../api/client";
 import HeatChart from "../components/HeatChart";
+import GlanceSummary from "../components/GlanceSummary";
+import WordPatternsPanel from "../components/WordPatternsPanel";
 import { getSpeakerColor } from "../utils/speakerColors";
 import { speakerLabel, type SpeakerLabels } from "../utils/speakerLabels";
 
@@ -345,6 +347,33 @@ export default function DynamicsScreen({
               <Text style={styles.replayButtonText}>▶ Replay recording</Text>
             </TouchableOpacity>
           )}
+
+          {/* §1 — Glanceable summary: the headline act. A warm one-line verdict
+              and big per-speaker bars so a fresh-eyes user reads the outcome in
+              one look, before (and above) the detailed time-axis chart. */}
+          <GlanceSummary
+            perSpeaker={data.per_speaker}
+            perTurn={data.per_turn}
+            speakerLabels={speakerLabels}
+            turnsTiming={
+              analyzedTurns.length > 0 &&
+              analyzedTurns.every(
+                (t) => t.start_time !== undefined && t.end_time !== undefined,
+              )
+                ? analyzedTurns.map((t) => ({
+                    start_time: t.start_time as number,
+                    end_time: t.end_time as number,
+                  }))
+                : null
+            }
+          />
+
+          {/* §2 — Transparent word metrics. Collapsed by default; hides itself
+              entirely on servers/analyses without word_metrics. */}
+          <WordPatternsPanel
+            wordMetrics={data.word_metrics}
+            speakerLabels={speakerLabels}
+          />
 
           {/* Heat chart across the whole conversation. */}
           <View style={styles.card}>

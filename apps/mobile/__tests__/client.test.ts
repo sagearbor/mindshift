@@ -17,6 +17,7 @@ import {
   patchRecordingSource,
   patchRecordingTitle,
   deleteRecording,
+  postReanalyze,
 } from "../src/api/client";
 import {
   setCachedToken,
@@ -891,6 +892,29 @@ describe("deleteRecording", () => {
   it("throws an honest error on a non-OK response", async () => {
     mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
     await expect(deleteRecording("r1")).rejects.toThrow("API error: 404");
+  });
+});
+
+describe("postReanalyze", () => {
+  it("POSTs /recordings/{id}/reanalyze and returns the job id", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 202,
+      json: async () => ({ job_id: "job_9" }),
+    });
+    const res = await postReanalyze("rec_1");
+    expect(res).toEqual({ job_id: "job_9" });
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toMatch(/\/recordings\/rec_1\/reanalyze$/);
+    expect(init.method).toBe("POST");
+  });
+
+  it("attaches the numeric status so a 422 (no stored audio) is distinguishable", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 422 });
+    await expect(postReanalyze("rec_1")).rejects.toMatchObject({
+      status: 422,
+      message: "API error: 422",
+    });
   });
 });
 
