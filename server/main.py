@@ -255,12 +255,16 @@ ANALYZE_MARKER_VOCAB = frozenset(
 ANALYZE_REQUEST_OUTCOMES = frozenset(("granted", "denied", "deferred", "unclear"))
 
 # §2 speaker display-label ladder — the ordered set of provenance rungs, highest
-# precedence FIRST. enrolled (a matched enrolled voiceprint — the viewer's own
-# voice, from the voice-enrollment pipeline's speaker_identity) beats name (§2a,
-# high-confidence transcript evidence) beats voice (§2b, relative pitch) beats
-# generic (§2c, the raw speaker id). The resolver reads speaker_identity
-# defensively: the rung is dormant until the enrollment pipeline (PR #56) merges
-# and passes it, and any absent/malformed shape simply skips the rung.
+# precedence FIRST. manual (a per-recording human assertion — the user listened
+# and decided "Speaker A is Alex") beats enrolled (a matched enrolled voiceprint
+# — the viewer's own voice, from the voice-enrollment pipeline's speaker_identity)
+# beats name (§2a, high-confidence transcript evidence) beats voice (§2b, relative
+# pitch) beats generic (§2c, the raw speaker id). A human correction outranks even
+# the machine's "You": the voiceprint can be wrong, and the manual label IS the
+# correction mechanism. The resolver reads speaker_identity defensively; manual
+# labels are applied as a READ-TIME overlay (they live in meta.json, set after
+# analysis via PATCH …/speaker-labels — see _effective_speaker_labels).
+LABEL_SOURCE_MANUAL = "manual"
 LABEL_SOURCE_ENROLLED = "enrolled"
 LABEL_SOURCE_NAME = "name"
 LABEL_SOURCE_VOICE = "voice"
@@ -280,6 +284,11 @@ _NAME_CONFIDENCE_APPLIED = "high"
 # Display names are capped to the same length as a speaker label (AnalyzeTurn.
 # speaker) so a pathological LLM name can't bloat the stored analysis.json.
 SPEAKER_NAME_MAX = 60
+
+# A user-typed MANUAL speaker label is short by nature ("Alex", "Mum", "Linda") —
+# a tighter cap than the LLM-name bound keeps the meta.json manual-labels map
+# lean and the UI honest (a manual label is a name, not a sentence).
+MANUAL_SPEAKER_LABEL_MAX = 40
 
 # A 2..10-speaker conversation of 4..400 turns. The per-turn upper bound and the
 # total-transcript char cap are independent belts: 400 * 2000 chars is far more
@@ -608,6 +617,18 @@ class RecordingSourceRequest(BaseModel):
     # A user-pasted share URL to attach as an existing recording's HD source for
     # replay. Only RESOLVED (not downloaded) — see PATCH /recordings/{id}/source.
     url: str = Field(min_length=1, max_length=2000)
+
+
+class SpeakerLabelsRequest(BaseModel):
+    # Manual per-recording speaker labels — a human correction that becomes the
+    # TOP rung of the display ladder (see PATCH /recordings/{id}/speaker-labels).
+    # Keyed by canonical speaker id; the value is the chosen name. MERGE
+    # semantics: only the speakers present in this body are touched, and an EMPTY
+    # string clears that speaker's manual label (restoring the inferred one) —
+    # which is why empty is meaningfully different from omitting the key. The
+    # per-name strip + length cap is applied at the endpoint against the
+    # recording's actual speakers (an unknown speaker id is a 422).
+    labels: dict[str, str] = Field(default_factory=dict)
 
 
 # --- Submit-and-poll analysis jobs (POST /analyze/link/jobs,
@@ -1865,6 +1886,79 @@ def _resolve_speaker_labels(
     return labels
 
 
+# ---------------------------------------------------------------------------
+# Manual speaker labels (§ top rung) — a per-recording human override applied at
+# READ time. Manual labels live in meta.json (NOT analysis.json) so a re-analyze,
+# which overwrites analysis.json, never wipes them. They are the TOP rung: a human
+# assertion beats even the voiceprint "You" (the machine can be wrong, and this is
+# the correction). See PATCH /recordings/{id}/speaker-labels.
+# ---------------------------------------------------------------------------
+
+def _recording_speaker_ids(rec: dict) -> set[str]:
+    """The canonical speaker ids that actually appear in a recording's turns —
+    the ONLY ids a manual label may target (a label for an absent speaker is a
+    422 at the write endpoint, and is ignored defensively on read)."""
+    return {
+        turn.get("speaker")
+        for turn in (rec.get("turns") or [])
+        if isinstance(turn, dict) and isinstance(turn.get("speaker"), str)
+    }
+
+
+def _partition_manual_labels(
+    raw: dict[str, str], valid_speakers: set[str],
+) -> "tuple[dict[str, str], set[str]]":
+    """Validate + clean a PATCH …/speaker-labels body against the recording's
+    speakers, returning ``(sets, clears)``.
+
+    ``sets`` maps speaker id → cleaned label (stripped, capped at
+    ``MANUAL_SPEAKER_LABEL_MAX``); ``clears`` is the set of speakers whose manual
+    label the caller explicitly cleared (an empty/whitespace value). Raises
+    :class:`ValueError` (carrying the offending id) for a label targeting a
+    speaker not in the recording's turns — the endpoint turns that into a 422.
+    """
+    sets: dict[str, str] = {}
+    clears: set[str] = set()
+    for speaker, name in raw.items():
+        if speaker not in valid_speakers:
+            raise ValueError(speaker)
+        cleaned = name.strip() if isinstance(name, str) else ""
+        if cleaned:
+            sets[speaker] = cleaned[:MANUAL_SPEAKER_LABEL_MAX]
+        else:
+            clears.add(speaker)  # empty string = clear this manual label
+    return sets, clears
+
+
+def _effective_speaker_labels(
+    base_labels: dict | None,
+    manual_labels: dict | None,
+    valid_speakers: set[str],
+) -> dict[str, dict]:
+    """Overlay manual labels (top rung, ``label_source="manual"``) onto the
+    resolved ladder labels stored in analysis.json.
+
+    ``base_labels`` is the stored ``analysis["speaker_labels"]`` map (already
+    carrying enrolled/name/voice/generic entries); ``manual_labels`` is the
+    meta.json ``manual_speaker_labels`` name map. A manual entry REPLACES whatever
+    the ladder produced for that speaker — including the voiceprint "You" — so the
+    human correction always wins. Only speakers present in the recording's turns
+    receive an override (defensive: a stale manual id is ignored). The base map is
+    shallow-copied so the caller never mutates the stored analysis."""
+    effective = {
+        speaker: dict(entry)
+        for speaker, entry in (base_labels or {}).items()
+        if isinstance(entry, dict)
+    }
+    for speaker, name in (manual_labels or {}).items():
+        if speaker in valid_speakers and isinstance(name, str) and name.strip():
+            effective[speaker] = {
+                "display_label": name.strip(),
+                "label_source": LABEL_SOURCE_MANUAL,
+            }
+    return effective
+
+
 async def _run_analysis(
     turns: list[AnalyzeTurn],
     context: str,
@@ -2717,6 +2811,11 @@ async def list_recordings(uid: str = Depends(get_current_uid)):
                 # List carries only the source TYPE (upload/link); the full
                 # source object (incl. the durable url) is on the detail read.
                 "source_type": (m.get("source") or {}).get("type"),
+                # Manual per-speaker labels (human overrides, top rung). Read
+                # straight from meta — no analysis load — so the list stays cheap;
+                # the client overlays these on whatever labels it already has. An
+                # empty map when the user has set none.
+                "manual_speaker_labels": m.get("manual_speaker_labels") or {},
             }
             for m in metas
         ]
@@ -2739,10 +2838,53 @@ async def get_recording(
     # turns + analysis (episodes.py is pure, so the backfill costs microseconds
     # and no recording needs a migration). None when there is no analysis.
     analysis = rec.get("analysis")
+
+    # Manual speaker labels (top rung) — a per-recording human override stored in
+    # meta.json. Applied here as a READ-TIME overlay so it wins over the machine's
+    # resolved labels (incl. the voiceprint "You") on every read, without touching
+    # the stored analysis (a re-analyze must never wipe a human correction).
+    manual = rec.get("manual_speaker_labels") or {}
+    valid_speakers = _recording_speaker_ids(rec)
+    base_labels = (
+        analysis.get("speaker_labels") if isinstance(analysis, dict) else None
+    )
+    effective_labels = _effective_speaker_labels(
+        base_labels, manual, valid_speakers,
+    )
+
+    # Companion P1 — episodes for the day timeline. New analyses store them in
+    # analysis.json; older recordings are segmented on the fly from the stored
+    # turns + analysis (episodes.py is pure, so the backfill costs microseconds
+    # and no recording needs a migration). None when there is no analysis.
     stored_episodes = (
         analysis.get("episodes") if isinstance(analysis, dict) else None
     )
-    if stored_episodes is None:
+    if manual and isinstance(analysis, dict):
+        # A manual label outranks everything — re-derive so episode participants
+        # reflect the override (stored/precomputed episodes were resolved before
+        # it). Feed the effective labels; suppress the enrolled "You" for any
+        # speaker the human has manually relabeled so manual truly wins there too.
+        speaker_identity = analysis.get("speaker_identity")
+        if (
+            isinstance(speaker_identity, dict)
+            and speaker_identity.get("matched_speaker") in manual
+        ):
+            speaker_identity = {**speaker_identity, "matched_speaker": None}
+        stored_episodes = episodes.segment_episodes(
+            rec.get("turns", []),
+            per_turn=analysis.get("per_turn"),
+            speaker_labels=effective_labels,
+            speaker_identity=speaker_identity,
+            title=analysis.get("title"),
+            gap_seconds=EPISODE_GAP_SECONDS,
+        )
+        # Serve a consistent analysis blob: the resolved labels the client reads
+        # from analysis.speaker_labels match the effective ones (and episodes, if
+        # the blob carried them). Shallow-copied — the stored analysis is untouched.
+        analysis = {**analysis, "speaker_labels": effective_labels}
+        if "episodes" in analysis:
+            analysis["episodes"] = stored_episodes
+    elif stored_episodes is None:
         stored_episodes = episodes.episodes_from_analysis(
             rec.get("turns", []), analysis, gap_seconds=EPISODE_GAP_SECONDS,
         )
@@ -2773,6 +2915,13 @@ async def get_recording(
         "analysis": analysis,
         "episodes": stored_episodes,
         "word_metrics": stored_word_metrics,
+        # Effective per-speaker display labels (with sources) AFTER the manual
+        # overlay — the client's single source of truth for provenance ("manual"
+        # vs the inferred rung). Empty only when nothing resolved.
+        "speaker_labels": effective_labels,
+        # Raw manual name map ({speaker_id: name}) so the label editor can prefill;
+        # empty when the user has set none.
+        "manual_speaker_labels": manual,
         # Provenance verbatim (type/url/original_filename) so a future replay
         # feature can stream the user's own hosted copy. Metadata only.
         "source": rec.get("source"),
@@ -2803,6 +2952,68 @@ async def update_recording_title(
     return {
         "id": updated["id"],
         "title": updated.get("title") or updated.get("filename"),
+    }
+
+
+@app.patch("/recordings/{recording_id}/speaker-labels")
+async def update_recording_speaker_labels(
+    recording_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    req: SpeakerLabelsRequest,
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    """Set MANUAL per-recording speaker labels — the human override that sits at
+    the TOP of the display-label ladder (above the voiceprint "You").
+
+    uid-scoped exactly like PATCH …/title: a missing or foreign recording reads as
+    404. Each provided label must target a speaker that actually appears in the
+    recording's turns (an unknown id is a 422). Names are stripped + capped at
+    ``MANUAL_SPEAKER_LABEL_MAX``; an EMPTY string clears that speaker's manual
+    label (restoring the inferred one). MERGE semantics: speakers omitted from the
+    body keep their existing manual label. The labels persist in meta.json so a
+    re-analyze never wipes them. Returns the raw manual map plus the resolved
+    EFFECTIVE labels (with sources) so the client can render provenance at once."""
+    store_backend = _require_store()
+    rec = await store_backend.get_recording(uid, recording_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="Recording not found")
+
+    valid_speakers = _recording_speaker_ids(rec)
+    try:
+        sets, clears = _partition_manual_labels(req.labels, valid_speakers)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"unknown speaker id: {exc.args[0]!r}",
+        )
+
+    # Merge onto whatever manual labels the recording already carries.
+    merged = dict(rec.get("manual_speaker_labels") or {})
+    merged.update(sets)
+    for speaker in clears:
+        merged.pop(speaker, None)
+
+    updated = await store_backend.update_manual_speaker_labels(
+        uid, recording_id, merged,
+    )
+    if updated is None:
+        # Deleted between our read and this write — fail honestly.
+        raise HTTPException(status_code=404, detail="Recording not found")
+
+    manual = updated.get("manual_speaker_labels") or {}
+    analysis = rec.get("analysis")
+    base_labels = (
+        analysis.get("speaker_labels") if isinstance(analysis, dict) else None
+    )
+    return {
+        "id": recording_id,
+        # Raw name map — what the editor UI prefills its fields from.
+        "manual_speaker_labels": manual,
+        # Resolved ladder with the manual overrides on top, each entry carrying
+        # its label_source ("manual" for an override, else the inferred rung).
+        "speaker_labels": _effective_speaker_labels(
+            base_labels, manual, valid_speakers,
+        ),
     }
 
 

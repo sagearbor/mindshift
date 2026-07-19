@@ -123,6 +123,29 @@ class FakeRecordingsStore:
         r["meta"]["title"] = title
         return r["meta"]
 
+    async def update_manual_speaker_labels(self, uid, recording_id, labels):
+        r = self._by_uid.get(uid, {}).get(recording_id)
+        if r is None:
+            return None
+        if labels:
+            r["meta"]["manual_speaker_labels"] = labels
+        else:
+            r["meta"].pop("manual_speaker_labels", None)
+        return r["meta"]
+
+    async def overwrite_analysis(
+        self, uid, recording_id, *, turns, analysis, reanalyzed_at,
+    ):
+        # Mirrors the real store: replace turns + analysis, stamp reanalyzed_at,
+        # and preserve everything else on meta (incl. manual_speaker_labels).
+        r = self._by_uid.get(uid, {}).get(recording_id)
+        if r is None:
+            return None
+        r["meta"]["reanalyzed_at"] = reanalyzed_at
+        r["turns"] = turns
+        r["analysis"] = analysis
+        return r["meta"]
+
     async def delete_recording(self, uid, recording_id):
         return self._by_uid.get(uid, {}).pop(recording_id, None) is not None
 
@@ -496,7 +519,10 @@ async def test_list_and_detail_happy_path(client, store):
     assert set(row) == {
         "id", "created_at", "filename", "title", "media_type",
         "duration_seconds", "has_analysis", "source_type", "storage_note",
+        "manual_speaker_labels",
     }
+    # No manual labels set → empty map.
+    assert row["manual_speaker_labels"] == {}
     # Audio-only WAV upload → no missing derivative → no note.
     assert row["storage_note"] is None
     # No explicit title on store → falls back to the filename.
@@ -517,7 +543,12 @@ async def test_list_and_detail_happy_path(client, store):
         "id", "created_at", "filename", "title", "media_type",
         "duration_seconds", "turns", "analysis", "source", "storage_note",
         "episodes", "word_metrics", "reanalyzed_at",
+        "speaker_labels", "manual_speaker_labels",
     }
+    # No manual labels set → the effective labels are exactly the analysis's
+    # resolved ladder, and the raw manual map is empty.
+    assert d["manual_speaker_labels"] == {}
+    assert d["speaker_labels"] == d["analysis"]["speaker_labels"]
     # Additive fields: transparent word metrics are backfilled on read; a
     # never-re-analyzed recording reports reanalyzed_at=None.
     assert d["reanalyzed_at"] is None
@@ -1113,3 +1144,279 @@ async def test_patch_title_503_when_storage_disabled(client):
         headers={"X-Test-Uid": "test-user"},
     )
     assert resp.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# Manual speaker labels — the human override at the TOP of the label ladder
+# (PATCH /recordings/{id}/speaker-labels). Placeholder names only.
+# ---------------------------------------------------------------------------
+
+def _seed_enrolled_recording(store, uid="test-user"):
+    """Seed a recording whose stored analysis already resolved Speaker A to the
+    voiceprint "You" (label_source enrolled) and Speaker B to a name — the exact
+    setup where a manual override must beat even "You"."""
+    rid = str(uuid.uuid4())
+    turns = [
+        {"speaker": "Speaker A", "text": "Hey there.", "start_time": 0.0,
+         "end_time": 1.0},
+        {"speaker": "Speaker B", "text": "Hello.", "start_time": 1.0,
+         "end_time": 2.0},
+    ]
+    analysis = {
+        "per_turn": [{"heat": 10}, {"heat": 20}],
+        "narrative": "seeded",
+        "title": "Seeded chat",
+        "speaker_labels": {
+            "Speaker A": {"display_label": "You", "label_source": "enrolled"},
+            "Speaker B": {"display_label": "Bob", "label_source": "name"},
+        },
+        "speaker_identity": {
+            "matched_speaker": "Speaker A",
+            "match_threshold": 0.72,
+            "model": "mock-voiceprint-v0",
+            "speakers": {"Speaker A": {"score": 0.9, "is_you": True}},
+        },
+        "episodes": None,  # exercise the re-derive path regardless
+    }
+    meta = {
+        "id": rid,
+        "created_at": "2026-07-01T10:00:00Z",
+        "filename": "seed.m4a",
+        "title": "Seeded chat",
+        "media_type": "audio",
+        "duration_seconds": 2,
+        "size_bytes": len(FAKE_AUDIO_M4A),
+        "stored_variants": ["audio.m4a"],
+        "original_bytes": 999,
+        "original_filename": "seed.m4a",
+        "original_content_type": "audio/mp4",
+        "source": {"type": "upload", "url": None, "original_filename": "seed.m4a"},
+    }
+    store._by_uid.setdefault(uid, {})[rid] = {
+        "meta": meta, "turns": turns, "analysis": analysis,
+        "data": FAKE_AUDIO_M4A, "content_type": "audio/mp4",
+    }
+    return rid
+
+
+@pytest.mark.anyio
+async def test_patch_speaker_labels_returns_effective_shape(client, store):
+    rid = await _store_one(client)
+    resp = await client.patch(
+        f"/recordings/{rid}/speaker-labels",
+        json={"labels": {"Speaker A": "  Alex  "}},  # stripped
+        headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert set(body) == {"id", "manual_speaker_labels", "speaker_labels"}
+    assert body["id"] == rid
+    # Raw map for the editor (stripped); effective map carries the source.
+    assert body["manual_speaker_labels"] == {"Speaker A": "Alex"}
+    assert body["speaker_labels"]["Speaker A"] == {
+        "display_label": "Alex", "label_source": "manual",
+    }
+    # The untouched speaker keeps its inferred rung.
+    assert body["speaker_labels"]["Speaker B"]["label_source"] != "manual"
+
+
+@pytest.mark.anyio
+async def test_manual_labels_reflected_in_list_and_detail(client, store):
+    rid = await _store_one(client)
+    await client.patch(
+        f"/recordings/{rid}/speaker-labels",
+        json={"labels": {"Speaker A": "Alex"}},
+        headers={"X-Test-Uid": "test-user"},
+    )
+    # LIST carries the raw manual map (from meta, no analysis load).
+    lst = await client.get("/recordings", headers={"X-Test-Uid": "test-user"})
+    assert lst.json()["recordings"][0]["manual_speaker_labels"] == {
+        "Speaker A": "Alex",
+    }
+    # DETAIL: effective labels + analysis.speaker_labels + episode participants
+    # all reflect the manual override with source "manual".
+    detail = await client.get(
+        f"/recordings/{rid}", headers={"X-Test-Uid": "test-user"},
+    )
+    d = detail.json()
+    assert d["manual_speaker_labels"] == {"Speaker A": "Alex"}
+    assert d["speaker_labels"]["Speaker A"] == {
+        "display_label": "Alex", "label_source": "manual",
+    }
+    assert d["analysis"]["speaker_labels"]["Speaker A"]["label_source"] == "manual"
+    assert "Alex" in d["episodes"][0]["participants"]
+
+
+@pytest.mark.anyio
+async def test_manual_label_overrides_enrolled_you(client, store):
+    """The crux: a human label beats the voiceprint "You" (enrolled), and the
+    episode participants show the human name, not "You"."""
+    rid = _seed_enrolled_recording(store)
+    resp = await client.patch(
+        f"/recordings/{rid}/speaker-labels",
+        json={"labels": {"Speaker A": "Alex"}},
+        headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 200, resp.text
+    detail = (await client.get(
+        f"/recordings/{rid}", headers={"X-Test-Uid": "test-user"},
+    )).json()
+    labels = detail["speaker_labels"]
+    assert labels["Speaker A"] == {"display_label": "Alex", "label_source": "manual"}
+    # The other speaker keeps its inferred name rung.
+    assert labels["Speaker B"] == {"display_label": "Bob", "label_source": "name"}
+    # Episode participants: "Alex" replaces "You"; no stale "You" remains.
+    participants = detail["episodes"][0]["participants"]
+    assert "Alex" in participants
+    assert "You" not in participants
+
+
+@pytest.mark.anyio
+async def test_clear_manual_label_restores_inferred(client, store):
+    rid = _seed_enrolled_recording(store)
+    # Set, then clear with an empty string.
+    await client.patch(
+        f"/recordings/{rid}/speaker-labels",
+        json={"labels": {"Speaker A": "Alex"}},
+        headers={"X-Test-Uid": "test-user"},
+    )
+    resp = await client.patch(
+        f"/recordings/{rid}/speaker-labels",
+        json={"labels": {"Speaker A": ""}},  # empty = clear
+        headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["manual_speaker_labels"] == {}
+    # The inferred "You" is restored on the detail read.
+    detail = (await client.get(
+        f"/recordings/{rid}", headers={"X-Test-Uid": "test-user"},
+    )).json()
+    assert detail["manual_speaker_labels"] == {}
+    assert detail["speaker_labels"]["Speaker A"] == {
+        "display_label": "You", "label_source": "enrolled",
+    }
+
+
+@pytest.mark.anyio
+async def test_manual_labels_merge_semantics(client, store):
+    """Two PATCHes accumulate — the second does not wipe the first."""
+    rid = _seed_enrolled_recording(store)
+    await client.patch(
+        f"/recordings/{rid}/speaker-labels",
+        json={"labels": {"Speaker A": "Alex"}},
+        headers={"X-Test-Uid": "test-user"},
+    )
+    resp = await client.patch(
+        f"/recordings/{rid}/speaker-labels",
+        json={"labels": {"Speaker B": "Sam"}},
+        headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.json()["manual_speaker_labels"] == {
+        "Speaker A": "Alex", "Speaker B": "Sam",
+    }
+
+
+@pytest.mark.anyio
+async def test_manual_label_name_capped(client, store):
+    rid = await _store_one(client)
+    resp = await client.patch(
+        f"/recordings/{rid}/speaker-labels",
+        json={"labels": {"Speaker A": "N" * 100}},
+        headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 200
+    assert len(resp.json()["manual_speaker_labels"]["Speaker A"]) == 40
+
+
+@pytest.mark.anyio
+async def test_manual_label_unknown_speaker_422(client, store):
+    rid = await _store_one(client)
+    resp = await client.patch(
+        f"/recordings/{rid}/speaker-labels",
+        json={"labels": {"Speaker Z": "Ghost"}},
+        headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 422
+    assert "Speaker Z" in resp.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_manual_labels_404_for_unknown_recording(client, store):
+    rid = str(uuid.uuid4())
+    resp = await client.patch(
+        f"/recordings/{rid}/speaker-labels",
+        json={"labels": {"Speaker A": "Alex"}},
+        headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_manual_labels_cross_uid_404(client, store):
+    """user-b cannot label user-a's recording — plain 404, and user-a's manual
+    labels are untouched."""
+    rid = _seed_enrolled_recording(store, uid="user-a")
+    resp = await client.patch(
+        f"/recordings/{rid}/speaker-labels",
+        json={"labels": {"Speaker A": "Hijack"}},
+        headers={"X-Test-Uid": "user-b"},
+    )
+    assert resp.status_code == 404
+    meta = await store.get_recording("user-a", rid)
+    assert "manual_speaker_labels" not in meta
+
+
+@pytest.mark.anyio
+async def test_manual_labels_503_when_storage_disabled(client):
+    rid = str(uuid.uuid4())
+    resp = await client.patch(
+        f"/recordings/{rid}/speaker-labels",
+        json={"labels": {"Speaker A": "Alex"}},
+        headers={"X-Test-Uid": "test-user"},
+    )
+    assert resp.status_code == 503
+
+
+@pytest.mark.anyio
+async def test_reanalyze_preserves_manual_labels(client, store):
+    """Manual labels live in meta.json, so a re-analyze (which overwrites
+    turns.json + analysis.json via overwrite_analysis) must NOT wipe them."""
+    rid = _seed_enrolled_recording(store)
+    await client.patch(
+        f"/recordings/{rid}/speaker-labels",
+        json={"labels": {"Speaker A": "Alex"}},
+        headers={"X-Test-Uid": "test-user"},
+    )
+    # Simulate the reanalyze persistence step exactly as the job's _persist does:
+    # a brand-new analysis blob overwrites the old one (its speaker_labels resolve
+    # Speaker A back to the machine's "You"), turns replaced, reanalyzed_at stamped.
+    fresh_analysis = {
+        "per_turn": [{"heat": 5}, {"heat": 5}],
+        "narrative": "re-run",
+        "title": "Seeded chat",
+        "speaker_labels": {
+            "Speaker A": {"display_label": "You", "label_source": "enrolled"},
+            "Speaker B": {"display_label": "Bob", "label_source": "name"},
+        },
+        "speaker_identity": {"matched_speaker": "Speaker A"},
+    }
+    fresh_turns = [
+        {"speaker": "Speaker A", "text": "Hey there.", "start_time": 0.0,
+         "end_time": 1.0},
+        {"speaker": "Speaker B", "text": "Hello.", "start_time": 1.0,
+         "end_time": 2.0},
+    ]
+    updated = await store.overwrite_analysis(
+        "test-user", rid, turns=fresh_turns, analysis=fresh_analysis,
+        reanalyzed_at="2026-07-19T12:00:00Z",
+    )
+    # The manual label survived on meta (the crux of the meta-vs-analysis split).
+    assert updated["manual_speaker_labels"] == {"Speaker A": "Alex"}
+    # And it is still applied on the detail read AFTER the re-analysis.
+    detail = (await client.get(
+        f"/recordings/{rid}", headers={"X-Test-Uid": "test-user"},
+    )).json()
+    assert detail["reanalyzed_at"] == "2026-07-19T12:00:00Z"
+    assert detail["speaker_labels"]["Speaker A"] == {
+        "display_label": "Alex", "label_source": "manual",
+    }

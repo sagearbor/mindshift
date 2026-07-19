@@ -242,6 +242,88 @@ def test_ladder_enrolled_ignores_speaker_not_in_transcript():
 
 
 # ---------------------------------------------------------------------------
+# Manual labels — the TOP rung, a read-time overlay (_effective_speaker_labels)
+# and the write-body partitioner (_partition_manual_labels). Pure, key-free.
+# ---------------------------------------------------------------------------
+
+def _base(**pairs):
+    """A stored analysis.speaker_labels map: {id: (label, source)} → dicts."""
+    return {
+        sp: {"display_label": lbl, "label_source": src}
+        for sp, (lbl, src) in pairs.items()
+    }
+
+
+def test_effective_overlay_beats_enrolled_name_and_voice():
+    base = _base(
+        A=("You", main.LABEL_SOURCE_ENROLLED),
+        B=("Bob", main.LABEL_SOURCE_NAME),
+        C=("Deeper voice", main.LABEL_SOURCE_VOICE),
+    )
+    eff = main._effective_speaker_labels(
+        base, {"A": "Alex", "B": "Robert", "C": "Sam"}, {"A", "B", "C"},
+    )
+    # A human label outranks EVERY inferred rung, including the voiceprint "You".
+    assert eff["A"] == {"display_label": "Alex", "label_source": "manual"}
+    assert eff["B"] == {"display_label": "Robert", "label_source": "manual"}
+    assert eff["C"] == {"display_label": "Sam", "label_source": "manual"}
+
+
+def test_effective_leaves_unlabeled_speakers_on_inferred_rung():
+    base = _base(
+        A=("You", main.LABEL_SOURCE_ENROLLED),
+        B=("Bob", main.LABEL_SOURCE_NAME),
+    )
+    eff = main._effective_speaker_labels(base, {"A": "Alex"}, {"A", "B"})
+    assert eff["A"]["label_source"] == "manual"
+    # B keeps its inferred name rung untouched.
+    assert eff["B"] == {"display_label": "Bob", "label_source": "name"}
+
+
+def test_effective_no_manual_is_base_copy():
+    base = _base(A=("Speaker A", main.LABEL_SOURCE_GENERIC))
+    eff = main._effective_speaker_labels(base, {}, {"A"})
+    assert eff == base
+    assert eff is not base  # shallow-copied — never mutates the stored analysis
+    eff["A"]["display_label"] = "mutated"
+    assert base["A"]["display_label"] == "Speaker A"
+
+
+def test_effective_ignores_manual_for_absent_speaker():
+    base = _base(A=("Speaker A", main.LABEL_SOURCE_GENERIC))
+    # A manual label for a speaker not in the turns is defensively ignored.
+    eff = main._effective_speaker_labels(base, {"Ghost": "Nobody"}, {"A"})
+    assert set(eff) == {"A"}
+
+
+def test_effective_blank_manual_does_not_override():
+    base = _base(A=("Bob", main.LABEL_SOURCE_NAME))
+    eff = main._effective_speaker_labels(base, {"A": "   "}, {"A"})
+    # A blank value is not an override — the inferred label stands.
+    assert eff["A"] == {"display_label": "Bob", "label_source": "name"}
+
+
+def test_partition_splits_sets_and_clears():
+    sets, clears = main._partition_manual_labels(
+        {"A": "  Alex  ", "B": "", "C": "   "}, {"A", "B", "C"},
+    )
+    assert sets == {"A": "Alex"}          # stripped
+    assert clears == {"B", "C"}           # empty / whitespace = clear
+
+
+def test_partition_caps_name_length():
+    long = "N" * (main.MANUAL_SPEAKER_LABEL_MAX + 25)
+    sets, _ = main._partition_manual_labels({"A": long}, {"A"})
+    assert len(sets["A"]) == main.MANUAL_SPEAKER_LABEL_MAX
+
+
+def test_partition_rejects_unknown_speaker():
+    with pytest.raises(ValueError) as exc:
+        main._partition_manual_labels({"Ghost": "Nobody"}, {"A", "B"})
+    assert exc.value.args[0] == "Ghost"
+
+
+# ---------------------------------------------------------------------------
 # Endpoint layer: title + speaker_labels over /analyze/upload
 # ---------------------------------------------------------------------------
 
