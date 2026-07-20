@@ -9,7 +9,40 @@ import {
   ActivityIndicator,
 } from "react-native";
 
+import Constants from "expo-constants";
+import * as Application from "expo-application";
+
 import { forgetVoice, getVoiceProfile } from "../api/client";
+import { useAuthStore } from "../store/authStore";
+import { useOtaStatus, type OtaStatus } from "../utils/otaUpdate";
+import { formatDateTime } from "../utils/dateDisplay";
+
+/** Bare host (no scheme/path) of the configured backend, for the About row. */
+function backendHost(): string {
+  const raw = process.env.EXPO_PUBLIC_API_URL || "";
+  if (!raw) return "localhost:8000 (default)";
+  return raw.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+}
+
+/**
+ * One honest sentence describing the running JS bundle's OTA state. We never
+ * imply an update channel exists when it doesn't: a store build without the
+ * expo-updates module (or web) reads "Store build (no OTA yet)".
+ */
+function otaSummary(ota: OtaStatus): string {
+  if (!ota.supported) return "Store build (no OTA yet)";
+  if (ota.isEmbeddedLaunch) {
+    return ota.channel
+      ? `Store build · ${ota.channel} channel (no OTA applied yet)`
+      : "Store build (no OTA applied yet)";
+  }
+  const when = ota.createdAt ? formatDateTime(ota.createdAt.toISOString()) : null;
+  const parts: string[] = [];
+  if (when) parts.push(`Updated ${when}`);
+  if (ota.channel) parts.push(`${ota.channel} channel`);
+  const base = parts.length > 0 ? parts.join(" · ") : "OTA update applied";
+  return ota.errored ? `${base} · last check failed` : base;
+}
 
 /**
  * Everything that doesn't fit the two home modes lives behind the small
@@ -22,6 +55,32 @@ interface AdvancedScreenProps {
   onSignOut: () => void;
 }
 
+/** A single copy-friendly label/value row in the About card. The value is
+ *  `selectable` so testers can long-press to copy (versions, email, backend). */
+function AboutRow({
+  testID,
+  label,
+  value,
+  last,
+}: {
+  testID: string;
+  label: string;
+  value: string;
+  last?: boolean;
+}) {
+  return (
+    <View
+      testID={testID}
+      style={[styles.aboutRow, last ? styles.aboutRowLast : null]}
+    >
+      <Text style={styles.aboutLabel}>{label}</Text>
+      <Text style={styles.aboutValue} selectable>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
 export default function AdvancedScreen({
   onBack,
   onOpenDashboard,
@@ -30,6 +89,20 @@ export default function AdvancedScreen({
   // "Forget my voice" — only shown once we confirm a voiceprint exists to delete.
   const [enrolled, setEnrolled] = useState(false);
   const [forgetting, setForgetting] = useState(false);
+
+  // --- About section facts (all honest; a missing value reads "unknown"). ---
+  const user = useAuthStore((s) => s.user);
+  const ota = useOtaStatus();
+  const appVersion =
+    Application.nativeApplicationVersion ??
+    Constants.expoConfig?.version ??
+    "unknown";
+  const buildVersion =
+    Application.nativeBuildVersion ??
+    (Constants.expoConfig?.android?.versionCode != null
+      ? String(Constants.expoConfig.android.versionCode)
+      : "unknown");
+  const accountEmail = user?.email ?? "No email on this account";
 
   useEffect(() => {
     let cancelled = false;
@@ -126,6 +199,28 @@ export default function AdvancedScreen({
         </TouchableOpacity>
       ) : null}
 
+      <Text style={styles.sectionHeading}>About</Text>
+      <View style={styles.aboutCard} testID="about-section">
+        <AboutRow testID="about-version" label="App version" value={appVersion} />
+        <AboutRow testID="about-build" label="Build" value={buildVersion} />
+        <AboutRow
+          testID="about-update"
+          label="Update"
+          value={otaSummary(ota)}
+        />
+        <AboutRow
+          testID="about-account"
+          label="Signed in as"
+          value={accountEmail}
+        />
+        <AboutRow
+          testID="about-backend"
+          label="Backend"
+          value={backendHost()}
+          last
+        />
+      </View>
+
       <TouchableOpacity
         testID="advanced-sign-out"
         accessibilityRole="button"
@@ -190,6 +285,40 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+  },
+  sectionHeading: {
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    color: "#9CA3AF",
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  aboutCard: {
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 18,
+  },
+  aboutRow: {
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F1F3",
+  },
+  aboutRowLast: {
+    borderBottomWidth: 0,
+  },
+  aboutLabel: {
+    fontSize: 12.5,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+  aboutValue: {
+    marginTop: 3,
+    fontSize: 15,
+    color: "#1F2937",
   },
   signOutRow: {
     marginTop: 16,

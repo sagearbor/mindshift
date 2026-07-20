@@ -344,5 +344,66 @@ jest.mock("expo-secure-store", () => ({
   deleteItemAsync: jest.fn().mockResolvedValue(undefined),
 }));
 
+// Mock expo-updates (EAS Update / OTA). The default here models a normal STORE
+// build with no OTA applied yet: updates disabled at rest, running the embedded
+// bundle, nothing pending. Tests that exercise the "update ready" banner or the
+// "OTA applied" About line mock ../src/utils/otaUpdate (or useUpdates) directly.
+jest.mock("expo-updates", () => ({
+  __esModule: true,
+  isEnabled: false,
+  isEmbeddedLaunch: true,
+  channel: null,
+  createdAt: null,
+  runtimeVersion: "1.14.0",
+  updateId: null,
+  reloadAsync: jest.fn().mockResolvedValue(undefined),
+  checkForUpdateAsync: jest
+    .fn()
+    .mockResolvedValue({ isAvailable: false, manifest: null }),
+  fetchUpdateAsync: jest
+    .fn()
+    .mockResolvedValue({ isNew: false, manifest: null }),
+  useUpdates: () => ({
+    currentlyRunning: {
+      updateId: undefined,
+      channel: undefined,
+      createdAt: undefined,
+      isEmbeddedLaunch: true,
+      isEmergencyLaunch: false,
+      emergencyLaunchReason: null,
+      runtimeVersion: "1.14.0",
+    },
+    isUpdateAvailable: false,
+    isUpdatePending: false,
+    isChecking: false,
+    isDownloading: false,
+    availableUpdate: undefined,
+    checkError: undefined,
+    downloadError: undefined,
+  }),
+}));
+
+// Mock expo-application (native app/build identity for the About section).
+jest.mock("expo-application", () => ({
+  __esModule: true,
+  nativeApplicationVersion: "1.14.0",
+  nativeBuildVersion: "29",
+  applicationName: "MindShift",
+  applicationId: "com.sagearbor.mindshift.app",
+}));
+
+// Mock expo-constants so the About section reads a deterministic manifest even
+// when expo-application returns null (e.g. web). No src module used Constants
+// before the About section, so this global default is safe.
+jest.mock("expo-constants", () => ({
+  __esModule: true,
+  default: {
+    expoConfig: {
+      version: "1.14.0",
+      android: { versionCode: 29 },
+    },
+  },
+}));
+
 // Mock fetch globally
 global.fetch = jest.fn();
