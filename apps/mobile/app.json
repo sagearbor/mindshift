@@ -5,6 +5,14 @@
     "version": "1.14.0",
     "scheme": "mindshift",
     "orientation": "portrait",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/c810a855-13ba-48bc-91f5-74f13e7b34f6",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 5000
+    },
     "platforms": [
       "ios",
       "android",

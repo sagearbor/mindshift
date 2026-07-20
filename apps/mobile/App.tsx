@@ -20,6 +20,7 @@ import RecordingsScreen from "./src/screens/RecordingsScreen";
 import YourDayScreen from "./src/screens/YourDayScreen";
 import LiveCoachScreen from "./src/screens/LiveCoachScreen";
 import LoginScreen from "./src/screens/LoginScreen";
+import UpdateBanner from "./src/components/UpdateBanner";
 import { useAuthStore, initAuth } from "./src/store/authStore";
 import { useSessionStore } from "./src/store/sessionStore";
 import { useRecorderStore } from "./src/store/recorderStore";
@@ -317,7 +318,12 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <SafeAreaView style={styles.container}>{renderScreen()}</SafeAreaView>
+      <SafeAreaView style={styles.container}>
+        {/* Sits above every screen: a downloaded OTA update surfaces a subtle
+            "restart to apply" bar here, and stays out of the way otherwise. */}
+        <UpdateBanner />
+        {renderScreen()}
+      </SafeAreaView>
     </SafeAreaProvider>
   );
 }
