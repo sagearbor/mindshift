@@ -410,6 +410,34 @@ class RecordingsStore:
         blobs = list(self._bucket.list_blobs(prefix=prefix))
         if not blobs:
             return False
+        # Tear down any share grants FIRST so no recipient's reverse index is left
+        # dangling once the recording's own objects are gone (deleting the
+        # recording must kill recipient access — spec §4). meta.json carries the
+        # recipient list; best-effort per grant so one failure never blocks the
+        # actual delete below.
+        meta_blob = next(
+            (b for b in blobs if b.name == prefix + "meta.json"), None,
+        )
+        if meta_blob is not None:
+            try:
+                meta = json.loads(meta_blob.download_as_bytes())
+            except Exception:  # noqa: BLE001 — a corrupt meta must not block delete
+                meta = {}
+            for share in (meta.get("shares") or []):
+                recipient_uid = share.get("uid")
+                if not recipient_uid:
+                    continue
+                index_blob = self._bucket.blob(
+                    self._share_blob_name(recipient_uid, uid, recording_id)
+                )
+                try:
+                    if index_blob.exists():
+                        index_blob.delete()
+                except Exception:  # noqa: BLE001 — best-effort reverse-index cleanup
+                    logger.warning(
+                        "Failed to delete share index for recipient %s",
+                        recipient_uid,
+                    )
         for blob in blobs:
             blob.delete()
         return True
@@ -693,6 +721,193 @@ class RecordingsStore:
             json.dumps(analysis), content_type="application/json",
         )
         return meta
+
+    # -- account-to-account sharing ---------------------------------------
+    # A recording's OWNER can grant another account READ-ONLY access to it. The
+    # grant is stored in TWO places so both directions are a cheap lookup:
+    #
+    #   1. On the owner's meta.json — ``shares: [{uid, email, created_at}]`` — so
+    #      the owner's own list/detail can show who a recording is shared with
+    #      (and revoke removes the entry). ``email`` is the RECIPIENT's email.
+    #   2. A reverse-index object per grant, so the RECIPIENT's "shared with me"
+    #      list is one prefix scan (never a full walk of every owner's bucket)::
+    #
+    #          shared/{recipient_uid}/{owner_uid}:{recording_id}.json
+    #
+    #      whose body carries ``{owner_uid, recording_id, owner_email, created_at}``
+    #      — enough to render the recipient's row ("from linda@…") and to resolve
+    #      the owning uid for a read WITHOUT trusting anything from the request.
+    #
+    # A recording_id is a uuid4 (no ``:``) so ``{owner_uid}:{recording_id}``
+    # round-trips unambiguously on the recording-id suffix. Deleting a recording
+    # or revoking a grant removes BOTH sides, so a stale grant can never outlive the
+    # thing it points at.
+    @staticmethod
+    def _shares_prefix(recipient_uid: str) -> str:
+        return f"shared/{recipient_uid}/"
+
+    @staticmethod
+    def _share_blob_name(
+        recipient_uid: str, owner_uid: str, recording_id: str,
+    ) -> str:
+        return f"shared/{recipient_uid}/{owner_uid}:{recording_id}.json"
+
+    async def add_share(
+        self,
+        owner_uid: str,
+        recording_id: str,
+        *,
+        recipient_uid: str,
+        recipient_email: str,
+        owner_email: str | None,
+    ) -> "list[dict] | None":
+        """Grant ``recipient_uid`` read-only access to the owner's recording.
+
+        Writes the reverse-index object AND appends ``{uid, email, created_at}`` to
+        the owner meta.json ``shares`` list (idempotent — re-sharing to the same
+        recipient refreshes the entry rather than duplicating it). Returns the
+        updated shares list, or ``None`` when the recording does not exist for the
+        owner (→ 404). The caller has already resolved + validated the recipient."""
+        return await asyncio.to_thread(
+            self._add_share_sync, owner_uid, recording_id,
+            recipient_uid, recipient_email, owner_email,
+        )
+
+    def _add_share_sync(
+        self, owner_uid, recording_id, recipient_uid, recipient_email, owner_email,
+    ) -> "list[dict] | None":
+        prefix = self._prefix(owner_uid, recording_id)
+        meta_blob = self._bucket.blob(prefix + "meta.json")
+        if not meta_blob.exists():
+            return None
+        meta = json.loads(meta_blob.download_as_bytes())
+        created_at = datetime.now(timezone.utc).isoformat()
+        shares = [
+            s for s in (meta.get("shares") or [])
+            if s.get("uid") != recipient_uid
+        ]
+        shares.append({
+            "uid": recipient_uid,
+            "email": recipient_email,
+            "created_at": created_at,
+        })
+        meta["shares"] = shares
+        meta_blob.upload_from_string(
+            json.dumps(meta), content_type="application/json",
+        )
+        self._bucket.blob(
+            self._share_blob_name(recipient_uid, owner_uid, recording_id)
+        ).upload_from_string(
+            json.dumps({
+                "owner_uid": owner_uid,
+                "recording_id": recording_id,
+                "owner_email": owner_email,
+                "created_at": created_at,
+            }),
+            content_type="application/json",
+        )
+        return shares
+
+    async def remove_share(
+        self, owner_uid: str, recording_id: str, recipient_uid: str,
+    ) -> bool:
+        """Revoke a recipient's access. Removes the meta.json ``shares`` entry AND
+        the reverse-index object. Returns ``False`` when the recording does not
+        exist for the owner (→ 404); ``True`` otherwise (idempotent — revoking a
+        grant that was never present still succeeds, deleting nothing)."""
+        return await asyncio.to_thread(
+            self._remove_share_sync, owner_uid, recording_id, recipient_uid,
+        )
+
+    def _remove_share_sync(self, owner_uid, recording_id, recipient_uid) -> bool:
+        prefix = self._prefix(owner_uid, recording_id)
+        meta_blob = self._bucket.blob(prefix + "meta.json")
+        if not meta_blob.exists():
+            return False
+        meta = json.loads(meta_blob.download_as_bytes())
+        shares = [
+            s for s in (meta.get("shares") or [])
+            if s.get("uid") != recipient_uid
+        ]
+        meta["shares"] = shares
+        meta_blob.upload_from_string(
+            json.dumps(meta), content_type="application/json",
+        )
+        index_blob = self._bucket.blob(
+            self._share_blob_name(recipient_uid, owner_uid, recording_id)
+        )
+        if index_blob.exists():
+            index_blob.delete()
+        return True
+
+    async def find_share(
+        self, recipient_uid: str, recording_id: str,
+    ) -> "dict | None":
+        """The reverse-index grant for ``recording_id`` shared with
+        ``recipient_uid`` (``{owner_uid, owner_email, ...}``), or ``None`` when no
+        such live grant exists.
+
+        This is the per-request access check for every recipient read/write: it is
+        a fresh GCS read, so a revoked grant (its index object deleted) is denied
+        IMMEDIATELY on the next request. A recipient never supplies the owner uid —
+        it is recovered here from the trusted index — so one user can never reach
+        another's recording by guessing an id."""
+        return await asyncio.to_thread(
+            self._find_share_sync, recipient_uid, recording_id,
+        )
+
+    def _find_share_sync(self, recipient_uid, recording_id) -> "dict | None":
+        # A recipient's grants are few; scan their own prefix and match the id
+        # suffix. (Owner uid is unknown to the caller, so we cannot address the
+        # object directly — but the scan is scoped to THIS recipient.)
+        suffix = f":{recording_id}.json"
+        prefix = self._shares_prefix(recipient_uid)
+        for blob in self._bucket.list_blobs(prefix=prefix):
+            if blob.name.endswith(suffix):
+                return json.loads(blob.download_as_bytes())
+        return None
+
+    async def list_shared_with(self, recipient_uid: str) -> list[dict]:
+        """Every recording shared WITH ``recipient_uid`` as summary metas (owner's
+        meta + ``owner_email`` + ``shared: True``), newest-share first.
+
+        One prefix scan of the recipient's reverse index, then a meta.json read per
+        grant. A grant whose recording has since been deleted is skipped honestly
+        (never a phantom row)."""
+        return await asyncio.to_thread(self._list_shared_with_sync, recipient_uid)
+
+    def _list_shared_with_sync(self, recipient_uid: str) -> list[dict]:
+        prefix = self._shares_prefix(recipient_uid)
+        grants = []
+        for blob in self._bucket.list_blobs(prefix=prefix):
+            if not blob.name.endswith(".json"):
+                continue
+            grants.append(json.loads(blob.download_as_bytes()))
+        out: list[dict] = []
+        for grant in grants:
+            owner_uid = grant.get("owner_uid")
+            recording_id = grant.get("recording_id")
+            if not owner_uid or not recording_id:
+                continue
+            rec_prefix = self._prefix(owner_uid, recording_id)
+            by_name = {}
+            for blob in self._bucket.list_blobs(prefix=rec_prefix):
+                by_name[blob.name[len(rec_prefix):]] = blob
+            meta_blob = by_name.get("meta.json")
+            if meta_blob is None:
+                continue  # recording deleted since the grant — skip honestly
+            meta = json.loads(meta_blob.download_as_bytes())
+            meta["has_analysis"] = "analysis.json" in by_name
+            meta["owner_email"] = grant.get("owner_email")
+            meta["shared"] = True
+            # The recipient must NEVER see who else the owner shared with.
+            meta.pop("shares", None)
+            meta["_shared_at"] = grant.get("created_at", "")
+            out.append(meta)
+        out.sort(key=lambda m: m.get("_shared_at", ""), reverse=True)
+        for m in out:
+            m.pop("_shared_at", None)
+        return out
 
     # -- voiceprints -------------------------------------------------------
     # A user's enrolled voice signature lives in its OWN namespace, deliberately

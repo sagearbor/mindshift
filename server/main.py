@@ -58,7 +58,12 @@ from audio_ingest import (
     transcribe_prerecorded,
 )
 from audio_pipeline import UUID_PATTERN, audio_ws_endpoint
-from auth import get_current_uid, init_firebase
+from auth import (
+    get_current_uid,
+    init_firebase,
+    resolve_email_by_uid,
+    resolve_uid_by_email,
+)
 from llm_client import LLMClient
 from models.relationship import (
     EdgeOut,
@@ -629,6 +634,14 @@ class SpeakerLabelsRequest(BaseModel):
     # per-name strip + length cap is applied at the endpoint against the
     # recording's actual speakers (an unknown speaker id is a 422).
     labels: dict[str, str] = Field(default_factory=dict)
+
+
+class RecordingShareRequest(BaseModel):
+    # The email of the MindShift account to grant READ-ONLY access to a recording
+    # (POST /recordings/{id}/shares). The server resolves it to a Firebase uid; a
+    # loose length bound only — real existence/format is decided by the Firebase
+    # lookup, not a brittle client-side regex.
+    email: str = Field(min_length=3, max_length=320)
 
 
 # --- Submit-and-poll analysis jobs (POST /analyze/link/jobs,
@@ -2786,39 +2799,88 @@ def _require_store() -> "recordings_store.RecordingsStore":
     return store_backend
 
 
+_SHARED_READ_ONLY_DETAIL = (
+    "this recording was shared with you as read-only — only its owner can change "
+    "or delete it"
+)
+
+
+async def _deny_write(
+    store_backend: "recordings_store.RecordingsStore",
+    uid: str,
+    recording_id: str,
+) -> None:
+    """Raise the honest error for a WRITE the caller isn't allowed to make on a
+    recording that isn't theirs: 403 (with a plain read-only detail) when the
+    recording was SHARED with them — they can see it, so pretending it's absent
+    would be dishonest — else 404 (a truly foreign/missing recording, never
+    confirmed). Every owner-only write endpoint calls this in place of a bare 404
+    once its own-scoped operation reports "not mine"."""
+    if await store_backend.find_share(uid, recording_id) is not None:
+        raise HTTPException(status_code=403, detail=_SHARED_READ_ONLY_DETAIL)
+    raise HTTPException(status_code=404, detail="Recording not found")
+
+
+def _recording_summary(m: dict) -> dict:
+    """The list-row projection of a recording's meta — shared by the owner's own
+    recordings and the ``shared_with_me`` section so both render identically."""
+    return {
+        "id": m["id"],
+        "created_at": m["created_at"],
+        "filename": m["filename"],
+        # Display name; older recordings written before titles fall back
+        # to the filename so the client always has one to render.
+        "title": m.get("title") or m["filename"],
+        "media_type": m["media_type"],
+        "duration_seconds": m.get("duration_seconds"),
+        "has_analysis": m.get("has_analysis", False),
+        # Honest reason a derivative is absent (e.g. video transcode timed
+        # out → audio-only). Surfaced in the LIST so a video link that
+        # landed as audio is explained here, not silently dropped.
+        "storage_note": m.get("storage_note"),
+        # List carries only the source TYPE (upload/link); the full
+        # source object (incl. the durable url) is on the detail read.
+        "source_type": (m.get("source") or {}).get("type"),
+        # Manual per-speaker labels (human overrides, top rung). Read
+        # straight from meta — no analysis load — so the list stays cheap;
+        # the client overlays these on whatever labels it already has. An
+        # empty map when the user has set none.
+        "manual_speaker_labels": m.get("manual_speaker_labels") or {},
+    }
+
+
 @app.get("/recordings")
 async def list_recordings(uid: str = Depends(get_current_uid)):
-    """List the caller's stored recordings, newest first. 503 when storage is
-    disabled. Scoped to ``uid`` — another user's recordings are never listed."""
+    """List the caller's stored recordings, newest first, PLUS an additive
+    ``shared_with_me`` section of recordings other accounts have shared with them.
+
+    503 when storage is disabled. The owner's own rows are scoped to ``uid`` and
+    each carries its ``shares`` (who it's been shared with, so the owner can see +
+    revoke). ``shared_with_me`` rows carry the owner's ``owner_email`` and
+    ``shared: true`` and are read-only. The section is ADDITIVE — an older client
+    simply ignores the extra key — and empty when nothing is shared with the user."""
     store_backend = _require_store()
     metas = await store_backend.list_recordings(uid)
+    shared = await store_backend.list_shared_with(uid)
     return {
         "recordings": [
             {
-                "id": m["id"],
-                "created_at": m["created_at"],
-                "filename": m["filename"],
-                # Display name; older recordings written before titles fall back
-                # to the filename so the client always has one to render.
-                "title": m.get("title") or m["filename"],
-                "media_type": m["media_type"],
-                "duration_seconds": m.get("duration_seconds"),
-                "has_analysis": m.get("has_analysis", False),
-                # Honest reason a derivative is absent (e.g. video transcode timed
-                # out → audio-only). Surfaced in the LIST so a video link that
-                # landed as audio is explained here, not silently dropped.
-                "storage_note": m.get("storage_note"),
-                # List carries only the source TYPE (upload/link); the full
-                # source object (incl. the durable url) is on the detail read.
-                "source_type": (m.get("source") or {}).get("type"),
-                # Manual per-speaker labels (human overrides, top rung). Read
-                # straight from meta — no analysis load — so the list stays cheap;
-                # the client overlays these on whatever labels it already has. An
-                # empty map when the user has set none.
-                "manual_speaker_labels": m.get("manual_speaker_labels") or {},
+                **_recording_summary(m),
+                # Who this recording is shared WITH (owner view) — recipient uid +
+                # email + when. Empty list when shared with nobody.
+                "shares": m.get("shares") or [],
             }
             for m in metas
-        ]
+        ],
+        "shared_with_me": [
+            {
+                **_recording_summary(m),
+                # Whose recording this is (the owner's email) + the read-only flag.
+                "owner_email": m.get("owner_email"),
+                "shared": True,
+            }
+            for m in shared
+        ],
     }
 
 
@@ -2827,12 +2889,29 @@ async def get_recording(
     recording_id: Annotated[str, Path(pattern=UUID_PATTERN)],
     uid: str = Depends(get_current_uid),
 ):
-    """One recording's transcript + full analysis. 404 when it does not exist
-    for THIS user (a foreign recording reads as 404, never confirming it)."""
+    """One recording's transcript + full analysis. Readable by its OWNER or by an
+    account it has been SHARED with (read-only). 404 when it is neither the
+    caller's nor shared with them (a foreign recording reads as 404, never
+    confirming it)."""
     store_backend = _require_store()
     rec = await store_backend.get_recording(uid, recording_id)
+    # Shared-with-me fallback: not the caller's own — is there a live grant? If so
+    # read the OWNER's recording (uid recovered from the trusted reverse index,
+    # never the request) and mark it shared/read-only.
+    shared = False
+    owner_email = None
     if rec is None:
-        raise HTTPException(status_code=404, detail="Recording not found")
+        grant = await store_backend.find_share(uid, recording_id)
+        if grant is None:
+            raise HTTPException(status_code=404, detail="Recording not found")
+        rec = await store_backend.get_recording(
+            grant["owner_uid"], recording_id,
+        )
+        if rec is None:
+            # Deleted between the grant lookup and this read — honest 404.
+            raise HTTPException(status_code=404, detail="Recording not found")
+        shared = True
+        owner_email = grant.get("owner_email")
     # Companion P1 — episodes for the day timeline. New analyses store them in
     # analysis.json; older recordings are segmented on the fly from the stored
     # turns + analysis (episodes.py is pure, so the backfill costs microseconds
@@ -2925,6 +3004,16 @@ async def get_recording(
         # Provenance verbatim (type/url/original_filename) so a future replay
         # feature can stream the user's own hosted copy. Metadata only.
         "source": rec.get("source"),
+        # True when the caller is a RECIPIENT (read-only), not the owner — the
+        # client hides every owner-only affordance (rename/share/re-analyze/attach
+        # source/name-speakers/enroll) in this mode.
+        "shared": shared,
+        # The owner's email when this is a shared recording ("from linda@…"); null
+        # for the caller's own recordings.
+        "owner_email": owner_email,
+        # Who the OWNER has shared this recording with (uid + email + created_at).
+        # Only exposed to the owner — a recipient never sees co-recipients.
+        "shares": [] if shared else (rec.get("shares") or []),
     }
 
 
@@ -2948,7 +3037,9 @@ async def update_recording_title(
         raise HTTPException(status_code=422, detail="title must not be empty")
     updated = await store_backend.update_title(uid, recording_id, title)
     if updated is None:
-        raise HTTPException(status_code=404, detail="Recording not found")
+        # Not the caller's recording: 403 if it was shared with them (read-only),
+        # else 404. A recipient cannot rename someone else's recording.
+        await _deny_write(store_backend, uid, recording_id)
     return {
         "id": updated["id"],
         "title": updated.get("title") or updated.get("filename"),
@@ -2976,7 +3067,8 @@ async def update_recording_speaker_labels(
     store_backend = _require_store()
     rec = await store_backend.get_recording(uid, recording_id)
     if rec is None:
-        raise HTTPException(status_code=404, detail="Recording not found")
+        # 403 for a recipient (read-only), 404 for a truly foreign recording.
+        await _deny_write(store_backend, uid, recording_id)
 
     valid_speakers = _recording_speaker_ids(rec)
     try:
@@ -3027,6 +3119,81 @@ async def delete_recording(
     store_backend = _require_store()
     deleted = await store_backend.delete_recording(uid, recording_id)
     if not deleted:
+        # 403 for a recipient (read-only), 404 for a truly foreign recording — a
+        # recipient can never delete a recording that was shared with them.
+        await _deny_write(store_backend, uid, recording_id)
+    return Response(status_code=204)
+
+
+# Firebase uid character bound for the revoke path param — a defensive cap, not a
+# format claim (uids are opaque). Keeps a pathological value out of a GCS key.
+_UID_MAX = 128
+
+
+@app.post("/recordings/{recording_id}/shares")
+async def share_recording(
+    recording_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    req: RecordingShareRequest,
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    """Grant another MindShift account READ-ONLY access to the caller's recording.
+
+    Owner-only: the caller must own ``recording_id`` (a foreign/missing recording
+    reads as 404, never confirming it) — checked FIRST so a non-owner can't use this
+    route to probe which emails have accounts. The ``email`` is resolved to a
+    Firebase uid server-side; an absent account is the one honest signal we must
+    give (404 ``no MindShift account with that email``), and the endpoint is
+    rate-limited like the other mutating routes so it can't be turned into an email
+    enumerator. Sharing with yourself is a 400. On success the grant is persisted
+    (owner meta ``shares`` + the recipient's reverse index) and the updated
+    ``shares`` list is returned. Re-sharing to the same recipient is idempotent."""
+    store_backend = _require_store()
+    email = req.email.strip().lower()
+    if "@" not in email or email.startswith("@") or email.endswith("@"):
+        raise HTTPException(status_code=422, detail="enter a valid email address")
+    # Owner check BEFORE any email lookup — a non-owner learns nothing here.
+    if not await store_backend.recording_exists(uid, recording_id):
+        raise HTTPException(status_code=404, detail="Recording not found")
+    recipient_uid = await asyncio.to_thread(resolve_uid_by_email, email)
+    if recipient_uid is None:
+        raise HTTPException(
+            status_code=404, detail="no MindShift account with that email",
+        )
+    if recipient_uid == uid:
+        raise HTTPException(
+            status_code=400,
+            detail="you can't share a recording with yourself",
+        )
+    owner_email = await asyncio.to_thread(resolve_email_by_uid, uid)
+    shares = await store_backend.add_share(
+        uid, recording_id,
+        recipient_uid=recipient_uid,
+        recipient_email=email,
+        owner_email=owner_email,
+    )
+    if shares is None:
+        # Raced with a delete between the ownership check and the write.
+        raise HTTPException(status_code=404, detail="Recording not found")
+    return {"shares": shares}
+
+
+@app.delete(
+    "/recordings/{recording_id}/shares/{recipient_uid}", status_code=204,
+)
+async def revoke_recording_share(
+    recording_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    recipient_uid: Annotated[str, Path(min_length=1, max_length=_UID_MAX)],
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    """Revoke a recipient's read-only access (owner-only). Removes BOTH sides of the
+    grant (owner meta + reverse index), so the recipient's next request is denied
+    immediately. 404 when the recording isn't the caller's; idempotent otherwise —
+    revoking a grant that was never present still 204s (nothing to remove)."""
+    store_backend = _require_store()
+    existed = await store_backend.remove_share(uid, recording_id, recipient_uid)
+    if not existed:
         raise HTTPException(status_code=404, detail="Recording not found")
     return Response(status_code=204)
 
@@ -3039,14 +3206,26 @@ async def get_recording_media_url(
 ):
     """Mint a short-lived, absolute media URL a player can hit WITHOUT an
     Authorization header (media elements cannot send one). The token binds the
-    caller's uid + this recording + an expiry under the per-process secret; a
+    OWNER's uid + this recording + an expiry under the per-process secret; a
     process restart invalidates outstanding links (acceptable for 15-min URLs).
-    404 when the recording does not exist for this user."""
+
+    Readable by the owner OR a shared recipient. For a recipient the token is bound
+    to the OWNER's uid (so /media reads the owner's blobs) — but it is minted ONLY
+    after this per-request grant check passes, so a REVOKED recipient can no longer
+    obtain a fresh link (revocation is immediate for new requests; an already-minted
+    token still expires within the 15-minute TTL, the same short window the owner's
+    own links carry). 404 when the recording is neither the caller's nor shared."""
     store_backend = _require_store()
+    owner_uid = uid
     if not await store_backend.recording_exists(uid, recording_id):
-        raise HTTPException(status_code=404, detail="Recording not found")
+        grant = await store_backend.find_share(uid, recording_id)
+        if grant is None or not await store_backend.recording_exists(
+            grant["owner_uid"], recording_id,
+        ):
+            raise HTTPException(status_code=404, detail="Recording not found")
+        owner_uid = grant["owner_uid"]
     expiry_ts = int(time.time()) + MEDIA_TOKEN_TTL_SECONDS
-    token = _make_media_token(uid, recording_id, expiry_ts)
+    token = _make_media_token(owner_uid, recording_id, expiry_ts)
     base = _request_base_url(request)
     return {
         "url": f"{base}/recordings/{recording_id}/media?tk={token}",
@@ -3075,11 +3254,21 @@ async def get_recording_source_url(
     A resolution failure — revoked link, changed Photos page format, dead host —
     is surfaced honestly (the resolver's 422/413, or a 502 for an unexpected
     upstream error) so the client falls back to the stored derivative rather than
-    seeing a broken player."""
+    seeing a broken player.
+
+    Readable by the owner OR a shared recipient (read-only HD replay of the owner's
+    linked original) — the owner uid is recovered from the trusted grant, never the
+    request."""
     store_backend = _require_store()
     rec = await store_backend.get_recording(uid, recording_id)
     if rec is None:
-        raise HTTPException(status_code=404, detail="Recording not found")
+        grant = await store_backend.find_share(uid, recording_id)
+        if grant is not None:
+            rec = await store_backend.get_recording(
+                grant["owner_uid"], recording_id,
+            )
+        if rec is None:
+            raise HTTPException(status_code=404, detail="Recording not found")
     source = rec.get("source") or {}
     url = source.get("url")
     if source.get("type") != "link" or not url:
@@ -3144,7 +3333,8 @@ async def update_recording_source(
     store_backend = _require_store()
     rec = await store_backend.get_recording(uid, recording_id)
     if rec is None:
-        raise HTTPException(status_code=404, detail="Recording not found")
+        # 403 for a recipient (read-only), 404 for a truly foreign recording.
+        await _deny_write(store_backend, uid, recording_id)
     try:
         # resolve_media_url is blocking (httpx.Client for the Photos re-parse) —
         # keep it off the event loop, matching /analyze/link and source_url. We
@@ -3812,7 +4002,9 @@ async def reanalyze_recording(
     # here (to make the 422 honest) and handed straight to the job.
     rec = await store_backend.get_recording(uid, recording_id)
     if rec is None:
-        raise HTTPException(status_code=404, detail="Recording not found")
+        # 403 for a recipient (read-only), 404 for a truly foreign recording — a
+        # recipient can't spend a re-analysis on a recording they don't own.
+        await _deny_write(store_backend, uid, recording_id)
     audio_bytes = await store_backend.get_audio_bytes(uid, recording_id)
     if not audio_bytes:
         raise HTTPException(

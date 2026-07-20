@@ -149,6 +149,15 @@ class FakeRecordingsStore:
     async def delete_recording(self, uid, recording_id):
         return self._by_uid.get(uid, {}).pop(recording_id, None) is not None
 
+    # Sharing interface — this fake is for the non-sharing recordings tests, so it
+    # has no grants: find_share always misses and shared_with_me is empty. (The
+    # dedicated sharing suite lives in test_share_recordings.py.)
+    async def find_share(self, recipient_uid, recording_id):
+        return None
+
+    async def list_shared_with(self, recipient_uid):
+        return []
+
     async def open_media_stream(self, uid, recording_id, range_header):
         r = self._by_uid.get(uid, {}).get(recording_id)
         if r is None:
@@ -519,10 +528,13 @@ async def test_list_and_detail_happy_path(client, store):
     assert set(row) == {
         "id", "created_at", "filename", "title", "media_type",
         "duration_seconds", "has_analysis", "source_type", "storage_note",
-        "manual_speaker_labels",
+        "manual_speaker_labels", "shares",
     }
     # No manual labels set → empty map.
     assert row["manual_speaker_labels"] == {}
+    # Not shared with anyone → empty shares list, and no shared_with_me section.
+    assert row["shares"] == []
+    assert lst.json()["shared_with_me"] == []
     # Audio-only WAV upload → no missing derivative → no note.
     assert row["storage_note"] is None
     # No explicit title on store → falls back to the filename.
@@ -544,7 +556,12 @@ async def test_list_and_detail_happy_path(client, store):
         "duration_seconds", "turns", "analysis", "source", "storage_note",
         "episodes", "word_metrics", "reanalyzed_at",
         "speaker_labels", "manual_speaker_labels",
+        "shared", "owner_email", "shares",
     }
+    # Owner's own recording → not shared, no owner_email, empty shares.
+    assert d["shared"] is False
+    assert d["owner_email"] is None
+    assert d["shares"] == []
     # No manual labels set → the effective labels are exactly the analysis's
     # resolved ladder, and the raw manual map is empty.
     assert d["manual_speaker_labels"] == {}

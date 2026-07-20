@@ -119,6 +119,13 @@ class FakeReanalyzeStore:
             "audio": audio,
         }
 
+    # -- sharing (no grants in the reanalyze suite) ------------------------
+    async def find_share(self, recipient_uid, recording_id):
+        return None
+
+    async def list_shared_with(self, recipient_uid):
+        return []
+
     # -- recording reads ---------------------------------------------------
     async def get_recording(self, uid, recording_id):
         r = self._recordings.get(uid, {}).get(recording_id)
