@@ -80,6 +80,48 @@ def verify_id_token(token: str) -> str:
     return decoded["uid"]
 
 
+def resolve_uid_by_email(email: str) -> str | None:
+    """Resolve a MindShift account's Firebase uid from its email, or ``None`` when
+    no account has that email.
+
+    Used by the account-to-account recording share flow (POST
+    /recordings/{id}/shares): the owner names a recipient by email, which only the
+    server can turn into the trusted uid the grant is stored against. Firebase
+    Admin's ``get_user_by_email`` is the authoritative lookup. A genuinely absent
+    account (``UserNotFoundError``) returns ``None`` — the ONE honest "no such
+    account" signal the endpoint needs; every OTHER failure (unusable SDK, transient
+    error) is re-raised so the caller reports a 5xx rather than a false "not found"
+    that would let a real email be denied. The blocking SDK call is the caller's to
+    offload (``asyncio.to_thread``); this stays a thin sync wrapper like
+    :func:`verify_id_token`."""
+    from firebase_admin import auth as fb_auth
+
+    init_firebase()
+    try:
+        user = fb_auth.get_user_by_email(email)
+    except fb_auth.UserNotFoundError:
+        return None
+    return user.uid
+
+
+def resolve_email_by_uid(uid: str) -> str | None:
+    """Resolve an account's email from its Firebase uid, or ``None`` when unknown.
+
+    Used when recording a share grant so the RECIPIENT's list can show who a
+    recording came from ("from linda@…") — the owner's email, looked up once at
+    share time from the trusted owner uid. A missing user/email returns ``None``
+    (the recipient simply sees no from-address rather than a fabricated one);
+    unexpected SDK failures propagate."""
+    from firebase_admin import auth as fb_auth
+
+    init_firebase()
+    try:
+        user = fb_auth.get_user(uid)
+    except fb_auth.UserNotFoundError:
+        return None
+    return getattr(user, "email", None)
+
+
 async def get_current_uid(authorization: str = Header(default="")) -> str:
     """FastAPI dependency: the verified Firebase uid from ``Authorization``.
 

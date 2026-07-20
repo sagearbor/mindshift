@@ -3,15 +3,26 @@ import renderer, { act, ReactTestInstance } from "react-test-renderer";
 import RecordingsScreen, {
   formatParticipants,
 } from "../src/screens/RecordingsScreen";
-import { listRecordings, deleteRecording } from "../src/api/client";
-import type { RecordingSummary } from "../src/api/client";
+import { listRecordingsAndShared, deleteRecording } from "../src/api/client";
+import type {
+  RecordingSummary,
+  SharedRecordingSummary,
+} from "../src/api/client";
 
 jest.mock("../src/api/client", () => ({
-  listRecordings: jest.fn(),
+  listRecordingsAndShared: jest.fn(),
   deleteRecording: jest.fn(),
 }));
-const mockList = listRecordings as jest.Mock;
+const mockList = listRecordingsAndShared as jest.Mock;
 const mockDelete = deleteRecording as jest.Mock;
+
+/** Resolve the list call with owned + (optional) shared recordings. */
+function resolveList(
+  own: RecordingSummary[],
+  shared: SharedRecordingSummary[] = [],
+) {
+  mockList.mockResolvedValueOnce({ recordings: own, sharedWithMe: shared });
+}
 
 const recordings: RecordingSummary[] = [
   {
@@ -32,6 +43,20 @@ const recordings: RecordingSummary[] = [
   },
 ];
 
+const shared: SharedRecordingSummary[] = [
+  {
+    id: "s1",
+    created_at: "2026-07-03T10:00:00Z",
+    filename: "moms-call.m4a",
+    title: "Sunday call",
+    media_type: "audio",
+    duration_seconds: 240,
+    has_analysis: true,
+    owner_email: "linda@example.com",
+    shared: true,
+  },
+];
+
 function queryId(comp: renderer.ReactTestRenderer, id: string): ReactTestInstance | null {
   const found = comp.root.findAll((n) => n.props?.testID === id);
   return found.length > 0 ? found[0] : null;
@@ -44,7 +69,7 @@ beforeEach(() => {
 
 describe("RecordingsScreen", () => {
   it("lists recordings and opens the replay on tap", async () => {
-    mockList.mockResolvedValueOnce(recordings);
+    resolveList(recordings);
     const onSelect = jest.fn();
 
     let comp!: renderer.ReactTestRenderer;
@@ -65,7 +90,7 @@ describe("RecordingsScreen", () => {
   });
 
   it("shows the honest empty state", async () => {
-    mockList.mockResolvedValueOnce([]);
+    resolveList([]);
     let comp!: renderer.ReactTestRenderer;
     await act(async () => {
       comp = renderer.create(
@@ -95,7 +120,7 @@ describe("RecordingsScreen", () => {
   });
 
   it("deletes a recording through the inline confirm flow", async () => {
-    mockList.mockResolvedValueOnce(recordings);
+    resolveList(recordings);
     mockDelete.mockResolvedValueOnce(undefined);
 
     let comp!: renderer.ReactTestRenderer;
@@ -125,7 +150,7 @@ describe("RecordingsScreen", () => {
   });
 
   it("cancels the delete without calling the API", async () => {
-    mockList.mockResolvedValueOnce(recordings);
+    resolveList(recordings);
     let comp!: renderer.ReactTestRenderer;
     await act(async () => {
       comp = renderer.create(
@@ -143,7 +168,7 @@ describe("RecordingsScreen", () => {
   });
 
   it("shows named participants from the list's manual_speaker_labels, and nothing when none", async () => {
-    mockList.mockResolvedValueOnce([
+    resolveList([
       {
         ...recordings[0],
         manual_speaker_labels: { "Speaker A": "Linda", "Speaker B": "Sage" },
@@ -164,6 +189,61 @@ describe("RecordingsScreen", () => {
     expect(JSON.stringify(parts!.props.children)).toContain("Linda & Sage");
     // The unnamed recording shows no participant line.
     expect(queryId(comp, "recording-participants-r2")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("renders the Shared with me section and opens a shared recording in replay", async () => {
+    resolveList(recordings, shared);
+    const onSelect = jest.fn();
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(
+        <RecordingsScreen onSelectRecording={onSelect} onBack={() => {}} />,
+      );
+    });
+    await act(async () => {});
+
+    expect(queryId(comp, "shared-with-me-section")).toBeTruthy();
+    // The from-line shows the owner's email, verbatim.
+    const from = queryId(comp, "shared-from-s1");
+    expect(from).toBeTruthy();
+    expect(JSON.stringify(from!.props.children)).toContain("linda@example.com");
+    // Tapping opens the normal replay for that id (read-only handled in Replay).
+    act(() => comp.root.find((n) => n.props?.testID === "shared-open-s1").props.onPress());
+    expect(onSelect).toHaveBeenCalledWith("s1");
+    act(() => comp.unmount());
+  });
+
+  it("shows only the shared section when the user owns nothing", async () => {
+    resolveList([], shared);
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(
+        <RecordingsScreen onSelectRecording={() => {}} onBack={() => {}} />,
+      );
+    });
+    await act(async () => {});
+
+    // Not the empty state — there IS something to show.
+    expect(queryId(comp, "recordings-empty")).toBeNull();
+    expect(queryId(comp, "shared-with-me-section")).toBeTruthy();
+    expect(queryId(comp, "shared-open-s1")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("defensively renders no shared section when the server omits it", async () => {
+    // Older server: sharedWithMe is [] (client already normalized absent → []).
+    resolveList(recordings, []);
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(
+        <RecordingsScreen onSelectRecording={() => {}} onBack={() => {}} />,
+      );
+    });
+    await act(async () => {});
+
+    expect(queryId(comp, "shared-with-me-section")).toBeNull();
+    expect(queryId(comp, "recording-r1")).toBeTruthy();
     act(() => comp.unmount());
   });
 });

@@ -7,8 +7,8 @@ import {
   ActivityIndicator,
   StyleSheet,
 } from "react-native";
-import { listRecordings, deleteRecording } from "../api/client";
-import type { RecordingSummary } from "../api/client";
+import { listRecordingsAndShared, deleteRecording } from "../api/client";
+import type { RecordingSummary, SharedRecordingSummary } from "../api/client";
 import { formatTime } from "../components/MediaPlayer";
 import { formatDateTime } from "../utils/dateDisplay";
 
@@ -66,6 +66,9 @@ export default function RecordingsScreen({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [recordings, setRecordings] = useState<RecordingSummary[]>([]);
+  // Recordings other accounts have shared with the user (read-only). Additive —
+  // an older server omits the section, leaving this empty (nothing rendered).
+  const [sharedWithMe, setSharedWithMe] = useState<SharedRecordingSummary[]>([]);
   // The row currently awaiting delete confirmation (id), and any inline delete
   // error keyed by id.
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
@@ -87,8 +90,12 @@ export default function RecordingsScreen({
     setLoading(true);
     setError(null);
     try {
-      const list = await listRecordings();
-      if (mountedRef.current) setRecordings(list);
+      const { recordings: own, sharedWithMe: shared } =
+        await listRecordingsAndShared();
+      if (mountedRef.current) {
+        setRecordings(own);
+        setSharedWithMe(shared);
+      }
     } catch (e) {
       if (mountedRef.current) {
         setError(
@@ -159,18 +166,71 @@ export default function RecordingsScreen({
         </View>
       )}
 
-      {!loading && !error && recordings.length === 0 && (
-        <View style={styles.centered} testID="recordings-empty">
-          <Text style={styles.emptyText}>No stored recordings yet.</Text>
-        </View>
-      )}
+      {!loading &&
+        !error &&
+        recordings.length === 0 &&
+        sharedWithMe.length === 0 && (
+          <View style={styles.centered} testID="recordings-empty">
+            <Text style={styles.emptyText}>No stored recordings yet.</Text>
+          </View>
+        )}
 
-      {!loading && !error && recordings.length > 0 && (
+      {!loading &&
+        !error &&
+        (recordings.length > 0 || sharedWithMe.length > 0) && (
         <ScrollView
           style={styles.flex}
           contentContainerStyle={styles.content}
           testID="recordings-list"
         >
+          {/* "Shared with me" — recordings other accounts shared with the user
+              (read-only). Each opens the normal replay, which renders in read-only
+              mode. No delete affordance (the recipient can't delete). */}
+          {sharedWithMe.length > 0 && (
+            <View testID="shared-with-me-section">
+              <Text style={styles.sectionHeader}>Shared with me</Text>
+              {sharedWithMe.map((rec) => (
+                <TouchableOpacity
+                  key={`shared-${rec.id}`}
+                  style={styles.card}
+                  testID={`shared-open-${rec.id}`}
+                  onPress={() => onSelectRecording(rec.id)}
+                >
+                  <View style={styles.cardMain}>
+                    <Text style={styles.typeIcon}>
+                      {rec.media_type === "video" ? "🎬" : "🎧"}
+                    </Text>
+                    <View style={styles.cardBody}>
+                      <Text style={styles.filename} numberOfLines={1}>
+                        {rec.title || rec.filename}
+                      </Text>
+                      <Text style={styles.meta}>
+                        {formatDateTime(rec.created_at) ?? ""}
+                        {rec.duration_seconds !== null
+                          ? ` · ${formatTime(rec.duration_seconds)}`
+                          : ""}
+                        {rec.has_analysis ? " · analyzed" : ""}
+                      </Text>
+                      {/* Who it's from — honest, never fabricated. */}
+                      {rec.owner_email ? (
+                        <Text
+                          style={styles.fromLine}
+                          numberOfLines={1}
+                          testID={`shared-from-${rec.id}`}
+                        >
+                          from {rec.owner_email}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              ))}
+              {recordings.length > 0 && (
+                <Text style={styles.sectionHeader}>Your recordings</Text>
+              )}
+            </View>
+          )}
+
           {recordings.map((rec) => (
             <View
               key={rec.id}
@@ -331,6 +391,21 @@ const styles = StyleSheet.create({
   filename: { fontSize: 15, fontWeight: "700", color: INK },
   meta: { fontSize: 12.5, color: MUTED, marginTop: 2 },
   participants: {
+    fontSize: 12.5,
+    color: PRIMARY,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  sectionHeader: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: MUTED,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  fromLine: {
     fontSize: 12.5,
     color: PRIMARY,
     fontWeight: "600",

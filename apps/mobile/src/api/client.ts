@@ -925,6 +925,16 @@ export async function postCounterfactual(
 
 export type MediaType = "audio" | "video";
 
+/** One grant on a recording the caller OWNS: the account it's shared with. The
+ *  owner sees these (to show + revoke); a recipient never sees co-recipients.
+ *  `uid` is the recipient's Firebase uid (used to revoke); `email` is what to
+ *  display ("shared with sage@…"). Present only on newer servers. */
+export interface RecordingShare {
+  uid: string;
+  email: string;
+  created_at: string;
+}
+
 /** One entry in GET /recordings — enough to render a list row without fetching
  *  the full recording. */
 export interface RecordingSummary {
@@ -947,6 +957,27 @@ export interface RecordingSummary {
   // so a row can show its named participants ("Linda & Sage"). Absent on servers
   // that don't support manual labels yet; an empty object when none were set.
   manual_speaker_labels?: Record<string, string>;
+  // Accounts this OWNED recording is shared with (present on newer servers; an
+  // empty array when shared with nobody). Absent ⇒ the server predates sharing.
+  shares?: RecordingShare[];
+}
+
+/** A row in the `shared_with_me` section of GET /recordings: someone else's
+ *  recording shared TO the caller (read-only). Same summary shape as an owned
+ *  recording plus who it's from. */
+export interface SharedRecordingSummary extends RecordingSummary {
+  // The owner's email, shown as "from linda@…". Null when the server couldn't
+  // resolve it.
+  owner_email?: string | null;
+  shared: true;
+}
+
+/** GET /recordings, both sections. `recordings` are the caller's OWN; `sharedWithMe`
+ *  are recordings other accounts shared with them (read-only). `sharedWithMe` is
+ *  always an array — empty on older servers that omit the section entirely. */
+export interface RecordingsListResult {
+  recordings: RecordingSummary[];
+  sharedWithMe: SharedRecordingSummary[];
 }
 
 /** One stored turn. Unlike a pasted transcript, a recorded conversation always
@@ -986,6 +1017,16 @@ export interface RecordingDetail extends RecordingSummary {
   // source of truth for the raw text. Absent on servers without manual-label
   // support (the naming affordance hides itself then); an empty object when none.
   manual_speaker_labels?: Record<string, string>;
+  // True when the caller is a RECIPIENT viewing a recording shared with them
+  // (read-only) — the UI hides every owner-only affordance in this mode. Absent
+  // or false ⇒ the caller owns it. Older servers omit it (treated as owned).
+  shared?: boolean;
+  // The owner's email when `shared` — shown as "from linda@…"; null/absent for
+  // the caller's own recordings.
+  owner_email?: string | null;
+  // Who the OWNER has shared this recording with (owner view only; a recipient
+  // gets an empty list). Absent on servers that predate sharing.
+  shares?: RecordingShare[];
 }
 
 /** GET /recordings/{id}/media_url — a short-lived signed URL for playback. */
@@ -1037,6 +1078,98 @@ export async function listRecordings(): Promise<RecordingSummary[]> {
   }
   const data = (await res.json()) as { recordings?: RecordingSummary[] };
   return Array.isArray(data.recordings) ? data.recordings : [];
+}
+
+/**
+ * GET /recordings — both the caller's OWN recordings and the `shared_with_me`
+ * section (recordings other accounts shared with them, read-only) in one call.
+ * Defensive against older servers: a missing `shared_with_me` key yields an empty
+ * array (no section rendered), and a missing `recordings` key yields an empty list.
+ * Throws `API error: <status>` on any non-OK (401/503) like {@link listRecordings}.
+ */
+export async function listRecordingsAndShared(): Promise<RecordingsListResult> {
+  const res = await fetch(`${API_URL}/recordings`, {
+    method: "GET",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+  const data = (await res.json()) as {
+    recordings?: RecordingSummary[];
+    shared_with_me?: SharedRecordingSummary[];
+  };
+  return {
+    recordings: Array.isArray(data.recordings) ? data.recordings : [],
+    sharedWithMe: Array.isArray(data.shared_with_me) ? data.shared_with_me : [],
+  };
+}
+
+/**
+ * POST /recordings/{id}/shares — grant another account READ-ONLY access to a
+ * recording the caller owns (body `{ email }`). Returns the updated share list.
+ *
+ * The server writes user-facing messages for the expected failures — a 404 when
+ * no account has that email ("no MindShift account with that email"), a 400 for a
+ * self-share, a 422 for a malformed email — so we surface the server's `detail`
+ * VERBATIM on the thrown error (as `.detail`) while `.status` carries the code.
+ * Callers render `.detail` when present and fall back to a mapped message.
+ */
+export async function postShare(
+  id: string,
+  email: string,
+): Promise<{ shares: RecordingShare[] }> {
+  const res = await fetch(
+    `${API_URL}/recordings/${encodeURIComponent(id)}/shares`,
+    {
+      method: "POST",
+      headers: await authHeaders(),
+      body: JSON.stringify({ email }),
+    },
+  );
+  if (!res.ok) {
+    let detail: string | undefined;
+    try {
+      const j = (await res.json()) as { detail?: unknown };
+      if (typeof j?.detail === "string") detail = j.detail;
+    } catch {
+      // Non-JSON body — fall back to the status-only message.
+    }
+    const err = new Error(detail ?? `API error: ${res.status}`) as Error & {
+      status?: number;
+      detail?: string;
+    };
+    err.status = res.status;
+    err.detail = detail;
+    throw err;
+  }
+  return (await res.json()) as { shares: RecordingShare[] };
+}
+
+/**
+ * DELETE /recordings/{id}/shares/{recipientUid} — revoke a recipient's read-only
+ * access to a recording the caller owns. Resolves on the 204 the server returns
+ * (idempotent server-side); throws `API error: <status>` on any non-OK
+ * (401/404/503) with `.status` attached so the caller can keep the row and
+ * surface the failure honestly.
+ */
+export async function deleteShare(
+  id: string,
+  recipientUid: string,
+): Promise<void> {
+  const res = await fetch(
+    `${API_URL}/recordings/${encodeURIComponent(id)}/shares/${encodeURIComponent(
+      recipientUid,
+    )}`,
+    { method: "DELETE", headers: await authHeaders() },
+  );
+  if (!res.ok) {
+    const err = new Error(`API error: ${res.status}`) as Error & {
+      status?: number;
+    };
+    err.status = res.status;
+    throw err;
+  }
 }
 
 /**

@@ -27,6 +27,7 @@ import type {
 } from "../api/client";
 import HeatChart from "../components/HeatChart";
 import MediaPlayer, { MediaPlayerHandle } from "../components/MediaPlayer";
+import RecordingShareManager from "../components/RecordingShareManager";
 import SpeakerEnrollment from "../components/SpeakerEnrollment";
 import SpeakerNaming from "../components/SpeakerNaming";
 import PulseDot from "../components/PulseDot";
@@ -552,6 +553,11 @@ export default function ReplayScreen({
   const isVideo = detail?.media_type === "video";
   // Only a link-sourced recording has a user-hosted original to stream in HD.
   const hdAvailable = detail?.source?.type === "link";
+  // Read-only mode: a recording SHARED with the caller by another account. Every
+  // owner-only affordance (rename, share, re-analyze, attach source, name
+  // speakers, "This is me" enrollment) is hidden — playback, charts, and word
+  // patterns remain. An older server omits `shared`, so this is false ⇒ owned.
+  const isShared = detail?.shared === true;
 
   // The labels every surface renders. `labelOverride` (from the latest save) wins;
   // otherwise the stored analysis labels.
@@ -622,6 +628,17 @@ export default function ReplayScreen({
               <Text style={styles.renameCancel}>Cancel</Text>
             </TouchableOpacity>
           </View>
+        ) : isShared ? (
+          // Read-only: the title is not editable for a shared recording.
+          <View style={styles.titleWrap}>
+            <Text
+              style={styles.headerTitle}
+              numberOfLines={1}
+              testID="replay-title-readonly"
+            >
+              {currentTitle}
+            </Text>
+          </View>
         ) : (
           <TouchableOpacity
             testID="replay-title"
@@ -644,6 +661,15 @@ export default function ReplayScreen({
       {detail && formatDateTime(detail.created_at) && (
         <Text style={styles.recordedAt} testID="replay-recorded-at">
           {formatDateTime(detail.created_at)}
+        </Text>
+      )}
+
+      {/* Read-only shared recording — say who it's from, plainly. */}
+      {isShared && (
+        <Text style={styles.sharedFrom} testID="replay-shared-from">
+          {detail?.owner_email
+            ? `Shared with you by ${detail.owner_email} · read-only`
+            : "Shared with you · read-only"}
         </Text>
       )}
 
@@ -684,7 +710,9 @@ export default function ReplayScreen({
         >
           {/* Attach / replace HD source. When the recording isn't yet
               link-sourced we offer "Attach HD source"; when it already is, a
-              quieter "Replace source link". Both reveal the same input. */}
+              quieter "Replace source link". Both reveal the same input.
+              Owner-only — hidden in read-only shared mode. */}
+          {!isShared && (
           <View style={styles.attachSection}>
             {!attachOpen ? (
               detail.source?.type === "link" ? (
@@ -766,6 +794,7 @@ export default function ReplayScreen({
               </View>
             )}
           </View>
+          )}
 
           {/* HD badge: streaming the user's own linked source. */}
           {hdMode && (
@@ -897,7 +926,9 @@ export default function ReplayScreen({
           {/* Re-analyze with the latest engine. Reuses the job-progress card
               pattern; on completion the recording is refetched so the fresh
               analysis renders. Honest errors (e.g. a 422 when no audio was
-              kept) surface below instead of a silent no-op. */}
+              kept) surface below instead of a silent no-op. Owner-only — a
+              recipient can't spend a re-analysis on someone else's recording. */}
+          {!isShared && (
           <View style={styles.reanalyzeSection}>
             {!reanalyzing ? (
               <TouchableOpacity
@@ -1006,13 +1037,25 @@ export default function ReplayScreen({
               </View>
             )}
           </View>
+          )}
+
+          {/* Share this recording with another account (owner-only, read-only
+              grant). Hidden in read-only shared mode. Seeded with the owner's
+              current shares from the detail read. */}
+          {!isShared && (
+            <RecordingShareManager
+              recordingId={recordingId}
+              initialShares={detail.shares ?? []}
+            />
+          )}
 
           {/* "Name the speakers" — manually label who each diarized speaker is,
               for THIS recording (the human override, top of the label ladder).
               Distinct from "This is me" below: naming labels this one recording;
               enrollment teaches your voice for every recording. Self-hides on an
-              older server (no `manual_speaker_labels` field / a save 404s). */}
-          {turns.length > 0 && namingSupported ? (
+              older server (no `manual_speaker_labels` field / a save 404s), and
+              is owner-only — a recipient can't relabel someone else's recording. */}
+          {!isShared && turns.length > 0 && namingSupported ? (
             <SpeakerNaming
               recordingId={recordingId}
               turns={turns}
@@ -1025,8 +1068,9 @@ export default function ReplayScreen({
 
           {/* "This is me" — enroll a speaker's voice so they're labeled "You"
               in future recordings. Self-hides when the server can't do voice ID
-              or there are no diarized turns to choose from. */}
-          {turns.length > 0 ? (
+              or there are no diarized turns to choose from. Owner-only:
+              enrolling from someone else's shared recording is meaningless. */}
+          {!isShared && turns.length > 0 ? (
             <SpeakerEnrollment
               recordingId={recordingId}
               turns={turns}
@@ -1098,6 +1142,14 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingHorizontal: 16,
     paddingTop: 8,
+  },
+  sharedFrom: {
+    fontSize: 12.5,
+    color: PRIMARY,
+    fontWeight: "600",
+    textAlign: "center",
+    paddingHorizontal: 16,
+    paddingTop: 6,
   },
   photosHdNote: {
     fontSize: 12.5,

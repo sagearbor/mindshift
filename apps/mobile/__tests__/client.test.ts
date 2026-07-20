@@ -11,6 +11,9 @@ import {
   postCounterfactual,
   empathyTone,
   listRecordings,
+  listRecordingsAndShared,
+  postShare,
+  deleteShare,
   getRecording,
   getRecordingMediaUrl,
   getRecordingSourceUrl,
@@ -721,6 +724,97 @@ describe("listRecordings", () => {
     await listRecordings();
     const [, init] = mockFetch.mock.calls[0];
     expect(init.headers).not.toHaveProperty("Authorization");
+  });
+});
+
+describe("listRecordingsAndShared", () => {
+  it("unwraps both recordings and shared_with_me", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        recordings: [{ id: "r1" }],
+        shared_with_me: [{ id: "s1", shared: true, owner_email: "l@x.com" }],
+      }),
+    });
+    const result = await listRecordingsAndShared();
+    expect(result.recordings).toEqual([{ id: "r1" }]);
+    expect(result.sharedWithMe).toEqual([
+      { id: "s1", shared: true, owner_email: "l@x.com" },
+    ]);
+  });
+
+  it("defensively yields empty arrays when the server omits the sections", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({}) });
+    expect(await listRecordingsAndShared()).toEqual({
+      recordings: [],
+      sharedWithMe: [],
+    });
+  });
+
+  it("throws an honest error on 401", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 401 });
+    await expect(listRecordingsAndShared()).rejects.toThrow("API error: 401");
+  });
+});
+
+describe("postShare", () => {
+  it("POSTs the email and returns the updated shares", async () => {
+    setTokenProvider(async () => "tok");
+    const shares = [
+      { uid: "u-sage", email: "sage@example.com", created_at: "2026-07-03T00:00:00Z" },
+    ];
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ shares }) });
+
+    const result = await postShare("r1", "sage@example.com");
+
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toMatch(/\/recordings\/r1\/shares$/);
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ email: "sage@example.com" });
+    expect(result.shares).toEqual(shares);
+  });
+
+  it("surfaces the server's no-account detail verbatim on 404", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      json: async () => ({ detail: "no MindShift account with that email" }),
+    });
+    await expect(postShare("r1", "ghost@example.com")).rejects.toMatchObject({
+      message: "no MindShift account with that email",
+      status: 404,
+      detail: "no MindShift account with that email",
+    });
+  });
+
+  it("carries the 400 self-share detail and status", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      json: async () => ({ detail: "you can't share a recording with yourself" }),
+    });
+    await expect(postShare("r1", "me@example.com")).rejects.toMatchObject({
+      status: 400,
+      detail: "you can't share a recording with yourself",
+    });
+  });
+});
+
+describe("deleteShare", () => {
+  it("DELETEs the recipient's grant and resolves on 204", async () => {
+    setTokenProvider(async () => "tok");
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 204 });
+    await expect(deleteShare("r1", "u-sage")).resolves.toBeUndefined();
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toMatch(/\/recordings\/r1\/shares\/u-sage$/);
+    expect(init.method).toBe("DELETE");
+  });
+
+  it("throws with .status on a non-OK", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+    await expect(deleteShare("r1", "u-sage")).rejects.toMatchObject({
+      status: 404,
+    });
   });
 });
 

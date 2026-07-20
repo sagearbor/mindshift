@@ -24,6 +24,11 @@ jest.mock("../src/api/client", () => ({
   patchSpeakerLabels: jest.fn(),
   postReanalyze: jest.fn(),
   getAnalyzeJob: jest.fn(),
+  // RecordingShareManager (rendered inside ReplayScreen for OWNED recordings)
+  // imports these; only invoked on user action, defaulted here so the module
+  // loads cleanly.
+  postShare: jest.fn(),
+  deleteShare: jest.fn(),
   // SpeakerEnrollment (rendered inside ReplayScreen) checks voice-ID
   // availability on mount; default to "unavailable" so it renders nothing and
   // these tests stay focused on replay/HD behavior.
@@ -1009,6 +1014,61 @@ describe("ReplayScreen manual speaker naming", () => {
     expect(queryId(comp, "speaker-naming")).toBeTruthy();
     expect(queryId(comp, "name-error")).toBeTruthy();
     expect(JSON.stringify(comp.toJSON())).toContain("Please try again");
+    act(() => comp.unmount());
+  });
+});
+
+describe("ReplayScreen — read-only shared recording", () => {
+  // A recording SHARED with the caller: `shared: true` + owner_email. Every
+  // owner-only affordance must be hidden; playback + charts remain.
+  const sharedDetail = {
+    ...detail,
+    shared: true,
+    owner_email: "linda@example.com",
+  };
+
+  it("hides every owner-only affordance and names who it's from", async () => {
+    mockGetRecording.mockResolvedValueOnce(sharedDetail);
+    mockGetMediaUrl.mockResolvedValueOnce({ url: "https://signed/x", expires_in: 600 });
+
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(<ReplayScreen recordingId="r1" onBack={() => {}} />);
+    });
+    await act(async () => {});
+
+    // Playback + analysis remain available.
+    expect(queryId(comp, "media-player")).toBeTruthy();
+    expect(queryId(comp, "heat-chart")).toBeTruthy();
+
+    // "Shared with you by …" note, verbatim owner email.
+    const from = queryId(comp, "replay-shared-from");
+    expect(from).toBeTruthy();
+    expect(JSON.stringify(from!.props.children)).toContain("linda@example.com");
+
+    // Owner-only affordances are all gone.
+    expect(queryId(comp, "replay-title")).toBeNull(); // rename tap
+    expect(queryId(comp, "replay-title-readonly")).toBeTruthy();
+    expect(queryId(comp, "share-section")).toBeNull();
+    expect(queryId(comp, "reanalyze-button")).toBeNull();
+    expect(queryId(comp, "attach-source-button")).toBeNull();
+    expect(queryId(comp, "speaker-naming")).toBeNull();
+    expect(queryId(comp, "speaker-enrollment")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("shows the owner-only share affordance for an OWNED recording", async () => {
+    mockGetRecording.mockResolvedValueOnce(detail); // no `shared` flag → owned
+    mockGetMediaUrl.mockResolvedValueOnce({ url: "https://signed/x", expires_in: 600 });
+
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(<ReplayScreen recordingId="r1" onBack={() => {}} />);
+    });
+    await act(async () => {});
+
+    expect(queryId(comp, "share-section")).toBeTruthy();
+    expect(queryId(comp, "replay-shared-from")).toBeNull();
     act(() => comp.unmount());
   });
 });
