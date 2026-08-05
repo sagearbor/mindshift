@@ -236,3 +236,6 @@ mindshift.db
 .claude/
 
 .firebase/
+
+# macOS
+.DS_Store
