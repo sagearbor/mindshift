@@ -263,6 +263,96 @@ async def test_upload_single_speaker_transcript_succeeds(client):
 
 
 # ---------------------------------------------------------------------------
+# Local diarization fallback — transcript heard ONE speaker, our own voice
+# clustering (diarize_local) hears two → the analysis uses the local labels.
+# diarize_local's math has its own unit suite; here it is mocked to test wiring.
+# ---------------------------------------------------------------------------
+
+MOCK_TURNS_COLLAPSED = [dict(t, speaker="Speaker A") for t in MOCK_TURNS]
+
+
+def _local_diarization_payload(turns: list[dict]) -> dict:
+    relabeled = [
+        dict(t, speaker="Speaker A" if i % 2 == 0 else "Speaker B")
+        for i, t in enumerate(turns)
+    ]
+    return {
+        "turns": relabeled,
+        "num_speakers": 2,
+        "source": "local-ecapa",
+        "model": "ecapa@test",
+        "segments_total": len(turns),
+        "segments_embedded": len(turns),
+        "pooled_cosine": 0.19,
+        "agreement_with_input": 0.33,
+    }
+
+
+@pytest.mark.anyio
+async def test_upload_one_speaker_adopts_local_diarization(client):
+    payload = _local_diarization_payload(MOCK_TURNS_COLLAPSED)
+    with patch("main.transcribe_prerecorded", return_value=MOCK_TURNS_COLLAPSED), \
+         patch("main.get_llm_client",
+               return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))), \
+         patch("diarize_local.diarize_turns", return_value=payload) as dz:
+        resp = await client.post(
+            "/analyze/upload",
+            files={"file": ("clip.wav", FIXTURE_WAV, "audio/wav")},
+        )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    dz.assert_called_once()
+    assert [t["speaker"] for t in data["turns"]] == [
+        t["speaker"] for t in payload["turns"]
+    ]
+    assert set(data["per_speaker"]) == {"Speaker A", "Speaker B"}
+    # The relabeling is surfaced honestly, not silent.
+    assert "local voice diarization" in (data["voice_analysis"] or "")
+
+
+@pytest.mark.anyio
+async def test_upload_two_speakers_skips_local_diarization(client):
+    with patch("main.transcribe_prerecorded", return_value=MOCK_TURNS), \
+         patch("main.get_llm_client",
+               return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))), \
+         patch("diarize_local.diarize_turns") as dz:
+        resp = await client.post(
+            "/analyze/upload",
+            files={"file": ("clip.wav", FIXTURE_WAV, "audio/wav")},
+        )
+    assert resp.status_code == 200, resp.text
+    dz.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_upload_local_diarization_unavailable_keeps_labels(client):
+    # LLM payload keyed for the single remaining speaker.
+    llm = json.dumps({
+        "per_turn": [
+            {"heat": 20, "markers": [], "trigger_phrase": None}
+            for _ in MOCK_TURNS_COLLAPSED
+        ],
+        "requests": [],
+        "narrative": "n",
+        "report_cards": {"Speaker A": {
+            "score": 70, "headline": "h", "did_well": "d", "work_on": "w",
+        }},
+    })
+    with patch("main.transcribe_prerecorded", return_value=MOCK_TURNS_COLLAPSED), \
+         patch("main.get_llm_client", return_value=_mock_llm(llm)), \
+         patch("diarize_local.diarize_turns", return_value=None) as dz:
+        resp = await client.post(
+            "/analyze/upload",
+            files={"file": ("clip.wav", FIXTURE_WAV, "audio/wav")},
+        )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    dz.assert_called_once()
+    assert set(data["per_speaker"]) == {"Speaker A"}
+    assert "local voice diarization" not in (data["voice_analysis"] or "")
+
+
+# ---------------------------------------------------------------------------
 # Caps — oversize file → 413 (cap monkeypatched small to keep the test fast)
 # ---------------------------------------------------------------------------
 
