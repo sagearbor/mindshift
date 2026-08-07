@@ -42,6 +42,7 @@ from fastapi import (
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
+import diarize_local
 import dynamics
 import episodes
 import link_fetch
@@ -2389,6 +2390,50 @@ async def _analyze_recording_bytes(
                     f"{MAX_UPLOAD_DURATION_S:.0f}s limit"
                 ),
             )
+        # 3b) LOCAL DIARIZATION FALLBACK — Deepgram's nova-3 (2025-07-31.0)
+        #     proved a vendor can silently collapse two voices into one
+        #     speaker. When the transcript heard only ONE voice, cross-check
+        #     with our own ECAPA clustering (diarize_local); if it hears 2+,
+        #     its labels win, BEFORE prosody/LLM/identity so every downstream
+        #     per-speaker feature uses them. The swap is surfaced in
+        #     voice_analysis — never silent. diarize_turns returns None when
+        #     it has nothing trustworthy to say (voice deps absent, too little
+        #     embeddable speech); any unexpected error degrades the same way
+        #     because a cross-check must never sink the analysis.
+        if len({t.speaker for t in turns}) < 2:
+            try:
+                local = await asyncio.to_thread(
+                    diarize_local.diarize_turns, pcm, sr,
+                    [t.model_dump() for t in turns],
+                )
+            except Exception as exc:  # noqa: BLE001 — optional cross-check
+                logger.warning("local diarization failed (ignored): %s", exc)
+                local = None
+            if local is not None and local["num_speakers"] >= 2:
+                try:
+                    analyze_req = AnalyzeRequest(
+                        turns=local["turns"], context=context,
+                    )
+                except ValidationError as exc:
+                    logger.warning(
+                        "local diarization produced out-of-bounds turns "
+                        "(%d speakers) — keeping transcript labels: %s",
+                        local["num_speakers"], exc.error_count(),
+                    )
+                else:
+                    turns = analyze_req.turns
+                    voice_note = (
+                        "speakers relabeled by local voice diarization — the "
+                        "transcript heard one voice, voice clustering heard "
+                        f"{local['num_speakers']}"
+                    )
+                    logger.info(
+                        "Local diarization relabeled 1→%d speakers "
+                        "(embedded %d/%d segments, agreement %.2f, model %s)",
+                        local["num_speakers"], local["segments_embedded"],
+                        local["segments_total"], local["agreement_with_input"],
+                        local["model"],
+                    )
         features = [
             prosody.turn_features(
                 pcm, sr, t.start_time or 0.0, t.end_time or 0.0,
