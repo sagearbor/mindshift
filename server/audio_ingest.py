@@ -454,6 +454,31 @@ def _audio_for_transcription(data: bytes) -> bytes | None:
     return _pcm_to_wav16(pcm, sr)
 
 
+def _parse_utterance_words(raw) -> list[dict]:
+    """Deepgram utterance ``words`` → ``[{word, start_time, end_time}, ...]``.
+
+    Prefers ``punctuated_word`` (so text rebuilt from a split reads naturally),
+    falls back to ``word``. Entries with missing/garbled text or timings are
+    dropped — a fabricated timestamp would poison the word-boundary splitter.
+    """
+    if not isinstance(raw, list):
+        return []
+    words: list[dict] = []
+    for w in raw:
+        if not isinstance(w, dict):
+            continue
+        text = w.get("punctuated_word") or w.get("word")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        try:
+            start = float(w["start"])
+            end = float(w["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        words.append({"word": text.strip(), "start_time": start, "end_time": end})
+    return words
+
+
 def transcribe_prerecorded(
     data: bytes, content_type: str | None,
 ) -> list[dict]:
@@ -466,6 +491,12 @@ def transcribe_prerecorded(
     one dict per diarized utterance: ``{speaker, text, start_time, end_time}``,
     with ``speaker`` mapped through the SAME :func:`_generated_speaker_label` the
     live pipeline uses.
+
+    When Deepgram supplies per-word timings inside an utterance, the turn also
+    carries ``words``: ``[{word, start_time, end_time}, ...]``. This is INTERNAL
+    plumbing for sub-utterance speaker-change splitting (diarize_local) — the
+    pydantic request/response models ignore it, so it never changes the public
+    /analyze contract. Malformed word entries are dropped, never guessed at.
 
     * Missing ``DEEPGRAM_API_KEY`` → :class:`TranscriptionUnavailable` (503).
     * Network/HTTP failure → :class:`TranscriptionUnavailable` (503) with the
@@ -527,12 +558,16 @@ def transcribe_prerecorded(
             speaker_idx = int(utt.get("speaker", 0))
         except (TypeError, ValueError):
             speaker_idx = 0
-        turns.append({
+        turn = {
             "speaker": _generated_speaker_label(max(0, speaker_idx)),
             "text": text.strip(),
             "start_time": float(utt.get("start", 0.0) or 0.0),
             "end_time": float(utt.get("end", 0.0) or 0.0),
-        })
+        }
+        words = _parse_utterance_words(utt.get("words"))
+        if words:
+            turn["words"] = words
+        turns.append(turn)
 
     if not turns:
         raise NoSpeechFound("no speech found in this recording")
