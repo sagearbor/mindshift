@@ -50,7 +50,10 @@ DEEPGRAM_PRERECORDED_URL = "https://api.deepgram.com/v1/listen"
 # sentence-level segmentation (what we map to turns), smart_format + punctuate
 # for readable transcript text.
 DEEPGRAM_PRERECORDED_PARAMS: dict[str, str] = {
-    "model": "nova-3",
+    # nova-2, NOT nova-3: nova-3 2025-07-31.0 merges speaker turns even at 16 kHz
+    # (verified on real + synthetic audio 2026-08-05); revisit when Deepgram
+    # fixes diarization.
+    "model": "nova-2",
     "diarize": "true",
     "utterances": "true",
     "smart_format": "true",
