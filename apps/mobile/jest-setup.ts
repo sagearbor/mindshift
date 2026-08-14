@@ -345,6 +345,16 @@ jest.mock("@react-native-google-signin/google-signin", () => {
   };
 });
 
+// Mock expo-battery (recorder preflight). Defaults model a healthy device;
+// tests exercising the battery gate inject their own getBatteryLevel through
+// the recorder deps instead, so these are just safe module-resolution stubs.
+jest.mock("expo-battery", () => ({
+  __esModule: true,
+  isAvailableAsync: jest.fn().mockResolvedValue(true),
+  getBatteryLevelAsync: jest.fn().mockResolvedValue(0.9),
+  getBatteryStateAsync: jest.fn().mockResolvedValue(1),
+}));
+
 // Mock expo-secure-store (Firebase persistence backend on native).
 jest.mock("expo-secure-store", () => ({
   __esModule: true,

@@ -34,6 +34,10 @@ import type {
 import RelationshipPicker, {
   relationshipContext,
 } from "../components/RelationshipPicker";
+import AudioRecordScreen from "../recorder/AudioRecordScreen";
+import type { AudioRecorderDeps } from "../recorder/AudioRecordScreen";
+import RecoveryPrompt from "../recorder/RecoveryPrompt";
+import type { RecordedAudioFile } from "../recorder/types";
 
 /**
  * The "Analyze a Conversation" mode — everything after-the-fact, in one place:
@@ -61,6 +65,10 @@ interface AnalyzeScreenProps {
   onRecordVideo?: () => void;
   /** Open the text tools (paste/type a transcript, get suggestions). */
   onOpenTextTools?: () => void;
+  /** Test seam for the crash-hardened audio recorder + recovery prompt (the
+   *  segmented store, recorder factory, battery reader). Omitted in
+   *  production — the recorder builds its expo-backed defaults lazily. */
+  recorderDeps?: AudioRecorderDeps;
 }
 
 /** A file the user picked but hasn't uploaded yet. `file` (web File) is set only
@@ -375,6 +383,7 @@ export default function AnalyzeScreen({
   onOpenRecordings,
   onRecordVideo,
   onOpenTextTools,
+  recorderDeps,
 }: AnalyzeScreenProps = {}) {
   const { loadTurns } = useSessionStore();
 
@@ -428,6 +437,27 @@ export default function AnalyzeScreen({
   // progress card. Null when no job is running (small direct uploads, or before
   // a job is created / after it finishes).
   const [jobState, setJobState] = useState<AnalyzeJobState | null>(null);
+  // True while the in-place crash-hardened AUDIO recorder is open. Audio
+  // recording renders inside this screen (unlike video, which App pushes as a
+  // separate screen) so the finished file can preselect directly into the
+  // upload state without a store round-trip.
+  const [audioRecorderOpen, setAudioRecorderOpen] = useState(false);
+
+  // A stitched audio file — fresh from the recorder or recovered after a
+  // crash — drops into the normal upload flow exactly like a picked file.
+  // cameFromRecorder stays false: the attach-HD-later popup is about
+  // camera-roll VIDEO backups and would be a false promise for audio.
+  const handleAudioFile = (file: RecordedAudioFile) => {
+    setAudioRecorderOpen(false);
+    setCameFromRecorder(false);
+    setMode("file");
+    setPicked({
+      uri: file.uri,
+      name: file.name,
+      mimeType: file.mimeType,
+      size: file.size,
+    });
+  };
 
   // Consume a freshly-recorded clip handed over from RecordScreen (one-shot):
   // preselect it into the normal upload flow, flag it as recorder-origin, and
@@ -634,6 +664,19 @@ export default function AnalyzeScreen({
     }
   };
 
+  // The audio recorder replaces the screen content in place; AnalyzeScreen
+  // stays mounted underneath, so its state (consent, context, title) survives
+  // the recording round-trip.
+  if (audioRecorderOpen) {
+    return (
+      <AudioRecordScreen
+        onBack={() => setAudioRecorderOpen(false)}
+        onComplete={handleAudioFile}
+        deps={recorderDeps}
+      />
+    );
+  }
+
   return (
     <KeyboardAvoidingView
       style={styles.flex}
@@ -684,6 +727,13 @@ export default function AnalyzeScreen({
             disabled={uploading}
           />
 
+          {/* Crash-recovery offer: segments saved by an interrupted audio
+              session are stitched back into an uploadable file on request. */}
+          <RecoveryPrompt
+            store={recorderDeps?.store}
+            onRecovered={handleAudioFile}
+          />
+
           <View style={styles.recordingCard}>
             <Text style={styles.recordingNote}>
               Without consent to store, we analyze the sound and discard the file.
@@ -701,6 +751,19 @@ export default function AnalyzeScreen({
                 <Text style={styles.recordVideoButtonText}>⏺ Record video</Text>
               </TouchableOpacity>
             )}
+
+            {/* Crash-hardened AUDIO-ONLY recording for long sessions (screen
+                can turn off; audio is finalized to disk every ~5 minutes). */}
+            <TouchableOpacity
+              testID="record-audio-button"
+              style={styles.recordAudioButton}
+              onPress={() => setAudioRecorderOpen(true)}
+              disabled={uploading}
+            >
+              <Text style={styles.recordAudioButtonText}>
+                🎙 Record audio (long sessions)
+              </Text>
+            </TouchableOpacity>
 
             <Pressable
               testID="consent-checkbox"
@@ -1122,6 +1185,20 @@ const styles = StyleSheet.create({
   },
   recordVideoButtonText: {
     color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  recordAudioButton: {
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: "center",
+    borderWidth: 1.5,
+    borderColor: "#111827",
+    backgroundColor: "#FFFFFF",
+    marginBottom: 12,
+  },
+  recordAudioButtonText: {
+    color: "#111827",
     fontSize: 15,
     fontWeight: "600",
   },

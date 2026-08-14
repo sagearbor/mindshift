@@ -34,6 +34,8 @@
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+        "android.permission.POST_NOTIFICATIONS",
         "android.permission.CAMERA"
       ],
       "adaptiveIcon": {
@@ -49,7 +51,8 @@
       [
         "expo-audio",
         {
-          "microphonePermission": "MindShift uses your microphone to transcribe the conversation and coach you with suggestions in real time."
+          "microphonePermission": "MindShift uses your microphone to transcribe the conversation and coach you with suggestions in real time.",
+          "enableBackgroundRecording": true
         }
       ],
       "expo-video",
