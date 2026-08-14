@@ -239,4 +239,35 @@ describe("AnalyzeScreen — crash recovery prompt", () => {
     expect(queryId(comp, "picked-file")).toBeNull();
     expect(store.listRecoverable()).toEqual([]);
   });
+
+  it("offers a stitched-but-never-uploaded file after a restart", async () => {
+    // The real incident (2026-08-14): recovery stitched the audio, the upload
+    // failed, the app restarted — and the finished file was stranded with no
+    // UI path back to it. The prompt must offer orphaned stitched outputs too.
+    const { fs, store, deps } = makeDeps();
+    const m = seedOrphanedSession(fs, store);
+    store.finishToFile(m); // stitched output exists; session dir consumed
+    const comp = await mountAnalyze(deps);
+    expect(queryId(comp, "orphan-prompt")).not.toBeNull();
+    await act(async () => {
+      queryId(comp, "orphan-use")!.props.onPress();
+    });
+    expect(textOf(queryId(comp, "picked-file"))).toMatch(
+      /mindshift-audio-.*\.wav/,
+    );
+    expect(queryId(comp, "orphan-prompt")).toBeNull();
+  });
+
+  it("discarding an orphaned stitched file deletes it for good", async () => {
+    const { fs, store, deps } = makeDeps();
+    const m = seedOrphanedSession(fs, store);
+    store.finishToFile(m);
+    const comp = await mountAnalyze(deps);
+    await act(async () => {
+      queryId(comp, "orphan-discard")!.props.onPress();
+    });
+    expect(queryId(comp, "orphan-prompt")).toBeNull();
+    expect(queryId(comp, "picked-file")).toBeNull();
+    expect(store.listOrphanStitched()).toEqual([]);
+  });
 });

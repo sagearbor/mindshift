@@ -42,6 +42,17 @@ export class MemoryFs implements RecorderFs {
     return names.sort();
   }
 
+  listFileNames(dirUri: string): string[] {
+    const prefix = `${dirUri}/`;
+    const names: string[] = [];
+    for (const f of this.files.keys()) {
+      if (f.startsWith(prefix) && !f.slice(prefix.length).includes("/")) {
+        names.push(f.slice(prefix.length));
+      }
+    }
+    return names.sort();
+  }
+
   readText(fileUri: string): string {
     return new TextDecoder().decode(this.readBytes(fileUri));
   }

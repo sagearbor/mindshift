@@ -680,7 +680,11 @@ export default function AnalyzeScreen({
   return (
     <KeyboardAvoidingView
       style={styles.flex}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      // "padding" on BOTH platforms: modern Android runs edge-to-edge, where
+      // the old adjustResize behavior no longer shrinks the window — with no
+      // behavior set, the keyboard covered the title/notes inputs and the
+      // screen couldn't scroll to them (owner-reported on-device).
+      behavior="padding"
     >
       <ScrollView
         style={styles.flex}

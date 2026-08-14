@@ -34,6 +34,14 @@ export class ExpoRecorderFs implements RecorderFs {
       .filter(Boolean);
   }
 
+  listFileNames(dirUri: string): string[] {
+    return new Directory(dirUri)
+      .list()
+      .filter((entry) => !(entry instanceof Directory))
+      .map((f) => trimSlash(f.uri).split("/").pop() ?? "")
+      .filter(Boolean);
+  }
+
   readText(fileUri: string): string {
     return new File(fileUri).textSync();
   }
