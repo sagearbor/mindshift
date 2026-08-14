@@ -48,8 +48,13 @@ export interface AudioRecorderDeps {
   format: SegmentFormat;
   getBatteryLevel: () => Promise<number | null>;
   /** Configure the OS audio session for recording (true) / back to playback
-   *  (false). */
-  configureAudioSession: (active: boolean) => Promise<void>;
+   *  (false). Activation may report `backgroundCapable: false` (Android with
+   *  the notification permission denied) — recording still works, but only
+   *  with the screen on, and the UI must say so. A void resolve (older fakes)
+   *  means background-capable. */
+  configureAudioSession: (
+    active: boolean,
+  ) => Promise<{ backgroundCapable: boolean } | void>;
   segmentMs?: number;
   resumeRetryMs?: number;
   maxSessionMs?: number;
@@ -93,6 +98,7 @@ export default function AudioRecordScreen({
   const [elapsedMs, setElapsedMs] = useState(0);
   const [segmentsSaved, setSegmentsSaved] = useState(0);
   const [savedMs, setSavedMs] = useState(0);
+  const [backgroundCapable, setBackgroundCapable] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const sessionRef = useRef<SegmentedAudioSession | null>(null);
@@ -201,7 +207,10 @@ export default function AudioRecordScreen({
       resumeRetryMs: d.resumeRetryMs ?? DEFAULT_RESUME_RETRY_MS,
     });
     try {
-      await d.configureAudioSession(true);
+      const mode = await d.configureAudioSession(true);
+      if (mountedRef.current) {
+        setBackgroundCapable(mode?.backgroundCapable !== false);
+      }
       await session.start();
     } catch (e) {
       if (mountedRef.current) {
@@ -360,6 +369,12 @@ export default function AudioRecordScreen({
             ? "First save in a few minutes…"
             : `${segmentsSaved} segment${segmentsSaved === 1 ? "" : "s"} safe on this phone (${savedMin} min)`}
         </Text>
+        {!backgroundCapable && (
+          <Text style={styles.interruption} testID="audio-foreground-note">
+            Notifications are off, so recording only works with the screen on —
+            keep the app open. (Allow notifications to record screen-off.)
+          </Text>
+        )}
         {phase === "interrupted" && (
           <Text style={styles.interruption} testID="interruption-banner">
             Recording interrupted — something took the microphone (a call?).

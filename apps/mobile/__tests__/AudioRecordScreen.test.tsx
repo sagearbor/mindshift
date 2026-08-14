@@ -226,6 +226,30 @@ describe("AudioRecordScreen — recording", () => {
     expect(queryId(comp, "audio-timer")).not.toBeNull();
   });
 
+  it("shows a keep-screen-on note when background recording is unavailable", async () => {
+    // Android without notification permission: the session degrades to
+    // foreground-only instead of refusing to record (the POST_NOTIFICATIONS
+    // field bug) — and says so honestly.
+    const { deps } = makeDeps();
+    deps.configureAudioSession = jest
+      .fn()
+      .mockResolvedValue({ backgroundCapable: false });
+    const { comp } = await mount(deps);
+    await pressStart(comp);
+    expect(queryId(comp, "audio-timer")).not.toBeNull();
+    expect(queryId(comp, "audio-foreground-note")).not.toBeNull();
+  });
+
+  it("shows no keep-screen-on note when the session is background-capable", async () => {
+    const { deps } = makeDeps();
+    deps.configureAudioSession = jest
+      .fn()
+      .mockResolvedValue({ backgroundCapable: true });
+    const { comp } = await mount(deps);
+    await pressStart(comp);
+    expect(queryId(comp, "audio-foreground-note")).toBeNull();
+  });
+
   it("shows how much audio is already crash-safe after a rotation", async () => {
     const { deps, store } = makeDeps();
     const { comp } = await mount(deps);

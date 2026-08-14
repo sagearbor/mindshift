@@ -11,6 +11,7 @@ import {
   formatForPlatform,
   recordingOptionsFor,
 } from "../src/recorder/expoRecorderPort";
+import { recordingSessionPlan } from "../src/recorder/defaultDeps";
 
 const androidOptions = recordingOptionsFor(formatForPlatform("android"));
 const iosOptions = recordingOptionsFor(formatForPlatform("ios"));
@@ -41,5 +42,29 @@ describe("flattenForNative", () => {
     expect(flattenForNative(androidOptions, "android").isMeteringEnabled).toBe(
       false,
     );
+  });
+});
+
+describe("recordingSessionPlan", () => {
+  // Android's background recording REQUIRES the notification permission
+  // (foreground service). Denied → degrade to a foreground-only session,
+  // honestly flagged — never a dead "couldn't start" screen.
+  it("android with notifications granted → background-capable", () => {
+    const plan = recordingSessionPlan("android", true);
+    expect(plan.backgroundCapable).toBe(true);
+    expect(plan.mode.allowsBackgroundRecording).toBe(true);
+  });
+
+  it("android with notifications denied → foreground-only, still records", () => {
+    const plan = recordingSessionPlan("android", false);
+    expect(plan.backgroundCapable).toBe(false);
+    expect(plan.mode.allowsBackgroundRecording).toBe(false);
+    expect(plan.mode.allowsRecording).toBe(true);
+  });
+
+  it("ios needs no notification permission for background audio", () => {
+    const plan = recordingSessionPlan("ios", false);
+    expect(plan.backgroundCapable).toBe(true);
+    expect(plan.mode.allowsBackgroundRecording).toBe(true);
   });
 });
