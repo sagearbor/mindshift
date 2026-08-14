@@ -22,6 +22,7 @@ export default function RecoveryPrompt({
 }: RecoveryPromptProps) {
   const storeRef = useRef<RecorderSessionStore | null>(store ?? null);
   const [pending, setPending] = useState<RecoverableSession[]>([]);
+  const [orphans, setOrphans] = useState<RecordedAudioFile[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -36,6 +37,7 @@ export default function RecoveryPrompt({
         storeRef.current = new Store(new ExpoRecorderFs());
       }
       setPending(storeRef.current?.listRecoverable() ?? []);
+      setOrphans(storeRef.current?.listOrphanStitched() ?? []);
     } catch {
       // A failed scan means we can't OFFER recovery — the segments (if any)
       // stay untouched on disk for a later launch to find.
@@ -43,7 +45,52 @@ export default function RecoveryPrompt({
   }, []);
 
   const current = pending[0];
-  if (!current) return null;
+  const orphan = current ? null : (orphans[0] ?? null);
+  if (!current && !orphan) return null;
+
+  // Orphaned stitched output (recovered earlier, never uploaded): offer it
+  // the same way — audio must never be stranded without a UI path back.
+  if (orphan) {
+    const mb = Math.max(1, Math.round((orphan.size ?? 0) / (1024 * 1024)));
+    return (
+      <View style={styles.card} testID="orphan-prompt">
+        <Text style={styles.title}>
+          Found a recovered recording that was never analyzed ({mb} MB) — use
+          it?
+        </Text>
+        <Text style={styles.body}>
+          This audio was rescued from an earlier session but its upload never
+          completed. It’s still saved on this phone.
+        </Text>
+        <View style={styles.row}>
+          <TouchableOpacity
+            testID="orphan-use"
+            style={styles.recoverButton}
+            onPress={() => {
+              setOrphans((rest) => rest.slice(1));
+              onRecovered(orphan);
+            }}
+          >
+            <Text style={styles.recoverText}>Use it</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            testID="orphan-discard"
+            style={styles.discardButton}
+            onPress={() => {
+              try {
+                storeRef.current?.discardOrphan(orphan.uri);
+              } catch {
+                // Even if deletion failed we stop prompting this launch.
+              }
+              setOrphans((rest) => rest.slice(1));
+            }}
+          >
+            <Text style={styles.discardText}>Discard</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   const minutes = Math.max(1, Math.round(current.totalDurationMs / 60000));
 

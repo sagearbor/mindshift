@@ -180,3 +180,49 @@ describe("RecorderSessionStore — storage facts", () => {
     expect(new RecorderSessionStore(fs).freeBytes()).toBeNull();
   });
 });
+
+describe("RecorderSessionStore — orphaned stitched outputs", () => {
+  function seedFinished(fs: MemoryFs, store: RecorderSessionStore) {
+    let m = store.createSession(WAV_SESSION);
+    const uri = fakeRecorderOutput(fs, 9);
+    m = store.finalizeSegment(m, uri, 60_000);
+    return store.finishToFile(m);
+  }
+
+  it("listOrphanStitched finds a finished file a later launch never consumed", () => {
+    const fs = new MemoryFs();
+    const store = new RecorderSessionStore(fs);
+    const file = seedFinished(fs, store);
+    // A FRESH store over the same disk (app restart) must still see it.
+    const again = new RecorderSessionStore(fs);
+    const orphans = again.listOrphanStitched();
+    expect(orphans).toHaveLength(1);
+    expect(orphans[0].uri).toBe(file.uri);
+    expect(orphans[0].mimeType).toBe("audio/wav");
+    expect(orphans[0].size).toBeGreaterThan(0);
+  });
+
+  it("returns empty when nothing was ever stitched", () => {
+    const store = new RecorderSessionStore(new MemoryFs());
+    expect(store.listOrphanStitched()).toEqual([]);
+  });
+
+it("a new stitch KEEPS recent unconsumed outputs (no more destroy-on-stitch)", () => {
+    const fs = new MemoryFs();
+    const store = new RecorderSessionStore(fs);
+    const first = seedFinished(fs, store);
+    const second = seedFinished(fs, store);
+    const uris = store.listOrphanStitched().map((o) => o.uri);
+    expect(uris).toContain(first.uri);
+    expect(uris).toContain(second.uri);
+  });
+
+  it("discardOrphan deletes exactly that file", () => {
+    const fs = new MemoryFs();
+    const store = new RecorderSessionStore(fs);
+    const file = seedFinished(fs, store);
+    store.discardOrphan(file.uri);
+    expect(store.listOrphanStitched()).toEqual([]);
+    expect(fs.exists(file.uri)).toBe(false);
+  });
+});

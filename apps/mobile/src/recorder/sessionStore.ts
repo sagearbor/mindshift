@@ -157,11 +157,23 @@ export class RecorderSessionStore {
     const stitched = stitchSegments(manifest.format, buffers);
 
     const out = this.outDir();
-    // Previous stitched outputs were consumed by their upload flow — clear
-    // them so recovered files don't accumulate forever.
-    if (this.fs.exists(out)) this.fs.deleteRecursive(out);
+    // Keep the newest few stitched outputs instead of clearing the dir: an
+    // output is NOT necessarily consumed — the 2026-08-14 incident destroyed
+    // two recovered recordings because each new stitch wiped the previous
+    // (possibly never-uploaded) one. Names embed Date.now(), so lexicographic
+    // order is chronological.
     this.fs.ensureDir(out);
-    const name = `mindshift-audio-${Date.now()}${manifest.extension}`;
+    const KEEP = 3;
+    const existing = this.fs
+      .listFileNames(out)
+      .filter((n) => n.startsWith("mindshift-audio-"))
+      .sort();
+    for (const old of existing.slice(0, Math.max(0, existing.length - (KEEP - 1)))) {
+      this.fs.deleteRecursive(`${out}/${old}`);
+    }
+    const name = `mindshift-audio-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 6)}${manifest.extension}`;
     const uri = `${out}/${name}`;
     this.fs.writeBytes(uri, stitched);
 
@@ -178,6 +190,36 @@ export class RecorderSessionStore {
   discard(sessionId: string): void {
     const dir = this.sessionDir(sessionId);
     if (this.fs.exists(dir)) this.fs.deleteRecursive(dir);
+  }
+
+  /**
+   * Finished (stitched) outputs that no upload ever consumed. This happens
+   * when recovery stitches a file and the subsequent upload fails or the app
+   * dies before it runs (the 2026-08-14 incident: a broken OTA made the
+   * upload unreachable, the app restarted, and the audio was stranded with
+   * no UI path back to it). The recovery prompt offers these too.
+   */
+  listOrphanStitched(): RecordedAudioFile[] {
+    const out = this.outDir();
+    if (!this.fs.exists(out)) return [];
+    return this.fs
+      .listFileNames(out)
+      .filter((n) => n.startsWith("mindshift-audio-"))
+      .map((name) => {
+        const uri = `${out}/${name}`;
+        const mimeType = name.endsWith(".aac") ? "audio/aac" : "audio/wav";
+        return {
+          uri,
+          name,
+          mimeType,
+          size: this.fs.sizeOf(uri) ?? 0,
+        };
+      });
+  }
+
+  /** Delete one orphaned stitched output (user chose not to use it). */
+  discardOrphan(uri: string): void {
+    if (this.fs.exists(uri)) this.fs.deleteRecursive(uri);
   }
 
   freeBytes(): number | null {

@@ -77,6 +77,8 @@ export interface RecorderFs {
   exists(uri: string): boolean;
   /** Names of the immediate subdirectories of a directory. */
   listDirNames(dirUri: string): string[];
+  /** Names of the FILES (not subdirectories) directly inside a directory. */
+  listFileNames(dirUri: string): string[];
   readText(fileUri: string): string;
   writeText(fileUri: string, text: string): void;
   readBytes(fileUri: string): Uint8Array;
