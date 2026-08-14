@@ -1,16 +1,24 @@
 """Voice-enrollment router — "This is me" + the enrolled voiceprint's lifecycle.
 
-Three endpoints under ``/voice`` (included from main.py with one line):
+Four endpoints under ``/voice`` (included from main.py with one line):
 
 * ``GET  /voice/profile``      — status: is the feature available, is the user
-                                 enrolled, and enrollment metadata (never the
-                                 embedding itself — the raw signature never leaves
-                                 the server).
+                                 enrolled, and enrollment metadata incl. the v2
+                                 per-sample provenance list (never an embedding —
+                                 the raw signature never leaves the server).
 * ``POST /voice/enroll``       — "This is me": embed one diarized speaker from a
-                                 stored recording and fold it into the voiceprint.
+                                 stored recording and store it as an individual
+                                 sample (the blend is recomputed over all samples).
+* ``DELETE /voice/samples/{id}`` — remove ONE enrollment sample and recompute the
+                                 blend; deleting the last sample leaves the same
+                                 state as "forget my voice".
 * ``DELETE /voice/voiceprint`` — "Forget my voice": REALLY delete the biometric
                                  signature (idempotent — reports whether one was
                                  removed).
+
+Samples are INDEPENDENT of recordings: deleting a recording never touches the
+samples enrolled from it (the client renders "source recording deleted" when a
+sample's recording no longer resolves).
 
 Kept OUT of main.py deliberately: the concurrent label-ladder work edits main's
 analysis prompt section, so this feature owns its own file and touches main.py
@@ -78,6 +86,19 @@ class EnrollResponse(BaseModel):
     )
 
 
+class VoiceSampleOut(BaseModel):
+    """Provenance of ONE enrollment sample — metadata only, NEVER the embedding
+    (the raw signature never leaves the server). ``recording_id`` is null for
+    the migrated pre-v2 legacy blend (``note`` says what it is); the client
+    resolves the id against the recordings list and states honestly when the
+    source recording has since been deleted."""
+    id: str
+    recording_id: str | None = None
+    speaker: str | None = None
+    at: str | None = None
+    note: str | None = None
+
+
 class VoiceProfileResponse(BaseModel):
     # Whether the server can do voice ID at all (deps installed). The client
     # hides the "This is me" affordance when False.
@@ -89,6 +110,17 @@ class VoiceProfileResponse(BaseModel):
     updated_at: str | None = None
     model: str | None = None
     dim: int | None = None
+    # v2 — the per-sample provenance list (empty when unenrolled). A stored v1
+    # profile is served through the same view: one legacy-blend sample.
+    samples: list[VoiceSampleOut] = []
+
+
+class DeleteSampleResponse(BaseModel):
+    deleted: bool
+    # Whether any profile remains: deleting the last sample leaves the SAME
+    # state as "forget my voice" (enrolled False, count 0, nothing stored).
+    enrolled: bool
+    enroll_count: int
 
 
 class ForgetResponse(BaseModel):
@@ -103,8 +135,10 @@ async def get_voice_profile(
     """Report voice-ID availability + this user's enrollment status.
 
     Never 503s on absent deps/storage — it is the very check the client uses to
-    decide whether to OFFER enrollment, so it must always answer. The embedding
-    vector is intentionally NOT returned."""
+    decide whether to OFFER enrollment, so it must always answer. No embedding
+    vector is ever returned — the samples carry provenance metadata only. A v1
+    profile is served through the v2 view (one legacy-blend sample) WITHOUT
+    rewriting the stored doc: reads stay side-effect free."""
     available = speaker_id.is_available()
     store = _get_store(request)
     if store is None:
@@ -112,7 +146,7 @@ async def get_voice_profile(
             available=available, storage_enabled=False,
             enrolled=False, enroll_count=0,
         )
-    profile = await store.read_voiceprint(uid)
+    profile = speaker_id.as_v2(await store.read_voiceprint(uid))
     if profile is None:
         return VoiceProfileResponse(
             available=available, storage_enabled=True,
@@ -126,6 +160,17 @@ async def get_voice_profile(
         updated_at=profile.get("updated_at"),
         model=profile.get("model"),
         dim=profile.get("dim"),
+        samples=[
+            VoiceSampleOut(
+                id=str(s.get("id")),
+                recording_id=s.get("recording_id"),
+                speaker=s.get("speaker"),
+                at=s.get("at"),
+                note=s.get("note"),
+            )
+            for s in profile.get("samples", [])
+            if isinstance(s, dict) and s.get("id")
+        ],
     )
 
 
@@ -207,6 +252,47 @@ async def enroll_voice(
         enroll_count=profile["enroll_count"],
         dim=profile["dim"],
         updated_at=profile["updated_at"],
+    )
+
+
+@router.delete("/samples/{sample_id}", response_model=DeleteSampleResponse)
+async def delete_voice_sample(
+    sample_id: str,
+    request: Request,
+    uid: str = Depends(get_current_uid),
+) -> DeleteSampleResponse:
+    """Remove ONE enrollment sample and recompute the blended voiceprint.
+
+    404 when the user has no profile or the sample id isn't in it (uid-scoped:
+    another user's sample ids never resolve here). Deleting the LAST sample
+    deletes the whole stored profile — exactly the "forget my voice" state, never
+    a hollow doc. A v1 profile is migrated on this write, so its legacy blend
+    sample is deletable whole. Storage disabled → 503."""
+    store = _require_store(request)
+    profile = await store.read_voiceprint(uid)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="No voice profile to edit")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        remaining = speaker_id.remove_sample(profile, sample_id, now_iso=now_iso)
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail="That sample is not in your voice profile",
+        )
+    if remaining is None:
+        await store.delete_voiceprint(uid)
+        logger.info(
+            "Voice sample deleted (last) uid=%s sample=%s — profile removed",
+            uid, sample_id,
+        )
+        return DeleteSampleResponse(deleted=True, enrolled=False, enroll_count=0)
+    await store.write_voiceprint(uid, remaining)
+    logger.info(
+        "Voice sample deleted uid=%s sample=%s remaining=%d",
+        uid, sample_id, remaining["enroll_count"],
+    )
+    return DeleteSampleResponse(
+        deleted=True, enrolled=True, enroll_count=remaining["enroll_count"],
     )
 
 

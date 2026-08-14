@@ -1,10 +1,13 @@
 import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 
+import GrowthStrip from "../components/GrowthStrip";
+
 /**
  * The two-mode home screen. There are exactly two things you'd do with this
  * app — coach a conversation live, or analyze one afterwards — so the home
- * screen is exactly two huge buttons, a compact history row ("Your day"
+ * screen is exactly two huge buttons, a narrow self-fetching "Your growth"
+ * sparkline strip, a compact history row ("Your day"
  * timeline + "past recordings"), and
  * a small corner affordance for everything else (Advanced). No forms, no
  * settings, no clutter: users may open this mid-conflict and stressed, so the
@@ -16,6 +19,7 @@ interface HomeScreenProps {
   onOpenRecordings: () => void;
   onOpenYourDay: () => void;
   onOpenAdvanced: () => void;
+  onOpenGrowth: () => void;
 }
 
 export default function HomeScreen({
@@ -24,6 +28,7 @@ export default function HomeScreen({
   onOpenRecordings,
   onOpenYourDay,
   onOpenAdvanced,
+  onOpenGrowth,
 }: HomeScreenProps) {
   return (
     <View style={styles.container} testID="home-screen">
@@ -72,6 +77,12 @@ export default function HomeScreen({
           </Text>
         </TouchableOpacity>
       </View>
+
+      {/* "Your growth" — a narrow, self-fetching sparkline of the user's own
+          per-recording scores over time. Renders nothing while loading or when
+          growth isn't available (signed out / storage disabled / not enrolled
+          server), so the two-mode design is undisturbed by default. */}
+      <GrowthStrip onPress={onOpenGrowth} />
 
       {/* Compact history entry points — small third row under the two mode
           cards: the day timeline (Companion P1) and the recordings/replay

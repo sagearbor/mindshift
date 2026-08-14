@@ -95,7 +95,10 @@ def test_new_profile_first_and_second_enrollment():
     )
     assert p1["enroll_count"] == 1
     assert p1["dim"] == 2
-    assert len(p1["sources"]) == 1
+    # v2: each enrollment is stored as an individual sample with provenance
+    # (the deeper v2 behavior is covered in test_voice_profile_v2.py).
+    assert len(p1["samples"]) == 1
+    assert p1["samples"][0]["recording_id"] == "r1"
     e1 = np.array([0.0, 1.0], dtype=np.float32)
     p2 = speaker_id.new_profile(
         e1, p1, recording_id="r2", speaker="Speaker A", now_iso="t1",

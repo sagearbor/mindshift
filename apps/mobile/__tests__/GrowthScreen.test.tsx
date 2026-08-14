@@ -1,0 +1,298 @@
+import React from "react";
+import renderer, { act, ReactTestInstance } from "react-test-renderer";
+import GrowthScreen from "../src/screens/GrowthScreen";
+import { getGrowth } from "../src/api/client";
+import type { GrowthPoint, GrowthResult } from "../src/api/client";
+
+jest.mock("../src/api/client", () => ({
+  getGrowth: jest.fn(),
+}));
+const mockGetGrowth = getGrowth as jest.Mock;
+
+function queryId(
+  comp: renderer.ReactTestRenderer,
+  id: string,
+): ReactTestInstance | null {
+  const found = comp.root.findAll((n) => n.props?.testID === id);
+  return found.length > 0 ? found[0] : null;
+}
+
+function textOf(node: ReactTestInstance): string {
+  return node
+    .findAll((n) => typeof n.type === "string")
+    .flatMap((n) => n.children)
+    .filter((c): c is string => typeof c === "string")
+    .join("");
+}
+
+function pt(overrides: Partial<GrowthPoint> = {}): GrowthPoint {
+  return {
+    recording_id: "r1",
+    timestamp: "2026-07-01T12:00:00+00:00",
+    title: "A talk",
+    my_score: 70,
+    partner_names: [],
+    ...overrides,
+  };
+}
+
+function result(overrides: Partial<GrowthResult> = {}): GrowthResult {
+  return {
+    points: [],
+    total_recordings: 0,
+    identified_recordings: 0,
+    ...overrides,
+  };
+}
+
+/** N scored points, one per day, alternating partners when given. */
+function series(n: number, partners: string[][] = []): GrowthPoint[] {
+  return Array.from({ length: n }, (_, i) =>
+    pt({
+      recording_id: `r${i}`,
+      timestamp: `2026-07-${String(i + 1).padStart(2, "0")}T12:00:00Z`,
+      my_score: 50 + i,
+      partner_names: partners[i % Math.max(1, partners.length)] ?? [],
+    }),
+  );
+}
+
+function makeHandlers() {
+  return {
+    onBack: jest.fn(),
+    onOpenRecording: jest.fn(),
+    onOpenRecordings: jest.fn(),
+  };
+}
+
+async function render(handlers = makeHandlers()) {
+  let comp!: renderer.ReactTestRenderer;
+  await act(async () => {
+    comp = renderer.create(<GrowthScreen {...handlers} />);
+  });
+  return comp;
+}
+
+beforeEach(() => {
+  mockGetGrowth.mockReset();
+});
+
+describe("GrowthScreen — load states", () => {
+  it("shows a spinner while loading", async () => {
+    mockGetGrowth.mockReturnValueOnce(new Promise(() => {}));
+    const comp = await render();
+    expect(queryId(comp, "growth-loading")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("shows an honest error with retry when the fetch fails", async () => {
+    mockGetGrowth
+      .mockRejectedValueOnce(new Error("API error: 503"))
+      .mockResolvedValueOnce(result({ total_recordings: 1 }));
+    const comp = await render();
+    expect(queryId(comp, "growth-error")).toBeTruthy();
+    await act(async () => queryId(comp, "growth-retry")!.props.onPress());
+    expect(mockGetGrowth).toHaveBeenCalledTimes(2);
+    expect(queryId(comp, "growth-error")).toBeNull();
+    expect(queryId(comp, "growth-empty")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("back is wired", async () => {
+    mockGetGrowth.mockResolvedValueOnce(result());
+    const handlers = makeHandlers();
+    const comp = await render(handlers);
+    act(() => queryId(comp, "growth-back")!.props.onPress());
+    expect(handlers.onBack).toHaveBeenCalledTimes(1);
+    act(() => comp.unmount());
+  });
+});
+
+describe("GrowthScreen — empty states", () => {
+  it("with no recordings at all, explains the full path", async () => {
+    mockGetGrowth.mockResolvedValueOnce(result());
+    const comp = await render();
+    const empty = queryId(comp, "growth-empty")!;
+    expect(textOf(empty)).toContain("Analyze and store a conversation");
+    act(() => comp.unmount());
+  });
+
+  it("with recordings but no identified voice, CTAs into the enrollment flow", async () => {
+    mockGetGrowth.mockResolvedValueOnce(result({ total_recordings: 4 }));
+    const handlers = makeHandlers();
+    const comp = await render(handlers);
+    const empty = queryId(comp, "growth-empty")!;
+    expect(textOf(empty)).toContain("This is me");
+    act(() => queryId(comp, "growth-enroll-cta")!.props.onPress());
+    expect(handlers.onOpenRecordings).toHaveBeenCalledTimes(1);
+    act(() => comp.unmount());
+  });
+});
+
+describe("GrowthScreen — chart", () => {
+  it("few points: dots render, no trend line below 5 scored points", async () => {
+    mockGetGrowth.mockResolvedValueOnce(
+      result({
+        points: series(3),
+        total_recordings: 4,
+        identified_recordings: 3,
+      }),
+    );
+    const comp = await render();
+    expect(queryId(comp, "growth-dot-r0")).toBeTruthy();
+    expect(queryId(comp, "growth-dot-r2")).toBeTruthy();
+    expect(queryId(comp, "growth-trend")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("many points: the moving-average trend appears at ≥5 scored points", async () => {
+    mockGetGrowth.mockResolvedValueOnce(
+      result({
+        points: series(6),
+        total_recordings: 6,
+        identified_recordings: 6,
+      }),
+    );
+    const comp = await render();
+    expect(queryId(comp, "growth-trend")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("null scores are gaps — no dot, and they don't count toward the trend threshold", async () => {
+    const points = [
+      ...series(4),
+      pt({
+        recording_id: "gap",
+        timestamp: "2026-07-20T12:00:00Z",
+        my_score: null,
+      }),
+    ];
+    mockGetGrowth.mockResolvedValueOnce(
+      result({
+        points,
+        total_recordings: 5,
+        identified_recordings: 5,
+      }),
+    );
+    const comp = await render();
+    expect(queryId(comp, "growth-dot-gap")).toBeNull();
+    // 4 scored + 1 gap is still < 5 scored — no trend.
+    expect(queryId(comp, "growth-trend")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("tapping a dot opens that recording", async () => {
+    mockGetGrowth.mockResolvedValueOnce(
+      result({
+        points: series(2),
+        total_recordings: 2,
+        identified_recordings: 2,
+      }),
+    );
+    const handlers = makeHandlers();
+    const comp = await render(handlers);
+    act(() => queryId(comp, "growth-dot-r1")!.props.onPress());
+    expect(handlers.onOpenRecording).toHaveBeenCalledWith("r1");
+    act(() => comp.unmount());
+  });
+
+  it("shows the honest footer", async () => {
+    mockGetGrowth.mockResolvedValueOnce(
+      result({
+        points: series(2),
+        total_recordings: 7,
+        identified_recordings: 2,
+      }),
+    );
+    const comp = await render();
+    expect(textOf(queryId(comp, "growth-footer")!)).toBe(
+      "2 of 7 recordings identified your voice",
+    );
+    act(() => comp.unmount());
+  });
+});
+
+describe("GrowthScreen — partner filter", () => {
+  const points = [
+    pt({
+      recording_id: "with-linda",
+      timestamp: "2026-07-01T12:00:00Z",
+      partner_names: ["Linda"],
+    }),
+    pt({
+      recording_id: "with-sam",
+      timestamp: "2026-07-02T12:00:00Z",
+      partner_names: ["Sam"],
+    }),
+    pt({
+      recording_id: "anon",
+      timestamp: "2026-07-03T12:00:00Z",
+      partner_names: [],
+    }),
+  ];
+
+  it("builds chips from partner names plus the unidentified bucket", async () => {
+    mockGetGrowth.mockResolvedValueOnce(
+      result({
+        points,
+        total_recordings: 3,
+        identified_recordings: 3,
+      }),
+    );
+    const comp = await render();
+    expect(queryId(comp, "growth-filter-all")).toBeTruthy();
+    expect(queryId(comp, "growth-filter-Linda")).toBeTruthy();
+    expect(queryId(comp, "growth-filter-Sam")).toBeTruthy();
+    expect(queryId(comp, "growth-filter-unidentified")).toBeTruthy();
+
+    act(() => queryId(comp, "growth-filter-Linda")!.props.onPress());
+    expect(queryId(comp, "growth-dot-with-linda")).toBeTruthy();
+    expect(queryId(comp, "growth-dot-with-sam")).toBeNull();
+    expect(queryId(comp, "growth-dot-anon")).toBeNull();
+
+    act(() => queryId(comp, "growth-filter-unidentified")!.props.onPress());
+    expect(queryId(comp, "growth-dot-anon")).toBeTruthy();
+    expect(queryId(comp, "growth-dot-with-linda")).toBeNull();
+
+    act(() => queryId(comp, "growth-filter-all")!.props.onPress());
+    expect(queryId(comp, "growth-dot-with-linda")).toBeTruthy();
+    expect(queryId(comp, "growth-dot-anon")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("shows no chip row when no partner was ever named", async () => {
+    mockGetGrowth.mockResolvedValueOnce(
+      result({
+        points: series(3),
+        total_recordings: 3,
+        identified_recordings: 3,
+      }),
+    );
+    const comp = await render();
+    expect(queryId(comp, "growth-filter-all")).toBeNull();
+    expect(queryId(comp, "growth-filter-unidentified")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("states plainly when a filter leaves nothing scored", async () => {
+    mockGetGrowth.mockResolvedValueOnce(
+      result({
+        points: [
+          pt({ recording_id: "a", partner_names: ["Linda"] }),
+          pt({
+            recording_id: "b",
+            timestamp: "2026-07-02T12:00:00Z",
+            partner_names: ["Sam"],
+            my_score: null,
+          }),
+        ],
+        total_recordings: 2,
+        identified_recordings: 2,
+      }),
+    );
+    const comp = await render();
+    act(() => queryId(comp, "growth-filter-Sam")!.props.onPress());
+    expect(queryId(comp, "growth-filter-empty")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+});

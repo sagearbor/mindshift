@@ -12,10 +12,17 @@ import {
 import Constants from "expo-constants";
 import * as Application from "expo-application";
 
-import { forgetVoice, getVoiceProfile } from "../api/client";
+import {
+  deleteVoiceSample,
+  forgetVoice,
+  getVoiceProfile,
+  listRecordings,
+  type VoiceProfile,
+  type VoiceSample,
+} from "../api/client";
 import { useAuthStore } from "../store/authStore";
 import { useOtaStatus, type OtaStatus } from "../utils/otaUpdate";
-import { formatDateTime } from "../utils/dateDisplay";
+import { formatDate, formatDateTime } from "../utils/dateDisplay";
 
 /** Bare host (no scheme/path) of the configured backend, for the About row. */
 function backendHost(): string {
@@ -53,6 +60,9 @@ interface AdvancedScreenProps {
   onBack: () => void;
   onOpenDashboard: () => void;
   onSignOut: () => void;
+  /** Open a recording's replay — the voice card's per-sample "Play" jumps to
+   *  the recording a sample was enrolled from. */
+  onOpenReplay: (recordingId: string) => void;
 }
 
 /** A single copy-friendly label/value row in the About card. The value is
@@ -85,10 +95,19 @@ export default function AdvancedScreen({
   onBack,
   onOpenDashboard,
   onSignOut,
+  onOpenReplay,
 }: AdvancedScreenProps) {
-  // "Forget my voice" — only shown once we confirm a voiceprint exists to delete.
-  const [enrolled, setEnrolled] = useState(false);
+  // Voice profile card — full detail (per-sample provenance) once loaded.
+  const [profile, setProfile] = useState<VoiceProfile | null>(null);
+  // recording_id → display title, so a sample can say WHICH recording taught
+  // it. null = the list couldn't be fetched (we then say nothing about whether
+  // a source recording still exists, rather than guessing "deleted").
+  const [recordingTitles, setRecordingTitles] = useState<Record<
+    string,
+    string
+  > | null>(null);
   const [forgetting, setForgetting] = useState(false);
+  const [sampleError, setSampleError] = useState<string | null>(null);
 
   // --- About section facts (all honest; a missing value reads "unknown"). ---
   const user = useAuthStore((s) => s.user);
@@ -108,10 +127,23 @@ export default function AdvancedScreen({
     let cancelled = false;
     getVoiceProfile()
       .then((p) => {
-        if (!cancelled) setEnrolled(p.available && p.enrolled);
+        if (!cancelled) setProfile(p);
       })
       .catch(() => {
-        if (!cancelled) setEnrolled(false);
+        // No card is better than a wrong card — the server may simply not
+        // support voice ID, or the user may be offline.
+        if (!cancelled) setProfile(null);
+      });
+    listRecordings()
+      .then((rs) => {
+        if (!cancelled) {
+          setRecordingTitles(
+            Object.fromEntries(rs.map((r) => [r.id, r.title || r.filename])),
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setRecordingTitles(null);
       });
     return () => {
       cancelled = true;
@@ -133,7 +165,9 @@ export default function AdvancedScreen({
             setForgetting(true);
             forgetVoice()
               .then(() => {
-                setEnrolled(false);
+                setProfile((p) =>
+                  p ? { ...p, enrolled: false, enroll_count: 0, samples: [] } : p,
+                );
                 Alert.alert("Voice forgotten", "Your voice signature was deleted.");
               })
               .catch(() => {
@@ -148,6 +182,56 @@ export default function AdvancedScreen({
       ],
     );
   }, []);
+
+  /** Delete one enrollment sample — optimistic removal, rolled back with an
+   *  honest message when the server says no. */
+  const handleDeleteSample = useCallback(
+    (sample: VoiceSample) => {
+      const previous = profile;
+      if (!previous) return;
+      setSampleError(null);
+      const remaining = (previous.samples ?? []).filter(
+        (s) => s.id !== sample.id,
+      );
+      setProfile({
+        ...previous,
+        samples: remaining,
+        enroll_count: remaining.length,
+        enrolled: remaining.length > 0,
+      });
+      deleteVoiceSample(sample.id)
+        .then((res) => {
+          // Trust the server's view of what remains (it recomputed the blend).
+          setProfile((p) =>
+            p
+              ? {
+                  ...p,
+                  enrolled: res.enrolled,
+                  enroll_count: res.enroll_count,
+                }
+              : p,
+          );
+        })
+        .catch(() => {
+          setProfile(previous); // roll the optimistic removal back
+          setSampleError("Couldn’t delete that sample. Please try again.");
+        });
+    },
+    [profile],
+  );
+
+  /** Where a sample came from, honestly: the recording's title when it still
+   *  exists, "source recording deleted" when it's provably gone, the legacy
+   *  note for the migrated pre-v2 blend, and nothing speculative when the
+   *  recordings list couldn't be checked. */
+  const sampleSource = (s: VoiceSample): string => {
+    if (!s.recording_id) return s.note || "earlier enrollments";
+    if (recordingTitles === null) return "from a recording";
+    const title = recordingTitles[s.recording_id];
+    return title ? `from ${title}` : "source recording deleted";
+  };
+
+  const samples = profile?.samples ?? [];
 
   return (
     <ScrollView
@@ -178,25 +262,96 @@ export default function AdvancedScreen({
         </Text>
       </TouchableOpacity>
 
-      {enrolled ? (
-        <TouchableOpacity
-          testID="advanced-forget-voice"
-          accessibilityRole="button"
-          style={styles.row}
-          onPress={confirmForget}
-          disabled={forgetting}
-        >
-          <View style={styles.forgetTitleRow}>
-            <Text style={styles.rowTitle}>Forget my voice</Text>
-            {forgetting ? (
-              <ActivityIndicator size="small" color="#6B7280" />
-            ) : null}
-          </View>
-          <Text style={styles.rowSub}>
-            Delete the numeric voice signature used to label you “You”. Your
-            recordings are kept; only the voiceprint is removed.
-          </Text>
-        </TouchableOpacity>
+      {profile && profile.available && profile.storage_enabled ? (
+        <View style={styles.row} testID="voice-profile-card">
+          <Text style={styles.rowTitle}>Voice profile</Text>
+          {profile.enrolled ? (
+            <>
+              <Text style={styles.rowSub} testID="voice-profile-status">
+                {[
+                  `Enrolled · ${profile.enroll_count} sample` +
+                    `${profile.enroll_count === 1 ? "" : "s"}`,
+                  formatDate(profile.updated_at)
+                    ? `updated ${formatDate(profile.updated_at)}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </Text>
+
+              {samples.map((s) => (
+                <View key={s.id} style={styles.sampleRow} testID={`voice-sample-${s.id}`}>
+                  <View style={styles.sampleInfo}>
+                    <Text style={styles.sampleTitle} numberOfLines={1}>
+                      {sampleSource(s)}
+                    </Text>
+                    <Text style={styles.sampleMeta}>
+                      {[s.speaker, s.at ? formatDate(s.at) : null]
+                        .filter(Boolean)
+                        .join(" · ") || "no details recorded"}
+                    </Text>
+                  </View>
+                  {s.recording_id && recordingTitles?.[s.recording_id] ? (
+                    <TouchableOpacity
+                      testID={`voice-sample-play-${s.id}`}
+                      accessibilityRole="button"
+                      accessibilityLabel="Play the recording this sample came from"
+                      style={styles.sampleButton}
+                      onPress={() => onOpenReplay(s.recording_id as string)}
+                    >
+                      <Text style={styles.sampleButtonText}>Play</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  <TouchableOpacity
+                    testID={`voice-sample-delete-${s.id}`}
+                    accessibilityRole="button"
+                    accessibilityLabel="Delete this voice sample"
+                    style={styles.sampleButton}
+                    onPress={() => handleDeleteSample(s)}
+                  >
+                    <Text style={styles.sampleDeleteText}>Delete</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+
+              {sampleError ? (
+                <Text style={styles.sampleError} testID="voice-sample-error">
+                  {sampleError}
+                </Text>
+              ) : null}
+
+              <Text style={styles.addHint} testID="voice-add-sample-hint">
+                Add another sample: open any recording and tap “This is me” on
+                your speaker. More samples make “You” more reliable.
+              </Text>
+
+              <TouchableOpacity
+                testID="advanced-forget-voice"
+                accessibilityRole="button"
+                style={styles.forgetButton}
+                onPress={confirmForget}
+                disabled={forgetting}
+              >
+                <View style={styles.forgetTitleRow}>
+                  <Text style={styles.forgetText}>Forget my voice</Text>
+                  {forgetting ? (
+                    <ActivityIndicator size="small" color="#6B7280" />
+                  ) : null}
+                </View>
+                <Text style={styles.rowSub}>
+                  Delete the numeric voice signature used to label you “You”.
+                  Your recordings are kept; only the voiceprint is removed.
+                </Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <Text style={styles.rowSub} testID="voice-profile-status">
+              Not enrolled. Open a recording and tap “This is me” on your
+              speaker — MindShift will label you “You” from then on. It stores
+              a numeric voice signature, never your audio.
+            </Text>
+          )}
+        </View>
       ) : null}
 
       <Text style={styles.sectionHeading}>About</Text>
@@ -285,6 +440,72 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+  },
+  sampleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#F0F1F3",
+    marginTop: 10,
+  },
+  sampleInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  sampleTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#1F2937",
+  },
+  sampleMeta: {
+    marginTop: 2,
+    fontSize: 12.5,
+    color: "#6B7280",
+  },
+  sampleButton: {
+    minHeight: 36,
+    minWidth: 56,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sampleButtonText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#4A90D9",
+  },
+  sampleDeleteText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#DC2626",
+  },
+  sampleError: {
+    marginTop: 8,
+    fontSize: 13,
+    color: "#DC2626",
+  },
+  addHint: {
+    marginTop: 12,
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: "#6B7280",
+    fontStyle: "italic",
+  },
+  forgetButton: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#F0F1F3",
+  },
+  forgetText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#DC2626",
   },
   sectionHeading: {
     fontSize: 13,
