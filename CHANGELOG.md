@@ -4,6 +4,31 @@ Versions are numbered here. **App** = Android/EAS `version (versionCode)`.
 **Backend** = Cloud Run revision of `mindshift-api` (project `arborfam-hub`,
 `us-central1`). Newest first.
 
+## App 1.16.0 — the "own our diarization" release (2026-08-14, PRs #81–#87)
+Native config changed (background-mic foreground service, expo-battery) →
+**requires a Play build, not OTA-able.** An OTA (group `e4aec0e4`) already
+shipped PR #85's JS to the 1.15.0 runtime as a stopgap.
+- **Crash-hardened audio-only recording** (#87): ~5-min finalized segments,
+  crash-recovery prompt, storage/battery preflight, interruption auto-resume,
+  screen-off background recording. Sized for a recorded therapy hour.
+- **"Your growth" chart + voice profile** (#86): home sparkline of your
+  per-recording conduct score (enrolled-voice-verified only, honest gaps),
+  full chart with partner filter; voice-profile card with per-sample
+  provenance, play, and delete (profile storage v2: per-sample embeddings,
+  lazy v1→v2 migration; new `GET /growth`, `DELETE /voice/samples/{id}`).
+- **Upload diagnostics** (#85, the vc29 bug): `UploadError` details,
+  client `X-Request-ID` on every upload call, per-chunk retries, one forced
+  token refresh on 401, unknown-size files always routed chunked, honest
+  "couldn't reach the server" UX with request id.
+- **Backend (revs 00031–00034 + pending)**: prerecorded transcription pinned
+  to nova-2 (#81 — nova-3 2025-07-31 merges speakers); local ECAPA
+  diarization with validated 2-way split (#82) + word-level speaker-change
+  splitting (#83), cross-check default ON; Whisper upload fallback with
+  honest engine notes (#84); Cloud Run switched to always-allocated CPU +
+  scale-to-zero (background analyses were CPU-starved); upload duration cap
+  40→90 min; third-person name mentions no longer count as speaker-name
+  evidence. N-way (3+) speaker detection in flight on `feat/nway-diarization`.
+
 ## Unreleased — targeting App 1.13.0
 Merged to `main` (PRs #55–#57, 2026-07-17); **app.json is still 1.12.0 /
 versionCode 18 — no EAS build has shipped these yet.** Backend is already
