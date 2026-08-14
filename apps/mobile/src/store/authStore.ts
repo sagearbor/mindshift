@@ -303,10 +303,12 @@ export function initAuth(): void {
   started = true;
 
   // REST calls get a *fresh* token (force-refreshing near expiry) straight
-  // from the current Firebase user.
-  setTokenProvider(async () => {
+  // from the current Firebase user. The forceRefresh flag passes through to
+  // getIdToken(true) so the upload 401-recovery path can demand a brand-new
+  // token instead of the cached one the server just rejected.
+  setTokenProvider(async (forceRefresh = false) => {
     const current = auth.currentUser;
-    return current ? current.getIdToken() : null;
+    return current ? current.getIdToken(forceRefresh) : null;
   });
 
   onIdTokenChanged(auth, async (user: User | null) => {

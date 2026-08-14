@@ -2,6 +2,8 @@ import {
   postRespond,
   postAnalyze,
   postAnalyzeUpload,
+  statFileSize,
+  UploadError,
   postAnalyzeUploadChunked,
   postAnalyzeUploadChunkedJob,
   postAnalyzeLink,
@@ -24,6 +26,7 @@ import {
   postReanalyze,
 } from "../src/api/client";
 import {
+  getFreshToken,
   setCachedToken,
   setTokenProvider,
 } from "../src/auth/authToken";
@@ -1150,6 +1153,374 @@ describe("postUploadCompleteJob", () => {
   it("throws with .status on a non-OK response", async () => {
     mockFetch.mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) });
     await expect(postUploadCompleteJob("up1")).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+// --- Upload diagnostics (UploadError + X-Request-ID + retries) ---------------
+// The vc29 phone-upload bug: a fetch network rejection surfaced as a bare error
+// with no status and no request id (uncorrelatable server-side), one failed
+// chunk PUT killed a whole upload, and a stale-token 401 was fatal. These tests
+// pin the diagnosable contract: every upload failure is an UploadError carrying
+// {status, requestId, path, chunkIndex, bytes, elapsedMs, cause*}, every
+// upload-related request sends the client X-Request-ID, chunk PUTs retry, and
+// a 401 force-refreshes the token exactly once.
+
+describe("getFreshToken (force refresh)", () => {
+  it("forwards the force flag to the token provider", async () => {
+    const provider = jest.fn(async (_force?: boolean) => "tok");
+    setTokenProvider(provider);
+
+    await getFreshToken();
+    expect(provider).toHaveBeenLastCalledWith(false);
+
+    await getFreshToken(true);
+    expect(provider).toHaveBeenLastCalledWith(true);
+  });
+});
+
+describe("upload diagnostics — direct path", () => {
+  class RecordingFormData {
+    entries: [string, unknown][] = [];
+    append(name: string, value: unknown) {
+      this.entries.push([name, value]);
+    }
+  }
+  const RealFormData = global.FormData;
+  beforeEach(() => {
+    (global as { FormData: unknown }).FormData = RecordingFormData;
+  });
+  afterEach(() => {
+    (global as { FormData: unknown }).FormData = RealFormData;
+    delete (globalThis as Record<string, unknown>).__fsMockBytes;
+    delete (globalThis as Record<string, unknown>).__fsMockSize;
+  });
+
+  const okResult = {
+    per_turn: [],
+    per_speaker: {},
+    dynamics: {
+      coupling: { strength: null, leader: null, description: "" },
+      deescalation: { who_first: null, follow_rate: null, description: "" },
+      triggers: [],
+      requests: [],
+    },
+    narrative: "",
+    turns: [],
+    stored: false,
+    recording_id: null,
+    storage_note: null,
+  };
+
+  it("sends a client X-Request-ID header on the upload request", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => okResult });
+    await postAnalyzeUpload("file:///rec.m4a", "rec.m4a", "audio/m4a");
+    const [, init] = mockFetch.mock.calls[0];
+    expect(typeof init.headers["X-Request-ID"]).toBe("string");
+    expect(init.headers["X-Request-ID"].length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("wraps a network rejection in an UploadError with status 0, the request id, and the cause", async () => {
+    (globalThis as Record<string, unknown>).__fsMockSize = 42_000_000;
+    mockFetch.mockRejectedValueOnce(new TypeError("Network request failed"));
+
+    let caught: unknown;
+    try {
+      await postAnalyzeUpload("file:///big.mp4", "big.mp4", "video/mp4");
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(UploadError);
+    const err = caught as UploadError;
+    expect(err.status).toBe(0);
+    expect(err.path).toBe("direct");
+    expect(err.causeName).toBe("TypeError");
+    expect(err.causeMessage).toBe("Network request failed");
+    expect(typeof err.elapsedMs).toBe("number");
+    // Best-effort stat of the file that was being uploaded.
+    expect(err.bytes).toBe(42_000_000);
+    // The thrown request id is EXACTLY the one that went out on the wire, so a
+    // screenshot of the error correlates with the server's request_id logs.
+    const [, init] = mockFetch.mock.calls[0];
+    expect(err.requestId).toBe(init.headers["X-Request-ID"]);
+  });
+
+  it("throws an UploadError (still `API error: <status>`) with the request id on a non-OK response", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 413 });
+    let caught: unknown;
+    try {
+      await postAnalyzeUpload("file:///rec.m4a", "rec.m4a", "audio/m4a");
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(UploadError);
+    const err = caught as UploadError;
+    expect(err.message).toBe("API error: 413");
+    expect(err.status).toBe(413);
+    expect(err.path).toBe("direct");
+    expect(err.requestId.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("force-refreshes the token ONCE on a 401 and retries with the fresh token", async () => {
+    const provider = jest.fn(async (force?: boolean) =>
+      force ? "tok-forced" : "tok-stale",
+    );
+    setTokenProvider(provider);
+    mockFetch
+      .mockResolvedValueOnce({ ok: false, status: 401 })
+      .mockResolvedValueOnce({ ok: true, json: async () => okResult });
+
+    const result = await postAnalyzeUpload("file:///rec.m4a", "rec.m4a", "audio/m4a");
+
+    expect(result).toEqual(okResult);
+    expect(provider).toHaveBeenCalledWith(true);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const first = mockFetch.mock.calls[0][1];
+    const second = mockFetch.mock.calls[1][1];
+    expect(first.headers.Authorization).toBe("Bearer tok-stale");
+    expect(second.headers.Authorization).toBe("Bearer tok-forced");
+    // Same attempt → same request id across the retry.
+    expect(second.headers["X-Request-ID"]).toBe(first.headers["X-Request-ID"]);
+  });
+
+  it("gives up honestly when the retry after a forced refresh still 401s", async () => {
+    setTokenProvider(async () => "tok");
+    mockFetch
+      .mockResolvedValueOnce({ ok: false, status: 401 })
+      .mockResolvedValueOnce({ ok: false, status: 401 });
+
+    await expect(
+      postAnalyzeUpload("file:///rec.m4a", "rec.m4a", "audio/m4a"),
+    ).rejects.toMatchObject({ status: 401, message: "API error: 401" });
+    // Refresh-and-retry happened exactly once — no infinite 401 loop.
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("upload diagnostics — chunked path", () => {
+  const okResult = {
+    per_turn: [],
+    per_speaker: {},
+    dynamics: {
+      coupling: { strength: null, leader: null, description: "" },
+      deescalation: { who_first: null, follow_rate: null, description: "" },
+      triggers: [],
+      requests: [],
+    },
+    narrative: "",
+    turns: [],
+    stored: false,
+    recording_id: null,
+    storage_note: null,
+  };
+
+  const startResponse = (id: string, chunkBytes: number, chunks: number) => ({
+    ok: true,
+    json: async () => ({
+      upload_id: id,
+      chunk_bytes: chunkBytes,
+      expected_chunks: chunks,
+    }),
+  });
+
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>).__fsMockBytes;
+    delete (globalThis as Record<string, unknown>).__fsMockSize;
+  });
+
+  it("sends the SAME X-Request-ID on start, every chunk PUT, and complete", async () => {
+    (globalThis as Record<string, unknown>).__fsMockBytes = new Uint8Array(150);
+    mockFetch
+      .mockResolvedValueOnce(startResponse("u1", 100, 2))
+      .mockResolvedValueOnce({ ok: true, status: 204 })
+      .mockResolvedValueOnce({ ok: true, status: 204 })
+      .mockResolvedValueOnce({ ok: true, json: async () => okResult });
+
+    await postAnalyzeUploadChunked("file:///x.mp4", "x.mp4", "video/mp4", 150, {
+      consent: true,
+      store: true,
+    });
+
+    const ids = mockFetch.mock.calls.map(
+      (c) => c[1].headers["X-Request-ID"],
+    );
+    expect(ids).toHaveLength(4);
+    expect(typeof ids[0]).toBe("string");
+    expect(ids[0].length).toBeGreaterThanOrEqual(8);
+    expect(new Set(ids).size).toBe(1);
+  });
+
+  it("retries a network-failed chunk PUT and succeeds without aborting", async () => {
+    (globalThis as Record<string, unknown>).__fsMockBytes = new Uint8Array(150);
+    mockFetch
+      .mockResolvedValueOnce(startResponse("u1", 100, 2))
+      .mockResolvedValueOnce({ ok: true, status: 204 }) // chunk 0
+      .mockRejectedValueOnce(new TypeError("Network request failed")) // chunk 1, try 1
+      .mockResolvedValueOnce({ ok: true, status: 204 }) // chunk 1, try 2
+      .mockResolvedValueOnce({ ok: true, json: async () => okResult });
+
+    const progress: number[] = [];
+    const result = await postAnalyzeUploadChunked(
+      "file:///x.mp4",
+      "x.mp4",
+      "video/mp4",
+      150,
+      { consent: true, store: true, onProgress: (f) => progress.push(f) },
+    );
+
+    expect(result).toEqual(okResult);
+    // start, chunk0, chunk1 (failed), chunk1 (retried), complete — no DELETE.
+    expect(mockFetch).toHaveBeenCalledTimes(5);
+    expect(mockFetch.mock.calls[2][0]).toMatch(/\/uploads\/u1\/chunks\/1$/);
+    expect(mockFetch.mock.calls[3][0]).toMatch(/\/uploads\/u1\/chunks\/1$/);
+    expect(progress).toEqual([1 / 2, 1]);
+  });
+
+  it("retries a 502 chunk PUT but NOT a 413 (non-retryable client error)", async () => {
+    (globalThis as Record<string, unknown>).__fsMockBytes = new Uint8Array(50);
+    mockFetch
+      .mockResolvedValueOnce(startResponse("u1", 100, 1))
+      .mockResolvedValueOnce({ ok: false, status: 502 }) // try 1
+      .mockResolvedValueOnce({ ok: true, status: 204 }) // try 2
+      .mockResolvedValueOnce({ ok: true, json: async () => okResult });
+
+    await postAnalyzeUploadChunked("file:///x.mp4", "x.mp4", "video/mp4", 50, {
+      consent: true,
+      store: true,
+    });
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+
+    // A 413 is not retried: start, PUT, abort DELETE — three calls total.
+    mockFetch.mockReset();
+    mockFetch
+      .mockResolvedValueOnce(startResponse("u2", 100, 1))
+      .mockResolvedValueOnce({ ok: false, status: 413 })
+      .mockResolvedValueOnce({ ok: true, status: 204 }); // DELETE abort
+    await expect(
+      postAnalyzeUploadChunked("file:///x.mp4", "x.mp4", "video/mp4", 50, {
+        consent: true,
+        store: true,
+      }),
+    ).rejects.toMatchObject({ status: 413, chunkIndex: 0 });
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(mockFetch.mock.calls[2][1].method).toBe("DELETE");
+  });
+
+  it("throws an UploadError carrying the failed chunkIndex once retries are exhausted, after aborting", async () => {
+    (globalThis as Record<string, unknown>).__fsMockBytes = new Uint8Array(150);
+    mockFetch
+      .mockResolvedValueOnce(startResponse("u1", 100, 2))
+      .mockResolvedValueOnce({ ok: true, status: 204 }) // chunk 0
+      .mockRejectedValueOnce(new TypeError("Network request failed")) // chunk 1, try 1
+      .mockRejectedValueOnce(new TypeError("Network request failed")) // try 2
+      .mockRejectedValueOnce(new TypeError("Network request failed")) // try 3
+      .mockResolvedValueOnce({ ok: true, status: 204 }); // DELETE abort
+
+    let caught: unknown;
+    try {
+      await postAnalyzeUploadChunked("file:///x.mp4", "x.mp4", "video/mp4", 150, {
+        consent: true,
+        store: true,
+      });
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(UploadError);
+    const err = caught as UploadError;
+    expect(err.status).toBe(0);
+    expect(err.path).toBe("chunked");
+    expect(err.chunkIndex).toBe(1);
+    expect(err.bytes).toBe(150);
+    expect(err.causeName).toBe("TypeError");
+    expect(err.requestId.length).toBeGreaterThanOrEqual(8);
+
+    // 2 retries (3 tries) then the best-effort abort, which carries the same id.
+    expect(mockFetch).toHaveBeenCalledTimes(6);
+    const del = mockFetch.mock.calls[5];
+    expect(del[1].method).toBe("DELETE");
+    expect(del[1].headers["X-Request-ID"]).toBe(err.requestId);
+  });
+
+  it("force-refreshes the token ONCE on a mid-upload 401 chunk PUT and retries it", async () => {
+    (globalThis as Record<string, unknown>).__fsMockBytes = new Uint8Array(50);
+    const provider = jest.fn(async (force?: boolean) =>
+      force ? "tok-forced" : "tok-stale",
+    );
+    setTokenProvider(provider);
+    mockFetch
+      .mockResolvedValueOnce(startResponse("u1", 100, 1))
+      .mockResolvedValueOnce({ ok: false, status: 401 }) // chunk 0 — stale token
+      .mockResolvedValueOnce({ ok: true, status: 204 }) // retried with fresh token
+      .mockResolvedValueOnce({ ok: true, json: async () => okResult });
+
+    const result = await postAnalyzeUploadChunked(
+      "file:///x.mp4",
+      "x.mp4",
+      "video/mp4",
+      50,
+      { consent: true, store: true },
+    );
+
+    expect(result).toEqual(okResult);
+    expect(provider).toHaveBeenCalledWith(true);
+    expect(mockFetch.mock.calls[1][1].headers.Authorization).toBe(
+      "Bearer tok-stale",
+    );
+    expect(mockFetch.mock.calls[2][1].headers.Authorization).toBe(
+      "Bearer tok-forced",
+    );
+  });
+
+  it("derives the size via expo-file-system when sizeBytes is unknown (null)", async () => {
+    (globalThis as Record<string, unknown>).__fsMockBytes = new Uint8Array(150);
+    mockFetch
+      .mockResolvedValueOnce(startResponse("u1", 100, 2))
+      .mockResolvedValueOnce({ ok: true, status: 204 })
+      .mockResolvedValueOnce({ ok: true, status: 204 })
+      .mockResolvedValueOnce({ ok: true, json: async () => okResult });
+
+    const result = await postAnalyzeUploadChunked(
+      "file:///x.mp4",
+      "x.mp4",
+      "video/mp4",
+      null,
+      { consent: true, store: true },
+    );
+
+    expect(result).toEqual(okResult);
+    // The statted size (150) drove /uploads/start's total_bytes and the slicing.
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body).total_bytes).toBe(150);
+    expect((mockFetch.mock.calls[2][1].body as Uint8Array).length).toBe(50);
+  });
+
+  it("refuses honestly (no network) when the size is unknown and the file can't be statted", async () => {
+    (globalThis as Record<string, unknown>).__fsMockSize = null;
+
+    await expect(
+      postAnalyzeUploadChunked("file:///x.mp4", "x.mp4", "video/mp4", null, {
+        consent: true,
+        store: true,
+      }),
+    ).rejects.toBeInstanceOf(UploadError);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("statFileSize", () => {
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>).__fsMockBytes;
+    delete (globalThis as Record<string, unknown>).__fsMockSize;
+  });
+
+  it("stats a native file uri via expo-file-system", () => {
+    (globalThis as Record<string, unknown>).__fsMockSize = 12345;
+    expect(statFileSize("file:///rec.m4a")).toBe(12345);
+  });
+
+  it("returns null when the size can't be determined", () => {
+    (globalThis as Record<string, unknown>).__fsMockSize = null;
+    expect(statFileSize("file:///rec.m4a")).toBeNull();
   });
 });
 

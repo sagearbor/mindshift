@@ -6,7 +6,10 @@
  * and trivially testable (a test just calls the setters).
  */
 
-export type TokenProvider = () => Promise<string | null>;
+/** Source of fresh ID tokens. `forceRefresh` mirrors Firebase's
+ *  `getIdToken(forceRefresh)`: true bypasses the ~1h cache and mints a new
+ *  token — used when a server 401 says the cached one is no longer accepted. */
+export type TokenProvider = (forceRefresh?: boolean) => Promise<string | null>;
 
 let cachedToken: string | null = null;
 let provider: TokenProvider | null = null;
@@ -38,11 +41,17 @@ export function setCachedToken(token: string | null): void {
  * A fresh ID token for REST calls: asks Firebase for one (force-refreshing if
  * near expiry) via the registered provider, falling back to the cached token
  * if the provider is absent (tests) or errors. Returns null when signed out.
+ *
+ * Pass `forceRefresh: true` to demand a brand-new token even when the cached
+ * one hasn't expired — the recovery move when the server answered 401 to a
+ * token Firebase still considered fresh (clock skew, revocation).
  */
-export async function getFreshToken(): Promise<string | null> {
+export async function getFreshToken(
+  forceRefresh = false,
+): Promise<string | null> {
   if (!provider) return cachedToken;
   try {
-    const token = await provider();
+    const token = await provider(forceRefresh);
     return token ?? cachedToken;
   } catch {
     return cachedToken;
