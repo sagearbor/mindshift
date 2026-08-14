@@ -484,6 +484,83 @@ async def test_upload_crosscheck_agreeing_result_changes_nothing(client, monkeyp
 
 
 # ---------------------------------------------------------------------------
+# Never-reduce guard — the cross-check may refine or ADD speakers but must
+# never overwrite a transcript that already heard MORE voices with a coarser
+# local split (local clustering tops out at MAX_SPEAKERS_LOCAL and can
+# undercount; deleting a voice the transcript heard is never an improvement).
+# ---------------------------------------------------------------------------
+
+MOCK_TURNS_3SPK = [
+    dict(t, speaker=f"Speaker {'ABC'[i % 3]}")
+    for i, t in enumerate(MOCK_TURNS)
+]
+
+_LLM_3SPK = json.dumps({
+    "per_turn": [
+        {"heat": 20, "markers": [], "trigger_phrase": None}
+        for _ in MOCK_TURNS_3SPK
+    ],
+    "requests": [],
+    "narrative": "n",
+    "report_cards": {
+        sp: {"score": 70, "headline": "h", "did_well": "d", "work_on": "w"}
+        for sp in ("Speaker A", "Speaker B", "Speaker C")
+    },
+})
+
+
+@pytest.mark.anyio
+async def test_upload_crosscheck_never_reduces_speaker_count(client, monkeypatch):
+    """Transcript heard 3; local hears 2 and disagrees → transcript wins."""
+    monkeypatch.setenv("MINDSHIFT_DIARIZE_CROSSCHECK", "1")
+    # A CHANGED 2-way relabeling (every Speaker C turn folded into Speaker A):
+    # without the guard this would be adopted and silently delete a speaker.
+    reduced = [
+        dict(t, speaker="Speaker A" if t["speaker"] == "Speaker C" else t["speaker"])
+        for t in MOCK_TURNS_3SPK
+    ]
+    payload = dict(_crosscheck_payload(reduced, agreement=0.6), num_speakers=2)
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS_3SPK, None)), \
+         patch("main.get_llm_client", return_value=_mock_llm(_LLM_3SPK)), \
+         patch("diarize_local.diarize_turns", return_value=payload) as dz:
+        resp = await client.post(
+            "/analyze/upload",
+            files={"file": ("clip.wav", FIXTURE_WAV, "audio/wav")},
+        )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    dz.assert_called_once()
+    assert [t["speaker"] for t in data["turns"]] == [
+        t["speaker"] for t in MOCK_TURNS_3SPK
+    ]
+    assert set(data["per_speaker"]) == {"Speaker A", "Speaker B", "Speaker C"}
+    assert "diarization" not in (data["voice_analysis"] or "")
+
+
+@pytest.mark.anyio
+async def test_upload_crosscheck_equal_count_relabeling_still_adopted(client, monkeypatch):
+    """The guard keys on COUNT: a changed same-count relabeling still lands."""
+    monkeypatch.setenv("MINDSHIFT_DIARIZE_CROSSCHECK", "1")
+    relabeled = [dict(t) for t in MOCK_TURNS_3SPK]
+    relabeled[-1]["speaker"] = "Speaker A"  # was Speaker C — still 3 speakers
+    payload = dict(_crosscheck_payload(relabeled, agreement=0.8), num_speakers=3)
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS_3SPK, None)), \
+         patch("main.get_llm_client", return_value=_mock_llm(_LLM_3SPK)), \
+         patch("diarize_local.diarize_turns", return_value=payload) as dz:
+        resp = await client.post(
+            "/analyze/upload",
+            files={"file": ("clip.wav", FIXTURE_WAV, "audio/wav")},
+        )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    dz.assert_called_once()
+    assert [t["speaker"] for t in data["turns"]] == [
+        t["speaker"] for t in relabeled
+    ]
+    assert "cross-check" in (data["voice_analysis"] or "")
+
+
+# ---------------------------------------------------------------------------
 # Caps — oversize file → 413 (cap monkeypatched small to keep the test fast)
 # ---------------------------------------------------------------------------
 

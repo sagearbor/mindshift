@@ -2449,6 +2449,23 @@ async def _analyze_recording_bytes(
             except Exception as exc:  # noqa: BLE001 — optional cross-check
                 logger.warning("local diarization failed (ignored): %s", exc)
                 local = None
+            # NEVER-REDUCE GUARD: the cross-check may refine or ADD speakers,
+            # but must never overwrite a transcript that already heard MORE
+            # voices with a coarser local split — local clustering tops out
+            # at MAX_SPEAKERS_LOCAL and rejects thin clusters, so it can
+            # honestly undercount; deleting a voice the transcript heard is
+            # never an improvement. The fallback path (transcript heard ONE
+            # voice) is unaffected.
+            if (local is not None and transcript_speakers >= 2
+                    and local["num_speakers"] < transcript_speakers):
+                logger.info(
+                    "local diarization heard %d speakers but the transcript "
+                    "already has %d — never-reduce guard keeps the "
+                    "transcript's labels (k_evaluated=%s)",
+                    local["num_speakers"], transcript_speakers,
+                    local.get("k_evaluated"),
+                )
+                local = None
             # The cross-check on an already-2+-speaker transcript only acts
             # when it actually CHANGES something (a split or a different
             # partition); adopting an identical labeling would be noise.
@@ -2491,10 +2508,11 @@ async def _analyze_recording_bytes(
                     logger.info(
                         "Local diarization relabeled %d→%d speakers "
                         "(embedded %d/%d segments, %d utterance(s) split, "
-                        "agreement %.2f, model %s)",
+                        "agreement %.2f, model %s, k_evaluated=%s)",
                         transcript_speakers, local["num_speakers"],
                         local["segments_embedded"], local["segments_total"],
                         n_split, local["agreement_with_input"], local["model"],
+                        local.get("k_evaluated"),
                     )
         features = [
             prosody.turn_features(
