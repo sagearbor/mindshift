@@ -482,7 +482,7 @@ async def test_analyze_link_happy_path_stores_original_url(client, link_store):
         return FIXTURE_WAV, "clip.wav", "audio/wav"
 
     with patch("main.link_fetch.fetch_link", _fake_fetch), \
-         patch("main.transcribe_prerecorded", return_value=MOCK_TURNS), \
+         patch("main.transcribe_upload", return_value=(MOCK_TURNS, None)), \
          patch("main.get_llm_client",
                return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))):
         resp = await client.post(
@@ -512,7 +512,7 @@ async def test_analyze_link_happy_path_stores_original_url(client, link_store):
 async def test_analyze_link_consent_false_not_stored(client, link_store):
     with patch("main.link_fetch.fetch_link",
                return_value=(FIXTURE_WAV, "clip.wav", "audio/wav")), \
-         patch("main.transcribe_prerecorded", return_value=MOCK_TURNS), \
+         patch("main.transcribe_upload", return_value=(MOCK_TURNS, None)), \
          patch("main.get_llm_client",
                return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))):
         resp = await client.post(
@@ -614,10 +614,10 @@ async def test_analyze_link_video_stores_360p_from_original_bytes(client, monkey
             has_video=True, video_note=None,
         )
 
-    def _fake_transcribe(data, content_type):
+    def _fake_transcribe(data, content_type, filename=""):
         seen["transcribe_data"] = data
         seen["transcribe_ct"] = content_type
-        return MOCK_TURNS
+        return MOCK_TURNS, None
 
     fake = _LinkFakeStore()
     app.state.recordings_store = fake
@@ -625,7 +625,7 @@ async def test_analyze_link_video_stores_360p_from_original_bytes(client, monkey
         monkeypatch.setattr(main, "build_derivatives", _fake_build)
         with patch("main.link_fetch.fetch_link",
                    return_value=(FAKE_VIDEO_BYTES, "photos_share.mp4", "video/mp4")), \
-             patch("main.transcribe_prerecorded", _fake_transcribe), \
+             patch("main.transcribe_upload", _fake_transcribe), \
              patch("main.get_llm_client",
                    return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))):
             resp = await client.post(
@@ -677,7 +677,7 @@ async def test_analyze_link_silent_video_skip_writes_note_to_meta(client, monkey
         monkeypatch.setattr(main, "build_derivatives", _fake_build)
         with patch("main.link_fetch.fetch_link",
                    return_value=(FAKE_VIDEO_BYTES, "photos_share.mp4", "video/mp4")), \
-             patch("main.transcribe_prerecorded", return_value=MOCK_TURNS), \
+             patch("main.transcribe_upload", return_value=(MOCK_TURNS, None)), \
              patch("main.get_llm_client",
                    return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))):
             resp = await client.post(

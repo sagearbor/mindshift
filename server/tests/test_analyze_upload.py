@@ -112,7 +112,7 @@ def _mock_llm(payload: str) -> MagicMock:
 
 @pytest.mark.anyio
 async def test_upload_happy_path_with_voice_labels(client):
-    with patch("main.transcribe_prerecorded", return_value=MOCK_TURNS), \
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS, None)), \
          patch("main.get_llm_client",
                return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))):
         resp = await client.post(
@@ -153,7 +153,7 @@ async def test_upload_prompt_gets_voice_annotation_and_addendum(client):
     """When voice labels exist the LLM prompt gains the voice addendum and each
     numbered turn line carries a [voice: …] cue."""
     mock = _mock_llm(_analyze_llm_json(len(MOCK_TURNS)))
-    with patch("main.transcribe_prerecorded", return_value=MOCK_TURNS), \
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS, None)), \
          patch("main.get_llm_client", return_value=mock):
         resp = await client.post(
             "/analyze/upload",
@@ -175,7 +175,7 @@ async def test_upload_decode_failure_degrades_honestly(client):
     def _boom(_data, _filename):
         raise audio_ingest.AudioDecodeError("could not decode this file")
 
-    with patch("main.transcribe_prerecorded", return_value=MOCK_TURNS), \
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS, None)), \
          patch("main.decode_to_pcm", side_effect=_boom), \
          patch("main.get_llm_client",
                return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))):
@@ -199,8 +199,11 @@ async def test_upload_decode_failure_degrades_honestly(client):
 @pytest.mark.anyio
 async def test_upload_no_key_is_503(client, monkeypatch):
     # Force the key absent so the REAL transcribe_prerecorded reports unavailable
-    # before any network call.
+    # before any network call. Pin the whisper fallback OFF so this test is
+    # deterministic whether or not faster-whisper happens to be installed.
     monkeypatch.delenv("DEEPGRAM_API_KEY", raising=False)
+    monkeypatch.delenv("MINDSHIFT_UPLOAD_STT", raising=False)
+    monkeypatch.setattr(audio_ingest, "_whisper_installed", lambda: False)
     resp = await client.post(
         "/analyze/upload",
         files={"file": ("clip.wav", FIXTURE_WAV, "audio/wav")},
@@ -215,10 +218,10 @@ async def test_upload_no_key_is_503(client, monkeypatch):
 
 @pytest.mark.anyio
 async def test_upload_no_speech_is_422(client):
-    def _empty(_data, _ct):
+    def _empty(_data, _ct, _filename=""):
         raise audio_ingest.NoSpeechFound("no speech found in this recording")
 
-    with patch("main.transcribe_prerecorded", side_effect=_empty):
+    with patch("main.transcribe_upload", side_effect=_empty):
         resp = await client.post(
             "/analyze/upload",
             files={"file": ("clip.wav", FIXTURE_WAV, "audio/wav")},
@@ -250,7 +253,7 @@ async def test_upload_single_speaker_transcript_succeeds(client):
             "did_well": "spoke", "work_on": "pausing",
         }},
     })
-    with patch("main.transcribe_prerecorded", return_value=solo), \
+    with patch("main.transcribe_upload", return_value=(solo, None)), \
          patch("main.get_llm_client", return_value=_mock_llm(payload)):
         resp = await client.post(
             "/analyze/upload",
@@ -291,7 +294,7 @@ def _local_diarization_payload(turns: list[dict]) -> dict:
 @pytest.mark.anyio
 async def test_upload_one_speaker_adopts_local_diarization(client):
     payload = _local_diarization_payload(MOCK_TURNS_COLLAPSED)
-    with patch("main.transcribe_prerecorded", return_value=MOCK_TURNS_COLLAPSED), \
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS_COLLAPSED, None)), \
          patch("main.get_llm_client",
                return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))), \
          patch("diarize_local.diarize_turns", return_value=payload) as dz:
@@ -312,7 +315,7 @@ async def test_upload_one_speaker_adopts_local_diarization(client):
 
 @pytest.mark.anyio
 async def test_upload_two_speakers_skips_local_diarization(client):
-    with patch("main.transcribe_prerecorded", return_value=MOCK_TURNS), \
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS, None)), \
          patch("main.get_llm_client",
                return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))), \
          patch("diarize_local.diarize_turns") as dz:
@@ -338,7 +341,7 @@ async def test_upload_local_diarization_unavailable_keeps_labels(client):
             "score": 70, "headline": "h", "did_well": "d", "work_on": "w",
         }},
     })
-    with patch("main.transcribe_prerecorded", return_value=MOCK_TURNS_COLLAPSED), \
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS_COLLAPSED, None)), \
          patch("main.get_llm_client", return_value=_mock_llm(llm)), \
          patch("diarize_local.diarize_turns", return_value=None) as dz:
         resp = await client.post(
@@ -381,8 +384,8 @@ _SOLO_LLM = json.dumps({
 
 @pytest.mark.anyio
 async def test_upload_words_reach_diarizer_but_not_the_response(client):
-    with patch("main.transcribe_prerecorded",
-               return_value=MOCK_TURNS_COLLAPSED_WORDS), \
+    with patch("main.transcribe_upload",
+               return_value=(MOCK_TURNS_COLLAPSED_WORDS, None)), \
          patch("main.get_llm_client", return_value=_mock_llm(_SOLO_LLM)), \
          patch("diarize_local.diarize_turns", return_value=None) as dz:
         resp = await client.post(
@@ -422,7 +425,7 @@ def _crosscheck_payload(turns: list[dict], agreement: float) -> dict:
 @pytest.mark.anyio
 async def test_upload_crosscheck_default_off_two_speakers(client, monkeypatch):
     monkeypatch.delenv("MINDSHIFT_DIARIZE_CROSSCHECK", raising=False)
-    with patch("main.transcribe_prerecorded", return_value=MOCK_TURNS), \
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS, None)), \
          patch("main.get_llm_client",
                return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))), \
          patch("diarize_local.diarize_turns") as dz:
@@ -441,7 +444,7 @@ async def test_upload_crosscheck_adopts_changed_labels_with_note(client, monkeyp
     relabeled = [dict(t) for t in MOCK_TURNS]
     relabeled[-1]["speaker"] = "Speaker A"
     payload = _crosscheck_payload(relabeled, agreement=0.8)
-    with patch("main.transcribe_prerecorded", return_value=MOCK_TURNS), \
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS, None)), \
          patch("main.get_llm_client",
                return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))), \
          patch("diarize_local.diarize_turns", return_value=payload) as dz:
@@ -463,7 +466,7 @@ async def test_upload_crosscheck_adopts_changed_labels_with_note(client, monkeyp
 async def test_upload_crosscheck_agreeing_result_changes_nothing(client, monkeypatch):
     monkeypatch.setenv("MINDSHIFT_DIARIZE_CROSSCHECK", "1")
     payload = _crosscheck_payload(MOCK_TURNS, agreement=1.0)
-    with patch("main.transcribe_prerecorded", return_value=MOCK_TURNS), \
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS, None)), \
          patch("main.get_llm_client",
                return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))), \
          patch("diarize_local.diarize_turns", return_value=payload) as dz:

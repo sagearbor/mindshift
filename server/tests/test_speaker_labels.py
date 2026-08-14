@@ -409,7 +409,7 @@ def _mock_llm(payload: str) -> MagicMock:
 @pytest.mark.anyio
 async def test_upload_autotitle_used_when_user_gave_none(client):
     mock = _mock_llm(_analyze_llm_json(title="Argument about the cat"))
-    with patch("main.transcribe_prerecorded", return_value=MOCK_TURNS), \
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS, None)), \
          patch("main.get_llm_client", return_value=mock):
         resp = await client.post(
             "/analyze/upload",
@@ -424,7 +424,7 @@ async def test_upload_autotitle_used_when_user_gave_none(client):
 @pytest.mark.anyio
 async def test_upload_user_title_not_overridden_and_addendum_absent(client):
     mock = _mock_llm(_analyze_llm_json(title="LLM Suggested"))
-    with patch("main.transcribe_prerecorded", return_value=MOCK_TURNS), \
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS, None)), \
          patch("main.get_llm_client", return_value=mock):
         resp = await client.post(
             "/analyze/upload",
@@ -443,7 +443,7 @@ async def test_upload_title_falls_back_when_llm_omits(client):
     """No user title AND the LLM omits one → response title is None (the stored
     recording falls back to its filename, never a fabricated title)."""
     mock = _mock_llm(_analyze_llm_json())  # no title field
-    with patch("main.transcribe_prerecorded", return_value=MOCK_TURNS), \
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS, None)), \
          patch("main.get_llm_client", return_value=mock):
         resp = await client.post(
             "/analyze/upload",
@@ -459,7 +459,7 @@ async def test_upload_speaker_labels_name_path(client):
         "Speaker A": {"name": "Joe", "confidence": "high"},
         "Speaker B": {"name": "Mia", "confidence": "low"},  # dropped
     }))
-    with patch("main.transcribe_prerecorded", return_value=MOCK_TURNS), \
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS, None)), \
          patch("main.get_llm_client", return_value=mock):
         resp = await client.post(
             "/analyze/upload",
@@ -477,7 +477,7 @@ async def test_upload_speaker_labels_name_path(client):
 async def test_upload_speaker_labels_voice_path(client):
     """No names + two speakers with a real pitch split → deeper/higher voice."""
     mock = _mock_llm(_analyze_llm_json())
-    with patch("main.transcribe_prerecorded", return_value=MOCK_TURNS), \
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS, None)), \
          patch("main.get_llm_client", return_value=mock):
         resp = await client.post(
             "/analyze/upload",
