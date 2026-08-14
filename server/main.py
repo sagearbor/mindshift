@@ -2992,6 +2992,112 @@ async def list_recordings(uid: str = Depends(get_current_uid)):
     }
 
 
+# ---------------------------------------------------------------------------
+# "Your growth" — one score point per stored recording where the user's own
+# voice was confidently identified. Pure GCS reads (list + per-recording meta/
+# analysis), no LLM cost. Honest gaps by design: a recording without a confident
+# "me" is COUNTED but never scored, and a missing report card is null, never 0.
+# ---------------------------------------------------------------------------
+
+class GrowthPoint(BaseModel):
+    recording_id: str
+    # The recording's created_at — the chart's TIME axis, never an index.
+    timestamp: str
+    title: str
+    # report_cards[me].score (0–100), or null when the stored analysis carries
+    # no usable card for "me" (old/degraded analysis) — an honest gap.
+    my_score: Optional[int] = None
+    # Display names of the OTHER speakers — only labels that carry a real,
+    # cross-recording identity (a human "manual" tag or a §2a transcript name).
+    # Generic/relative labels ("Speaker B", "Higher voice") are per-recording
+    # artifacts; grouping by them across recordings would fabricate an identity,
+    # so such partners stay anonymous (the client's "Unidentified partner").
+    partner_names: list[str] = Field(default_factory=list)
+
+
+class GrowthResponse(BaseModel):
+    # Ascending by timestamp — ready for the time-axis chart.
+    points: list[GrowthPoint]
+    total_recordings: int
+    # == len(points); carried explicitly so the client's honest footer
+    # ("N of M recordings identified your voice") never has to re-derive it.
+    identified_recordings: int
+
+
+# Label sources that name a partner ACROSS recordings (see GrowthPoint).
+_PARTNER_NAME_SOURCES = {LABEL_SOURCE_MANUAL, LABEL_SOURCE_NAME}
+
+
+def _growth_point(rec: dict) -> GrowthPoint | None:
+    """The growth point for one stored recording, or None when the user isn't
+    confidently identified in it.
+
+    "Me" is the speaker whose EFFECTIVE label_source is "enrolled" — the stored
+    per-recording ladder labels overlaid with any manual re-tags, exactly as the
+    detail endpoint serves them. The overlay is what lets a correction flow into
+    the chart WITHOUT re-analysis: manually re-tagging the machine's "You"
+    replaces the enrolled rung, so the recording honestly drops out."""
+    analysis = rec.get("analysis")
+    if not isinstance(analysis, dict):
+        return None
+    effective = _effective_speaker_labels(
+        analysis.get("speaker_labels"),
+        rec.get("manual_speaker_labels") or {},
+        _recording_speaker_ids(rec),
+    )
+    me = [
+        sp for sp, entry in effective.items()
+        if entry.get("label_source") == LABEL_SOURCE_ENROLLED
+    ]
+    if len(me) != 1:  # no confident "me" (or a malformed doc) — never guess
+        return None
+
+    cards = analysis.get("report_cards")
+    card = cards.get(me[0]) if isinstance(cards, dict) else None
+    score = _coerce_score(card.get("score")) if isinstance(card, dict) else None
+
+    partner_names: list[str] = []
+    for sp, entry in effective.items():
+        if sp == me[0]:
+            continue
+        if entry.get("label_source") not in _PARTNER_NAME_SOURCES:
+            continue
+        label = str(entry.get("display_label") or "").strip()
+        if label and label not in partner_names:
+            partner_names.append(label)
+
+    return GrowthPoint(
+        recording_id=rec["id"],
+        timestamp=rec["created_at"],
+        title=rec.get("title") or rec.get("filename") or "",
+        my_score=score,
+        partner_names=partner_names,
+    )
+
+
+@app.get("/growth", response_model=GrowthResponse)
+async def get_growth(uid: str = Depends(get_current_uid)):
+    """Aggregate the caller's stored recordings into "Your growth" points.
+
+    One point per OWN recording (shared-with-me stays out — it isn't the
+    caller's conversation history) whose stored labels confidently identify the
+    user; the rest are counted, not scored. Same auth/store pattern as
+    GET /recordings; 503 when storage is disabled."""
+    store_backend = _require_store()
+    metas = await store_backend.list_recordings(uid)
+    analyzed_ids = [m["id"] for m in metas if m.get("has_analysis")]
+    recs = await asyncio.gather(
+        *(store_backend.get_recording(uid, rid) for rid in analyzed_ids)
+    )
+    points = [p for rec in recs if rec is not None for p in [_growth_point(rec)] if p]
+    points.sort(key=lambda p: p.timestamp)
+    return GrowthResponse(
+        points=points,
+        total_recordings=len(metas),
+        identified_recordings=len(points),
+    )
+
+
 @app.get("/recordings/{recording_id}")
 async def get_recording(
     recording_id: Annotated[str, Path(pattern=UUID_PATTERN)],

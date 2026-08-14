@@ -31,6 +31,17 @@ export function speakerLabel(speaker: string, labels?: SpeakerLabels): string {
 }
 
 /**
+ * True when this label entry marks the speaker as the VIEWER ("You") via the
+ * enrolled-voiceprint rung. Deliberately strict: only `label_source ===
+ * "enrolled"` counts — a manual rename REPLACES the enrolled rung (the human
+ * correction wins), so a re-tagged speaker is no longer confidently "you".
+ * This mirrors the server's own "me" resolution for /growth.
+ */
+export function isYou(entry: SpeakerLabel | null | undefined): boolean {
+  return entry?.label_source === "enrolled";
+}
+
+/**
  * A short, plain-language note for HOW a speaker's current label was decided,
  * from its `label_source` rung — so the label editor can show provenance subtly
  * ("named by you" vs "detected voice"). Returns null for the raw-id ("generic")

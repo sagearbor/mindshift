@@ -1,4 +1,8 @@
-import { speakerLabel, labelProvenanceNote } from "../src/utils/speakerLabels";
+import {
+  isYou,
+  labelProvenanceNote,
+  speakerLabel,
+} from "../src/utils/speakerLabels";
 import type { SpeakerLabel } from "../src/api/client";
 
 const labels: Record<string, SpeakerLabel> = {
@@ -62,5 +66,22 @@ describe("labelProvenanceNote", () => {
     expect(labelProvenanceNote("something-new")).toBeNull();
     expect(labelProvenanceNote(undefined)).toBeNull();
     expect(labelProvenanceNote(null)).toBeNull();
+  });
+});
+
+describe("isYou", () => {
+  it("is true only for the enrolled-voiceprint rung", () => {
+    expect(isYou(labels["Speaker E"])).toBe(true);
+    expect(isYou(labels["Speaker A"])).toBe(false);
+    expect(isYou(labels["Speaker C"])).toBe(false);
+  });
+
+  it('a manual "You" rename is NOT the enrolled rung (the correction wins)', () => {
+    expect(isYou({ display_label: "You", label_source: "manual" })).toBe(false);
+  });
+
+  it("is false for absent entries", () => {
+    expect(isYou(undefined)).toBe(false);
+    expect(isYou(null)).toBe(false);
   });
 });

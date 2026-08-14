@@ -18,6 +18,7 @@ import ReplayScreen from "./src/screens/ReplayScreen";
 import RecordScreen from "./src/screens/RecordScreen";
 import RecordingsScreen from "./src/screens/RecordingsScreen";
 import YourDayScreen from "./src/screens/YourDayScreen";
+import GrowthScreen from "./src/screens/GrowthScreen";
 import LiveCoachScreen from "./src/screens/LiveCoachScreen";
 import LoginScreen from "./src/screens/LoginScreen";
 import UpdateBanner from "./src/components/UpdateBanner";
@@ -46,7 +47,11 @@ type ReplayReturn =
   | { name: "analyze" }
   | { name: "session"; returnTo: SessionReturn }
   // The "Your Day" episode timeline (Companion P1) opens replays too.
-  | { name: "your-day" };
+  | { name: "your-day" }
+  // "Your growth" dot-taps open the backing recording's replay.
+  | { name: "growth" }
+  // The voice-profile card's per-sample "Play" opens the source recording.
+  | { name: "advanced" };
 
 type Screen =
   | { name: "home" }
@@ -90,6 +95,9 @@ type Screen =
   // their episodes. Reachable from Home's compact history row; episode taps
   // push the existing replay, which returns here.
   | { name: "your-day" }
+  // "Your growth": the full score-over-time chart behind Home's growth strip.
+  // Dot taps push the existing replay, which returns here.
+  | { name: "growth" }
   // In-app 480p video recording. On success it hands the recorded file to the
   // Analyze upload flow (via the recorder store).
   | { name: "record" }
@@ -152,6 +160,7 @@ export default function App() {
             }
             onOpenYourDay={() => setScreen({ name: "your-day" })}
             onOpenAdvanced={() => setScreen({ name: "advanced" })}
+            onOpenGrowth={() => setScreen({ name: "growth" })}
           />
         );
       case "live-coach":
@@ -196,6 +205,13 @@ export default function App() {
             onSignOut={() => {
               void signOut();
             }}
+            onOpenReplay={(id) =>
+              setScreen({
+                name: "replay",
+                recordingId: id,
+                returnTo: { name: "advanced" },
+              })
+            }
           />
         );
       case "session":
@@ -263,6 +279,22 @@ export default function App() {
                 recordingId: id,
                 returnTo: { name: "recordings", returnTo: screen.returnTo },
               })
+            }
+          />
+        );
+      case "growth":
+        return (
+          <GrowthScreen
+            onBack={() => setScreen({ name: "home" })}
+            onOpenRecording={(id) =>
+              setScreen({
+                name: "replay",
+                recordingId: id,
+                returnTo: { name: "growth" },
+              })
+            }
+            onOpenRecordings={() =>
+              setScreen({ name: "recordings", returnTo: "home" })
             }
           />
         );

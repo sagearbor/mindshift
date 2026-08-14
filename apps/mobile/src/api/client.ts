@@ -1704,6 +1704,28 @@ export interface VoiceProfile {
   updated_at?: string | null;
   model?: string | null;
   dim?: number | null;
+  // v2 — per-sample provenance (metadata only; embeddings never leave the
+  // server). Absent on a pre-v2 server; empty when unenrolled.
+  samples?: VoiceSample[];
+}
+
+/** One enrollment sample's provenance. `recording_id` is null for the migrated
+ *  pre-v2 legacy blend (`note` explains it); a non-null id may point at a
+ *  recording that has since been deleted — samples outlive their recordings,
+ *  and the UI says so honestly instead of hiding the row. */
+export interface VoiceSample {
+  id: string;
+  recording_id: string | null;
+  speaker: string | null;
+  at: string | null;
+  note?: string | null;
+}
+
+/** DELETE /voice/samples/{id} response — what remains after the removal. */
+export interface DeleteSampleResult {
+  deleted: boolean;
+  enrolled: boolean;
+  enroll_count: number;
 }
 
 /** POST /voice/enroll response — confirmation the voiceprint was saved/refined. */
@@ -1778,6 +1800,78 @@ export async function forgetVoice(): Promise<{ deleted: boolean }> {
     throw new Error(`API error: ${res.status}`);
   }
   return (await res.json()) as { deleted: boolean };
+}
+
+/**
+ * DELETE /voice/samples/{id} — remove ONE enrollment sample; the server
+ * recomputes the blended voiceprint from what remains. Deleting the last
+ * sample leaves the same state as "Forget my voice" (`enrolled: false`).
+ * The thrown error carries `.status` (404 sample/profile gone, 503 storage)
+ * so the card can roll back its optimistic removal with an honest message.
+ */
+export async function deleteVoiceSample(
+  sampleId: string,
+): Promise<DeleteSampleResult> {
+  const res = await fetch(
+    `${API_URL}/voice/samples/${encodeURIComponent(sampleId)}`,
+    { method: "DELETE", headers: await authHeaders() },
+  );
+  if (!res.ok) {
+    const err = new Error(`API error: ${res.status}`) as Error & {
+      status?: number;
+    };
+    err.status = res.status;
+    throw err;
+  }
+  return (await res.json()) as DeleteSampleResult;
+}
+
+// ---------------------------------------------------------------------------
+// "Your growth" — per-recording self scores over time
+// ---------------------------------------------------------------------------
+
+/** One growth point: a stored recording in which the user's own voice was
+ *  confidently identified. `my_score` is that recording's report-card score
+ *  for "me" (0–100) or null when the stored analysis has no usable card — a
+ *  GAP the chart must render as absence, never as zero. `partner_names` holds
+ *  only real cross-recording names (manual tags / transcript names); an empty
+ *  list is the "unidentified partner" bucket. */
+export interface GrowthPoint {
+  recording_id: string;
+  timestamp: string;
+  title: string;
+  my_score: number | null;
+  partner_names: string[];
+}
+
+export interface GrowthResult {
+  /** Ascending by timestamp — ready for the time-axis chart. */
+  points: GrowthPoint[];
+  total_recordings: number;
+  /** How many of those identified the user's voice — the honest footer's "N
+   *  of M". Equals points.length. */
+  identified_recordings: number;
+}
+
+/**
+ * GET /growth — the aggregate behind the home strip + GrowthScreen. Throws
+ * `API error: <status>` on any non-OK (401 signed out, 503 storage disabled)
+ * so callers show an honest state instead of an empty chart.
+ */
+export async function getGrowth(): Promise<GrowthResult> {
+  const res = await fetch(`${API_URL}/growth`, {
+    method: "GET",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+  const data = (await res.json()) as Partial<GrowthResult>;
+  return {
+    points: Array.isArray(data.points) ? data.points : [],
+    total_recordings: data.total_recordings ?? 0,
+    identified_recordings: data.identified_recordings ?? 0,
+  };
 }
 
 export async function postRespond(

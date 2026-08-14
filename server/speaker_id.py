@@ -38,6 +38,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import uuid
 
 import numpy as np
 
@@ -88,8 +89,17 @@ MIN_ENROLL_SECONDS = 3.0
 # unbounded; the first ~60s of a voice is more than enough identity signal.
 MAX_POOL_SECONDS = 60.0
 
-# Stored voiceprint document version — lets a future format change migrate safely.
-PROFILE_VERSION = 1
+# Stored voiceprint document version. v2 keeps each enrollment's INDIVIDUAL
+# embedding (``samples``) alongside the blended voiceprint, so single samples
+# can be inspected and deleted; v1 stored only the running-mean blend. A v1 doc
+# migrates via :func:`as_v2` — its blend becomes ONE legacy sample.
+PROFILE_VERSION = 2
+
+# The deterministic sample id a migrated v1 blend gets. Deterministic on purpose:
+# GET /voice/profile serves a v1 doc through the same v2 view WITHOUT rewriting
+# it (reads stay side-effect free), so the id must be identical on every read for
+# a later DELETE to find it.
+LEGACY_SAMPLE_ID = "legacy-blend"
 
 # The label the top rung of the ladder assigns, and its source tag. A concurrent
 # feature adds display_label/label_source with sources "name"/"voice"/"generic";
@@ -371,6 +381,55 @@ def identify_speakers(
     }
 
 
+def blend_samples(samples: list[dict]) -> np.ndarray:
+    """The blended voiceprint for a v2 sample list: the L2-normalized mean of
+    the (normalized) per-sample embeddings. With per-sample storage the blend is
+    always recomputable, so deleting a sample simply re-runs this."""
+    vecs = [
+        l2_normalize(np.asarray(s["embedding"], dtype=np.float32))
+        for s in samples
+    ]
+    return l2_normalize(np.mean(vecs, axis=0))
+
+
+def as_v2(profile: dict | None) -> dict | None:
+    """A v2 VIEW of any stored profile document (pure — never persists).
+
+    * ``None`` (unenrolled) passes through.
+    * A v2 doc is returned as-is (same object).
+    * A v1 doc is migrated: its running-mean blend becomes ONE legacy sample
+      (``recording_id: None`` — the blend has no single source recording) with a
+      plain note saying what it is. The legacy sample is deletable WHOLE, like
+      any other; ``enroll_count`` counts SAMPLES from here on. GETs serve this
+      view without rewriting the doc; the first write persists it.
+    """
+    if profile is None:
+        return None
+    if int(profile.get("version", 1) or 1) >= 2 and isinstance(
+        profile.get("samples"), list,
+    ):
+        return profile
+    n = int(profile.get("enroll_count", 0) or 0)
+    legacy = {
+        "id": LEGACY_SAMPLE_ID,
+        "embedding": [float(x) for x in (profile.get("embedding") or [])],
+        "recording_id": None,
+        "speaker": None,
+        "at": profile.get("updated_at"),
+        "note": f"pre-v2 blend of {n} enrollment{'' if n == 1 else 's'}",
+    }
+    return {
+        "version": PROFILE_VERSION,
+        "embedding": list(legacy["embedding"]),
+        "dim": len(legacy["embedding"]),
+        "enroll_count": 1,
+        "model": profile.get("model"),
+        "created_at": profile.get("created_at"),
+        "updated_at": profile.get("updated_at"),
+        "samples": [legacy],
+    }
+
+
 def new_profile(
     embedding: np.ndarray,
     existing: dict | None,
@@ -378,27 +437,58 @@ def new_profile(
     recording_id: str,
     speaker: str,
     now_iso: str,
+    sample_id: str | None = None,
 ) -> dict:
-    """Build the stored voiceprint document, folding ``embedding`` into any
-    existing profile as a running mean. Pure (no I/O) so the store just persists
-    what this returns — and it is unit-testable without torch."""
-    prior_count = int((existing or {}).get("enroll_count", 0) or 0)
-    prior_vec = None
-    if existing and isinstance(existing.get("embedding"), list):
-        prior_vec = np.asarray(existing["embedding"], dtype=np.float32)
-    blended = running_mean_embedding(prior_vec, prior_count, embedding)
-    sources = list((existing or {}).get("sources", []))
-    sources.append({"recording_id": recording_id, "speaker": speaker, "at": now_iso})
-    created_at = (existing or {}).get("created_at", now_iso)
+    """Build the stored v2 voiceprint document: append this enrollment as an
+    individual sample and recompute the blend over ALL samples. Pure (no I/O) so
+    the store just persists what this returns — and it is unit-testable without
+    torch. A v1 ``existing`` is migrated in the same step (see :func:`as_v2`).
+    ``sample_id`` is generated when not given (tests pass one for determinism).
+    """
+    existing_v2 = as_v2(existing)
+    samples = list((existing_v2 or {}).get("samples", []))
+    new_vec = l2_normalize(embedding)
+    samples.append({
+        "id": sample_id or uuid.uuid4().hex,
+        "embedding": [float(x) for x in new_vec.tolist()],
+        "recording_id": recording_id,
+        "speaker": speaker,
+        "at": now_iso,
+    })
+    blended = blend_samples(samples)
+    created_at = (existing_v2 or {}).get("created_at") or now_iso
     return {
         "version": PROFILE_VERSION,
         "embedding": [float(x) for x in blended.tolist()],
         "dim": int(blended.size),
-        "enroll_count": prior_count + 1,
+        "enroll_count": len(samples),
         "model": f"{ECAPA_SOURCE}@{ECAPA_REVISION}",
         "created_at": created_at,
         "updated_at": now_iso,
-        # Bounded provenance — keep only the most recent handful so the doc
-        # can't grow without limit across many enrollments.
-        "sources": sources[-10:],
+        "samples": samples,
+    }
+
+
+def remove_sample(profile: dict, sample_id: str, *, now_iso: str) -> dict | None:
+    """The profile with ``sample_id`` removed and the blend recomputed (pure).
+
+    Returns ``None`` when the last sample was removed — an empty profile is the
+    SAME state as "forget my voice" (the caller deletes the stored doc), never a
+    hollow document with no signal in it. Raises :class:`KeyError` when the
+    sample isn't in the profile. A v1 ``profile`` is migrated first, so its
+    legacy blend sample is deletable whole."""
+    v2 = as_v2(profile)
+    samples = [s for s in v2["samples"] if s.get("id") != sample_id]
+    if len(samples) == len(v2["samples"]):
+        raise KeyError(sample_id)
+    if not samples:
+        return None
+    blended = blend_samples(samples)
+    return {
+        **v2,
+        "embedding": [float(x) for x in blended.tolist()],
+        "dim": int(blended.size),
+        "enroll_count": len(samples),
+        "updated_at": now_iso,
+        "samples": samples,
     }
