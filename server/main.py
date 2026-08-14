@@ -538,7 +538,9 @@ class AnalyzeUploadResponse(AnalyzeResponse):
 # through the CHUNKED upload endpoints below (/uploads/*), which stream 8MB
 # parts through this same server and reassemble them server-side.
 MAX_UPLOAD_BYTES = int(os.getenv("ANALYZE_UPLOAD_MAX_BYTES", str(25 * 1024 * 1024)))
-MAX_UPLOAD_DURATION_S = float(os.getenv("ANALYZE_UPLOAD_MAX_SECONDS", str(40 * 60)))
+# 90 min: sized for a full recorded therapy session (owner use-case 2026-08-14);
+# still a cost guard against pathological uploads, env-overridable either way.
+MAX_UPLOAD_DURATION_S = float(os.getenv("ANALYZE_UPLOAD_MAX_SECONDS", str(90 * 60)))
 
 # Companion P1 — silence gap (seconds, no diarized turns) that splits a long
 # recording into separate conversation EPISODES on the "Your Day" timeline.
