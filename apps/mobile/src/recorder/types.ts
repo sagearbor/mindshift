@@ -38,8 +38,8 @@ export interface SegmentRecord {
 }
 
 /** The on-disk session manifest (manifest.json). Rewritten after every
- *  finalized segment — its presence at app launch means the session never
- *  finished cleanly and is a recovery candidate. */
+ *  finalized segment (v1) or flush (v2) — its presence at app launch means the
+ *  session never finished cleanly and is a recovery candidate. */
 export interface SessionManifest {
   version: 1;
   sessionId: string;
@@ -50,6 +50,11 @@ export interface SessionManifest {
   mimeType: string;
   segmentSeconds: number;
   segments: SegmentRecord[];
+  /** Which engine produced this session ("stream" = v2 gapless). Purely
+   *  diagnostic: on disk both engines produce the same recoverable shape
+   *  (a directory of independently playable segments + this manifest), so
+   *  recovery never branches on it. Absent on v1 sessions. */
+  engine?: "stream" | "recorder";
 }
 
 /** A crashed/interrupted session found on launch. */
@@ -81,6 +86,13 @@ export interface RecorderFs {
   writeText(fileUri: string, text: string): void;
   readBytes(fileUri: string): Uint8Array;
   writeBytes(fileUri: string, bytes: Uint8Array): void;
+  /** Append bytes to the end of an existing file (create if missing). The
+   *  v2 stream engine's whole write path: segment WAVs grow by appends. */
+  appendBytes(fileUri: string, bytes: Uint8Array): void;
+  /** Overwrite `bytes.length` bytes at `offset` within an existing file.
+   *  Used to patch WAV header sizes after each append so every segment on
+   *  disk is playable at every instant. */
+  writeBytesAt(fileUri: string, offset: number, bytes: Uint8Array): void;
   move(srcUri: string, destUri: string): void;
   /** Delete a file, or a directory and everything under it. */
   deleteRecursive(uri: string): void;
