@@ -107,6 +107,12 @@ MINDSHIFT_ALLOWED_ORIGINS="${MINDSHIFT_ALLOWED_ORIGINS:-https://arborfam-hub.web
 # secret); a MINDSHIFT_RECORDINGS_BUCKET in .env / the environment overrides.
 MINDSHIFT_RECORDINGS_BUCKET="${MINDSHIFT_RECORDINGS_BUCKET:-$(read_env MINDSHIFT_RECORDINGS_BUCKET)}"
 MINDSHIFT_RECORDINGS_BUCKET="${MINDSHIFT_RECORDINGS_BUCKET:-arborfam-hub-mindshift-recordings}"
+# Word-level diarization cross-check: owner-approved ON for this deployment
+# (2026-08-13) — every upload gets our own speaker verification even when the
+# vendor transcript already hears 2+ speakers. Same default-in-script pattern
+# as the allowlist above, for the same reason. Override via .env / env var.
+MINDSHIFT_DIARIZE_CROSSCHECK="${MINDSHIFT_DIARIZE_CROSSCHECK:-$(read_env MINDSHIFT_DIARIZE_CROSSCHECK)}"
+MINDSHIFT_DIARIZE_CROSSCHECK="${MINDSHIFT_DIARIZE_CROSSCHECK:-1}"
 # Optional config: forwarded to Cloud Run only when present (in .env or a real
 # env var). This is what makes MINDSHIFT_MODEL, STT_PROVIDER, etc. genuinely
 # switch-in-.env — no code change needed as models/config evolve.
