@@ -60,19 +60,44 @@ export function recordingOptionsFor(format: SegmentFormat): RecordingOptions {
 }
 
 /**
+ * The native AudioRecorder expects FLAT options: expo-audio's useAudioRecorder
+ * hoists the platform sub-object to the top level (createRecordingOptions)
+ * before constructing. Passing the nested RecordingOptions shape straight to
+ * the native layer made prepare throw on-device ("Couldn't start the
+ * microphone" — v1.16.0's first field bug), while jest fakes never noticed.
+ */
+export function flattenForNative(
+  options: RecordingOptions,
+  os: string,
+): Record<string, unknown> {
+  const common = {
+    extension: options.extension,
+    sampleRate: options.sampleRate,
+    numberOfChannels: options.numberOfChannels,
+    bitRate: options.bitRate,
+    isMeteringEnabled: options.isMeteringEnabled ?? false,
+  };
+  if (os === "ios") return { ...common, ...options.ios };
+  if (os === "android") return { ...common, ...options.android };
+  return { ...common, ...options.web };
+}
+
+/**
  * RecorderPort over expo-audio's imperative AudioRecorder. One instance per
  * segment: prepare() names a fresh cache file, stop() finalizes it and hands
  * back the uri for the store to move into durable session storage.
  */
 export class ExpoAudioRecorderPort implements RecorderPort {
   private recorder: InstanceType<typeof AudioModule.AudioRecorder>;
+  private nativeOptions: Record<string, unknown>;
 
-  constructor(private options: RecordingOptions) {
-    this.recorder = new AudioModule.AudioRecorder(options);
+  constructor(options: RecordingOptions) {
+    this.nativeOptions = flattenForNative(options, Platform.OS);
+    this.recorder = new AudioModule.AudioRecorder(this.nativeOptions);
   }
 
   async prepare(): Promise<void> {
-    await this.recorder.prepareToRecordAsync(this.options);
+    await this.recorder.prepareToRecordAsync(this.nativeOptions);
   }
 
   start(): void {

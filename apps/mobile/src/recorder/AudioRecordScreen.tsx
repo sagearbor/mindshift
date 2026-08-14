@@ -203,9 +203,13 @@ export default function AudioRecordScreen({
     try {
       await d.configureAudioSession(true);
       await session.start();
-    } catch {
+    } catch (e) {
       if (mountedRef.current) {
-        setError("Couldn’t start the microphone. Please try again.");
+        // Keep the honest detail visible — a swallowed cause is how the vc29
+        // upload bug stayed undiagnosable for a month.
+        const detail =
+          e instanceof Error && e.message ? ` (${e.message})` : "";
+        setError(`Couldn’t start the microphone. Please try again.${detail}`);
       }
       return;
     }
