@@ -2395,21 +2395,49 @@ async def _analyze_recording_bytes(
         #     speaker. When the transcript heard only ONE voice, cross-check
         #     with our own ECAPA clustering (diarize_local); if it hears 2+,
         #     its labels win, BEFORE prosody/LLM/identity so every downstream
-        #     per-speaker feature uses them. The swap is surfaced in
+        #     per-speaker feature uses them. With MINDSHIFT_DIARIZE_CROSSCHECK
+        #     set (default OFF — CPU latency on Cloud Run is unproven) the same
+        #     cross-check also runs on 2+-speaker transcripts, adopted only
+        #     when it actually changes something. Either swap is surfaced in
         #     voice_analysis — never silent. diarize_turns returns None when
         #     it has nothing trustworthy to say (voice deps absent, too little
         #     embeddable speech); any unexpected error degrades the same way
         #     because a cross-check must never sink the analysis.
-        if len({t.speaker for t in turns}) < 2:
+        #     Word timings (transcribe_prerecorded's internal ``words`` key,
+        #     absent on the text path) ride along so diarize_local can split a
+        #     transcriber-welded utterance at a word boundary; AnalyzeTurn
+        #     ignores the key, so they are re-attached from raw_turns here.
+        diarize_input = [
+            dict(
+                t.model_dump(),
+                **({"words": rt["words"]}
+                   if isinstance(rt, dict) and rt.get("words") else {}),
+            )
+            for t, rt in zip(turns, raw_turns)
+        ]
+        transcript_speakers = len({t.speaker for t in turns})
+        run_crosscheck = transcript_speakers >= 2 and (
+            os.getenv("MINDSHIFT_DIARIZE_CROSSCHECK", "").strip().lower()
+            in {"1", "true", "yes", "on"}
+        )
+        if transcript_speakers < 2 or run_crosscheck:
             try:
                 local = await asyncio.to_thread(
-                    diarize_local.diarize_turns, pcm, sr,
-                    [t.model_dump() for t in turns],
+                    diarize_local.diarize_turns, pcm, sr, diarize_input,
                 )
             except Exception as exc:  # noqa: BLE001 — optional cross-check
                 logger.warning("local diarization failed (ignored): %s", exc)
                 local = None
-            if local is not None and local["num_speakers"] >= 2:
+            # The cross-check on an already-2+-speaker transcript only acts
+            # when it actually CHANGES something (a split or a different
+            # partition); adopting an identical labeling would be noise.
+            changed = local is not None and (
+                len(local["turns"]) != len(turns)
+                or local["agreement_with_input"] < 1.0
+            )
+            if local is not None and local["num_speakers"] >= 2 and (
+                transcript_speakers < 2 or changed
+            ):
                 try:
                     analyze_req = AnalyzeRequest(
                         turns=local["turns"], context=context,
@@ -2422,17 +2450,30 @@ async def _analyze_recording_bytes(
                     )
                 else:
                     turns = analyze_req.turns
-                    voice_note = (
-                        "speakers relabeled by local voice diarization — the "
-                        "transcript heard one voice, voice clustering heard "
-                        f"{local['num_speakers']}"
+                    n_split = local.get("split_utterances", 0)
+                    split_note = (
+                        f" ({n_split} long utterance(s) split at a "
+                        "voice change)" if n_split else ""
                     )
+                    if transcript_speakers < 2:
+                        voice_note = (
+                            "speakers relabeled by local voice diarization — "
+                            "the transcript heard one voice, voice clustering "
+                            f"heard {local['num_speakers']}{split_note}"
+                        )
+                    else:
+                        voice_note = (
+                            "speakers adjusted by local voice diarization "
+                            "cross-check — voice clustering disagreed with "
+                            f"the transcript's labels{split_note}"
+                        )
                     logger.info(
-                        "Local diarization relabeled 1→%d speakers "
-                        "(embedded %d/%d segments, agreement %.2f, model %s)",
-                        local["num_speakers"], local["segments_embedded"],
-                        local["segments_total"], local["agreement_with_input"],
-                        local["model"],
+                        "Local diarization relabeled %d→%d speakers "
+                        "(embedded %d/%d segments, %d utterance(s) split, "
+                        "agreement %.2f, model %s)",
+                        transcript_speakers, local["num_speakers"],
+                        local["segments_embedded"], local["segments_total"],
+                        n_split, local["agreement_with_input"], local["model"],
                     )
         features = [
             prosody.turn_features(

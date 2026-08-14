@@ -353,6 +353,134 @@ async def test_upload_local_diarization_unavailable_keeps_labels(client):
 
 
 # ---------------------------------------------------------------------------
+# Word timings — transcribe_prerecorded's internal ``words`` key must reach the
+# local diarizer (it splits welded utterances at word boundaries) but must
+# NEVER surface in the public response shape.
+# ---------------------------------------------------------------------------
+
+_WORDS = [
+    {"word": "You", "start_time": 0.0, "end_time": 0.4},
+    {"word": "wanted", "start_time": 0.4, "end_time": 1.0},
+]
+MOCK_TURNS_COLLAPSED_WORDS = [
+    dict(t, words=list(_WORDS)) for t in MOCK_TURNS_COLLAPSED
+]
+
+_SOLO_LLM = json.dumps({
+    "per_turn": [
+        {"heat": 20, "markers": [], "trigger_phrase": None}
+        for _ in MOCK_TURNS_COLLAPSED
+    ],
+    "requests": [],
+    "narrative": "n",
+    "report_cards": {"Speaker A": {
+        "score": 70, "headline": "h", "did_well": "d", "work_on": "w",
+    }},
+})
+
+
+@pytest.mark.anyio
+async def test_upload_words_reach_diarizer_but_not_the_response(client):
+    with patch("main.transcribe_prerecorded",
+               return_value=MOCK_TURNS_COLLAPSED_WORDS), \
+         patch("main.get_llm_client", return_value=_mock_llm(_SOLO_LLM)), \
+         patch("diarize_local.diarize_turns", return_value=None) as dz:
+        resp = await client.post(
+            "/analyze/upload",
+            files={"file": ("clip.wav", FIXTURE_WAV, "audio/wav")},
+        )
+    assert resp.status_code == 200, resp.text
+    # The diarizer received the word timings...
+    dz.assert_called_once()
+    diarize_turns_arg = dz.call_args.args[2]
+    assert all(t["words"] == _WORDS for t in diarize_turns_arg)
+    # ...but the public response turns keep the documented shape.
+    for t in resp.json()["turns"]:
+        assert "words" not in t
+
+
+# ---------------------------------------------------------------------------
+# Cross-check on 2+-speaker transcripts — env-gated (MINDSHIFT_DIARIZE_CROSSCHECK,
+# default OFF: CPU latency on Cloud Run is unproven). When it fires and changes
+# anything, the swap is surfaced in voice_analysis — never silent.
+# ---------------------------------------------------------------------------
+
+def _crosscheck_payload(turns: list[dict], agreement: float) -> dict:
+    return {
+        "turns": [dict(t) for t in turns],
+        "num_speakers": 2,
+        "source": "local-ecapa",
+        "model": "ecapa@test",
+        "segments_total": len(turns),
+        "segments_embedded": len(turns),
+        "split_utterances": 0,
+        "pooled_cosine": 0.19,
+        "agreement_with_input": agreement,
+    }
+
+
+@pytest.mark.anyio
+async def test_upload_crosscheck_default_off_two_speakers(client, monkeypatch):
+    monkeypatch.delenv("MINDSHIFT_DIARIZE_CROSSCHECK", raising=False)
+    with patch("main.transcribe_prerecorded", return_value=MOCK_TURNS), \
+         patch("main.get_llm_client",
+               return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))), \
+         patch("diarize_local.diarize_turns") as dz:
+        resp = await client.post(
+            "/analyze/upload",
+            files={"file": ("clip.wav", FIXTURE_WAV, "audio/wav")},
+        )
+    assert resp.status_code == 200, resp.text
+    dz.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_upload_crosscheck_adopts_changed_labels_with_note(client, monkeypatch):
+    monkeypatch.setenv("MINDSHIFT_DIARIZE_CROSSCHECK", "1")
+    # The cross-check disagrees: last turn flips from Speaker B to Speaker A.
+    relabeled = [dict(t) for t in MOCK_TURNS]
+    relabeled[-1]["speaker"] = "Speaker A"
+    payload = _crosscheck_payload(relabeled, agreement=0.8)
+    with patch("main.transcribe_prerecorded", return_value=MOCK_TURNS), \
+         patch("main.get_llm_client",
+               return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))), \
+         patch("diarize_local.diarize_turns", return_value=payload) as dz:
+        resp = await client.post(
+            "/analyze/upload",
+            files={"file": ("clip.wav", FIXTURE_WAV, "audio/wav")},
+        )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    dz.assert_called_once()
+    assert [t["speaker"] for t in data["turns"]] == [
+        t["speaker"] for t in relabeled
+    ]
+    # Never silent: the relabeling is surfaced.
+    assert "cross-check" in (data["voice_analysis"] or "")
+
+
+@pytest.mark.anyio
+async def test_upload_crosscheck_agreeing_result_changes_nothing(client, monkeypatch):
+    monkeypatch.setenv("MINDSHIFT_DIARIZE_CROSSCHECK", "1")
+    payload = _crosscheck_payload(MOCK_TURNS, agreement=1.0)
+    with patch("main.transcribe_prerecorded", return_value=MOCK_TURNS), \
+         patch("main.get_llm_client",
+               return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))), \
+         patch("diarize_local.diarize_turns", return_value=payload) as dz:
+        resp = await client.post(
+            "/analyze/upload",
+            files={"file": ("clip.wav", FIXTURE_WAV, "audio/wav")},
+        )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    dz.assert_called_once()
+    assert [t["speaker"] for t in data["turns"]] == [
+        t["speaker"] for t in MOCK_TURNS
+    ]
+    assert "cross-check" not in (data["voice_analysis"] or "")
+
+
+# ---------------------------------------------------------------------------
 # Caps — oversize file → 413 (cap monkeypatched small to keep the test fast)
 # ---------------------------------------------------------------------------
 
