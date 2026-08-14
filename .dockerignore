@@ -12,7 +12,6 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
-requirements-whisper.txt
 mindshift.db
 mindshift.db-wal
 mindshift.db-shm

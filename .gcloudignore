@@ -21,7 +21,6 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
-requirements-whisper.txt
 *.db
 *.db-wal
 *.db-shm
