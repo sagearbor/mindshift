@@ -111,6 +111,9 @@ jest.mock("expo-document-picker", () => ({
 // reads byte ranges via the modern `File(uri).open().readBytes()` handle API. The
 // mock handle serves slices out of `globalThis.__fsMockBytes` (a Uint8Array the
 // test sets to stand in for the on-disk file), honoring the seekable `offset`.
+// `File.size` (the stat the upload-routing fix uses when the document picker
+// reports no size) serves `globalThis.__fsMockSize` when a test sets it —
+// including an explicit null for "unstattable" — else the mock bytes' length.
 jest.mock("expo-file-system", () => {
   class FileHandle {
     offset = 0;
@@ -129,6 +132,12 @@ jest.mock("expo-file-system", () => {
     uri: string;
     constructor(uri: string) {
       this.uri = uri;
+    }
+    get size(): number | null {
+      const g = globalThis as Record<string, unknown>;
+      if ("__fsMockSize" in g) return g.__fsMockSize as number | null;
+      const buf = g.__fsMockBytes as Uint8Array | undefined;
+      return buf ? buf.length : null;
     }
     open() {
       return new FileHandle();

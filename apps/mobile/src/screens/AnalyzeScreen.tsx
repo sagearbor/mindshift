@@ -22,6 +22,8 @@ import {
   postAnalyzeLink,
   postAnalyzeLinkJob,
   getAnalyzeJob,
+  statFileSize,
+  UploadError,
 } from "../api/client";
 import type {
   AnalyzeResult,
@@ -118,6 +120,11 @@ function uploadErrorMessage(
     if (status === 413) return sizeLimitMessage(opts.sizeBytes);
   }
   switch (status) {
+    case 0:
+      // A status-0 UploadError (or a bare fetch rejection): the request never
+      // got a response at all. Say so honestly — this was the vc29 bug's
+      // "Something went wrong" dead end.
+      return "Couldn’t reach the server — check your connection and try again.";
     case 401:
       return "Please sign in again to analyze a recording.";
     case 413:
@@ -144,6 +151,51 @@ function jobOrUploadErrorMessage(
 ): string {
   if (err instanceof JobFailedError) return err.message;
   return uploadErrorMessage(err, opts);
+}
+
+/** The screenshot-able diagnosis of a failed upload (see client.ts's
+ *  UploadError), held in component state so the error card can show the
+ *  request id and expandable details a user can send in a bug report. */
+interface UploadErrorDetails {
+  requestId: string;
+  status: number;
+  path: string;
+  chunkIndex?: number;
+  bytes?: number;
+  elapsedMs: number;
+  causeName?: string;
+  causeMessage?: string;
+}
+
+/** Pluck the diagnosis off an UploadError; null for any other failure (job
+ *  errors, link errors) — the card then shows just the mapped message. */
+function toErrorDetails(err: unknown): UploadErrorDetails | null {
+  if (!(err instanceof UploadError)) return null;
+  return {
+    requestId: err.requestId,
+    status: err.status,
+    path: err.path,
+    chunkIndex: err.chunkIndex,
+    bytes: err.bytes,
+    elapsedMs: err.elapsedMs,
+    causeName: err.causeName,
+    causeMessage: err.causeMessage,
+  };
+}
+
+/** The expanded details block, one honest fact per line. Only fields that are
+ *  actually known are shown — never a fabricated placeholder. */
+function errorDetailLines(d: UploadErrorDetails): string {
+  const lines = [`status: ${d.status}`, `path: ${d.path}`];
+  if (d.chunkIndex !== undefined) lines.push(`chunk: ${d.chunkIndex}`);
+  if (d.bytes !== undefined) lines.push(`bytes: ${d.bytes}`);
+  lines.push(`elapsed: ${d.elapsedMs} ms`);
+  if (d.causeName !== undefined || d.causeMessage !== undefined) {
+    lines.push(
+      `cause: ${[d.causeName, d.causeMessage].filter(Boolean).join(": ")}`,
+    );
+  }
+  return lines.join("\n");
 }
 
 /** Human-readable file size for the picked-file line. */
@@ -355,6 +407,12 @@ export default function AnalyzeScreen({
   // shows a plain spinner instead of a bar).
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  // The failed upload's diagnosis (request id, status, chunk, cause) when the
+  // failure was an UploadError — shown under the message as a request-id line
+  // plus a collapsible details block the user can screenshot for a bug report.
+  const [uploadErrorDetails, setUploadErrorDetails] =
+    useState<UploadErrorDetails | null>(null);
+  const [errorDetailsOpen, setErrorDetailsOpen] = useState(false);
   // Consent to have this recording analyzed & (optionally) stored. Unchecked
   // by default — nothing is ever stored without an explicit opt-in.
   const [consent, setConsent] = useState(false);
@@ -402,6 +460,8 @@ export default function AnalyzeScreen({
 
   const handlePickRecording = async () => {
     setUploadError(null);
+    setUploadErrorDetails(null);
+    setErrorDetailsOpen(false);
     setUploadStored(null);
     setUploadStorageNote(null);
     const result = await DocumentPicker.getDocumentAsync({
@@ -436,25 +496,33 @@ export default function AnalyzeScreen({
 
   const handleUploadAnalyze = async () => {
     if (!picked || uploading) return;
-    const size = picked.size;
+    // Web hands us a File; native hands us the local URI string.
+    const fileArg = Platform.OS === "web" && picked.file ? picked.file : picked.uri;
+    // The picker sometimes reports no size — stat the file via expo-file-system
+    // so the direct-vs-chunked routing rests on facts (the vc29 bug: an
+    // unknown-size file took the direct path, and a >32MB body dies at the
+    // ingress before the server can even log it).
+    const size = picked.size ?? statFileSize(fileArg) ?? undefined;
     // Refuse an over-cap file up front — no network call, an honest size message.
     if (size !== undefined && size > MAX_UPLOAD_BYTES) {
       setUploadError(sizeLimitMessage(size));
       return;
     }
     // Anything above the direct-upload ceiling streams in chunks so the platform
-    // doesn't reject the body before the server can respond. Size must be known
-    // to chunk (we slice against it); an unknown size falls back to direct.
-    const useChunked = size !== undefined && size > DIRECT_UPLOAD_MAX_BYTES;
+    // doesn't reject the body before the server can respond. A STILL-unknown
+    // size also goes chunked — NEVER direct — because the chunked client can
+    // stat again and refuse honestly, while an over-limit direct body dies at
+    // the ingress with no server trace.
+    const useChunked = size === undefined || size > DIRECT_UPLOAD_MAX_BYTES;
     setUploading(true);
     setUploadProgress(useChunked ? 0 : null);
     setUploadError(null);
+    setUploadErrorDetails(null);
+    setErrorDetailsOpen(false);
     setUploadStored(null);
     setUploadStorageNote(null);
     setJobState(null);
     try {
-      // Web hands us a File; native hands us the local URI string.
-      const fileArg = Platform.OS === "web" && picked.file ? picked.file : picked.uri;
       const context = composedContext();
       const title = conversationTitle.trim() || undefined;
       let result: UploadAnalyzeResult;
@@ -467,7 +535,7 @@ export default function AnalyzeScreen({
           fileArg,
           picked.name,
           picked.mimeType,
-          size as number,
+          size ?? null,
           {
             consent,
             store: storeRecording,
@@ -504,6 +572,7 @@ export default function AnalyzeScreen({
       setUploadError(
         jobOrUploadErrorMessage(e, { chunked: useChunked, sizeBytes: size }),
       );
+      setUploadErrorDetails(toErrorDetails(e));
     } finally {
       setUploading(false);
       setUploadProgress(null);
@@ -519,6 +588,8 @@ export default function AnalyzeScreen({
     // progress to show — the staged job card (or a spinner) covers it instead.
     setUploadProgress(null);
     setUploadError(null);
+    setUploadErrorDetails(null);
+    setErrorDetailsOpen(false);
     setUploadStored(null);
     setUploadStorageNote(null);
     setJobState(null);
@@ -555,6 +626,7 @@ export default function AnalyzeScreen({
       onAnalyzeDynamics?.(result, result.recording_id ?? null);
     } catch (e) {
       setUploadError(jobOrUploadErrorMessage(e, { link: true }));
+      setUploadErrorDetails(toErrorDetails(e));
     } finally {
       setUploading(false);
       setUploadProgress(null);
@@ -913,6 +985,40 @@ export default function AnalyzeScreen({
               </Text>
             )}
 
+            {/* Diagnosis of a failed upload: the request id (matches the
+                server's request_id logs — the whole point is that a screenshot
+                is correlatable), plus collapsible details for a bug report. */}
+            {uploadError && uploadErrorDetails && (
+              <View style={styles.errorDetails}>
+                <Text
+                  style={styles.errorMeta}
+                  testID="upload-error-request-id"
+                  selectable
+                >
+                  {`Request ID: ${uploadErrorDetails.requestId}`}
+                </Text>
+                <Pressable
+                  testID="upload-error-details-toggle"
+                  accessibilityRole="button"
+                  onPress={() => setErrorDetailsOpen((v) => !v)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={styles.errorMetaLink}>
+                    {errorDetailsOpen ? "Hide error details" : "Show error details"}
+                  </Text>
+                </Pressable>
+                {errorDetailsOpen && (
+                  <Text
+                    style={styles.errorMeta}
+                    testID="upload-error-details"
+                    selectable
+                  >
+                    {errorDetailLines(uploadErrorDetails)}
+                  </Text>
+                )}
+              </View>
+            )}
+
             {uploadStored === true && (
               <Text style={styles.storedNote} testID="stored-note">
                 Saved for replay ✓
@@ -1187,6 +1293,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     color: "#DC2626",
+  },
+  errorDetails: {
+    marginTop: 6,
+    gap: 4,
+  },
+  errorMeta: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: "#6B7280",
+  },
+  errorMetaLink: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: "#4A90D9",
+    fontWeight: "600",
   },
   jobProgress: {
     marginTop: 12,

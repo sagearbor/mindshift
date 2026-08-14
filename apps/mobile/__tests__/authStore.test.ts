@@ -9,7 +9,7 @@ import {
   GoogleAuthProvider,
 } from "firebase/auth";
 import { useAuthStore, initAuth } from "../src/store/authStore";
-import { getCachedToken } from "../src/auth/authToken";
+import { getCachedToken, getFreshToken } from "../src/auth/authToken";
 
 const signInMock = signInWithEmailAndPassword as jest.Mock;
 const signUpMock = createUserWithEmailAndPassword as jest.Mock;
@@ -236,5 +236,20 @@ describe("authStore — auth state listener (initAuth)", () => {
   it("signOut delegates to Firebase", async () => {
     await useAuthStore.getState().signOut();
     expect(signOutMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("registers a token provider that forwards a forced refresh to getIdToken(true)", async () => {
+    initAuth();
+    const user = fakeUser("forced-token");
+    authMock.currentUser = user;
+
+    // The upload 401-recovery path asks for a FORCE-refreshed token; the
+    // provider must pass that through to Firebase's getIdToken(true).
+    await expect(getFreshToken(true)).resolves.toBe("forced-token");
+    expect(user.getIdToken).toHaveBeenCalledWith(true);
+
+    // A normal call stays a normal (cache-friendly) refresh.
+    await getFreshToken();
+    expect(user.getIdToken).toHaveBeenLastCalledWith(false);
   });
 });

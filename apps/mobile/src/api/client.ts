@@ -272,6 +272,205 @@ export interface UploadAnalyzeOptions {
   title?: string;
 }
 
+// --- Upload diagnostics ------------------------------------------------------
+// The vc29 phone-upload bug: a fetch network rejection bubbled up as a bare
+// error with no status and no request id, so the UI could only say "Something
+// went wrong" and the server logs had nothing to correlate the failure with.
+// Every upload now runs as an *attempt* that (a) carries a client-generated
+// X-Request-ID on every request it makes (the server's request_id_middleware
+// honors, logs, and echoes it), and (b) converts every failure into an
+// UploadError carrying the facts a human needs to diagnose it from a
+// screenshot: status, request id, which path (direct/chunked), which chunk,
+// how many bytes, how long it ran, and the underlying cause.
+
+/** Which upload transport an attempt used. */
+export type UploadPath = "direct" | "chunked";
+
+/** The diagnosable facts carried on every {@link UploadError}. */
+export interface UploadErrorInfo {
+  /** HTTP status of the failing response; 0 when the request never got a
+   *  response at all (network rejection — offline, DNS, TLS, ingress reset);
+   *  -1 for a client-side refusal made before any request went out. */
+  status: number;
+  /** The X-Request-ID the attempt sent — the exact string to grep in the
+   *  server logs (request_id_middleware echoes it back). */
+  requestId: string;
+  path: UploadPath;
+  /** Which chunk PUT failed, when the failure was chunk-specific. */
+  chunkIndex?: number;
+  /** Total bytes of the file being uploaded, when known. */
+  bytes?: number;
+  /** Wall-clock ms from the start of the attempt to the failure. */
+  elapsedMs: number;
+  /** name/message of the underlying cause (e.g. TypeError /
+   *  "Network request failed") for a status-0 failure. */
+  causeName?: string;
+  causeMessage?: string;
+}
+
+/**
+ * A failed upload, with its diagnosis attached. `message` stays
+ * `API error: <status>` for HTTP failures so existing status-mapping callers
+ * (and the `.status` property they prefer) keep working unchanged.
+ */
+export class UploadError extends Error implements UploadErrorInfo {
+  readonly status: number;
+  readonly requestId: string;
+  readonly path: UploadPath;
+  readonly chunkIndex?: number;
+  readonly bytes?: number;
+  readonly elapsedMs: number;
+  readonly causeName?: string;
+  readonly causeMessage?: string;
+
+  constructor(message: string, info: UploadErrorInfo) {
+    super(message);
+    this.name = "UploadError";
+    this.status = info.status;
+    this.requestId = info.requestId;
+    this.path = info.path;
+    this.chunkIndex = info.chunkIndex;
+    this.bytes = info.bytes;
+    this.elapsedMs = info.elapsedMs;
+    this.causeName = info.causeName;
+    this.causeMessage = info.causeMessage;
+  }
+}
+
+/** 32 hex chars of correlation id. Math.random is plenty — this exists to
+ *  match a screenshot to a log line, not to be cryptographically unique. */
+function newRequestId(): string {
+  let id = "";
+  for (let i = 0; i < 32; i += 1) {
+    id += Math.floor(Math.random() * 16).toString(16);
+  }
+  return id;
+}
+
+/** One user-initiated upload: the request id shared by every request the
+ *  upload makes, plus the context an UploadError reports. `authRetried`
+ *  ensures the 401 → force-refresh recovery runs at most once per upload. */
+interface UploadAttempt {
+  requestId: string;
+  path: UploadPath;
+  startedAt: number;
+  bytes?: number;
+  authRetried: boolean;
+}
+
+function newUploadAttempt(path: UploadPath, bytes?: number): UploadAttempt {
+  return {
+    requestId: newRequestId(),
+    path,
+    startedAt: Date.now(),
+    bytes,
+    authRetried: false,
+  };
+}
+
+/** Build the UploadError for a failure within `attempt`. `status` 0 means the
+ *  fetch itself rejected (`cause` is what it rejected with). */
+function uploadFailure(
+  attempt: UploadAttempt,
+  status: number,
+  extra?: { chunkIndex?: number; cause?: unknown },
+): UploadError {
+  const cause = extra?.cause;
+  const message =
+    status > 0
+      ? `API error: ${status}`
+      : `Upload network failure: ${
+          cause instanceof Error ? cause.message : String(cause)
+        }`;
+  return new UploadError(message, {
+    status,
+    requestId: attempt.requestId,
+    path: attempt.path,
+    chunkIndex: extra?.chunkIndex,
+    bytes: attempt.bytes,
+    elapsedMs: Date.now() - attempt.startedAt,
+    causeName:
+      cause === undefined
+        ? undefined
+        : cause instanceof Error
+          ? cause.name
+          : typeof cause,
+    causeMessage:
+      cause === undefined
+        ? undefined
+        : cause instanceof Error
+          ? cause.message
+          : String(cause),
+  });
+}
+
+/**
+ * Best-effort size of a picked file, so upload routing rests on facts:
+ * a web `File` knows its size; a native `file://` uri is statted through
+ * expo-file-system. Null when the size genuinely can't be determined.
+ */
+export function statFileSize(file: string | File): number | null {
+  try {
+    if (typeof file !== "string") {
+      return typeof file.size === "number" ? file.size : null;
+    }
+    if (Platform.OS === "web") return null; // a bare string can't be statted on web
+    const size = new FSFile(file).size;
+    return typeof size === "number" ? size : null;
+  } catch {
+    return null;
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * The one fetch every upload-related request goes through. Adds the attempt's
+ * X-Request-ID and a fresh Bearer token (omitted when signed out), converts a
+ * network rejection into a status-0 UploadError, and — once per upload — turns
+ * a 401 into a forced token refresh + retry of the same request, so a token
+ * that expired mid-upload doesn't kill the whole thing.
+ *
+ * `contentType` null means "let fetch set it" (multipart bodies need fetch to
+ * append its own boundary).
+ */
+async function uploadFetch(
+  attempt: UploadAttempt,
+  url: string,
+  init: {
+    method: string;
+    body?: BodyInit;
+    contentType?: "application/json" | "application/octet-stream" | null;
+  },
+  chunkIndex?: number,
+): Promise<Response> {
+  let forcedToken: string | null = null;
+  for (;;) {
+    const token = forcedToken ?? (await getFreshToken());
+    const headers: Record<string, string> = {
+      "X-Request-ID": attempt.requestId,
+    };
+    if (init.contentType) headers["Content-Type"] = init.contentType;
+    if (token) headers.Authorization = `Bearer ${token}`;
+    let res: Response;
+    try {
+      res = await fetch(url, { method: init.method, headers, body: init.body });
+    } catch (cause) {
+      throw uploadFailure(attempt, 0, { chunkIndex, cause });
+    }
+    if (res.status === 401 && !attempt.authRetried) {
+      // The server rejected a token Firebase thought was fine — force-mint a
+      // new one and retry this request, once per upload.
+      attempt.authRetried = true;
+      forcedToken = await getFreshToken(true);
+      continue;
+    }
+    return res;
+  }
+}
+
 /**
  * POST /analyze/upload — analyze a recording (audio or video; the server
  * extracts the audio track, transcribes, and analyzes it). Sent as
@@ -281,9 +480,11 @@ export interface UploadAnalyzeOptions {
  * directly); on native it's the local file URI string, appended as React
  * Native's `{ uri, name, type }` form-part object. We deliberately do NOT set a
  * Content-Type header — `fetch` must set `multipart/form-data` itself so it can
- * append the correct boundary. Bearer auth mirrors the other calls; a non-OK
- * response throws `API error: <status>` (401/413/422/429/502/503) so the caller
- * surfaces an honest, mapped message rather than a fabricated analysis.
+ * append the correct boundary. Bearer auth mirrors the other calls; every
+ * failure throws an {@link UploadError} — message still `API error: <status>`
+ * for a non-OK response (401/413/422/429/502/503), status 0 for a network
+ * rejection — carrying the request id and diagnosis, so the caller surfaces an
+ * honest, mapped message rather than a fabricated analysis.
  *
  * `consent`/`store` are sent as the literal strings "true"/"false" (multipart
  * form fields have no boolean type). The server only stores the recording when
@@ -297,11 +498,7 @@ export async function postAnalyzeUpload(
   context?: string,
   options?: UploadAnalyzeOptions,
 ): Promise<UploadAnalyzeResult> {
-  const token = await getFreshToken();
-  const headers: Record<string, string> = {};
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
+  const attempt = newUploadAttempt("direct", statFileSize(file) ?? undefined);
 
   const form = new FormData();
   if (Platform.OS === "web") {
@@ -329,14 +526,14 @@ export async function postAnalyzeUpload(
   form.append("consent", consent ? "true" : "false");
   form.append("store", store ? "true" : "false");
 
-  const res = await fetch(`${API_URL}/analyze/upload`, {
+  const res = await uploadFetch(attempt, `${API_URL}/analyze/upload`, {
     method: "POST",
-    headers,
-    body: form,
+    body: form as unknown as BodyInit,
+    contentType: null, // fetch must append the multipart boundary itself
   });
 
   if (!res.ok) {
-    throw new Error(`API error: ${res.status}`);
+    throw uploadFailure(attempt, res.status);
   }
 
   return (await res.json()) as UploadAnalyzeResult;
@@ -419,43 +616,71 @@ function createChunkReader(file: string | File): ChunkReader {
   };
 }
 
-/** Bearer header for a raw-binary chunk PUT (octet-stream, not JSON). A fresh
- *  token is fetched per chunk so a multi-minute upload survives token refresh. */
-async function octetStreamHeaders(): Promise<Record<string, string>> {
-  const token = await getFreshToken();
-  const headers: Record<string, string> = {
-    "Content-Type": "application/octet-stream",
-  };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
+/**
+ * Best-effort abort so a failed upload doesn't leave orphaned chunks. Carries
+ * the attempt's X-Request-ID like every other upload call; any error from the
+ * abort itself is swallowed — the original failure is what the caller needs
+ * to see.
+ */
+async function abortChunkedUpload(
+  attempt: UploadAttempt,
+  uploadId: string,
+): Promise<void> {
+  try {
+    await uploadFetch(
+      attempt,
+      `${API_URL}/uploads/${encodeURIComponent(uploadId)}`,
+      { method: "DELETE", contentType: "application/json" },
+    );
+  } catch {
+    // ignore
   }
-  return headers;
+}
+
+// Backoff before each of the 2 retries a failed chunk PUT gets. One flaky
+// radio moment (or a single 5xx from the ingress) should not abort a
+// 100-chunk upload that is otherwise fine.
+const CHUNK_RETRY_BACKOFF_MS = [400, 800];
+
+/** Chunk-PUT statuses worth retrying: server/gateway hiccups and throttling.
+ *  4xx (size, auth after the one forced refresh, bad state) won't get better
+ *  by resending the same bytes. */
+function isRetryableChunkStatus(status: number): boolean {
+  return status >= 500 || status === 429 || status === 408;
 }
 
 /**
- * Upload a large recording in chunks, then analyze it. Mirrors
- * `postAnalyzeUpload`'s result and honesty contract (a non-OK response throws
- * `API error: <status>` — 401/404/409/413/503 — so the caller surfaces a mapped
- * message rather than a fabricated analysis), but streams the file so no single
- * request exceeds the platform's body ceiling.
- *
- * On ANY failure after the upload has started, a best-effort DELETE aborts the
- * partial upload server-side before the honest error is rethrown, so we never
- * leave orphaned chunks behind.
+ * PUT one chunk with up to 2 retries (small backoff) on a network rejection or
+ * a retryable HTTP status. Exhausted retries (or a non-retryable status) throw
+ * an UploadError carrying this chunk's index.
  */
-/**
- * Best-effort abort so a failed upload doesn't leave orphaned chunks. Any error
- * from the abort itself is swallowed — the original failure is what the caller
- * needs to see.
- */
-async function abortChunkedUpload(uploadId: string): Promise<void> {
-  try {
-    await fetch(`${API_URL}/uploads/${encodeURIComponent(uploadId)}`, {
-      method: "DELETE",
-      headers: await authHeaders(),
-    });
-  } catch {
-    // ignore
+async function putChunkWithRetry(
+  attempt: UploadAttempt,
+  url: string,
+  body: BodyInit,
+  chunkIndex: number,
+): Promise<void> {
+  for (let tryIndex = 0; ; tryIndex += 1) {
+    const canRetry = tryIndex < CHUNK_RETRY_BACKOFF_MS.length;
+    try {
+      const res = await uploadFetch(
+        attempt,
+        url,
+        { method: "PUT", body, contentType: "application/octet-stream" },
+        chunkIndex,
+      );
+      if (res.ok) return;
+      if (!canRetry || !isRetryableChunkStatus(res.status)) {
+        throw uploadFailure(attempt, res.status, { chunkIndex });
+      }
+    } catch (err) {
+      // Status-0 (network) UploadErrors are retryable; HTTP UploadErrors were
+      // already vetted above and anything else is a programming error.
+      if (!(err instanceof UploadError) || err.status !== 0 || !canRetry) {
+        throw err;
+      }
+    }
+    await sleep(CHUNK_RETRY_BACKOFF_MS[tryIndex]);
   }
 }
 
@@ -465,18 +690,37 @@ async function abortChunkedUpload(uploadId: string): Promise<void> {
  * is nothing server-side to abort; on a PUT failure the partial upload is aborted
  * before the honest error is rethrown. Shared by the synchronous-complete and
  * job-complete flows so the byte-streaming logic lives in one place.
+ *
+ * `sizeBytes` may be null (picker reported no size): the file is then statted
+ * via {@link statFileSize}. With no honest size at all we refuse up front —
+ * the chunk protocol needs `total_bytes`, and the alternative (a blind direct
+ * POST of a possibly-huge body) dies at the ingress with no server trace.
  */
 async function uploadFileInChunks(
+  attempt: UploadAttempt,
   file: string | File,
   name: string,
   mimeType: string,
-  sizeBytes: number,
+  sizeBytes: number | null,
   opts: ChunkedUploadOptions,
 ): Promise<string> {
+  const totalBytes = sizeBytes ?? statFileSize(file);
+  if (totalBytes == null) {
+    throw new UploadError("Could not determine the file's size to upload it.", {
+      status: -1,
+      requestId: attempt.requestId,
+      path: attempt.path,
+      elapsedMs: Date.now() - attempt.startedAt,
+      causeName: "SizeUnknown",
+      causeMessage: "the picker reported no size and the file could not be statted",
+    });
+  }
+  attempt.bytes = totalBytes;
+
   const startBody: Record<string, unknown> = {
     filename: name,
     content_type: mimeType,
-    total_bytes: sizeBytes,
+    total_bytes: totalBytes,
     consent: opts.consent,
     store: opts.store,
   };
@@ -486,14 +730,14 @@ async function uploadFileInChunks(
   if (opts.title !== undefined && opts.title !== "") {
     startBody.title = opts.title;
   }
-  const startRes = await fetch(`${API_URL}/uploads/start`, {
+  const startRes = await uploadFetch(attempt, `${API_URL}/uploads/start`, {
     method: "POST",
-    headers: await authHeaders(),
+    contentType: "application/json",
     body: JSON.stringify(startBody),
   });
   if (!startRes.ok) {
     // Nothing was created server-side yet, so there's nothing to abort.
-    throw new Error(`API error: ${startRes.status}`);
+    throw uploadFailure(attempt, startRes.status);
   }
   const { upload_id, chunk_bytes, expected_chunks } =
     (await startRes.json()) as UploadStartResult;
@@ -502,23 +746,18 @@ async function uploadFileInChunks(
   try {
     for (let index = 0; index < expected_chunks; index += 1) {
       const start = index * chunk_bytes;
-      const length = Math.min(chunk_bytes, sizeBytes - start);
+      const length = Math.min(chunk_bytes, totalBytes - start);
       const chunk = await reader.read(start, length);
-      const res = await fetch(
+      await putChunkWithRetry(
+        attempt,
         `${API_URL}/uploads/${encodeURIComponent(upload_id)}/chunks/${index}`,
-        {
-          method: "PUT",
-          headers: await octetStreamHeaders(),
-          body: chunk as unknown as BodyInit,
-        },
+        chunk as unknown as BodyInit,
+        index,
       );
-      if (!res.ok) {
-        throw new Error(`API error: ${res.status}`);
-      }
       opts.onProgress?.((index + 1) / expected_chunks);
     }
   } catch (err) {
-    await abortChunkedUpload(upload_id);
+    await abortChunkedUpload(attempt, upload_id);
     throw err;
   } finally {
     reader.close();
@@ -526,32 +765,50 @@ async function uploadFileInChunks(
   return upload_id;
 }
 
+/**
+ * Upload a large recording in chunks, then analyze it. Mirrors
+ * `postAnalyzeUpload`'s result and honesty contract (every failure is an
+ * {@link UploadError} — message `API error: <status>` for a non-OK response,
+ * 401/404/409/413/503 — so the caller surfaces a mapped message rather than a
+ * fabricated analysis), but streams the file so no single request exceeds the
+ * platform's body ceiling.
+ *
+ * On ANY failure after the upload has started, a best-effort DELETE aborts the
+ * partial upload server-side before the honest error is rethrown, so we never
+ * leave orphaned chunks behind.
+ */
 export async function postAnalyzeUploadChunked(
   file: string | File,
   name: string,
   mimeType: string,
-  sizeBytes: number,
+  sizeBytes: number | null,
   opts: ChunkedUploadOptions,
 ): Promise<UploadAnalyzeResult> {
-  const uploadId = await uploadFileInChunks(file, name, mimeType, sizeBytes, opts);
+  const attempt = newUploadAttempt("chunked");
+  const uploadId = await uploadFileInChunks(
+    attempt,
+    file,
+    name,
+    mimeType,
+    sizeBytes,
+    opts,
+  );
   try {
     // Complete: the server transcribes + analyzes and returns the full result.
     // No client timeout — a long video can legitimately take minutes here (this
     // synchronous completion is exactly the multi-minute request the job path
     // below exists to replace on servers that support it).
-    const completeRes = await fetch(
+    const completeRes = await uploadFetch(
+      attempt,
       `${API_URL}/uploads/${encodeURIComponent(uploadId)}/complete`,
-      {
-        method: "POST",
-        headers: await authHeaders(),
-      },
+      { method: "POST", contentType: "application/json" },
     );
     if (!completeRes.ok) {
-      throw new Error(`API error: ${completeRes.status}`);
+      throw uploadFailure(attempt, completeRes.status);
     }
     return (await completeRes.json()) as UploadAnalyzeResult;
   } catch (err) {
-    await abortChunkedUpload(uploadId);
+    await abortChunkedUpload(attempt, uploadId);
     throw err;
   }
 }
@@ -579,13 +836,22 @@ export async function postAnalyzeUploadChunkedJob(
   file: string | File,
   name: string,
   mimeType: string,
-  sizeBytes: number,
+  sizeBytes: number | null,
   opts: ChunkedUploadOptions,
 ): Promise<ChunkedJobOutcome> {
-  const uploadId = await uploadFileInChunks(file, name, mimeType, sizeBytes, opts);
-  const jobRes = await fetch(
+  const attempt = newUploadAttempt("chunked");
+  const uploadId = await uploadFileInChunks(
+    attempt,
+    file,
+    name,
+    mimeType,
+    sizeBytes,
+    opts,
+  );
+  const jobRes = await uploadFetch(
+    attempt,
     `${API_URL}/uploads/${encodeURIComponent(uploadId)}/complete/jobs`,
-    { method: "POST", headers: await authHeaders() },
+    { method: "POST", contentType: "application/json" },
   );
   if (jobRes.ok) {
     // Job accepted — the server owns the parts now; do NOT abort.
@@ -596,22 +862,23 @@ export async function postAnalyzeUploadChunkedJob(
     // Jobs unavailable (old server / storage off) — synchronous fallback. The
     // parts are still on the server; complete() aborts on its own failure.
     try {
-      const completeRes = await fetch(
+      const completeRes = await uploadFetch(
+        attempt,
         `${API_URL}/uploads/${encodeURIComponent(uploadId)}/complete`,
-        { method: "POST", headers: await authHeaders() },
+        { method: "POST", contentType: "application/json" },
       );
       if (!completeRes.ok) {
-        throw new Error(`API error: ${completeRes.status}`);
+        throw uploadFailure(attempt, completeRes.status);
       }
       return { result: (await completeRes.json()) as UploadAnalyzeResult };
     } catch (err) {
-      await abortChunkedUpload(uploadId);
+      await abortChunkedUpload(attempt, uploadId);
       throw err;
     }
   }
   // A real error on the job POST — abort the upload and surface it.
-  await abortChunkedUpload(uploadId);
-  throw new Error(`API error: ${jobRes.status}`);
+  await abortChunkedUpload(attempt, uploadId);
+  throw uploadFailure(attempt, jobRes.status);
 }
 
 /** Options for analyzing a remote recording by link. Same consent/store meaning

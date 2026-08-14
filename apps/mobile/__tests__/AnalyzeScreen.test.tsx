@@ -13,6 +13,7 @@ import {
   postAnalyzeLink,
   postAnalyzeLinkJob,
   getAnalyzeJob,
+  UploadError,
 } from "../src/api/client";
 import type { AnalyzeJobState, UploadAnalyzeResult } from "../src/api/client";
 
@@ -1208,6 +1209,185 @@ describe("AnalyzeScreen", () => {
         jest.clearAllTimers();
         jest.useRealTimers();
       }
+    });
+  });
+
+  // --- Upload failure diagnostics (the vc29 phone-upload bug) ---------------
+  // A fetch network rejection used to surface as the generic "Something went
+  // wrong" with nothing to correlate against server logs. The screen must now
+  // show the honest offline message, the request id, and collapsible details.
+  describe("upload failure diagnostics", () => {
+    const pickSmall = () =>
+      mockPick.mockResolvedValueOnce({
+        canceled: false,
+        assets: [
+          { uri: "file:///rec.m4a", name: "rec.m4a", size: 2048, mimeType: "audio/m4a" },
+        ],
+      });
+
+    async function renderAndUpload(onAnalyze = jest.fn()) {
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<AnalyzeScreen onAnalyzeDynamics={onAnalyze} />);
+      });
+      await act(async () => {
+        queryId(comp, "pick-recording-button")!.props.onPress();
+      });
+      await act(async () => {
+        queryId(comp, "upload-analyze-button")!.props.onPress();
+      });
+      return comp;
+    }
+
+    it("renders the honest offline message and the request id when the upload can't reach the server", async () => {
+      pickSmall();
+      mockUpload.mockRejectedValueOnce(
+        new UploadError("Upload network failure: Network request failed", {
+          status: 0,
+          requestId: "req-abc123",
+          path: "direct",
+          bytes: 2048,
+          elapsedMs: 1234,
+          causeName: "TypeError",
+          causeMessage: "Network request failed",
+        }),
+      );
+      const onAnalyze = jest.fn();
+      const comp = await renderAndUpload(onAnalyze);
+
+      const json = JSON.stringify(comp.toJSON());
+      // Honest, actionable message — not the generic line.
+      expect(json).toContain("check your connection");
+      expect(json).not.toContain("Something went wrong");
+      // The request id is visible so a screenshot correlates with server logs.
+      expect(queryId(comp, "upload-error-request-id")).toBeTruthy();
+      expect(json).toContain("req-abc123");
+      // No navigation on failure — never a fabricated analysis.
+      expect(onAnalyze).not.toHaveBeenCalled();
+      act(() => comp.unmount());
+    });
+
+    it("keeps the collapsed error details available and expands them on tap", async () => {
+      pickSmall();
+      mockUpload.mockRejectedValueOnce(
+        new UploadError("Upload network failure: Network request failed", {
+          status: 0,
+          requestId: "req-details",
+          path: "chunked",
+          chunkIndex: 3,
+          bytes: 103 * MB,
+          elapsedMs: 5231,
+          causeName: "TypeError",
+          causeMessage: "Network request failed",
+        }),
+      );
+      const comp = await renderAndUpload();
+
+      // Collapsed by default; the toggle is there.
+      expect(queryId(comp, "upload-error-details")).toBeNull();
+      expect(queryId(comp, "upload-error-details-toggle")).toBeTruthy();
+
+      act(() => queryId(comp, "upload-error-details-toggle")!.props.onPress());
+
+      const details = queryId(comp, "upload-error-details");
+      expect(details).toBeTruthy();
+      const json = JSON.stringify(comp.toJSON());
+      expect(json).toContain("chunked");
+      expect(json).toContain("Network request failed");
+      expect(json).toContain("3");
+      act(() => comp.unmount());
+    });
+
+    it("keeps the mapped message for an HTTP failure but still shows the request id", async () => {
+      pickSmall();
+      mockUpload.mockRejectedValueOnce(
+        new UploadError("API error: 413", {
+          status: 413,
+          requestId: "req-413413",
+          path: "direct",
+          bytes: 2048,
+          elapsedMs: 900,
+        }),
+      );
+      const comp = await renderAndUpload();
+
+      const json = JSON.stringify(comp.toJSON());
+      expect(json).toContain("too large");
+      expect(json).toContain("req-413413");
+      act(() => comp.unmount());
+    });
+  });
+
+  // --- Unknown-size routing (stat via expo-file-system) ---------------------
+  // The picker sometimes reports no size. The old behavior fell back to the
+  // DIRECT path — a >32MB body then died at the Cloud Run ingress before the
+  // server saw it. Now the file is statted, and a still-unknown size routes to
+  // the CHUNKED path, never direct.
+  describe("unknown-size routing", () => {
+    afterEach(() => {
+      delete (globalThis as Record<string, unknown>).__fsMockSize;
+    });
+
+    const pickNoSize = () =>
+      mockPick.mockResolvedValueOnce({
+        canceled: false,
+        assets: [
+          { uri: "file:///nosize.mp4", name: "nosize.mp4", mimeType: "video/mp4" },
+        ],
+      });
+
+    async function renderAndUpload(onAnalyze = jest.fn()) {
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<AnalyzeScreen onAnalyzeDynamics={onAnalyze} />);
+      });
+      await act(async () => {
+        queryId(comp, "pick-recording-button")!.props.onPress();
+      });
+      await act(async () => {
+        queryId(comp, "upload-analyze-button")!.props.onPress();
+      });
+      return comp;
+    }
+
+    it("stats the file via expo-file-system and routes a large one to the chunked path", async () => {
+      pickNoSize();
+      (globalThis as Record<string, unknown>).__fsMockSize = 103 * MB;
+      mockChunkedJob.mockResolvedValueOnce({ result: uploadFixture });
+
+      const comp = await renderAndUpload();
+
+      expect(mockUpload).not.toHaveBeenCalled();
+      expect(mockChunkedJob).toHaveBeenCalledTimes(1);
+      expect(mockChunkedJob.mock.calls[0][3]).toBe(103 * MB);
+      act(() => comp.unmount());
+    });
+
+    it("stats the file and keeps the direct path for a small one", async () => {
+      pickNoSize();
+      (globalThis as Record<string, unknown>).__fsMockSize = 2 * MB;
+      mockUpload.mockResolvedValueOnce(uploadFixture);
+
+      const comp = await renderAndUpload();
+
+      expect(mockChunkedJob).not.toHaveBeenCalled();
+      expect(mockUpload).toHaveBeenCalledTimes(1);
+      act(() => comp.unmount());
+    });
+
+    it("routes a STILL-unknown size to the CHUNKED path — never direct", async () => {
+      pickNoSize();
+      (globalThis as Record<string, unknown>).__fsMockSize = null;
+      mockChunkedJob.mockResolvedValueOnce({ result: uploadFixture });
+
+      const comp = await renderAndUpload();
+
+      // Direct would die at the ingress with no server trace; chunked carries
+      // the request id and fails honestly if the size truly can't be found.
+      expect(mockUpload).not.toHaveBeenCalled();
+      expect(mockChunkedJob).toHaveBeenCalledTimes(1);
+      expect(mockChunkedJob.mock.calls[0][3]).toBeNull();
+      act(() => comp.unmount());
     });
   });
 });
