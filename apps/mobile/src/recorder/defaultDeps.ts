@@ -1,5 +1,8 @@
 import { Platform } from "react-native";
-import { setAudioModeAsync } from "expo-audio";
+import {
+  requestNotificationPermissionsAsync,
+  setAudioModeAsync,
+} from "expo-audio";
 import * as Battery from "expo-battery";
 import type { AudioRecorderDeps } from "./AudioRecordScreen";
 import { ExpoRecorderFs } from "./expoFs";
@@ -21,6 +24,39 @@ async function getBatteryLevel(): Promise<number | null> {
 }
 
 /**
+ * The audio-session plan for a recording, given the platform and whether the
+ * NOTIFICATION permission is granted. Android's background recording runs a
+ * foreground service whose persistent notification is mandatory — without the
+ * permission, `prepareToRecordAsync` REJECTS outright (found on-device,
+ * v1.16.0). Denied → degrade to a foreground-only session that still records
+ * (screen must stay on), honestly flagged via `backgroundCapable`. iOS uses
+ * UIBackgroundModes audio and needs no notification permission.
+ */
+export function recordingSessionPlan(
+  os: string,
+  notificationsGranted: boolean,
+): {
+  backgroundCapable: boolean;
+  mode: {
+    allowsRecording: true;
+    playsInSilentMode: true;
+    allowsBackgroundRecording: boolean;
+    interruptionMode: "doNotMix";
+  };
+} {
+  const backgroundCapable = os !== "android" || notificationsGranted;
+  return {
+    backgroundCapable,
+    mode: {
+      allowsRecording: true,
+      playsInSilentMode: true,
+      allowsBackgroundRecording: backgroundCapable,
+      interruptionMode: "doNotMix",
+    },
+  };
+}
+
+/**
  * Configure the OS audio session around a recording session.
  * `allowsBackgroundRecording` + `doNotMix` is what keeps a screen-off,
  * hour-long session alive (paired with the expo-audio config plugin's
@@ -28,15 +64,22 @@ async function getBatteryLevel(): Promise<number | null> {
  * Deactivation mirrors utils/audioMode.setPlaybackMode so later media replay
  * isn't silenced on Android.
  */
-async function configureAudioSession(active: boolean): Promise<void> {
+async function configureAudioSession(
+  active: boolean,
+): Promise<{ backgroundCapable: boolean } | void> {
   if (active) {
-    await setAudioModeAsync({
-      allowsRecording: true,
-      playsInSilentMode: true,
-      allowsBackgroundRecording: true,
-      interruptionMode: "doNotMix",
-    });
-    return;
+    let notificationsGranted = true;
+    if (Platform.OS === "android") {
+      try {
+        const p = await requestNotificationPermissionsAsync();
+        notificationsGranted = p.granted;
+      } catch {
+        notificationsGranted = false;
+      }
+    }
+    const plan = recordingSessionPlan(Platform.OS, notificationsGranted);
+    await setAudioModeAsync(plan.mode);
+    return { backgroundCapable: plan.backgroundCapable };
   }
   await setAudioModeAsync({
     allowsRecording: false,
