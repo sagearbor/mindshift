@@ -56,7 +56,7 @@ from audio_ingest import (
     TranscriptionUnavailable,
     build_derivatives,
     decode_to_pcm,
-    transcribe_prerecorded,
+    transcribe_upload,
 )
 from audio_pipeline import UUID_PATTERN, audio_ws_endpoint
 from auth import (
@@ -496,6 +496,11 @@ class AnalyzeUploadResponse(AnalyzeResponse):
     # every turn) rather than a hard failure or fabricated labels. None when
     # prosody ran normally.
     voice_analysis: Optional[str] = None
+    # Non-None ONLY when the transcription provider switched mid-request (the
+    # Deepgram→local-Whisper fallback in audio_ingest.transcribe_upload) —
+    # states plainly which engine transcribed and why. A silent vendor swap is
+    # a house-rule violation; None means the configured primary ran normally.
+    transcription_note: Optional[str] = None
     # Consent-gated persistence outcome (defaults keep the /analyze response
     # byte-compatible for callers that ignore them). ``stored`` is True only
     # when the recording was actually written; ``storage_note`` states plainly
@@ -2333,19 +2338,27 @@ async def _analyze_recording_bytes(
     the analysis — the response returns with stored=false and a note carrying the
     failure's class name.
     """
-    # 1) Transcribe the recording (transcribe_prerecorded downmixes to 16 kHz mono
-    #    for reliable diarization, then sends that to Deepgram). to_thread: it is a
-    #    blocking HTTP call. NOTE: the note is deliberately NOT a byte size — len(data)
-    #    is the DOWNLOAD size (a 116MB video), not the amount transcribed, and
-    #    surfacing it here read as "116 MB to transcribe" on the client (Bug 4).
+    # 1) Transcribe the recording. transcribe_upload picks the provider
+    #    (MINDSHIFT_UPLOAD_STT: deepgram default, whisper local) — the Deepgram
+    #    path downmixes to 16 kHz mono for reliable diarization, the Whisper
+    #    path decodes locally; a Deepgram→Whisper fallback comes back with a
+    #    non-None note surfaced as transcription_note (never a silent swap).
+    #    to_thread: both are blocking calls. NOTE: the progress note is
+    #    deliberately NOT a byte size — len(data) is the DOWNLOAD size (a 116MB
+    #    video), not the amount transcribed, and surfacing it here read as
+    #    "116 MB to transcribe" on the client (Bug 4).
     await _emit_progress(progress, "transcribing", "transcribing audio")
     try:
-        raw_turns = await asyncio.to_thread(
-            transcribe_prerecorded, data, content_type,
+        raw_turns, stt_note = await asyncio.to_thread(
+            transcribe_upload, data, content_type, filename or "",
         )
     except TranscriptionUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except NoSpeechFound as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except AudioDecodeError as exc:
+        # Whisper-path only: no local decode means nothing to transcribe (the
+        # Deepgram path instead falls back to sending the raw container).
         raise HTTPException(status_code=422, detail=str(exc))
 
     # 2) The recovered conversation must satisfy the same shape rules as text
@@ -2514,6 +2527,7 @@ async def _analyze_recording_bytes(
         **core.model_dump(),
         turns=transcribed,
         voice_analysis=voice_note,
+        transcription_note=stt_note,
     )
     # Surface the EFFECTIVE display title (user-provided, else LLM-suggested, else
     # None) so the analyze-complete UI can show it without a second round-trip.

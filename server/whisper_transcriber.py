@@ -137,6 +137,49 @@ _MODEL_CACHE_LOCK = threading.Lock()
 _FINISH = object()
 
 
+def resolve_model_size(model_size: str | None = None) -> str:
+    """The model size that will actually be loaded: explicit arg, else the
+    ``WHISPER_MODEL`` env var, else the module default."""
+    return model_size or os.getenv("WHISPER_MODEL", "").strip() or DEFAULT_MODEL_SIZE
+
+
+def load_shared_model(model_size: str | None = None):
+    """Return the process-wide shared ``WhisperModel``, loading it lazily.
+
+    BLOCKING (model load / first-time download) — call from a worker thread
+    when on the event loop. Shared by the live-session path
+    (:class:`WhisperTranscriber`) and the prerecorded-upload path
+    (``audio_ingest.transcribe_prerecorded_whisper``): one model per
+    (size, device, compute_type) for the whole process, loaded under a lock
+    (faster-whisper models are safe for concurrent ``transcribe`` calls).
+
+    Raises :class:`~audio_pipeline.TranscriberUnavailable` when faster-whisper
+    is not installed — the OPTIONAL dependency is imported lazily here, never
+    at module top, so the base install keeps working without it.
+    """
+    size = resolve_model_size(model_size)
+    key = (size, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE)
+    with _MODEL_CACHE_LOCK:
+        model = _MODEL_CACHE.get(key)
+        if model is not None:
+            return model
+        try:
+            from faster_whisper import WhisperModel
+        except ImportError as exc:
+            raise TranscriberUnavailable(
+                "faster-whisper not installed — pip install faster-whisper "
+                "(or pip install -r requirements-whisper.txt), "
+                "or use STT_PROVIDER=deepgram"
+            ) from exc
+        model = WhisperModel(
+            size,
+            device=WHISPER_DEVICE,
+            compute_type=WHISPER_COMPUTE_TYPE,
+        )
+        _MODEL_CACHE[key] = model
+        return model
+
+
 def _rms(pcm: bytes) -> float:
     """RMS energy of raw int16-LE PCM, in int16 units (0..32767-ish)."""
     # Frames are int16 so an even byte count is guaranteed by the wire
@@ -243,31 +286,13 @@ class WhisperTranscriber:
     def _load_model(self):
         """Return the shared cached model, importing/loading lazily (blocking).
 
-        Runs inside ``asyncio.to_thread``; the threading lock closes the race
-        where two sessions connect at once and would both load a model.
-        Overridable in tests; NEVER import faster_whisper at module top —
-        the base install must keep working without it.
+        Runs inside ``asyncio.to_thread``; delegates to the module-level
+        :func:`load_shared_model` (also used by the prerecorded-upload path)
+        so all paths share ONE model per configuration. Overridable in tests;
+        NEVER import faster_whisper at module top — the base install must
+        keep working without it.
         """
-        key = (self._model_size, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE)
-        with _MODEL_CACHE_LOCK:
-            model = _MODEL_CACHE.get(key)
-            if model is not None:
-                return model
-            try:
-                from faster_whisper import WhisperModel
-            except ImportError as exc:
-                raise TranscriberUnavailable(
-                    "faster-whisper not installed — pip install faster-whisper "
-                    "(or pip install -r requirements-whisper.txt), "
-                    "or use STT_PROVIDER=deepgram"
-                ) from exc
-            model = WhisperModel(
-                self._model_size,
-                device=WHISPER_DEVICE,
-                compute_type=WHISPER_COMPUTE_TYPE,
-            )
-            _MODEL_CACHE[key] = model
-            return model
+        return load_shared_model(self._model_size)
 
     @property
     def is_connected(self) -> bool:

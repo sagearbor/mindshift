@@ -177,7 +177,7 @@ def _mock_llm(payload: str) -> MagicMock:
 
 def _patched_upload():
     return (
-        patch("main.transcribe_prerecorded", return_value=MOCK_TURNS),
+        patch("main.transcribe_upload", return_value=(MOCK_TURNS, None)),
         patch("main.get_llm_client",
               return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))),
     )

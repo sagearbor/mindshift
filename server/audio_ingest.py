@@ -572,3 +572,206 @@ def transcribe_prerecorded(
     if not turns:
         raise NoSpeechFound("no speech found in this recording")
     return turns
+
+
+# ---------------------------------------------------------------------------
+# Local Whisper pre-recorded transcription (faster-whisper, OPTIONAL dep) +
+# upload provider selection. Whisper performs NO diarization: every turn is
+# honestly "Speaker A" with per-word timings, and the pipeline's local ECAPA
+# cross-check (diarize_local, main.py step 3b) attributes speakers — whisper
+# words + our own attribution = a fully self-hosted upload path.
+# ---------------------------------------------------------------------------
+
+# Upload-path provider switch: "deepgram" (default) or "whisper". Distinct from
+# STT_PROVIDER (the LIVE-session switch) so the two paths can be migrated
+# independently.
+UPLOAD_STT_ENV = "MINDSHIFT_UPLOAD_STT"
+
+
+def _whisper_installed() -> bool:
+    """True when the OPTIONAL faster-whisper package is importable — the gate
+    for the Deepgram→Whisper fallback (never attempt what cannot run)."""
+    import importlib.util
+
+    return importlib.util.find_spec("faster_whisper") is not None
+
+
+def _resample_linear(pcm: np.ndarray, sr: int, target_sr: int) -> np.ndarray:
+    """Linear-interpolation resample to ``target_sr`` (mono float32).
+
+    Whisper expects 16 kHz input arrays; :func:`decode_to_pcm`'s stdlib-WAV
+    path returns the file's NATIVE rate, so e.g. a 44.1/48 kHz WAV must be
+    resampled before the model. Linear interpolation is adequate for speech
+    STT (the ffmpeg decode path already outputs 16 kHz and skips this).
+    """
+    if sr == target_sr or pcm.size == 0:
+        return pcm.astype(np.float32, copy=False)
+    duration = pcm.shape[0] / sr
+    n_out = max(1, int(round(duration * target_sr)))
+    src_t = np.arange(pcm.shape[0]) / sr
+    dst_t = np.arange(n_out) / target_sr
+    return np.interp(dst_t, src_t, pcm).astype(np.float32)
+
+
+def _parse_whisper_words(raw) -> list[dict]:
+    """faster-whisper ``segment.words`` → the SAME internal word shape the
+    Deepgram path produces: ``[{word, start_time, end_time}, ...]``.
+
+    Whisper word text carries a leading space (" Hey,") — stripped so the
+    diarize_local splitter sees clean tokens. Entries with missing/garbled
+    text or timings are dropped, never guessed at (a fabricated timestamp
+    would poison the word-boundary splitter).
+    """
+    if not raw:
+        return []
+    words: list[dict] = []
+    for w in raw:
+        text = getattr(w, "word", None)
+        if not isinstance(text, str) or not text.strip():
+            continue
+        try:
+            start = float(w.start)
+            end = float(w.end)
+        except (AttributeError, TypeError, ValueError):
+            continue
+        words.append({"word": text.strip(), "start_time": start, "end_time": end})
+    return words
+
+
+def transcribe_prerecorded_whisper(
+    data: bytes, content_type: str | None = None, filename: str = "",
+    *, model=None,
+) -> list[dict]:
+    """Transcribe a recording locally with faster-whisper.
+
+    Decodes via :func:`decode_to_pcm` (ffmpeg → 16 kHz mono float32; a
+    native-rate stdlib-WAV decode is resampled), then runs the shared cached
+    Whisper model (see ``whisper_transcriber.load_shared_model`` — lazy load,
+    never at import) with ``word_timestamps=True``. Returns the SAME turn-dict
+    shape as :func:`transcribe_prerecorded`: ``{speaker, text, start_time,
+    end_time}`` plus the internal ``words`` list when whisper supplied timings.
+
+    Whisper has NO diarization, so every turn is ``"Speaker A"`` — that is the
+    honest representation of what the model knows; speaker attribution is the
+    job of the pipeline's local ECAPA cross-check (diarize_local), which uses
+    the word timings to split and relabel turns by actual voice.
+
+    ``model`` is injectable purely for tests (a double exposing
+    ``transcribe(audio, **kwargs) -> (segments, info)``).
+
+    * faster-whisper missing / model load failure →
+      :class:`TranscriptionUnavailable` (503).
+    * Undecodable input → :class:`AudioDecodeError` (422) — unlike Deepgram
+      there is no "send the raw container" backstop; no PCM means nothing to
+      transcribe, reported honestly.
+    * Inference failure → :class:`TranscriptionUnavailable` (503).
+    * No usable speech → :class:`NoSpeechFound` (422).
+    """
+    import whisper_transcriber
+
+    if model is None:
+        try:
+            model = whisper_transcriber.load_shared_model()
+        except Exception as exc:  # noqa: BLE001 — TranscriberUnavailable et al.
+            raise TranscriptionUnavailable(
+                f"local whisper transcription unavailable: {exc}"
+            ) from exc
+
+    pcm, sr = decode_to_pcm(data, filename or "")  # AudioDecodeError → 422
+    pcm = _resample_linear(pcm, sr, FFMPEG_TARGET_SR)
+
+    try:
+        # language pinned to "en" and vad_filter=True, matching the live
+        # WhisperTranscriber path. The segments iterable is LAZY — decoding
+        # happens as we iterate below, inside this (worker-thread) call.
+        segments, _info = model.transcribe(
+            pcm, language="en", vad_filter=True, word_timestamps=True,
+        )
+        raw_segments = list(segments)
+    except Exception as exc:  # noqa: BLE001 — inference failure → honest 503
+        raise TranscriptionUnavailable(
+            f"local whisper transcription failed: {exc}"
+        ) from exc
+
+    label = _generated_speaker_label(0)  # "Speaker A" — no diarization to claim
+    turns: list[dict] = []
+    for seg in raw_segments:
+        text = (getattr(seg, "text", None) or "").strip()
+        if not text:
+            continue
+        turn = {
+            "speaker": label,
+            "text": text,
+            "start_time": float(seg.start),
+            "end_time": float(seg.end),
+        }
+        words = _parse_whisper_words(getattr(seg, "words", None))
+        if words:
+            turn["words"] = words
+        turns.append(turn)
+
+    if not turns:
+        raise NoSpeechFound("no speech found in this recording")
+    return turns
+
+
+def transcribe_upload(
+    data: bytes, content_type: str | None, filename: str = "",
+) -> tuple[list[dict], str | None]:
+    """Transcribe an uploaded recording with the configured provider.
+
+    Returns ``(turns, note)``. ``note`` is non-None ONLY when the provider
+    actually switched mid-request (the Deepgram→Whisper fallback below) — the
+    endpoint surfaces it as ``transcription_note`` so a silent vendor swap is
+    impossible.
+
+    Provider selection (:data:`UPLOAD_STT_ENV`, read per-request):
+
+    * ``deepgram`` (default) — the vendor path, with an automatic fallback:
+      when Deepgram is UNAVAILABLE (missing key, HTTP/network failure — i.e.
+      :class:`TranscriptionUnavailable`) and faster-whisper is installed, the
+      recording is transcribed locally instead, logged and noted. Without
+      faster-whisper the original error propagates (503 behavior unchanged).
+      :class:`NoSpeechFound` never triggers the fallback: Deepgram WORKED and
+      heard nothing — re-running the audio would be second-guessing a healthy
+      provider.
+    * ``whisper`` — local only. A whisper failure is an HONEST error; it never
+      silently falls back to the vendor (the point is de-vendoring).
+    * anything else — an honest config error (503), never a guessed provider.
+    """
+    provider = (os.getenv(UPLOAD_STT_ENV) or "deepgram").strip().lower()
+    provider = provider or "deepgram"
+
+    if provider == "whisper":
+        return transcribe_prerecorded_whisper(data, content_type, filename), None
+    if provider != "deepgram":
+        raise TranscriptionUnavailable(
+            f"unknown upload transcription provider {provider!r} — "
+            f"{UPLOAD_STT_ENV} must be 'deepgram' or 'whisper'"
+        )
+
+    try:
+        return transcribe_prerecorded(data, content_type), None
+    except TranscriptionUnavailable as dg_exc:
+        if not _whisper_installed():
+            raise
+        logger.warning(
+            "Deepgram transcription unavailable (%s) — falling back to "
+            "local Whisper for this upload", dg_exc,
+        )
+        try:
+            turns = transcribe_prerecorded_whisper(data, content_type, filename)
+        except TranscriptionUnavailable as w_exc:
+            raise TranscriptionUnavailable(
+                f"transcription unavailable: Deepgram failed ({dg_exc}); "
+                f"local Whisper fallback also failed ({w_exc})"
+            ) from w_exc
+        import whisper_transcriber
+
+        note = (
+            f"transcribed with local Whisper "
+            f"({whisper_transcriber.resolve_model_size()}) — "
+            f"Deepgram was unavailable: {dg_exc}"
+        )
+        logger.info("Whisper fallback succeeded: %s", note)
+        return turns, note
