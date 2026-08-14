@@ -144,7 +144,16 @@ gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
 echo "→ Deploying (this builds the image; first deploy takes a few minutes)"
 # --allow-unauthenticated : the app has no login yet (auth is deferred).
 # --timeout 3600          : WebSocket audio sessions are long-lived.
-# --min-instances 1       : avoid cold starts dropping a live session.
+# --no-cpu-throttling     : analysis runs as a BACKGROUND task after the 202;
+#                           with request-based throttling that background work
+#                           got ~zero CPU and our local ECAPA diarization
+#                           crawled for many minutes (observed live 2026-08-14).
+#                           Always-allocated CPU while an instance exists.
+# --min-instances 0       : with always-allocated CPU a warm instance bills
+#                           continuously (~$150+/mo at 4cpu/2Gi) — owner chose
+#                           scale-to-zero instead (2026-08-14): a few $/mo, at
+#                           the cost of ~10-15s to start the first live session
+#                           after idle.
 # --memory 2Gi            : the media pipeline (video download + PCM decode +
 #                           prosody arrays + ffmpeg transcode) OOM-killed the
 #                           default 512Mi container mid-request (surfacing as
@@ -163,7 +172,8 @@ gcloud run deploy "$SERVICE" \
   --platform managed \
   --allow-unauthenticated \
   --timeout 3600 \
-  --min-instances 1 \
+  --no-cpu-throttling \
+  --min-instances 0 \
   --memory 2Gi \
   --cpu 4 \
   --port 8080 \
