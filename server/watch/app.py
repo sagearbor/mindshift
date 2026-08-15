@@ -32,6 +32,9 @@ else NullDiarizationService()`` resolution.
 
 from __future__ import annotations
 
+import logging
+import os
+
 from fastapi import APIRouter
 
 import speaker_id
@@ -51,6 +54,8 @@ from watch.services import build_llm, build_transcriber
 from watch.store import get_store
 from watch.telemetry_store import get_telemetry_store
 
+logger = logging.getLogger(__name__)
+
 
 def build_watch_routers() -> list[APIRouter]:
     """Assemble every watch router against real, env-driven dependencies.
@@ -59,6 +64,21 @@ def build_watch_routers() -> list[APIRouter]:
     mounted them, for ``server/main.py``'s include block to iterate over.
     """
     settings = Settings()
+
+    # I2 (final whole-branch review 2026-08-15): the in-memory/None fallbacks
+    # below are correct for keyless local dev and CI, but silent in prod —
+    # flag them loudly so a misconfigured deploy is caught before it loses
+    # data on the next restart, instead of discovered after.
+    if not os.environ.get("MINDSHIFT_FIRESTORE_PROJECT"):
+        logger.warning(
+            "watch domain running on in-memory stores — data will not "
+            "persist across restarts (set MINDSHIFT_FIRESTORE_PROJECT)"
+        )
+    if not os.environ.get("MINDSHIFT_CAPTURE_BUCKET"):
+        logger.warning(
+            "watch domain running with no capture blob store — capture "
+            "audio uploads will 503 (set MINDSHIFT_CAPTURE_BUCKET)"
+        )
 
     store = get_store()
     pairing_store = get_pairing_store()

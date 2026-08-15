@@ -9,7 +9,29 @@ to build the full, both-domains app (honest-degradation doctrine: missing
 creds/deps degrade individual endpoints, never block app startup).
 """
 
+import logging
+
 import main
+
+
+def test_prod_store_warnings_fire_when_env_unset(caplog):
+    """I2 (final whole-branch review 2026-08-15): building the watch routers
+    with MINDSHIFT_FIRESTORE_PROJECT / MINDSHIFT_CAPTURE_BUCKET unset (as in
+    CI) must log a loud warning for each in-memory/None fallback, so a
+    misconfigured prod deploy is caught rather than silently losing data.
+    main.py already calls build_watch_routers() once at import time, so this
+    calls it again directly under caplog to observe the warnings.
+    """
+    from watch.app import build_watch_routers
+
+    with caplog.at_level(logging.WARNING, logger="watch.app"):
+        build_watch_routers()
+
+    messages = "\n".join(r.message for r in caplog.records)
+    assert "in-memory stores" in messages
+    assert "MINDSHIFT_FIRESTORE_PROJECT" in messages
+    assert "capture blob store" in messages
+    assert "MINDSHIFT_CAPTURE_BUCKET" in messages
 
 
 def test_watch_routes_mounted_on_main_app():
