@@ -1,7 +1,13 @@
 # Ported from gauge@2157433 server/tests/test_diarize.py; adapted per docs/plans/2026-08-15-phase1-one-repo-one-engine.md
 import numpy as np
 
-from watch.diarize import EmbeddingDiarizationService, assign_speakers, diarize, speech_segments
+from watch.diarize import (
+    EmbeddingDiarizationService,
+    NullDiarizationService,
+    assign_speakers,
+    diarize,
+    speech_segments,
+)
 
 
 def tone(amp: float, seconds: float, sr: int = 16000, freq: float = 150.0) -> np.ndarray:
@@ -130,3 +136,15 @@ def test_embedding_diarization_service_finds_turns_in_real_pcm16_bytes():
 
     assert turns, "a loud, full-amplitude tone must be detected as speech, not silently dropped"
     assert turns[0][0] == "self"
+
+
+def test_null_diarization_service_returns_no_turns():
+    # Coverage added in review round 1: NullDiarizationService had zero
+    # direct test coverage in this port (it has no importer yet either —
+    # wiring a diarizer selector into the pipeline is Task B11's job). A
+    # loud, obviously-speech-shaped clip and a real voiceprint are passed
+    # deliberately, so the empty result is provably the class's own honest
+    # "no diarization configured" contract, not an artifact of empty input.
+    me = unit(1)
+    loud = tone(0.9, 2.0).tobytes()
+    assert NullDiarizationService().diarize(loud, 16000, self_print=me) == []

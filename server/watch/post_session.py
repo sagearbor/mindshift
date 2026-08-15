@@ -125,9 +125,16 @@ class WhisperTranscriptionService:
     per call — and collects every segment it produces (mid-stream flushes
     plus the final ``finish()`` flush).
 
-    Delegates to THIS repo's ``whisper_transcriber.WhisperTranscriber``,
-    which shares a process-wide cached model (``load_shared_model``) with
-    the prerecorded-upload path — gauge's copy had no such cache.
+    Delegates to THIS repo's ``whisper_transcriber.WhisperTranscriber``.
+    Both gauge's vendored copy and this repo's version cache the loaded
+    model process-wide (a module-level ``_MODEL_CACHE`` under a lock) so
+    concurrent sessions never reload it — that part is not new here. The
+    real difference: THIS repo's version EXTRACTED that cache into a
+    standalone ``load_shared_model()`` function, so it is shared not just
+    across live-session transcriber instances but also with the
+    prerecorded-upload path (``audio_ingest.transcribe_prerecorded_whisper``)
+    — one cache, two callers, instead of gauge's cache being private to its
+    single ``WhisperTranscriber`` class.
     """
 
     def __init__(self, model_size: str | None = None) -> None:

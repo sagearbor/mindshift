@@ -4,8 +4,15 @@
 # `server/main.py`'s `create_app`/`_build_transcriber`/`_build_llm` (the
 # POST /episodes/{id}/analyze endpoint + Settings-driven backend selection)
 # and `server/ws_ingest.py`'s `_on_episode_end` fire-and-forget wrapper.
-# None of those exist in THIS repo yet — the analyze endpoint and the WS
-# "end" wiring are Task B11's job (server/watch/routers/ws.py; see
+# CORRECTED (review round 1): `create_watch_test_app` (server/watch/testing.py,
+# Task B5) already exists and already accepts `transcriber`/`llm`/`diarizer`
+# kwargs, reserved-but-unused precisely for this task and B11 to extend. The
+# REAL blocker is that no ROUTE calls analyze_live_session yet — there is no
+# `POST /live-sessions/{id}/analyze` endpoint (the `create_app` equivalent
+# for _build_transcriber/_build_llm's Settings-driven backend selection also
+# doesn't exist yet), and `server/ws_ingest.py`'s `_on_episode_end` has no
+# equivalent in `server/watch/routers/` at all. Both are Task B11's job
+# (server/watch/routers/ws.py + wiring the analyze route into rest.py; see
 # server/watch/store.py's MAX_FIRESTORE_PCM_B64 comment and
 # server/watch/blobs.py's GcsBlobStore.put comment, both of which already
 # forward-reference "server/watch/post_session.py's (Task B10)" as the
@@ -37,9 +44,15 @@ import asyncio
 import base64
 import time
 
+import pytest
+
 from audio_pipeline import TranscriberUnavailable, TranscriptSegment
 from watch.models import LiveSession, Participant
-from watch.post_session import analyze_live_session
+from watch.post_session import (
+    NullTranscriptionService,
+    WhisperTranscriptionService,
+    analyze_live_session,
+)
 from watch.store import MemoryLiveSessionStore
 
 
@@ -75,6 +88,33 @@ class FakeLLM:
         if self._error is not None:
             raise self._error
         return self._summary
+
+
+class TestNullAndWhisperServices:
+    """Coverage added in review round 1: with the 8 gauge tests deferred to
+    B11 (TestBuildTranscriberAndLLM etc.), NullTranscriptionService and
+    WhisperTranscriptionService had zero importers and zero direct test
+    coverage in this port — gauge at least isinstance-exercised them via
+    Settings-driven selection. These exercise each class's own honest-
+    degradation behavior directly, independent of any B11 wiring."""
+
+    def test_null_transcription_service_reports_unavailable(self):
+        service = NullTranscriptionService()
+        with pytest.raises(TranscriberUnavailable):
+            service.transcribe(b"\x00\x00" * 1600, 16000)
+
+    def test_whisper_transcription_service_rejects_wrong_sample_rate(self):
+        # No model load needed: WhisperTranscriptionService.transcribe()
+        # asserts the pipeline's fixed 16kHz wire contract BEFORE it ever
+        # touches WhisperTranscriber/connect() — see its own "Interface
+        # honesty" comment. This is the one WhisperTranscriptionService code
+        # path that is honestly exercisable without faster-whisper installed
+        # (a happy-path transcribe() would need a real/injected model, which
+        # is out of B10's scope here — this test only proves the wrong-rate
+        # guard fires, not the transcription itself).
+        service = WhisperTranscriptionService()
+        with pytest.raises(AssertionError, match="16000"):
+            service.transcribe(b"\x00\x00" * 800, 8000)
 
 
 # Two segments per the brief: "self" says something absolutist, "other" replies.
