@@ -1,4 +1,4 @@
-import { Directory, File, Paths } from "expo-file-system";
+import { Directory, File, FileMode, Paths } from "expo-file-system";
 import type { RecorderFs } from "./types";
 
 /** Strip a trailing slash so all path joins are `${dir}/${name}`. */
@@ -56,6 +56,27 @@ export class ExpoRecorderFs implements RecorderFs {
 
   writeBytes(fileUri: string, bytes: Uint8Array): void {
     new File(fileUri).write(bytes);
+  }
+
+  appendBytes(fileUri: string, bytes: Uint8Array): void {
+    const file = new File(fileUri);
+    if (!file.exists) {
+      file.write(bytes);
+      return;
+    }
+    file.write(bytes, { append: true });
+  }
+
+  writeBytesAt(fileUri: string, offset: number, bytes: Uint8Array): void {
+    // Random-access patch via a seekable handle (SDK-57 FileHandle). The
+    // handle is closed in finally so a native throw can't leak a descriptor.
+    const handle = new File(fileUri).open(FileMode.ReadWrite);
+    try {
+      handle.offset = offset;
+      handle.writeBytes(bytes);
+    } finally {
+      handle.close();
+    }
   }
 
   move(srcUri: string, destUri: string): void {

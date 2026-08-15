@@ -4,6 +4,7 @@ import type {
   RecordedAudioFile,
   RecoverableSession,
   SegmentContainer,
+  SegmentRecord,
   SessionManifest,
 } from "./types";
 
@@ -13,6 +14,15 @@ export interface CreateSessionOptions {
   extension: string;
   mimeType: string;
   segmentSeconds: number;
+  /** Diagnostic tag for which engine produced the session (see manifest). */
+  engine?: "stream" | "recorder";
+}
+
+/** Canonical segment file name ("seg-000.wav") — shared by the v1 move-in
+ *  path (finalizeSegment) and the v2 write-in-place path (StreamAudioSession)
+ *  so both produce identical on-disk sessions. */
+export function segmentFileName(index: number, extension: string): string {
+  return `seg-${String(index).padStart(3, "0")}${extension}`;
 }
 
 let sessionCounter = 0;
@@ -32,7 +42,10 @@ let sessionCounter = 0;
  * removes the session directory, which is what "finished cleanly" means.
  */
 export class RecorderSessionStore {
-  constructor(private fs: RecorderFs) {}
+  /** Public so the v2 stream engine (which appends to segment files in
+   *  place rather than moving finished recorder files in) can share the one
+   *  filesystem seam instead of being handed a second, possibly-different fs. */
+  constructor(readonly fs: RecorderFs) {}
 
   private rootDir(): string {
     return `${this.fs.documentDirUri()}/recorder-sessions`;
@@ -71,10 +84,37 @@ export class RecorderSessionStore {
       mimeType: opts.mimeType,
       segmentSeconds: opts.segmentSeconds,
       segments: [],
+      ...(opts.engine ? { engine: opts.engine } : {}),
     };
     this.fs.ensureDir(this.sessionDir(sessionId));
     this.writeManifest(manifest);
     return manifest;
+  }
+
+  /** Absolute uri for a segment file inside a session directory — the v2
+   *  engine writes its WAVs there directly (no cache-file move). */
+  segmentFileUri(sessionId: string, file: string): string {
+    return `${this.sessionDir(sessionId)}/${file}`;
+  }
+
+  /**
+   * Record (or refresh) a segment's manifest entry. The v2 flush path: called
+   * every few seconds for the OPEN segment, so at any instant the manifest
+   * describes all audio that is durable on disk — including the segment still
+   * being written. Idempotent per index: an existing entry is replaced.
+   */
+  upsertSegment(
+    manifest: SessionManifest,
+    record: SegmentRecord,
+  ): SessionManifest {
+    const others = manifest.segments.filter((s) => s.index !== record.index);
+    const updated: SessionManifest = {
+      ...manifest,
+      updatedAt: new Date().toISOString(),
+      segments: [...others, record].sort((a, b) => a.index - b.index),
+    };
+    this.writeManifest(updated);
+    return updated;
   }
 
   /**
@@ -87,7 +127,7 @@ export class RecorderSessionStore {
     durationMs: number,
   ): SessionManifest {
     const index = manifest.segments.length;
-    const file = `seg-${String(index).padStart(3, "0")}${manifest.extension}`;
+    const file = segmentFileName(index, manifest.extension);
     const destUri = `${this.sessionDir(manifest.sessionId)}/${file}`;
     this.fs.move(srcUri, destUri);
     const bytes = this.fs.sizeOf(destUri) ?? 0;

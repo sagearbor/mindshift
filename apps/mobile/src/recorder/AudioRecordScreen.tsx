@@ -12,8 +12,11 @@ import {
   requestRecordingPermissionsAsync,
 } from "expo-audio";
 import { formatClock } from "../screens/recordTiming";
+import { RECORDER_ENGINE } from "./engine";
+import type { RecorderEngineKind } from "./engine";
 import { runPreflight } from "./preflight";
 import type { PreflightReport } from "./preflight";
+import type { PcmSourceFactory } from "./pcmSource";
 import {
   SegmentedAudioSession,
   DEFAULT_SEGMENT_MS,
@@ -21,6 +24,7 @@ import {
 } from "./segmentedSession";
 import type { SessionPhase } from "./segmentedSession";
 import type { RecorderSessionStore } from "./sessionStore";
+import { StreamAudioSession } from "./streamSession";
 import type {
   RecordedAudioFile,
   RecorderFactory,
@@ -58,6 +62,25 @@ export interface AudioRecorderDeps {
   segmentMs?: number;
   resumeRetryMs?: number;
   maxSessionMs?: number;
+  /** Which engine records. Omitted → "stream" (v2 gapless) when a PcmSource
+   *  factory is available, else the v1 segmented recorder — so older test
+   *  wirings (and any caller without stream capture) keep v1 semantics
+   *  without touching this field. */
+  engine?: RecorderEngineKind;
+  /** Continuous-PCM capture for the stream engine. Production wires the
+   *  expo-audio realtime stream; tests inject fakes. */
+  makePcmSource?: PcmSourceFactory;
+  /** Stream engine only: flush-to-disk cadence (the crash-loss bound). */
+  flushMs?: number;
+  /** Stream engine only: silent-stall watchdog (see streamSession). */
+  stallMs?: number;
+}
+
+/** Engine choice for a deps bundle (see AudioRecorderDeps.engine). */
+function resolveEngineKind(deps: AudioRecorderDeps | null): RecorderEngineKind {
+  if (!deps) return RECORDER_ENGINE;
+  if (deps.engine) return deps.engine;
+  return deps.makePcmSource ? RECORDER_ENGINE : "recorder";
 }
 
 interface AudioRecordScreenProps {
@@ -101,7 +124,9 @@ export default function AudioRecordScreen({
   const [backgroundCapable, setBackgroundCapable] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const sessionRef = useRef<SegmentedAudioSession | null>(null);
+  const sessionRef = useRef<SegmentedAudioSession | StreamAudioSession | null>(
+    null,
+  );
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
   const stoppingRef = useRef(false);
@@ -199,13 +224,32 @@ export default function AudioRecordScreen({
     const d = depsRef.current;
     if (!d || sessionRef.current) return;
     setError(null);
-    const session = new SegmentedAudioSession({
-      makeRecorder: d.makeRecorder,
-      store: d.store,
-      format: d.format,
-      segmentMs: d.segmentMs ?? DEFAULT_SEGMENT_MS,
-      resumeRetryMs: d.resumeRetryMs ?? DEFAULT_RESUME_RETRY_MS,
-    });
+    const session =
+      resolveEngineKind(d) === "stream"
+        ? new StreamAudioSession({
+            // A missing factory here means engine was FORCED to "stream"
+            // without capture deps — production wiring for that case is the
+            // lazily-loaded expo-audio realtime stream.
+            makeSource:
+              d.makePcmSource ??
+              (() => {
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const { ExpoPcmSource } = require("./expoPcmSource");
+                return new ExpoPcmSource();
+              }),
+            store: d.store,
+            segmentMs: d.segmentMs,
+            flushMs: d.flushMs,
+            resumeRetryMs: d.resumeRetryMs,
+            stallMs: d.stallMs,
+          })
+        : new SegmentedAudioSession({
+            makeRecorder: d.makeRecorder,
+            store: d.store,
+            format: d.format,
+            segmentMs: d.segmentMs ?? DEFAULT_SEGMENT_MS,
+            resumeRetryMs: d.resumeRetryMs ?? DEFAULT_RESUME_RETRY_MS,
+          });
     try {
       const mode = await d.configureAudioSession(true);
       if (mountedRef.current) {
@@ -286,10 +330,15 @@ export default function AudioRecordScreen({
     );
   }
 
+  // Honest per-engine disclosure. The stream engine records gaplessly and
+  // flushes every few seconds; the v1 engine restarts the recorder every
+  // ~5 min with a small audible gap — each gets its own truthful line.
+  const engineKind = resolveEngineKind(depsRef.current);
   const disclosure = (
     <Text style={styles.disclosure} testID="gap-disclosure">
-      Crash-proof recording: audio is saved every 5 min — a brief ~0.2s gap at
-      each save point.
+      {engineKind === "stream"
+        ? "Gapless recording: audio is saved every few seconds — a crash can lose at most a moment."
+        : "Crash-proof recording: audio is saved every 5 min — a brief ~0.2s gap at each save point."}
     </Text>
   );
 
@@ -366,7 +415,9 @@ export default function AudioRecordScreen({
         </Text>
         <Text style={styles.segmentStatus} testID="segment-status">
           {segmentsSaved === 0
-            ? "First save in a few minutes…"
+            ? engineKind === "stream"
+              ? "First save in a few seconds…"
+              : "First save in a few minutes…"
             : `${segmentsSaved} segment${segmentsSaved === 1 ? "" : "s"} safe on this phone (${savedMin} min)`}
         </Text>
         {!backgroundCapable && (
