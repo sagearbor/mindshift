@@ -11,6 +11,10 @@
     "dev:web": "npm run --workspace mindshift-mobile web",
     "dev:ios": "npm run --workspace mindshift-mobile ios",
     "dev:android": "npm run --workspace mindshift-mobile android",
-    "test": "npm run --workspace mindshift-mobile test"
+    "test": "npm run --workspace mindshift-mobile test",
+    "gen:api": "./scripts/gen_api_types.sh"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.13.0"
   }
 }
