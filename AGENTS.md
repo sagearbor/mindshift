@@ -3,6 +3,12 @@
 ## Purpose
 Guide AI agents contributing to MindShift (see [PRD.md](PRD.md) for the product spec).
 
+> **ACTIVE MAJOR EFFORT (2026-08-15):** MindShift is absorbing the sibling product Gauge
+> (its Wear OS watch app, backend routes, and users) — one repo, one backend, one brand.
+> Read [docs/plans/2026-08-15-unification-mindshift-absorbs-gauge.md](docs/plans/2026-08-15-unification-mindshift-absorbs-gauge.md)
+> before substantial work; it carries locked decisions and transplanted operational
+> knowledge (watch builds, Play uploads, telemetry debugging).
+
 ## Layout
 - `apps/mobile/` — the active Expo (React Native + Web) app. UI in `src/components`,
   screens in `src/screens`, state in `src/store` (Zustand), API/WS clients in `src/api`
