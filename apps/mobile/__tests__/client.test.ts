@@ -24,6 +24,7 @@ import {
   patchSpeakerLabels,
   deleteRecording,
   postReanalyze,
+  reportClientLog,
 } from "../src/api/client";
 import {
   getFreshToken,
@@ -1620,5 +1621,28 @@ describe("postAnalyzeUploadChunkedJob", () => {
     expect(outcome).toEqual({ result: uploadResult });
     expect(mockFetch.mock.calls[2][0]).toMatch(/\/complete\/jobs$/);
     expect(mockFetch.mock.calls[3][0]).toMatch(/\/uploads\/u2\/complete$/);
+  });
+});
+
+describe("reportClientLog", () => {
+  // Phones self-report failures that never reach the server (the 2026-08-14
+  // upload-dies-before-network bug) so they're diagnosable from server logs.
+  it("POSTs kind + detail to /client-log and never throws", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 204 });
+    await reportClientLog("upload-failure", { status: 0, causeName: "TypeError" });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toMatch(/\/client-log$/);
+    expect(init.method).toBe("POST");
+    const body = JSON.parse(init.body);
+    expect(body.kind).toBe("upload-failure");
+    expect(body.detail.causeName).toBe("TypeError");
+  });
+
+  it("swallows network failure — reporting a failure must never cascade", async () => {
+    mockFetch.mockRejectedValueOnce(new Error("offline"));
+    await expect(
+      reportClientLog("upload-failure", {}),
+    ).resolves.toBeUndefined();
   });
 });

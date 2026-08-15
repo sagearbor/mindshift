@@ -409,6 +409,28 @@ function uploadFailure(
  * a web `File` knows its size; a native `file://` uri is statted through
  * expo-file-system. Null when the size genuinely can't be determined.
  */
+/**
+ * Fire-and-forget failure report to POST /client-log, so on-device failures
+ * that never reach the server (e.g. an upload dying before the network) are
+ * diagnosable from server logs instead of user screenshots. Never throws —
+ * reporting a failure must not cascade into one.
+ */
+export async function reportClientLog(
+  kind: string,
+  detail: Record<string, unknown>,
+): Promise<void> {
+  try {
+    const headers = await authHeaders();
+    await fetch(`${API_URL}/client-log`, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ kind, detail }),
+    });
+  } catch {
+    // Swallowed by design.
+  }
+}
+
 export function statFileSize(file: string | File): number | null {
   try {
     if (typeof file !== "string") {

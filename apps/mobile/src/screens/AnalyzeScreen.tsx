@@ -24,6 +24,7 @@ import {
   getAnalyzeJob,
   statFileSize,
   UploadError,
+  reportClientLog,
 } from "../api/client";
 import type {
   AnalyzeResult,
@@ -457,6 +458,12 @@ export default function AnalyzeScreen({
       mimeType: file.mimeType,
       size: file.size,
     });
+    // Recorder files have machine names (mindshift-audio-<epoch>.aac) —
+    // default a human title from the date so "what am I uploading?" answers
+    // itself. Never overwrites a title the user already typed.
+    setConversationTitle((prev) =>
+      prev.trim() ? prev : `Recording ${new Date().toLocaleString()}`,
+    );
   };
 
   // Consume a freshly-recorded clip handed over from RecordScreen (one-shot):
@@ -603,6 +610,14 @@ export default function AnalyzeScreen({
         jobOrUploadErrorMessage(e, { chunked: useChunked, sizeBytes: size }),
       );
       setUploadErrorDetails(toErrorDetails(e));
+      void reportClientLog("upload-failure", {
+        ...(toErrorDetails(e) ?? {}),
+        message: e instanceof Error ? e.message : String(e),
+        errorName: e instanceof Error ? e.name : typeof e,
+        platform: Platform.OS,
+        fileName: picked?.name,
+        fileSize: size,
+      });
     } finally {
       setUploading(false);
       setUploadProgress(null);

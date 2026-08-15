@@ -4905,6 +4905,25 @@ async def _require_participant(
         raise HTTPException(status_code=404, detail="Participant not found")
 
 
+class ClientLogIn(BaseModel):
+    """A client-side failure report (e.g. an upload that never reached the
+    server). Exists so on-device failures are diagnosable from Cloud Run logs
+    instead of user screenshots — added 2026-08-14 while chasing an
+    upload-dies-before-network device bug."""
+
+    kind: str = Field(max_length=64)
+    detail: dict = Field(default_factory=dict)
+
+
+@app.post("/client-log", status_code=204)
+async def client_log(
+    body: ClientLogIn, uid: str = Depends(get_current_uid)
+) -> Response:
+    detail = json.dumps(body.detail, default=str)[:2000]
+    logger.warning("CLIENT-LOG uid=%s kind=%s detail=%s", uid, body.kind, detail)
+    return Response(status_code=204)
+
+
 @app.get(
     "/relationships/{relationship_id}/participants/{participant_id}/voice-profile",
     response_model=VoiceProfileOut,
