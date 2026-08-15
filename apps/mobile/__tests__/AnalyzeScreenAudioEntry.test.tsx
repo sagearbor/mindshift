@@ -5,6 +5,8 @@ import type { AudioRecorderDeps } from "../src/recorder/AudioRecordScreen";
 import { MemoryFs } from "../src/recorder/memoryFs";
 import { RecorderSessionStore } from "../src/recorder/sessionStore";
 import type { RecorderPort } from "../src/recorder/types";
+import { postAnalyzeUploadChunkedJob } from "../src/api/client";
+import type { UploadAnalyzeResult } from "../src/api/client";
 
 // Keep the real client module shape; nothing here should hit the network.
 jest.mock("../src/api/client", () => ({
@@ -16,6 +18,25 @@ jest.mock("../src/api/client", () => ({
   postAnalyzeLinkJob: jest.fn(),
   getAnalyzeJob: jest.fn(),
 }));
+
+const mockChunkedJob = postAnalyzeUploadChunkedJob as jest.Mock;
+
+/** Minimal successful analysis result for the orphan-consumption flow. */
+const analyzedFixture: UploadAnalyzeResult = {
+  per_turn: [],
+  per_speaker: {},
+  dynamics: {
+    coupling: { strength: null, leader: null, description: "" },
+    deescalation: { who_first: null, follow_rate: null, description: "" },
+    triggers: [],
+    requests: [],
+  },
+  narrative: "",
+  turns: [],
+  stored: false,
+  recording_id: null,
+  storage_note: "Without consent to store, we discard the file after analysis.",
+};
 
 function wavBytes(tag: number): Uint8Array {
   const buf = new ArrayBuffer(46);
@@ -269,5 +290,28 @@ describe("AnalyzeScreen — crash recovery prompt", () => {
     expect(queryId(comp, "orphan-prompt")).toBeNull();
     expect(queryId(comp, "picked-file")).toBeNull();
     expect(store.listOrphanStitched()).toEqual([]);
+  });
+
+  it("a rescued file that analyzes SUCCESSFULLY is deleted — never re-offered", async () => {
+    // The duplicate-analysis bug: "Use it" → upload+analysis succeeded → the
+    // stitched file stayed in recorder-out/ and the prompt offered it again on
+    // every launch. A successful analysis must consume the orphan.
+    mockChunkedJob.mockResolvedValueOnce({ result: analyzedFixture });
+    const { fs, store, deps } = makeDeps();
+    const m = seedOrphanedSession(fs, store);
+    store.finishToFile(m);
+    const comp = await mountAnalyze(deps);
+    await act(async () => {
+      queryId(comp, "orphan-use")!.props.onPress();
+    });
+    // Upload the rescued file and let the (mocked) analysis succeed.
+    await act(async () => {
+      queryId(comp, "upload-analyze-button")!.props.onPress();
+    });
+    expect(mockChunkedJob).toHaveBeenCalledTimes(1);
+    // The orphan is gone from disk, so a remount has nothing to offer.
+    expect(store.listOrphanStitched()).toEqual([]);
+    const again = await mountAnalyze(deps);
+    expect(queryId(again, "orphan-prompt")).toBeNull();
   });
 });

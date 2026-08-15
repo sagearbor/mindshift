@@ -17,7 +17,6 @@ import { useSessionStore } from "../store/sessionStore";
 import { useRecorderStore } from "../store/recorderStore";
 import { useAnalyzeStore } from "../store/analyzeStore";
 import {
-  postAnalyzeUpload,
   postAnalyzeUploadChunkedJob,
   postAnalyzeLink,
   postAnalyzeLinkJob,
@@ -38,6 +37,7 @@ import RelationshipPicker, {
 import AudioRecordScreen from "../recorder/AudioRecordScreen";
 import type { AudioRecorderDeps } from "../recorder/AudioRecordScreen";
 import RecoveryPrompt from "../recorder/RecoveryPrompt";
+import type { RecorderSessionStore } from "../recorder/sessionStore";
 import type { RecordedAudioFile } from "../recorder/types";
 
 /**
@@ -82,11 +82,10 @@ interface PickedRecording {
   file?: File;
 }
 
-// Files at/under this size take the plain multipart /analyze/upload path; larger
-// ones are streamed in chunks (see postAnalyzeUploadChunked) so no single request
-// trips the platform's ~32MB body ceiling. Above the hard cap we refuse up front,
-// before touching the network, with an honest size message.
-const DIRECT_UPLOAD_MAX_BYTES = 20 * 1024 * 1024; // 20 MB
+// Hard cap for any upload; above it we refuse up front, before touching the
+// network, with an honest size message. There is no lower "direct upload"
+// threshold any more — EVERY upload streams through the chunked async-job path
+// (see handleUploadAnalyze for the incident that removed the direct path).
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024; // 200 MB
 
 /** Honest "too big" message naming the actual size and the hard limit. Used both
@@ -122,10 +121,11 @@ function uploadErrorMessage(
     if ((status === 422 || status === 413) && detail) return detail;
   }
   if (opts?.chunked) {
-    // The chunked path only exists for large files that need recording storage;
-    // a 503 there means that storage isn't enabled, not that analysis is missing.
+    // Every file upload takes the chunked path now, and it needs the server's
+    // recording storage for its parts; a 503 there means that storage isn't
+    // enabled, not that analysis is missing.
     if (status === 503)
-      return "Large uploads need recording storage enabled on the server.";
+      return "Uploads need recording storage enabled on the server.";
     if (status === 413) return sizeLimitMessage(opts.sizeBytes);
   }
   switch (status) {
@@ -413,8 +413,9 @@ export default function AnalyzeScreen({
   // silently ignores it (see client.ts) until the backend adds the field.
   const [conversationTitle, setConversationTitle] = useState("");
   const [uploading, setUploading] = useState(false);
-  // Chunked-upload progress as a 0→1 fraction; null on the direct path (which
-  // shows a plain spinner instead of a bar).
+  // Chunked-upload progress as a 0→1 fraction; null when no byte upload is in
+  // flight (link mode, or once the job-polling phase takes over) — the UI then
+  // shows a plain spinner / the staged job card instead of the bar.
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   // The failed upload's diagnosis (request id, status, chunk, cause) when the
@@ -531,28 +532,50 @@ export default function AnalyzeScreen({
     void handlePickRecording();
   };
 
+  /**
+   * After a SUCCESSFUL upload+analysis of a file that lives in the recorder's
+   * output dir (a rescued orphan offered by {@link RecoveryPrompt}, or a fresh
+   * in-app audio recording), delete it from disk so the prompt can never
+   * re-offer an already-analyzed file (the duplicate-analysis bug: an orphan
+   * survived its successful upload and was offered again on every launch).
+   * Strictly best-effort — a failed delete must never turn the success flow
+   * the user is already on into an error (worst case: one more re-offer).
+   */
+  const consumeRecorderOutput = (uri: string): void => {
+    if (!uri.includes("recorder-out/")) return;
+    try {
+      let store: RecorderSessionStore | undefined = recorderDeps?.store;
+      if (!store) {
+        if (Platform.OS === "web") return; // no native filesystem to clean
+        // Lazy production wiring — mirrors RecoveryPrompt; never constructed
+        // under test injection.
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { RecorderSessionStore: Store } = require("../recorder/sessionStore");
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { ExpoRecorderFs } = require("../recorder/expoFs");
+        store = new Store(new ExpoRecorderFs()) as RecorderSessionStore;
+      }
+      store.discardOrphan(uri);
+    } catch {
+      // Swallowed by design — see the doc comment above.
+    }
+  };
+
   const handleUploadAnalyze = async () => {
     if (!picked || uploading) return;
     // Web hands us a File; native hands us the local URI string.
     const fileArg = Platform.OS === "web" && picked.file ? picked.file : picked.uri;
     // The picker sometimes reports no size — stat the file via expo-file-system
-    // so the direct-vs-chunked routing rests on facts (the vc29 bug: an
-    // unknown-size file took the direct path, and a >32MB body dies at the
-    // ingress before the server can even log it).
+    // so the 200MB pre-flight refusal (and the chunked client's chunk math)
+    // rests on facts rather than a missing number.
     const size = picked.size ?? statFileSize(fileArg) ?? undefined;
     // Refuse an over-cap file up front — no network call, an honest size message.
     if (size !== undefined && size > MAX_UPLOAD_BYTES) {
       setUploadError(sizeLimitMessage(size));
       return;
     }
-    // Anything above the direct-upload ceiling streams in chunks so the platform
-    // doesn't reject the body before the server can respond. A STILL-unknown
-    // size also goes chunked — NEVER direct — because the chunked client can
-    // stat again and refuse honestly, while an over-limit direct body dies at
-    // the ingress with no server trace.
-    const useChunked = size === undefined || size > DIRECT_UPLOAD_MAX_BYTES;
     setUploading(true);
-    setUploadProgress(useChunked ? 0 : null);
+    setUploadProgress(0);
     setUploadError(null);
     setUploadErrorDetails(null);
     setErrorDetailsOpen(false);
@@ -562,41 +585,38 @@ export default function AnalyzeScreen({
     try {
       const context = composedContext();
       const title = conversationTitle.trim() || undefined;
-      let result: UploadAnalyzeResult;
-      if (useChunked) {
-        // Stream the parts (byte-progress bar), then complete as a JOB we poll —
-        // the multi-minute synchronous /complete it replaces was routinely
-        // killed by Android backgrounding. On an old server / storage off the
-        // client transparently falls back to synchronous complete.
-        const outcome = await postAnalyzeUploadChunkedJob(
-          fileArg,
-          picked.name,
-          picked.mimeType,
-          size ?? null,
-          {
-            consent,
-            store: storeRecording,
-            context,
-            title,
-            onProgress: setUploadProgress,
-          },
-        );
-        if ("result" in outcome) {
-          result = outcome.result; // synchronous fallback already produced it
-        } else {
-          // Upload finished → swap the byte-progress bar for the staged job card.
-          setUploadProgress(null);
-          result = await pollJobToDone(outcome.jobId, setJobState);
-        }
-      } else {
-        // Small files (<=20MB) stay a single fast synchronous request.
-        result = await postAnalyzeUpload(
-          fileArg,
-          picked.name,
-          picked.mimeType,
+      // EVERY upload — regardless of size — streams through the chunked ASYNC
+      // JOB path (uploads/start → PUT chunk(s) → complete-job → poll). The
+      // synchronous direct /analyze/upload is deliberately gone from this
+      // screen: a cold Cloud Run instance takes ~3 minutes to analyze even a
+      // small file (voice-model load), the phone's fetch gives up on the
+      // held-open response, and the user sees "Couldn't reach the server" +
+      // retry UI while the server actually completes AND stores the recording
+      // (live incident 2026-08-15, request id d883883b… logged 200 server-side
+      // against a client-shown failure) — a false failure inviting duplicate
+      // uploads. The job path holds no response open, survives backgrounding,
+      // and gives honest byte + stage progress. On an old server / storage off
+      // the client transparently falls back to a synchronous complete.
+      const outcome = await postAnalyzeUploadChunkedJob(
+        fileArg,
+        picked.name,
+        picked.mimeType,
+        size ?? null,
+        {
+          consent,
+          store: storeRecording,
           context,
-          { consent, store: storeRecording, title },
-        );
+          title,
+          onProgress: setUploadProgress,
+        },
+      );
+      let result: UploadAnalyzeResult;
+      if ("result" in outcome) {
+        result = outcome.result; // synchronous fallback already produced it
+      } else {
+        // Upload finished → swap the byte-progress bar for the staged job card.
+        setUploadProgress(null);
+        result = await pollJobToDone(outcome.jobId, setJobState);
       }
       // Load the server-produced transcript so the what-if flow (and inspector
       // text) works off the store, then jump straight to the ready-made analysis
@@ -604,10 +624,13 @@ export default function AnalyzeScreen({
       loadTurns(result.turns);
       setUploadStored(result.stored);
       setUploadStorageNote(result.stored ? null : result.storage_note);
+      // A rescued (or freshly recorded) recorder-out file has now served its
+      // purpose — consume it so it can't be re-offered for a duplicate analysis.
+      consumeRecorderOutput(picked.uri);
       onAnalyzeDynamics?.(result, result.recording_id ?? null, cameFromRecorder);
     } catch (e) {
       setUploadError(
-        jobOrUploadErrorMessage(e, { chunked: useChunked, sizeBytes: size }),
+        jobOrUploadErrorMessage(e, { chunked: true, sizeBytes: size }),
       );
       setUploadErrorDetails(toErrorDetails(e));
       // No file NAME in the report — user-chosen names can carry personal
