@@ -362,7 +362,15 @@ export default function ReplayScreen({
   // Marks the current source as loaded once it reports a real duration; the
   // watchdog reads this ref to distinguish "loaded" from "stuck buffering".
   const handleDurationChange = useCallback((seconds: number) => {
-    if (seconds > 0) durationKnownRef.current = true;
+    if (seconds > 0) {
+      durationKnownRef.current = true;
+      // A source that reports a real duration is NOT stuck — clear any latch
+      // left by an EARLIER source (the Google-Photos-link flow stalls first,
+      // then falls back to a stored copy that loads fine; field bug #11 was
+      // this latch outliving the failure and locking out audition playback
+      // while the transport played happily).
+      setMediaStuck(false);
+    }
   }, []);
 
   // Load-timeout watchdog. Each time the source URL changes, give it

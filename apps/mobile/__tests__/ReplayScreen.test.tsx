@@ -1176,6 +1176,32 @@ describe("ReplayScreen speaker audition", () => {
     act(() => comp.unmount());
   });
 
+  it("un-sticks the audition when a later source reports a real duration", async () => {
+    // The Google-Photos-link flow: the first source stalls (watchdog flags
+    // stuck), the app falls back to the stored copy which loads FINE — the
+    // stuck flag must not outlive the failure it described (field bug #11:
+    // transport played happily while audition claimed no audio).
+    jest.useFakeTimers();
+    try {
+      const comp = await renderLoaded();
+      await act(async () => {
+        jest.advanceTimersByTime(LOAD_TIMEOUT_MS);
+      });
+      await act(async () => {});
+      expect(queryId(comp, "media-stuck-note")).toBeTruthy();
+
+      act(() => mockPlayerProps.onDurationChange?.(42));
+      await act(async () => {});
+      expect(queryId(comp, "media-stuck-note")).toBeNull();
+      press(comp, "legend-item-Alice");
+      expect(queryId(comp, "audition-unavailable")).toBeNull();
+      expect(queryId(comp, "audition-play")).toBeTruthy();
+      act(() => comp.unmount());
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it("shows an honest note instead of a Play button when the media isn't loading", async () => {
     jest.useFakeTimers();
     try {
