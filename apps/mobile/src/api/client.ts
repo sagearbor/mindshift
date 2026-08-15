@@ -528,12 +528,12 @@ export async function postAnalyzeUpload(
     // but we pass `name` too for servers that read the part's filename).
     form.append("file", file as File, name);
   } else {
-    // React Native's FormData accepts a { uri, name, type } descriptor for a
-    // local file; the bridge streams it from disk without loading it into JS.
-    form.append(
-      "file",
-      { uri: file as string, name, type: mimeType } as unknown as Blob,
-    );
+    // Expo's WinterCG-compliant fetch (active since the build 31 binary)
+    // REJECTS React Native's legacy { uri, name, type } descriptor with
+    // "Unsupported FormDataPart implementation" — the first bug caught by the
+    // phone's own failure telemetry (2026-08-15). expo-file-system's File
+    // implements Blob, which that fetch streams from disk natively.
+    form.append("file", new FSFile(file as string) as unknown as Blob, name);
   }
   if (context !== undefined) {
     form.append("context", context);

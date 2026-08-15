@@ -128,11 +128,19 @@ jest.mock("expo-file-system", () => {
     }
     writeBytes() {}
   }
-  class File {
+  // Extends Blob because the real expo-file-system File implements Blob —
+  // strict (WinterCG) FormData rejects non-Blob parts, which is exactly the
+  // on-device bug ("Unsupported FormDataPart implementation") this mock must
+  // be able to represent honestly.
+  class File extends Blob {
     uri: string;
     constructor(uri: string) {
+      super([]);
       this.uri = uri;
     }
+    // @ts-expect-error — Blob types size as number; this mock deliberately
+    // returns null to represent "unstattable" (a real-device possibility the
+    // upload-routing tests depend on).
     get size(): number | null {
       const g = globalThis as Record<string, unknown>;
       if ("__fsMockSize" in g) return g.__fsMockSize as number | null;

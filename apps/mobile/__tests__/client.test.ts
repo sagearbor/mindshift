@@ -295,14 +295,13 @@ describe("postAnalyzeUpload", () => {
     expect(url).toMatch(/\/analyze\/upload$/);
     expect(init.method).toBe("POST");
 
-    // The file part is RN's { uri, name, type } descriptor.
+    // The file part is a real Blob (expo-file-system File) — the legacy
+    // { uri, name, type } descriptor dies on Expo's strict fetch.
     const body = init.body as InstanceType<typeof RecordingFormData>;
     const fileEntry = body.entries.find((e) => e[0] === "file");
-    expect(fileEntry?.[1]).toEqual({
-      uri: "file:///rec.m4a",
-      name: "rec.m4a",
-      type: "audio/m4a",
-    });
+    const { File: MockFSFile } = jest.requireMock("expo-file-system");
+    expect(fileEntry?.[1]).toBeInstanceOf(MockFSFile);
+    expect((fileEntry?.[1] as { uri: string }).uri).toBe("file:///rec.m4a");
     // Context is appended verbatim.
     expect(body.entries.find((e) => e[0] === "context")?.[1]).toBe(
       "kitchen argument",
@@ -1644,5 +1643,32 @@ describe("reportClientLog", () => {
     await expect(
       reportClientLog("upload-failure", {}),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("postAnalyzeUpload — native file part", () => {
+  // Expo's strict fetch rejects RN's legacy { uri, name, type } descriptor
+  // with "Unsupported FormDataPart implementation" (first bug caught by the
+  // phone's own failure telemetry, 2026-08-15). The part must be a real
+  // Blob — expo-file-system's File implements Blob. ALSO exercised against
+  // the REAL (strict) FormData: append itself must not throw.
+  it("appends an expo-file-system File (a real Blob), not a uri descriptor", async () => {
+    const { File: MockFSFile } = jest.requireMock("expo-file-system");
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ per_turn: [], requests: [], narrative: "" }),
+    });
+    // No FormData double here on purpose: the strict global FormData rejects
+    // non-Blob parts exactly like the on-device fetch did.
+    await postAnalyzeUpload("file:///tmp/x.aac", "x.aac", "audio/aac");
+    const [, init] = mockFetch.mock.calls[0];
+    const body = init.body as FormData;
+    const filePart = body.get("file");
+    // Strict FormData may rewrap the Blob into a File part; instance OR
+    // Blob-ness both prove the descriptor is gone.
+    expect(
+      filePart instanceof MockFSFile || filePart instanceof Blob,
+    ).toBe(true);
   });
 });
