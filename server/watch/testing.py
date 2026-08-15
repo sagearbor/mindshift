@@ -37,10 +37,23 @@ because a throwaway default ``MemoryTelemetryStore()`` carries no security
 posture to mask (unlike a throwaway pairing store) and is a perfectly
 sensible thing for a test to run against. Both of its routes are
 deliberately unauthenticated (see that router's own module docstring), so
-this mount takes no auth dependency at all. Every other still-unused kwarg
-below (``transcriber``, ``llm``, ``diarizer``) remains reserved for B10
-post-session analysis and B11 WS ingest to extend this same function
-signature without breaking already-ported callers.
+this mount takes no auth dependency at all.
+
+Task B11 puts ``transcriber``/``llm``/``diarizer`` to their first use: the WS
+ingest router (``watch/routers/ws.py``: ``WEBSOCKET /ws/live-session/{id}``)
+and the live-session re-analyze router (``watch/routers/live_sessions.py``:
+``POST /live-sessions/{id}/analyze``) are BOTH mounted unconditionally, same
+"always has something sensible to run against in tests" rationale as REST/
+groups/captures/telemetry above — ``transcriber``/``llm``/``diarizer``
+default to ``None``, a legitimate runtime state both routers already handle
+honestly (no live-analysis spawn without a transcriber wired for the WS
+router's ``stt`` gate below; a 500-free `None.transcribe` is never reached
+because no ported test calls ``/analyze`` without injecting fakes first).
+The new ``stt`` kwarg (default ``"none"``) is the explicit, env-var-free
+knob this function's docstring's Task B8 paragraph already established the
+pattern for — see ``watch/routers/ws.py``'s own ADAPTED note for why gauge's
+single ``settings: Settings | None`` param became these explicit kwargs
+instead of a `Settings()` built here from the process environment.
 
 Task B8 also puts ``full_verifier`` to its first use (previously accepted
 but unused): it builds a SECOND, independent auth dependency —
@@ -79,9 +92,11 @@ from fastapi import FastAPI
 from watch.auth import TokenVerifier, make_auth_dependency, require_full_auth
 from watch.routers.captures import make_captures_router
 from watch.routers.groups import make_groups_router
+from watch.routers.live_sessions import make_live_sessions_router
 from watch.routers.pairing import make_pairing_router
 from watch.routers.rest import make_rest_router
 from watch.routers.telemetry import make_telemetry_router
+from watch.routers.ws import make_ws_router
 from watch.store import LiveSessionStore, MemoryLiveSessionStore
 from watch.telemetry_store import MemoryTelemetryStore
 
@@ -99,6 +114,17 @@ def create_watch_test_app(
     diarizer: Any = None,
     embedder: Any = None,
     allow_legacy: bool = False,
+    # Task B11: gates the WS "end" handler's fire-and-forget analysis spawn
+    # (watch/routers/ws.py's `if stt != "none":`) — mirrors watch/config.py's
+    # Settings.stt naming/values ("whisper" | "none" | anything-else-is-null),
+    # but defaults to "none" here (NOT Settings' own "whisper" default):
+    # this is a TEST assembly, and most callers never inject a transcriber —
+    # spawning fire-and-forget analysis by default would either silently
+    # invoke a real, slow local Whisper model (no transcriber given) or just
+    # be dead weight. Same rationale as conftest.py's
+    # `MINDSHIFT_WATCH_STT=none` setdefault. Tests exercising the real spawn
+    # path pass `stt="whisper"` explicitly alongside a FakeTranscriber/FakeLLM.
+    stt: str = "none",
 ) -> FastAPI:
     """Assemble a throwaway FastAPI app for ported-test use.
 
@@ -178,5 +204,27 @@ def create_watch_test_app(
     # watch/routers/telemetry.py's module docstring.
     resolved_telemetry = telemetry_store if telemetry_store is not None else MemoryTelemetryStore()
     app.include_router(make_telemetry_router(resolved_telemetry))
+
+    # Task B11: WS ingest router — mounted unconditionally (see module
+    # docstring's Task B11 paragraph). WS auth is resolved from the SAME
+    # `verifier`/`allow_legacy` values `auth_dep` above was built from, not a
+    # separately-constructed `Settings()` — keeps WS auth posture identical
+    # to every REST route in this same test app.
+    app.include_router(
+        make_ws_router(
+            resolved_store, transcriber, llm,
+            verifier=verifier, allow_legacy=allow_legacy, stt=stt, diarizer=diarizer,
+        )
+    )
+
+    # Task B11: live-session re-analyze router — POST
+    # /live-sessions/{id}/analyze. Uses `auth_dep` (not `strict_auth_dep`):
+    # matches every other live-session read/write route in rest.py above,
+    # all of which stay on the plain auth dependency per the I2/I3
+    # controller ruling (only captures/groups/account-lookup require full
+    # auth) — see watch/auth.py's require_full_auth docstring.
+    app.include_router(
+        make_live_sessions_router(resolved_store, auth_dep, transcriber, llm, diarizer=diarizer)
+    )
 
     return app

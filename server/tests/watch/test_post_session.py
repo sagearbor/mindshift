@@ -1,26 +1,20 @@
 # Ported from gauge@2157433 server/tests/test_post_episode.py; adapted per docs/plans/2026-08-15-phase1-one-repo-one-engine.md
 #
-# SCOPE NOTE (Task B10): gauge's test_post_episode.py also covers
-# `server/main.py`'s `create_app`/`_build_transcriber`/`_build_llm` (the
-# POST /episodes/{id}/analyze endpoint + Settings-driven backend selection)
-# and `server/ws_ingest.py`'s `_on_episode_end` fire-and-forget wrapper.
-# CORRECTED (review round 1): `create_watch_test_app` (server/watch/testing.py,
-# Task B5) already exists and already accepts `transcriber`/`llm`/`diarizer`
-# kwargs, reserved-but-unused precisely for this task and B11 to extend. The
-# REAL blocker is that no ROUTE calls analyze_live_session yet — there is no
-# `POST /live-sessions/{id}/analyze` endpoint (the `create_app` equivalent
-# for _build_transcriber/_build_llm's Settings-driven backend selection also
-# doesn't exist yet), and `server/ws_ingest.py`'s `_on_episode_end` has no
-# equivalent in `server/watch/routers/` at all. Both are Task B11's job
-# (server/watch/routers/ws.py + wiring the analyze route into rest.py; see
-# server/watch/store.py's MAX_FIRESTORE_PCM_B64 comment and
-# server/watch/blobs.py's GcsBlobStore.put comment, both of which already
-# forward-reference "server/watch/post_session.py's (Task B10)" as the
-# pipeline B11 will call). B10's target files are ONLY post_session.py and
+# SCOPE NOTE (Task B10, RESOLVED by Task B11): gauge's test_post_episode.py
+# also covers `server/main.py`'s `create_app`/`_build_transcriber`/
+# `_build_llm` (the POST /episodes/{id}/analyze endpoint + Settings-driven
+# backend selection) and `server/ws_ingest.py`'s `_on_episode_end`
+# fire-and-forget wrapper. B10's target files were ONLY post_session.py and
 # diarize.py, so `TestAnalyzeEndpoint`, `TestBuildTranscriberAndLLM`, and
-# `TestOnEpisodeEndFireAndForget` are DEFERRED to B11, not ported here — see
-# task-B10-report.md's disposition table for the full accounting of all 20
-# gauge tests in this file.
+# `TestOnEpisodeEndFireAndForget` (below) were DEFERRED to B11 rather than
+# ported alongside the rest of this file — see task-B10-report.md's
+# disposition table for the original accounting of all 20 gauge tests in
+# this file. Task B11 landed the three things they needed
+# (`watch/routers/live_sessions.py`'s `POST /live-sessions/{id}/analyze`,
+# `watch/services.py`'s `build_transcriber`/`build_llm`, and
+# `watch/routers/ws.py`'s `_on_live_session_end`) and appends the 8 tests
+# here, at the end of this file, with per-test adaptation notes where the
+# behavior isn't a straight rename.
 """Tests for the post-session analysis pipeline (server/watch/post_session.py).
 
 Covers the honest-degradation contract end to end:
@@ -403,3 +397,132 @@ class TestDirectPcmHandoff:
             assert result.summary == "From the store's own audio."
 
         asyncio.run(run())
+
+
+# ---------------------------------------------------------------------------
+# Task B11: the 8 tests deferred here by B10 (see SCOPE NOTE at top of file).
+# ---------------------------------------------------------------------------
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from watch.config import Settings  # noqa: E402
+from watch.services import build_llm, build_transcriber  # noqa: E402
+from watch.testing import create_watch_test_app  # noqa: E402
+
+
+class TestAnalyzeEndpoint:
+    """Exercises `watch/routers/live_sessions.py`'s
+    `POST /live-sessions/{id}/analyze` (gauge's `POST /episodes/{id}/analyze`,
+    ported verbatim in behavior — only the path/model renamed)."""
+
+    def test_endpoint_returns_updated_live_session(self):
+        store = MemoryLiveSessionStore()
+        asyncio.run(store.put_live_session(_live_session()))
+        transcriber = FakeTranscriber(segments=TWO_SEGMENTS)
+        llm = FakeLLM(summary="Summary text")
+        app = create_watch_test_app(
+            store=store, transcriber=transcriber, llm=llm, allow_legacy=True
+        )
+        client = TestClient(app)
+
+        # /analyze is auth-gated (watch/auth.py) same as every other REST
+        # route; _live_session()'s owner_account="acct1" authenticates via
+        # the legacy ?account= path (no verifier configured in this test app).
+        resp = client.post("/live-sessions/ls1/analyze", params={"account": "acct1"})
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "analyzed"
+        assert body["summary"] == "Summary text"
+        assert "pcm_b64" not in body
+
+    def test_endpoint_404_for_missing_live_session(self):
+        store = MemoryLiveSessionStore()
+        app = create_watch_test_app(
+            store=store, transcriber=FakeTranscriber(), llm=FakeLLM(), allow_legacy=True
+        )
+        client = TestClient(app)
+
+        # Legacy ?account= authenticates the caller as *some* account; the
+        # 404 is decided on the live session lookup, before any ownership check.
+        resp = client.post("/live-sessions/does-not-exist/analyze", params={"account": "acct1"})
+
+        assert resp.status_code == 404
+
+
+class TestBuildTranscriberAndLLM:
+    """Fast unit tests for `watch/services.py`'s Settings -> backend
+    selection logic, used by both the /analyze endpoint and the WS "end"
+    wiring. These never touch a real model/network — WhisperTranscriptionService
+    /LLMClient construction itself is cheap; only calling .transcribe()/
+    .complete() would be slow or need a key, and neither is invoked here.
+
+    ADAPTED (Task B11): gauge's `_build_transcriber(settings)` ports
+    verbatim (`GAUGE_STT` -> `MINDSHIFT_WATCH_STT`, already
+    `watch/config.py`'s `Settings.stt`). gauge's `_build_llm(settings)` read
+    `Settings.model` (backed by `GAUGE_MODEL`) — the plan's global
+    constraints DROP `GAUGE_MODEL` entirely ("use this repo's existing LLM
+    config via llm_client"), and `watch/config.py`'s `Settings` deliberately
+    has no `model` field (see `watch/services.py`'s own ADAPTED note). So
+    `build_llm()` here takes no `Settings` argument at all — it reads
+    `MINDSHIFT_MODEL` directly (the SAME env var `server/main.py`'s
+    `lifespan()` already builds its top-level LLM client from), and the two
+    tests below set that env var instead of constructing a `Settings(...)`.
+    Behavior (construct-time success/failure -> client-or-None) is otherwise
+    identical to gauge's originals.
+    """
+
+    def test_whisper_stt_selects_whisper_service(self, monkeypatch):
+        monkeypatch.setenv("MINDSHIFT_WATCH_STT", "whisper")
+        assert isinstance(build_transcriber(Settings()), WhisperTranscriptionService)
+
+    def test_none_stt_degrades_to_null_service(self, monkeypatch):
+        monkeypatch.setenv("MINDSHIFT_WATCH_STT", "none")
+        assert isinstance(build_transcriber(Settings()), NullTranscriptionService)
+
+    def test_unrecognized_stt_degrades_to_null_service(self, monkeypatch):
+        monkeypatch.setenv("MINDSHIFT_WATCH_STT", "some-future-provider")
+        assert isinstance(build_transcriber(Settings()), NullTranscriptionService)
+
+    def test_supported_model_without_key_still_builds_a_client(self, monkeypatch):
+        # The anthropic SDK defers the "missing API key" error to request
+        # time rather than construction time, so build_llm can't catch it
+        # here — that's exactly why analyze_live_session's own LLM-failure
+        # handling (TestLLMFailure above) is what actually delivers the
+        # honest summary=None degradation for a missing key.
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setenv("MINDSHIFT_MODEL", "claude-haiku-4-5-20251001")
+        assert build_llm() is not None
+
+    def test_unsupported_model_provider_returns_none_not_a_crash(self, monkeypatch):
+        # An unrecognized model prefix DOES fail at construction time
+        # (LLMClient._detect_provider raises ValueError) — this is the case
+        # build_llm's try/except actually guards against.
+        monkeypatch.setenv("MINDSHIFT_MODEL", "llama-3-70b")
+        assert build_llm() is None
+
+
+class TestOnLiveSessionEndFireAndForget:
+    """The WS 'end' handler wraps analyze_live_session in
+    `_on_live_session_end` (`watch/routers/ws.py`, gauge's `_on_episode_end`)
+    and runs it via asyncio.create_task — this must never crash the WS
+    handler, and a genuinely unexpected failure must be LOGGED, not silently
+    vanish."""
+
+    def test_unexpected_failure_is_logged_not_swallowed_silently(self, caplog):
+        from watch.routers.ws import _on_live_session_end
+
+        async def run():
+            store = await _store_with(_live_session())
+            transcriber = FakeTranscriber(error=RuntimeError("transcriber blew up"))
+            live_session = await store.get_live_session("ls1")
+            pcm = base64.b64decode(live_session.pcm_b64)
+            with caplog.at_level("ERROR"):
+                await _on_live_session_end(live_session, store, transcriber, FakeLLM(), pcm)
+
+        asyncio.run(run())
+
+        assert any(
+            "Post-session analysis failed" in rec.message and "ls1" in rec.message
+            for rec in caplog.records
+        )
