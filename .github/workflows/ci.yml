@@ -76,3 +76,24 @@ jobs:
       # regressions rather than merely warning.
       - name: Run ruff
         run: ruff check server tests
+
+  watch:
+    name: Watch (gradle)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: changed
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            watch:
+              - 'apps/watch/**'
+              - '.github/workflows/ci.yml'
+      - if: steps.changed.outputs.watch == 'true'
+        uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - if: steps.changed.outputs.watch == 'true'
+        uses: gradle/actions/setup-gradle@v4
+      - if: steps.changed.outputs.watch == 'true'
+        working-directory: apps/watch
+        run: ./gradlew :shared:jvmTest :wearApp:testDebugUnitTest :wearApp:assembleDebug :wearApp:lintDebug
