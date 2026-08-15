@@ -56,18 +56,26 @@ def score(rubric: dict, turns: list[dict]) -> dict:
     true_speakers = rubric["speakers"]
     produced_labels = sorted({t["speaker"] for t in turns})
 
-    # Weighted overlap seconds for every (true, produced) pair.
+    # Weighted overlap seconds for every (true, produced) pair. A segment's
+    # "speaker" may be a LIST (genuine overlap / either-is-correct): its
+    # seconds credit whichever listed speaker the mapping matches, once.
     pair: dict[tuple[str, str], float] = {}
+    seg_speakers: list[list[str]] = []
     total_weighted = 0.0
     for seg in rubric["segments"]:
         w = weights.get(seg.get("confidence", "high"), 1.0)
         dur = float(seg["end"]) - float(seg["start"])
         total_weighted += w * dur
+        accepted = (
+            seg["speaker"] if isinstance(seg["speaker"], list) else [seg["speaker"]]
+        )
+        seg_speakers.append(accepted)
         for label, secs in produced_speaker_at(
             turns, float(seg["start"]), float(seg["end"])
         ).items():
-            key = (seg["speaker"], label)
-            pair[key] = pair.get(key, 0.0) + w * secs
+            for true_s in accepted:
+                key = (true_s, label)
+                pair[key] = pair.get(key, 0.0) + w * secs / len(accepted)
 
     # Best injective mapping produced-label -> true-speaker (brute force).
     best_acc, best_map = 0.0, {}
@@ -87,7 +95,12 @@ def score(rubric: dict, turns: list[dict]) -> dict:
     # Talk-share comparison under the best mapping.
     true_share: dict[str, float] = {s: 0.0 for s in true_speakers}
     for seg in rubric["segments"]:
-        true_share[seg["speaker"]] += float(seg["end"]) - float(seg["start"])
+        accepted = (
+            seg["speaker"] if isinstance(seg["speaker"], list) else [seg["speaker"]]
+        )
+        dur = float(seg["end"]) - float(seg["start"])
+        for s in accepted:
+            true_share[s] += dur / len(accepted)
     true_total = sum(true_share.values()) or 1.0
 
     prod_share: dict[str, float] = {s: 0.0 for s in true_speakers}
