@@ -9,11 +9,13 @@ the blend of its voices — mirroring how real pooled ECAPA embeddings behave.
 (A separate live test exercises the real model when the voice deps exist.)
 
 Empirical grounding (calibration on the real photos_share recording + the TTS
-fixture, 2026-08-06): per-utterance embeddings do NOT separate cleanly (noisy,
-same-speaker cosine can dip below cross-speaker), so the algorithm forces a
-2-way split, refines it against POOLED cluster embeddings (those are reliable:
-same-voice ≈0.73, different-voice ≈0.19), and only accepts the split when the
-pooled centroids are clearly two different voices.
+fixture 2026-08-06, N-way extension on the real 3-person recording
+2026-08-14): per-utterance embeddings do NOT separate cleanly (noisy,
+same-speaker cosine can dip below cross-speaker), so the algorithm merges to
+each candidate k = 2..MAX_SPEAKERS_LOCAL, refines against POOLED cluster
+embeddings (those are reliable: same-voice ≈0.73, different-voice ≈0.19), and
+accepts the LARGEST k whose every centroid pair is clearly a different voice
+and whose every cluster carries enough pooled speech.
 """
 
 from __future__ import annotations
@@ -55,6 +57,18 @@ def _mean_angle_embed(pcm_slice: np.ndarray, sr: int) -> np.ndarray:
 VOICE_A = 0.5    # embeds at 3π/4
 VOICE_B = -0.5   # embeds at π/4 — cosine(A, B) = 0 → clearly different
 VOICE_A_TWIN = 0.4  # embeds close to VOICE_A — cosine ≈ 0.99 → same voice
+
+# cosine(A, A_WEAK) ≈ 0.40 — passes the 2-voice gate (≤ MAX_POOLED_COSINE)
+# but is NOT strongly separated (> STRONG_SEPARATION_COSINE), so a cluster of
+# this voice needs the full MIN_CLUSTER_SECONDS of speech.
+VOICE_A_WEAK = -0.238
+
+# Three mutually distinct voices for the N-way tests: fills -1 / 0 / +1 embed
+# at 0 / π/2 / π, so pairwise cosines are 0, 0, -1 — every pair clears both
+# the accept gate AND the strong-separation bar.
+VOICE_P = -1.0
+VOICE_Q = 0.0
+VOICE_R = 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +203,15 @@ class TestDiarizeTurns:
         assert got["pooled_cosine"] < diarize_local.MAX_POOLED_COSINE
         # Input said ONE speaker everywhere; we split → agreement < 1.
         assert 0.0 <= got["agreement_with_input"] < 1.0
+        # k-selection diagnostics: every k tried is reported with its verdict.
+        ks = [e["k"] for e in got["k_evaluated"]]
+        assert ks == sorted(ks)
+        assert set(ks) <= {2, 3, 4}
+        assert 2 in ks
+        by_k = {e["k"]: e for e in got["k_evaluated"]}
+        assert by_k[2]["ok"] is True
+        # Two-voice input: every k above 2 must have been tried and REJECTED.
+        assert all(not by_k[k]["ok"] for k in ks if k > 2)
 
 
 # ---------------------------------------------------------------------------
@@ -398,26 +421,28 @@ class TestDiarizeTurnsWithWordSplitting:
         assert all("words" not in t for t in out)
 
     def test_validated_split_gate_still_applies_after_splitting(self):
-        """A found-and-made split still faces MIN_CLUSTER_SECONDS → None.
+        """A found-and-made split still faces the per-cluster evidence floor.
 
-        Voice B totals 1.2s (own turn) + 1.5s (split piece) = 2.7s — a real
-        change point is detected and the utterance IS split, but the second
-        voice remains under MIN_CLUSTER_SECONDS, so the whole relabeling is
+        The second voice totals 1.2s (own turn) + 1.5s (split piece) = 2.7s —
+        a real change point is detected and the utterance IS split, but the
+        voice is only MODERATELY separated (cosine ≈0.40 to voice A: past the
+        accept gate, NOT past the strong-separation bar), so 2.7s stays under
+        the full MIN_CLUSTER_SECONDS it needs and the whole relabeling is
         rejected exactly as an unsplit weak cluster would be.
         """
         welded_words = _words(
-            7.2, 13.5, ["a1", "a2", "a3", "a4", "a5", "a6", "a7", "b1", "b2"],
-        )
+            7.5, 13.5, ["a1", "a2", "a3", "a4", "a5", "a6", "b1", "b2"],
+        )  # step 0.75 → a word boundary lands exactly on the 12.0s change
         turns = [
             _turn(0.0, 6.0),
             _turn(6.0, 7.2),
-            dict(_turn(7.2, 13.5), words=welded_words),
+            dict(_turn(7.5, 13.5), words=welded_words),
         ]
         pcm = np.zeros(int(14.0 * SR), dtype=np.float32)
         pcm[: int(6.0 * SR)] = VOICE_A
-        pcm[int(6.0 * SR):int(7.2 * SR)] = VOICE_B
-        pcm[int(7.2 * SR):int(12.0 * SR)] = VOICE_A
-        pcm[int(12.0 * SR):] = VOICE_B  # welded tail: 1.5s of voice B
+        pcm[int(6.0 * SR):int(7.2 * SR)] = VOICE_A_WEAK
+        pcm[int(7.5 * SR):int(12.0 * SR)] = VOICE_A
+        pcm[int(12.0 * SR):] = VOICE_A_WEAK  # welded tail: 1.5s
         assert diarize_local.diarize_turns(
             pcm, SR, turns, embed_fn=_mean_angle_embed,
         ) is None
@@ -432,3 +457,219 @@ class TestDiarizeTurnsWithWordSplitting:
         assert got is not None
         assert got["split_utterances"] == 0
         assert len(got["turns"]) == 4
+
+
+# ---------------------------------------------------------------------------
+# N-way k-selection — evaluate k = 2..MAX_SPEAKERS_LOCAL, choose the LARGEST
+# k whose every centroid pair and every cluster's evidence floor validates.
+# Driven by the real maggiano's 3-person recording (2026-08-14): the transcript
+# heard ONE voice, forcing k=2 buried a real third voice that k=3 separates
+# cleanly — but only if a VERY distinct cluster may ride the relaxed
+# MIN_CLUSTER_SECONDS_STRONG floor instead of the full MIN_CLUSTER_SECONDS.
+# ---------------------------------------------------------------------------
+
+# A third voice between VOICE_P and VOICE_R: cosine 0.40 to P, -0.40 to R —
+# past the accept gate (≤ MAX_POOLED_COSINE) but NOT strongly separated
+# (> STRONG_SEPARATION_COSINE), so its cluster needs the full 3.0s floor.
+VOICE_W_MID = -0.262
+
+
+def _by_k(got: dict) -> dict[int, dict]:
+    return {e["k"]: e for e in got["k_evaluated"]}
+
+
+class TestKSelection:
+    def test_three_voices_collapsed_to_one_speaker_yield_three(self):
+        """The maggiano's failure shape: 3 voices, transcript said ONE."""
+        turns = [
+            _turn(0.0, 2.0), _turn(2.0, 4.0), _turn(4.0, 6.0), _turn(6.0, 8.0),
+            _turn(8.0, 9.7), _turn(9.7, 11.4),  # third voice: 3.4s total
+        ]
+        pcm = _voiced_pcm(
+            turns, [VOICE_P, VOICE_R, VOICE_P, VOICE_R, VOICE_Q, VOICE_Q], 12.0,
+        )
+        got = diarize_local.diarize_turns(pcm, SR, turns, embed_fn=_mean_angle_embed)
+        assert got is not None
+        assert got["num_speakers"] == 3
+        assert [t["speaker"] for t in got["turns"]] == [
+            "Speaker A", "Speaker B", "Speaker A", "Speaker B",
+            "Speaker C", "Speaker C",
+        ]
+        by_k = _by_k(got)
+        assert by_k[3]["ok"] is True
+        # The k=4 split of these three voices is spurious → tried and rejected.
+        assert by_k[4]["ok"] is False
+
+    def test_two_voices_are_never_upgraded_to_three(self):
+        """k-selection must not invent a third speaker in a 2-voice recording."""
+        turns = [
+            _turn(0.0, 2.0), _turn(2.0, 4.0), _turn(4.0, 6.0), _turn(6.0, 8.0),
+        ]
+        pcm = _voiced_pcm(turns, [VOICE_P, VOICE_R, VOICE_P, VOICE_R], 8.0)
+        got = diarize_local.diarize_turns(pcm, SR, turns, embed_fn=_mean_angle_embed)
+        assert got is not None
+        assert got["num_speakers"] == 2
+        by_k = _by_k(got)
+        assert by_k[2]["ok"] is True
+        assert not by_k[3]["ok"] and not by_k[4]["ok"]
+
+    def test_tiny_strongly_distinct_third_voice_accepted(self):
+        """1.6s of a VERY distinct voice clears the relaxed strong floor."""
+        turns = [
+            _turn(0.0, 2.0), _turn(2.0, 4.0), _turn(4.0, 6.0), _turn(6.0, 8.0),
+            _turn(8.0, 9.6),  # 1.6s ≥ MIN_CLUSTER_SECONDS_STRONG
+        ]
+        pcm = _voiced_pcm(
+            turns, [VOICE_P, VOICE_R, VOICE_P, VOICE_R, VOICE_Q], 10.0,
+        )
+        got = diarize_local.diarize_turns(pcm, SR, turns, embed_fn=_mean_angle_embed)
+        assert got is not None
+        assert got["num_speakers"] == 3
+        assert [t["speaker"] for t in got["turns"]] == [
+            "Speaker A", "Speaker B", "Speaker A", "Speaker B", "Speaker C",
+        ]
+
+    def test_tiny_third_voice_below_strong_floor_rejected(self):
+        """Even a VERY distinct voice needs MIN_CLUSTER_SECONDS_STRONG of speech."""
+        turns = [
+            _turn(0.0, 2.0), _turn(2.0, 4.0), _turn(4.0, 6.0), _turn(6.0, 8.0),
+            _turn(8.0, 9.2),  # 1.2s < MIN_CLUSTER_SECONDS_STRONG
+        ]
+        pcm = _voiced_pcm(
+            turns, [VOICE_P, VOICE_R, VOICE_P, VOICE_R, VOICE_Q], 10.0,
+        )
+        got = diarize_local.diarize_turns(pcm, SR, turns, embed_fn=_mean_angle_embed)
+        assert got is not None
+        assert got["num_speakers"] == 2
+        assert _by_k(got)[3]["ok"] is False
+
+    def test_weak_third_voice_needs_the_full_floor(self):
+        """A moderately-separated voice (cos ≈0.40) gets NO floor relaxation.
+
+        2.0s of it passes the accept gate at k=3 but is neither ≥
+        MIN_CLUSTER_SECONDS nor strongly separated → k=3 rejected, the
+        recording honestly stays a validated 2-way split.
+        """
+        turns = [
+            _turn(0.0, 2.0), _turn(2.0, 4.0), _turn(4.0, 6.0), _turn(6.0, 8.0),
+            _turn(8.0, 10.0),  # 2.0s of the weak middle voice
+        ]
+        pcm = _voiced_pcm(
+            turns, [VOICE_P, VOICE_R, VOICE_P, VOICE_R, VOICE_W_MID], 11.0,
+        )
+        got = diarize_local.diarize_turns(pcm, SR, turns, embed_fn=_mean_angle_embed)
+        assert got is not None
+        assert got["num_speakers"] == 2
+        assert _by_k(got)[3]["ok"] is False
+
+    def test_same_voice_registers_do_not_become_a_third_speaker(self):
+        """The couple-file regression shape (live calibration 2026-08-14).
+
+        One real voice heard in two registers (calm vs shouting) can form two
+        clusters that pass the 0.45 gate with PLENTY of speech each — on the
+        real couple recording the two registers measured pooled cosine 0.359
+        with 6+s per cluster, so no seconds floor can reject them. What does:
+        the pair a k→k+1 split CREATES must be VERY clearly two voices
+        (≤ STRONG_SEPARATION_COSINE); one-voice-two-registers (here 0.35)
+        fails that bar and the recording honestly stays 2 speakers.
+        """
+        # V1 register a (fill -1, 0 rad), V1 register b (cos 0.35 to a),
+        # V2 (fill +1, π) — registers 8s each, far more than any floor.
+        reg_b = -0.2277  # angle arccos(0.35) ≈ 69.5° → cos(a, b) = 0.35
+        turns = [
+            _turn(0.0, 4.0), _turn(4.0, 8.0),      # V1 register a
+            _turn(8.0, 12.0), _turn(12.0, 16.0),   # V1 register b
+            _turn(16.0, 20.0), _turn(20.0, 24.0),  # V2
+        ]
+        pcm = _voiced_pcm(
+            turns, [VOICE_P, VOICE_P, reg_b, reg_b, VOICE_R, VOICE_R], 25.0,
+        )
+        got = diarize_local.diarize_turns(pcm, SR, turns, embed_fn=_mean_angle_embed)
+        assert got is not None
+        assert got["num_speakers"] == 2
+        assert _by_k(got)[3]["ok"] is False
+
+    def test_unanchored_split_does_not_become_a_third_speaker(self):
+        """The TTS-fixture regression shape (live calibration 2026-08-14).
+
+        Noisy same-voice utterances can split into two clusters whose pair
+        cosine (0.28 measured on the fixture: 0.277) slips UNDER the 0.30
+        marginal-split bar with 5+s per half — nearly identical to the real
+        third voice's 0.267. What separates them is the ANCHOR: a genuine
+        new voice is wildly unlike an existing cluster (the real child vs
+        her father: -0.017), while BOTH halves of a phantom split sit
+        moderately far from everything (fixture: 0.216 / 0.238). A marginal
+        split whose halves both exceed NEW_VOICE_ANCHOR_COSINE against every
+        non-sibling cluster is rejected.
+        """
+        # Three directions with a controlled Gram matrix: registers r1, r2 of
+        # one voice at cos 0.28 to each other, both at cos 0.20 to voice V —
+        # all pairs pass the 0.45 gate, the split pair passes 0.30, but
+        # neither half anchors (0.20 > 0.15).
+        gram = np.array([
+            [1.0, 0.28, 0.20],
+            [0.28, 1.0, 0.20],
+            [0.20, 0.20, 1.0],
+        ])
+        vecs = np.linalg.cholesky(gram)  # rows: unit vectors with that Gram
+        fills = (-1.0, 0.0, 1.0)
+
+        def blend_embed(pcm_slice: np.ndarray, sr: int) -> np.ndarray:
+            w = np.array([
+                float(np.mean(np.abs(pcm_slice - f) < 0.05)) for f in fills
+            ])
+            v = w @ vecs
+            return (v / np.linalg.norm(v)).astype(np.float32)
+
+        turns = [
+            _turn(0.0, 4.0), _turn(4.0, 8.0),      # register r1 (fill -1)
+            _turn(8.0, 12.0), _turn(12.0, 16.0),   # register r2 (fill 0)
+            _turn(16.0, 20.0), _turn(20.0, 24.0),  # voice V (fill +1)
+        ]
+        pcm = _voiced_pcm(turns, [-1.0, -1.0, 0.0, 0.0, 1.0, 1.0], 25.0)
+        got = diarize_local.diarize_turns(pcm, SR, turns, embed_fn=blend_embed)
+        assert got is not None
+        assert got["num_speakers"] == 2
+        assert _by_k(got)[3]["ok"] is False
+
+    def test_k_is_capped_by_embeddable_turns(self):
+        turns = [_turn(0.0, 3.5), _turn(3.5, 7.0), _turn(7.0, 10.5)]
+        pcm = _voiced_pcm(turns, [VOICE_P, VOICE_R, VOICE_Q], 11.0)
+        got = diarize_local.diarize_turns(pcm, SR, turns, embed_fn=_mean_angle_embed)
+        assert got is not None
+        assert got["num_speakers"] == 3
+        assert [e["k"] for e in got["k_evaluated"]] == [2, 3]
+
+
+# Four mutually orthogonal voices need more room than the 2-D angle fake
+# offers: each voice is a basis direction, a slice embeds to the
+# duration-weighted blend of the voices it contains (pooled behavior matches
+# the mean-angle fake's).
+_FILLS_4 = (-1.0, -1 / 3, 1 / 3, 1.0)
+
+
+def _basis_blend_embed(pcm_slice: np.ndarray, sr: int) -> np.ndarray:
+    v = np.array(
+        [float(np.mean(np.abs(pcm_slice - f) < 0.05)) for f in _FILLS_4],
+        dtype=np.float32,
+    )
+    n = float(np.linalg.norm(v))
+    if n == 0.0:
+        return np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+    return v / n
+
+
+class TestKSelectionFourVoices:
+    def test_four_genuine_voices_yield_four_speakers(self):
+        turns = [_turn(2.0 * i, 2.0 * (i + 1)) for i in range(8)]
+        fills = [_FILLS_4[i % 4] for i in range(8)]
+        pcm = _voiced_pcm(turns, fills, 16.0)
+        got = diarize_local.diarize_turns(pcm, SR, turns, embed_fn=_basis_blend_embed)
+        assert got is not None
+        assert got["num_speakers"] == 4
+        assert [t["speaker"] for t in got["turns"]] == [
+            "Speaker A", "Speaker B", "Speaker C", "Speaker D",
+        ] * 2
+        # MAX_SPEAKERS_LOCAL caps evaluation at k=4 even with 8 turns.
+        assert [e["k"] for e in got["k_evaluated"]] == [2, 3, 4]
+        assert diarize_local.MAX_SPEAKERS_LOCAL == 4
