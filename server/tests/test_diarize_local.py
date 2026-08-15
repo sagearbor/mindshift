@@ -370,7 +370,7 @@ class TestSplitLongUtterances:
 
     def test_short_utterance_is_not_scanned(self):
         """Compute bound: only utterances over the length floor get windowed."""
-        turns = [dict(_turn(3.0, 7.5), words=_words(3.0, 7.5, ["a", "b", "c", "d"]))]
+        turns = [dict(_turn(3.0, 5.8), words=_words(3.0, 5.8, ["a", "b", "c", "d"]))]
         pcm = _mixed_scenario_pcm()
         calls = []
 
@@ -457,6 +457,276 @@ class TestDiarizeTurnsWithWordSplitting:
         assert got is not None
         assert got["split_utterances"] == 0
         assert len(got["turns"]) == 4
+
+
+# ---------------------------------------------------------------------------
+# Per-word rapid-exchange splitting — the sustained-flip scan needs
+# SPLIT_SUSTAIN consecutive 1.5s windows per side, so a rapid multi-voice
+# exchange (a ~1s interjection, a fast A/B/A volley) welded into ONE
+# utterance can never satisfy it (measured live 2026-08-14: correct 3-voice
+# k-selection but 89%/5%/5% attribution, "0 utterance(s) split"). The word
+# pass labels EACH word against ALL k pooled centroids and splits at
+# smoothed label-run boundaries.
+# ---------------------------------------------------------------------------
+
+
+class TestWordLabeling:
+    def test_labels_words_by_nearest_centroid_with_margins(self):
+        turn = dict(_turn(3.0, 11.0), words=_MIXED_WORDS)
+        labels, margins = diarize_local._label_words(
+            _mixed_scenario_pcm(), SR, turn, _mean_angle_embed,
+            list(_CENTROIDS_AB),
+        )
+        assert labels == [0, 0, 0, 0, 1, 1, 1, 1]
+        assert all(m > diarize_local.WORD_MIN_MARGIN for m in margins)
+
+    def test_ambiguous_word_has_low_margin(self):
+        """A word whose window favors neither centroid scores near-zero."""
+        words = _words(3.0, 5.0, ["x", "y"])
+        turn = dict(_turn(3.0, 5.0), words=words)
+        pcm = np.zeros(int(6.0 * SR), dtype=np.float32)  # fill 0 = neither voice
+        _, margins = diarize_local._label_words(
+            pcm, SR, turn, _mean_angle_embed, list(_CENTROIDS_AB),
+        )
+        assert all(m < diarize_local.WORD_MIN_MARGIN for m in margins)
+
+
+class TestSmoothWordLabels:
+    def test_ambiguous_words_inherit_nearest_confident_label(self):
+        got = diarize_local._smooth_word_labels(
+            [0, 0, 1, 0, 1, 1], [0.5, 0.5, 0.02, 0.03, 0.5, 0.5],
+            min_margin=0.1,
+        )
+        assert got == [0, 0, 0, 1, 1, 1]
+
+    def test_tie_goes_to_the_earlier_confident_word(self):
+        got = diarize_local._smooth_word_labels(
+            [0, 1, 1], [0.5, 0.02, 0.5], min_margin=0.1,
+        )
+        assert got == [0, 0, 1]
+
+    def test_no_confident_word_returns_none(self):
+        assert diarize_local._smooth_word_labels(
+            [0, 1, 0], [0.02, 0.03, 0.04], min_margin=0.1,
+        ) is None
+
+
+class TestCollapseWordRuns:
+    def test_single_flipped_word_merges_into_larger_neighbor(self):
+        words = _words(3.0, 11.0, list("abcdefgh"))
+        got = diarize_local._collapse_word_runs(
+            words, [0, 0, 0, 0, 1, 0, 0, 0], 3.0, 11.0,
+        )
+        assert got == [0] * 8
+
+    def test_sub_second_run_merges_even_with_enough_words(self):
+        # Words f/g/h span 10.2–11.0: a 2-word voice-1 run whose piece would
+        # last 0.8s < MIN_SECONDS — too little signal to attribute.
+        words = [
+            {"word": w, "start_time": s, "end_time": e}
+            for w, s, e in [
+                ("a", 3.0, 4.2), ("b", 4.2, 5.4), ("c", 5.4, 6.6),
+                ("d", 6.6, 7.8), ("e", 7.8, 9.0), ("f", 9.0, 10.2),
+                ("g", 10.2, 10.6), ("h", 10.6, 11.0),
+            ]
+        ]
+        got = diarize_local._collapse_word_runs(
+            words, [0, 0, 0, 0, 0, 0, 1, 1], 3.0, 11.0,
+        )
+        assert got == [0] * 8
+
+    def test_trustworthy_runs_survive(self):
+        words = _words(3.0, 11.0, list("abcdefgh"))
+        labels = [0, 0, 0, 0, 1, 1, 1, 1]
+        got = diarize_local._collapse_word_runs(words, labels, 3.0, 11.0)
+        assert got == labels
+
+
+class TestSplitTurnAtWordRuns:
+    def test_multiway_split_divides_text_and_times(self):
+        turn = dict(_turn(3.0, 13.0), words=_words(3.0, 13.0, [
+            "a1", "a2", "b1", "b2", "c1", "c2", "d1", "d2", "e1", "e2",
+        ]))
+        got = diarize_local.split_turn_at_word_runs(
+            turn, [0, 0, 1, 1, 0, 0, 1, 1, 0, 0],
+        )
+        assert got is not None
+        assert [(p["start_time"], p["end_time"]) for p in got] == [
+            (3.0, 5.0), (5.0, 7.0), (7.0, 9.0), (9.0, 11.0), (11.0, 13.0),
+        ]
+        assert [p["text"] for p in got] == [
+            "a1 a2", "b1 b2", "c1 c2", "d1 d2", "e1 e2",
+        ]
+        assert all("words" not in p for p in got)
+
+    def test_single_run_is_no_split(self):
+        turn = dict(_turn(3.0, 11.0), words=_MIXED_WORDS)
+        assert diarize_local.split_turn_at_word_runs(turn, [0] * 8) is None
+
+
+class TestRapidExchangeSplitting:
+    def test_rapid_alternation_yields_multiway_split(self):
+        """A fast A/B volley welded into ONE utterance splits at every turn."""
+        texts = ["a1", "a2", "b1", "b2", "a3", "a4", "b3", "b4", "a5", "a6"]
+        turns = [dict(_turn(3.0, 13.0), words=_words(3.0, 13.0, texts))]
+        fills = [VOICE_A, VOICE_A, VOICE_B, VOICE_B, VOICE_A,
+                 VOICE_A, VOICE_B, VOICE_B, VOICE_A, VOICE_A]
+        pcm = np.full(int(14.0 * SR), VOICE_A, dtype=np.float32)
+        for w, f in zip(turns[0]["words"], fills):
+            pcm[int(w["start_time"] * SR):int(w["end_time"] * SR)] = f
+        got, stats = diarize_local.split_long_utterances(
+            pcm, SR, turns, _mean_angle_embed, _CENTROIDS_AB,
+        )
+        assert stats == {
+            "scanned": 1, "split": 1, "skipped_short": 0, "skipped_no_words": 0,
+        }
+        assert [(p["start_time"], p["end_time"]) for p in got] == [
+            (3.0, 5.0), (5.0, 7.0), (7.0, 9.0), (9.0, 11.0), (11.0, 13.0),
+        ]
+        assert [p["text"] for p in got] == [
+            "a1 a2", "b1 b2", "a3 a4", "b3 b4", "a5 a6",
+        ]
+
+    def test_confident_lone_flip_is_smoothed_not_split_and_no_fallback(self):
+        """One flipped word is noise; the word verdict is not overruled.
+
+        The audio really does contain 1s of the other voice, and the
+        sustained-flip scan WOULD split here (its 1.5s right window sees the
+        interjection) — but a piece this short cannot be attributed honestly,
+        so the confident per-word verdict (smoothed away) must stand.
+        """
+        texts = ["a1", "a2", "a3", "a4", "b1", "a5", "a6", "a7"]
+        turns = [dict(_turn(3.0, 11.0), words=_words(3.0, 11.0, texts))]
+        pcm = np.full(int(14.0 * SR), VOICE_A, dtype=np.float32)
+        pcm[int(7.0 * SR):int(8.0 * SR)] = VOICE_B
+        got, stats = diarize_local.split_long_utterances(
+            pcm, SR, turns, _mean_angle_embed, _CENTROIDS_AB,
+        )
+        assert got == turns
+        assert stats["scanned"] == 1 and stats["split"] == 0
+
+    def test_ambiguous_middle_words_inherit_surrounding_voices(self):
+        """Words that favor neither centroid split with their neighbors."""
+        texts = ["a1", "a2", "a3", "a4", "x1", "x2", "b1", "b2", "b3", "b4"]
+        turns = [dict(_turn(3.0, 13.0), words=_words(3.0, 13.0, texts))]
+        pcm = np.zeros(int(14.0 * SR), dtype=np.float32)
+        pcm[: int(7.0 * SR)] = VOICE_A          # a-words (3–7) pure A
+        pcm[int(7.0 * SR):int(9.0 * SR)] = 0.0  # x-words: neither voice
+        pcm[int(9.0 * SR):] = VOICE_B           # b-words (9–13) pure B
+        got, stats = diarize_local.split_long_utterances(
+            pcm, SR, turns, _mean_angle_embed, _CENTROIDS_AB,
+        )
+        assert stats["split"] == 1
+        assert [(p["start_time"], p["end_time"]) for p in got] == [
+            (3.0, 8.0), (8.0, 13.0),
+        ]
+        assert [p["text"] for p in got] == ["a1 a2 a3 a4 x1", "x2 b1 b2 b3 b4"]
+
+    def test_word_pass_scans_utterances_the_sustained_scan_skipped(self):
+        """A 4s welded utterance (under SPLIT_MIN_UTTERANCE_SECONDS) splits."""
+        texts = ["a1", "a2", "a3", "a4", "a5", "a6", "b1", "b2"]
+        turns = [dict(_turn(2.0, 6.0), words=_words(2.0, 6.0, texts))]
+        pcm = np.full(int(9.0 * SR), VOICE_A, dtype=np.float32)
+        pcm[int(5.0 * SR):] = VOICE_B
+        got, stats = diarize_local.split_long_utterances(
+            pcm, SR, turns, _mean_angle_embed, _CENTROIDS_AB,
+        )
+        assert stats["scanned"] == 1 and stats["split"] == 1
+        assert [(p["start_time"], p["end_time"]) for p in got] == [
+            (2.0, 5.0), (5.0, 6.0),
+        ]
+        assert [p["text"] for p in got] == ["a1 a2 a3 a4 a5 a6", "b1 b2"]
+
+    def test_inconclusive_word_pass_falls_back_to_sustained_flip(self):
+        """No confident word anywhere → the original 1.5s-window scan runs."""
+        ambiguous = np.array([0.0, 1.0], dtype=np.float32)
+
+        def coarse_embed(pcm_slice, sr):
+            # Sub-1.2s windows (the word pass') carry no signal in this fake;
+            # the fallback's 1.5s windows embed normally.
+            if pcm_slice.size < int(1.2 * sr):
+                return ambiguous
+            return _mean_angle_embed(pcm_slice, sr)
+
+        turns = [dict(_turn(3.0, 11.0), words=_MIXED_WORDS)]
+        got, stats = diarize_local.split_long_utterances(
+            _mixed_scenario_pcm(), SR, turns, coarse_embed, _CENTROIDS_AB,
+        )
+        assert stats["scanned"] == 1 and stats["split"] == 1
+        assert [(p["start_time"], p["end_time"]) for p in got] == [
+            (3.0, 7.0), (7.0, 11.0),
+        ]
+
+
+class TestDiarizeTurnsRapidExchange:
+    def test_one_second_interjection_is_split_and_attributed(self):
+        """The Duolingo shape: a ~1s second voice inside a 4s utterance."""
+        welded_words = _words(2.0, 6.0, ["q1", "q2", "q3", "q4", "q5", "q6",
+                                         "i1", "i2"])
+        turns = [
+            _turn(0.0, 2.0, text="dad intro"),
+            dict(_turn(2.0, 6.0, text="welded"), words=welded_words),
+            _turn(6.0, 9.0, text="kid more"),
+        ]
+        pcm = np.full(int(9.0 * SR), VOICE_A, dtype=np.float32)
+        pcm[int(5.0 * SR):] = VOICE_B
+        got = diarize_local.diarize_turns(pcm, SR, turns, embed_fn=_mean_angle_embed)
+        assert got is not None
+        assert got["num_speakers"] == 2
+        assert got["split_utterances"] == 1
+        assert [(t["text"], t["speaker"]) for t in got["turns"]] == [
+            ("dad intro", "Speaker A"),
+            ("q1 q2 q3 q4 q5 q6", "Speaker A"),
+            ("i1 i2", "Speaker B"),
+            ("kid more", "Speaker B"),
+        ]
+        assert [(t["start_time"], t["end_time"]) for t in got["turns"]] == [
+            (0.0, 2.0), (2.0, 5.0), (5.0, 6.0), (6.0, 9.0),
+        ]
+
+    def test_three_voice_welded_exchange_attributed_to_all_three(self):
+        """The maggiano's shape: a rapid 3-voice exchange in ONE utterance.
+
+        The word pass scores against ALL THREE pooled centroids from the
+        first k-selection — a 2-way margin contrast is structurally blind to
+        the third voice.
+        """
+        welded_words = _words(9.0, 18.0, [
+            "p1", "p2", "p3", "q1", "q2", "q3", "r1", "r2", "r3",
+        ])
+        turns = [
+            _turn(0.0, 3.0, text="pp"), _turn(3.0, 6.0, text="qq"),
+            _turn(6.0, 9.0, text="rr"),
+            dict(_turn(9.0, 18.0, text="welded"), words=welded_words),
+        ]
+        pcm = np.zeros(int(18.0 * SR), dtype=np.float32)
+        for lo, hi, fill in [
+            (0, 3, VOICE_P), (3, 6, VOICE_Q), (6, 9, VOICE_R),
+            (9, 12, VOICE_P), (12, 15, VOICE_Q), (15, 18, VOICE_R),
+        ]:
+            pcm[int(lo * SR):int(hi * SR)] = fill
+        got = diarize_local.diarize_turns(pcm, SR, turns, embed_fn=_mean_angle_embed)
+        assert got is not None
+        assert got["num_speakers"] == 3
+        assert got["split_utterances"] == 1
+        assert [t["speaker"] for t in got["turns"]] == [
+            "Speaker A", "Speaker B", "Speaker C",
+            "Speaker A", "Speaker B", "Speaker C",
+        ]
+        assert [(t["start_time"], t["end_time"]) for t in got["turns"][3:]] == [
+            (9.0, 12.0), (12.0, 15.0), (15.0, 18.0),
+        ]
+        # Pieces may not mint NEW speakers: the post-split re-selection is
+        # capped at round 1's validated k (3 here), so k=4 is never tried
+        # even though six embeddable segments now exist.
+        assert [e["k"] for e in got["k_evaluated"]] == [2, 3]
+        # Attribution is balanced — no 89%-style single-speaker pile-up.
+        share: dict[str, float] = {}
+        for t in got["turns"]:
+            share[t["speaker"]] = share.get(t["speaker"], 0.0) + (
+                t["end_time"] - t["start_time"]
+            )
+        assert max(share.values()) / sum(share.values()) == pytest.approx(1 / 3)
 
 
 # ---------------------------------------------------------------------------
@@ -631,6 +901,25 @@ class TestKSelection:
         assert got is not None
         assert got["num_speakers"] == 2
         assert _by_k(got)[3]["ok"] is False
+
+    def test_select_k_respects_max_k(self):
+        """The post-split re-selection cap: candidate ks stop at max_k."""
+        turns = [_turn(2.0 * i, 2.0 * (i + 1)) for i in range(6)]
+        fills = [VOICE_P, VOICE_R, VOICE_Q, VOICE_P, VOICE_R, VOICE_Q]
+        pcm = _voiced_pcm(turns, fills, 12.0)
+        embedded = diarize_local._embed_turns(
+            pcm, SR, turns, _mean_angle_embed, 1.0,
+        )
+        order, embs = embedded
+        k_eval, chosen = diarize_local._select_k(
+            pcm, SR, turns, _mean_angle_embed, order, embs,
+            diarize_local.MAX_POOLED_COSINE, max_k=2,
+        )
+        assert [e["k"] for e in k_eval] == [2]
+        # Three genuinely distinct voices forced through a 2-way lens: the
+        # merged pair's pooled centroid stays separable from the third, so
+        # k=2 validates — but k=3 was never evaluated.
+        assert chosen is not None and len(chosen[1]) == 2
 
     def test_k_is_capped_by_embeddable_turns(self):
         turns = [_turn(0.0, 3.5), _turn(3.5, 7.0), _turn(7.0, 10.5)]

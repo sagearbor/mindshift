@@ -186,6 +186,39 @@ SPLIT_SUSTAIN = 2
 # genuine-change candidates ≥0.19, edge noise ≤0.03; 0.15 splits the gap.
 SPLIT_MIN_MARGIN = float(os.getenv("MINDSHIFT_DIARIZE_SPLIT_MIN_MARGIN", "0.15"))
 
+# --- Per-word rapid-exchange splitting (utterances WITH word timings) -------
+# The sustained-flip scan above needs SPLIT_SUSTAIN consecutive 1.5s windows
+# of flipped margin on EACH side of a boundary — structurally blind to a ~1s
+# interjection inside a welded utterance. Measured live (2026-08-14, real
+# 3-person recording): k-selection correctly heard 3 voices but the scan
+# split NOTHING ("0 utterance(s) split") and attribution came out 89%/5%/5%
+# because rapid multi-voice exchanges were welded into single utterances.
+# Word timings allow a finer instrument: score a short window centered on
+# EACH WORD against ALL k pooled centroids, label every word by its nearest
+# centroid, smooth (ambiguous words inherit the nearest confident label; runs
+# too short to trust merge into their larger neighbor), and split at the
+# surviving run boundaries.
+
+# Word-timed utterances longer than this get the per-word scan. Lower than
+# SPLIT_MIN_UTTERANCE_SECONDS because two ~1.5s sides are not required —
+# each piece only needs MIN_SECONDS to be attributable.
+WORD_SPLIT_MIN_UTTERANCE_SECONDS = 3.0
+
+# Audio window centered on each word's midpoint (clamped to the utterance).
+# Below ~0.8s ECAPA carries too little voice signal; ~1s keeps a one-second
+# interjection from blending into its neighbors.
+WORD_WINDOW_SECONDS = 0.9
+
+# A word whose best-vs-second-best centroid margin is below this floor is
+# AMBIGUOUS: it inherits the nearest confident word's label instead of
+# guessing. Calibrated on the real recordings (2026-08-14, pinned ECAPA) —
+# see the test-history docstring section.
+WORD_MIN_MARGIN = float(os.getenv("MINDSHIFT_DIARIZE_WORD_MIN_MARGIN", "0.10"))
+
+# A label run must carry at least this many words — a single flipped word is
+# noise, not a voice change.
+WORD_MIN_RUN = 2
+
 
 def partition_agreement(a: list, b: list) -> float:
     """Pairwise (Rand) agreement of two labelings of the same items, in [0, 1].
@@ -377,51 +410,228 @@ def split_turn_at_word_boundary(
     return [left, right]
 
 
+def _label_words(
+    pcm: np.ndarray, sr: int, turn: dict, embed,
+    centroids: list[np.ndarray], *, window: float = WORD_WINDOW_SECONDS,
+) -> tuple[list[int], list[float]]:
+    """Nearest-centroid label + confidence margin for each word of ``turn``.
+
+    Each word is scored by embedding ``window`` seconds of audio centered on
+    the word's midpoint (clamped to the utterance bounds) against ALL pooled
+    centroids. The margin is best-minus-second-best cosine — low margin means
+    the window does not clearly favor any one voice.
+    """
+    start = float(turn.get("start_time") or 0.0)
+    end = float(turn.get("end_time") or 0.0)
+    labels: list[int] = []
+    margins: list[float] = []
+    for w in turn["words"]:
+        mid = (float(w["start_time"]) + float(w["end_time"])) / 2
+        lo = max(start, mid - window / 2)
+        hi = min(end, mid + window / 2)
+        e = speaker_id.l2_normalize(
+            embed(np.ascontiguousarray(pcm[int(lo * sr):int(hi * sr)]), sr)
+        )
+        scored = sorted(
+            (float(np.dot(e, c)), i) for i, c in enumerate(centroids)
+        )
+        labels.append(scored[-1][1])
+        margins.append(scored[-1][0] - scored[-2][0])
+    return labels, margins
+
+
+def _smooth_word_labels(
+    labels: list[int], margins: list[float],
+    *, min_margin: float = WORD_MIN_MARGIN,
+) -> list[int] | None:
+    """Ambiguous words inherit the nearest confident word's label.
+
+    Pure math. A word is confident when its margin clears ``min_margin``;
+    every other word takes the label of the nearest confident word (by word
+    index; tie → the earlier one — voices persist forward). No confident word
+    at all → ``None``: the scan has nothing trustworthy to say.
+    """
+    conf = [i for i, m in enumerate(margins) if m >= min_margin]
+    if not conf:
+        return None
+    return [
+        labels[i] if margins[i] >= min_margin
+        else labels[min(conf, key=lambda c: (abs(c - i), c))]
+        for i in range(len(labels))
+    ]
+
+
+def _word_runs(labels: list[int]) -> list[list[int]]:
+    """Maximal same-label runs as ``[label, first_idx, last_idx]`` triples."""
+    runs: list[list[int]] = []
+    for i, l in enumerate(labels):
+        if runs and runs[-1][0] == l:
+            runs[-1][2] = i
+        else:
+            runs.append([l, i, i])
+    return runs
+
+
+def _run_pieces(
+    words: list[dict], runs: list[list[int]], start: float, end: float,
+) -> list[tuple[float, float]]:
+    """Piece (start, end) per run: utterance bounds outside, midpoints of the
+    inter-word gaps between adjacent runs inside."""
+    bounds = [start]
+    for r in runs[:-1]:
+        j = r[2]
+        bounds.append(
+            (float(words[j]["end_time"]) + float(words[j + 1]["start_time"])) / 2
+        )
+    bounds.append(end)
+    return list(zip(bounds[:-1], bounds[1:]))
+
+
+def _collapse_word_runs(
+    words: list[dict], labels: list[int], start: float, end: float,
+    *, min_run: int = WORD_MIN_RUN, min_seconds: float = MIN_SECONDS,
+) -> list[int]:
+    """Merge untrustworthy label runs into their surrounding dominant voice.
+
+    Pure math. A run is untrustworthy when it carries fewer than ``min_run``
+    words OR its piece would last under ``min_seconds`` (too little voice
+    signal to attribute honestly). The weakest such run (fewest words, then
+    shortest) inherits the label of its longer-piece neighbor (tie → the
+    earlier neighbor) until every surviving run is trustworthy.
+    """
+    labels = list(labels)
+    while True:
+        runs = _word_runs(labels)
+        if len(runs) == 1:
+            return labels
+        pieces = _run_pieces(words, runs, start, end)
+        bad = [
+            (r[2] - r[1] + 1, p1 - p0, idx)
+            for idx, (r, (p0, p1)) in enumerate(zip(runs, pieces))
+            if (r[2] - r[1] + 1) < min_run or (p1 - p0) < min_seconds
+        ]
+        if not bad:
+            return labels
+        idx = min(bad)[2]
+        if idx == 0:
+            tgt = 1
+        elif idx == len(runs) - 1:
+            tgt = idx - 1
+        else:
+            prev_d = pieces[idx - 1][1] - pieces[idx - 1][0]
+            next_d = pieces[idx + 1][1] - pieces[idx + 1][0]
+            tgt = idx - 1 if prev_d >= next_d else idx + 1
+        for i in range(runs[idx][1], runs[idx][2] + 1):
+            labels[i] = runs[tgt][0]
+
+
+def split_turn_at_word_runs(turn: dict, labels: list[int]) -> list[dict] | None:
+    """Split ``turn`` into one piece per (smoothed) label run.
+
+    ``labels`` is one smoothed+collapsed label per word. Returns the pieces —
+    text divided by the turn's own words, times meeting at the midpoints of
+    the inter-run word gaps — or ``None`` when everything is one run (no
+    change to make).
+    """
+    words = turn["words"]
+    runs = _word_runs(labels)
+    if len(runs) < 2:
+        return None
+    start = float(turn.get("start_time") or 0.0)
+    end = float(turn.get("end_time") or 0.0)
+    base = {k: v for k, v in turn.items() if k != "words"}
+    return [
+        dict(
+            base,
+            text=" ".join(w["word"] for w in words[r[1]:r[2] + 1]),
+            start_time=p0, end_time=p1,
+        )
+        for r, (p0, p1) in zip(runs, _run_pieces(words, runs, start, end))
+    ]
+
+
 def split_long_utterances(
     pcm: np.ndarray, sr: int, turns: list[dict], embed,
     centroids: tuple[np.ndarray, np.ndarray],
+    word_centroids: list[np.ndarray] | None = None,
 ) -> tuple[list[dict], dict]:
-    """Split long word-timed utterances at sustained voice changes.
+    """Split long word-timed utterances at voice changes.
 
-    ``centroids`` are the two POOLED cluster centroids from a first
-    whole-utterance clustering pass — the reliable anchors every scan window
-    is scored against. Returns ``(finer_turns, stats)`` where stats counts
-    ``scanned``, ``split``, ``skipped_short`` (at or under
-    SPLIT_MIN_UTTERANCE_SECONDS — bounded compute, by design) and
-    ``skipped_no_words`` (long enough to scan but the transcriber gave no word
-    timings — logged, never hidden). Turns that yield no sustained change
-    point pass through unchanged.
+    Two instruments, in order:
+
+    1. PER-WORD pass (utterances over WORD_SPLIT_MIN_UTTERANCE_SECONDS with
+       word timings): label every word against ``word_centroids`` (ALL k
+       pooled centroids from the k-selection pass; defaults to ``centroids``),
+       smooth, and split at label-run boundaries — this catches rapid
+       multi-voice exchanges (even a ~1s interjection) the sustained scan is
+       structurally blind to, and can yield MORE than two pieces.
+    2. SUSTAINED-FLIP fallback (utterances over SPLIT_MIN_UTTERANCE_SECONDS
+       the per-word pass had NOTHING CONFIDENT to say about — every word
+       margin under the floor): the original two-centroid margin scan
+       (``centroids``), split at the nearest word boundary. A confident
+       per-word verdict of "no split" (e.g. a lone flipped word smoothed
+       away) is respected, never overruled.
+
+    Returns ``(finer_turns, stats)`` where stats counts ``scanned``,
+    ``split``, ``skipped_short`` (too short for either instrument — bounded
+    compute, by design) and ``skipped_no_words`` (long enough to scan but the
+    transcriber gave no word timings, so text cannot be divided honestly —
+    logged, never hidden). Turns that yield no trustworthy change pass
+    through unchanged.
     """
     stats = {"scanned": 0, "split": 0, "skipped_short": 0, "skipped_no_words": 0}
+    cents = list(word_centroids) if word_centroids is not None else list(centroids)
     out: list[dict] = []
     for t in turns:
         start = float(t.get("start_time") or 0.0)
         end = float(t.get("end_time") or 0.0)
-        if end - start <= SPLIT_MIN_UTTERANCE_SECONDS:
+        words = t.get("words")
+        pieces: list[dict] | None = None
+        scanned = False
+        conclusive = False
+        if (
+            words and len(words) >= 2
+            and end - start > WORD_SPLIT_MIN_UTTERANCE_SECONDS
+        ):
+            scanned = True
+            labels, margins = _label_words(pcm, sr, t, embed, cents)
+            smoothed = _smooth_word_labels(labels, margins)
+            if smoothed is not None:
+                conclusive = True
+                pieces = split_turn_at_word_runs(
+                    t, _collapse_word_runs(words, smoothed, start, end)
+                )
+        if (
+            pieces is None and not conclusive
+            and end - start > SPLIT_MIN_UTTERANCE_SECONDS
+        ):
+            if not words:
+                stats["skipped_no_words"] += 1
+                logger.info(
+                    "split scan skipped %.1fs utterance at %.2fs: no word timings",
+                    end - start, start,
+                )
+                out.append(t)
+                continue
+            scanned = True
+            change = find_change_point(pcm, sr, start, end, embed, centroids)
+            pieces = (
+                split_turn_at_word_boundary(t, change)
+                if change is not None else None
+            )
+        if not scanned:
             stats["skipped_short"] += 1
             out.append(t)
             continue
-        if not t.get("words"):
-            stats["skipped_no_words"] += 1
-            logger.info(
-                "split scan skipped %.1fs utterance at %.2fs: no word timings",
-                end - start, start,
-            )
-            out.append(t)
-            continue
         stats["scanned"] += 1
-        change = find_change_point(pcm, sr, start, end, embed, centroids)
-        pieces = (
-            split_turn_at_word_boundary(t, change) if change is not None else None
-        )
         if pieces is None:
             out.append(t)
             continue
         stats["split"] += 1
         logger.info(
-            "split %.1fs utterance at %.2fs (change point %.2fs → word "
-            "boundary %.2fs)",
-            end - start, start, change, pieces[0]["end_time"],
+            "split %.1fs utterance at %.2fs into %d pieces (boundaries %s)",
+            end - start, start, len(pieces),
+            ", ".join(f"{p['end_time']:.2f}" for p in pieces[:-1]),
         )
         out.extend(pieces)
     return out, stats
@@ -619,6 +829,63 @@ def _validate_k(
     return entry
 
 
+def _select_k(
+    pcm: np.ndarray, sr: int, turns: list[dict], embed,
+    order: list[int], embs: list[np.ndarray],
+    max_pooled_cosine: float,
+    *, pass2: tuple[list[int], dict[int, np.ndarray]] | None = None,
+    max_k: int = MAX_SPEAKERS_LOCAL,
+) -> tuple[list[dict], tuple[list[int], dict[int, np.ndarray], dict] | None]:
+    """Refine + validate every candidate k; keep the LARGEST that validates.
+
+    Each k > 2 must additionally justify the pair(s) its extra split created
+    against the refined k-1 partition (the marginal-split rule — see
+    :data:`STRONG_SEPARATION_COSINE`). ``pass2`` is an already-refined k=2
+    partition to reuse; ``max_k`` caps the candidate range below
+    :data:`MAX_SPEAKERS_LOCAL`. Returns ``(k_evaluated, chosen)`` where
+    ``chosen`` is ``(labels, centroids, entry)`` or ``None`` when no k
+    validates.
+    """
+    weights = [_slice(pcm, sr, turns[i]).size / sr for i in order]
+    k_evaluated: list[dict] = []
+    chosen: tuple[list[int], dict[int, np.ndarray], dict] | None = None
+    prev_labels: list[int] | None = None
+    for k in range(2, min(max_k, MAX_SPEAKERS_LOCAL, len(order)) + 1):
+        refined = (
+            pass2 if k == 2 and pass2 is not None
+            else _refine_k(pcm, sr, turns, embed, order, embs, k)
+        )
+        if refined is None:
+            k_evaluated.append({
+                "k": k, "ok": False,
+                "reason": "refinement collapsed clusters "
+                          f"(audio does not hold {k} distinct voices)",
+            })
+            prev_labels = None
+            continue
+        labels_k, centroids_k = refined
+        if k == 2:
+            strict_pairs: list[tuple[int, int]] = []
+        elif prev_labels is None:
+            k_evaluated.append({
+                "k": k, "ok": False,
+                "reason": f"no refined k={k - 1} partition to justify "
+                          "the marginal split against",
+            })
+            continue
+        else:
+            strict_pairs = _marginal_pairs(labels_k, prev_labels, weights)
+        entry = _validate_k(
+            pcm, sr, turns, order, labels_k, centroids_k,
+            max_pooled_cosine, strict_pairs,
+        )
+        k_evaluated.append(entry)
+        prev_labels = labels_k
+        if entry["ok"]:
+            chosen = (labels_k, centroids_k, entry)
+    return k_evaluated, chosen
+
+
 def diarize_turns(
     pcm: np.ndarray,
     sr: int,
@@ -668,71 +935,53 @@ def diarize_turns(
             return None
         order, embs = embedded
 
-        # Word-level pre-pass: a transcriber can weld a speaker handoff into
-        # ONE utterance. The 2-way pass's pooled centroids are the anchors
-        # every scan window is scored against (the change-point margin is a
-        # two-centroid affinity contrast by construction); a handoff between
-        # ANY two of the loudest voices shows up against them. Split long
-        # word-timed utterances at sustained voice changes, then re-embed the
-        # finer segments so every piece is attributed like any other turn.
+        # First k-selection pass over the transcript's own utterances: its
+        # winner supplies the pooled centroids the word-level splitter scores
+        # against — ALL k of them, so a rapid exchange between ANY two of the
+        # recording's voices shows up (a 2-way margin contrast is blind to a
+        # third voice). When no k validates yet (heavy welding can hide a
+        # voice), the 2-way refinement's centroids still anchor the scan.
         pass1 = _refine_k(pcm, sr, turns, embed, order, embs, 2)
         if pass1 is None:
             return None
+        k_evaluated, chosen = _select_k(
+            pcm, sr, turns, embed, order, embs, max_pooled_cosine, pass2=pass1,
+        )
+        word_centroids = (
+            [c for _, c in sorted(chosen[1].items())] if chosen is not None
+            else [pass1[1][0], pass1[1][1]]
+        )
+
+        # Word-level split pass: a transcriber can weld a rapid multi-voice
+        # exchange into ONE utterance. Split word-timed utterances at
+        # per-word voice-run boundaries (sustained-flip scan as fallback),
+        # then re-embed the finer segments and REDO k-selection so every
+        # piece is attributed and validated like any other turn.
         turns, split_stats = split_long_utterances(
             pcm, sr, turns, embed, (pass1[1][0], pass1[1][1]),
+            word_centroids=word_centroids,
         )
         if split_stats["split"]:
             embedded = _embed_turns(pcm, sr, turns, embed, min_seconds)
             if embedded is None:
                 return None
             order, embs = embedded
-            pass1 = None  # stale — computed over the unsplit turns
-
-        # k-selection: refine + validate every candidate count, keep the
-        # LARGEST k that fully validates. Each k > 2 must additionally
-        # justify the pair(s) its extra split created against the refined
-        # k-1 partition (the marginal-split rule — see
-        # STRONG_SEPARATION_COSINE). Every verdict is recorded so the
-        # caller's logs show why a count was chosen.
-        weights = [
-            _slice(pcm, sr, turns[i]).size / sr for i in order
-        ]
-        k_evaluated: list[dict] = []
-        chosen: tuple[list[int], dict[int, np.ndarray], dict] | None = None
-        prev_labels: list[int] | None = None
-        for k in range(2, min(MAX_SPEAKERS_LOCAL, len(order)) + 1):
-            refined = (
-                pass1 if k == 2 and pass1 is not None
-                else _refine_k(pcm, sr, turns, embed, order, embs, k)
+            # The re-selection may not claim MORE speakers than the
+            # whole-utterance pass validated: the split pieces were measured
+            # WITH round 1's centroids as the instrument, and a piece of
+            # genuinely OVERLAPPED speech embeds far from every real voice —
+            # on the real 3-person recording such a piece (two voices
+            # chanting over each other) minted a phantom 4th cluster that
+            # slipped under the marginal bars (0.294 < 0.30, anchor
+            # 0.14 < 0.15). Whole utterances are the trustworthy evidence
+            # for HOW MANY voices there are; pieces only redistribute WHO
+            # said what. (No round-1 winner → no cap, as before.)
+            k_evaluated, chosen = _select_k(
+                pcm, sr, turns, embed, order, embs, max_pooled_cosine,
+                max_k=(
+                    len(chosen[1]) if chosen is not None else MAX_SPEAKERS_LOCAL
+                ),
             )
-            if refined is None:
-                k_evaluated.append({
-                    "k": k, "ok": False,
-                    "reason": "refinement collapsed clusters "
-                              f"(audio does not hold {k} distinct voices)",
-                })
-                prev_labels = None
-                continue
-            labels_k, centroids_k = refined
-            if k == 2:
-                strict_pairs: list[tuple[int, int]] = []
-            elif prev_labels is None:
-                k_evaluated.append({
-                    "k": k, "ok": False,
-                    "reason": f"no refined k={k - 1} partition to justify "
-                              "the marginal split against",
-                })
-                continue
-            else:
-                strict_pairs = _marginal_pairs(labels_k, prev_labels, weights)
-            entry = _validate_k(
-                pcm, sr, turns, order, labels_k, centroids_k,
-                max_pooled_cosine, strict_pairs,
-            )
-            k_evaluated.append(entry)
-            prev_labels = labels_k
-            if entry["ok"]:
-                chosen = (labels_k, centroids_k, entry)
         if chosen is None:
             logger.info(
                 "local diarization heard one voice (no k validated: %s)",
