@@ -70,6 +70,14 @@ const DANGER = "#DC2626";
 const SIM_OPACITY = 0.55;
 const SIM_DASH = "6,4";
 
+// Legend isolation: the non-isolated speakers' marks are dimmed to this opacity
+// — still visible for context, unmistakably subordinate.
+const ISOLATION_DIM = 0.18;
+
+// Two taps within this window count as a double-tap (zoom reset). Shared by the
+// surface's capture path and the dash-press path.
+const DOUBLE_TAP_MS = 300;
+
 const HEAT_MIN = 0;
 const HEAT_MAX = 100;
 
@@ -622,6 +630,17 @@ interface HeatChartProps {
   /** Simulated per-turn heat (pivot → last turn) to overlay as dashed lines.
    *  Null/undefined = no simulation available. */
   simulated?: SimulatedTurn[] | null;
+
+  // --- Legend speaker isolation (the audition / voice-library seam) ---
+  /** CONTROLLED isolation: when provided (string or null), the parent owns which
+   *  speaker is isolated and legend taps only *request* changes through
+   *  `onIsolateSpeaker`. When undefined the chart manages the state itself, so
+   *  every existing call site gets legend isolation for free. */
+  isolatedSpeaker?: string | null;
+  /** Fired with the requested isolation (a speaker id, or null for "All") on
+   *  every legend interaction. ReplayScreen uses it to gate the "Play this
+   *  voice" audition; the upcoming naming flow can drive the same seam. */
+  onIsolateSpeaker?: (speaker: string | null) => void;
   /** Whether the overlay is currently shown (toggle state owned by the parent).
    *  When false the dashed lines + "simulated" legend entry hide, without any
    *  refetch. */
@@ -672,6 +691,8 @@ export default function HeatChart({
   speakerLabels,
   height = 180,
   simulated,
+  isolatedSpeaker,
+  onIsolateSpeaker,
   showSimulation = true,
   onToggleSimulation,
   onWhatIf,
@@ -687,18 +708,24 @@ export default function HeatChart({
   const [width, setWidth] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
 
-  const padding = 16;
-
-  // Selecting a turn (via a point or a scrubber cell) also seeks playback to
-  // that turn's start_time when replay is wired up — so the chart doubles as a
-  // tap-to-seek control. Guarded on timing being present for that index.
-  const selectTurn = (index: number) => {
-    setSelected(index);
-    const timing = turnsTiming?.[index];
-    if (onSeekToTurn && timing) {
-      onSeekToTurn(timing.start_time);
-    }
+  // Legend speaker isolation. Controlled when the `isolatedSpeaker` prop is
+  // provided (parent owns the value); self-managed otherwise. `isolated` is the
+  // single value the render reads either way.
+  const [internalIsolated, setInternalIsolated] = useState<string | null>(null);
+  const isolationControlled = isolatedSpeaker !== undefined;
+  const isolated = isolationControlled ? isolatedSpeaker : internalIsolated;
+  const requestIsolation = (next: string | null) => {
+    if (!isolationControlled) setInternalIsolated(next);
+    onIsolateSpeaker?.(next);
   };
+  // Tap the isolated speaker again → All; tap another → switch directly.
+  const toggleIsolation = (speaker: string) =>
+    requestIsolation(isolated === speaker ? null : speaker);
+  /** Draw strength for a speaker's marks under the current isolation. */
+  const isolationOpacity = (speaker: string) =>
+    isolated === null || isolated === speaker ? 1 : ISOLATION_DIM;
+
+  const padding = 16;
   // Mode selection. When we have honest, index-aligned utterance timing we draw
   // the TIME AXIS (dashes over real recording seconds). Otherwise — a pre-
   // timestamp recording, or a pasted transcript that never had timing — we fall
@@ -727,6 +754,31 @@ export default function HeatChart({
     [zoomWindow, duration],
   );
   const zoomed = zoomWindow !== null && windowIsZoomed(activeWindow, duration);
+
+  // Selecting a turn (via a point or a scrubber cell) also seeks playback to
+  // that turn's start_time when replay is wired up — so the chart doubles as a
+  // tap-to-seek control. Guarded on timing being present for that index.
+  //
+  // Double-tap-to-reset, second path: when the surface's capture negotiation
+  // doesn't see the second tap (some devices let the SVG's own touch handling
+  // swallow it), a rapid second tap that lands on a mark arrives HERE instead —
+  // while zoomed it resets the zoom rather than double-seeking. Unzoomed rapid
+  // taps are untouched (two quick seeks stay two quick seeks).
+  const lastMarkTapRef = useRef(0);
+  const selectTurn = (index: number) => {
+    const now = Date.now();
+    const isDoubleTap = now - lastMarkTapRef.current < DOUBLE_TAP_MS;
+    lastMarkTapRef.current = now;
+    if (isDoubleTap && zoomWindow !== null) {
+      setZoomWindow(null);
+      return;
+    }
+    setSelected(index);
+    const timing = turnsTiming?.[index];
+    if (onSeekToTurn && timing) {
+      onSeekToTurn(timing.start_time);
+    }
+  };
 
   // Gestures only make sense once we have a measured width and a real time axis.
   const canZoom = useTimeAxis && duration > 0 && width > 0;
@@ -769,7 +821,7 @@ export default function HeatChart({
             return true;
           }
           const now = Date.now();
-          if (now - lastTapRef.current < 300) {
+          if (now - lastTapRef.current < DOUBLE_TAP_MS) {
             lastTapRef.current = 0;
             gestureRef.current.mode = "reset";
             return true; // double-tap → reset (don't select on this tap)
@@ -1022,21 +1074,51 @@ export default function HeatChart({
       <View style={styles.legend}>
         {speakerOrder.map((s) => {
           const share = talkShares[s.speaker];
+          const label = speakerLabel(s.speaker, speakerLabels);
+          const isIsolated = isolated === s.speaker;
           return (
-            <View key={s.speaker} style={styles.legendItem}>
+            <TouchableOpacity
+              key={s.speaker}
+              testID={`legend-item-${s.speaker}`}
+              style={[
+                styles.legendItem,
+                isIsolated && styles.legendItemIsolated,
+                isolated !== null && !isIsolated && styles.legendItemDimmed,
+              ]}
+              onPress={() => toggleIsolation(s.speaker)}
+              accessibilityRole="button"
+              accessibilityLabel={
+                isIsolated
+                  ? `${label} isolated — tap to show all speakers`
+                  : `Show only ${label}`
+              }
+            >
               <View
                 style={[styles.swatch, { backgroundColor: s.color }]}
                 testID={`legend-swatch-${s.speaker}`}
               />
               <Text style={styles.legendText}>
-                {speakerLabel(s.speaker, speakerLabels)}
+                {label}
                 {useTimeAxis && share !== undefined
                   ? ` — ${Math.round(share * 100)}% of talking`
                   : ""}
               </Text>
-            </View>
+            </TouchableOpacity>
           );
         })}
+
+        {/* Explicit way back while a speaker is isolated. */}
+        {isolated !== null && (
+          <TouchableOpacity
+            testID="legend-all"
+            style={styles.legendAllChip}
+            onPress={() => requestIsolation(null)}
+            accessibilityRole="button"
+            accessibilityLabel="Show all speakers"
+          >
+            <Text style={styles.legendAllText}>All</Text>
+          </TouchableOpacity>
+        )}
 
         {/* Dashed-line legend entry, only while the overlay is visible. */}
         {overlayActive && (
@@ -1064,57 +1146,26 @@ export default function HeatChart({
         )}
       </View>
 
-      {/* Chart surface — onLayout gives us the responsive width. position:
-          relative so the time-axis tap overlay can be absolutely placed over the
-          dashes. On the time axis it also hosts the zoom gestures: pinch + drag
-          (native), wheel + drag (web); double-tap/double-click resets. A single
-          tap always falls through to a dash's own onPress (tap-to-seek). */}
-      <View
-        ref={surfaceRef}
-        style={{ height, position: "relative" }}
-        onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
-        {...(useTimeAxis ? panResponder.panHandlers : {})}
-      >
-        {/* Zoom affordances, overlaid so they never shift the chart layout.
-            Reset chip: only while zoomed, so the user is never stranded. */}
-        {zoomed && (
-          <TouchableOpacity
-            testID="chart-zoom-reset"
-            style={styles.zoomReset}
-            onPress={() => setZoomWindow(null)}
-            accessibilityRole="button"
-            accessibilityLabel="Reset chart zoom to the full recording"
-          >
-            <Text style={styles.zoomResetText}>⤺ Reset view</Text>
-          </TouchableOpacity>
-        )}
-        {/* Honest playhead-off-screen hint: the playback position has scrolled
-            out of the zoomed window. Tap to recenter on it (never a fake edge
-            playhead). */}
-        {playheadVis !== "visible" && (
-          <TouchableOpacity
-            testID="chart-playhead-offscreen"
-            style={[
-              styles.playheadHint,
-              playheadVis === "before"
-                ? styles.playheadHintLeft
-                : styles.playheadHintRight,
-            ]}
-            onPress={() =>
-              playheadSeconds != null &&
-              setZoomWindow(
-                centerWindowOn(activeWindow, playheadSeconds, duration),
-              )
-            }
-            accessibilityRole="button"
-            accessibilityLabel="Playhead is off-screen — tap to recenter"
-          >
-            <Text style={styles.playheadHintText}>
-              {playheadVis === "before" ? "← playhead" : "playhead →"}
-            </Text>
-          </TouchableOpacity>
-        )}
-        {width > 0 && (
+      {/* Chart area. The INNER surface hosts onLayout (responsive width) and,
+          on the time axis, the zoom gestures: pinch + drag (native), wheel +
+          drag (web); double-tap/double-click resets. A single tap always falls
+          through to a dash's own onPress (tap-to-seek).
+
+          The zoom affordances (reset chip, playhead hint) are SIBLINGS overlaid
+          on the outer wrapper — deliberately OUTSIDE the pan surface. When they
+          lived inside it, the PanResponder's move threshold could steal a tap
+          with a few px of finger wobble and cancel the press: zoomed-in users
+          were left with no reliable way back (bug #10). As siblings their
+          touches never negotiate with the pan responder. */}
+      <View style={{ position: "relative" }}>
+        <View
+          ref={surfaceRef}
+          testID="heat-chart-surface"
+          style={{ height }}
+          onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
+          {...(useTimeAxis ? panResponder.panHandlers : {})}
+        >
+          {width > 0 && (
           <Svg width={width} height={height}>
             {/* §1 narrow-range band: a subtle shaded strip over the [min,max]
                 heat window, drawn first so the marks sit on top. Honest — the
@@ -1164,7 +1215,7 @@ export default function HeatChart({
                       fill="none"
                       stroke={line.color}
                       strokeWidth={1}
-                      strokeOpacity={0.25}
+                      strokeOpacity={0.25 * isolationOpacity(line.speaker)}
                       strokeLinejoin="round"
                       strokeLinecap="round"
                     />
@@ -1183,7 +1234,7 @@ export default function HeatChart({
                       stroke={line.color}
                       strokeWidth={3}
                       strokeDasharray={SIM_DASH}
-                      strokeOpacity={SIM_OPACITY}
+                      strokeOpacity={SIM_OPACITY * isolationOpacity(line.speaker)}
                       strokeLinecap="round"
                     />
                   )),
@@ -1203,7 +1254,8 @@ export default function HeatChart({
                       stroke={line.color}
                       strokeWidth={selected === d.index ? 7 : 4}
                       strokeOpacity={
-                        selected === null || selected === d.index ? 1 : 0.8
+                        (selected === null || selected === d.index ? 1 : 0.8) *
+                        isolationOpacity(line.speaker)
                       }
                       strokeLinecap="round"
                       onPress={() => selectTurn(d.index)}
@@ -1223,6 +1275,7 @@ export default function HeatChart({
                         cy={d.y}
                         r={4}
                         fill={AMBER}
+                        fillOpacity={isolationOpacity(line.speaker)}
                         stroke={selected === d.index ? INK : "none"}
                         strokeWidth={selected === d.index ? 2 : 0}
                         onPress={() => selectTurn(d.index)}
@@ -1242,7 +1295,7 @@ export default function HeatChart({
                     stroke={line.color}
                     strokeWidth={2}
                     strokeDasharray={SIM_DASH}
-                    strokeOpacity={SIM_OPACITY}
+                    strokeOpacity={SIM_OPACITY * isolationOpacity(line.speaker)}
                     strokeLinejoin="round"
                     strokeLinecap="round"
                   />
@@ -1255,6 +1308,7 @@ export default function HeatChart({
                     fill="none"
                     stroke={line.color}
                     strokeWidth={2}
+                    strokeOpacity={isolationOpacity(line.speaker)}
                     strokeLinejoin="round"
                     strokeLinecap="round"
                   />
@@ -1272,6 +1326,7 @@ export default function HeatChart({
                       cy={p.y}
                       r={p.isSpike ? 6 : 4}
                       fill={p.isSpike ? AMBER : line.color}
+                      fillOpacity={isolationOpacity(line.speaker)}
                       stroke={selected === p.index ? INK : "none"}
                       strokeWidth={selected === p.index ? 2 : 0}
                       onPress={() => selectTurn(p.index)}
@@ -1281,6 +1336,47 @@ export default function HeatChart({
               </>
             )}
           </Svg>
+          )}
+        </View>
+
+        {/* Reset affordance: only while zoomed, so the user is never stranded. */}
+        {zoomed && (
+          <TouchableOpacity
+            testID="chart-zoom-reset"
+            style={styles.zoomReset}
+            onPress={() => setZoomWindow(null)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Show the whole recording again"
+          >
+            <Text style={styles.zoomResetText}>⤢ Show all</Text>
+          </TouchableOpacity>
+        )}
+        {/* Honest playhead-off-screen hint: the playback position has scrolled
+            out of the zoomed window. Tap to recenter on it (never a fake edge
+            playhead). */}
+        {playheadVis !== "visible" && (
+          <TouchableOpacity
+            testID="chart-playhead-offscreen"
+            style={[
+              styles.playheadHint,
+              playheadVis === "before"
+                ? styles.playheadHintLeft
+                : styles.playheadHintRight,
+            ]}
+            onPress={() =>
+              playheadSeconds != null &&
+              setZoomWindow(
+                centerWindowOn(activeWindow, playheadSeconds, duration),
+              )
+            }
+            accessibilityRole="button"
+            accessibilityLabel="Playhead is off-screen — tap to recenter"
+          >
+            <Text style={styles.playheadHintText}>
+              {playheadVis === "before" ? "← playhead" : "playhead →"}
+            </Text>
+          </TouchableOpacity>
         )}
       </View>
 
@@ -1468,6 +1564,32 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+  },
+  // Isolation states: the isolated speaker's legend entry reads slightly raised
+  // (subtle pill), everyone else drops back.
+  legendItemIsolated: {
+    backgroundColor: "#EEF2FF",
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginHorizontal: -8,
+    marginVertical: -2,
+  },
+  legendItemDimmed: {
+    opacity: 0.35,
+  },
+  legendAllChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#F9FAFB",
+  },
+  legendAllText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: MUTED,
   },
   swatch: {
     width: 12,

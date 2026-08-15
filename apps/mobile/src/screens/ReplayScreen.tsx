@@ -27,6 +27,12 @@ import type {
 } from "../api/client";
 import HeatChart from "../components/HeatChart";
 import MediaPlayer, { MediaPlayerHandle } from "../components/MediaPlayer";
+import {
+  speakerSegments,
+  createSegmentAudition,
+  type SegmentAudition,
+} from "../components/auditionPlayback";
+import { speakerLabel } from "../utils/speakerLabels";
 import RecordingShareManager from "../components/RecordingShareManager";
 import SpeakerEnrollment from "../components/SpeakerEnrollment";
 import SpeakerNaming from "../components/SpeakerNaming";
@@ -159,6 +165,15 @@ export default function ReplayScreen({
   // Playback position (seconds), pushed up from MediaPlayer at ~4Hz to drive the
   // heat chart playhead.
   const [playheadSeconds, setPlayheadSeconds] = useState(0);
+
+  // --- Speaker isolation + "Play this voice" audition ---
+  // `isolatedSpeaker` mirrors the chart legend's isolation (controlled here so
+  // the audition button and — later — the naming flow share one seam).
+  // `auditioning` gates Play vs Stop; the live chain lives in a ref because the
+  // player's position callbacks must reach it without re-renders.
+  const [isolatedSpeaker, setIsolatedSpeaker] = useState<string | null>(null);
+  const [auditioning, setAuditioning] = useState(false);
+  const auditionRef = useRef<SegmentAudition | null>(null);
   // Stretch: for video, overlay the chart on the bottom third of the frame.
   const [overlayMode, setOverlayMode] = useState(false);
 
@@ -373,10 +388,55 @@ export default function ReplayScreen({
     return () => clearTimeout(id);
   }, [mediaUrl, loadDerivative]);
 
-  // Tap-to-seek from the chart: drive the player's position directly.
-  const handleSeekToTurn = useCallback((startTime: number) => {
-    playerRef.current?.seek(startTime);
+  // Position updates feed the chart playhead AND the audition chain (which
+  // uses them to jump between the isolated speaker's segments).
+  const handlePositionChange = useCallback((seconds: number) => {
+    setPlayheadSeconds(seconds);
+    auditionRef.current?.handlePosition(seconds);
   }, []);
+
+  // Stop any running audition (pauses playback via the chain's onEnded).
+  const stopAudition = useCallback(() => {
+    auditionRef.current?.stop();
+    auditionRef.current = null;
+  }, []);
+
+  // Tap-to-seek from the chart: drive the player's position directly. A manual
+  // seek is a user override, so it also ends any running audition rather than
+  // letting the chain fight the new position.
+  const handleSeekToTurn = useCallback(
+    (startTime: number) => {
+      stopAudition();
+      playerRef.current?.seek(startTime);
+    },
+    [stopAudition],
+  );
+
+  // Legend isolation changes come through here (the chart is controlled).
+  // Switching voices — or going back to All — always kills a running audition
+  // so one speaker's playback never bleeds into another's isolation.
+  const handleIsolateSpeaker = useCallback(
+    (speaker: string | null) => {
+      stopAudition();
+      setIsolatedSpeaker(speaker);
+    },
+    [stopAudition],
+  );
+
+  // "▶ Play this voice": play ONLY the isolated speaker's segments in order.
+  const handleAuditionPlay = useCallback(() => {
+    const player = playerRef.current;
+    if (!isolatedSpeaker || !player || !detail) return;
+    stopAudition();
+    const segments = speakerSegments(detail.turns ?? [], isolatedSpeaker);
+    const audition = createSegmentAudition(player, segments, () => {
+      auditionRef.current = null;
+      if (mountedRef.current) setAuditioning(false);
+    });
+    auditionRef.current = audition;
+    setAuditioning(true);
+    audition.start();
+  }, [isolatedSpeaker, detail, stopAudition]);
 
   // Submit the attach/replace link: PATCH the source, then refetch the recording
   // so the "Try HD" opt-in becomes available for the now-linked source. A 422's
@@ -580,8 +640,49 @@ export default function ReplayScreen({
       durationSeconds={detail?.duration_seconds ?? null}
       playheadSeconds={playheadSeconds}
       onSeekToTurn={handleSeekToTurn}
+      isolatedSpeaker={isolatedSpeaker}
+      onIsolateSpeaker={handleIsolateSpeaker}
     />
   ) : null;
+
+  // The audition affordance: only while a speaker is isolated. When the media
+  // never loaded there is nothing to play — say so instead of a dead button.
+  const auditionBlock =
+    hasChart && isolatedSpeaker != null ? (
+      <View style={styles.auditionRow} testID="audition-block">
+        {mediaStuck ? (
+          <Text style={styles.auditionUnavailable} testID="audition-unavailable">
+            This recording’s audio isn’t available, so this voice can’t be
+            played.
+          </Text>
+        ) : auditioning ? (
+          <TouchableOpacity
+            testID="audition-stop"
+            style={styles.auditionStopButton}
+            onPress={stopAudition}
+            accessibilityRole="button"
+          >
+            <Text style={styles.auditionStopText}>◼ Stop</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            testID="audition-play"
+            style={styles.auditionPlayButton}
+            onPress={handleAuditionPlay}
+            accessibilityRole="button"
+            accessibilityLabel={`Play only ${speakerLabel(
+              isolatedSpeaker,
+              effectiveLabels,
+            )}'s turns`}
+          >
+            <Text style={styles.auditionPlayText}>
+              ▶ Play this voice —{" "}
+              {speakerLabel(isolatedSpeaker, effectiveLabels)}
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    ) : null;
 
   return (
     <View style={styles.flex}>
@@ -877,12 +978,13 @@ export default function ReplayScreen({
 
           {overlayMode && isVideo && hasChart ? (
             // Overlay mode: chart floats over the bottom third of the video.
+            <>
             <View style={styles.overlayWrap} testID="replay-overlay">
               <MediaPlayer
                 ref={playerRef}
                 uri={mediaUrl}
                 mediaType={detail.media_type}
-                onPositionChange={setPlayheadSeconds}
+                onPositionChange={handlePositionChange}
                 onDurationChange={handleDurationChange}
                 onError={handlePlayerError}
               />
@@ -890,6 +992,8 @@ export default function ReplayScreen({
                 {chart}
               </View>
             </View>
+            {auditionBlock}
+            </>
           ) : (
             // Default stacked layout: player on top, chart beneath.
             <>
@@ -897,7 +1001,7 @@ export default function ReplayScreen({
                 ref={playerRef}
                 uri={mediaUrl}
                 mediaType={detail.media_type}
-                onPositionChange={setPlayheadSeconds}
+                onPositionChange={handlePositionChange}
                 onDurationChange={handleDurationChange}
                 onError={handlePlayerError}
               />
@@ -908,6 +1012,7 @@ export default function ReplayScreen({
                       Heat over the conversation
                     </Text>
                     {chart}
+                    {auditionBlock}
                     <Text style={styles.hint}>
                       Each dash is one turn across the recording — length shows
                       how long they spoke. Tap a dash to jump there.
@@ -1338,6 +1443,39 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.75)",
     borderTopLeftRadius: 12,
     borderTopRightRadius: 12,
+  },
+  // Audition ("Play this voice") — sits directly under the heat chart while a
+  // speaker is isolated via the legend.
+  auditionRow: {
+    marginTop: 10,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  auditionPlayButton: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: PRIMARY,
+    backgroundColor: "#EEF2FF",
+  },
+  auditionPlayText: { fontSize: 14, fontWeight: "700", color: PRIMARY },
+  auditionStopButton: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: MUTED,
+    backgroundColor: "#F3F4F6",
+  },
+  auditionStopText: { fontSize: 14, fontWeight: "700", color: INK },
+  auditionUnavailable: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: MUTED,
+    fontStyle: "italic",
   },
   reanalyzeSection: { marginTop: 16 },
   reanalyzeButton: {

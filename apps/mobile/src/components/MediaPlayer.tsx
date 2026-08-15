@@ -16,10 +16,13 @@ const PRIMARY = "#4A90D9";
  *  churning React on every frame. */
 const POLL_MS = 250;
 
-/** Imperative handle so the parent (and the heat chart's tap-to-seek) can drive
- *  playback position without re-rendering the player on every seek. */
+/** Imperative handle so the parent (the heat chart's tap-to-seek and the
+ *  speaker-audition chain) can drive playback without re-rendering the player
+ *  on every call. Satisfies auditionPlayback's SegmentPlayer seam. */
 export interface MediaPlayerHandle {
   seek: (seconds: number) => void;
+  play: () => void;
+  pause: () => void;
 }
 
 interface MediaPlayerProps {
@@ -121,6 +124,22 @@ const MediaPlayer = forwardRef<MediaPlayerHandle, MediaPlayerProps>(
           }
           setPosition(seconds);
           onPositionChange?.(seconds);
+        },
+        play: () => {
+          try {
+            player.play();
+          } catch {
+            // A not-yet-loaded player can reject; the transport stays usable.
+          }
+          setPlaying(true);
+        },
+        pause: () => {
+          try {
+            player.pause();
+          } catch {
+            // Same guard as play().
+          }
+          setPlaying(false);
         },
       }),
       [player, onPositionChange],

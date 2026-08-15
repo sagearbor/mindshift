@@ -67,16 +67,23 @@ const mockSetPlaybackMode = setPlaybackMode as jest.Mock;
 // props on `mockPlayerProps` so tests can assert which URL the player received,
 // drive its error callback, and simulate the media reporting a real duration.
 const mockSeek = jest.fn();
+const mockPlay = jest.fn();
+const mockPause = jest.fn();
 const mockPlayerProps: Record<string, any> = {};
 jest.mock("../src/components/MediaPlayer", () => {
   const React = require("react");
   const { View } = require("react-native");
   const MockPlayer = React.forwardRef(
     (props: Record<string, unknown>, ref: unknown) => {
-      React.useImperativeHandle(ref, () => ({ seek: mockSeek }));
+      React.useImperativeHandle(ref, () => ({
+        seek: mockSeek,
+        play: mockPlay,
+        pause: mockPause,
+      }));
       mockPlayerProps.uri = props.uri;
       mockPlayerProps.onError = props.onError;
       mockPlayerProps.onDurationChange = props.onDurationChange;
+      mockPlayerProps.onPositionChange = props.onPositionChange;
       return React.createElement(View, {
         testID: "media-player",
         uri: props.uri,
@@ -130,12 +137,15 @@ beforeEach(() => {
   mockPatchTitle.mockReset();
   mockPatchLabels.mockReset();
   mockSeek.mockReset();
+  mockPlay.mockReset();
+  mockPause.mockReset();
   mockSetPlaybackMode.mockClear();
   mockReanalyze.mockReset();
   mockGetJob.mockReset();
   mockPlayerProps.uri = undefined;
   mockPlayerProps.onError = undefined;
   mockPlayerProps.onDurationChange = undefined;
+  mockPlayerProps.onPositionChange = undefined;
 });
 
 // A link-sourced recording: the user linked their own hosted original. Uses a
@@ -1070,5 +1080,119 @@ describe("ReplayScreen — read-only shared recording", () => {
     expect(queryId(comp, "share-section")).toBeTruthy();
     expect(queryId(comp, "replay-shared-from")).toBeNull();
     act(() => comp.unmount());
+  });
+});
+
+// --- Speaker isolation + "Play this voice" audition -------------------------
+// Isolating a speaker via the chart legend reveals a button that plays ONLY
+// that speaker's segments back-to-back (seek → play → seek … → pause), driven
+// by the player's position updates. The listening tool for naming voices.
+describe("ReplayScreen speaker audition", () => {
+  function press(comp: renderer.ReactTestRenderer, id: string) {
+    const node = comp.root.findAll(
+      (n) => n.props?.testID === id && typeof n.props.onPress === "function",
+    )[0];
+    expect(node).toBeTruthy();
+    act(() => node.props.onPress());
+  }
+
+  async function renderLoaded(rec: RecordingDetail = detail) {
+    mockGetRecording.mockResolvedValueOnce(rec);
+    mockGetMediaUrl.mockResolvedValueOnce({
+      url: "https://signed/x",
+      expires_in: 600,
+    });
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(<ReplayScreen recordingId="r1" onBack={() => {}} />);
+    });
+    await act(async () => {});
+    return comp;
+  }
+
+  it("shows no audition affordance until a speaker is isolated", async () => {
+    const comp = await renderLoaded();
+    expect(queryId(comp, "audition-play")).toBeNull();
+
+    press(comp, "legend-item-Alice");
+    expect(queryId(comp, "audition-play")).toBeTruthy();
+
+    // Returning to All hides it again.
+    press(comp, "legend-all");
+    expect(queryId(comp, "audition-play")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("plays ONLY the isolated speaker's segments sequentially: seek→play, jump the other speaker's turns, pause at the end", async () => {
+    const comp = await renderLoaded();
+    press(comp, "legend-item-Alice"); // Alice's turns: 0–3 and 6–9
+
+    press(comp, "audition-play");
+    expect(mockSeek).toHaveBeenCalledWith(0);
+    expect(mockPlay).toHaveBeenCalledTimes(1);
+    expect(queryId(comp, "audition-stop")).toBeTruthy(); // now stoppable
+
+    // End of Alice's first turn → jump straight over Bob's 3–6 to her 6–9.
+    act(() => mockPlayerProps.onPositionChange?.(2.99));
+    expect(mockSeek).toHaveBeenLastCalledWith(6);
+    expect(mockPause).not.toHaveBeenCalled();
+
+    // End of her last turn → pause; the button returns to Play.
+    act(() => mockPlayerProps.onPositionChange?.(8.99));
+    expect(mockPause).toHaveBeenCalledTimes(1);
+    expect(queryId(comp, "audition-stop")).toBeNull();
+    expect(queryId(comp, "audition-play")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("Stop ends the audition immediately (pause, back to the Play button)", async () => {
+    const comp = await renderLoaded();
+    press(comp, "legend-item-Bob");
+    press(comp, "audition-play");
+    expect(mockSeek).toHaveBeenCalledWith(3); // Bob's first turn starts at 3
+
+    press(comp, "audition-stop");
+    expect(mockPause).toHaveBeenCalledTimes(1);
+    expect(queryId(comp, "audition-play")).toBeTruthy();
+
+    // Later position ticks are inert — the chain is dead.
+    act(() => mockPlayerProps.onPositionChange?.(5.99));
+    expect(mockSeek).toHaveBeenCalledTimes(1);
+    act(() => comp.unmount());
+  });
+
+  it("switching isolation mid-audition stops playback (never bleeds one voice into another)", async () => {
+    const comp = await renderLoaded();
+    press(comp, "legend-item-Alice");
+    press(comp, "audition-play");
+    expect(mockPlay).toHaveBeenCalledTimes(1);
+
+    press(comp, "legend-item-Bob");
+    expect(mockPause).toHaveBeenCalledTimes(1);
+    expect(queryId(comp, "audition-stop")).toBeNull();
+    // Bob is isolated now; a fresh Play targets HIS first turn.
+    press(comp, "audition-play");
+    expect(mockSeek).toHaveBeenLastCalledWith(3);
+    act(() => comp.unmount());
+  });
+
+  it("shows an honest note instead of a Play button when the media isn't loading", async () => {
+    jest.useFakeTimers();
+    try {
+      const comp = await renderLoaded();
+      // The stored copy never reports a duration → the watchdog flags it stuck.
+      await act(async () => {
+        jest.advanceTimersByTime(LOAD_TIMEOUT_MS);
+      });
+      await act(async () => {});
+      expect(queryId(comp, "media-stuck-note")).toBeTruthy();
+
+      press(comp, "legend-item-Alice");
+      expect(queryId(comp, "audition-play")).toBeNull();
+      expect(queryId(comp, "audition-unavailable")).toBeTruthy();
+      act(() => comp.unmount());
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
