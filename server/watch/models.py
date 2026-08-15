@@ -110,18 +110,25 @@ class Account(BaseModel):
 
 
 class SpeakerProfile(BaseModel):
-    # Field names deliberately mirror server/engine/speaker_id.new_profile()'s
-    # returned dict, so SpeakerProfile(account_id=..., **new_profile(...))
-    # constructs directly with no translation layer.
+    # ADAPTED (Task B5): Gauge's SpeakerProfile mirrored its v1-shaped
+    # server/engine/speaker_id.new_profile() dict, whose per-enrollment
+    # provenance list was called `sources`. THIS repo's speaker_id module
+    # (server/speaker_id.py) is v2: new_profile() keeps each enrollment as an
+    # individual, independently-deletable `samples` entry (see its own
+    # `PROFILE_VERSION = 2` / `as_v2`/`remove_sample`) instead of a v1
+    # running-mean-only blend. Field names still deliberately mirror the real
+    # (v2) new_profile() dict 1:1 — including this rename — so
+    # SpeakerProfile(account_id=..., **new_profile(...)) constructs directly
+    # with no translation layer.
     account_id: str
-    version: int = 1
+    version: int = 2
     embedding: list[float]
     dim: int
     enroll_count: int
     model: str
     created_at: str
     updated_at: str
-    sources: list[dict] = []
+    samples: list[dict] = []
 
 
 GroupKind = Literal["pair", "team"]
