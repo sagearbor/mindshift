@@ -39,15 +39,19 @@ import base64
 import time
 
 import pytest
+from fastapi.testclient import TestClient
 
 from audio_pipeline import TranscriberUnavailable, TranscriptSegment
+from watch.config import Settings
 from watch.models import LiveSession, Participant
 from watch.post_session import (
     NullTranscriptionService,
     WhisperTranscriptionService,
     analyze_live_session,
 )
+from watch.services import build_llm, build_transcriber
 from watch.store import MemoryLiveSessionStore
+from watch.testing import create_watch_test_app
 
 
 class FakeTranscriber:
@@ -402,12 +406,6 @@ class TestDirectPcmHandoff:
 # ---------------------------------------------------------------------------
 # Task B11: the 8 tests deferred here by B10 (see SCOPE NOTE at top of file).
 # ---------------------------------------------------------------------------
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from watch.config import Settings  # noqa: E402
-from watch.services import build_llm, build_transcriber  # noqa: E402
-from watch.testing import create_watch_test_app  # noqa: E402
 
 
 class TestAnalyzeEndpoint:

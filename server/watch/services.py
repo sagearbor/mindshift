@@ -40,7 +40,9 @@ logger = logging.getLogger(__name__)
 
 # Matches server/main.py's own MINDSHIFT_MODEL default — see module
 # docstring's ADAPTED note for why this reuses that same env var/default
-# rather than inventing a watch-scoped one.
+# rather than inventing a watch-scoped one. This literal is duplicated (not
+# imported) from server/main.py's own MINDSHIFT_MODEL default — keep it in
+# sync with server/main.py's MINDSHIFT_MODEL if that default ever changes.
 DEFAULT_MODEL = "claude-3-haiku-20240307"
 
 
