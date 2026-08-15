@@ -610,12 +610,14 @@ export default function AnalyzeScreen({
         jobOrUploadErrorMessage(e, { chunked: useChunked, sizeBytes: size }),
       );
       setUploadErrorDetails(toErrorDetails(e));
+      // No file NAME in the report — user-chosen names can carry personal
+      // info ("argument with X.m4a"); the extension + size diagnose as well.
       void reportClientLog("upload-failure", {
         ...(toErrorDetails(e) ?? {}),
         message: e instanceof Error ? e.message : String(e),
         errorName: e instanceof Error ? e.name : typeof e,
         platform: Platform.OS,
-        fileName: picked?.name,
+        fileExt: picked?.name?.match(/\.[A-Za-z0-9]+$/)?.[0] ?? null,
         fileSize: size,
       });
     } finally {

@@ -4911,13 +4911,18 @@ class ClientLogIn(BaseModel):
     instead of user screenshots — added 2026-08-14 while chasing an
     upload-dies-before-network device bug."""
 
-    kind: str = Field(max_length=64)
+    # kind is constrained to a slug so a client can never inject log framing
+    # (newlines/control chars) through it; detail goes through json.dumps,
+    # which escapes control characters by construction.
+    kind: str = Field(max_length=64, pattern=r"^[a-z0-9][a-z0-9-]*$")
     detail: dict = Field(default_factory=dict)
 
 
 @app.post("/client-log", status_code=204)
 async def client_log(
-    body: ClientLogIn, uid: str = Depends(get_current_uid)
+    body: ClientLogIn,
+    uid: str = Depends(get_current_uid),
+    _: None = Depends(_rate_limit),
 ) -> Response:
     detail = json.dumps(body.detail, default=str)[:2000]
     logger.warning("CLIENT-LOG uid=%s kind=%s detail=%s", uid, body.kind, detail)

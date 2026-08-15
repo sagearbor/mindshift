@@ -50,3 +50,12 @@ async def test_client_log_requires_auth(client, monkeypatch):
     monkeypatch.delitem(app.dependency_overrides, get_current_uid)
     resp = await client.post("/client-log", json={"kind": "x", "detail": {}})
     assert resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_client_log_rejects_log_injection_in_kind(client):
+    resp = await client.post(
+        "/client-log",
+        json={"kind": "bad\nFAKE-LOG-LINE", "detail": {}},
+    )
+    assert resp.status_code == 422
