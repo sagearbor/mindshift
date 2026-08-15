@@ -939,6 +939,12 @@ from routers import voice as _voice_router  # noqa: E402
 
 app.include_router(_voice_router.router)
 
+# Watch domain (ported from Gauge — docs/plans/2026-08-15-unification-*.md):
+from watch.app import build_watch_routers  # noqa: E402
+
+for _r in build_watch_routers():
+    app.include_router(_r)
+
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
@@ -1336,6 +1342,15 @@ async def healthz():
         "stt_provider": _stt_provider(),
     }
     return JSONResponse(payload, status_code=200 if db_ok else 503)
+
+
+@app.get("/health")
+async def health():
+    """Alias for /healthz — Cloud Run's frontend intercepts the literal
+    path /healthz on run.app URLs (empirically verified in Gauge, this
+    repo's sibling project), so the watch pings /health instead. Same
+    payload/status as /healthz — not a separate probe."""
+    return await healthz()
 
 
 async def _resolve_relationship_context(
