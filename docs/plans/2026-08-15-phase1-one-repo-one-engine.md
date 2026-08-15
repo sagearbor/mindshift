@@ -357,3 +357,4 @@ def test_no_route_collisions():
 - Verify 2Gi/4CPU fits WS-ingest+engine; Gauge ran 4Gi.
 - Pairing cold-start fast-follow: client timeout 10 s→30 s + one retry.
 - Owner decision queue: keep-warm min-instances $ figure; token-gating `GET /telemetry`.
+- Phase 3 "Pair a watch" screen (owner-requested 2026-08-15): add an **"Install watch app" button** that deep-links to the watch app's Play listing (`https://play.google.com/store/apps/details?id=com.sagearbor.gauge.wear`) — phone Play then remote-installs to the watch (standard Wear OS 3+ flow; no on-watch store browsing). Note: while on internal testing, testers need the opt-in link first.
