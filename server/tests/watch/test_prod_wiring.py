@@ -14,6 +14,24 @@ import logging
 import main
 
 
+def _collect_route_paths(routes):
+    """Yield every route path reachable from `routes`.
+
+    Newer FastAPI/Starlette (>=0.110) can list mounted sub-routers as
+    `_IncludedRouter` entries that have no `.path` of their own but expose
+    the underlying routes via `.routes`. Recurse into those so paths from
+    included routers (e.g. the watch domain) are still genuinely asserted
+    on both the old flat-route layout and the newer wrapped layout.
+    """
+    for route in routes:
+        path = getattr(route, "path", None)
+        if path is not None:
+            yield path
+        sub_routes = getattr(route, "routes", None)
+        if sub_routes:
+            yield from _collect_route_paths(sub_routes)
+
+
 def test_prod_store_warnings_fire_when_env_unset(caplog):
     """I2 (final whole-branch review 2026-08-15): building the watch routers
     with MINDSHIFT_FIRESTORE_PROJECT / MINDSHIFT_CAPTURE_BUCKET unset (as in
@@ -35,7 +53,7 @@ def test_prod_store_warnings_fire_when_env_unset(caplog):
 
 
 def test_watch_routes_mounted_on_main_app():
-    paths = {r.path for r in main.app.routes}
+    paths = set(_collect_route_paths(main.app.routes))
     assert "/me/pair/claim" in paths and "/telemetry" in paths and "/health" in paths
     assert "/live-sessions" in paths and "/analyze" in paths  # both domains coexist
 
@@ -43,11 +61,24 @@ def test_watch_routes_mounted_on_main_app():
 def test_no_route_collisions():
     from collections import Counter
 
+    def _leaf_routes(routes):
+        """Yield only routes that carry their own path (skip wrapper
+        entries like `_IncludedRouter` that have no path of their own —
+        recurse into their `.routes` instead so the real leaf routes are
+        still checked for collisions)."""
+        for route in routes:
+            path = getattr(route, "path", None)
+            if path is not None:
+                yield route
+            sub_routes = getattr(route, "routes", None)
+            if sub_routes:
+                yield from _leaf_routes(sub_routes)
+
     dupes = {
         p: c
         for p, c in Counter(
             (r.path, ",".join(sorted(getattr(r, "methods", []) or ["WS"])))
-            for r in main.app.routes
+            for r in _leaf_routes(main.app.routes)
         ).items()
         if c > 1
     }
