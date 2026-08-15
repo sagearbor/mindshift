@@ -1,6 +1,6 @@
 """Voice-enrollment router — "This is me" + the enrolled voiceprint's lifecycle.
 
-Four endpoints under ``/voice`` (included from main.py with one line):
+Five endpoints under ``/voice`` (included from main.py with one line):
 
 * ``GET  /voice/profile``      — status: is the feature available, is the user
                                  enrolled, and enrollment metadata incl. the v2
@@ -9,6 +9,11 @@ Four endpoints under ``/voice`` (included from main.py with one line):
 * ``POST /voice/enroll``       — "This is me": embed one diarized speaker from a
                                  stored recording and store it as an individual
                                  sample (the blend is recomputed over all samples).
+* ``POST /voice/enroll-direct``— guided "Train my voice": embed ONE uploaded
+                                 clip of prompted phrases (single voice by
+                                 client promise — no diarization, no stored
+                                 recording) into a sample noted
+                                 "guided enrollment".
 * ``DELETE /voice/samples/{id}`` — remove ONE enrollment sample and recompute the
                                  blend; deleting the last sample leaves the same
                                  state as "forget my voice".
@@ -37,12 +42,12 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 import recordings_store
 import speaker_id
-from audio_ingest import AudioDecodeError, decode_to_pcm
+from audio_ingest import AudioDecodeError, decode_to_pcm, decode_to_pcm_16k
 from audio_pipeline import UUID_PATTERN
 from auth import get_current_uid
 
@@ -52,6 +57,24 @@ router = APIRouter(prefix="/voice", tags=["voice"])
 
 _VOICE_UNAVAILABLE = "voice enrollment not available on this server"
 _STORAGE_DISABLED = "recording storage is not enabled"
+
+# The provenance note stored on (and shown for) a guided-enrollment sample —
+# these samples have no source recording, so the note IS their provenance.
+GUIDED_NOTE = "guided enrollment"
+
+# Direct-enroll uploads are a few short prompted phrases: a 30 s 16 kHz mono
+# wav is ~1 MB, so 5 MB is generous headroom while keeping the endpoint far
+# under the general 25 MB analyze-upload cap (this path never needs a video).
+MAX_DIRECT_ENROLL_BYTES = 5 * 1024 * 1024
+
+
+async def _rate_limit(request: Request) -> None:
+    """Reuse main's per-IP rate limiter. Imported lazily at request time:
+    main.py imports this router at module load, so a top-level import here
+    would be circular (and main's limiter is defined after the include)."""
+    import main
+
+    await main._rate_limit(request)
 
 
 def _get_store(request: Request) -> "recordings_store.RecordingsStore | None":
@@ -249,6 +272,106 @@ async def enroll_voice(
     return EnrollResponse(
         enrolled=True,
         speaker=body.speaker,
+        enroll_count=profile["enroll_count"],
+        dim=profile["dim"],
+        updated_at=profile["updated_at"],
+    )
+
+
+class DirectEnrollResponse(BaseModel):
+    enrolled: bool
+    # How many samples the stored print now blends (>=1). More refines it.
+    enroll_count: int
+    dim: int
+    updated_at: str
+    # Plain-language statement of WHAT was stored — biometric transparency.
+    stored: str = (
+        "a numeric voice signature (192 numbers), not your audio"
+    )
+
+
+@router.post("/enroll-direct", response_model=DirectEnrollResponse)
+async def enroll_voice_direct(
+    request: Request,
+    file: UploadFile = File(...),
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+) -> DirectEnrollResponse:
+    """Guided enrollment ("Train my voice") — enroll from an uploaded clip.
+
+    The client records a few prompted phrases in-app and uploads ONE short
+    audio file that it PROMISES contains only the enrolling user's voice, so
+    no diarization runs: the whole clip is embedded (capped like the pooled
+    path) and appended as a v2 sample with note "guided enrollment". Nothing
+    about the clip is persisted — only the numeric signature.
+
+    Honest failures: deps absent → 503; storage disabled → 503; upload over
+    the cap → 413; undecodable → 422; less than MIN_ENROLL_SECONDS of ACTUAL
+    speech (a long silent clip does not count) → 422."""
+    if not speaker_id.is_available():
+        raise HTTPException(status_code=503, detail=_VOICE_UNAVAILABLE)
+    store = _require_store(request)
+
+    data = await file.read()
+    if len(data) > MAX_DIRECT_ENROLL_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                "audio exceeds the "
+                f"{MAX_DIRECT_ENROLL_BYTES // (1024 * 1024)}MB guided-enrollment "
+                "limit — record the phrases, not a long session"
+            ),
+        )
+    if not data:
+        raise HTTPException(status_code=422, detail="no audio was uploaded")
+
+    # Decode to 16 kHz PCM (blocking → off the event loop). decode_to_pcm_16k
+    # re-decodes through ffmpeg when the container's native rate differs, so
+    # the embedder never sees a mis-rated clip.
+    try:
+        pcm, sr = await asyncio.to_thread(
+            decode_to_pcm_16k, data, file.filename or "clip.wav",
+        )
+    except AudioDecodeError as exc:
+        raise HTTPException(
+            status_code=422, detail=f"could not decode the audio: {exc}",
+        )
+
+    # Enough ACTUAL speech? Clip length is not the measure — a long silent
+    # upload is honestly rejected, never embedded into a garbage voiceprint.
+    voiced = speaker_id.speech_seconds(pcm, sr)
+    if voiced < speaker_id.MIN_ENROLL_SECONDS:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "not enough speech in the clip to enroll trustworthily "
+                f"(need at least {speaker_id.MIN_ENROLL_SECONDS:.0f}s of speech; "
+                f"heard {voiced:.1f}s)"
+            ),
+        )
+
+    # Embed the whole clip (the client promises a single voice), capped the
+    # same way the pooled path is so one embed call stays bounded.
+    max_samples = int(speaker_id.MAX_POOL_SECONDS * sr)
+    clip = pcm[:max_samples]
+    try:
+        embedding = await asyncio.to_thread(speaker_id.embed_pcm, clip, sr)
+    except speaker_id.SpeakerIdUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    existing = await store.read_voiceprint(uid)
+    profile = speaker_id.new_profile(
+        embedding, existing,
+        recording_id=None, speaker=None, now_iso=now_iso, note=GUIDED_NOTE,
+    )
+    await store.write_voiceprint(uid, profile)
+    logger.info(
+        "Voice enrolled (guided) uid=%s speech=%.1fs count=%d",
+        uid, voiced, profile["enroll_count"],
+    )
+    return DirectEnrollResponse(
+        enrolled=True,
         enroll_count=profile["enroll_count"],
         dim=profile["dim"],
         updated_at=profile["updated_at"],

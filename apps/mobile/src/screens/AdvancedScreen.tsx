@@ -20,6 +20,7 @@ import {
   type VoiceProfile,
   type VoiceSample,
 } from "../api/client";
+import VoiceTrainingFlow from "../components/VoiceTrainingFlow";
 import { useAuthStore } from "../store/authStore";
 import { useOtaStatus, type OtaStatus } from "../utils/otaUpdate";
 import { formatDate, formatDateTime } from "../utils/dateDisplay";
@@ -108,6 +109,8 @@ export default function AdvancedScreen({
   > | null>(null);
   const [forgetting, setForgetting] = useState(false);
   const [sampleError, setSampleError] = useState<string | null>(null);
+  // Guided "Train my voice" flow, opened in place inside the voice card.
+  const [training, setTraining] = useState(false);
 
   // --- About section facts (all honest; a missing value reads "unknown"). ---
   const user = useAuthStore((s) => s.user);
@@ -219,6 +222,18 @@ export default function AdvancedScreen({
     },
     [profile],
   );
+
+  /** Guided training finished: the server now holds the new sample — refetch
+   *  so the card shows the SERVER's view (count + the guided sample's note)
+   *  rather than a client-side guess. */
+  const handleTrained = useCallback(() => {
+    setTraining(false);
+    getVoiceProfile()
+      .then((p) => setProfile(p))
+      .catch(() => {
+        // Keep the last known profile; the next visit refetches.
+      });
+  }, []);
 
   /** Where a sample came from, honestly: the recording's title when it still
    *  exists, "source recording deleted" when it's provably gone, the legacy
@@ -346,10 +361,31 @@ export default function AdvancedScreen({
             </>
           ) : (
             <Text style={styles.rowSub} testID="voice-profile-status">
-              Not enrolled. Open a recording and tap “This is me” on your
+              Not enrolled. Train your voice right here with four short
+              phrases, or open a recording and tap “This is me” on your
               speaker — MindShift will label you “You” from then on. It stores
               a numeric voice signature, never your audio.
             </Text>
+          )}
+
+          {training ? (
+            <VoiceTrainingFlow
+              onDone={handleTrained}
+              onCancel={() => setTraining(false)}
+            />
+          ) : (
+            <TouchableOpacity
+              testID="voice-train-button"
+              accessibilityRole="button"
+              style={styles.trainButton}
+              onPress={() => setTraining(true)}
+            >
+              <Text style={styles.trainText}>Train my voice</Text>
+              <Text style={styles.rowSub}>
+                Read four short phrases aloud — no recordings needed first.
+                Works alongside “This is me”; both add samples.
+              </Text>
+            </TouchableOpacity>
           )}
         </View>
       ) : null}
@@ -501,6 +537,17 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: "#F0F1F3",
+  },
+  trainButton: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#F0F1F3",
+  },
+  trainText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#4A90D9",
   },
   forgetText: {
     fontSize: 15,
