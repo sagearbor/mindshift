@@ -71,6 +71,28 @@ export class MemoryFs implements RecorderFs {
     this.files.set(fileUri, bytes);
   }
 
+  appendBytes(fileUri: string, bytes: Uint8Array): void {
+    const existing = this.files.get(fileUri);
+    if (!existing) {
+      // Copy so a caller-held view can't mutate the "disk" afterwards.
+      this.files.set(fileUri, bytes.slice());
+      return;
+    }
+    const joined = new Uint8Array(existing.byteLength + bytes.byteLength);
+    joined.set(existing, 0);
+    joined.set(bytes, existing.byteLength);
+    this.files.set(fileUri, joined);
+  }
+
+  writeBytesAt(fileUri: string, offset: number, bytes: Uint8Array): void {
+    const existing = this.files.get(fileUri);
+    if (!existing) throw new Error(`MemoryFs: no such file ${fileUri}`);
+    if (offset + bytes.byteLength > existing.byteLength) {
+      throw new Error(`MemoryFs: writeBytesAt past end of ${fileUri}`);
+    }
+    existing.set(bytes, offset);
+  }
+
   move(srcUri: string, destUri: string): void {
     const bytes = this.readBytes(srcUri);
     this.files.delete(srcUri);
