@@ -2,6 +2,7 @@ import React from "react";
 import renderer, { act, ReactTestInstance } from "react-test-renderer";
 import * as DocumentPicker from "expo-document-picker";
 import AnalyzeScreen from "../src/screens/AnalyzeScreen";
+import type { AudioRecorderDeps } from "../src/recorder/AudioRecordScreen";
 import { useSessionStore } from "../src/store/sessionStore";
 import { useRecorderStore } from "../src/store/recorderStore";
 import { useAnalyzeStore } from "../src/store/analyzeStore";
@@ -13,6 +14,7 @@ import {
   postAnalyzeLink,
   postAnalyzeLinkJob,
   getAnalyzeJob,
+  reportClientLog,
   UploadError,
 } from "../src/api/client";
 import type { AnalyzeJobState, UploadAnalyzeResult } from "../src/api/client";
@@ -27,6 +29,7 @@ jest.mock("../src/api/client", () => ({
   postAnalyzeLink: jest.fn(),
   postAnalyzeLinkJob: jest.fn(),
   getAnalyzeJob: jest.fn(),
+  reportClientLog: jest.fn(),
 }));
 
 const mockPick = DocumentPicker.getDocumentAsync as jest.Mock;
@@ -36,6 +39,7 @@ const mockChunkedJob = postAnalyzeUploadChunkedJob as jest.Mock;
 const mockLink = postAnalyzeLink as jest.Mock;
 const mockLinkJob = postAnalyzeLinkJob as jest.Mock;
 const mockGetJob = getAnalyzeJob as jest.Mock;
+const mockReport = reportClientLog as jest.Mock;
 
 // The relationship picker starts UNSELECTED (it's optional): no relationship
 // sentence is sent until the user taps a pill. Once tapped, its sentence
@@ -60,6 +64,21 @@ function doneJob(result: UploadAnalyzeResult): AnalyzeJobState {
 }
 
 const MB = 1024 * 1024;
+
+/** The arguments of the sole chunked-job call — where the file identity and
+ *  the user's choices (context/consent/store/title) ride now that EVERY upload
+ *  goes through the async job path (the direct sync path is gone). */
+function chunkedCall(): {
+  file: unknown;
+  name: unknown;
+  mimeType: unknown;
+  size: unknown;
+  opts: Record<string, unknown>;
+} {
+  expect(mockChunkedJob).toHaveBeenCalledTimes(1);
+  const [file, name, mimeType, size, opts] = mockChunkedJob.mock.calls[0];
+  return { file, name, mimeType, size, opts };
+}
 
 function queryId(
   comp: renderer.ReactTestRenderer,
@@ -100,6 +119,7 @@ beforeEach(() => {
   mockLink.mockReset();
   mockLinkJob.mockReset();
   mockGetJob.mockReset();
+  mockReport.mockReset();
   act(() => {
     useSessionStore.setState({
       role: "Husband / Wife",
@@ -183,7 +203,7 @@ describe("AnalyzeScreen", () => {
           { uri: "file:///rec.m4a", name: "rec.m4a", size: 2048, mimeType: "audio/m4a" },
         ],
       });
-      mockUpload.mockResolvedValueOnce(uploadFixture);
+      mockChunkedJob.mockResolvedValueOnce({ result: uploadFixture });
 
       let comp!: renderer.ReactTestRenderer;
       act(() => {
@@ -197,13 +217,18 @@ describe("AnalyzeScreen", () => {
       });
 
       // Context is undefined — no fabricated relationship sentence.
-      expect(mockUpload).toHaveBeenCalledWith(
-        "file:///rec.m4a",
-        "rec.m4a",
-        "audio/m4a",
-        undefined,
-        { consent: false, store: true },
-      );
+      const { file, name, mimeType, size, opts } = chunkedCall();
+      expect(file).toBe("file:///rec.m4a");
+      expect(name).toBe("rec.m4a");
+      expect(mimeType).toBe("audio/m4a");
+      expect(size).toBe(2048);
+      expect(opts).toEqual({
+        consent: false,
+        store: true,
+        context: undefined,
+        title: undefined,
+        onProgress: expect.any(Function),
+      });
       act(() => comp.unmount());
     });
 
@@ -214,7 +239,7 @@ describe("AnalyzeScreen", () => {
           { uri: "file:///rec.m4a", name: "rec.m4a", size: 2048, mimeType: "audio/m4a" },
         ],
       });
-      mockUpload.mockResolvedValueOnce(uploadFixture);
+      mockChunkedJob.mockResolvedValueOnce({ result: uploadFixture });
 
       let comp!: renderer.ReactTestRenderer;
       act(() => {
@@ -243,12 +268,12 @@ describe("AnalyzeScreen", () => {
         queryId(comp, "upload-analyze-button")!.props.onPress();
       });
       // Deselected → no relationship sentence rides along.
-      expect(mockUpload).toHaveBeenCalledWith(
-        "file:///rec.m4a",
-        "rec.m4a",
-        "audio/m4a",
-        undefined,
-        { consent: false, store: true },
+      expect(chunkedCall().opts).toEqual(
+        expect.objectContaining({
+          consent: false,
+          store: true,
+          context: undefined,
+        }),
       );
       act(() => comp.unmount());
     });
@@ -260,7 +285,7 @@ describe("AnalyzeScreen", () => {
           { uri: "file:///rec.m4a", name: "rec.m4a", size: 2048, mimeType: "audio/m4a" },
         ],
       });
-      mockUpload.mockResolvedValueOnce(uploadFixture);
+      mockChunkedJob.mockResolvedValueOnce({ result: uploadFixture });
 
       let comp!: renderer.ReactTestRenderer;
       act(() => {
@@ -280,12 +305,12 @@ describe("AnalyzeScreen", () => {
         queryId(comp, "upload-analyze-button")!.props.onPress();
       });
 
-      expect(mockUpload).toHaveBeenCalledWith(
-        "file:///rec.m4a",
-        "rec.m4a",
-        "audio/m4a",
-        relationshipContext("coworkers"),
-        { consent: false, store: true },
+      expect(chunkedCall().opts).toEqual(
+        expect.objectContaining({
+          consent: false,
+          store: true,
+          context: relationshipContext("coworkers"),
+        }),
       );
       act(() => comp.unmount());
     });
@@ -297,7 +322,7 @@ describe("AnalyzeScreen", () => {
           { uri: "file:///rec.m4a", name: "rec.m4a", size: 2048, mimeType: "audio/m4a" },
         ],
       });
-      mockUpload.mockResolvedValueOnce(uploadFixture);
+      mockChunkedJob.mockResolvedValueOnce({ result: uploadFixture });
 
       let comp!: renderer.ReactTestRenderer;
       act(() => {
@@ -318,12 +343,12 @@ describe("AnalyzeScreen", () => {
         queryId(comp, "upload-analyze-button")!.props.onPress();
       });
 
-      expect(mockUpload).toHaveBeenCalledWith(
-        "file:///rec.m4a",
-        "rec.m4a",
-        "audio/m4a",
-        `${PARTNERS_CONTEXT} We were arguing about chores.`,
-        { consent: false, store: true },
+      expect(chunkedCall().opts).toEqual(
+        expect.objectContaining({
+          consent: false,
+          store: true,
+          context: `${PARTNERS_CONTEXT} We were arguing about chores.`,
+        }),
       );
       act(() => comp.unmount());
     });
@@ -335,7 +360,7 @@ describe("AnalyzeScreen", () => {
           { uri: "file:///rec.m4a", name: "rec.m4a", size: 2048, mimeType: "audio/m4a" },
         ],
       });
-      mockUpload.mockResolvedValueOnce(uploadFixture);
+      mockChunkedJob.mockResolvedValueOnce({ result: uploadFixture });
 
       let comp!: renderer.ReactTestRenderer;
       act(() => {
@@ -353,12 +378,12 @@ describe("AnalyzeScreen", () => {
         queryId(comp, "upload-analyze-button")!.props.onPress();
       });
 
-      expect(mockUpload).toHaveBeenCalledWith(
-        "file:///rec.m4a",
-        "rec.m4a",
-        "audio/m4a",
-        "We were arguing about chores.",
-        { consent: false, store: true },
+      expect(chunkedCall().opts).toEqual(
+        expect.objectContaining({
+          consent: false,
+          store: true,
+          context: "We were arguing about chores.",
+        }),
       );
       act(() => comp.unmount());
     });
@@ -398,14 +423,15 @@ describe("AnalyzeScreen", () => {
       act(() => comp.unmount());
     });
 
-    it("picks a file, uploads it, loads the transcript, and navigates with the analysis", async () => {
+    it("picks a file, uploads it as a JOB, loads the transcript, and navigates with the analysis", async () => {
       mockPick.mockResolvedValueOnce({
         canceled: false,
         assets: [
           { uri: "file:///rec.m4a", name: "rec.m4a", size: 2048, mimeType: "audio/m4a" },
         ],
       });
-      mockUpload.mockResolvedValueOnce(uploadFixture);
+      mockChunkedJob.mockResolvedValueOnce({ jobId: "job_pick" });
+      mockGetJob.mockResolvedValueOnce(doneJob(uploadFixture));
       const onAnalyze = jest.fn();
 
       let comp!: renderer.ReactTestRenderer;
@@ -428,15 +454,18 @@ describe("AnalyzeScreen", () => {
 
       // Native file arg is the URI; no context (relationship unselected +
       // blank free text). Consent/store default to false/true when the
-      // checkbox was never touched.
-      expect(mockUpload).toHaveBeenCalledTimes(1);
-      expect(mockUpload).toHaveBeenCalledWith(
-        "file:///rec.m4a",
-        "rec.m4a",
-        "audio/m4a",
-        undefined,
-        { consent: false, store: true },
+      // checkbox was never touched. Even this small file rides the async job
+      // path — the direct sync upload is gone (false-failure incident).
+      expect(mockUpload).not.toHaveBeenCalled();
+      const { file, name, mimeType, size, opts } = chunkedCall();
+      expect(file).toBe("file:///rec.m4a");
+      expect(name).toBe("rec.m4a");
+      expect(mimeType).toBe("audio/m4a");
+      expect(size).toBe(2048);
+      expect(opts).toEqual(
+        expect.objectContaining({ consent: false, store: true }),
       );
+      expect(mockGetJob).toHaveBeenCalledWith("job_pick");
       // The server transcript (with timing) landed in the store.
       expect(useSessionStore.getState().turns).toEqual(uploadFixture.turns);
       // Navigated with the ready-made analysis, the (null, since unstored)
@@ -457,11 +486,13 @@ describe("AnalyzeScreen", () => {
           { uri: "file:///rec.m4a", name: "rec.m4a", size: 2048, mimeType: "audio/m4a" },
         ],
       });
-      mockUpload.mockResolvedValueOnce({
-        ...uploadFixture,
-        stored: true,
-        recording_id: "rec_123",
-        storage_note: null,
+      mockChunkedJob.mockResolvedValueOnce({
+        result: {
+          ...uploadFixture,
+          stored: true,
+          recording_id: "rec_123",
+          storage_note: null,
+        },
       });
       const onAnalyze = jest.fn();
 
@@ -488,12 +519,8 @@ describe("AnalyzeScreen", () => {
         queryId(comp, "upload-analyze-button")!.props.onPress();
       });
 
-      expect(mockUpload).toHaveBeenCalledWith(
-        "file:///rec.m4a",
-        "rec.m4a",
-        "audio/m4a",
-        undefined,
-        { consent: true, store: true },
+      expect(chunkedCall().opts).toEqual(
+        expect.objectContaining({ consent: true, store: true }),
       );
       // Stored: the confirmation line shows, recording id threaded through.
       expect(queryId(comp, "stored-note")).toBeTruthy();
@@ -513,7 +540,7 @@ describe("AnalyzeScreen", () => {
           { uri: "file:///bad.mov", name: "bad.mov", size: 10, mimeType: "video/quicktime" },
         ],
       });
-      mockUpload.mockRejectedValueOnce(new Error("API error: 422"));
+      mockChunkedJob.mockRejectedValueOnce(new Error("API error: 422"));
       const onAnalyze = jest.fn();
 
       let comp!: renderer.ReactTestRenderer;
@@ -564,6 +591,7 @@ describe("AnalyzeScreen", () => {
       expect(JSON.stringify(comp.toJSON())).toContain("the limit is 200 MB");
       expect(mockUpload).not.toHaveBeenCalled();
       expect(mockChunked).not.toHaveBeenCalled();
+      expect(mockChunkedJob).not.toHaveBeenCalled();
       expect(onAnalyze).not.toHaveBeenCalled();
       act(() => comp.unmount());
     });
@@ -658,32 +686,10 @@ describe("AnalyzeScreen", () => {
       act(() => comp.unmount());
     });
 
-    it("keeps the direct path (no chunking) for a small file", async () => {
-      mockPick.mockResolvedValueOnce({
-        canceled: false,
-        assets: [
-          { uri: "file:///small.m4a", name: "small.m4a", size: 2 * MB, mimeType: "audio/m4a" },
-        ],
-      });
-      mockUpload.mockResolvedValueOnce(uploadFixture);
-      const onAnalyze = jest.fn();
-
-      let comp!: renderer.ReactTestRenderer;
-      act(() => {
-        comp = renderer.create(<AnalyzeScreen onAnalyzeDynamics={onAnalyze} />);
-      });
-      await act(async () => {
-        queryId(comp, "pick-recording-button")!.props.onPress();
-      });
-      await act(async () => {
-        queryId(comp, "upload-analyze-button")!.props.onPress();
-      });
-
-      expect(mockUpload).toHaveBeenCalledTimes(1);
-      expect(mockChunked).not.toHaveBeenCalled();
-      expect(onAnalyze).toHaveBeenCalledWith(uploadFixture, null, false);
-      act(() => comp.unmount());
-    });
+    // NOTE: the old "keeps the direct path (no chunking) for a small file"
+    // test is gone deliberately — small files now take the chunked JOB path
+    // too (see the "always-async uploads" suite for the incident and the
+    // replacement assertion).
   });
 
   describe("preselected recording (from the in-app recorder)", () => {
@@ -699,11 +705,13 @@ describe("AnalyzeScreen", () => {
           },
         });
       });
-      mockUpload.mockResolvedValueOnce({
-        ...uploadFixture,
-        stored: true,
-        recording_id: "rec_rec",
-        storage_note: null,
+      mockChunkedJob.mockResolvedValueOnce({
+        result: {
+          ...uploadFixture,
+          stored: true,
+          recording_id: "rec_rec",
+          storage_note: null,
+        },
       });
       const onAnalyze = jest.fn();
 
@@ -719,16 +727,17 @@ describe("AnalyzeScreen", () => {
       expect(mockPick).not.toHaveBeenCalled();
       expect(useRecorderStore.getState().pendingFile).toBeNull();
 
-      // Upload & analyze goes down the normal path with the recorded file...
+      // Upload & analyze goes down the normal (job) path with the recorded file...
       await act(async () => {
         queryId(comp, "upload-analyze-button")!.props.onPress();
       });
-      expect(mockUpload).toHaveBeenCalledWith(
-        "file:///recorded.mp4",
-        "mindshift-123.mp4",
-        "video/mp4",
-        undefined,
-        { consent: false, store: true },
+      const { file, name, mimeType, size, opts } = chunkedCall();
+      expect(file).toBe("file:///recorded.mp4");
+      expect(name).toBe("mindshift-123.mp4");
+      expect(mimeType).toBe("video/mp4");
+      expect(size).toBe(3 * MB);
+      expect(opts).toEqual(
+        expect.objectContaining({ consent: false, store: true }),
       );
       // ...and the handoff marks it recorder-origin (third arg true) so Dynamics
       // can offer the HD-later popup.
@@ -1049,14 +1058,14 @@ describe("AnalyzeScreen", () => {
   });
 
   describe("naming a conversation", () => {
-    it("sends the typed title with a direct upload", async () => {
+    it("sends the typed title with a file upload", async () => {
       mockPick.mockResolvedValueOnce({
         canceled: false,
         assets: [
           { uri: "file:///rec.m4a", name: "rec.m4a", size: 2048, mimeType: "audio/m4a" },
         ],
       });
-      mockUpload.mockResolvedValueOnce(uploadFixture);
+      mockChunkedJob.mockResolvedValueOnce({ result: uploadFixture });
 
       let comp!: renderer.ReactTestRenderer;
       act(() => {
@@ -1075,11 +1084,7 @@ describe("AnalyzeScreen", () => {
         queryId(comp, "upload-analyze-button")!.props.onPress();
       });
 
-      expect(mockUpload).toHaveBeenCalledWith(
-        "file:///rec.m4a",
-        "rec.m4a",
-        "audio/m4a",
-        undefined,
+      expect(chunkedCall().opts).toEqual(
         expect.objectContaining({ title: "Sunday budget talk" }),
       );
       act(() => comp.unmount());
@@ -1241,11 +1246,11 @@ describe("AnalyzeScreen", () => {
 
     it("renders the honest offline message and the request id when the upload can't reach the server", async () => {
       pickSmall();
-      mockUpload.mockRejectedValueOnce(
+      mockChunkedJob.mockRejectedValueOnce(
         new UploadError("Upload network failure: Network request failed", {
           status: 0,
           requestId: "req-abc123",
-          path: "direct",
+          path: "chunked",
           bytes: 2048,
           elapsedMs: 1234,
           causeName: "TypeError",
@@ -1264,12 +1269,26 @@ describe("AnalyzeScreen", () => {
       expect(json).toContain("req-abc123");
       // No navigation on failure — never a fabricated analysis.
       expect(onAnalyze).not.toHaveBeenCalled();
+      // The failure was reported to /client-log with the diagnosis (request id,
+      // status, extension + size — never the personal file NAME).
+      expect(mockReport).toHaveBeenCalledWith(
+        "upload-failure",
+        expect.objectContaining({
+          requestId: "req-abc123",
+          status: 0,
+          path: "chunked",
+          fileExt: ".m4a",
+          fileSize: 2048,
+          causeName: "TypeError",
+        }),
+      );
+      expect(JSON.stringify(mockReport.mock.calls[0])).not.toContain("rec.m4a");
       act(() => comp.unmount());
     });
 
     it("keeps the collapsed error details available and expands them on tap", async () => {
       pickSmall();
-      mockUpload.mockRejectedValueOnce(
+      mockChunkedJob.mockRejectedValueOnce(
         new UploadError("Upload network failure: Network request failed", {
           status: 0,
           requestId: "req-details",
@@ -1300,11 +1319,11 @@ describe("AnalyzeScreen", () => {
 
     it("keeps the mapped message for an HTTP failure but still shows the request id", async () => {
       pickSmall();
-      mockUpload.mockRejectedValueOnce(
+      mockChunkedJob.mockRejectedValueOnce(
         new UploadError("API error: 413", {
           status: 413,
           requestId: "req-413413",
-          path: "direct",
+          path: "chunked",
           bytes: 2048,
           elapsedMs: 900,
         }),
@@ -1312,17 +1331,18 @@ describe("AnalyzeScreen", () => {
       const comp = await renderAndUpload();
 
       const json = JSON.stringify(comp.toJSON());
-      expect(json).toContain("too large");
+      // The chunked 413 mapping names the actual size and the hard cap.
+      expect(json).toContain("the limit is 200 MB");
       expect(json).toContain("req-413413");
       act(() => comp.unmount());
     });
   });
 
   // --- Unknown-size routing (stat via expo-file-system) ---------------------
-  // The picker sometimes reports no size. The old behavior fell back to the
-  // DIRECT path — a >32MB body then died at the Cloud Run ingress before the
-  // server saw it. Now the file is statted, and a still-unknown size routes to
-  // the CHUNKED path, never direct.
+  // The picker sometimes reports no size. The file is statted so the 200MB
+  // pre-flight refusal and the chunked client's chunk math rest on facts; the
+  // statted (or still-unknown) size is passed to the job path, which every
+  // upload now takes regardless.
   describe("unknown-size routing", () => {
     afterEach(() => {
       delete (globalThis as Record<string, unknown>).__fsMockSize;
@@ -1363,15 +1383,18 @@ describe("AnalyzeScreen", () => {
       act(() => comp.unmount());
     });
 
-    it("stats the file and keeps the direct path for a small one", async () => {
+    it("stats a small file and passes the found size to the chunked job path", async () => {
       pickNoSize();
       (globalThis as Record<string, unknown>).__fsMockSize = 2 * MB;
-      mockUpload.mockResolvedValueOnce(uploadFixture);
+      mockChunkedJob.mockResolvedValueOnce({ result: uploadFixture });
 
       const comp = await renderAndUpload();
 
-      expect(mockChunkedJob).not.toHaveBeenCalled();
-      expect(mockUpload).toHaveBeenCalledTimes(1);
+      // Small files ride the job path too now — with the statted size, so the
+      // chunked client's chunk math rests on facts.
+      expect(mockUpload).not.toHaveBeenCalled();
+      expect(mockChunkedJob).toHaveBeenCalledTimes(1);
+      expect(mockChunkedJob.mock.calls[0][3]).toBe(2 * MB);
       act(() => comp.unmount());
     });
 
@@ -1387,6 +1410,193 @@ describe("AnalyzeScreen", () => {
       expect(mockUpload).not.toHaveBeenCalled();
       expect(mockChunkedJob).toHaveBeenCalledTimes(1);
       expect(mockChunkedJob.mock.calls[0][3]).toBeNull();
+      act(() => comp.unmount());
+    });
+  });
+
+  // --- Always-async uploads (the 2026-08-15 false-failure incident) ----------
+  // A SMALL file used to take the synchronous /analyze/upload path. A cold
+  // Cloud Run instance takes ~3 minutes to analyze (voice-model load) — the
+  // phone's fetch gave up on the held-open response and showed "Couldn't reach
+  // the server" while the server completed AND stored the recording (request id
+  // d883883b… logged 200 server-side). Every upload now goes through the
+  // chunked ASYNC JOB path, which holds no response open.
+  describe("always-async uploads (false-failure incident)", () => {
+    it("routes even a small file through the chunked JOB path — postAnalyzeUpload is never called", async () => {
+      mockPick.mockResolvedValueOnce({
+        canceled: false,
+        assets: [
+          { uri: "file:///small.m4a", name: "small.m4a", size: 2 * MB, mimeType: "audio/m4a" },
+        ],
+      });
+      mockChunkedJob.mockResolvedValueOnce({ jobId: "job_small" });
+      mockGetJob.mockResolvedValueOnce(doneJob(uploadFixture));
+      const onAnalyze = jest.fn();
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<AnalyzeScreen onAnalyzeDynamics={onAnalyze} />);
+      });
+      await act(async () => {
+        queryId(comp, "pick-recording-button")!.props.onPress();
+      });
+      await act(async () => {
+        queryId(comp, "upload-analyze-button")!.props.onPress();
+      });
+
+      // The job path was used with the small file's true size; the synchronous
+      // direct upload (the false-failure path) was never touched.
+      expect(mockUpload).not.toHaveBeenCalled();
+      expect(mockChunkedJob).toHaveBeenCalledTimes(1);
+      expect(mockChunkedJob.mock.calls[0][0]).toBe("file:///small.m4a");
+      expect(mockChunkedJob.mock.calls[0][3]).toBe(2 * MB);
+      // Completed as a polled job and navigated with the ready-made analysis.
+      expect(mockGetJob).toHaveBeenCalledWith("job_small");
+      expect(onAnalyze).toHaveBeenCalledWith(uploadFixture, null, false);
+      act(() => comp.unmount());
+    });
+  });
+
+  // --- Consuming rescued recorder output after a successful analysis ---------
+  // RecoveryPrompt offers orphaned stitched files from recorder-out/. After a
+  // SUCCESSFUL upload+analysis nothing deleted the file, so it was re-offered
+  // forever — inviting duplicate analyses. The success path must discard it.
+  describe("consuming recorder output after successful analysis", () => {
+    const ORPHAN_URI = "file:///docs/recorder-out/mindshift-audio-99.wav";
+
+    /** A recorder-store seam (the same test seam RecoveryPrompt uses) whose
+     *  discardOrphan is observable. list* return empty so no prompt renders. */
+    function makeStoreSeam(discardOrphan: jest.Mock = jest.fn()) {
+      const store = {
+        listRecoverable: jest.fn(() => []),
+        listOrphanStitched: jest.fn(() => []),
+        discardOrphan,
+      };
+      return {
+        store,
+        deps: { store } as unknown as AudioRecorderDeps,
+      };
+    }
+
+    async function pickAndUpload(
+      comp: renderer.ReactTestRenderer,
+    ): Promise<void> {
+      await act(async () => {
+        queryId(comp, "pick-recording-button")!.props.onPress();
+      });
+      await act(async () => {
+        queryId(comp, "upload-analyze-button")!.props.onPress();
+      });
+    }
+
+    it("discards the orphan from the store when a recorder-out/ file analyzes successfully", async () => {
+      const { store, deps } = makeStoreSeam();
+      mockPick.mockResolvedValueOnce({
+        canceled: false,
+        assets: [
+          {
+            uri: ORPHAN_URI,
+            name: "mindshift-audio-99.wav",
+            size: 2 * MB,
+            mimeType: "audio/wav",
+          },
+        ],
+      });
+      mockChunkedJob.mockResolvedValueOnce({ result: uploadFixture });
+      const onAnalyze = jest.fn();
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(
+          <AnalyzeScreen onAnalyzeDynamics={onAnalyze} recorderDeps={deps} />,
+        );
+      });
+      await pickAndUpload(comp);
+
+      // The success path consumed the rescued file — it can't be re-offered.
+      expect(store.discardOrphan).toHaveBeenCalledWith(ORPHAN_URI);
+      expect(onAnalyze).toHaveBeenCalledWith(uploadFixture, null, false);
+      act(() => comp.unmount());
+    });
+
+    it("leaves files that did NOT come from recorder-out/ alone", async () => {
+      const { store, deps } = makeStoreSeam();
+      mockPick.mockResolvedValueOnce({
+        canceled: false,
+        assets: [
+          { uri: "file:///rec.m4a", name: "rec.m4a", size: 2048, mimeType: "audio/m4a" },
+        ],
+      });
+      mockChunkedJob.mockResolvedValueOnce({ result: uploadFixture });
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<AnalyzeScreen recorderDeps={deps} />);
+      });
+      await pickAndUpload(comp);
+
+      expect(store.discardOrphan).not.toHaveBeenCalled();
+      act(() => comp.unmount());
+    });
+
+    it("does not discard anything when the upload FAILS", async () => {
+      const { store, deps } = makeStoreSeam();
+      mockPick.mockResolvedValueOnce({
+        canceled: false,
+        assets: [
+          {
+            uri: ORPHAN_URI,
+            name: "mindshift-audio-99.wav",
+            size: 2 * MB,
+            mimeType: "audio/wav",
+          },
+        ],
+      });
+      mockChunkedJob.mockRejectedValueOnce(new Error("API error: 502"));
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<AnalyzeScreen recorderDeps={deps} />);
+      });
+      await pickAndUpload(comp);
+
+      // The rescued audio survives a failed upload — it must be re-offered.
+      expect(store.discardOrphan).not.toHaveBeenCalled();
+      expect(queryId(comp, "upload-error")).toBeTruthy();
+      act(() => comp.unmount());
+    });
+
+    it("a throwing discardOrphan never breaks the success flow", async () => {
+      const { deps } = makeStoreSeam(
+        jest.fn(() => {
+          throw new Error("disk error");
+        }),
+      );
+      mockPick.mockResolvedValueOnce({
+        canceled: false,
+        assets: [
+          {
+            uri: ORPHAN_URI,
+            name: "mindshift-audio-99.wav",
+            size: 2 * MB,
+            mimeType: "audio/wav",
+          },
+        ],
+      });
+      mockChunkedJob.mockResolvedValueOnce({ result: uploadFixture });
+      const onAnalyze = jest.fn();
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(
+          <AnalyzeScreen onAnalyzeDynamics={onAnalyze} recorderDeps={deps} />,
+        );
+      });
+      await pickAndUpload(comp);
+
+      // Success flow untouched: navigation happened, no error shown.
+      expect(onAnalyze).toHaveBeenCalledWith(uploadFixture, null, false);
+      expect(queryId(comp, "upload-error")).toBeNull();
       act(() => comp.unmount());
     });
   });

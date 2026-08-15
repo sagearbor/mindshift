@@ -5,21 +5,22 @@ import App from "../App";
 import { useAuthStore } from "../src/store/authStore";
 import { useSessionStore } from "../src/store/sessionStore";
 import { useAnalyzeStore } from "../src/store/analyzeStore";
-import { postAnalyzeUpload } from "../src/api/client";
+import { postAnalyzeUploadChunkedJob } from "../src/api/client";
 import type { UploadAnalyzeResult } from "../src/api/client";
 
 // Keep the real client (postAnalyze and the recordings API run through fetch)
-// but stub the multipart upload call — its FormData plumbing is covered by
+// but stub the chunked-job upload call (EVERY file upload rides it now — the
+// direct sync path is gone) — its chunk/FormData plumbing is covered by
 // client.test.ts; here we care about the navigation wiring around its result.
 jest.mock("../src/api/client", () => ({
   __esModule: true,
   ...jest.requireActual("../src/api/client"),
-  postAnalyzeUpload: jest.fn(),
+  postAnalyzeUploadChunkedJob: jest.fn(),
 }));
 
 const mockFetch = global.fetch as jest.Mock;
 const mockPick = DocumentPicker.getDocumentAsync as jest.Mock;
-const mockUpload = postAnalyzeUpload as jest.Mock;
+const mockUpload = postAnalyzeUploadChunkedJob as jest.Mock;
 
 /** The firebase/auth mock state from jest-setup. */
 interface FirebaseAuthMock {
@@ -339,7 +340,9 @@ describe("two-mode navigation", () => {
         { uri: "file:///rec.m4a", name: "rec.m4a", size: 2048, mimeType: "audio/m4a" },
       ],
     });
-    mockUpload.mockResolvedValueOnce(uploadResult);
+    // The chunked-job client already fell back to a synchronous complete and
+    // returns the finished result directly — no job polling in this test.
+    mockUpload.mockResolvedValueOnce({ result: uploadResult });
 
     // ReplayScreen fetches the recording detail + a signed media URL on mount —
     // serve both by URL so the test proves WHICH recording it asked for.
