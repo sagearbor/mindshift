@@ -1,37 +1,25 @@
 # Ported from gauge@2157433 server/tests/test_store.py; adapted per docs/plans/2026-08-15-phase1-one-repo-one-engine.md
 #
-# NOTE ON DEVIATION FROM SOURCE: the four `test_concurrent_*` tests below
-# (group-atomicity races) originally imported their mutators from
+# Task B6 CLOSE-OUT: the four `test_concurrent_*` tests below (group-
+# atomicity races) originally imported their mutators from
 # `server.groups_api` (`make_join_mutator`, `make_invite_mutator`,
-# `make_leave_mutator`). That router is Task B6's deliverable
-# (`watch/routers/groups.py`) and does not exist yet at B2 time — B4's brief
-# sets the precedent for this exact situation ("do not port a failing router
-# test into this task"; defer/adapt by implementer judgment). Rather than
-# drop these store-atomicity tests entirely, the three mutator builders are
-# inlined here as a behaviorally equivalent local port of gauge@2157433
-# server/groups_api.py's same-named functions (verified against
-# gauge@2157433 groups_api.py; `_require_member`'s body is inlined into
-# `make_invite_mutator` rather than kept as a separate helper, and its
-# body-only comment was dropped — the invariant checks and control flow are
-# otherwise unchanged, renamed only for the Episode->LiveSession vocabulary
-# already in play here).
-#
-# TODO(Task B6): when watch/routers/groups.py lands, re-point these imports
-# to the real make_invite_mutator/make_join_mutator/make_leave_mutator and
-# delete these copies; until then any change to the real mutators MUST be
-# mirrored here.
+# `make_leave_mutator`). At B2 time that router didn't exist yet, so the
+# three mutator builders were inlined here as a behaviorally equivalent local
+# port (see git history for that version). Now that `watch/routers/groups.py`
+# has landed, these tests import the REAL mutators from it directly —
+# confirmed byte-for-byte identical control flow/messages to the copies they
+# replace (same invariant checks, same HTTPException status codes/details,
+# same field mutations), so no test assertion below needed to change.
 import asyncio
 import json
 import threading
 import time
-import uuid
-from datetime import datetime, timezone
-from typing import Callable
 
 import pytest
 from fastapi import HTTPException
 
-from watch.store import MAX_FIRESTORE_PCM_B64, PAIR_MAX_MEMBERS, MemoryLiveSessionStore, live_session_to_doc
+from watch.routers.groups import make_invite_mutator, make_join_mutator, make_leave_mutator
+from watch.store import MAX_FIRESTORE_PCM_B64, MemoryLiveSessionStore, live_session_to_doc
 from watch.models import (
     LiveSession, Participant, ConsentRecord, VectorEvent, LegacyClaim,
     Group, GroupInvite, GroupMember,
@@ -255,81 +243,6 @@ def test_group_store_copies_out():
 # checks -- reproducing exactly the bug the fix closes. With the lock, the
 # second thread's read cannot start until the first thread's write has fully
 # committed, so it correctly sees the already-mutated state and rejects.
-
-INVITE_CODE_CHARS = 8
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _mutual_visibility_consent(account_id: str) -> ConsentRecord:
-    return ConsentRecord(
-        id=uuid.uuid4().hex,
-        participant_id=account_id,
-        kind="mutual_visibility",
-        attested_by=account_id,
-        confirmed=True,
-        ts=_now_iso(),
-    )
-
-
-def make_invite_mutator(account: str, email: str | None) -> Callable[["Group | None"], "Group"]:
-    """Local port of gauge@2157433 server/groups_api.py's
-    make_invite_mutator — see module docstring at the top of this file for
-    why it's inlined rather than imported (B6 hasn't landed yet)."""
-    def mutate(group):
-        if group is None:
-            raise HTTPException(status_code=404, detail="group not found")
-        if not any(m.account_id == account for m in group.members):
-            raise HTTPException(status_code=403, detail="only members may do this")
-        if group.kind == "pair" and len(group.members) >= PAIR_MAX_MEMBERS:
-            raise HTTPException(status_code=409, detail="this pair is already full")
-        group.invites.append(GroupInvite(
-            code=uuid.uuid4().hex[:INVITE_CODE_CHARS],
-            email=email,
-            invited_by=account,
-            created_at=_now_iso(),
-        ))
-        return group
-    return mutate
-
-
-def make_join_mutator(account: str, code: str) -> Callable[["Group | None"], "Group"]:
-    """Local port of gauge@2157433 server/groups_api.py's make_join_mutator."""
-    def mutate(group):
-        if group is None:
-            raise HTTPException(status_code=404, detail="invite not found")
-        invite_rec = next((inv for inv in group.invites if inv.code == code), None)
-        if invite_rec is None:
-            raise HTTPException(status_code=404, detail="invite not found")
-        if invite_rec.accepted_by is not None:
-            raise HTTPException(status_code=409, detail="invite already accepted")
-        if any(m.account_id == account for m in group.members):
-            raise HTTPException(status_code=409, detail="already a member of this group")
-        if group.kind == "pair" and len(group.members) >= PAIR_MAX_MEMBERS:
-            raise HTTPException(status_code=409, detail="this pair is already full")
-
-        now = _now_iso()
-        group.members.append(GroupMember(account_id=account, joined_at=now))
-        group.consents.append(_mutual_visibility_consent(account))
-        invite_rec.accepted_by = account
-        invite_rec.accepted_at = now
-        return group
-    return mutate
-
-
-def make_leave_mutator(account: str) -> Callable[["Group | None"], "Group"]:
-    """Local port of gauge@2157433 server/groups_api.py's make_leave_mutator."""
-    def mutate(group):
-        if group is None:
-            raise HTTPException(status_code=404, detail="group not found")
-        if not any(m.account_id == account for m in group.members):
-            raise HTTPException(status_code=404, detail="not a member of this group")
-        group.members = [m for m in group.members if m.account_id != account]
-        return group
-    return mutate
-
 
 class _SlowMemoryStore(MemoryLiveSessionStore):
     def _read_group_locked(self, group_id):

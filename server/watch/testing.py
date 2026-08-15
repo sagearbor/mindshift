@@ -10,23 +10,27 @@ store/verifier seams) is an explicit kwarg instead, so a test's auth
 posture is visible at the call site rather than hidden in a monkeypatched
 env var.
 
-Task B5 (this task) mounts only the REST router (``watch/routers/rest.py``:
-``/me``, ``/me/standing``, ``/me/claim-legacy``, ``/accounts/lookup``,
-``/live-sessions*``, ``/settings/vectors``, ``/enroll*``). Every other kwarg
-below (``pairing_store``, ``telemetry_store``, ``blobs``, ``full_verifier``,
-``transcriber``, ``llm``, ``diarizer``) is accepted now but UNUSED — they are
-reserved so later router tasks (B6 groups, B7 captures, B8 pairing, B9
-telemetry, B10 post-session analysis, B11 WS ingest) can extend this same
-function signature without breaking already-ported callers.
+Task B5 mounted the REST router (``watch/routers/rest.py``: ``/me``,
+``/me/standing``, ``/me/claim-legacy``, ``/accounts/lookup``,
+``/live-sessions*``, ``/settings/vectors``, ``/enroll*``). Task B6 (this
+task) adds the groups router (``watch/routers/groups.py``: ``/groups*``) —
+mounted unconditionally, same rationale as REST: ``MemoryLiveSessionStore``
+is a sensible default and every route requires ``strict_auth_dep`` regardless
+of any other kwarg's availability. Every other kwarg below (``pairing_store``,
+``telemetry_store``, ``blobs``, ``full_verifier``, ``transcriber``, ``llm``,
+``diarizer``) is accepted now but UNUSED — they are reserved so later router
+tasks (B7 captures, B8 pairing, B9 telemetry, B10 post-session analysis, B11
+WS ingest) can extend this same function signature without breaking
+already-ported callers.
 
-**Extension pattern for B6-B11**: each later task adds its router's mount
+**Extension pattern for B7-B11**: each later task adds its router's mount
 here, gated on its own dependency being meaningfully available — e.g.
 ``if pairing_store is not None: app.include_router(make_pairing_router(...))``
 for a router whose whole PURPOSE is that dependency, or "mount
-unconditionally with a default store" for a router that (like REST here)
-always has something sensible to run against in tests. Mount each new
-router with its own ``app.include_router(...)`` call, immediately after the
-existing mounts — never replace or wrap an earlier mount. The auth
+unconditionally with a default store" for a router that (like REST and
+groups here) always has something sensible to run against in tests. Mount
+each new router with its own ``app.include_router(...)`` call, immediately
+after the existing mounts — never replace or wrap an earlier mount. The auth
 dependencies (``auth_dep``/``strict_auth_dep``) are built ONCE, here, and
 reused by every router task's mount, so every route shares one identity
 resolution ladder (see ``watch/auth.py``'s module docstring) no matter which
@@ -40,6 +44,7 @@ from typing import Any
 from fastapi import FastAPI
 
 from watch.auth import TokenVerifier, make_auth_dependency, require_full_auth
+from watch.routers.groups import make_groups_router
 from watch.routers.rest import make_rest_router
 from watch.store import LiveSessionStore, MemoryLiveSessionStore
 
@@ -88,5 +93,12 @@ def create_watch_test_app(
     # `app.include_router(...)` call here, gated on their own kwarg per this
     # module's docstring, without touching this line.
     app.include_router(make_rest_router(resolved_store, auth_dep, strict_auth_dep, embedder=embedder))
+
+    # Task B6: groups router — always mounted (like REST above, it has no
+    # dependency that would ever be "absent" in a test). Every route in it
+    # requires strict_auth_dep (full-auth only, no legacy `?account=` caller)
+    # per watch/auth.py's require_full_auth — see watch/routers/groups.py's
+    # module docstring for the I2/I3 controller ruling this preserves.
+    app.include_router(make_groups_router(resolved_store, strict_auth_dep))
 
     return app
