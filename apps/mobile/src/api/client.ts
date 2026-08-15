@@ -1808,6 +1808,71 @@ export async function enrollVoice(
   return (await res.json()) as EnrollResult;
 }
 
+/** POST /voice/enroll-direct response — the guided-enrollment confirmation. */
+export interface DirectEnrollResult {
+  enrolled: boolean;
+  enroll_count: number;
+  dim: number;
+  updated_at: string;
+  // Plain-language statement of exactly what is stored (biometric transparency).
+  stored: string;
+}
+
+/**
+ * POST /voice/enroll-direct — guided "Train my voice": upload ONE short wav of
+ * the prompted phrases (only the enrolling user's voice) as multipart. `file`
+ * is the platform-native handle exactly like {@link postAnalyzeUpload}: a
+ * `File` on web, a local file URI on native (appended as an expo-file-system
+ * File — a real Blob — because the strict WinterCG fetch rejects RN's legacy
+ * uri descriptor). No manual Content-Type: fetch must set the multipart
+ * boundary itself. The thrown error carries `.status` and the server's honest
+ * `detail` (422 not enough speech, 413 too large, 503 voice ID unavailable)
+ * so the flow can say exactly what went wrong.
+ */
+export async function enrollVoiceDirect(
+  file: string | File,
+  name: string = "guided-enrollment.wav",
+): Promise<DirectEnrollResult> {
+  const form = new FormData();
+  if (Platform.OS === "web") {
+    form.append("file", file as File, name);
+  } else {
+    form.append("file", new FSFile(file as string) as unknown as Blob, name);
+  }
+  const token = await getFreshToken();
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/voice/enroll-direct`, {
+      method: "POST",
+      headers,
+      body: form as unknown as BodyInit,
+    });
+  } catch (cause) {
+    const err = new Error(
+      "network request failed — check your connection and try again",
+    ) as Error & { status?: number; cause?: unknown };
+    err.status = 0;
+    err.cause = cause;
+    throw err;
+  }
+  if (!res.ok) {
+    let detail = "";
+    try {
+      detail = ((await res.json()) as { detail?: string }).detail ?? "";
+    } catch {
+      // non-JSON body — leave detail empty
+    }
+    const err = new Error(detail || `API error: ${res.status}`) as Error & {
+      status?: number;
+    };
+    err.status = res.status;
+    throw err;
+  }
+  return (await res.json()) as DirectEnrollResult;
+}
+
 /**
  * DELETE /voice/voiceprint — "Forget my voice": really delete the stored
  * biometric signature. Resolves to whether one existed (idempotent); throws

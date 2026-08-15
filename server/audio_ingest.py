@@ -416,6 +416,22 @@ def decode_to_pcm(data: bytes, filename: str) -> tuple[np.ndarray, int]:
     return _decode_via_ffmpeg(data, filename)
 
 
+def decode_to_pcm_16k(data: bytes, filename: str) -> tuple[np.ndarray, int]:
+    """Like :func:`decode_to_pcm` but GUARANTEED 16 kHz output.
+
+    Voice embedding (speaker_id) only accepts 16 kHz. The client records at
+    16 kHz, but hardware may honestly deliver another rate (44.1/48 kHz) — the
+    stdlib WAV path preserves that native rate, so such a clip is re-decoded
+    through ffmpeg, which resamples properly (never a naive slice/repeat).
+    Raises :class:`AudioDecodeError` when a resample is needed but ffmpeg is
+    unavailable — an honest failure, never a mis-rated embedding."""
+    pcm, sr = decode_to_pcm(data, filename)
+    if sr == FFMPEG_TARGET_SR:
+        return pcm, sr
+    logger.info("resampling %d Hz upload to %d Hz via ffmpeg", sr, FFMPEG_TARGET_SR)
+    return _decode_via_ffmpeg(data, filename)
+
+
 # ---------------------------------------------------------------------------
 # Deepgram pre-recorded transcription
 # ---------------------------------------------------------------------------

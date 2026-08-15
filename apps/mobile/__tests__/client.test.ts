@@ -25,6 +25,7 @@ import {
   deleteRecording,
   postReanalyze,
   reportClientLog,
+  enrollVoiceDirect,
 } from "../src/api/client";
 import {
   getFreshToken,
@@ -1643,6 +1644,67 @@ describe("reportClientLog", () => {
     await expect(
       reportClientLog("upload-failure", {}),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("enrollVoiceDirect", () => {
+  it("POSTs the wav as a real multipart Blob part to /voice/enroll-direct", async () => {
+    const { File: MockFSFile } = jest.requireMock("expo-file-system");
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        enrolled: true,
+        enroll_count: 2,
+        dim: 192,
+        updated_at: "2026-08-15T10:00:00+00:00",
+        stored: "a numeric voice signature (192 numbers), not your audio",
+      }),
+    });
+    const res = await enrollVoiceDirect(
+      "file:///cache/guided-enrollment.wav",
+      "guided-enrollment.wav",
+    );
+    expect(res.enroll_count).toBe(2);
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toContain("/voice/enroll-direct");
+    expect(init.method).toBe("POST");
+    // The part must be a real Blob (expo-file-system File) — the strict
+    // WinterCG fetch rejects RN's legacy uri descriptor.
+    const body = init.body as FormData;
+    const part = body.get("file");
+    expect(part instanceof MockFSFile || part instanceof Blob).toBe(true);
+    // fetch must set the multipart boundary itself — no manual Content-Type.
+    expect(init.headers["Content-Type"]).toBeUndefined();
+  });
+
+  it("carries the server's honest detail and status on a 422", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      json: async () => ({
+        detail: "not enough speech in the clip to enroll trustworthily",
+      }),
+    });
+    await expect(
+      enrollVoiceDirect("file:///cache/x.wav", "x.wav"),
+    ).rejects.toMatchObject({
+      status: 422,
+      message: expect.stringContaining("not enough speech"),
+    });
+  });
+
+  it("falls back to the bare status when the error body is not JSON", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      json: async () => {
+        throw new Error("not json");
+      },
+    });
+    await expect(
+      enrollVoiceDirect("file:///cache/x.wav", "x.wav"),
+    ).rejects.toMatchObject({ status: 503, message: "API error: 503" });
   });
 });
 

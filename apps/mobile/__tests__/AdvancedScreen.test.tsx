@@ -27,6 +27,25 @@ jest.mock("../src/api/client", () => ({
   deleteVoiceSample: jest.fn(),
   forgetVoice: jest.fn(),
 }));
+
+// The guided training flow is its own tested component (VoiceTrainingFlow
+// .test.tsx); here it is a stub that records the props AdvancedScreen wires
+// so the toggle + completion refresh can be driven without a recorder.
+let mockVtProps: {
+  onDone: (count: number) => void;
+  onCancel: () => void;
+} | null = null;
+jest.mock("../src/components/VoiceTrainingFlow", () => {
+  const React = require("react");
+  const { View } = require("react-native");
+  return {
+    __esModule: true,
+    default: (props: { onDone: (count: number) => void; onCancel: () => void }) => {
+      mockVtProps = props;
+      return React.createElement(View, { testID: "voice-training-flow" });
+    },
+  };
+});
 const mockProfile = getVoiceProfile as jest.Mock;
 const mockList = listRecordings as jest.Mock;
 const mockDeleteSample = deleteVoiceSample as jest.Mock;
@@ -109,6 +128,7 @@ async function render(handlers = makeHandlers()) {
 
 beforeEach(() => {
   mockOta = baseOta();
+  mockVtProps = null;
   mockProfile.mockReset();
   mockList.mockReset();
   mockDeleteSample.mockReset();
@@ -356,6 +376,80 @@ describe("AdvancedScreen — voice profile card", () => {
       "Not enrolled",
     );
     expect(queryId(comp, "advanced-forget-voice")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("offers Train my voice in both the enrolled and not-enrolled card", async () => {
+    mockProfile.mockResolvedValue(enrolledProfile());
+    mockList.mockResolvedValue([]);
+    let comp = await render();
+    expect(queryId(comp, "voice-train-button")).toBeTruthy();
+    act(() => comp.unmount());
+
+    mockProfile.mockResolvedValue(
+      enrolledProfile({ enrolled: false, enroll_count: 0, samples: [] }),
+    );
+    comp = await render();
+    expect(queryId(comp, "voice-train-button")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("opens the guided flow in place and closes it on cancel", async () => {
+    mockProfile.mockResolvedValue(enrolledProfile());
+    mockList.mockResolvedValue([]);
+    const comp = await render();
+
+    expect(queryId(comp, "voice-training-flow")).toBeNull();
+    act(() => queryId(comp, "voice-train-button")!.props.onPress());
+    expect(queryId(comp, "voice-training-flow")).toBeTruthy();
+    // The button hides while the flow is open (one affordance at a time).
+    expect(queryId(comp, "voice-train-button")).toBeNull();
+
+    act(() => mockVtProps!.onCancel());
+    expect(queryId(comp, "voice-training-flow")).toBeNull();
+    expect(queryId(comp, "voice-train-button")).toBeTruthy();
+
+    act(() => comp.unmount());
+  });
+
+  it("refreshes the profile from the server when guided training completes", async () => {
+    mockProfile.mockResolvedValue(
+      enrolledProfile({ enrolled: false, enroll_count: 0, samples: [] }),
+    );
+    mockList.mockResolvedValue([]);
+    const comp = await render();
+    expect(textOf(queryId(comp, "voice-profile-status")!)).toContain(
+      "Not enrolled",
+    );
+
+    act(() => queryId(comp, "voice-train-button")!.props.onPress());
+    // The server is the source of truth after enrollment: onDone refetches.
+    mockProfile.mockResolvedValue(
+      enrolledProfile({
+        enroll_count: 1,
+        samples: [
+          {
+            id: "g1",
+            recording_id: null,
+            speaker: null,
+            at: "2026-08-15T10:00:00+00:00",
+            note: "guided enrollment",
+          },
+        ],
+      }),
+    );
+    await act(async () => mockVtProps!.onDone(1));
+
+    expect(mockProfile).toHaveBeenCalledTimes(2);
+    expect(queryId(comp, "voice-training-flow")).toBeNull();
+    expect(textOf(queryId(comp, "voice-profile-status")!)).toContain(
+      "Enrolled · 1 sample",
+    );
+    // The guided sample's provenance note is shown.
+    expect(textOf(queryId(comp, "voice-sample-g1")!)).toContain(
+      "guided enrollment",
+    );
+
     act(() => comp.unmount());
   });
 

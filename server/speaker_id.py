@@ -85,6 +85,13 @@ TARGET_SR = 16000
 # guess. ~1s is plenty for pooled matching; enrollment wants a touch more.
 MIN_MATCH_SECONDS = 1.0
 MIN_ENROLL_SECONDS = 3.0
+
+# Guided (direct-upload) enrollment measures ACTUAL speech, not clip length —
+# a long silent clip must not enroll. Frames whose RMS clears the floor count
+# as speech; 0.01 (~ -40 dBFS) sits well below quiet speech (~0.03-0.1 RMS)
+# and above room-tone/handling noise on phone mics.
+SPEECH_FRAME_MS = 30.0
+SPEECH_RMS_THRESHOLD = 0.01
 # Cap pooled audio per speaker so a very long recording can't make one embed call
 # unbounded; the first ~60s of a voice is more than enough identity signal.
 MAX_POOL_SECONDS = 60.0
@@ -287,6 +294,38 @@ def pool_speaker_pcm(
     return np.ascontiguousarray(pooled, dtype=np.float32)
 
 
+def speech_seconds(
+    pcm: np.ndarray,
+    sr: int,
+    *,
+    frame_ms: float = SPEECH_FRAME_MS,
+    rms_threshold: float = SPEECH_RMS_THRESHOLD,
+) -> float:
+    """Seconds of ACTUAL speech-level audio in ``pcm`` (pure numpy, no torch).
+
+    A simple energy gate: the clip is cut into ``frame_ms`` frames and every
+    frame whose RMS clears ``rms_threshold`` counts as speech. Deliberately
+    conservative and honest — it distinguishes "a long clip" from "a long clip
+    with enough speech in it", so a silent upload can never enroll. Returns 0.0
+    for empty audio or a nonsensical sample rate rather than guessing."""
+    pcm = np.asarray(pcm, dtype=np.float32)
+    if pcm.size == 0 or sr <= 0:
+        return 0.0
+    frame = max(1, int(sr * frame_ms / 1000.0))
+    usable = (pcm.size // frame) * frame
+    voiced_s = 0.0
+    if usable > 0:
+        frames = pcm[:usable].reshape(-1, frame)
+        rms = np.sqrt(np.mean(frames.astype(np.float64) ** 2, axis=1))
+        voiced_s = float(np.count_nonzero(rms >= rms_threshold)) * frame / sr
+    tail = pcm[usable:]
+    if tail.size > 0:
+        tail_rms = float(np.sqrt(np.mean(tail.astype(np.float64) ** 2)))
+        if tail_rms >= rms_threshold:
+            voiced_s += tail.size / sr
+    return voiced_s
+
+
 def running_mean_embedding(
     existing: np.ndarray | None, existing_count: int, new: np.ndarray,
 ) -> np.ndarray:
@@ -434,27 +473,35 @@ def new_profile(
     embedding: np.ndarray,
     existing: dict | None,
     *,
-    recording_id: str,
-    speaker: str,
+    recording_id: str | None,
+    speaker: str | None,
     now_iso: str,
     sample_id: str | None = None,
+    note: str | None = None,
 ) -> dict:
     """Build the stored v2 voiceprint document: append this enrollment as an
     individual sample and recompute the blend over ALL samples. Pure (no I/O) so
     the store just persists what this returns — and it is unit-testable without
     torch. A v1 ``existing`` is migrated in the same step (see :func:`as_v2`).
     ``sample_id`` is generated when not given (tests pass one for determinism).
+
+    ``recording_id``/``speaker`` are None for a sample with no stored source
+    recording (guided direct enrollment); ``note`` then carries the honest
+    provenance the client shows (e.g. "guided enrollment").
     """
     existing_v2 = as_v2(existing)
     samples = list((existing_v2 or {}).get("samples", []))
     new_vec = l2_normalize(embedding)
-    samples.append({
+    sample = {
         "id": sample_id or uuid.uuid4().hex,
         "embedding": [float(x) for x in new_vec.tolist()],
         "recording_id": recording_id,
         "speaker": speaker,
         "at": now_iso,
-    })
+    }
+    if note is not None:
+        sample["note"] = note
+    samples.append(sample)
     blended = blend_samples(samples)
     created_at = (existing_v2 or {}).get("created_at") or now_iso
     return {
