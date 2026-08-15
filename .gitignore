@@ -239,3 +239,9 @@ mindshift.db
 
 # macOS
 .DS_Store
+
+# apps/watch (Wear OS / KMP, ported from Gauge)
+apps/watch/.gradle/
+apps/watch/**/build/
+apps/watch/local.properties
+apps/watch/keystore.properties
