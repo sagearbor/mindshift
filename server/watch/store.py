@@ -29,9 +29,9 @@ logger = logging.getLogger(__name__)
 # blows that up ~4/3x, ~42,667 b64 chars/s), 900,000 bytes is roughly 21s of
 # audio — live sessions longer than that persist everything EXCEPT raw audio
 # (events, series, and summary are computed from the live session / a direct
-# in-memory PCM handoff and are unaffected — see ws_ingest.py's
-# _spawn_live_session_analysis and post_session.py's
-# analyze_live_session(pcm=...) parameter).
+# in-memory PCM handoff and are unaffected — see server/watch/routers/ws.py's
+# (Task B11) _spawn_live_session_analysis and server/watch/post_session.py's
+# (Task B10) analyze_live_session(pcm=...) parameter).
 MAX_FIRESTORE_PCM_B64 = 900_000
 
 # The 5 v1 default vector subscriptions, returned by both store
@@ -41,10 +41,10 @@ MAX_FIRESTORE_PCM_B64 = 900_000
 # subscribable) but CANNOT actually fire in v1 — VectorEngine.push_diarization
 # is the only thing that ever emits them, and nothing in this codebase calls
 # it: there's no WS diarization frame in the wire protocol and no diarization
-# source wired into ws_ingest.py. They're included now so the subscription
-# list/UI is already shaped for Plan 2, when a diarization pipeline lands and
-# starts calling push_diarization for real. See also the comment on
-# push_diarization in server/vectors.py.
+# source wired into server/watch/routers/ws.py (Task B11). They're included
+# now so the subscription list/UI is already shaped for Plan 2, when a
+# diarization pipeline lands and starts calling push_diarization for real.
+# See also the comment on push_diarization in server/watch/vectors.py (Task B4).
 DEFAULT_VECTOR_NAMES: list[VectorName] = [
     "yelling", "aggressive_tone", "interrupting", "airtime", "hr_spike",
 ]
@@ -223,8 +223,8 @@ class LiveSessionStore(Protocol):
     async def claim_legacy_live_session(self, live_session_id: str, account: str) -> bool:
         """Atomically re-key ONE legacy-owned live session to `account` AND
         bump the audited `LegacyClaim.episodes_moved_total` by 1, as a
-        single indivisible step -- see server/rest_api.py's claim_legacy
-        Phase 2 comment for why "check ownership, move, then separately
+        single indivisible step -- see server/watch/routers/rest.py's (Task B5)
+        claim_legacy Phase 2 comment for why "check ownership, move, then separately
         bump the total" (two calls, however ordered) leaves a same-uid
         concurrent-double-submission race open. Returns True if this call
         performed the move+bump (the live session was still

@@ -2,8 +2,8 @@
 """Device-pairing storage: the ephemeral short-code handshake (``Pairing``)
 and the long-lived credential it mints (``DeviceToken``) — see
 docs/superpowers/plans/2026-08-04-gauge-wave-c-couples-wrist.md's Open
-Question 1 and server/pairing_api.py's module docstring for the full flow
-this is the storage half of.
+Question 1 and server/watch/routers/pairing.py's (Task B8) module docstring
+for the full flow this is the storage half of.
 
 Hash-at-rest contract: the human-typeable pairing CODE is never stored
 except as a SHA-256 hash (``Pairing.code_hash``); the long-lived DEVICE
@@ -12,11 +12,11 @@ The one deliberate, narrow exception is ``Pairing.device_token``: the raw
 token must be handed to the watch at least once (it polls
 ``GET /me/pair/status``), so it is held in plaintext ONLY on the ephemeral
 ``Pairing`` record, ONLY until ``expires_at`` (the same short TTL as the
-whole pairing handshake, ~10 minutes per server/pairing_api.py's
-PAIRING_TTL_MINUTES) — server/pairing_api.py's status handler refuses to
-return it once that TTL has passed, even if the record itself still lingers
-in storage (no background cleanup job is implemented; this module never
-actively deletes expired records).
+whole pairing handshake, ~10 minutes per server/watch/routers/pairing.py's
+(Task B8) PAIRING_TTL_MINUTES) — server/watch/routers/pairing.py's status
+handler refuses to return it once that TTL has passed, even if the record
+itself still lingers in storage (no background cleanup job is implemented;
+this module never actively deletes expired records).
 
 INHERITED WART (kept for parity, not fixed here): update_pairing_atomically's
 mutator (like store.py's update_group_atomically/
@@ -77,11 +77,12 @@ class PairingStore(Protocol):
         """Store a new device token record.
 
         SYNCHRONOUS (not async) — unlike every other method on this
-        Protocol. server/auth.py's DeviceTokenVerifier.verify() is called
-        from the synchronous TokenVerifier.verify() Protocol method
-        (resolve_principal, its only caller, is itself a plain synchronous
-        function — see server/auth.py's module docstring), so it cannot
-        await anything. Both implementations' underlying I/O (a dict write
+        Protocol. server/watch/auth.py's (Task B3) DeviceTokenVerifier.verify()
+        is called from the synchronous TokenVerifier.verify() Protocol
+        method (resolve_principal, its only caller, is itself a plain
+        synchronous function — see server/watch/auth.py's (Task B3) module
+        docstring), so it cannot await anything. Both implementations'
+        underlying I/O (a dict write
         / a Firestore client call) is already effectively synchronous even
         where OTHER store methods here wrap the identical kind of call in
         ``async def`` purely for consistency with FastAPI's async handlers
@@ -99,16 +100,17 @@ class PairingStore(Protocol):
         """Raw current failed-``POST /me/pair/claim`` record for
         ``account_id`` (None if it has never failed a claim). Pure read, no
         time-math — whether this record currently means "locked out" is a
-        window-expiry policy decision made by server/pairing_api.py against
-        an injected clock (see ``FailedClaimRecord``'s docstring and
-        ``pairing_api._is_account_locked``), not by this store.
+        window-expiry policy decision made by server/watch/routers/pairing.py
+        (Task B8) against an injected clock (see ``FailedClaimRecord``'s
+        docstring and ``routers.pairing._is_account_locked`` (Task B8)),
+        not by this store.
 
         FIX ROUND 2: keyed by the ALREADY-AUTHENTICATED calling account
         (``principal.account_id``, always known since ``POST /me/pair/claim``
         requires ``full_auth``), REPLACING FIX ROUND 1's
         ``list_pending_pairings``-based per-pairing attribution heuristic —
-        see server/pairing_api.py's module docstring for why that was
-        defeatable (a free, unauthenticated decoy ``POST /me/pair/start``
+        see server/watch/routers/pairing.py's (Task B8) module docstring for
+        why that was defeatable (a free, unauthenticated decoy ``POST /me/pair/start``
         pairing made it permanently no-op). Keying by account instead of an
         ambiguous target pairing sidesteps the SHA-256 attribution problem
         entirely and is immune to decoy pairings.
@@ -118,7 +120,7 @@ class PairingStore(Protocol):
     async def set_failed_claim_record(self, account_id: str, count: int, last_failed_at: str) -> None:
         """Persist (create or fully replace) the failed-claim record for
         ``account_id``. A plain write, not a compare-and-swap: the caller
-        (server/pairing_api.py's ``_record_failed_claim``) does its own
+        (server/watch/routers/pairing.py's (Task B8) ``_record_failed_claim``) does its own
         read-then-decide first. This is a deliberate, reviewer-accepted
         narrow check-then-act race (FIX ROUND 3: two concurrent failures at
         the exact threshold could both read the same pre-increment count) —

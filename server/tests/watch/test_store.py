@@ -8,13 +8,18 @@
 # sets the precedent for this exact situation ("do not port a failing router
 # test into this task"; defer/adapt by implementer judgment). Rather than
 # drop these store-atomicity tests entirely, the three mutator builders are
-# inlined here as a byte-for-byte-equivalent local port of
-# gauge@2157433 server/groups_api.py's same-named functions (renamed only
-# for the Episode->LiveSession vocabulary already in play here — their
-# actual invariant logic is untouched). When B6 lands
-# `watch/routers/groups.py`, consider re-pointing these imports at the real
-# module instead of the local copies (behavior must remain identical since
-# B6 is expected to port the exact same functions).
+# inlined here as a behaviorally equivalent local port of gauge@2157433
+# server/groups_api.py's same-named functions (verified against
+# gauge@2157433 groups_api.py; `_require_member`'s body is inlined into
+# `make_invite_mutator` rather than kept as a separate helper, and its
+# body-only comment was dropped — the invariant checks and control flow are
+# otherwise unchanged, renamed only for the Episode->LiveSession vocabulary
+# already in play here).
+#
+# TODO(Task B6): when watch/routers/groups.py lands, re-point these imports
+# to the real make_invite_mutator/make_join_mutator/make_leave_mutator and
+# delete these copies; until then any change to the real mutators MUST be
+# mirrored here.
 import asyncio
 import json
 import threading

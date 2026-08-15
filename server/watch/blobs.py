@@ -104,9 +104,9 @@ class GcsBlobStore:
     async def put(self, key: str, data: bytes,
                   content_type: str = "application/octet-stream") -> str:
         # A 10 MB upload runs through the blocking SDK call via
-        # asyncio.to_thread (same pattern as post_session.py's
-        # analyze_live_session / rest_api.py's _maybe_enroll_voice) so it
-        # never blocks the event loop.
+        # asyncio.to_thread (same pattern as server/watch/post_session.py's
+        # (Task B10) analyze_live_session / server/watch/routers/rest.py's
+        # (Task B5) _maybe_enroll_voice) so it never blocks the event loop.
         return await asyncio.to_thread(self._put_sync, key, data, content_type)
 
     async def get(self, key: str) -> bytes | None:
