@@ -31,7 +31,7 @@ class EpisodeWsClientTest {
             }
             override fun onMessage(ws: WebSocket, text: String) {
                 received.add(text)
-                if (text.contains("\"end\"")) ws.send("""{"type":"episode_saved","episode_id":"e1","status":"captured"}""")
+                if (text.contains("\"end\"")) ws.send("""{"type":"live_session_saved","live_session_id":"e1","status":"captured"}""")
             }
         }))
         val client = EpisodeWsClient(server.url("/").toString().replace("http", "ws").trimEnd('/'), "acct")
@@ -44,6 +44,9 @@ class EpisodeWsClientTest {
         client.sendPcmWindow(ByteArray(32000))
         client.end()
         assertTrue(latch.await(5, TimeUnit.SECONDS))
+        // Task A3: the client must speak the renamed live-session WS path, not the old episode one.
+        val recorded = server.takeRequest()
+        assertEquals("/ws/live-session/e1?account=acct", recorded.path)
         assertEquals(2, nudges.first().level); assertEquals("A", nudges.first().channel)
         assertEquals("e1", saved)
         assertTrue(received.any { it.startsWith("binary:32000") })
@@ -54,7 +57,7 @@ class EpisodeWsClientTest {
         val server = MockWebServer(); var saved: String? = null; val latch = CountDownLatch(1)
         server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
             override fun onOpen(ws: WebSocket, r: Response) {
-                ws.send("""{"type":"future_thing","x":1}"""); ws.send("""{"type":"episode_saved","episode_id":"e2","status":"captured"}""")
+                ws.send("""{"type":"future_thing","x":1}"""); ws.send("""{"type":"live_session_saved","live_session_id":"e2","status":"captured"}""")
             }
         }))
         val c = EpisodeWsClient(server.url("/").toString().replace("http", "ws").trimEnd('/'), "a")
@@ -102,7 +105,7 @@ class EpisodeWsClientTest {
             override fun onOpen(ws: WebSocket, r: Response) {
                 ws.send("""not json{{{""")
                 ws.send("""{"type":"nudge","level":"not-a-number"}""")
-                ws.send("""{"type":"episode_saved","episode_id":"e3","status":"captured"}""")
+                ws.send("""{"type":"live_session_saved","live_session_id":"e3","status":"captured"}""")
             }
         }))
         val client = EpisodeWsClient(server.url("/").toString().replace("http", "ws").trimEnd('/'), "acct")
@@ -114,7 +117,7 @@ class EpisodeWsClientTest {
             override fun onClosed() {}
         })
         // The teeth of this test: if a malformed frame killed the reader loop, this
-        // episode_saved (sent after the two bad frames, on the same still-open socket)
+        // live_session_saved (sent after the two bad frames, on the same still-open socket)
         // would never arrive and the latch would time out.
         assertTrue(latch.await(5, TimeUnit.SECONDS))
         assertEquals("e3", saved)
@@ -125,7 +128,7 @@ class EpisodeWsClientTest {
 
     // Task 7: a Listener implementation that itself throws must not kill the WebSocket — the
     // teeth of this test (as with malformedFramesAreToleratedAndSocketStaysOpen above) is that
-    // episode_saved, sent right after the throwing nudge frame on the same still-open socket,
+    // live_session_saved, sent right after the throwing nudge frame on the same still-open socket,
     // still arrives.
     @Test fun listenerThrowInOnNudgeDoesNotKillSocket() {
         val server = MockWebServer()
@@ -134,7 +137,7 @@ class EpisodeWsClientTest {
         server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
             override fun onOpen(ws: WebSocket, r: Response) {
                 ws.send("""{"type":"nudge","channel":"A","level":2,"t":1.0,"vectors":["yelling"]}""")
-                ws.send("""{"type":"episode_saved","episode_id":"e4","status":"captured"}""")
+                ws.send("""{"type":"live_session_saved","live_session_id":"e4","status":"captured"}""")
             }
         }))
         val client = EpisodeWsClient(server.url("/").toString().replace("http", "ws").trimEnd('/'), "acct")

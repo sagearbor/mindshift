@@ -69,7 +69,7 @@ class EpisodeWsClient(
      * twice would silently leak the first [WebSocket] since nothing here guards against it).
      */
     fun open(episodeId: String, listener: Listener) {
-        val url = "$baseWsUrl/ws/episode/$episodeId?account=$account"
+        val url = "$baseWsUrl/ws/live-session/$episodeId?account=$account"
         val request = Request.Builder().url(url).build()
         webSocket = client.newWebSocket(
             request,
@@ -118,8 +118,8 @@ class EpisodeWsClient(
             when (obj["type"]?.jsonPrimitive?.content) {
                 "vector_event" -> listener.onVectorEvent(wireJson.decodeFromString(VectorEvent.serializer(), text))
                 "nudge" -> listener.onNudge(wireJson.decodeFromString(NudgeEvent.serializer(), text))
-                "episode_saved" -> {
-                    val id = obj["episode_id"]?.jsonPrimitive?.content
+                "live_session_saved" -> {
+                    val id = obj["live_session_id"]?.jsonPrimitive?.content
                     if (id != null) listener.onEpisodeSaved(id)
                 }
                 "error" -> { /* server-reported error frame; nothing to dispatch, avoid crashing. */ }

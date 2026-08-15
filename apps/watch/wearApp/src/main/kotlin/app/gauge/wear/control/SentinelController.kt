@@ -834,7 +834,7 @@ class SentinelController(
             }
             wsEndSent = true
         }
-        // Keep the client reference alive until episode_saved or failure drops it (see listener).
+        // Keep the client reference alive until live_session_saved or failure drops it (see listener).
     }
 
     /**
