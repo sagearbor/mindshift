@@ -137,14 +137,22 @@ MIN_CLUSTER_SECONDS_STRONG = 1.5
 # fixture halves: 0.216 / 0.238 vs the other voice; couple recording:
 # 0.221 / 0.277). So at least one half of a marginal split must have ALL its
 # cosines to NON-sibling clusters at or below this anchor bar — window
-# (-0.017, 0.216), 0.15 sits inside with margin on both sides. CONSEQUENCE
-# (honest tradeoff, calibrated on ONE real 3-person file whose third voice
-# is a child): three typical ADULTS (different-people pooled pairs measure
-# ≈0.19-0.34) may fail to anchor and stay a 2-way split — the conservative
-# failure direction, since the transcript's own diarization usually hears 3
-# adults and the never-reduce guard keeps them. Env-overridable.
+# (-0.017, 0.216). 0.15 was the first placement; PRODUCTION taught otherwise
+# within hours (2026-08-15): re-transcription draws different utterance
+# boundaries run to run, and the SAME real third voice that anchored at
+# -0.017 one night measured 0.173 the next morning (its clean solo line got
+# smeared into adjacent speech) — k=3 was falsely rejected by 0.023. 0.20
+# admits that measured variance while still rejecting the TTS-fixture
+# phantom (0.216) — verified against all three benchmarks (3-person owner
+# rubric, couple control, fixture) before changing. Margins here are THIN;
+# today's 4-voice car recordings are the next calibration data. CONSEQUENCE
+# (honest tradeoff): three typical ADULTS (different-people pooled pairs
+# ≈0.19-0.34) may still fail to anchor and stay a 2-way split — the
+# conservative failure direction, since the transcript's own diarization
+# usually hears 3 adults and the never-reduce guard keeps them.
+# Env-overridable.
 NEW_VOICE_ANCHOR_COSINE = float(
-    os.getenv("MINDSHIFT_DIARIZE_NEW_VOICE_ANCHOR_COSINE", "0.15")
+    os.getenv("MINDSHIFT_DIARIZE_NEW_VOICE_ANCHOR_COSINE", "0.20")
 )
 
 # Pooled-centroid reassignment rounds (converges in 1-2 on calibration data).
