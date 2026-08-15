@@ -30,9 +30,16 @@ silently here would let a test that never asked for device-pairing at all
 still see ``/me/pair/*`` "work", masking a missing dependency instead of
 surfacing it (the "gated on its own dependency being meaningfully available"
 branch the docstring below already called out before this task existed).
-Every other kwarg below (``telemetry_store``, ``transcriber``, ``llm``,
-``diarizer``) is still accepted but UNUSED — reserved for B9 telemetry, B10
-post-session analysis, and B11 WS ingest to extend this same function
+Task B9 puts ``telemetry_store`` to its first use: the telemetry router
+(``watch/routers/telemetry.py``: ``POST``/``GET /telemetry``) is mounted
+UNCONDITIONALLY — like REST/groups/captures, not gated like pairing_store —
+because a throwaway default ``MemoryTelemetryStore()`` carries no security
+posture to mask (unlike a throwaway pairing store) and is a perfectly
+sensible thing for a test to run against. Both of its routes are
+deliberately unauthenticated (see that router's own module docstring), so
+this mount takes no auth dependency at all. Every other still-unused kwarg
+below (``transcriber``, ``llm``, ``diarizer``) remains reserved for B10
+post-session analysis and B11 WS ingest to extend this same function
 signature without breaking already-ported callers.
 
 Task B8 also puts ``full_verifier`` to its first use (previously accepted
@@ -49,11 +56,12 @@ chain (Firebase-then-DeviceToken) onto just the full-auth surface — see
 ``server/tests/watch/test_pairing_api.py``'s
 ``test_end_to_end_device_token_authenticates_as_full_auth_via_the_real_verifier_chain``.
 
-**Extension pattern for B9-B11**: each later task adds its router's mount
+**Extension pattern for B10-B11**: each later task adds its router's mount
 here, gated on its own dependency being meaningfully available (as B8 did
 for ``pairing_store`` above), or "mount unconditionally with a default
-store" for a router that (like REST, groups, and captures) always has
-something sensible to run against in tests. Mount each new router with its
+store" for a router that (like REST, groups, captures, and now telemetry)
+always has something sensible to run against in tests. Mount each new router
+with its
 own ``app.include_router(...)`` call, immediately after the existing mounts
 — never replace or wrap an earlier mount. The auth dependencies
 (``auth_dep``/``strict_auth_dep``) are built ONCE, here, and reused by every
@@ -73,7 +81,9 @@ from watch.routers.captures import make_captures_router
 from watch.routers.groups import make_groups_router
 from watch.routers.pairing import make_pairing_router
 from watch.routers.rest import make_rest_router
+from watch.routers.telemetry import make_telemetry_router
 from watch.store import LiveSessionStore, MemoryLiveSessionStore
+from watch.telemetry_store import MemoryTelemetryStore
 
 
 def create_watch_test_app(
@@ -155,5 +165,18 @@ def create_watch_test_app(
     # watch/routers/pairing.py's module docstring).
     if pairing_store is not None:
         app.include_router(make_pairing_router(pairing_store, strict_auth_dep))
+
+    # Task B9: telemetry router — mounted unconditionally with a default
+    # MemoryTelemetryStore(), same "always has something sensible to run
+    # against in tests" rationale as REST/groups/captures above (NOT gated
+    # like pairing_store: a throwaway in-memory telemetry store carries no
+    # security posture to mask, unlike a throwaway pairing store — see this
+    # module's docstring). Mirrors gauge's own `create_app`, which resolves
+    # `resolved_telemetry = telemetry if telemetry is not None else
+    # get_telemetry_store()` unconditionally. Takes no auth dependency at
+    # all — both routes are deliberately unauthenticated, see
+    # watch/routers/telemetry.py's module docstring.
+    resolved_telemetry = telemetry_store if telemetry_store is not None else MemoryTelemetryStore()
+    app.include_router(make_telemetry_router(resolved_telemetry))
 
     return app
