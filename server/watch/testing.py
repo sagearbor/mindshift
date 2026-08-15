@@ -12,29 +12,35 @@ env var.
 
 Task B5 mounted the REST router (``watch/routers/rest.py``: ``/me``,
 ``/me/standing``, ``/me/claim-legacy``, ``/accounts/lookup``,
-``/live-sessions*``, ``/settings/vectors``, ``/enroll*``). Task B6 (this
-task) adds the groups router (``watch/routers/groups.py``: ``/groups*``) —
-mounted unconditionally, same rationale as REST: ``MemoryLiveSessionStore``
-is a sensible default and every route requires ``strict_auth_dep`` regardless
-of any other kwarg's availability. Every other kwarg below (``pairing_store``,
-``telemetry_store``, ``blobs``, ``full_verifier``, ``transcriber``, ``llm``,
-``diarizer``) is accepted now but UNUSED — they are reserved so later router
-tasks (B7 captures, B8 pairing, B9 telemetry, B10 post-session analysis, B11
-WS ingest) can extend this same function signature without breaking
-already-ported callers.
+``/live-sessions*``, ``/settings/vectors``, ``/enroll*``). Task B6 added the
+groups router (``watch/routers/groups.py``: ``/groups*``) — mounted
+unconditionally, same rationale as REST: ``MemoryLiveSessionStore`` is a
+sensible default and every route requires ``strict_auth_dep`` regardless of
+any other kwarg's availability. Task B7 (this task) adds the captures router
+(``watch/routers/captures.py``: ``/captures*``) — also mounted
+unconditionally: ``blobs`` defaults to ``None``, which is a legitimate,
+already-tested runtime state for that router (every upload/download/delete
+route honestly 503s when no blob store is configured — see
+``test_captures_api.py``'s ``test_upload_without_blob_store_is_503_...``),
+so there is no "absent dependency" case to gate the mount on. Every other
+kwarg below (``pairing_store``, ``telemetry_store``, ``full_verifier``,
+``transcriber``, ``llm``, ``diarizer``) is accepted now but UNUSED — they are
+reserved so later router tasks (B8 pairing, B9 telemetry, B10 post-session
+analysis, B11 WS ingest) can extend this same function signature without
+breaking already-ported callers.
 
-**Extension pattern for B7-B11**: each later task adds its router's mount
+**Extension pattern for B8-B11**: each later task adds its router's mount
 here, gated on its own dependency being meaningfully available — e.g.
 ``if pairing_store is not None: app.include_router(make_pairing_router(...))``
 for a router whose whole PURPOSE is that dependency, or "mount
-unconditionally with a default store" for a router that (like REST and
-groups here) always has something sensible to run against in tests. Mount
-each new router with its own ``app.include_router(...)`` call, immediately
-after the existing mounts — never replace or wrap an earlier mount. The auth
-dependencies (``auth_dep``/``strict_auth_dep``) are built ONCE, here, and
-reused by every router task's mount, so every route shares one identity
-resolution ladder (see ``watch/auth.py``'s module docstring) no matter which
-task's router it lives in.
+unconditionally with a default store" for a router that (like REST, groups,
+and captures here) always has something sensible to run against in tests.
+Mount each new router with its own ``app.include_router(...)`` call,
+immediately after the existing mounts — never replace or wrap an earlier
+mount. The auth dependencies (``auth_dep``/``strict_auth_dep``) are built
+ONCE, here, and reused by every router task's mount, so every route shares
+one identity resolution ladder (see ``watch/auth.py``'s module docstring) no
+matter which task's router it lives in.
 """
 
 from __future__ import annotations
@@ -44,6 +50,7 @@ from typing import Any
 from fastapi import FastAPI
 
 from watch.auth import TokenVerifier, make_auth_dependency, require_full_auth
+from watch.routers.captures import make_captures_router
 from watch.routers.groups import make_groups_router
 from watch.routers.rest import make_rest_router
 from watch.store import LiveSessionStore, MemoryLiveSessionStore
@@ -100,5 +107,13 @@ def create_watch_test_app(
     # per watch/auth.py's require_full_auth — see watch/routers/groups.py's
     # module docstring for the I2/I3 controller ruling this preserves.
     app.include_router(make_groups_router(resolved_store, strict_auth_dep))
+
+    # Task B7: captures router — always mounted (like REST and groups
+    # above). `blobs` defaults to None, which is a legitimate runtime state
+    # the router itself handles (503 on upload/download/delete) rather than
+    # something this assembly function needs to gate the mount on — see the
+    # module docstring's B7 paragraph. Every route requires strict_auth_dep,
+    # same I2/I3 posture as groups.
+    app.include_router(make_captures_router(resolved_store, blobs, strict_auth_dep))
 
     return app
