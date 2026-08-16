@@ -22,13 +22,13 @@ android {
         applicationId = "com.sagearbor.gauge.wear"
         minSdk = 30
         targetSdk = 34
-        versionCode = 9
-        versionName = "0.3.1"
+        versionCode = 10
+        versionName = "0.4.0"
 
         buildConfigField(
             "String",
             "GAUGE_API_BASE",
-            "\"https://gauge-api-664594784582.us-central1.run.app\"",
+            "\"https://mindshift-api-664594784582.us-central1.run.app\"",
         )
         buildConfigField("boolean", "TELEMETRY_ENABLED", "true")
     }

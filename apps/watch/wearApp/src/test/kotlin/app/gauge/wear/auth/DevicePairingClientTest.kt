@@ -10,6 +10,7 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 
 class DevicePairingClientTest {
     private lateinit var server: MockWebServer
@@ -110,5 +111,74 @@ class DevicePairingClientTest {
         )
         assertNull(errorClient.start())
         assertTrue(errors.single().startsWith("start "))
+    }
+
+    // -- Pairing cold-start tolerance fast-follow (queued from gauge): callTimeout 10s->30s +
+    // one retry on transport-level (timeout/connect) failure, never on a non-2xx or malformed
+    // body -- those are honest server answers, not something a retry can fix.
+
+    @Test
+    fun defaultCallTimeoutIsThirtySeconds() {
+        assertEquals(30L, DevicePairingClient.DEFAULT_CALL_TIMEOUT_SECONDS)
+    }
+
+    @Test
+    fun startRetriesOnceOnTransportFailureThenSucceeds() = runBlocking {
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START))
+        server.enqueue(
+            MockResponse().setBody(
+                """{"code":"K7QP2M","pairing_id":"pid-1","expires_at":"2026-08-04T12:10:00Z"}""",
+            ).setResponseCode(200),
+        )
+        val errors = mutableListOf<String>()
+        val retryClient = DevicePairingClient(
+            baseUrl = server.url("/").toString().trimEnd('/'),
+            onSwallowedError = { errors.add(it) },
+        )
+        val start = retryClient.start()
+        assertEquals("K7QP2M", start?.code)
+        assertEquals(2, server.requestCount)
+        assertTrue(errors.isEmpty(), "a recovered retry should not report a swallowed error")
+    }
+
+    @Test
+    fun pollRetriesOnceOnTransportFailureThenSucceeds() = runBlocking {
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START))
+        server.enqueue(MockResponse().setBody("""{"status":"pending"}""").setResponseCode(200))
+        val errors = mutableListOf<String>()
+        val retryClient = DevicePairingClient(
+            baseUrl = server.url("/").toString().trimEnd('/'),
+            onSwallowedError = { errors.add(it) },
+        )
+        val status = retryClient.poll("pid-1")
+        assertEquals("pending", status?.status)
+        assertEquals(2, server.requestCount)
+        assertTrue(errors.isEmpty(), "a recovered retry should not report a swallowed error")
+    }
+
+    @Test
+    fun startGivesUpAfterOneRetryStillFails() = runBlocking {
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START))
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START))
+        val errors = mutableListOf<String>()
+        val retryClient = DevicePairingClient(
+            baseUrl = server.url("/").toString().trimEnd('/'),
+            onSwallowedError = { errors.add(it) },
+        )
+        assertNull(retryClient.start())
+        assertEquals(2, server.requestCount)
+        assertTrue(errors.single().startsWith("start "))
+    }
+
+    @Test
+    fun startDoesNotRetryOnNon2xx() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(500))
+        val errors = mutableListOf<String>()
+        val errorClient = DevicePairingClient(
+            baseUrl = server.url("/").toString().trimEnd('/'),
+            onSwallowedError = { errors.add(it) },
+        )
+        assertNull(errorClient.start())
+        assertEquals(1, server.requestCount)
     }
 }
