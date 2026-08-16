@@ -24,10 +24,19 @@ production default (gauge's ``create_app()`` with no args also resolves to
 ``resolved_embedder = None`` and relies on ``rest_api._resolve_embedder``'s
 own lazy fallback). ``diarizer`` has no equivalent per-request fallback in
 ``watch/routers/ws.py`` / ``watch/routers/live_sessions.py`` — both just use
-whatever object they're given, so it must be built ONCE here and shared by
-both routers, mirroring gauge's own eager
-``EmbeddingDiarizationService(speaker_id.embed_pcm) if speaker_id.is_available()
-else NullDiarizationService()`` resolution.
+whatever object they're given, so it must still be built ONCE here and
+shared by both routers; gauge's original code did that eagerly
+(``EmbeddingDiarizationService(speaker_id.embed_pcm) if
+speaker_id.is_available() else NullDiarizationService()``) at ``create_app``
+time. Task H3: this module runs at ``import main`` (``server/main.py``'s
+module-level ``for _r in build_watch_routers(): ...``), so that eager
+``speaker_id.is_available()`` call — which tries ``import torch; import
+speechbrain`` — paid a heavy import cost on EVERY Cloud Run cold start
+(min-instances 0). ``watch.diarize.LazyDiarizationService`` below defers
+that exact same resolution to the first real ``.diarize()`` call instead
+(see its own docstring) — same one-object-shared-by-both-routers shape,
+same eventual Embedding-or-Null outcome, just resolved at request time
+instead of import time.
 """
 
 from __future__ import annotations
@@ -37,11 +46,10 @@ import os
 
 from fastapi import APIRouter, Request
 
-import speaker_id
 from watch.auth import get_full_verifier, make_auth_dependency, require_full_auth
 from watch.blobs import get_blob_store
 from watch.config import Settings
-from watch.diarize import DiarizationService, EmbeddingDiarizationService, NullDiarizationService
+from watch.diarize import DiarizationService, LazyDiarizationService
 from watch.pairing_store import get_pairing_store
 from watch.routers.captures import make_captures_router
 from watch.routers.groups import make_groups_router
@@ -107,11 +115,11 @@ def build_watch_routers() -> list[APIRouter]:
     llm = build_llm()
     verifier = get_full_verifier(pairing_store)
 
-    diarizer: DiarizationService = (
-        EmbeddingDiarizationService(speaker_id.embed_pcm)
-        if speaker_id.is_available()
-        else NullDiarizationService()
-    )
+    # Task H3: NOT resolved here — LazyDiarizationService defers the
+    # is_available()/torch-speechbrain check to the first real .diarize()
+    # call (request time), not import time (see module docstring + the
+    # class's own docstring for why).
+    diarizer: DiarizationService = LazyDiarizationService()
 
     auth_dep = make_auth_dependency(verifier, settings.allow_legacy_account, store)
     # I2/I3 controller ruling (watch/auth.py's require_full_auth docstring):
