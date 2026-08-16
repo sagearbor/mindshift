@@ -472,11 +472,11 @@ def _smooth_word_labels(
 def _word_runs(labels: list[int]) -> list[list[int]]:
     """Maximal same-label runs as ``[label, first_idx, last_idx]`` triples."""
     runs: list[list[int]] = []
-    for i, l in enumerate(labels):
-        if runs and runs[-1][0] == l:
+    for i, lab in enumerate(labels):
+        if runs and runs[-1][0] == lab:
             runs[-1][2] = i
         else:
-            runs.append([l, i, i])
+            runs.append([lab, i, i])
     return runs
 
 
@@ -721,8 +721,8 @@ def _marginal_pairs(
     parent: dict[int, int] = {}
     for c in set(labels):
         w: dict[int, float] = {}
-        for i, l in enumerate(labels):
-            if l == c:
+        for i, lab in enumerate(labels):
+            if lab == c:
                 w[prev_labels[i]] = w.get(prev_labels[i], 0.0) + weights[i]
         parent[c] = max(w, key=lambda p: w[p])
     by_parent: dict[int, list[int]] = {}

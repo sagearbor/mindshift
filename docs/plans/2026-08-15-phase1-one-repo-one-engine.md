@@ -358,3 +358,11 @@ def test_no_route_collisions():
 - Pairing cold-start fast-follow: client timeout 10 s→30 s + one retry.
 - Owner decision queue: keep-warm min-instances $ figure; token-gating `GET /telemetry`.
 - Phase 3 "Pair a watch" screen (owner-requested 2026-08-15): add an **"Install watch app" button** that deep-links to the watch app's Play listing (`https://play.google.com/store/apps/details?id=com.sagearbor.gauge.wear`) — phone Play then remote-installs to the watch (standard Wear OS 3+ flow; no on-watch store browsing). Note: while on internal testing, testers need the opt-in link first.
+
+### Pre-deploy hardening (from final whole-branch review 2026-08-15)
+- **I3** — watch's unauthenticated surface (telemetry POST/GET, `/me/pair/start`) bypasses main's `_rate_limit` + body caps: attach `_rate_limit` at mount, cap `/enroll` body, and close the `GET /telemetry` token-gating owner decision BEFORE deploy.
+- **I4** — Firestore stores' async methods call the sync SDK directly on the event loop: wrap in `asyncio.to_thread` like `blobs.py` does; single-worker uvicorn shares the loop with the live audio WS.
+- **I5** — `build_watch_routers` imports torch/speechbrain at app-import time via `speaker_id.is_available()`: make the diarizer lazy like the embedder to protect cold starts.
+- **M6** — `services.py` duplicates the `MINDSHIFT_MODEL` default literal: import it instead.
+- **M7** — `test_auth_routes.py` imports `StubVerifier` by repo-root path.
+- **M8** — `google-cloud-firestore` belongs in base requirements.

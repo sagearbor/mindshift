@@ -17,6 +17,8 @@ imageio-ffmpeg>=0.4,<1
 # Consent-gated recording persistence (GCS). Uses ADC on Cloud Run; the bucket
 # is set via MINDSHIFT_RECORDINGS_BUCKET (unset → storage disabled).
 google-cloud-storage>=2,<4
+# watch-domain entities (server/watch/); lazy-imported, unset env → in-memory
+google-cloud-firestore>=2.16,<3
 pytest>=8,<9
 anyio>=4,<5
 pytest-anyio>=0.0.0
