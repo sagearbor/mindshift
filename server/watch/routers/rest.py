@@ -77,6 +77,14 @@ ENROLL_MIN_SECONDS = 3.0
 # Standard (no extra chunks) 44-byte canonical PCM WAV header size.
 WAV_HEADER_SIZE = 44
 
+# Task H1: /enroll takes a raw WAV/PCM baseline clip read via
+# `request.body()` (uncapped before this task — an authenticated caller
+# could still push an arbitrarily large body). A 16 kHz mono PCM16 clip of
+# ENROLL_MIN_SECONDS*10 (30s) is under 1 MB, so 5 MB is generous headroom
+# for a calibration clip — mirrors server/routers/voice.py's
+# MAX_DIRECT_ENROLL_BYTES reasoning/pattern (413 over-cap).
+MAX_ENROLL_BYTES = 5 * 1024 * 1024
+
 # The provenance note stored on a watch-enrolled sample: the raw-PCM /enroll
 # endpoint has no stored source recording to reference at all (unlike the
 # phone's diarization-based /voice/enroll — server/routers/voice.py), so
@@ -511,6 +519,15 @@ def make_rest_router(
     async def enroll(request: Request, principal: Principal = Depends(auth_dep)) -> EnrollmentBaseline:
         account = principal.account_id
         raw = await request.body()
+        if len(raw) > MAX_ENROLL_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    "enrollment clip exceeds the "
+                    f"{MAX_ENROLL_BYTES // (1024 * 1024)}MB limit — record a short "
+                    "calibration clip, not a long session"
+                ),
+            )
         pcm_bytes = raw[WAV_HEADER_SIZE:] if raw[:4] == b"RIFF" else raw
 
         duration = (len(pcm_bytes) // 2) / ENROLL_SAMPLE_RATE

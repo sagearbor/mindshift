@@ -136,14 +136,27 @@ attempt N+1 instead of exactly N, not a materially different guarantee.
 
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Literal
+from typing import Awaitable, Callable, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from watch.auth import AuthDep, Principal
 from watch.models import DeviceToken, FailedClaimRecord, Pairing
 from watch.pairing_store import PairingStore, hash_secret
+
+RateLimitDep = Callable[[Request], Awaitable[None]]
+
+
+async def _noop_rate_limit(request: Request) -> None:
+    """Default ``rate_limit_dep`` (Task H1): no limiting at all. Keeps
+    ``create_watch_test_app`` and every existing ported test unaffected —
+    only ``build_watch_routers()`` (server/watch/app.py) supplies the real
+    per-IP limiter, applied to the two unauthenticated routes below
+    (``/me/pair/start``, ``/me/pair/status``). ``/me/pair/claim`` is
+    ALREADY behind ``full_auth_dep`` (an authenticated caller, unlike the
+    other two) so it is deliberately not additionally rate-limited here."""
+    return None
 
 # ~10 min: long enough for a human to read a code off a watch face and type
 # it into a phone, short enough to bound the raw-device-token exposure
@@ -249,11 +262,13 @@ class PairingClaimResponse(BaseModel):
     account_id: str
 
 
-def make_pairing_router(store: PairingStore, full_auth_dep: AuthDep) -> APIRouter:
+def make_pairing_router(
+    store: PairingStore, full_auth_dep: AuthDep, rate_limit_dep: RateLimitDep = _noop_rate_limit,
+) -> APIRouter:
     router = APIRouter()
 
     @router.post("/me/pair/start", response_model=PairingStartResponse)
-    async def pair_start() -> PairingStartResponse:
+    async def pair_start(_rl: None = Depends(rate_limit_dep)) -> PairingStartResponse:
         # No auth: an unclaimed watch has no identity yet to authenticate as
         # — there is nothing for watch.auth's resolve_principal to check.
         code = _mint_code()
@@ -270,7 +285,9 @@ def make_pairing_router(store: PairingStore, full_auth_dep: AuthDep) -> APIRoute
         return PairingStartResponse(code=code, pairing_id=pairing_id, expires_at=expires_at)
 
     @router.get("/me/pair/status", response_model=PairingStatusResponse)
-    async def pair_status(pairing_id: str) -> PairingStatusResponse:
+    async def pair_status(
+        pairing_id: str, _rl: None = Depends(rate_limit_dep),
+    ) -> PairingStatusResponse:
         # CONTRACT RULING (see module docstring): always 200. An unknown
         # pairing_id and an expired one are reported identically as
         # "expired" — the watch's poll loop only needs "this attempt is

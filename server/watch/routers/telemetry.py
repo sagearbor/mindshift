@@ -29,7 +29,9 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Query
+from typing import Awaitable, Callable
+
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 
 from watch.models import TelemetryEvent
@@ -39,6 +41,16 @@ from watch.telemetry_store import TelemetryStore
 # dropped) so one runaway device can't blow past Firestore write limits or
 # dominate the store in a single request.
 MAX_BATCH_EVENTS = 100
+
+RateLimitDep = Callable[[Request], Awaitable[None]]
+
+
+async def _noop_rate_limit(request: Request) -> None:
+    """Default ``rate_limit_dep``: no limiting at all. Keeps
+    ``create_watch_test_app`` and every existing ported test unaffected —
+    only ``build_watch_routers()`` (server/watch/app.py) supplies the real
+    per-IP limiter (Task H1)."""
+    return None
 
 
 def _now_iso() -> str:
@@ -59,11 +71,21 @@ class TelemetryPost(BaseModel):
     events: list[TelemetryEventIn]
 
 
-def make_telemetry_router(store: TelemetryStore) -> APIRouter:
+def make_telemetry_router(
+    store: TelemetryStore, rate_limit_dep: RateLimitDep = _noop_rate_limit,
+) -> APIRouter:
+    """``rate_limit_dep`` (Task H1): both routes stay deliberately
+    unauthenticated (owner decision — see module docstring) but now sit
+    behind main.py's per-IP rate limiter in production, threaded in by
+    ``build_watch_routers()``. Defaults to a no-op so
+    ``create_watch_test_app`` and every existing ported test are unaffected.
+    """
     router = APIRouter()
 
     @router.post("/telemetry")
-    async def post_telemetry(body: TelemetryPost) -> dict[str, int]:
+    async def post_telemetry(
+        body: TelemetryPost, _rl: None = Depends(rate_limit_dep),
+    ) -> dict[str, int]:
         accepted, dropped_events = body.events[:MAX_BATCH_EVENTS], body.events[MAX_BATCH_EVENTS:]
         received_at = _now_iso()
         events = [
@@ -88,6 +110,7 @@ def make_telemetry_router(store: TelemetryStore) -> APIRouter:
         device: str | None = Query(None),
         since: str | None = Query(None),
         limit: int = Query(200, ge=1, le=1000),
+        _rl: None = Depends(rate_limit_dep),
     ) -> list[TelemetryEvent]:
         """List telemetry events, newest-first.
 

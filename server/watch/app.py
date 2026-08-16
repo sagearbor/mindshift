@@ -35,7 +35,7 @@ from __future__ import annotations
 import logging
 import os
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 import speaker_id
 from watch.auth import get_full_verifier, make_auth_dependency, require_full_auth
@@ -55,6 +55,24 @@ from watch.store import get_store
 from watch.telemetry_store import get_telemetry_store
 
 logger = logging.getLogger(__name__)
+
+
+async def _rate_limit(request: Request) -> None:
+    """Reuse main's per-IP rate limiter. Imported lazily at request time,
+    exactly mirroring server/routers/voice.py's own ``_rate_limit`` wrapper
+    (see its docstring for the circular-import reason): main.py imports
+    ``build_watch_routers`` at module load, so a top-level `import main`
+    here would be circular.
+
+    Task H1 (final Phase-1 review finding): the watch domain's deliberately-
+    unauthenticated routes (telemetry, pairing start/status) now sit on the
+    same internet-facing app as every rate-limited main.py route — this
+    wrapper is what lets ``make_telemetry_router``/``make_pairing_router``
+    take a real limiter without importing main at module scope.
+    """
+    import main
+
+    await main._rate_limit(request)
 
 
 def build_watch_routers() -> list[APIRouter]:
@@ -108,8 +126,8 @@ def build_watch_routers() -> list[APIRouter]:
         make_rest_router(store, auth_dep, strict_auth_dep),
         make_groups_router(store, strict_auth_dep),
         make_captures_router(store, blobs, strict_auth_dep),
-        make_pairing_router(pairing_store, strict_auth_dep),
-        make_telemetry_router(telemetry_store),
+        make_pairing_router(pairing_store, strict_auth_dep, rate_limit_dep=_rate_limit),
+        make_telemetry_router(telemetry_store, rate_limit_dep=_rate_limit),
         make_ws_router(
             store,
             transcriber,
