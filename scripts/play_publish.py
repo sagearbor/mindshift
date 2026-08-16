@@ -48,8 +48,15 @@ def main() -> int:
                         "with --aab.")
     p.add_argument("--package", default="com.sagearbor.mindshift.app",
                    help="applicationId / package name")
+    # Form-factor listings (Wear OS) use PREFIXED track names: a wear bundle
+    # on the plain "internal" track is REJECTED at edit-commit time with
+    # "requires the Wear OS system feature android.hardware.type.watch" —
+    # it must go to "wear:internal" (etc.). The browser upload flow selects
+    # this silently; the API makes it explicit.
     p.add_argument("--track", default="internal",
-                   choices=["internal", "alpha", "beta", "production"])
+                   choices=["internal", "alpha", "beta", "production",
+                            "wear:internal", "wear:alpha", "wear:beta",
+                            "wear:production"])
     p.add_argument("--service-account", required=True,
                    help="Path to the service-account JSON key")
     p.add_argument("--notes", default="", help="Release notes (en-US)")
