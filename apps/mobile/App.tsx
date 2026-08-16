@@ -10,6 +10,7 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import HomeScreen from "./src/screens/HomeScreen";
 import AnalyzeScreen from "./src/screens/AnalyzeScreen";
 import AdvancedScreen from "./src/screens/AdvancedScreen";
+import WatchSetupScreen from "./src/screens/WatchSetupScreen";
 import SessionScreen from "./src/screens/SessionScreen";
 import TherapistDashboard from "./src/screens/TherapistDashboard";
 import SessionDetail from "./src/screens/SessionDetail";
@@ -60,6 +61,9 @@ type Screen =
   | { name: "analyze" }
   // Everything that doesn't fit the two modes (dashboard, sign out).
   | { name: "advanced" }
+  // Phase 3 Slice 1: install the watch app + redeem its pairing code.
+  // Pushed from Advanced's "Set up your watch" row; returns there.
+  | { name: "watch-setup" }
   // The text tools (paste/type a transcript, suggestions). Pushed from
   // Analyze and from Live Coach's post-session review handoff.
   | { name: "session"; returnTo: SessionReturn }
@@ -212,8 +216,11 @@ export default function App() {
                 returnTo: { name: "advanced" },
               })
             }
+            onOpenWatchSetup={() => setScreen({ name: "watch-setup" })}
           />
         );
+      case "watch-setup":
+        return <WatchSetupScreen onBack={() => setScreen({ name: "advanced" })} />;
       case "session":
         // The text tools. Back returns to whichever screen pushed it (Analyze
         // or, after a live session's review handoff, Home). Narrow returnTo to
