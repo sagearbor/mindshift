@@ -115,6 +115,7 @@ function makeHandlers() {
     onOpenDashboard: jest.fn(),
     onSignOut: jest.fn(),
     onOpenReplay: jest.fn(),
+    onOpenWatchSetup: jest.fn(),
   };
 }
 
@@ -155,6 +156,16 @@ describe("AdvancedScreen", () => {
 
     act(() => queryId(comp, "advanced-back")!.props.onPress());
     expect(handlers.onBack).toHaveBeenCalledTimes(1);
+
+    act(() => comp.unmount());
+  });
+
+  it("renders the watch-setup entry and wires its press", async () => {
+    const handlers = makeHandlers();
+    const comp = await render(handlers);
+
+    act(() => queryId(comp, "advanced-watch-setup")!.props.onPress());
+    expect(handlers.onOpenWatchSetup).toHaveBeenCalledTimes(1);
 
     act(() => comp.unmount());
   });

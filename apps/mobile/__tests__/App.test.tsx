@@ -247,6 +247,36 @@ describe("two-mode navigation", () => {
     act(() => comp.unmount());
   });
 
+  it("Home → Advanced → Set up your watch, and back walks the same path", async () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+
+    await act(async () => {
+      queryId(comp, "home-advanced-button")!.props.onPress();
+    });
+    expect(queryId(comp, "advanced-watch-setup")).toBeTruthy();
+
+    await act(async () => {
+      queryId(comp, "advanced-watch-setup")!.props.onPress();
+    });
+    expect(queryId(comp, "watch-setup-screen")).toBeTruthy();
+    expect(queryId(comp, "watch-install-button")).toBeTruthy();
+
+    await act(async () => {
+      queryId(comp, "watch-setup-back")!.props.onPress();
+    });
+    expect(queryId(comp, "advanced-watch-setup")).toBeTruthy();
+
+    await act(async () => {
+      queryId(comp, "advanced-back")!.props.onPress();
+    });
+    expect(queryId(comp, "home-live-coach")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
   it("Analyze → text tools → Analyze dynamics pushes the Dynamics screen", async () => {
     // Enough turns for the analyze button to appear in the text tools.
     act(() => {

@@ -64,6 +64,9 @@ interface AdvancedScreenProps {
   /** Open a recording's replay — the voice card's per-sample "Play" jumps to
    *  the recording a sample was enrolled from. */
   onOpenReplay: (recordingId: string) => void;
+  /** Open the "Set up your watch" screen (Phase 3 Slice 1): install the
+   *  watch app via Play + redeem the pairing code it shows. */
+  onOpenWatchSetup: () => void;
 }
 
 /** A single copy-friendly label/value row in the About card. The value is
@@ -97,6 +100,7 @@ export default function AdvancedScreen({
   onOpenDashboard,
   onSignOut,
   onOpenReplay,
+  onOpenWatchSetup,
 }: AdvancedScreenProps) {
   // Voice profile card — full detail (per-sample provenance) once loaded.
   const [profile, setProfile] = useState<VoiceProfile | null>(null);
@@ -274,6 +278,18 @@ export default function AdvancedScreen({
         <Text style={styles.rowTitle}>Therapist Dashboard</Text>
         <Text style={styles.rowSub}>
           Saved coaching sessions grouped by role, with tone trends and export.
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        testID="advanced-watch-setup"
+        accessibilityRole="button"
+        style={styles.row}
+        onPress={onOpenWatchSetup}
+      >
+        <Text style={styles.rowTitle}>Set up your watch</Text>
+        <Text style={styles.rowSub}>
+          Install the MindShift watch app and pair it to this account.
         </Text>
       </TouchableOpacity>
 
