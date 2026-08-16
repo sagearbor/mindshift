@@ -152,6 +152,41 @@ describe("WatchSetupScreen", () => {
     act(() => comp.unmount());
   });
 
+  it("locks the code input and Pair button after a successful claim (review Minor 1)", async () => {
+    mockClaim.mockResolvedValue({ ok: true });
+    const comp = await render();
+    const input = queryId(comp, "watch-pair-code-input")!;
+
+    await act(async () => {
+      input.props.onChangeText("abc123");
+    });
+
+    expect(mockClaim).toHaveBeenCalledTimes(1);
+    // Both are locked so a stray re-tap/re-edit can't fire a redundant claim
+    // that would 409 and burn one of the account's lockout-budget attempts.
+    expect(queryId(comp, "watch-pair-code-input")!.props.editable).toBe(false);
+    expect(queryId(comp, "watch-pair-button")!.props.disabled).toBe(true);
+
+    // Even an explicit press does nothing further — no second claim call.
+    await act(async () => {
+      queryId(comp, "watch-pair-button")!.props.onPress();
+    });
+    expect(mockClaim).toHaveBeenCalledTimes(1);
+
+    act(() => comp.unmount());
+  });
+
+  it("gives the code field an accessibility label (review Minor 2)", async () => {
+    const comp = await render();
+    const input = queryId(comp, "watch-pair-code-input")!;
+
+    expect(input.props.accessibilityLabel).toBe(
+      "6-character pairing code from your watch",
+    );
+
+    act(() => comp.unmount());
+  });
+
   it("shows the server's honest error and lets the user retry via the Pair button", async () => {
     mockClaim.mockResolvedValue({
       ok: false,

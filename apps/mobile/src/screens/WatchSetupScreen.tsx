@@ -81,7 +81,13 @@ export default function WatchSetupScreen({ onBack }: WatchSetupScreenProps) {
 
   const attemptPair = useCallback(
     async (candidate: string) => {
-      if (candidate.length !== PAIR_CODE_LENGTH || claiming) return;
+      // Guarded here too, not just via the button's `disabled` style — a
+      // direct onPress invocation (or a race between auto-submit and a
+      // manual tap) must never re-fire a claim once one has already
+      // succeeded (review Minor 1).
+      if (candidate.length !== PAIR_CODE_LENGTH || claiming || result?.ok) {
+        return;
+      }
       setClaiming(true);
       setResult(null);
       try {
@@ -98,7 +104,7 @@ export default function WatchSetupScreen({ onBack }: WatchSetupScreenProps) {
         setClaiming(false);
       }
     },
-    [claiming],
+    [claiming, result],
   );
 
   const handleChangeCode = useCallback(
@@ -123,7 +129,12 @@ export default function WatchSetupScreen({ onBack }: WatchSetupScreenProps) {
     void attemptPair(code);
   }, [attemptPair, code]);
 
-  const pairDisabled = code.length !== PAIR_CODE_LENGTH || claiming;
+  const paired = result?.ok === true;
+  // Locked once paired: a stray re-tap/re-edit must never fire a redundant
+  // claim — the code was already consumed server-side, so a second attempt
+  // would only 409 while burning one of the account's lockout-budget
+  // attempts for nothing (review Minor 1).
+  const pairDisabled = code.length !== PAIR_CODE_LENGTH || claiming || paired;
 
   return (
     <ScrollView
@@ -193,11 +204,12 @@ export default function WatchSetupScreen({ onBack }: WatchSetupScreenProps) {
           onChangeText={handleChangeCode}
           placeholder="CODE"
           placeholderTextColor="#9CA3AF"
+          accessibilityLabel="6-character pairing code from your watch"
           autoCapitalize="characters"
           autoCorrect={false}
           autoComplete="off"
           maxLength={PAIR_CODE_LENGTH}
-          editable={!claiming}
+          editable={!claiming && !paired}
         />
         <Text style={styles.codeHint}>6 letters/numbers, from the watch</Text>
 
