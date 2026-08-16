@@ -59,3 +59,7 @@
 - [ ] THEN note grace-window start for gauge-api (decommission after ~a week — Phase 4 boundary; keep-warm decision for unified service raised to owner with $ figure once real latencies observed).
 
 ## Phase-3 fast-start note (owner request 2026-08-15): first Phase 3 deliverable = "Set up your watch" screen in the Expo app (Play deep-link remote-install button + 6-digit pairing-code entry), OTA-shipped.
+
+## Post-review backlog note (whole-branch review 2026-08-15)
+- Shared default-executor contention: diarization inference and all 34 to_thread-wrapped Firestore calls draw from asyncio's default pool (8 workers at 4 vCPU); concurrent end-of-session analyses could queue unrelated store calls. Follow-up ticket (dedicated executor or sizing), fine at household scale.
+- Shared per-IP rate budget across domains (watch polls + phone routes from one NAT) — revisit when multi-tenant.

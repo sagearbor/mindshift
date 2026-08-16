@@ -65,7 +65,7 @@ from auth import (
     resolve_email_by_uid,
     resolve_uid_by_email,
 )
-from llm_client import LLMClient
+from llm_client import DEFAULT_MODEL, LLMClient
 from models.relationship import (
     EdgeOut,
     Participant,
@@ -82,7 +82,7 @@ logger = logging.getLogger(__name__)
 # same database; MINDSHIFT_DB_PATH still overrides.
 _DEFAULT_DB_PATH = FilePath(__file__).resolve().parent.parent / "mindshift.db"
 DB_PATH = os.getenv("MINDSHIFT_DB_PATH") or str(_DEFAULT_DB_PATH)
-MINDSHIFT_MODEL = os.getenv("MINDSHIFT_MODEL", "claude-3-haiku-20240307")
+MINDSHIFT_MODEL = os.getenv("MINDSHIFT_MODEL", DEFAULT_MODEL)
 
 # P1-5: conservative per-IP rate limiting on the cost-bearing REST endpoints
 # (/respond, /score, /session/{id}/export each spend LLM tokens). Both values

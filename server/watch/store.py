@@ -6,6 +6,7 @@
 # from the storage layer instead of a store-native exception type. This is
 # Gauge's original design (the mutator's HTTPException propagates unchanged
 # to the router) and is preserved verbatim — parity beats refactor here.
+import asyncio
 import logging
 import os
 import threading
@@ -483,11 +484,17 @@ class FirestoreLiveSessionStore:
 
     async def put_live_session(self, ls: LiveSession) -> None:
         """Store or update a live session."""
+        await asyncio.to_thread(self._put_live_session_sync, ls)
+
+    def _put_live_session_sync(self, ls: LiveSession) -> None:
         db = self._get_db()
         db.collection("live_sessions").document(ls.id).set(live_session_to_doc(ls))
 
     async def get_live_session(self, id: str) -> LiveSession | None:
         """Retrieve a live session by id, or None if not found."""
+        return await asyncio.to_thread(self._get_live_session_sync, id)
+
+    def _get_live_session_sync(self, id: str) -> LiveSession | None:
         db = self._get_db()
         doc = db.collection("live_sessions").document(id).get()
         if doc.exists:
@@ -497,11 +504,17 @@ class FirestoreLiveSessionStore:
     async def delete_live_session(self, id: str) -> None:
         """Remove a live session. Firestore document deletes are already
         idempotent — deleting an absent id is a no-op, no existence check needed."""
+        await asyncio.to_thread(self._delete_live_session_sync, id)
+
+    def _delete_live_session_sync(self, id: str) -> None:
         db = self._get_db()
         db.collection("live_sessions").document(id).delete()
 
     async def list_live_sessions(self, account: str) -> list[LiveSession]:
         """List live sessions owned by account or shared with account, newest first by started_at."""
+        return await asyncio.to_thread(self._list_live_sessions_sync, account)
+
+    def _list_live_sessions_sync(self, account: str) -> list[LiveSession]:
         db = self._get_db()
         # Get owned live sessions
         owned_docs = db.collection("live_sessions").where("owner_account", "==", account).stream()
@@ -527,11 +540,17 @@ class FirestoreLiveSessionStore:
 
     async def put_baseline(self, b: EnrollmentBaseline) -> None:
         """Store or update an enrollment baseline."""
+        await asyncio.to_thread(self._put_baseline_sync, b)
+
+    def _put_baseline_sync(self, b: EnrollmentBaseline) -> None:
         db = self._get_db()
         db.collection("baselines").document(b.account_id).set(b.model_dump())
 
     async def get_baseline(self, account_id: str) -> EnrollmentBaseline | None:
         """Retrieve an enrollment baseline by account_id, or None if not found."""
+        return await asyncio.to_thread(self._get_baseline_sync, account_id)
+
+    def _get_baseline_sync(self, account_id: str) -> EnrollmentBaseline | None:
         db = self._get_db()
         doc = db.collection("baselines").document(account_id).get()
         if doc.exists:
@@ -540,6 +559,9 @@ class FirestoreLiveSessionStore:
 
     async def put_subscriptions(self, account_id: str, subs: list[VectorSubscription]) -> None:
         """Store vector subscriptions for an account."""
+        await asyncio.to_thread(self._put_subscriptions_sync, account_id, subs)
+
+    def _put_subscriptions_sync(self, account_id: str, subs: list[VectorSubscription]) -> None:
         db = self._get_db()
         db.collection("subscriptions").document(account_id).set({
             "subscriptions": [s.model_dump() for s in subs]
@@ -547,6 +569,9 @@ class FirestoreLiveSessionStore:
 
     async def get_subscriptions(self, account_id: str) -> list[VectorSubscription]:
         """Get subscriptions for an account. Empty → return 5 v1 defaults."""
+        return await asyncio.to_thread(self._get_subscriptions_sync, account_id)
+
+    def _get_subscriptions_sync(self, account_id: str) -> list[VectorSubscription]:
         db = self._get_db()
         doc = db.collection("subscriptions").document(account_id).get()
         if doc.exists:
@@ -559,17 +584,26 @@ class FirestoreLiveSessionStore:
     async def has_subscriptions(self, account_id: str) -> bool:
         """True only when a SAVED subscriptions doc exists for the account —
         never True merely because get_subscriptions would fabricate defaults."""
+        return await asyncio.to_thread(self._has_subscriptions_sync, account_id)
+
+    def _has_subscriptions_sync(self, account_id: str) -> bool:
         db = self._get_db()
         doc = db.collection("subscriptions").document(account_id).get()
         return doc.exists
 
     async def put_account(self, a: Account) -> None:
         """Store or update an account."""
+        await asyncio.to_thread(self._put_account_sync, a)
+
+    def _put_account_sync(self, a: Account) -> None:
         db = self._get_db()
         db.collection("accounts").document(a.id).set(a.model_dump())
 
     async def get_account(self, account_id: str) -> Account | None:
         """Retrieve an account by id, or None if not found."""
+        return await asyncio.to_thread(self._get_account_sync, account_id)
+
+    def _get_account_sync(self, account_id: str) -> Account | None:
         db = self._get_db()
         doc = db.collection("accounts").document(account_id).get()
         if doc.exists:
@@ -580,6 +614,9 @@ class FirestoreLiveSessionStore:
         """Retrieve an account by exact email match, or None (also None for a falsy email)."""
         if not email:
             return None
+        return await asyncio.to_thread(self._get_account_by_email_sync, email)
+
+    def _get_account_by_email_sync(self, email: str) -> Account | None:
         db = self._get_db()
         docs = db.collection("accounts").where("email", "==", email).stream()
         for doc in docs:
@@ -588,11 +625,17 @@ class FirestoreLiveSessionStore:
 
     async def put_speaker_profile(self, p: SpeakerProfile) -> None:
         """Store or update a speaker (voice enrollment) profile."""
+        await asyncio.to_thread(self._put_speaker_profile_sync, p)
+
+    def _put_speaker_profile_sync(self, p: SpeakerProfile) -> None:
         db = self._get_db()
         db.collection("speaker_profiles").document(p.account_id).set(p.model_dump())
 
     async def get_speaker_profile(self, account_id: str) -> SpeakerProfile | None:
         """Retrieve a speaker profile by account_id, or None if not found."""
+        return await asyncio.to_thread(self._get_speaker_profile_sync, account_id)
+
+    def _get_speaker_profile_sync(self, account_id: str) -> SpeakerProfile | None:
         db = self._get_db()
         doc = db.collection("speaker_profiles").document(account_id).get()
         if doc.exists:
@@ -601,11 +644,17 @@ class FirestoreLiveSessionStore:
 
     async def put_group(self, g: Group) -> None:
         """Store or update a group."""
+        await asyncio.to_thread(self._put_group_sync, g)
+
+    def _put_group_sync(self, g: Group) -> None:
         db = self._get_db()
         db.collection("groups").document(g.id).set(group_to_doc(g))
 
     async def get_group(self, group_id: str) -> Group | None:
         """Retrieve a group by id, or None if not found."""
+        return await asyncio.to_thread(self._get_group_sync, group_id)
+
+    def _get_group_sync(self, group_id: str) -> Group | None:
         db = self._get_db()
         doc = db.collection("groups").document(group_id).get()
         if doc.exists:
@@ -614,6 +663,9 @@ class FirestoreLiveSessionStore:
 
     async def list_groups(self, account_id: str) -> list[Group]:
         """List groups the account is a current member of, oldest-first by created_at."""
+        return await asyncio.to_thread(self._list_groups_sync, account_id)
+
+    def _list_groups_sync(self, account_id: str) -> list[Group]:
         db = self._get_db()
         # NB: this client version's operator token is underscore-style
         # ("array_contains"); the hyphen form raises ValueError at query time.
@@ -627,6 +679,9 @@ class FirestoreLiveSessionStore:
 
         Streams the collection and filters in Python (invite codes are few
         and this avoids a second index)."""
+        return await asyncio.to_thread(self._get_group_by_invite_code_sync, code)
+
+    def _get_group_by_invite_code_sync(self, code: str) -> Group | None:
         db = self._get_db()
         for doc in db.collection("groups").stream():
             g = Group(**doc.to_dict())
@@ -641,7 +696,17 @@ class FirestoreLiveSessionStore:
         gives the read-check-write ACID semantics: the transaction retries
         the whole read+mutator+write if the doc changed underneath it, and
         commits nothing at all if `mutator` raises (Firestore never sees a
-        `.set()` call in that case)."""
+        `.set()` call in that case). The entire transactional call (building
+        the transaction AND running it) executes in a worker thread — only
+        `mutator`'s own logic is arbitrary caller code, and it's still called
+        synchronously from within that thread, so exceptions it raises
+        (including the HTTPException abort path) propagate unchanged through
+        `asyncio.to_thread` back to the awaiting caller."""
+        return await asyncio.to_thread(self._update_group_atomically_sync, group_id, mutator)
+
+    def _update_group_atomically_sync(
+        self, group_id: str, mutator: Callable[["Group | None"], Group]
+    ) -> Group:
         from google.cloud import firestore
 
         db = self._get_db()
@@ -659,11 +724,17 @@ class FirestoreLiveSessionStore:
 
     async def put_capture(self, c: Capture) -> None:
         """Store or update a capture's metadata."""
+        await asyncio.to_thread(self._put_capture_sync, c)
+
+    def _put_capture_sync(self, c: Capture) -> None:
         db = self._get_db()
         db.collection("captures").document(c.id).set(c.model_dump())
 
     async def get_capture(self, capture_id: str) -> Capture | None:
         """Retrieve a capture by id, or None if not found."""
+        return await asyncio.to_thread(self._get_capture_sync, capture_id)
+
+    def _get_capture_sync(self, capture_id: str) -> Capture | None:
         db = self._get_db()
         doc = db.collection("captures").document(capture_id).get()
         if doc.exists:
@@ -672,6 +743,9 @@ class FirestoreLiveSessionStore:
 
     async def list_captures(self, account_id: str) -> list[Capture]:
         """List captures owned by account_id, newest-first by captured_at."""
+        return await asyncio.to_thread(self._list_captures_sync, account_id)
+
+    def _list_captures_sync(self, account_id: str) -> list[Capture]:
         db = self._get_db()
         docs = db.collection("captures").where("account_id", "==", account_id).stream()
         captures = [Capture(**doc.to_dict()) for doc in docs]
@@ -681,11 +755,17 @@ class FirestoreLiveSessionStore:
     async def delete_capture(self, capture_id: str) -> None:
         """Remove a capture's metadata doc. Same idempotent-on-absent contract
         as delete_live_session — Firestore deletes never raise for an absent doc."""
+        await asyncio.to_thread(self._delete_capture_sync, capture_id)
+
+    def _delete_capture_sync(self, capture_id: str) -> None:
         db = self._get_db()
         db.collection("captures").document(capture_id).delete()
 
     async def get_legacy_claim(self) -> LegacyClaim | None:
         """The singleton claim marker, or None if the legacy account is unclaimed."""
+        return await asyncio.to_thread(self._get_legacy_claim_sync)
+
+    def _get_legacy_claim_sync(self) -> LegacyClaim | None:
         db = self._get_db()
         doc = db.collection("legacy_claims").document(LEGACY_ACCOUNT_ID).get()
         if doc.exists:
@@ -698,7 +778,15 @@ class FirestoreLiveSessionStore:
         """See LiveSessionStore.update_legacy_claim_atomically. Structural
         copy of update_group_atomically: `@firestore.transactional` gives
         the read-check-write ACID semantics, and a fixed singleton doc id
-        (LEGACY_ACCOUNT_ID) since exactly one LegacyClaim ever exists."""
+        (LEGACY_ACCOUNT_ID) since exactly one LegacyClaim ever exists. Same
+        to_thread-wraps-the-whole-transactional-call shape as
+        update_group_atomically, so mutator's raised exceptions propagate
+        the same way."""
+        return await asyncio.to_thread(self._update_legacy_claim_atomically_sync, mutator)
+
+    def _update_legacy_claim_atomically_sync(
+        self, mutator: Callable[["LegacyClaim | None"], LegacyClaim]
+    ) -> LegacyClaim:
         from google.cloud import firestore
 
         db = self._get_db()
@@ -721,7 +809,14 @@ class FirestoreLiveSessionStore:
         matching every other transactional method here
         (update_group_atomically, update_legacy_claim_atomically), so this
         live session's ownership check, its move, and its counter-bump
-        commit (or abort) together."""
+        commit (or abort) together. Same to_thread-wraps-the-whole-
+        transactional-call shape, so the raised HTTPException still
+        propagates unchanged."""
+        return await asyncio.to_thread(
+            self._claim_legacy_live_session_sync, live_session_id, account
+        )
+
+    def _claim_legacy_live_session_sync(self, live_session_id: str, account: str) -> bool:
         from google.cloud import firestore
 
         db = self._get_db()

@@ -30,10 +30,12 @@ embedded or labeled rather than guessing.
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Callable, Protocol
 
 import numpy as np
 
+import speaker_id
 from speaker_id import MATCH_THRESHOLD, cosine, l2_normalize, running_mean_embedding
 from watch.vectors import SILENCE_FLOOR_DBFS, rms_dbfs
 
@@ -242,3 +244,54 @@ class EmbeddingDiarizationService:
         # so diarization always returned [].
         samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float32)
         return diarize(samples, sr, self_print, self._embedder)
+
+
+class LazyDiarizationService:
+    """Resolves to Embedding-or-Null on FIRST ``.diarize()`` call, never at
+    construction (Task H3).
+
+    ``build_watch_routers()`` runs at ``import main`` (``server/main.py``'s
+    module-level ``for _r in build_watch_routers(): ...``), so eagerly
+    calling ``speaker_id.is_available()`` there — which tries ``import
+    torch; import speechbrain`` — paid that heavy import cost on EVERY
+    Cloud Run cold start (min-instances 0), even for requests that never
+    touch diarization. This proxy defers that check to the first actual
+    use — request time, exactly mirroring how ``server/routers/voice.py``'s
+    pre-existing routes (and this module's sibling, ``rest.py``'s
+    ``_resolve_embedder``) already behave. Unlike the embedder, the
+    diarizer has no per-request fallback in ``ws.py``/``live_sessions.py``
+    — both just use whatever object they're handed — so it is still built
+    ONCE and shared by both routers; only the WHEN of that one-time build
+    moves from import time to first-use time.
+
+    Resolution happens once under a lock and is cached for the life of the
+    process — double-checked locking so concurrent live sessions (both
+    routers' ``.diarize()`` calls run off the event loop via
+    ``asyncio.to_thread``, so they can genuinely race here) resolve at most
+    once, never rebuild per call.
+
+    Degradation parity: when torch/speechbrain are genuinely unavailable at
+    first use, this resolves to the SAME ``NullDiarizationService()`` (``[]``,
+    honestly) eager construction would have produced at import time — never
+    a crash, never behavior different from the eager code path it replaces.
+    """
+
+    def __init__(self) -> None:
+        self._resolved: DiarizationService | None = None
+        self._lock = threading.Lock()
+
+    def _resolve(self) -> DiarizationService:
+        resolved = self._resolved
+        if resolved is not None:
+            return resolved
+        with self._lock:
+            if self._resolved is None:
+                self._resolved = (
+                    EmbeddingDiarizationService(speaker_id.embed_pcm)
+                    if speaker_id.is_available()
+                    else NullDiarizationService()
+                )
+            return self._resolved
+
+    def diarize(self, pcm: bytes, sr: int, self_print: np.ndarray | None) -> list[tuple[str, float, float]]:
+        return self._resolve().diarize(pcm, sr, self_print)

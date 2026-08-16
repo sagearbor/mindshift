@@ -10,8 +10,16 @@ creds/deps degrade individual endpoints, never block app startup).
 """
 
 import logging
+import os
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
 
 import main
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+SERVER_DIR = REPO_ROOT / "server"
 
 
 def _iter_leaf_routes(routes, _seen=None):
@@ -104,3 +112,61 @@ def test_no_route_collisions():
         if c > 1
     }
     assert not dupes, f"colliding routes: {dupes}"
+
+
+def test_import_main_does_not_attempt_torch_speechbrain_import(tmp_path):
+    """Task H3: ``build_watch_routers()`` runs at ``import main`` (module
+    scope — see ``server/main.py``'s ``for _r in build_watch_routers()``
+    block). Eagerly resolving the diarizer there calls
+    ``speaker_id.is_available()``, which tries ``import torch`` / ``import
+    speechbrain`` — heavy imports we want to defer to first real use (Cloud
+    Run cold start, min-instances 0).
+
+    torch/speechbrain are NOT installed in this repo's env or CI, so a plain
+    ``assert "torch" not in sys.modules`` after ``import main`` is true
+    TODAY regardless of eager or lazy wiring (the eager call just eats an
+    ImportError) — it would never go RED against the current code and
+    proves nothing. Instead this asserts the OBSERVABLE CONTRACT: no
+    attempt to import speechbrain happens as a side effect of ``import
+    main``. A stub ``speechbrain`` package is planted on a scratch
+    directory prepended to ``PYTHONPATH`` for a fresh subprocess; the
+    stub's ``__init__.py`` writes a marker file the instant it is imported
+    (successfully or not — the write happens before anything else in the
+    module body can fail). If ``import main`` alone causes that marker to
+    appear, something at import time executed ``import speechbrain`` —
+    exactly what eager ``speaker_id.is_available()`` does today. Verified
+    manually against current HEAD: this stub reliably reproduces marker=YES
+    (RED) before the lazy-proxy fix, and marker=NO (GREEN) after it.
+    """
+    stub_root = tmp_path / "stub_path"
+    stub_pkg = stub_root / "speechbrain"
+    stub_pkg.mkdir(parents=True)
+    marker = tmp_path / "speechbrain_import_marker"
+    (stub_pkg / "__init__.py").write_text(textwrap.dedent(f"""
+        import pathlib
+        pathlib.Path({str(marker)!r}).write_text("imported")
+        raise ImportError("stub speechbrain — deliberately unusable")
+    """))
+
+    env = {
+        "PATH": "/usr/bin:/bin",
+        # Stub dir FIRST so it shadows any real speechbrain install; SERVER_DIR
+        # so `import main` resolves exactly like the real app does.
+        "PYTHONPATH": f"{stub_root}{os.pathsep}{SERVER_DIR}",
+    }
+    result = subprocess.run(
+        [sys.executable, "-c", "import main"],
+        cwd=str(SERVER_DIR),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, (
+        f"import main failed:\nstdout={result.stdout}\nstderr={result.stderr}"
+    )
+    assert not marker.exists(), (
+        "import main attempted `import speechbrain` (marker file was written) "
+        "— the diarizer must be resolved lazily at first use, not at "
+        "build_watch_routers()/import time"
+    )

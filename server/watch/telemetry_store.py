@@ -7,6 +7,7 @@ crashes/logs directly instead of relying on the user screen-capturing
 logcat (there is no adb workflow for this device — see project CLAUDE.md).
 """
 
+import asyncio
 import os
 from typing import Protocol
 
@@ -101,6 +102,9 @@ class FirestoreTelemetryStore:
 
     async def add_events(self, events: list[TelemetryEvent]) -> None:
         """Store a batch of telemetry events (message/stack clamped to caps)."""
+        await asyncio.to_thread(self._add_events_sync, events)
+
+    def _add_events_sync(self, events: list[TelemetryEvent]) -> None:
         db = self._get_db()
         for e in events:
             clamped = clamp_event(e)
@@ -114,6 +118,9 @@ class FirestoreTelemetryStore:
         Python — house style (see FirestoreLiveSessionStore.list_live_sessions
         in store.py), which avoids needing a composite index.
         """
+        return await asyncio.to_thread(self._list_events_sync, device, since, limit)
+
+    def _list_events_sync(self, device: str | None, since: str | None, limit: int) -> list[TelemetryEvent]:
         db = self._get_db()
         query = db.collection("telemetry")
         if device is not None:

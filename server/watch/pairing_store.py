@@ -25,6 +25,7 @@ directly from the storage layer -- Gauge's original design, preserved
 verbatim.
 """
 
+import asyncio
 import hashlib
 import os
 import threading
@@ -208,10 +209,16 @@ class FirestorePairingStore:
         return self._db
 
     async def create_pairing(self, p: Pairing) -> None:
+        await asyncio.to_thread(self._create_pairing_sync, p)
+
+    def _create_pairing_sync(self, p: Pairing) -> None:
         db = self._get_db()
         db.collection("pairings").document(p.id).set(p.model_dump())
 
     async def get_pairing(self, pairing_id: str) -> Pairing | None:
+        return await asyncio.to_thread(self._get_pairing_sync, pairing_id)
+
+    def _get_pairing_sync(self, pairing_id: str) -> Pairing | None:
         db = self._get_db()
         doc = db.collection("pairings").document(pairing_id).get()
         if doc.exists:
@@ -222,6 +229,9 @@ class FirestorePairingStore:
         """Streams the collection and filters in Python — pairings are few
         and short-lived, matching get_group_by_invite_code's same tradeoff
         (avoids needing a composite index for a low-cardinality lookup)."""
+        return await asyncio.to_thread(self._get_pairing_by_code_hash_sync, code_hash)
+
+    def _get_pairing_by_code_hash_sync(self, code_hash: str) -> Pairing | None:
         db = self._get_db()
         for doc in db.collection("pairings").stream():
             p = Pairing(**doc.to_dict())
@@ -237,7 +247,16 @@ class FirestorePairingStore:
         semantics: the transaction retries the whole read+mutator+write if
         the doc changed underneath it, and commits nothing at all if
         ``mutator`` raises (Firestore never sees a ``.set()`` call in that
-        case) — structural copy of FirestoreLiveSessionStore.update_group_atomically."""
+        case) — structural copy of FirestoreLiveSessionStore.update_group_atomically.
+        The entire transactional call runs in a worker thread via
+        asyncio.to_thread, so a mutator-raised exception (including the
+        HTTPException abort path) propagates unchanged to the awaiting
+        caller."""
+        return await asyncio.to_thread(self._update_pairing_atomically_sync, pairing_id, mutator)
+
+    def _update_pairing_atomically_sync(
+        self, pairing_id: str, mutator: Callable[["Pairing | None"], Pairing]
+    ) -> Pairing:
         from google.cloud import firestore
 
         db = self._get_db()
@@ -254,10 +273,18 @@ class FirestorePairingStore:
         return _run(db.transaction())
 
     def put_device_token(self, t: DeviceToken) -> None:
+        # SYNCHRONOUS by Protocol contract (see PairingStore.put_device_token's
+        # docstring) — auth.py's DeviceTokenVerifier calls this from a plain
+        # sync function that cannot await, so this stays as a direct
+        # blocking SDK call and is NOT wrapped in asyncio.to_thread.
         db = self._get_db()
         db.collection("device_tokens").document(t.token_hash).set(t.model_dump())
 
     def get_device_token_by_hash(self, token_hash: str) -> DeviceToken | None:
+        # SYNCHRONOUS by Protocol contract — see put_device_token above and
+        # server/watch/auth.py's DeviceTokenVerifier.verify(), which calls
+        # this synchronously. Left as a direct blocking SDK call, matching
+        # the ONLY-wrap-async-def-methods scope of this task.
         db = self._get_db()
         doc = db.collection("device_tokens").document(token_hash).get()
         if doc.exists:
@@ -265,6 +292,9 @@ class FirestorePairingStore:
         return None
 
     async def get_failed_claim_record(self, account_id: str) -> FailedClaimRecord | None:
+        return await asyncio.to_thread(self._get_failed_claim_record_sync, account_id)
+
+    def _get_failed_claim_record_sync(self, account_id: str) -> FailedClaimRecord | None:
         db = self._get_db()
         doc = db.collection("failed_claim_attempts").document(account_id).get()
         if doc.exists:
@@ -278,6 +308,11 @@ class FirestorePairingStore:
         longer fits; see ``PairingStore.set_failed_claim_record``'s
         docstring for why a plain (non-transactional) write is acceptable
         here."""
+        await asyncio.to_thread(
+            self._set_failed_claim_record_sync, account_id, count, last_failed_at
+        )
+
+    def _set_failed_claim_record_sync(self, account_id: str, count: int, last_failed_at: str) -> None:
         db = self._get_db()
         db.collection("failed_claim_attempts").document(account_id).set(
             FailedClaimRecord(account_id=account_id, count=count, last_failed_at=last_failed_at).model_dump()

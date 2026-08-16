@@ -5,5 +5,6 @@ testpaths = ["server", "tests"]
 # importlib mode lets the two conftest.py files (server/ and tests/) coexist
 # without shadowing each other — the classic "import file mismatch" collision.
 addopts = "--import-mode=importlib"
-# Make `main` (server/) and `_mock_data` (tests/) importable by name from tests.
-pythonpath = ["server", "tests"]
+# Make `main` (server/), `_mock_data` (tests/), and standalone scripts (Task
+# D1's migrate_episodes_to_live_sessions.py) importable by name from tests.
+pythonpath = ["server", "tests", "scripts"]
