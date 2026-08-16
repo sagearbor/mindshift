@@ -18,6 +18,12 @@ logger = logging.getLogger(__name__)
 REQUEST_TIMEOUT_SECONDS = 30
 MAX_RETRIES = 1
 
+# Single source of truth for the app-wide default model (final review M6):
+# both server/main.py's MINDSHIFT_MODEL env-var default and
+# server/watch/services.py's build_llm() fallback import this constant
+# instead of each hardcoding their own copy of the literal.
+DEFAULT_MODEL = "claude-3-haiku-20240307"
+
 
 class LLMClient:
     """Unified interface for Anthropic, OpenAI, Google, and Mistral models."""
