@@ -32,7 +32,9 @@ import type { AnalyzeResult } from "./src/api/client";
 // The home screen is a radically simple choice between the app's two modes:
 // Live Coach (real-time earbud coaching) and Analyze a Conversation
 // (everything after-the-fact: record / upload / link / past recordings).
-// Everything else lives behind the small Advanced corner affordance.
+// Everything else lives behind the small Settings ("⋯") corner affordance —
+// the "advanced" screen key below still names the destination internally
+// (AdvancedScreen), but the user-facing title is "Settings".
 //
 // Navigation stays the same hand-rolled screen union as before (no nav lib):
 // every non-home screen is "pushed" and carries enough state to get back.
@@ -59,7 +61,8 @@ type Screen =
   | { name: "live-coach" }
   // The Analyze mode hub: record / upload / link + relationship context.
   | { name: "analyze" }
-  // Everything that doesn't fit the two modes (dashboard, sign out).
+  // Everything that doesn't fit the two modes: Settings (dashboard, watch
+  // setup, voice profile, About, log out).
   | { name: "advanced" }
   // Phase 3 Slice 1: install the watch app + redeem its pairing code.
   // Pushed from Advanced's "Set up your watch" row; returns there.

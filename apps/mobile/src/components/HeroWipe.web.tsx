@@ -165,9 +165,10 @@ const styles = StyleSheet.create({
     height: 200,
     flexShrink: 0,
     position: "relative",
-    borderRadius: 20,
+    // Full-bleed by owner request: no rounded corners, no bottom gap — the
+    // banner reads as a continuous strip across the page, not a card.
     overflow: "hidden",
-    marginBottom: 16,
+    marginBottom: 0,
     backgroundColor: "#111827",
   },
   image: {

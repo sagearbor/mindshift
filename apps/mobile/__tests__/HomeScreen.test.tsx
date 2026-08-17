@@ -45,7 +45,11 @@ describe("HomeScreen", () => {
     expect(queryId(comp, "home-analyze")).toBeTruthy();
     expect(queryId(comp, "home-recordings-link")).toBeTruthy();
     expect(queryId(comp, "home-your-day-link")).toBeTruthy();
-    expect(queryId(comp, "home-advanced-button")).toBeTruthy();
+    const settingsButton = queryId(comp, "home-advanced-button")!;
+    expect(settingsButton).toBeTruthy();
+    // User-facing label is "Settings" (Phase 0 of the nav redesign renamed
+    // Advanced → Settings); the "⋯" glyph and testID stay as-is for now.
+    expect(settingsButton.props.accessibilityLabel).toBe("Settings");
     // Growth unavailable → no strip, no broken chart.
     expect(queryId(comp, "growth-strip")).toBeNull();
     expect(comp.toJSON()).toMatchSnapshot();

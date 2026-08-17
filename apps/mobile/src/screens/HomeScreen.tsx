@@ -10,9 +10,9 @@ import HeroWipe from "../components/HeroWipe";
  * screen is exactly two huge buttons, a narrow self-fetching "Your growth"
  * sparkline strip, a compact history row ("Your day"
  * timeline + "past recordings"), and
- * a small corner affordance for everything else (Advanced). No forms, no
- * settings, no clutter: users may open this mid-conflict and stressed, so the
- * primary targets are enormous and unambiguous.
+ * a small corner affordance for everything else (Settings). No forms, no
+ * settings clutter here: users may open this mid-conflict and stressed, so
+ * the primary targets are enormous and unambiguous.
  */
 interface HomeScreenProps {
   onLiveCoach: () => void;
@@ -36,13 +36,15 @@ export default function HomeScreen({
       {/* Web-only hero banner (Task P3-4b) — renders nothing on native. */}
       <HeroWipe />
 
-      {/* Top bar: wordmark + the small Advanced corner affordance. */}
+      {/* Top bar: wordmark + the small Settings corner affordance (⋯). The
+          hamburger + full destination catalog arrive in a follow-up (P3-10);
+          for now this still opens the single grouped Settings screen. */}
       <View style={styles.topBar}>
         <Text style={styles.wordmark}>MindShift</Text>
         <TouchableOpacity
           testID="home-advanced-button"
           accessibilityRole="button"
-          accessibilityLabel="Advanced"
+          accessibilityLabel="Settings"
           style={styles.advancedButton}
           onPress={onOpenAdvanced}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}

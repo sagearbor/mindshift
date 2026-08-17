@@ -54,8 +54,11 @@ function otaSummary(ota: OtaStatus): string {
 
 /**
  * Everything that doesn't fit the two home modes lives behind the small
- * Advanced affordance: the therapist dashboard and account actions. Nothing
- * here was deleted from the app — only moved out of the way.
+ * "⋯" affordance on Home: this is the app's Settings destination — the
+ * therapist dashboard, watch setup, voice profile management, and account
+ * actions, grouped into labeled sections. Nothing here was deleted from the
+ * app — only moved out of the way and organized (Phase 0 of the nav
+ * redesign; the hamburger + customizable home arrive in a follow-up).
  */
 interface AdvancedScreenProps {
   onBack: () => void;
@@ -267,7 +270,13 @@ export default function AdvancedScreen({
         <Text style={styles.backText}>← Back</Text>
       </TouchableOpacity>
 
-      <Text style={styles.heading}>Advanced</Text>
+      <Text style={styles.heading} testID="settings-heading">
+        Settings
+      </Text>
+
+      <Text style={styles.sectionHeading} testID="section-your-tools">
+        Your tools
+      </Text>
 
       <TouchableOpacity
         testID="advanced-dashboard"
@@ -294,120 +303,130 @@ export default function AdvancedScreen({
       </TouchableOpacity>
 
       {profile && profile.available && profile.storage_enabled ? (
-        <View style={styles.row} testID="voice-profile-card">
-          <Text style={styles.rowTitle}>Voice profile</Text>
-          {profile.enrolled ? (
-            <>
-              <Text style={styles.rowSub} testID="voice-profile-status">
-                {[
-                  `Enrolled · ${profile.enroll_count} sample` +
-                    `${profile.enroll_count === 1 ? "" : "s"}`,
-                  formatDate(profile.updated_at)
-                    ? `updated ${formatDate(profile.updated_at)}`
-                    : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </Text>
-
-              {samples.map((s) => (
-                <View key={s.id} style={styles.sampleRow} testID={`voice-sample-${s.id}`}>
-                  <View style={styles.sampleInfo}>
-                    <Text style={styles.sampleTitle} numberOfLines={1}>
-                      {sampleSource(s)}
-                    </Text>
-                    <Text style={styles.sampleMeta}>
-                      {[s.speaker, s.at ? formatDate(s.at) : null]
-                        .filter(Boolean)
-                        .join(" · ") || "no details recorded"}
-                    </Text>
-                  </View>
-                  {s.recording_id && recordingTitles?.[s.recording_id] ? (
-                    <TouchableOpacity
-                      testID={`voice-sample-play-${s.id}`}
-                      accessibilityRole="button"
-                      accessibilityLabel="Play the recording this sample came from"
-                      style={styles.sampleButton}
-                      onPress={() => onOpenReplay(s.recording_id as string)}
-                    >
-                      <Text style={styles.sampleButtonText}>Play</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  <TouchableOpacity
-                    testID={`voice-sample-delete-${s.id}`}
-                    accessibilityRole="button"
-                    accessibilityLabel="Delete this voice sample"
-                    style={styles.sampleButton}
-                    onPress={() => handleDeleteSample(s)}
-                  >
-                    <Text style={styles.sampleDeleteText}>Delete</Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
-
-              {sampleError ? (
-                <Text style={styles.sampleError} testID="voice-sample-error">
-                  {sampleError}
+        <>
+          <Text style={styles.sectionHeading} testID="section-voice">
+            Voice
+          </Text>
+          <View style={styles.row} testID="voice-profile-card">
+            <Text style={styles.rowTitle}>Voice profile</Text>
+            {profile.enrolled ? (
+              <>
+                <Text style={styles.rowSub} testID="voice-profile-status">
+                  {[
+                    `Enrolled · ${profile.enroll_count} sample` +
+                      `${profile.enroll_count === 1 ? "" : "s"}`,
+                    formatDate(profile.updated_at)
+                      ? `updated ${formatDate(profile.updated_at)}`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </Text>
-              ) : null}
 
-              <Text style={styles.addHint} testID="voice-add-sample-hint">
-                Add another sample: open any recording and tap “This is me” on
-                your speaker. More samples make “You” more reliable.
+                {samples.map((s) => (
+                  <View key={s.id} style={styles.sampleRow} testID={`voice-sample-${s.id}`}>
+                    <View style={styles.sampleInfo}>
+                      <Text style={styles.sampleTitle} numberOfLines={1}>
+                        {sampleSource(s)}
+                      </Text>
+                      <Text style={styles.sampleMeta}>
+                        {[s.speaker, s.at ? formatDate(s.at) : null]
+                          .filter(Boolean)
+                          .join(" · ") || "no details recorded"}
+                      </Text>
+                    </View>
+                    {s.recording_id && recordingTitles?.[s.recording_id] ? (
+                      <TouchableOpacity
+                        testID={`voice-sample-play-${s.id}`}
+                        accessibilityRole="button"
+                        accessibilityLabel="Play the recording this sample came from"
+                        style={styles.sampleButton}
+                        onPress={() => onOpenReplay(s.recording_id as string)}
+                      >
+                        <Text style={styles.sampleButtonText}>Play</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    <TouchableOpacity
+                      testID={`voice-sample-delete-${s.id}`}
+                      accessibilityRole="button"
+                      accessibilityLabel="Delete this voice sample"
+                      style={styles.sampleButton}
+                      onPress={() => handleDeleteSample(s)}
+                    >
+                      <Text style={styles.sampleDeleteText}>Delete</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+
+                {sampleError ? (
+                  <Text style={styles.sampleError} testID="voice-sample-error">
+                    {sampleError}
+                  </Text>
+                ) : null}
+
+                <Text style={styles.addHint} testID="voice-add-sample-hint">
+                  Add another sample: open any recording and tap “This is me” on
+                  your speaker. More samples make “You” more reliable.
+                </Text>
+
+                <TouchableOpacity
+                  testID="advanced-forget-voice"
+                  accessibilityRole="button"
+                  style={styles.forgetButton}
+                  onPress={confirmForget}
+                  disabled={forgetting}
+                >
+                  <View style={styles.forgetTitleRow}>
+                    <Text style={styles.forgetText}>Forget my voice</Text>
+                    {forgetting ? (
+                      <ActivityIndicator size="small" color="#6B7280" />
+                    ) : null}
+                  </View>
+                  <Text style={styles.rowSub}>
+                    Delete the numeric voice signature used to label you “You”.
+                    Your recordings are kept; only the voiceprint is removed.
+                  </Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <Text style={styles.rowSub} testID="voice-profile-status">
+                Not enrolled. Train your voice right here with four short
+                phrases, or open a recording and tap “This is me” on your
+                speaker — MindShift will label you “You” from then on. It stores
+                a numeric voice signature, never your audio.
               </Text>
+            )}
 
+            {training ? (
+              <VoiceTrainingFlow
+                onDone={handleTrained}
+                onCancel={() => setTraining(false)}
+              />
+            ) : (
               <TouchableOpacity
-                testID="advanced-forget-voice"
+                testID="voice-train-button"
                 accessibilityRole="button"
-                style={styles.forgetButton}
-                onPress={confirmForget}
-                disabled={forgetting}
+                style={styles.trainButton}
+                onPress={() => setTraining(true)}
               >
-                <View style={styles.forgetTitleRow}>
-                  <Text style={styles.forgetText}>Forget my voice</Text>
-                  {forgetting ? (
-                    <ActivityIndicator size="small" color="#6B7280" />
-                  ) : null}
-                </View>
+                <Text style={styles.trainText}>Train my voice</Text>
                 <Text style={styles.rowSub}>
-                  Delete the numeric voice signature used to label you “You”.
-                  Your recordings are kept; only the voiceprint is removed.
+                  Read four short phrases aloud — no recordings needed first.
+                  Works alongside “This is me”; both add samples.
                 </Text>
               </TouchableOpacity>
-            </>
-          ) : (
-            <Text style={styles.rowSub} testID="voice-profile-status">
-              Not enrolled. Train your voice right here with four short
-              phrases, or open a recording and tap “This is me” on your
-              speaker — MindShift will label you “You” from then on. It stores
-              a numeric voice signature, never your audio.
-            </Text>
-          )}
-
-          {training ? (
-            <VoiceTrainingFlow
-              onDone={handleTrained}
-              onCancel={() => setTraining(false)}
-            />
-          ) : (
-            <TouchableOpacity
-              testID="voice-train-button"
-              accessibilityRole="button"
-              style={styles.trainButton}
-              onPress={() => setTraining(true)}
-            >
-              <Text style={styles.trainText}>Train my voice</Text>
-              <Text style={styles.rowSub}>
-                Read four short phrases aloud — no recordings needed first.
-                Works alongside “This is me”; both add samples.
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
+            )}
+          </View>
+        </>
       ) : null}
 
-      <Text style={styles.sectionHeading}>About</Text>
+      <Text style={styles.sectionHeading} testID="section-about">
+        About
+      </Text>
       <View style={styles.aboutCard} testID="about-section">
+        <Text style={styles.aboutAppName} testID="about-app-name">
+          MindShift
+        </Text>
         <AboutRow testID="about-version" label="App version" value={appVersion} />
         <AboutRow testID="about-build" label="Build" value={buildVersion} />
         <AboutRow
@@ -415,6 +434,13 @@ export default function AdvancedScreen({
           label="Update"
           value={otaSummary(ota)}
         />
+        {ota.updateId ? (
+          <AboutRow
+            testID="about-update-id"
+            label="Update ID"
+            value={ota.updateId}
+          />
+        ) : null}
         <AboutRow
           testID="about-account"
           label="Signed in as"
@@ -428,13 +454,16 @@ export default function AdvancedScreen({
         />
       </View>
 
+      <Text style={styles.sectionHeading} testID="section-account">
+        Account
+      </Text>
       <TouchableOpacity
         testID="advanced-sign-out"
         accessibilityRole="button"
         style={[styles.row, styles.signOutRow]}
         onPress={onSignOut}
       >
-        <Text style={[styles.rowTitle, styles.signOutText]}>Sign out</Text>
+        <Text style={[styles.rowTitle, styles.signOutText]}>Log out</Text>
       </TouchableOpacity>
     </ScrollView>
   );
@@ -585,6 +614,12 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     backgroundColor: "#FFFFFF",
     paddingHorizontal: 18,
+  },
+  aboutAppName: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#1F2937",
+    paddingTop: 14,
   },
   aboutRow: {
     paddingVertical: 12,

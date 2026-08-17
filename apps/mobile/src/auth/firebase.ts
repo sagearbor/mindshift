@@ -36,11 +36,25 @@ const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
  */
 function createAuth(): Auth {
   try {
+    if (Platform.OS === "web") {
+      // initializeAuth does NOT default popupRedirectResolver (getAuth does):
+      // omitting it makes signInWithPopup/-Redirect throw auth/argument-error
+      // synchronously — which silently broke web Google sign-in. The resolver
+      // is reached through the same typed indirection as the RN persistence
+      // because it exists only in the web build of firebase/auth.
+      const browserPopupRedirectResolver = (
+        firebaseAuth as unknown as {
+          browserPopupRedirectResolver: unknown;
+        }
+      ).browserPopupRedirectResolver;
+      return initializeAuth(app, {
+        persistence: browserLocalPersistence,
+        popupRedirectResolver:
+          browserPopupRedirectResolver as never,
+      });
+    }
     return initializeAuth(app, {
-      persistence:
-        Platform.OS === "web"
-          ? browserLocalPersistence
-          : getReactNativePersistence(secureStorePersistence),
+      persistence: getReactNativePersistence(secureStorePersistence),
     });
   } catch {
     // Already initialized (Fast Refresh / double import).
