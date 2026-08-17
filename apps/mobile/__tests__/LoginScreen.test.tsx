@@ -117,4 +117,21 @@ describe("LoginScreen", () => {
     expect(queryId(comp, "google-button")).toBeNull();
     act(() => comp.unmount());
   });
+
+  it("is unaffected by the web hero banner on native (Task P3-4b, owner: both placements)", () => {
+    // Default jest resolution is native (HeroWipe.native.tsx, a null stub —
+    // see heroWipeHomeIntegration.test.tsx for the require.cache proof this
+    // never even loads the web implementation or its images). The banner
+    // slot still renders (empty), and the rest of the form is untouched.
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<LoginScreen />);
+    });
+    expect(queryId(comp, "hero-wipe")).toBeNull();
+    expect(queryId(comp, "login-root")).toBeTruthy();
+    expect(queryId(comp, "login-screen")).toBeTruthy();
+    expect(queryId(comp, "email-input")).toBeTruthy();
+    expect(queryId(comp, "submit-button")).toBeTruthy();
+    act(() => comp.unmount());
+  });
 });
