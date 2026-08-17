@@ -132,6 +132,21 @@ class PairingStore(Protocol):
         """
         ...
 
+    async def has_device_tokens_for_account(self, account_id: str) -> bool:
+        """Whether ANY device token is currently bound to ``account_id`` —
+        the ``has_paired_watch`` signal ``GET /me`` (server/watch/routers/rest.py,
+        Task P3-6) exposes to the signed-in phone/web caller so "Set up your
+        watch" can show live paired state instead of guessing. True as soon
+        as a single watch has completed ``POST /me/pair/claim`` into this
+        account (``pairing.py``'s ``pair_claim`` stamps
+        ``DeviceToken.account_id = principal.account_id`` — the same account
+        id a ``Principal``/``/me`` caller is keyed by), and stays True even
+        if that specific token later goes stale — there is no revocation/
+        expiry flow for device tokens yet, so this is honestly "has this
+        account EVER completed a pairing claim", not "is a watch currently
+        online"."""
+        ...
+
 
 class MemoryPairingStore:
     """In-memory implementation of PairingStore for testing and default runtime."""
@@ -191,6 +206,9 @@ class MemoryPairingStore:
             self._failed_claims[account_id] = FailedClaimRecord(
                 account_id=account_id, count=count, last_failed_at=last_failed_at,
             )
+
+    async def has_device_tokens_for_account(self, account_id: str) -> bool:
+        return any(t.account_id == account_id for t in self._device_tokens.values())
 
 
 class FirestorePairingStore:
@@ -317,6 +335,19 @@ class FirestorePairingStore:
         db.collection("failed_claim_attempts").document(account_id).set(
             FailedClaimRecord(account_id=account_id, count=count, last_failed_at=last_failed_at).model_dump()
         )
+
+    async def has_device_tokens_for_account(self, account_id: str) -> bool:
+        return await asyncio.to_thread(self._has_device_tokens_for_account_sync, account_id)
+
+    def _has_device_tokens_for_account_sync(self, account_id: str) -> bool:
+        # A bounded existence query (limit(1)), not a full-collection stream
+        # like get_pairing_by_code_hash's — device_tokens is a from-scratch
+        # collection with no low-cardinality guarantee, and this call sits on
+        # GET /me's hot path (every authenticated phone/web request), unlike
+        # the pairing lookups above which run once per claim attempt.
+        db = self._get_db()
+        docs = db.collection("device_tokens").where("account_id", "==", account_id).limit(1).stream()
+        return next(iter(docs), None) is not None
 
 
 def get_pairing_store() -> PairingStore:

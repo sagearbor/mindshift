@@ -13,7 +13,8 @@ from fastapi.testclient import TestClient
 
 from server.tests.watch.test_auth import StubVerifier
 from server.tests.watch.test_vectors import pcm
-from watch.models import LiveSession, Participant
+from watch.models import DeviceToken, LiveSession, Participant
+from watch.pairing_store import MemoryPairingStore, hash_secret
 from watch.store import MemoryLiveSessionStore
 from watch.testing import create_watch_test_app
 
@@ -53,6 +54,71 @@ def _authed_client():
 def wav_bytes(pcm_bytes: bytes) -> bytes:
     """Wrap raw PCM16 mono 16k in a minimal 44-byte WAV header."""
     return b"RIFF" + b"\x00" * 40 + pcm_bytes
+
+
+# --------------------------------------------------- /me — has_paired_watch --
+
+def test_me_reports_has_paired_watch_false_when_no_pairing_store_wired():
+    # _authed_client (below) omits pairing_store entirely -- the honest
+    # degradation default per rest.py's me(), not a 500.
+    _, client = _authed_client()
+    resp = client.get("/me", headers=AUTH_A)
+    assert resp.status_code == 200
+    assert resp.json()["has_paired_watch"] is False
+
+
+def test_me_reports_has_paired_watch_false_when_pairing_store_has_no_tokens_for_account():
+    store = MemoryLiveSessionStore()
+    pairing_store = MemoryPairingStore()
+    client = TestClient(create_watch_test_app(
+        store=store, pairing_store=pairing_store, verifier=StubVerifier(TOKENS), allow_legacy=True,
+    ))
+    resp = client.get("/me", headers=AUTH_A)
+    assert resp.status_code == 200
+    assert resp.json()["has_paired_watch"] is False
+
+
+def test_me_reports_has_paired_watch_true_once_a_device_token_is_bound_to_the_account():
+    store = MemoryLiveSessionStore()
+    pairing_store = MemoryPairingStore()
+    pairing_store.put_device_token(DeviceToken(
+        token_hash=hash_secret("raw-device-token"),
+        account_id="uid-a",
+        created_at="2026-08-17T10:00:00+00:00",
+        pairing_id="pid-1",
+    ))
+    client = TestClient(create_watch_test_app(
+        store=store, pairing_store=pairing_store, verifier=StubVerifier(TOKENS), allow_legacy=True,
+    ))
+    resp = client.get("/me", headers=AUTH_A)
+    assert resp.status_code == 200
+    assert resp.json()["has_paired_watch"] is True
+
+
+def test_me_has_paired_watch_is_scoped_per_account_not_global():
+    store = MemoryLiveSessionStore()
+    pairing_store = MemoryPairingStore()
+    pairing_store.put_device_token(DeviceToken(
+        token_hash=hash_secret("raw-device-token"),
+        account_id="uid-a",
+        created_at="2026-08-17T10:00:00+00:00",
+        pairing_id="pid-1",
+    ))
+    client = TestClient(create_watch_test_app(
+        store=store, pairing_store=pairing_store, verifier=StubVerifier(TOKENS), allow_legacy=True,
+    ))
+    resp_b = client.get("/me", headers=AUTH_B)
+    assert resp_b.status_code == 200
+    assert resp_b.json()["has_paired_watch"] is False
+
+
+def test_me_preserves_existing_principal_fields_alongside_has_paired_watch():
+    _, client = _authed_client()
+    resp = client.get("/me", headers=AUTH_A)
+    body = resp.json()
+    assert body["account_id"] == "uid-a"
+    assert body["email"] == "a@example.com"
+    assert body["legacy"] is False
 
 
 # ----------------------------------------------------------------- live-sessions --

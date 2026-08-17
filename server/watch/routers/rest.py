@@ -58,6 +58,7 @@ from watch.models import (
     SpeakerProfile,
     VectorSubscription,
 )
+from watch.pairing_store import PairingStore
 from watch.store import LiveSessionStore
 from watch.vectors import SILENCE_FLOOR_DBFS, estimate_f0, rms_dbfs
 
@@ -114,6 +115,17 @@ class ShareRequest(BaseModel):
 
 class AccountLookupResponse(BaseModel):
     account_id: str
+
+
+class MeResponse(Principal):
+    """GET /me's actual response shape (Task P3-6): every ``Principal`` field
+    (account_id, email, legacy — unchanged wire contract, see
+    server/tests/watch/test_auth_routes.py's test_me_reports_legacy_flag) plus
+    ``has_paired_watch``, the one extra fact the mobile Settings screen needs
+    to show "Set up your watch" as live state instead of guessing. Backed by
+    ``PairingStore.has_device_tokens_for_account`` — see ``me()`` below for
+    the honest-degradation default when no pairing store is wired at all."""
+    has_paired_watch: bool = False
 
 
 class VoiceEnrollmentStatus(BaseModel):
@@ -257,12 +269,24 @@ def make_rest_router(
     auth_dep: AuthDep,
     strict_auth_dep: AuthDep,
     embedder: Embedder | None = None,
+    pairing_store: PairingStore | None = None,
 ) -> APIRouter:
     router = APIRouter()
 
-    @router.get("/me", response_model=Principal)
-    async def me(principal: Principal = Depends(auth_dep)) -> Principal:
-        return principal
+    @router.get("/me", response_model=MeResponse)
+    async def me(principal: Principal = Depends(auth_dep)) -> MeResponse:
+        # pairing_store is optional (unlike the pairing router's own
+        # required dependency — see watch/testing.py's module docstring on
+        # why /me stays unconditionally mounted): a caller that never wired
+        # one gets the honest default `has_paired_watch=False` rather than a
+        # 500, matching this repo's honest-degradation doctrine (a missing
+        # signal reads as "unknown/no", never a fabricated guess either way).
+        has_paired_watch = False
+        if pairing_store is not None:
+            has_paired_watch = await pairing_store.has_device_tokens_for_account(
+                principal.account_id
+            )
+        return MeResponse(**principal.model_dump(), has_paired_watch=has_paired_watch)
 
     @router.get("/me/standing", response_model=MemberStanding)
     async def my_standing(
