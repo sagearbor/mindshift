@@ -56,6 +56,9 @@ export function backTarget(screen: Screen): Screen | null {
     case "watch-setup":
     case "onboarding":
     case "dashboard":
+    // Task N6: same dynamic-returnTo treatment — the avatar-capture flow can
+    // be launched from any primary screen's avatar menu, or from Settings.
+    case "avatar-capture":
       return screen.returnTo;
 
     case "record":

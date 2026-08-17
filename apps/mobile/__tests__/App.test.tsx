@@ -6,6 +6,7 @@ import { signOut as fbSignOut } from "firebase/auth";
 import App from "../App";
 import { useAuthStore } from "../src/store/authStore";
 import { useLayoutStore, KEY as LAYOUT_STORE_KEY } from "../src/store/layoutStore";
+import { useAvatarStore, KEY as AVATAR_STORE_KEY } from "../src/store/avatarStore";
 import { useSessionStore } from "../src/store/sessionStore";
 import { useAnalyzeStore } from "../src/store/analyzeStore";
 import { postAnalyzeUploadChunkedJob } from "../src/api/client";
@@ -106,6 +107,11 @@ beforeEach(() => {
     // otherwise a hydrate-behavior test earlier in the run could leak a
     // custom tabSlots list into an unrelated test later in this file.
     useLayoutStore.getState().resetToDefaults();
+    // Task N6: same reset for avatarStore, which App now hydrates on every
+    // mount too — otherwise the shared "resolve 'true' for any key" default
+    // above (set for onboarding-seen) would leak into avatarStore.uri as a
+    // bogus truthy value, showing a fake "photo" in tests that don't care.
+    useAvatarStore.setState({ uri: null, hydrated: false });
   });
 });
 
@@ -697,6 +703,105 @@ describe("layoutStore hydration on mount (Task N3 fix round 1, IMPORTANT 2)", ()
     expect(queryId(comp, "chrome-tab-growth")).toBeTruthy();
     expect(queryId(comp, "chrome-tab-coach")).toBeNull();
     expect(queryId(comp, "chrome-tab-analyze")).toBeNull();
+    act(() => comp.unmount());
+  });
+});
+
+describe("avatarStore hydration on mount (Task N6 of P3-10)", () => {
+  it("calls avatarStore.hydrate() (via its SecureStore read) once on mount", async () => {
+    const getItemAsync = SecureStore.getItemAsync as jest.Mock;
+    getItemAsync.mockClear();
+
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const calledKeys = getItemAsync.mock.calls.map((c) => c[0]);
+    expect(calledKeys).toContain(AVATAR_STORE_KEY);
+    act(() => comp.unmount());
+  });
+
+  it("shows the persisted photo in the top bar by the time Home renders, not the initial", async () => {
+    const getItemAsync = SecureStore.getItemAsync as jest.Mock;
+    getItemAsync.mockImplementation((key: string) =>
+      Promise.resolve(
+        key === AVATAR_STORE_KEY ? "file:///doc/avatar/profile.jpg" : "true",
+      ),
+    );
+
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(queryId(comp, "chrome-avatar-photo")).toBeTruthy();
+    expect(queryId(comp, "chrome-avatar-initial")).toBeNull();
+    act(() => comp.unmount());
+  });
+});
+
+describe("Task N6: selfie avatar capture flow wiring", () => {
+  it("the avatar menu's 'Set profile photo' opens the capture flow, and Back returns to the launching screen", async () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+
+    await act(async () => {
+      queryId(comp, "chrome-avatar-button")!.props.onPress();
+    });
+    await act(async () => {
+      queryId(comp, "chrome-account-photo")!.props.onPress();
+    });
+
+    // Pushed screen — no chrome, camera or its permission gate renders.
+    expect(queryId(comp, "chrome-hamburger-button")).toBeNull();
+    const camera = queryId(comp, "avatar-camera-view");
+    const permGate = queryId(comp, "avatar-permission-gate");
+    expect(camera || permGate).toBeTruthy();
+
+    const backId = camera ? "avatar-back" : "avatar-capture-back";
+    await act(async () => {
+      queryId(comp, backId)!.props.onPress();
+    });
+    // Back to Home (where the avatar menu was opened from), chrome restored.
+    expect(queryId(comp, "home-screen")).toBeTruthy();
+    expect(queryId(comp, "chrome-hamburger-button")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("Settings' 'Set profile photo' row opens the capture flow and returns to Settings", async () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+    await openSettings(comp);
+
+    await act(async () => {
+      queryId(comp, "advanced-set-profile-photo")!.props.onPress();
+    });
+
+    const camera = queryId(comp, "avatar-camera-view");
+    const permGate = queryId(comp, "avatar-permission-gate");
+    expect(camera || permGate).toBeTruthy();
+
+    const backId = camera ? "avatar-back" : "avatar-capture-back";
+    await act(async () => {
+      queryId(comp, backId)!.props.onPress();
+    });
+    expect(queryId(comp, "settings-heading")).toBeTruthy();
     act(() => comp.unmount());
   });
 });

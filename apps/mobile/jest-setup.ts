@@ -196,10 +196,12 @@ jest.mock("expo-video", () => {
 });
 
 // Mock expo-camera for tests. `CameraView` is a host view that forwards a ref
-// exposing `recordAsync`/`stopRecording` spies (recordAsync resolves to a fixed
-// recorded-file uri so the finish/handoff path can be driven without a real
-// camera). The permission hooks default to granted; tests override them to
-// exercise the denial gate. Spies live on `globalThis.__expoCameraMock`.
+// exposing `recordAsync`/`stopRecording`/`takePictureAsync` spies (recordAsync
+// resolves to a fixed recorded-file uri so the finish/handoff path can be
+// driven without a real camera; takePictureAsync — Task N6's selfie capture —
+// resolves to a fixed captured-photo uri the same way). The permission hooks
+// default to granted; tests override them to exercise the denial gate. Spies
+// live on `globalThis.__expoCameraMock`.
 jest.mock("expo-camera", () => {
   const React = require("react");
   const { View } = require("react-native");
@@ -207,13 +209,21 @@ jest.mock("expo-camera", () => {
     .fn()
     .mockResolvedValue({ uri: "file:///recorded.mp4" });
   const stopRecording = jest.fn();
+  const takePictureAsync = jest
+    .fn()
+    .mockResolvedValue({ uri: "file:///captured-selfie.jpg" });
   (globalThis as Record<string, unknown>).__expoCameraMock = {
     recordAsync,
     stopRecording,
+    takePictureAsync,
   };
   const CameraView = React.forwardRef(
     (props: Record<string, unknown>, ref: unknown) => {
-      React.useImperativeHandle(ref, () => ({ recordAsync, stopRecording }));
+      React.useImperativeHandle(ref, () => ({
+        recordAsync,
+        stopRecording,
+        takePictureAsync,
+      }));
       return React.createElement(
         View,
         { testID: props.testID ?? "camera-view" },

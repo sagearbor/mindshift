@@ -53,6 +53,22 @@ describe("backTarget", () => {
     expect(backTarget({ name: "home-design" })).toEqual({ name: "advanced" });
   });
 
+  // Task N6: avatar-capture carries the same dynamic returnTo pattern as
+  // watch-setup/onboarding/dashboard — launchable from any primary screen's
+  // avatar menu or from Settings.
+  it.each<[Screen, Screen]>([
+    [
+      { name: "avatar-capture", returnTo: { name: "advanced" } },
+      { name: "advanced" },
+    ],
+    [
+      { name: "avatar-capture", returnTo: { name: "home" } },
+      { name: "home" },
+    ],
+  ])("%o pops to its returnTo", (screen, expected) => {
+    expect(backTarget(screen)).toEqual(expected);
+  });
+
   it("detail pops to whatever dashboard screen (with its own returnTo) it carries", () => {
     const returnTo: Screen = { name: "dashboard", returnTo: { name: "advanced" } };
     expect(backTarget({ name: "detail", sessionId: "s1", returnTo })).toEqual(

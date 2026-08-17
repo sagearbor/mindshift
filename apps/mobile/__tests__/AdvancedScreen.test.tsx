@@ -11,6 +11,7 @@ import {
 import type { VoiceProfile } from "../src/api/client";
 import { getMe } from "../src/api/me";
 import { useAuthStore } from "../src/store/authStore";
+import { useAvatarStore } from "../src/store/avatarStore";
 import type { OtaStatus } from "../src/utils/otaUpdate";
 
 // The About section reads OTA status through this hook; drive it per-test. The
@@ -124,6 +125,7 @@ function makeHandlers() {
     onOpenWatchSetup: jest.fn(),
     onOpenTutorial: jest.fn(),
     onOpenHomeDesign: jest.fn(),
+    onSetProfilePhoto: jest.fn(),
   };
 }
 
@@ -152,6 +154,7 @@ beforeEach(() => {
   mockGetMe.mockRejectedValue(new Error("API error: 401"));
   act(() => {
     useAuthStore.setState({ user: null });
+    useAvatarStore.setState({ uri: null, hydrated: false });
   });
 });
 
@@ -230,6 +233,41 @@ describe("AdvancedScreen", () => {
     expect(textOf(row)).toContain("Show tutorial");
     act(() => row.props.onPress());
     expect(handlers.onOpenTutorial).toHaveBeenCalledTimes(1);
+
+    act(() => comp.unmount());
+  });
+
+  it("Account section shows 'Set profile photo' and no Remove option when no photo is set", async () => {
+    const handlers = makeHandlers();
+    const comp = await render(handlers);
+
+    expect(queryId(comp, "advanced-avatar-preview-initial")).toBeTruthy();
+    const setPhoto = queryId(comp, "advanced-set-profile-photo")!;
+    expect(textOf(setPhoto)).toContain("Set profile photo");
+    expect(queryId(comp, "advanced-remove-profile-photo")).toBeNull();
+
+    act(() => setPhoto.props.onPress());
+    expect(handlers.onSetProfilePhoto).toHaveBeenCalledTimes(1);
+
+    act(() => comp.unmount());
+  });
+
+  it("Account section shows the photo, 'Retake photo', and 'Remove photo' once a photo is set", async () => {
+    act(() => {
+      useAvatarStore.setState({ uri: "file:///doc/avatar/profile.jpg" });
+    });
+    const handlers = makeHandlers();
+    const comp = await render(handlers);
+
+    expect(queryId(comp, "advanced-avatar-preview-photo")).toBeTruthy();
+    expect(textOf(queryId(comp, "advanced-set-profile-photo")!)).toContain(
+      "Retake photo",
+    );
+    const remove = queryId(comp, "advanced-remove-profile-photo")!;
+    expect(textOf(remove)).toContain("Remove photo");
+
+    act(() => remove.props.onPress());
+    expect(useAvatarStore.getState().uri).toBeNull();
 
     act(() => comp.unmount());
   });

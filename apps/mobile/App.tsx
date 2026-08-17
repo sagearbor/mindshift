@@ -18,6 +18,7 @@ import SessionDetail from "./src/screens/SessionDetail";
 import DynamicsScreen from "./src/screens/DynamicsScreen";
 import ReplayScreen from "./src/screens/ReplayScreen";
 import RecordScreen from "./src/screens/RecordScreen";
+import AvatarCaptureScreen from "./src/screens/AvatarCaptureScreen";
 import RecordingsScreen from "./src/screens/RecordingsScreen";
 import YourDayScreen from "./src/screens/YourDayScreen";
 import GrowthScreen from "./src/screens/GrowthScreen";
@@ -30,6 +31,7 @@ import { useAndroidBackHandler } from "./src/nav/useAndroidBackHandler";
 import { PRIMARY_ELIGIBLE_DESTINATIONS, type DestScreen } from "./src/nav/destinations";
 import { useAuthStore, initAuth } from "./src/store/authStore";
 import { useLayoutStore } from "./src/store/layoutStore";
+import { useAvatarStore } from "./src/store/avatarStore";
 import { useSessionStore } from "./src/store/sessionStore";
 import { useRecorderStore } from "./src/store/recorderStore";
 import { getOnboardingSeen, setOnboardingSeen } from "./src/utils/onboardingStorage";
@@ -97,6 +99,11 @@ export type Screen =
   // launch of this same screen is a separate top-level gate below, not part
   // of this pushed-screen union — see `onboardingSeen`.)
   | { name: "onboarding"; returnTo: Screen }
+  // Task N6 of P3-10: the selfie-capture flow (front camera -> preview ->
+  // Use/Retake), reached from the avatar menu's "Set profile photo" row or
+  // Settings' matching Account-section row (both returnTo "advanced" or
+  // whichever primary screen the avatar menu was opened from).
+  | { name: "avatar-capture"; returnTo: Screen }
   // The text tools (paste/type a transcript, suggestions). Pushed from
   // Analyze and from Live Coach's post-session review handoff.
   | { name: "session"; returnTo: SessionReturn }
@@ -175,9 +182,9 @@ export type Screen =
  * unchanged.
  *
  * Every other pushed screen (session, dynamics, watch-setup, onboarding,
- * dashboard, detail, your-day, record, replay, advanced, home-design) either
- * isn't in the registry at all or isn't primary-eligible, so it's pushed by
- * definition —
+ * dashboard, detail, your-day, record, replay, advanced, home-design,
+ * avatar-capture) either isn't in the registry at all or isn't
+ * primary-eligible, so it's pushed by definition —
  * same full-screen layout, same back affordance as before this task (though
  * watch-setup/onboarding/dashboard now carry a dynamic `returnTo` instead of
  * a hardcoded one — see the Task N3 fix-round-1 comments on those cases).
@@ -232,11 +239,16 @@ export default function App() {
   useEffect(() => {
     initAuth();
     void useLayoutStore.getState().hydrate();
+    // Task N6: load the persisted selfie uri (if any) before the top bar's
+    // avatar slot first renders — same rationale as layoutStore's hydrate
+    // above, minimizing any no-photo-then-photo flash.
+    void useAvatarStore.getState().hydrate();
   }, []);
 
   const user = useAuthStore((s) => s.user);
   const initializing = useAuthStore((s) => s.initializing);
   const signOut = useAuthStore((s) => s.signOut);
+  const avatarUri = useAvatarStore((s) => s.uri);
 
   // Task P3-7: has this account seen the first-launch onboarding walkthrough?
   // null = not checked yet (persisted read in flight); true/false once known.
@@ -389,6 +401,12 @@ export default function App() {
               setScreen({ name: "onboarding", returnTo: { name: "advanced" } })
             }
             onOpenHomeDesign={() => setScreen({ name: "home-design" })}
+            onSetProfilePhoto={() =>
+              setScreen({
+                name: "avatar-capture",
+                returnTo: { name: "advanced" },
+              })
+            }
           />
         );
       case "home-design":
@@ -522,6 +540,16 @@ export default function App() {
             }}
           />
         );
+      case "avatar-capture":
+        // Task N6: both cancel and a successful save return to whichever
+        // screen launched the capture flow (the avatar menu or the Settings
+        // row can be opened from any primary screen).
+        return (
+          <AvatarCaptureScreen
+            onBack={() => setScreen(screen.returnTo)}
+            onSaved={() => setScreen(screen.returnTo)}
+          />
+        );
       case "replay":
         return (
           <ReplayScreen
@@ -592,7 +620,11 @@ export default function App() {
             onNavigate={handleNavigate}
             onGoHome={() => setScreen({ name: "home" })}
             onSignOut={() => void signOut()}
+            onSetProfilePhoto={() =>
+              setScreen({ name: "avatar-capture", returnTo: screen })
+            }
             user={user}
+            avatarUri={avatarUri}
           >
             {renderScreen()}
           </AppChrome>

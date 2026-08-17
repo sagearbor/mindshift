@@ -28,9 +28,12 @@ interface AppChromeProps {
    *  (possibly zero-slot) tab bar. */
   onGoHome: () => void;
   onSignOut: () => void;
+  /** Open the selfie-capture flow (Task N6 of P3-10) from the avatar menu's
+   *  "Set profile photo" row. */
+  onSetProfilePhoto: () => void;
   user: AvatarUser | null;
-  /** Task N6's slot: a captured selfie uri, once that task lands. Undefined
-   *  today — Avatar falls back to the account's initial until then. */
+  /** The captured selfie's uri (Task N6, avatarStore), or null/undefined —
+   *  Avatar falls back to the account's initial when unset. */
   avatarUri?: string | null;
   children: React.ReactNode;
 }
@@ -59,7 +62,16 @@ export interface AppChromeHandle {
  */
 const AppChrome = forwardRef<AppChromeHandle, AppChromeProps>(
   function AppChrome(
-    { screenName, onNavigate, onGoHome, onSignOut, user, avatarUri, children },
+    {
+      screenName,
+      onNavigate,
+      onGoHome,
+      onSignOut,
+      onSetProfilePhoto,
+      user,
+      avatarUri,
+      children,
+    },
     ref,
   ) {
     const [catalogOpen, setCatalogOpen] = useState(false);
@@ -187,6 +199,10 @@ const AppChrome = forwardRef<AppChromeHandle, AppChromeProps>(
           <AccountMenu
             user={user}
             onOpenSettings={openSettings}
+            onSetProfilePhoto={() => {
+              setAccountOpen(false);
+              onSetProfilePhoto();
+            }}
             onSignOut={() => {
               setAccountOpen(false);
               onSignOut();

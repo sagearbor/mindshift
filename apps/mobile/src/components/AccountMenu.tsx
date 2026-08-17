@@ -6,20 +6,24 @@ import type { AvatarUser } from "./Avatar";
 interface AccountMenuProps {
   user: AvatarUser | null;
   onOpenSettings: () => void;
+  /** Open the selfie-capture flow (Task N6 of P3-10 — "Set profile photo"). */
+  onSetProfilePhoto: () => void;
   onSignOut: () => void;
   onClose: () => void;
 }
 
 /**
- * The avatar's compact account menu (Task N3): a "signed in as" line,
- * Settings, and Log out — wired to the same signOut App.tsx already uses.
- * A small anchored panel plus a full-screen transparent backdrop that closes
- * it on an outside tap, not RN's <Modal> (see DestinationCatalog.tsx's
- * comment on why: RN+web from one codebase).
+ * The avatar's compact account menu (Task N3, "Set profile photo" added in
+ * Task N6): a "signed in as" line, Set profile photo, Settings, and Log out
+ * — wired to the same signOut App.tsx already uses. A small anchored panel
+ * plus a full-screen transparent backdrop that closes it on an outside tap,
+ * not RN's <Modal> (see DestinationCatalog.tsx's comment on why: RN+web
+ * from one codebase).
  */
 export default function AccountMenu({
   user,
   onOpenSettings,
+  onSetProfilePhoto,
   onSignOut,
   onClose,
 }: AccountMenuProps) {
@@ -42,6 +46,14 @@ export default function AccountMenu({
         <Text style={styles.signedIn} testID="chrome-account-email">
           Signed in as {label}
         </Text>
+        <TouchableOpacity
+          testID="chrome-account-photo"
+          accessibilityRole="button"
+          style={styles.row}
+          onPress={onSetProfilePhoto}
+        >
+          <Text style={styles.rowTitle}>Set profile photo</Text>
+        </TouchableOpacity>
         <TouchableOpacity
           testID="chrome-account-settings"
           accessibilityRole="button"
