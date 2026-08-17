@@ -63,10 +63,19 @@ describe("backTarget", () => {
     expect(backTarget({ name: "record" })).toEqual({ name: "analyze" });
   });
 
-  // Task N5 of P3-10: only reachable from Settings' own row, so — unlike
-  // watch-setup/onboarding/dashboard above — no dynamic returnTo is needed.
-  it("home-design pops to advanced (Settings)", () => {
-    expect(backTarget({ name: "home-design" })).toEqual({ name: "advanced" });
+  // Task N5 of P3-10: only reachable from Settings' own row, so the
+  // DESTINATION is always "advanced" — but (N7 fix round 1 re-review)
+  // `returnTo` now carries the WHOLE `advanced` screen it was pushed from
+  // (with its own `returnTo` intact), same as `detail` carries `dashboard`
+  // below, so popping back restores that chain rather than resetting it.
+  it("home-design pops to the whole advanced screen (with its own returnTo) it carries", () => {
+    const returnTo: Screen = { name: "advanced", returnTo: { name: "live-coach" } };
+    expect(backTarget({ name: "home-design", returnTo })).toEqual(returnTo);
+  });
+
+  it("home-design pops to a bare advanced screen when Settings itself had no returnTo (Home-originated)", () => {
+    const returnTo: Screen = { name: "advanced" };
+    expect(backTarget({ name: "home-design", returnTo })).toEqual(returnTo);
   });
 
   // Task N6: avatar-capture carries the same dynamic returnTo pattern as

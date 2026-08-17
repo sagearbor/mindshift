@@ -1030,6 +1030,52 @@ describe("hamburger catalog → watch-setup/dashboard/tutorial return to their r
     act(() => comp.unmount());
   });
 
+  // N7 fix round 1 re-review: the direct case (Settings → immediate back)
+  // worked, but Settings' own six outbound navigations (dashboard, replay,
+  // watch-setup, tutorial, home-design, avatar-capture) all hardcoded a bare
+  // `returnTo: { name: "advanced" }`, discarding whatever `returnTo` the
+  // current `advanced` screen was already carrying. Drilling one level
+  // deeper than the direct case is required to catch this — a test that
+  // only checks the immediate back cannot distinguish broken from fixed.
+  it("drilling two levels deep (Live Coach → Settings → Set up your watch) and backing all the way out lands on Live Coach, not Home", async () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+
+    await act(async () => {
+      queryId(comp, "chrome-tab-coach")!.props.onPress();
+    });
+    expect(queryId(comp, "connection-status")).toBeTruthy();
+
+    await act(async () => {
+      queryId(comp, "chrome-avatar-button")!.props.onPress();
+    });
+    await act(async () => {
+      queryId(comp, "chrome-account-settings")!.props.onPress();
+    });
+    expect(queryId(comp, "settings-heading")).toBeTruthy();
+
+    await act(async () => {
+      queryId(comp, "advanced-watch-setup")!.props.onPress();
+    });
+    expect(queryId(comp, "watch-setup-screen")).toBeTruthy();
+
+    await act(async () => {
+      queryId(comp, "watch-setup-back")!.props.onPress();
+    });
+    // Back on Settings, still carrying its original returnTo (not reset).
+    expect(queryId(comp, "settings-heading")).toBeTruthy();
+
+    await act(async () => {
+      queryId(comp, "advanced-back")!.props.onPress();
+    });
+    expect(queryId(comp, "connection-status")).toBeTruthy(); // back on Live Coach
+    expect(queryId(comp, "home-screen")).toBeNull();
+    act(() => comp.unmount());
+  });
+
   it("Settings, opened from Home, still returns to Home (unchanged default)", async () => {
     let comp!: renderer.ReactTestRenderer;
     act(() => {

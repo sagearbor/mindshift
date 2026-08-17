@@ -92,9 +92,17 @@ export type Screen =
   // layoutStore's tabSlots/homeBoxes. Only reachable from Settings' own row
   // today (not the hamburger catalog — editing your own customization isn't
   // a registry destination, same reasoning as "settings" itself being
-  // catalog-only, see destinations.ts), so a static `returnTo` is enough —
-  // no dynamic patching needed like watch-setup/onboarding/dashboard below.
-  | { name: "home-design" }
+  // catalog-only, see destinations.ts), so the DESTINATION is always
+  // "advanced" — no dynamic-destination patching needed like watch-setup/
+  // onboarding/dashboard below.
+  //
+  // N7 fix round 1 re-review (IMPORTANT 2, second pass): `returnTo` still
+  // carries the WHOLE `advanced` screen it was pushed from (with ITS OWN
+  // `returnTo`) — same pattern `detail` uses for `dashboard` below — so
+  // popping back to it restores that chain instead of resetting to a bare
+  // `{name:"advanced"}` that's forgotten where Settings itself was opened
+  // from.
+  | { name: "home-design"; returnTo: Screen }
   // Phase 3 Slice 1: install the watch app + redeem its pairing code.
   // Pushed from Settings' "Set up your watch" row (returnTo "advanced") AND
   // (Task N3 fix round 1) from the hamburger catalog on any primary screen —
@@ -407,37 +415,48 @@ export default function App() {
             // same dynamic-returnTo pattern as watch-setup/onboarding/
             // dashboard below.
             onBack={() => setScreen(screen.returnTo ?? { name: "home" })}
+            // N7 fix round 1 re-review (IMPORTANT 2, second pass): every one
+            // of these six outbound pushes used to hardcode a bare
+            // `returnTo: { name: "advanced" }`, discarding whatever
+            // `returnTo` THIS `advanced` screen was itself carrying (e.g.
+            // opened from Live Coach's avatar menu). Passing `returnTo:
+            // screen` wholesale — the same idiom `detail` already uses for
+            // `dashboard` below — carries that chain through so backing all
+            // the way out restores the real origin instead of resetting to
+            // Home one hop early.
             onOpenDashboard={() =>
-              setScreen({ name: "dashboard", returnTo: { name: "advanced" } })
+              setScreen({ name: "dashboard", returnTo: screen })
             }
             onSignOut={handleSignOut}
             onOpenReplay={(id) =>
               setScreen({
                 name: "replay",
                 recordingId: id,
-                returnTo: { name: "advanced" },
+                returnTo: screen,
               })
             }
             onOpenWatchSetup={() =>
-              setScreen({ name: "watch-setup", returnTo: { name: "advanced" } })
+              setScreen({ name: "watch-setup", returnTo: screen })
             }
             onOpenTutorial={() =>
-              setScreen({ name: "onboarding", returnTo: { name: "advanced" } })
+              setScreen({ name: "onboarding", returnTo: screen })
             }
-            onOpenHomeDesign={() => setScreen({ name: "home-design" })}
+            onOpenHomeDesign={() =>
+              setScreen({ name: "home-design", returnTo: screen })
+            }
             onSetProfilePhoto={() =>
               setScreen({
                 name: "avatar-capture",
-                returnTo: { name: "advanced" },
+                returnTo: screen,
               })
             }
           />
         );
       case "home-design":
-        // Task N5 of P3-10: only reachable from Settings' own row today, so
-        // back always lands there — see the Screen union's comment on this
-        // variant for why no dynamic returnTo is needed.
-        return <HomeDesignScreen onBack={() => setScreen({ name: "advanced" })} />;
+        // N7 fix round 1 re-review: pop back to the WHOLE `advanced` screen
+        // this was pushed from (with its own `returnTo` intact) rather than
+        // a bare reset — see the Screen union's comment on this variant.
+        return <HomeDesignScreen onBack={() => setScreen(screen.returnTo)} />;
       case "watch-setup":
         // Task N3 fix round 1: returns to wherever it was actually launched
         // from (Settings' own row, or now the hamburger catalog from any

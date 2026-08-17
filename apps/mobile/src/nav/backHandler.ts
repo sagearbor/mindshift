@@ -44,11 +44,6 @@ export function backTarget(screen: Screen): Screen | null {
     case "your-day":
       return { name: "home" };
 
-    // Task N5 of P3-10: only reachable from Settings' own row, so back
-    // always lands there — same as its onBack prop in App.tsx.
-    case "home-design":
-      return { name: "advanced" };
-
     // Task N3 fix round 1: these carry a dynamic `returnTo` now (wherever
     // they were actually launched from — Settings, or the hamburger catalog
     // from any primary screen) instead of a hardcoded "advanced".
@@ -58,6 +53,12 @@ export function backTarget(screen: Screen): Screen | null {
     // Task N6: same dynamic-returnTo treatment — the avatar-capture flow can
     // be launched from any primary screen's avatar menu, or from Settings.
     case "avatar-capture":
+    // Task N5 of P3-10, N7 fix round 1 re-review: only reachable from
+    // Settings' own row, so the DESTINATION is always "advanced" — but
+    // `returnTo` carries the WHOLE `advanced` screen (with its own
+    // `returnTo`) it was pushed from, same as `detail` below, so popping
+    // back restores that chain instead of resetting it.
+    case "home-design":
       return screen.returnTo;
 
     // N7 fix round 1 (IMPORTANT 2): same dynamic-returnTo treatment as the
