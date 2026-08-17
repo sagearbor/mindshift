@@ -216,3 +216,36 @@ def test_get_pairing_store_uses_firestore_when_project_set(monkeypatch):
     monkeypatch.setenv("MINDSHIFT_FIRESTORE_PROJECT", "arborfam-hub")
     store = get_pairing_store()
     assert isinstance(store, FirestorePairingStore) and store.project == "arborfam-hub"
+
+
+# ------------------------------------------------ has_device_tokens_for_account --
+
+@pytest.mark.anyio
+async def test_has_device_tokens_for_account_false_when_none_issued():
+    store = MemoryPairingStore()
+    assert await store.has_device_tokens_for_account("acct1") is False
+
+
+@pytest.mark.anyio
+async def test_has_device_tokens_for_account_true_after_a_token_is_put():
+    store = MemoryPairingStore()
+    store.put_device_token(DeviceToken(
+        token_hash=hash_secret("raw-device-token"),
+        account_id="acct1",
+        created_at="2026-08-04T10:00:00+00:00",
+        pairing_id="pid-1",
+    ))
+    assert await store.has_device_tokens_for_account("acct1") is True
+
+
+@pytest.mark.anyio
+async def test_has_device_tokens_for_account_is_scoped_per_account():
+    store = MemoryPairingStore()
+    store.put_device_token(DeviceToken(
+        token_hash=hash_secret("raw-device-token"),
+        account_id="acct-a",
+        created_at="2026-08-04T10:00:00+00:00",
+        pairing_id="pid-1",
+    ))
+    assert await store.has_device_tokens_for_account("acct-a") is True
+    assert await store.has_device_tokens_for_account("acct-b") is False

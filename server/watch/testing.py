@@ -165,7 +165,17 @@ def create_watch_test_app(
     # default). Later router tasks (B6-B11) each add one more
     # `app.include_router(...)` call here, gated on their own kwarg per this
     # module's docstring, without touching this line.
-    app.include_router(make_rest_router(resolved_store, auth_dep, strict_auth_dep, embedder=embedder))
+    # Task P3-6: `pairing_store` is passed straight through (not gated like
+    # the pairing router's own mount below) — GET /me handles a None
+    # pairing_store itself (honest `has_paired_watch=False` default, see
+    # rest.py's `me()`), so there is no "absent dependency" case to hide
+    # here; a test that wires pairing_store only to exercise /me/pair/* (no
+    # /me assertions) is unaffected either way.
+    app.include_router(
+        make_rest_router(
+            resolved_store, auth_dep, strict_auth_dep, embedder=embedder, pairing_store=pairing_store,
+        )
+    )
 
     # Task B6: groups router — always mounted (like REST above, it has no
     # dependency that would ever be "absent" in a test). Every route in it

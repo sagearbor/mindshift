@@ -20,6 +20,7 @@ import {
   type VoiceProfile,
   type VoiceSample,
 } from "../api/client";
+import { getMe } from "../api/me";
 import VoiceTrainingFlow from "../components/VoiceTrainingFlow";
 import { useAuthStore } from "../store/authStore";
 import { useOtaStatus, type OtaStatus } from "../utils/otaUpdate";
@@ -123,6 +124,11 @@ export default function AdvancedScreen({
   const [sampleError, setSampleError] = useState<string | null>(null);
   // Guided "Train my voice" flow, opened in place inside the voice card.
   const [training, setTraining] = useState(false);
+  // Server-derived paired-watch state (Task P3-6): null covers BOTH "still
+  // loading" and "couldn't be determined" (offline, 401, 5xx) — the row's
+  // honest default is to say nothing about pairing state, same as before
+  // this fetch existed, never a fabricated paired/unpaired guess.
+  const [hasPairedWatch, setHasPairedWatch] = useState<boolean | null>(null);
 
   // --- About section facts (all honest; a missing value reads "unknown"). ---
   const user = useAuthStore((s) => s.user);
@@ -159,6 +165,15 @@ export default function AdvancedScreen({
       })
       .catch(() => {
         if (!cancelled) setRecordingTitles(null);
+      });
+    getMe()
+      .then((me) => {
+        if (!cancelled) setHasPairedWatch(me.has_paired_watch);
+      })
+      .catch(() => {
+        // Offline / signed-out / server hiccup: stay at the honest "unknown"
+        // default (null) — the row just renders as it always has.
+        if (!cancelled) setHasPairedWatch(null);
       });
     return () => {
       cancelled = true;
@@ -305,6 +320,11 @@ export default function AdvancedScreen({
         <Text style={styles.rowSub}>
           Install the MindShift watch app and pair it to this account.
         </Text>
+        {hasPairedWatch ? (
+          <Text style={styles.watchPairedStatus} testID="watch-setup-paired-status">
+            ✓ Paired to this account
+          </Text>
+        ) : null}
       </TouchableOpacity>
 
       <TouchableOpacity
@@ -427,7 +447,9 @@ export default function AdvancedScreen({
                 style={styles.trainButton}
                 onPress={() => setTraining(true)}
               >
-                <Text style={styles.trainText}>Train my voice</Text>
+                <Text style={styles.trainText}>
+                  {profile.enrolled ? "Add more voice training" : "Train my voice"}
+                </Text>
                 <Text style={styles.rowSub}>
                   Read four short phrases aloud — no recordings needed first.
                   Works alongside “This is me”; both add samples.
@@ -534,6 +556,12 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     lineHeight: 19,
     color: "#6B7280",
+  },
+  watchPairedStatus: {
+    marginTop: 6,
+    fontSize: 13.5,
+    fontWeight: "600",
+    color: "#15803D",
   },
   forgetTitleRow: {
     flexDirection: "row",

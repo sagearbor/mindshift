@@ -119,6 +119,24 @@ def test_pair_claim_then_status_delivers_the_raw_device_token():
     assert status["device_token"]  # a real, non-empty opaque token
 
 
+def test_pair_claim_makes_me_report_has_paired_watch_for_the_claiming_account_only():
+    # Task P3-6: verifies the exact field linkage GET /me relies on --
+    # pair_claim (watch/routers/pairing.py) stamps
+    # `DeviceToken.account_id = principal.account_id`, the SAME account id a
+    # `/me` caller is keyed by, so `has_device_tokens_for_account` finds it.
+    _, client = _client()
+    started = client.post("/me/pair/start").json()
+
+    assert client.get("/me", headers=A).json()["has_paired_watch"] is False
+
+    claimed = client.post("/me/pair/claim", headers=A, json={"code": started["code"]})
+    assert claimed.status_code == 200
+
+    assert client.get("/me", headers=A).json()["has_paired_watch"] is True
+    # Bob never claimed anything -- his own /me is unaffected by Alice's claim.
+    assert client.get("/me", headers=B).json()["has_paired_watch"] is False
+
+
 def test_pair_claim_never_returns_the_raw_device_token_to_the_claimer():
     # Least privilege: only the watch (via status poll) sees the raw token.
     _, client = _client()

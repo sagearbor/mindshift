@@ -9,6 +9,7 @@ import {
   listRecordings,
 } from "../src/api/client";
 import type { VoiceProfile } from "../src/api/client";
+import { getMe } from "../src/api/me";
 import { useAuthStore } from "../src/store/authStore";
 import type { OtaStatus } from "../src/utils/otaUpdate";
 
@@ -26,6 +27,10 @@ jest.mock("../src/api/client", () => ({
   listRecordings: jest.fn(),
   deleteVoiceSample: jest.fn(),
   forgetVoice: jest.fn(),
+}));
+
+jest.mock("../src/api/me", () => ({
+  getMe: jest.fn(),
 }));
 
 // The guided training flow is its own tested component (VoiceTrainingFlow
@@ -50,6 +55,7 @@ const mockProfile = getVoiceProfile as jest.Mock;
 const mockList = listRecordings as jest.Mock;
 const mockDeleteSample = deleteVoiceSample as jest.Mock;
 const mockForget = forgetVoice as jest.Mock;
+const mockGetMe = getMe as jest.Mock;
 
 function baseOta(overrides: Partial<OtaStatus> = {}): OtaStatus {
   return {
@@ -135,10 +141,14 @@ beforeEach(() => {
   mockList.mockReset();
   mockDeleteSample.mockReset();
   mockForget.mockReset();
+  mockGetMe.mockReset();
   // Default: no voice feature — the card stays hidden and the classic
   // Advanced tests below run against the unchanged surface.
   mockProfile.mockRejectedValue(new Error("API error: 503"));
   mockList.mockRejectedValue(new Error("API error: 503"));
+  // Default: /me unreachable — the watch-setup row's honest default (no
+  // paired badge), matching every test below that doesn't care about it.
+  mockGetMe.mockRejectedValue(new Error("API error: 401"));
   act(() => {
     useAuthStore.setState({ user: null });
   });
@@ -207,6 +217,44 @@ describe("AdvancedScreen", () => {
     act(() => row.props.onPress());
     expect(handlers.onOpenTutorial).toHaveBeenCalledTimes(1);
 
+    act(() => comp.unmount());
+  });
+
+  it("shows a paired badge on the watch-setup row when /me reports has_paired_watch, and stays tappable", async () => {
+    mockGetMe.mockResolvedValue({
+      account_id: "u1",
+      email: "a@example.com",
+      legacy: false,
+      has_paired_watch: true,
+    });
+    const handlers = makeHandlers();
+    const comp = await render(handlers);
+
+    expect(textOf(queryId(comp, "watch-setup-paired-status")!)).toContain(
+      "Paired to this account",
+    );
+    act(() => queryId(comp, "advanced-watch-setup")!.props.onPress());
+    expect(handlers.onOpenWatchSetup).toHaveBeenCalledTimes(1);
+
+    act(() => comp.unmount());
+  });
+
+  it("shows no paired badge when /me reports has_paired_watch: false", async () => {
+    mockGetMe.mockResolvedValue({
+      account_id: "u1",
+      email: "a@example.com",
+      legacy: false,
+      has_paired_watch: false,
+    });
+    const comp = await render();
+    expect(queryId(comp, "watch-setup-paired-status")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("shows no paired badge — the honest default — when /me can't be fetched", async () => {
+    mockGetMe.mockRejectedValue(new Error("network down"));
+    const comp = await render();
+    expect(queryId(comp, "watch-setup-paired-status")).toBeNull();
     act(() => comp.unmount());
   });
 
@@ -468,6 +516,31 @@ describe("AdvancedScreen — voice profile card", () => {
     );
     comp = await render();
     expect(queryId(comp, "voice-train-button")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("retitles the action link to 'Add more voice training' once enrolled", async () => {
+    mockProfile.mockResolvedValue(enrolledProfile());
+    mockList.mockResolvedValue([]);
+    const comp = await render();
+    expect(textOf(queryId(comp, "voice-train-button")!)).toContain(
+      "Add more voice training",
+    );
+    expect(textOf(queryId(comp, "voice-train-button")!)).not.toContain(
+      "Train my voice",
+    );
+    act(() => comp.unmount());
+  });
+
+  it("keeps the 'Train my voice' title when not yet enrolled", async () => {
+    mockProfile.mockResolvedValue(
+      enrolledProfile({ enrolled: false, enroll_count: 0, samples: [] }),
+    );
+    mockList.mockResolvedValue([]);
+    const comp = await render();
+    expect(textOf(queryId(comp, "voice-train-button")!)).toContain(
+      "Train my voice",
+    );
     act(() => comp.unmount());
   });
 

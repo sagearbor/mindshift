@@ -131,7 +131,7 @@ def build_watch_routers() -> list[APIRouter]:
     strict_auth_dep = require_full_auth(auth_dep)
 
     return [
-        make_rest_router(store, auth_dep, strict_auth_dep),
+        make_rest_router(store, auth_dep, strict_auth_dep, pairing_store=pairing_store),
         make_groups_router(store, strict_auth_dep),
         make_captures_router(store, blobs, strict_auth_dep),
         make_pairing_router(pairing_store, strict_auth_dep, rate_limit_dep=_rate_limit),
