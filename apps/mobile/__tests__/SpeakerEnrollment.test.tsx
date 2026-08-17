@@ -107,6 +107,17 @@ describe("SpeakerEnrollment", () => {
 
     expect(mockEnroll).toHaveBeenCalledWith("r1", "SPEAKER_00");
     expect(JSON.stringify(comp.toJSON())).toContain("Voice saved");
+
+    // The manage-it-later hint points at the shipped Settings naming (Phase
+    // 0 renamed Advanced → Settings; the voice card lives in its "Voice"
+    // section) — not the old "Advanced" copy.
+    expect(queryId(comp, "speaker-enrollment-manage-hint")).toBeTruthy();
+    const hintText = JSON.stringify(comp.toJSON());
+    expect(hintText).toContain("Settings");
+    expect(hintText).toContain("Voice");
+    expect(hintText).toContain("Forget my voice");
+    expect(hintText).not.toContain("under Advanced");
+
     act(() => comp.unmount());
   });
 });

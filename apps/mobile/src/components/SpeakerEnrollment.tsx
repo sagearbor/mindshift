@@ -119,8 +119,8 @@ export default function SpeakerEnrollment({
           You’ll be labeled “You” in your recordings from now on. We stored a
           numeric voice signature — not your audio.
         </Text>
-        <Text style={styles.manageHint}>
-          You can remove it anytime under Advanced → “Forget my voice”.
+        <Text style={styles.manageHint} testID="speaker-enrollment-manage-hint">
+          You can remove it anytime under Settings → Voice → “Forget my voice”.
         </Text>
       </View>
     );

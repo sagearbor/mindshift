@@ -12,7 +12,7 @@ import ToneSparkline from "../components/ToneSparkline";
 
 interface TherapistDashboardProps {
   onSelectSession: (id: string) => void;
-  /** Return to the Advanced screen (wired by App). Optional so the screen
+  /** Return to the Settings screen (wired by App). Optional so the screen
    *  still renders standalone in tests; no back affordance without it. */
   onBack?: () => void;
 }

@@ -65,7 +65,7 @@ type Screen =
   // setup, voice profile, About, log out).
   | { name: "advanced" }
   // Phase 3 Slice 1: install the watch app + redeem its pairing code.
-  // Pushed from Advanced's "Set up your watch" row; returns there.
+  // Pushed from Settings' "Set up your watch" row; returns there.
   | { name: "watch-setup" }
   // The text tools (paste/type a transcript, suggestions). Pushed from
   // Analyze and from Live Coach's post-session review handoff.
