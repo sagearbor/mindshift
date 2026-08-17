@@ -51,7 +51,9 @@ function queryId(
 }
 
 /** Boot the app and resolve auth as signed in — every navigation test starts
- *  on the two-mode Home screen. Signing in also kicks off App's Task P3-7
+ *  on Home (Task N4: a box grid, not a fixed "two-mode" surface, so the
+ *  landing check below asserts the always-present `home-screen` container
+ *  rather than a specific box). Signing in also kicks off App's Task P3-7
  *  onboarding-seen check (a second async read, off expo-secure-store, not
  *  chained to the idTokenListener await above) — beforeEach below defaults
  *  that read to "already seen" so these navigation tests land on Home, and
@@ -67,7 +69,7 @@ async function signIn(comp: renderer.ReactTestRenderer) {
     await Promise.resolve();
     await Promise.resolve();
   });
-  expect(queryId(comp, "home-live-coach")).toBeTruthy();
+  expect(queryId(comp, "home-screen")).toBeTruthy();
 }
 
 /** Settings is now reached via the avatar menu (Task N3) — Home's own "⋯"
@@ -110,7 +112,7 @@ describe("App auth gate", () => {
     // No auth event yet: neither login nor the app, just the spinner.
     expect(queryId(comp, "auth-loading")).toBeTruthy();
     expect(queryId(comp, "login-screen")).toBeNull();
-    expect(queryId(comp, "home-live-coach")).toBeNull();
+    expect(queryId(comp, "home-screen")).toBeNull();
     act(() => comp.unmount());
   });
 
@@ -126,22 +128,23 @@ describe("App auth gate", () => {
     });
 
     expect(queryId(comp, "login-screen")).toBeTruthy();
-    // The two-mode home is NOT reachable while signed out.
-    expect(queryId(comp, "home-live-coach")).toBeNull();
+    // Home is NOT reachable while signed out.
+    expect(queryId(comp, "home-screen")).toBeNull();
     act(() => comp.unmount());
   });
 
-  it("reaches the two-mode home when signed in", async () => {
+  it("reaches Home when signed in (Task N4: the default recordings + growth boxes)", async () => {
     let comp!: renderer.ReactTestRenderer;
     act(() => {
       comp = renderer.create(<App />);
     });
     await signIn(comp);
 
-    // The home surface is the two modes + history, wrapped in AppChrome
-    // (Task N3: hamburger + wordmark + avatar top bar, configurable tab bar).
-    expect(queryId(comp, "home-analyze")).toBeTruthy();
-    expect(queryId(comp, "home-recordings-link")).toBeTruthy();
+    // The home surface is the box grid (layoutStore's DEFAULT_HOME_BOXES:
+    // recordings + growth), wrapped in AppChrome (Task N3: hamburger +
+    // wordmark + avatar top bar, configurable tab bar).
+    expect(queryId(comp, "home-box-recordings")).toBeTruthy();
+    expect(queryId(comp, "home-box-growth")).toBeTruthy();
     expect(queryId(comp, "chrome-hamburger-button")).toBeTruthy();
     expect(queryId(comp, "chrome-avatar-button")).toBeTruthy();
     expect(queryId(comp, "login-screen")).toBeNull();
@@ -149,8 +152,8 @@ describe("App auth gate", () => {
   });
 });
 
-describe("two-mode navigation", () => {
-  it("Home → Live Coach, and the chrome wordmark returns Home", async () => {
+describe("home & primary-screen navigation", () => {
+  it("Home → Live Coach via the tab bar (Task N4: Live Coach isn't a default home box, only a default tab), and the chrome wordmark returns Home", async () => {
     let comp!: renderer.ReactTestRenderer;
     act(() => {
       comp = renderer.create(<App />);
@@ -158,11 +161,11 @@ describe("two-mode navigation", () => {
     await signIn(comp);
 
     await act(async () => {
-      queryId(comp, "home-live-coach")!.props.onPress();
+      queryId(comp, "chrome-tab-coach")!.props.onPress();
     });
     // Live Coach is up (its connection dot renders); home is gone.
     expect(queryId(comp, "connection-status")).toBeTruthy();
-    expect(queryId(comp, "home-live-coach")).toBeNull();
+    expect(queryId(comp, "home-screen")).toBeNull();
     // PRIMARY screen (Task N3): no dedicated back button of its own — the
     // chrome wraps it instead.
     expect(queryId(comp, "live-coach-back")).toBeNull();
@@ -170,11 +173,11 @@ describe("two-mode navigation", () => {
     await act(async () => {
       queryId(comp, "chrome-wordmark")!.props.onPress();
     });
-    expect(queryId(comp, "home-live-coach")).toBeTruthy();
+    expect(queryId(comp, "home-screen")).toBeTruthy();
     act(() => comp.unmount());
   });
 
-  it("Home → Analyze, and the chrome wordmark returns Home", async () => {
+  it("Home → Analyze via the tab bar, and the chrome wordmark returns Home", async () => {
     let comp!: renderer.ReactTestRenderer;
     act(() => {
       comp = renderer.create(<App />);
@@ -182,22 +185,22 @@ describe("two-mode navigation", () => {
     await signIn(comp);
 
     await act(async () => {
-      queryId(comp, "home-analyze")!.props.onPress();
+      queryId(comp, "chrome-tab-analyze")!.props.onPress();
     });
     expect(queryId(comp, "pick-recording-button")).toBeTruthy();
     expect(queryId(comp, "relationship-picker")).toBeTruthy();
-    expect(queryId(comp, "home-analyze")).toBeNull();
+    expect(queryId(comp, "home-screen")).toBeNull();
     // PRIMARY screen: no dedicated back button — same reasoning as Live Coach.
     expect(queryId(comp, "analyze-back")).toBeNull();
 
     await act(async () => {
       queryId(comp, "chrome-wordmark")!.props.onPress();
     });
-    expect(queryId(comp, "home-analyze")).toBeTruthy();
+    expect(queryId(comp, "home-screen")).toBeTruthy();
     act(() => comp.unmount());
   });
 
-  it("Home → recordings history opens the recordings list, back returns Home", async () => {
+  it("Home → recordings history via its default home box, back returns Home", async () => {
     // The list fetch resolves empty — an honest empty state, no fabricated rows.
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({
@@ -212,18 +215,18 @@ describe("two-mode navigation", () => {
     await signIn(comp);
 
     await act(async () => {
-      queryId(comp, "home-recordings-link")!.props.onPress();
+      queryId(comp, "home-box-recordings")!.props.onPress();
     });
     expect(queryId(comp, "recordings-back")).toBeTruthy();
 
     await act(async () => {
       queryId(comp, "recordings-back")!.props.onPress();
     });
-    expect(queryId(comp, "home-live-coach")).toBeTruthy();
+    expect(queryId(comp, "home-screen")).toBeTruthy();
     act(() => comp.unmount());
   });
 
-  it("Home → Your Day opens the day timeline, back returns Home", async () => {
+  it("Home → Your Day via its always-on link (no registry destination of its own), back returns Home", async () => {
     // The list fetch resolves empty — the honest "nothing recorded" state.
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({
@@ -246,7 +249,7 @@ describe("two-mode navigation", () => {
     await act(async () => {
       queryId(comp, "your-day-back")!.props.onPress();
     });
-    expect(queryId(comp, "home-live-coach")).toBeTruthy();
+    expect(queryId(comp, "home-screen")).toBeTruthy();
     act(() => comp.unmount());
   });
 
@@ -274,7 +277,7 @@ describe("two-mode navigation", () => {
     await act(async () => {
       queryId(comp, "advanced-back")!.props.onPress();
     });
-    expect(queryId(comp, "home-live-coach")).toBeTruthy();
+    expect(queryId(comp, "home-screen")).toBeTruthy();
     act(() => comp.unmount());
   });
 
@@ -302,7 +305,7 @@ describe("two-mode navigation", () => {
     await act(async () => {
       queryId(comp, "advanced-back")!.props.onPress();
     });
-    expect(queryId(comp, "home-live-coach")).toBeTruthy();
+    expect(queryId(comp, "home-screen")).toBeTruthy();
     act(() => comp.unmount());
   });
 
@@ -343,7 +346,7 @@ describe("two-mode navigation", () => {
     await signIn(comp);
 
     await act(async () => {
-      queryId(comp, "home-analyze")!.props.onPress();
+      queryId(comp, "chrome-tab-analyze")!.props.onPress();
     });
     await act(async () => {
       queryId(comp, "open-text-tools")!.props.onPress();
@@ -444,7 +447,7 @@ describe("two-mode navigation", () => {
 
     // Enter the Analyze mode, pick the file, then analyze it.
     await act(async () => {
-      queryId(comp, "home-analyze")!.props.onPress();
+      queryId(comp, "chrome-tab-analyze")!.props.onPress();
     });
     await act(async () => {
       queryId(comp, "pick-recording-button")!.props.onPress();
@@ -551,6 +554,48 @@ describe("AppChrome integration (Task N3)", () => {
     await openSettings(comp);
     expect(queryId(comp, "chrome-hamburger-button")).toBeNull();
     expect(queryId(comp, "chrome-tab-bar")).toBeNull();
+    act(() => comp.unmount());
+  });
+});
+
+describe("Task N4: migration honesty", () => {
+  it("each of the four old home destinations (coach, analyze, recordings, growth) stays reachable via tabs ∪ boxes ∪ catalog with the default layout", async () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+
+    // Open the hamburger's full catalog too, so all three surfaces (tab bar,
+    // home boxes, catalog) are in the tree at once for one assertion pass —
+    // the catalog overlay sits above HomeScreen/AppChrome but doesn't unmount
+    // them (DestinationCatalog is an absolutely-positioned overlay).
+    await act(async () => {
+      queryId(comp, "chrome-hamburger-button")!.props.onPress();
+    });
+    expect(queryId(comp, "chrome-catalog")).toBeTruthy();
+
+    const oldHomeDestinations = ["coach", "analyze", "recordings", "growth"];
+    const reachability = oldHomeDestinations.map((id) => ({
+      id,
+      onTab: queryId(comp, `chrome-tab-${id}`) !== null,
+      onBox: queryId(comp, `home-box-${id}`) !== null,
+      inCatalog: queryId(comp, `chrome-catalog-item-${id}`) !== null,
+    }));
+    // A readable failure if any destination is reachable nowhere at all.
+    expect(
+      reachability.filter((r) => !(r.onTab || r.onBox || r.inCatalog)),
+    ).toEqual([]);
+
+    // Stronger than the bare "reachable somewhere" check above: the DEFAULT
+    // layout (layoutStore's DEFAULT_TAB_SLOTS / DEFAULT_HOME_BOXES) already
+    // covers all four without needing the hamburger's catalog fallback —
+    // coach/analyze via the tab bar, recordings/growth via home boxes.
+    expect(queryId(comp, "chrome-tab-coach")).toBeTruthy();
+    expect(queryId(comp, "chrome-tab-analyze")).toBeTruthy();
+    expect(queryId(comp, "home-box-recordings")).toBeTruthy();
+    expect(queryId(comp, "home-box-growth")).toBeTruthy();
+
     act(() => comp.unmount());
   });
 });

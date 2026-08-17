@@ -1,40 +1,25 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 
-import { getGrowth, type GrowthResult } from "../api/client";
 import GrowthChart from "./GrowthChart";
+import { useGrowthPreview } from "../hooks/useGrowthPreview";
 
 /**
- * The narrow "Your growth" strip on the home screen — a glanceable sparkline
- * of the user's own per-recording scores over time. Tapping it opens the full
- * GrowthScreen.
+ * The narrow "Your growth" strip — a glanceable sparkline of the user's own
+ * per-recording scores over time. Tapping it opens the full GrowthScreen.
  *
- * Self-fetching (like AdvancedScreen's voice check) so HomeScreen stays a dumb
- * two-button surface. Honest states:
+ * Self-fetching (like AdvancedScreen's voice check), via `useGrowthPreview`
+ * — the same fetch-once, fail-open hook Task N4's growth home-box preview
+ * uses, so both surfaces agree on what "no data" honestly means. Honest
+ * states:
  * * while loading, or when the fetch fails (signed out, storage disabled,
- *   pre-growth server), it renders NOTHING — home never shows a broken chart;
+ *   pre-growth server), it renders NOTHING — no broken chart;
  * * loaded but no identified recordings → a quiet "not tracked yet" row that
  *   still opens the screen (which explains how to enroll).
  */
 export default function GrowthStrip({ onPress }: { onPress: () => void }) {
-  const [result, setResult] = useState<GrowthResult | null>(null);
+  const { result } = useGrowthPreview();
   const [chartWidth, setChartWidth] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    getGrowth()
-      .then((r) => {
-        if (!cancelled) setResult(r);
-      })
-      .catch(() => {
-        // No strip is better than a wrong strip — the full screen has the
-        // honest error surface.
-        if (!cancelled) setResult(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   if (result === null) return null;
 

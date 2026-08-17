@@ -1,102 +1,53 @@
 import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 
-import GrowthStrip from "../components/GrowthStrip";
 import HeroWipe from "../components/HeroWipe";
+import HomeBoxGrid from "../components/HomeBoxGrid";
+import { useLayoutStore } from "../store/layoutStore";
+import type { DestScreen } from "../nav/destinations";
 
 /**
- * The two-mode home screen. There are exactly two things you'd do with this
- * app — coach a conversation live, or analyze one afterwards — so the home
- * screen is exactly two huge buttons, a narrow self-fetching "Your growth"
- * sparkline strip, and a compact history row ("Your day" timeline + "past
- * recordings"). No forms, no settings clutter here: users may open this
- * mid-conflict and stressed, so the primary targets are enormous and
- * unambiguous.
+ * Home (Task N4 of P3-10). The old fixed "two huge mode cards" main area is
+ * gone — per the owner's locked architecture (P3-9 RESOLVED) the main area
+ * is now `layoutStore.homeBoxes` (0–4 user-arranged icon+label shortcuts,
+ * see HomeBoxGrid), configurable via Settings → "Home screen design"
+ * (Task N5). Every destination the old cards covered (Live Coach, Analyze,
+ * Recordings, Growth) stays reachable even when a box doesn't cover it —
+ * via the tab bar (AppChrome), the hamburger's full catalog, or a box —
+ * see __tests__/App.test.tsx's "migration honesty" test.
  *
- * Task N3 (P3-10): the wordmark + Settings corner affordance that used to
- * live here moved up into AppChrome's persistent top bar (hamburger +
- * wordmark + avatar, wrapping every primary screen including this one) —
- * Settings is now reached via the avatar menu or the hamburger's catalog, so
- * there's no redundant "⋯" here anymore.
+ * "Your day" (the day timeline) has no registry destination of its own —
+ * see nav/destinations.ts's DestId comment for why — so it can't be a
+ * configurable box or tab. It keeps its own direct link below the box grid
+ * so that affordance isn't silently lost in this rework.
  */
 interface HomeScreenProps {
-  onLiveCoach: () => void;
-  onAnalyze: () => void;
-  onOpenRecordings: () => void;
+  /** Hand a tapped box's destination straight to App.tsx's setScreen — the
+   *  same callback AppChrome's tab bar and hamburger catalog already use. */
+  onNavigate: (screen: DestScreen) => void;
   onOpenYourDay: () => void;
-  onOpenGrowth: () => void;
 }
 
-export default function HomeScreen({
-  onLiveCoach,
-  onAnalyze,
-  onOpenRecordings,
-  onOpenYourDay,
-  onOpenGrowth,
-}: HomeScreenProps) {
+export default function HomeScreen({ onNavigate, onOpenYourDay }: HomeScreenProps) {
+  const homeBoxes = useLayoutStore((s) => s.homeBoxes);
+
   return (
     <View style={styles.container} testID="home-screen">
       {/* Web-only hero banner (Task P3-4b) — renders nothing on native. */}
       <HeroWipe />
 
-      {/* The two modes. */}
-      <View style={styles.cards}>
-        <TouchableOpacity
-          testID="home-live-coach"
-          accessibilityRole="button"
-          style={[styles.card, styles.liveCard]}
-          onPress={onLiveCoach}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.liveCardBadge}>LIVE</Text>
-          <Text style={styles.liveCardTitle}>Live Coach</Text>
-          <Text style={styles.liveCardSub}>
-            Real-time coaching in your ear while you talk.
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          testID="home-analyze"
-          accessibilityRole="button"
-          style={[styles.card, styles.analyzeCard]}
-          onPress={onAnalyze}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.analyzeCardBadge}>AFTERWARDS</Text>
-          <Text style={styles.analyzeCardTitle}>Analyze a Conversation</Text>
-          <Text style={styles.analyzeCardSub}>
-            Record, upload, or paste a link — get the full breakdown.
-          </Text>
-        </TouchableOpacity>
+      <View style={styles.gridWrap}>
+        <HomeBoxGrid boxes={homeBoxes} onNavigate={onNavigate} />
       </View>
 
-      {/* "Your growth" — a narrow, self-fetching sparkline of the user's own
-          per-recording scores over time. Renders nothing while loading or when
-          growth isn't available (signed out / storage disabled / not enrolled
-          server), so the two-mode design is undisturbed by default. */}
-      <GrowthStrip onPress={onOpenGrowth} />
-
-      {/* Compact history entry points — small third row under the two mode
-          cards: the day timeline (Companion P1) and the recordings/replay
-          flow, each one tap from home without disturbing the two-mode design. */}
-      <View style={styles.historyRow}>
-        <TouchableOpacity
-          testID="home-your-day-link"
-          accessibilityRole="button"
-          style={styles.recordingsRow}
-          onPress={onOpenYourDay}
-        >
-          <Text style={styles.recordingsRowText}>☀ Your day</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          testID="home-recordings-link"
-          accessibilityRole="button"
-          style={styles.recordingsRow}
-          onPress={onOpenRecordings}
-        >
-          <Text style={styles.recordingsRowText}>▶ Past recordings</Text>
-        </TouchableOpacity>
-      </View>
+      <TouchableOpacity
+        testID="home-your-day-link"
+        accessibilityRole="button"
+        style={styles.yourDayRow}
+        onPress={onOpenYourDay}
+      >
+        <Text style={styles.yourDayRowText}>☀ Your day</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -109,70 +60,10 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     backgroundColor: "#F9FAFB",
   },
-  cards: {
+  gridWrap: {
     flex: 1,
-    gap: 16,
   },
-  card: {
-    flex: 1,
-    borderRadius: 20,
-    padding: 24,
-    justifyContent: "flex-end",
-  },
-  liveCard: {
-    backgroundColor: "#4A90D9",
-  },
-  liveCardBadge: {
-    position: "absolute",
-    top: 20,
-    left: 24,
-    fontSize: 13,
-    fontWeight: "800",
-    letterSpacing: 2,
-    color: "rgba(255,255,255,0.85)",
-  },
-  liveCardTitle: {
-    fontSize: 30,
-    fontWeight: "800",
-    color: "#FFFFFF",
-    marginBottom: 6,
-  },
-  liveCardSub: {
-    fontSize: 15,
-    lineHeight: 21,
-    color: "rgba(255,255,255,0.92)",
-  },
-  analyzeCard: {
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1.5,
-    borderColor: "#D1D5DB",
-  },
-  analyzeCardBadge: {
-    position: "absolute",
-    top: 20,
-    left: 24,
-    fontSize: 13,
-    fontWeight: "800",
-    letterSpacing: 2,
-    color: "#9CA3AF",
-  },
-  analyzeCardTitle: {
-    fontSize: 30,
-    fontWeight: "800",
-    color: "#111827",
-    marginBottom: 6,
-  },
-  analyzeCardSub: {
-    fontSize: 15,
-    lineHeight: 21,
-    color: "#6B7280",
-  },
-  historyRow: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  recordingsRow: {
-    flex: 1,
+  yourDayRow: {
     marginTop: 16,
     minHeight: 52,
     borderRadius: 14,
@@ -182,7 +73,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  recordingsRowText: {
+  yourDayRowText: {
     fontSize: 16,
     fontWeight: "600",
     color: "#4A90D9",

@@ -1,9 +1,11 @@
 import React from "react";
 import renderer, { act, ReactTestInstance } from "react-test-renderer";
 import HomeScreen from "../src/screens/HomeScreen";
+import { useLayoutStore, DEFAULT_HOME_BOXES } from "../src/store/layoutStore";
 import { getGrowth } from "../src/api/client";
 
-// The embedded GrowthStrip self-fetches; keep the home tests deterministic.
+// The growth box's mini preview self-fetches (Task N4, useGrowthPreview) —
+// keep the home tests deterministic.
 jest.mock("../src/api/client", () => ({
   getGrowth: jest.fn(),
 }));
@@ -19,68 +21,113 @@ function queryId(
 
 function makeHandlers() {
   return {
-    onLiveCoach: jest.fn(),
-    onAnalyze: jest.fn(),
-    onOpenRecordings: jest.fn(),
+    onNavigate: jest.fn(),
     onOpenYourDay: jest.fn(),
-    onOpenGrowth: jest.fn(),
   };
 }
 
+async function render(overrides: Partial<React.ComponentProps<typeof HomeScreen>> = {}) {
+  const handlers = { ...makeHandlers(), ...overrides };
+  let comp!: renderer.ReactTestRenderer;
+  await act(async () => {
+    comp = renderer.create(<HomeScreen {...handlers} />);
+  });
+  return { comp, handlers };
+}
+
 beforeEach(() => {
-  // Default: growth unavailable → the strip renders nothing and home is
-  // exactly the two-mode surface it always was.
   mockGetGrowth.mockReset();
+  // Default: growth unavailable → the growth box's mini preview renders
+  // nothing extra, just the icon + title (no broken chart).
   mockGetGrowth.mockRejectedValue(new Error("API error: 503"));
+  useLayoutStore.setState({ tabSlots: [], homeBoxes: [], hydrated: true });
 });
 
-describe("HomeScreen", () => {
-  it("renders the two primary modes and the history entry (no corner affordance — that's AppChrome's job now)", async () => {
-    let comp!: renderer.ReactTestRenderer;
-    await act(async () => {
-      comp = renderer.create(<HomeScreen {...makeHandlers()} />);
-    });
-    expect(queryId(comp, "home-live-coach")).toBeTruthy();
-    expect(queryId(comp, "home-analyze")).toBeTruthy();
-    expect(queryId(comp, "home-recordings-link")).toBeTruthy();
-    expect(queryId(comp, "home-your-day-link")).toBeTruthy();
-    // Task N3: the wordmark + Settings "⋯" corner moved into AppChrome — no
-    // longer HomeScreen's own affordance.
-    expect(queryId(comp, "home-advanced-button")).toBeNull();
-    // Growth unavailable → no strip, no broken chart.
-    expect(queryId(comp, "growth-strip")).toBeNull();
-    expect(comp.toJSON()).toMatchSnapshot();
+describe("HomeScreen — box grid (Task N4)", () => {
+  it("0 boxes: an honest hint, never a blank/broken-looking screen", async () => {
+    useLayoutStore.setState({ homeBoxes: [] });
+    const { comp } = await render();
+    expect(queryId(comp, "home-boxes-empty")).toBeTruthy();
+    expect(queryId(comp, "home-boxes-grid")).toBeNull();
     act(() => comp.unmount());
   });
 
-  it("each tap target calls exactly its own handler", async () => {
-    const handlers = makeHandlers();
-    let comp!: renderer.ReactTestRenderer;
-    await act(async () => {
-      comp = renderer.create(<HomeScreen {...handlers} />);
-    });
-
-    act(() => queryId(comp, "home-live-coach")!.props.onPress());
-    expect(handlers.onLiveCoach).toHaveBeenCalledTimes(1);
-
-    act(() => queryId(comp, "home-analyze")!.props.onPress());
-    expect(handlers.onAnalyze).toHaveBeenCalledTimes(1);
-
-    act(() => queryId(comp, "home-recordings-link")!.props.onPress());
-    expect(handlers.onOpenRecordings).toHaveBeenCalledTimes(1);
-
-    act(() => queryId(comp, "home-your-day-link")!.props.onPress());
-    expect(handlers.onOpenYourDay).toHaveBeenCalledTimes(1);
-
-    // No cross-talk.
-    expect(handlers.onLiveCoach).toHaveBeenCalledTimes(1);
-    expect(handlers.onAnalyze).toHaveBeenCalledTimes(1);
-    expect(handlers.onOpenRecordings).toHaveBeenCalledTimes(1);
-    expect(handlers.onOpenYourDay).toHaveBeenCalledTimes(1);
+  it("1 box: a single full-width banner card", async () => {
+    useLayoutStore.setState({ homeBoxes: ["coach"] });
+    const { comp } = await render();
+    expect(queryId(comp, "home-box-coach")).toBeTruthy();
+    expect(queryId(comp, "home-box-coach")!.props.style).toContainEqual(
+      expect.objectContaining({ width: "100%" }),
+    );
     act(() => comp.unmount());
   });
 
-  it("shows the growth strip between the mode cards and the history row, wired to onOpenGrowth", async () => {
+  it("2 boxes: two half-width cards", async () => {
+    useLayoutStore.setState({ homeBoxes: ["coach", "analyze"] });
+    const { comp } = await render();
+    expect(queryId(comp, "home-box-coach")).toBeTruthy();
+    expect(queryId(comp, "home-box-analyze")).toBeTruthy();
+    expect(queryId(comp, "home-box-coach")!.props.style).toContainEqual(
+      expect.objectContaining({ width: "48%" }),
+    );
+    act(() => comp.unmount());
+  });
+
+  it("3 boxes: a wrapping 2-column grid (2 + 1)", async () => {
+    useLayoutStore.setState({ homeBoxes: ["coach", "analyze", "recordings"] });
+    const { comp } = await render();
+    expect(queryId(comp, "home-box-coach")).toBeTruthy();
+    expect(queryId(comp, "home-box-analyze")).toBeTruthy();
+    expect(queryId(comp, "home-box-recordings")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("4 boxes (the cap): a full 2x2 grid", async () => {
+    useLayoutStore.setState({
+      homeBoxes: ["coach", "analyze", "recordings", "growth"],
+    });
+    const { comp } = await render();
+    for (const id of ["coach", "analyze", "recordings", "growth"]) {
+      expect(queryId(comp, `home-box-${id}`)).toBeTruthy();
+    }
+    act(() => comp.unmount());
+  });
+
+  it("defaults (recordings + growth): both render as boxes", async () => {
+    useLayoutStore.setState({ homeBoxes: [...DEFAULT_HOME_BOXES] });
+    const { comp } = await render();
+    expect(queryId(comp, "home-box-recordings")).toBeTruthy();
+    expect(queryId(comp, "home-box-growth")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("tapping a box hands its destination's Screen straight to onNavigate — the same mechanism the chrome tabs use", async () => {
+    useLayoutStore.setState({ homeBoxes: ["coach", "recordings"] });
+    const { comp, handlers } = await render();
+
+    act(() => queryId(comp, "home-box-coach")!.props.onPress());
+    expect(handlers.onNavigate).toHaveBeenCalledWith({ name: "live-coach" });
+
+    act(() => queryId(comp, "home-box-recordings")!.props.onPress());
+    expect(handlers.onNavigate).toHaveBeenCalledWith({
+      name: "recordings",
+      returnTo: "home",
+    });
+    act(() => comp.unmount());
+  });
+
+  it("a stale/unknown persisted box id is dropped silently, not crashed on", async () => {
+    // sanitizeSlots already drops these before they reach the store in real
+    // usage; this proves HomeBoxGrid itself is defensive too.
+    useLayoutStore.setState({
+      homeBoxes: ["coach", "not-a-real-destination" as never],
+    });
+    const { comp } = await render();
+    expect(queryId(comp, "home-box-coach")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("the growth box shows a mini trend preview when tracked data exists", async () => {
     mockGetGrowth.mockResolvedValue({
       points: [
         {
@@ -94,17 +141,36 @@ describe("HomeScreen", () => {
       total_recordings: 2,
       identified_recordings: 1,
     });
-    const handlers = makeHandlers();
-    let comp!: renderer.ReactTestRenderer;
+    useLayoutStore.setState({ homeBoxes: ["growth"] });
+    const { comp } = await render();
+    // Growth box still has its icon + title header regardless (owner rule:
+    // every box is icon + label, never a bare block) — proven implicitly by
+    // home-box-growth existing — plus the preview once data resolves.
     await act(async () => {
-      comp = renderer.create(<HomeScreen {...handlers} />);
+      await Promise.resolve();
     });
-    const strip = queryId(comp, "growth-strip");
-    expect(strip).toBeTruthy();
-    act(() => strip!.props.onPress());
-    expect(handlers.onOpenGrowth).toHaveBeenCalledTimes(1);
-    // The strip never hijacks the primary modes.
-    expect(handlers.onAnalyze).not.toHaveBeenCalled();
+    expect(queryId(comp, "home-box-growth")).toBeTruthy();
+    expect(queryId(comp, "home-box-growth-preview")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("the growth box has no preview (just icon + label) when the fetch fails", async () => {
+    useLayoutStore.setState({ homeBoxes: ["growth"] });
+    const { comp } = await render();
+    expect(queryId(comp, "home-box-growth")).toBeTruthy();
+    expect(queryId(comp, "home-box-growth-preview")).toBeNull();
+    act(() => comp.unmount());
+  });
+});
+
+describe("HomeScreen — content preserved across the N4 rework", () => {
+  it("preserves the hero header and the 'Your day' link (no registry destination of its own)", async () => {
+    useLayoutStore.setState({ homeBoxes: [] });
+    const { comp, handlers } = await render();
+    const link = queryId(comp, "home-your-day-link");
+    expect(link).toBeTruthy();
+    act(() => link!.props.onPress());
+    expect(handlers.onOpenYourDay).toHaveBeenCalledTimes(1);
     act(() => comp.unmount());
   });
 });

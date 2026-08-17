@@ -262,15 +262,14 @@ export default function App() {
   const renderScreen = () => {
     switch (screen.name) {
       case "home":
+        // Task N4: the box grid navigates through the same `handleNavigate`
+        // callback AppChrome's tab bar and hamburger catalog use (defined
+        // below, in scope by closure — see its own comment for why that's
+        // safe despite the declaration order).
         return (
           <HomeScreen
-            onLiveCoach={() => setScreen({ name: "live-coach" })}
-            onAnalyze={() => setScreen({ name: "analyze" })}
-            onOpenRecordings={() =>
-              setScreen({ name: "recordings", returnTo: "home" })
-            }
+            onNavigate={handleNavigate}
             onOpenYourDay={() => setScreen({ name: "your-day" })}
-            onOpenGrowth={() => setScreen({ name: "growth" })}
           />
         );
       case "live-coach":

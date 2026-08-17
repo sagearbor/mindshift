@@ -38,11 +38,8 @@ function queryAll(comp: renderer.ReactTestRenderer, id: string): ReactTestInstan
 
 function makeHandlers() {
   return {
-    onLiveCoach: jest.fn(),
-    onAnalyze: jest.fn(),
-    onOpenRecordings: jest.fn(),
+    onNavigate: jest.fn(),
     onOpenYourDay: jest.fn(),
-    onOpenGrowth: jest.fn(),
   };
 }
 
