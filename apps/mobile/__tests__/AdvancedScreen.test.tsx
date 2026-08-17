@@ -144,14 +144,41 @@ beforeEach(() => {
 });
 
 describe("AdvancedScreen", () => {
-  it("renders the dashboard entry, sign out, and back — and wires each press", async () => {
+  it("is titled Settings, not Advanced", async () => {
+    const comp = await render();
+    expect(textOf(queryId(comp, "settings-heading")!)).toBe("Settings");
+    act(() => comp.unmount());
+  });
+
+  it("groups its rows under labeled sections: Your tools, About, Account", async () => {
+    // No voice feature in this default mock state, so no Voice section —
+    // an empty section header would be worse than none.
+    const comp = await render();
+    expect(textOf(queryId(comp, "section-your-tools")!)).toBe("Your tools");
+    expect(textOf(queryId(comp, "section-about")!)).toBe("About");
+    expect(textOf(queryId(comp, "section-account")!)).toBe("Account");
+    expect(queryId(comp, "section-voice")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("shows the Voice section header only when the voice card renders", async () => {
+    mockProfile.mockResolvedValue(enrolledProfile());
+    mockList.mockResolvedValue([]);
+    const comp = await render();
+    expect(textOf(queryId(comp, "section-voice")!)).toBe("Voice");
+    act(() => comp.unmount());
+  });
+
+  it("renders the dashboard entry, log out, and back — and wires each press", async () => {
     const handlers = makeHandlers();
     const comp = await render(handlers);
 
     act(() => queryId(comp, "advanced-dashboard")!.props.onPress());
     expect(handlers.onOpenDashboard).toHaveBeenCalledTimes(1);
 
-    act(() => queryId(comp, "advanced-sign-out")!.props.onPress());
+    const logOut = queryId(comp, "advanced-sign-out")!;
+    expect(textOf(logOut)).toBe("Log out");
+    act(() => logOut.props.onPress());
     expect(handlers.onSignOut).toHaveBeenCalledTimes(1);
 
     act(() => queryId(comp, "advanced-back")!.props.onPress());
@@ -214,6 +241,32 @@ describe("AdvancedScreen", () => {
     expect(updateText).toContain("Updated");
     expect(updateText).toContain("production channel");
 
+    act(() => comp.unmount());
+  });
+
+  it("About always shows a MindShift line", async () => {
+    const comp = await render();
+    expect(textOf(queryId(comp, "about-app-name")!)).toBe("MindShift");
+    act(() => comp.unmount());
+  });
+
+  it("About shows the running update's id only when one is known", async () => {
+    mockOta = baseOta({
+      supported: true,
+      isEmbeddedLaunch: false,
+      channel: "production",
+      createdAt: new Date("2026-07-19T15:30:00Z"),
+      updateId: "abc-123",
+    });
+    const comp = await render();
+    expect(textOf(queryId(comp, "about-update-id")!)).toContain("abc-123");
+    act(() => comp.unmount());
+  });
+
+  it("About hides the update-id row on a store build with no OTA applied", async () => {
+    // baseOta() defaults updateId to null — the honest default.
+    const comp = await render();
+    expect(queryId(comp, "about-update-id")).toBeNull();
     act(() => comp.unmount());
   });
 

@@ -35,7 +35,7 @@ exports[`HomeScreen renders the two primary modes, the history entry, and the ad
       MindShift
     </Text>
     <View
-      accessibilityLabel="Advanced"
+      accessibilityLabel="Settings"
       accessibilityRole="button"
       accessibilityState={
         {
