@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Image, Platform, StyleSheet, View, type LayoutChangeEvent } from "react-native";
+import { Image, StyleSheet, View, type LayoutChangeEvent } from "react-native";
 
 import { usePrefersReducedMotion } from "../hooks/usePrefersReducedMotion";
 import { HERO_IMAGES } from "../assets/heroImages";
@@ -16,20 +16,19 @@ const EFFECT_STRIP_WIDTH = 60;
  * edge with a particle effect that rotates per transition (embers / ice /
  * bubbles — see heroWipeEffects.ts).
  *
- * Web-only: native renders nothing (the plan defers mobile). Rather than a
- * .native.tsx/.web.tsx split (see GoogleSignInButton for that pattern), this
- * uses a runtime `Platform.OS` check like RecordScreen/AnalyzeScreen/
- * HeatChart do for their web-only bits — it keeps the wipe's DOM-refs-cast-
- * to-HTMLElement escape hatch (same trick HeatChart's wheel listener uses)
- * in one file, and makes the "web renders it, native doesn't" behavior
- * trivial to unit test by toggling Platform.OS.
+ * WEB ONLY by construction, not by a runtime check: this is HeroWipe.web.tsx,
+ * resolved only for web bundles (Metro/react-native-web) and only when a
+ * test imports it directly by this exact filename. HeroWipe.native.tsx is
+ * the stub every iOS/Android bundle and OTA payload actually gets — this
+ * file's imports (heroImages.ts and its ~2MB of JPEGs, heroWipeSchedule.ts,
+ * heroWipeEffects.ts) are never resolved into that dependency graph at all,
+ * because Metro's platform-extension resolution picks exactly one file per
+ * platform and never visits the other (see HeroWipe.native.tsx's doc comment
+ * for why a runtime-only `Platform.OS` guard is NOT sufficient here — a
+ * previous version of this file did that and it does not stop Metro from
+ * bundling the images).
  */
 export default function HeroWipe() {
-  if (Platform.OS !== "web") return null;
-  return <HeroWipeWeb />;
-}
-
-function HeroWipeWeb() {
   const reducedMotion = usePrefersReducedMotion();
   // Reduced motion: no timers at all, just the first shuffled image, static.
   const schedule = useHeroWipeSchedule(HERO_IMAGES.length, undefined, reducedMotion);
