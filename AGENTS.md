@@ -28,3 +28,9 @@ Guide AI agents contributing to MindShift (see [PRD.md](PRD.md) for the product 
 - `pytest` — backend (runs `server/` + `tests/` from the repo root).
 - `npm test` — frontend Jest (jest-expo), delegated to `apps/mobile`.
 - TDD: write the failing test first.
+
+## Deploying
+- Mobile OTA updates: always `./scripts/ota_publish.sh "message"`, never raw
+  `eas update` — the raw command bundles JS without the production
+  `EXPO_PUBLIC_*` env baked in, which shipped a broken build once (client
+  fell back to `localhost:8000`). See the script's header comment.
