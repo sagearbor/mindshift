@@ -24,6 +24,8 @@ export interface Me {
 }
 
 async function authHeaders(): Promise<Record<string, string>> {
+  // No Content-Type here, deliberately — this module only ever does a
+  // bodyless GET (unlike watchPairing.ts's authHeaders, which POSTs JSON).
   const token = await getFreshToken();
   const headers: Record<string, string> = {};
   if (token) {
