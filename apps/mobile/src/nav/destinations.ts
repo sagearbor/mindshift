@@ -30,18 +30,34 @@ export type DestId =
   | "settings"
   | "tutorial";
 
-/** A navigation target shaped exactly like the App.tsx `Screen` union member
- *  it corresponds to. Only the fields those specific members need are
- *  present here — e.g. "recordings" carries `returnTo` because that member
- *  requires it.
+/** A navigation target shaped like the App.tsx `Screen` union member it
+ *  corresponds to — deliberately NOT always identical. Two ways a variant
+ *  can relate to its Screen counterpart, each documented per-variant below:
+ *
+ *   1. Exact match, no extra fields — "live-coach", "analyze", "growth",
+ *      "advanced". Handed straight to `setScreen()` with no massaging.
+ *   2. "recordings" carries the reduced `returnTo` its Screen counterpart
+ *      needs ("home" | "analyze", not the full recursive `Screen`) — the
+ *      registry statically knows both legal origins, so it can supply the
+ *      real value itself.
+ *   3. "watch-setup" / "onboarding" / "dashboard" deliberately OMIT
+ *      `returnTo` here even though their Screen counterparts require
+ *      `returnTo: Screen` — the registry is static data with no way to know
+ *      which screen the hamburger catalog (or a tab/box) was actually
+ *      opened FROM, so it can't fill that field in. App.tsx's
+ *      `handleNavigate` patches it in instead, from whatever screen is
+ *      current at nav time, before calling `setScreen()` — see that
+ *      function's comment for the three-case early-return that does it.
  *
  *  Verified against App.tsx's real `Screen` union as part of Task N3 (P3-10)
- *  — every variant below still matches its Screen counterpart exactly, no
- *  drift found. This isn't just a one-time check: App.tsx now exports
- *  `Screen` and hands a `DestScreen` straight to `setScreen()`
- *  (App.tsx's `handleNavigate`), so a future drift (a Screen variant's shape
- *  changing without this type following) fails the TypeScript build right
- *  there, not silently at runtime. */
+ *  and re-verified for Task N5: every variant below is intentionally either
+ *  an exact match or a documented, `handleNavigate`-patched exception —
+ *  never silent drift. App.tsx exports `Screen` and either hands a
+ *  `DestScreen` straight to `setScreen()` (case 1/2) or spreads it with a
+ *  patched `returnTo` first (case 3), so an UNDOCUMENTED shape mismatch (a
+ *  Screen variant's required fields changing without this type or
+ *  `handleNavigate` following) still fails the TypeScript build right there,
+ *  not silently at runtime. */
 export type DestScreen =
   | { name: "live-coach" }
   | { name: "analyze" }

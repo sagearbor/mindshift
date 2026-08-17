@@ -320,6 +320,45 @@ describe("home & primary-screen navigation", () => {
     act(() => comp.unmount());
   });
 
+  it("Home → Advanced → Home screen design, and back walks the same path", async () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+
+    await openSettings(comp);
+    expect(queryId(comp, "advanced-home-design")).toBeTruthy();
+
+    await act(async () => {
+      queryId(comp, "advanced-home-design")!.props.onPress();
+    });
+    expect(queryId(comp, "home-design-screen")).toBeTruthy();
+    // Editing here mutates the real, shared layoutStore (Task N5 scope: all
+    // mutations through layoutStore's validated setters) — assert it lands
+    // on the store, not just the screen's own local state.
+    await act(async () => {
+      queryId(comp, "home-design-tab-remove-coach")!.props.onPress();
+    });
+    expect(useLayoutStore.getState().tabSlots).toEqual(["analyze", "growth"]);
+
+    await act(async () => {
+      queryId(comp, "home-design-back")!.props.onPress();
+    });
+    expect(queryId(comp, "advanced-home-design")).toBeTruthy();
+
+    await act(async () => {
+      queryId(comp, "advanced-back")!.props.onPress();
+    });
+    expect(queryId(comp, "home-screen")).toBeTruthy();
+    // The removed tab is gone from AppChrome's own tab bar too — the same
+    // store instance, no separate "apply" step (Task N5 scope: "edits
+    // reflect instantly app-wide").
+    expect(queryId(comp, "chrome-tab-coach")).toBeNull();
+    expect(queryId(comp, "chrome-tab-analyze")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
   it("Analyze → text tools → Analyze dynamics pushes the Dynamics screen", async () => {
     // Enough turns for the analyze button to appear in the text tools.
     act(() => {

@@ -47,6 +47,12 @@ describe("backTarget", () => {
     expect(backTarget({ name: "record" })).toEqual({ name: "analyze" });
   });
 
+  // Task N5 of P3-10: only reachable from Settings' own row, so — unlike
+  // watch-setup/onboarding/dashboard above — no dynamic returnTo is needed.
+  it("home-design pops to advanced (Settings)", () => {
+    expect(backTarget({ name: "home-design" })).toEqual({ name: "advanced" });
+  });
+
   it("detail pops to whatever dashboard screen (with its own returnTo) it carries", () => {
     const returnTo: Screen = { name: "dashboard", returnTo: { name: "advanced" } };
     expect(backTarget({ name: "detail", sessionId: "s1", returnTo })).toEqual(

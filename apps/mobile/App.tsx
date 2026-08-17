@@ -10,6 +10,7 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import HomeScreen from "./src/screens/HomeScreen";
 import AnalyzeScreen from "./src/screens/AnalyzeScreen";
 import AdvancedScreen from "./src/screens/AdvancedScreen";
+import HomeDesignScreen from "./src/screens/HomeDesignScreen";
 import WatchSetupScreen from "./src/screens/WatchSetupScreen";
 import SessionScreen from "./src/screens/SessionScreen";
 import TherapistDashboard from "./src/screens/TherapistDashboard";
@@ -77,6 +78,13 @@ export type Screen =
   // Everything that doesn't fit the two modes: Settings (dashboard, watch
   // setup, voice profile, About, log out).
   | { name: "advanced" }
+  // Task N5 of P3-10: Settings' "Home screen design" editor — arrange
+  // layoutStore's tabSlots/homeBoxes. Only reachable from Settings' own row
+  // today (not the hamburger catalog — editing your own customization isn't
+  // a registry destination, same reasoning as "settings" itself being
+  // catalog-only, see destinations.ts), so a static `returnTo` is enough —
+  // no dynamic patching needed like watch-setup/onboarding/dashboard below.
+  | { name: "home-design" }
   // Phase 3 Slice 1: install the watch app + redeem its pairing code.
   // Pushed from Settings' "Set up your watch" row (returnTo "advanced") AND
   // (Task N3 fix round 1) from the hamburger catalog on any primary screen —
@@ -167,8 +175,9 @@ export type Screen =
  * unchanged.
  *
  * Every other pushed screen (session, dynamics, watch-setup, onboarding,
- * dashboard, detail, your-day, record, replay, advanced) either isn't in the
- * registry at all or isn't primary-eligible, so it's pushed by definition —
+ * dashboard, detail, your-day, record, replay, advanced, home-design) either
+ * isn't in the registry at all or isn't primary-eligible, so it's pushed by
+ * definition —
  * same full-screen layout, same back affordance as before this task (though
  * watch-setup/onboarding/dashboard now carry a dynamic `returnTo` instead of
  * a hardcoded one — see the Task N3 fix-round-1 comments on those cases).
@@ -379,8 +388,14 @@ export default function App() {
             onOpenTutorial={() =>
               setScreen({ name: "onboarding", returnTo: { name: "advanced" } })
             }
+            onOpenHomeDesign={() => setScreen({ name: "home-design" })}
           />
         );
+      case "home-design":
+        // Task N5 of P3-10: only reachable from Settings' own row today, so
+        // back always lands there — see the Screen union's comment on this
+        // variant for why no dynamic returnTo is needed.
+        return <HomeDesignScreen onBack={() => setScreen({ name: "advanced" })} />;
       case "watch-setup":
         // Task N3 fix round 1: returns to wherever it was actually launched
         // from (Settings' own row, or now the hamburger catalog from any

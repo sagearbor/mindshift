@@ -123,6 +123,7 @@ function makeHandlers() {
     onOpenReplay: jest.fn(),
     onOpenWatchSetup: jest.fn(),
     onOpenTutorial: jest.fn(),
+    onOpenHomeDesign: jest.fn(),
   };
 }
 
@@ -161,14 +162,27 @@ describe("AdvancedScreen", () => {
     act(() => comp.unmount());
   });
 
-  it("groups its rows under labeled sections: Your tools, About, Account", async () => {
+  it("groups its rows under labeled sections: Your tools, Appearance, About, Account", async () => {
     // No voice feature in this default mock state, so no Voice section —
     // an empty section header would be worse than none.
     const comp = await render();
     expect(textOf(queryId(comp, "section-your-tools")!)).toBe("Your tools");
+    expect(textOf(queryId(comp, "section-appearance")!)).toBe("Appearance");
     expect(textOf(queryId(comp, "section-about")!)).toBe("About");
     expect(textOf(queryId(comp, "section-account")!)).toBe("Account");
     expect(queryId(comp, "section-voice")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("renders the Home screen design entry (under Appearance) and wires its press", async () => {
+    const handlers = makeHandlers();
+    const comp = await render(handlers);
+
+    const row = queryId(comp, "advanced-home-design")!;
+    expect(textOf(row)).toContain("Home screen design");
+    act(() => row.props.onPress());
+    expect(handlers.onOpenHomeDesign).toHaveBeenCalledTimes(1);
+
     act(() => comp.unmount());
   });
 

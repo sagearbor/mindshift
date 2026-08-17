@@ -75,6 +75,9 @@ interface AdvancedScreenProps {
    *  touch the "seen" persistence — this is an explicit replay, not a reset
    *  of whether it auto-shows again on next launch. */
   onOpenTutorial: () => void;
+  /** Open the "Home screen design" editor (Task N5 of P3-10) — arrange the
+   *  configurable bottom bar and home boxes. */
+  onOpenHomeDesign: () => void;
 }
 
 /** A single copy-friendly label/value row in the About card. The value is
@@ -110,6 +113,7 @@ export default function AdvancedScreen({
   onOpenReplay,
   onOpenWatchSetup,
   onOpenTutorial,
+  onOpenHomeDesign,
 }: AdvancedScreenProps) {
   // Voice profile card — full detail (per-sample provenance) once loaded.
   const [profile, setProfile] = useState<VoiceProfile | null>(null);
@@ -337,6 +341,22 @@ export default function AdvancedScreen({
         <Text style={styles.rowSub}>
           Replay the short walkthrough of Live Coach, Analyze, your watch,
           and Growth.
+        </Text>
+      </TouchableOpacity>
+
+      <Text style={styles.sectionHeading} testID="section-appearance">
+        Appearance
+      </Text>
+
+      <TouchableOpacity
+        testID="advanced-home-design"
+        accessibilityRole="button"
+        style={styles.row}
+        onPress={onOpenHomeDesign}
+      >
+        <Text style={styles.rowTitle}>Home screen design</Text>
+        <Text style={styles.rowSub}>
+          Arrange your bottom bar and home screen shortcuts.
         </Text>
       </TouchableOpacity>
 
