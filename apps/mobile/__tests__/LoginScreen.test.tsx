@@ -118,6 +118,25 @@ describe("LoginScreen", () => {
     act(() => comp.unmount());
   });
 
+  it("shows a disabled 'Continue with Apple' placeholder, honestly labeled coming soon", () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<LoginScreen />);
+    });
+
+    const appleButton = queryId(comp, "apple-button");
+    expect(appleButton).toBeTruthy();
+    expect(appleButton!.props.disabled).toBe(true);
+    expect(appleButton!.props.accessibilityState).toEqual({ disabled: true });
+    expect(appleButton!.props.accessibilityLabel).toMatch(/apple.*coming soon/i);
+
+    // Pressing it fires nothing — there's no onPress at all, so there's
+    // nothing for the auth store to be called with.
+    expect(appleButton!.props.onPress).toBeUndefined();
+
+    act(() => comp.unmount());
+  });
+
   it("is unaffected by the web hero banner on native (Task P3-4b, owner: both placements)", () => {
     // Default jest resolution is native (HeroWipe.native.tsx, a null stub —
     // see heroWipeHomeIntegration.test.tsx for the require.cache proof this

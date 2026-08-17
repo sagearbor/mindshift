@@ -13,6 +13,7 @@ import {
 import { useAuthStore } from "../store/authStore";
 import { googleSignInConfigured } from "../auth/firebaseConfig";
 import GoogleSignInButton from "../components/GoogleSignInButton";
+import AppleSignInButton from "../components/AppleSignInButton";
 import HeroWipe from "../components/HeroWipe";
 
 type Mode = "signIn" | "signUp";
@@ -185,6 +186,8 @@ export default function LoginScreen() {
               Google sign-in isn’t configured yet.
             </Text>
           )}
+
+          <AppleSignInButton />
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
