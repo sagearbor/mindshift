@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   KeyboardAvoidingView,
+  ScrollView,
   Platform,
   StyleSheet,
 } from "react-native";
@@ -65,7 +66,23 @@ export default function LoginScreen() {
         style={styles.flex}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <View style={styles.container} testID="login-screen">
+        {/* ROOT CAUSE FIX (review round 3): this used to be a plain View with
+            flex:1 + justifyContent:'center'. When the form's natural content
+            height exceeded that box (a short/constrained viewport — which
+            the hero banner above makes far more common, since it eats real
+            vertical space), centering with `overflow: visible` bled the
+            excess equally above AND below the box — pushing the "MindShift"
+            title up and OVER the hero's bottom edge. A ScrollView's content
+            container can grow past the visible area and scroll instead of
+            bleeding outside its own box: the form's rendered box can now
+            NEVER start above where the hero banner ends, whether or not its
+            content fits. */}
+        <ScrollView
+          testID="login-screen"
+          style={styles.containerScroll}
+          contentContainerStyle={styles.containerContent}
+          keyboardShouldPersistTaps="handled"
+        >
           <Text style={styles.brand}>MindShift</Text>
           <Text style={styles.subtitle}>
             {mode === "signIn"
@@ -168,7 +185,7 @@ export default function LoginScreen() {
               Google sign-in isn’t configured yet.
             </Text>
           )}
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </View>
   );
@@ -185,13 +202,22 @@ const styles = StyleSheet.create({
     width: "100%",
     maxHeight: 240,
     overflow: "hidden",
+    flexShrink: 0,
   },
   flex: { flex: 1 },
-  container: {
+  // The ScrollView itself always fills the KeyboardAvoidingView's box
+  // (background lives here so short content doesn't show a gap below it).
+  containerScroll: {
     flex: 1,
+    backgroundColor: "#F9FAFB",
+  },
+  // contentContainerStyle: flexGrow (not flex) lets this box grow taller
+  // than the visible ScrollView when content needs it — centered when it
+  // fits, scrollable (never bleeding outside its own box) when it doesn't.
+  containerContent: {
+    flexGrow: 1,
     justifyContent: "center",
     paddingHorizontal: 28,
-    backgroundColor: "#F9FAFB",
   },
   brand: {
     fontSize: 34,

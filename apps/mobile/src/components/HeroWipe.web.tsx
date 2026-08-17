@@ -152,9 +152,19 @@ export default function HeroWipe() {
 }
 
 const styles = StyleSheet.create({
+  // Explicit, self-contained geometry (review round 3): a concrete
+  // normal-flow height (not just "whatever its content needs"), zero flex
+  // shrink (a parent flex container can never squeeze this shorter than
+  // 200 and cause its absolutely-positioned children to overflow it), and
+  // an explicit `position: relative` so those absolute children (the
+  // clipped top image layer, the effect strip) are always positioned
+  // relative to THIS box, never escaping it. `overflow: hidden` then clips
+  // anything that still tries.
   container: {
     width: "100%",
     height: 200,
+    flexShrink: 0,
+    position: "relative",
     borderRadius: 20,
     overflow: "hidden",
     marginBottom: 16,

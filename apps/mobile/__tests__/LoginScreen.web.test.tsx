@@ -5,14 +5,22 @@ import { useAuthStore } from "../src/store/authStore";
 
 /**
  * Task P3-4b, owner decision: hero goes on BOTH web placements. This file
- * proves LoginScreen's own composition — that it places the hero ABOVE the
- * title block, in normal document flow (never overlapping it) — independent
- * of which platform file `../components/HeroWipe` actually resolves to in
- * this jest run (default: native, see heroWipeHomeIntegration.test.tsx).
- * `../src/components/HeroWipe` is mocked here to stand in for its real
- * web implementation (HeroWipe.web.tsx, whose "hero-wipe" testID and
- * behavior are pinned directly in HeroWipe.web.test.tsx) purely so this
- * file can observe render ORDER without needing web platform resolution.
+ * proves LoginScreen's composition — that it places the hero ABOVE the
+ * title block in render order — independent of which platform file
+ * `../components/HeroWipe` actually resolves to in this jest run (default:
+ * native, see heroWipeHomeIntegration.test.tsx). `../src/components/HeroWipe`
+ * is mocked here to a lightweight stub purely so this file can observe
+ * order without needing web platform resolution.
+ *
+ * Review round 3 correction: an earlier version of this file claimed render
+ * order alone proved "never overlapping" — a real `expo start --web`
+ * screenshot caught an actual overlap this file's mock-based check could
+ * not (a flexbox overflow-bleed bug; react-test-renderer never runs real
+ * CSS layout, so no assertion here can prove non-overlap). See
+ * LoginScreen.realHero.web.test.tsx for what IS honestly checkable at the
+ * jest level with the REAL HeroWipe.web implementation, and the fix-round-3
+ * report for the live-browser geometry verification that actually confirms
+ * the fix.
  */
 jest.mock("../src/components/HeroWipe", () => {
   const ReactActual = require("react");
@@ -46,7 +54,7 @@ beforeEach(() => {
 });
 
 describe("LoginScreen (web hero placement)", () => {
-  it("renders the hero banner above the MindShift title block, never overlapping it", async () => {
+  it("renders the hero banner before the MindShift title block in render order", async () => {
     let comp!: renderer.ReactTestRenderer;
     await act(async () => {
       comp = renderer.create(<LoginScreen />);
@@ -62,10 +70,9 @@ describe("LoginScreen (web hero placement)", () => {
     expect(heroIndex).toBeGreaterThan(-1);
     expect(brandIndex).toBeGreaterThan(-1);
     expect(subtitleIndex).toBeGreaterThan(-1);
-    // Pre-order tree traversal order matches column-flex visual order here
-    // (no reordering styles are in play) — hero comes first, then the title
-    // block, in normal flow. Not absolutely positioned, so this ordering
-    // guarantee is also a non-overlap guarantee: each takes its own space.
+    // Order only, NOT a non-overlap proof (see this file's header comment
+    // and LoginScreen.realHero.web.test.tsx / the fix-round-3 report for
+    // what actually verifies no-overlap).
     expect(heroIndex).toBeLessThan(brandIndex);
     expect(brandIndex).toBeLessThan(subtitleIndex);
 
