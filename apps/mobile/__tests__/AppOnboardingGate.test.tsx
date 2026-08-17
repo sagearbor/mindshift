@@ -82,7 +82,7 @@ describe("App onboarding gate — first launch", () => {
     await signIn(comp);
 
     expect(queryId(comp, "onboarding-screen")).toBeTruthy();
-    expect(queryId(comp, "home-live-coach")).toBeNull();
+    expect(queryId(comp, "home-screen")).toBeNull();
     act(() => comp.unmount());
   });
 
@@ -102,7 +102,7 @@ describe("App onboarding gate — first launch", () => {
     });
 
     expect(queryId(comp, "onboarding-screen")).toBeNull();
-    expect(queryId(comp, "home-live-coach")).toBeTruthy();
+    expect(queryId(comp, "home-screen")).toBeTruthy();
     expect(SecureStore.setItemAsync).toHaveBeenCalledWith(
       expect.any(String),
       "true",
@@ -132,7 +132,7 @@ describe("App onboarding gate — first launch", () => {
     });
 
     expect(queryId(comp, "onboarding-screen")).toBeNull();
-    expect(queryId(comp, "home-live-coach")).toBeTruthy();
+    expect(queryId(comp, "home-screen")).toBeTruthy();
     expect(SecureStore.setItemAsync).toHaveBeenCalledWith(
       expect.any(String),
       "true",
@@ -150,7 +150,7 @@ describe("App onboarding gate — first launch", () => {
     await signIn(comp);
 
     expect(queryId(comp, "onboarding-screen")).toBeNull();
-    expect(queryId(comp, "home-live-coach")).toBeTruthy();
+    expect(queryId(comp, "home-screen")).toBeTruthy();
     act(() => comp.unmount());
   });
 });
@@ -165,10 +165,15 @@ describe("App onboarding gate — re-entry from Settings", () => {
       comp = renderer.create(<App />);
     });
     await signIn(comp);
-    expect(queryId(comp, "home-live-coach")).toBeTruthy();
+    expect(queryId(comp, "home-screen")).toBeTruthy();
 
+    // Settings is now reached via the avatar menu (Task N3) — Home's own
+    // "⋯" corner is gone.
     await act(async () => {
-      queryId(comp, "home-advanced-button")!.props.onPress();
+      queryId(comp, "chrome-avatar-button")!.props.onPress();
+    });
+    await act(async () => {
+      queryId(comp, "chrome-account-settings")!.props.onPress();
     });
     const tutorialRow = queryId(comp, "advanced-show-tutorial");
     expect(tutorialRow).toBeTruthy();

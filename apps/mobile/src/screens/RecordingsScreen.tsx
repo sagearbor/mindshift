@@ -20,7 +20,13 @@ const DANGER = "#DC2626";
 
 interface RecordingsScreenProps {
   onSelectRecording: (id: string) => void;
-  onBack: () => void;
+  /** Optional (Task N3 fix round 1): omitted when Recordings is reached with
+   *  `returnTo: "home"` — that shape makes it a PRIMARY screen (see
+   *  App.tsx's `isPrimary`), rendered inside AppChrome, which already
+   *  provides a way back — a dedicated back button here would duplicate it.
+   *  Still passed (and rendered) when pushed from Analyze (`returnTo:
+   *  "analyze"`), same as before this fix. */
+  onBack?: () => void;
 }
 
 /** Honest message for the list-level failures (same mapping spirit as
@@ -135,13 +141,17 @@ export default function RecordingsScreen({
   return (
     <View style={styles.flex}>
       <View style={styles.header}>
-        <TouchableOpacity
-          testID="recordings-back"
-          onPress={onBack}
-          hitSlop={{ top: 10, bottom: 10, left: 8, right: 16 }}
-        >
-          <Text style={styles.backText}>‹ Back</Text>
-        </TouchableOpacity>
+        {onBack ? (
+          <TouchableOpacity
+            testID="recordings-back"
+            onPress={onBack}
+            hitSlop={{ top: 10, bottom: 10, left: 8, right: 16 }}
+          >
+            <Text style={styles.backText}>‹ Back</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.headerSpacer} />
+        )}
         <Text style={styles.headerTitle}>Recordings</Text>
         <View style={styles.headerSpacer} />
       </View>

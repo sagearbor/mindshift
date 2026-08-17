@@ -22,7 +22,9 @@ import {
 } from "../api/client";
 import { getMe } from "../api/me";
 import VoiceTrainingFlow from "../components/VoiceTrainingFlow";
+import Avatar from "../components/Avatar";
 import { useAuthStore } from "../store/authStore";
+import { useAvatarStore } from "../store/avatarStore";
 import { useOtaStatus, type OtaStatus } from "../utils/otaUpdate";
 import { formatDate, formatDateTime } from "../utils/dateDisplay";
 
@@ -75,6 +77,15 @@ interface AdvancedScreenProps {
    *  touch the "seen" persistence — this is an explicit replay, not a reset
    *  of whether it auto-shows again on next launch. */
   onOpenTutorial: () => void;
+  /** Open the "Home screen design" editor (Task N5 of P3-10) — arrange the
+   *  configurable bottom bar and home boxes. */
+  onOpenHomeDesign: () => void;
+  /** Open the selfie-capture flow (Task N6 of P3-10) — the same flow the
+   *  avatar menu's "Set profile photo" row opens. "Remove photo" doesn't
+   *  need navigation (see the Account section below) — it clears
+   *  avatarStore directly, same as the voice card's "Forget" action calls
+   *  the API directly. */
+  onSetProfilePhoto: () => void;
 }
 
 /** A single copy-friendly label/value row in the About card. The value is
@@ -110,6 +121,8 @@ export default function AdvancedScreen({
   onOpenReplay,
   onOpenWatchSetup,
   onOpenTutorial,
+  onOpenHomeDesign,
+  onSetProfilePhoto,
 }: AdvancedScreenProps) {
   // Voice profile card — full detail (per-sample provenance) once loaded.
   const [profile, setProfile] = useState<VoiceProfile | null>(null);
@@ -132,6 +145,9 @@ export default function AdvancedScreen({
 
   // --- About section facts (all honest; a missing value reads "unknown"). ---
   const user = useAuthStore((s) => s.user);
+  // Task N6: the selfie avatar shown in the top bar — this row previews and
+  // manages the same store.
+  const avatarUri = useAvatarStore((s) => s.uri);
   const ota = useOtaStatus();
   const appVersion =
     Application.nativeApplicationVersion ??
@@ -340,6 +356,22 @@ export default function AdvancedScreen({
         </Text>
       </TouchableOpacity>
 
+      <Text style={styles.sectionHeading} testID="section-appearance">
+        Appearance
+      </Text>
+
+      <TouchableOpacity
+        testID="advanced-home-design"
+        accessibilityRole="button"
+        style={styles.row}
+        onPress={onOpenHomeDesign}
+      >
+        <Text style={styles.rowTitle}>Home screen design</Text>
+        <Text style={styles.rowSub}>
+          Arrange your bottom bar and home screen shortcuts.
+        </Text>
+      </TouchableOpacity>
+
       {profile && profile.available && profile.storage_enabled ? (
         <>
           <Text style={styles.sectionHeading} testID="section-voice">
@@ -497,6 +529,46 @@ export default function AdvancedScreen({
       <Text style={styles.sectionHeading} testID="section-account">
         Account
       </Text>
+
+      <View style={styles.row} testID="advanced-profile-photo-card">
+        <View style={styles.profilePhotoRow}>
+          <Avatar
+            user={user}
+            photoUri={avatarUri}
+            size={44}
+            testID="advanced-avatar-preview"
+          />
+          <View style={styles.profilePhotoInfo}>
+            <Text style={styles.rowTitle}>Profile photo</Text>
+            <Text style={styles.rowSub}>
+              {avatarUri
+                ? "Shown in the top bar so you know you're signed in as you."
+                : "Add a selfie so the top bar shows it's you, not just an initial."}
+            </Text>
+          </View>
+        </View>
+        <TouchableOpacity
+          testID="advanced-set-profile-photo"
+          accessibilityRole="button"
+          style={styles.trainButton}
+          onPress={onSetProfilePhoto}
+        >
+          <Text style={styles.trainText}>
+            {avatarUri ? "Retake photo" : "Set profile photo"}
+          </Text>
+        </TouchableOpacity>
+        {avatarUri ? (
+          <TouchableOpacity
+            testID="advanced-remove-profile-photo"
+            accessibilityRole="button"
+            style={styles.forgetButton}
+            onPress={() => useAvatarStore.getState().removePhoto()}
+          >
+            <Text style={styles.forgetText}>Remove photo</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+
       <TouchableOpacity
         testID="advanced-sign-out"
         accessibilityRole="button"
@@ -690,5 +762,14 @@ const styles = StyleSheet.create({
   },
   signOutText: {
     color: "#DC2626",
+  },
+  profilePhotoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  profilePhotoInfo: {
+    flex: 1,
+    minWidth: 0,
   },
 });
