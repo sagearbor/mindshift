@@ -50,3 +50,7 @@
 
 ### Task P3-8: Watch daily-calm surface — red→green + line chart (owner request 2026-08-17)
 - Wrist-glanceable "how am I doing today": extend the existing complication (RANGED_VALUE) to publish today's calm score (0–100 → red→green tint where the face supports it) and the existing tile to render a small today-line-chart. Data: /me/standing (watch already calls it; daily window). Cache last value for offline glance; honest empty state when no sessions today. Builds on Gauge v0.2.4 sparkline groundwork; needs a watch release (vc12) when done.
+
+### Task P3-9: Navigation redesign exploration (owner request 2026-08-17 — DESIGN FIRST, owner reviews before any code)
+- Owner dislikes current nav: home's "⋯" goes to one Advanced page; expects hamburger with settings/about/logout etc.; open to a consistent navbar; wondering where a hero fits on mobile. Deliverable = design proposal (HTML mockups under tmp/, sent to owner): 2–3 nav architectures compared honestly (bottom tabs + top bar w/ overflow; hamburger drawer; hybrid), full menu inventory (settings, about/version, tutorial, watch setup, voice profile, therapist dashboard, logout), where the hero lives on mobile in each, migration notes from current screens. Owner picks; implementation is a follow-up task.
+### P3-4b addendum (owner decision: "both"): hero ALSO on the web sign-in/landing page with proper layout (banner above the title block, no overlap), same component, tests updated; mobile placement deferred to the P3-9 outcome.
