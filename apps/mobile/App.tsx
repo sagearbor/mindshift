@@ -667,9 +667,6 @@ export default function App() {
             onNavigate={handleNavigate}
             onGoHome={() => setScreen({ name: "home" })}
             onSignOut={handleSignOut}
-            onSetProfilePhoto={() =>
-              setScreen({ name: "avatar-capture", returnTo: screen })
-            }
             user={user}
             avatarUri={avatarUri}
           >
