@@ -70,6 +70,10 @@ interface AdvancedScreenProps {
   /** Open the "Set up your watch" screen (Phase 3 Slice 1): install the
    *  watch app via Play + redeem the pairing code it shows. */
   onOpenWatchSetup: () => void;
+  /** Re-run the first-launch onboarding walkthrough (Task P3-7). Doesn't
+   *  touch the "seen" persistence — this is an explicit replay, not a reset
+   *  of whether it auto-shows again on next launch. */
+  onOpenTutorial: () => void;
 }
 
 /** A single copy-friendly label/value row in the About card. The value is
@@ -104,6 +108,7 @@ export default function AdvancedScreen({
   onSignOut,
   onOpenReplay,
   onOpenWatchSetup,
+  onOpenTutorial,
 }: AdvancedScreenProps) {
   // Voice profile card — full detail (per-sample provenance) once loaded.
   const [profile, setProfile] = useState<VoiceProfile | null>(null);
@@ -299,6 +304,19 @@ export default function AdvancedScreen({
         <Text style={styles.rowTitle}>Set up your watch</Text>
         <Text style={styles.rowSub}>
           Install the MindShift watch app and pair it to this account.
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        testID="advanced-show-tutorial"
+        accessibilityRole="button"
+        style={styles.row}
+        onPress={onOpenTutorial}
+      >
+        <Text style={styles.rowTitle}>Show tutorial</Text>
+        <Text style={styles.rowSub}>
+          Replay the short walkthrough of Live Coach, Analyze, your watch,
+          and Growth.
         </Text>
       </TouchableOpacity>
 
