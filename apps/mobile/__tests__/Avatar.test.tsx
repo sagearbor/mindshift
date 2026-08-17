@@ -63,4 +63,67 @@ describe("Avatar", () => {
     expect(queryId(comp, "avatar-initial")).toBeNull();
     act(() => comp.unmount());
   });
+
+  // N7 fix round 1 (IMPORTANT 4): a persisted absolute file:// uri can go
+  // stale (e.g. an iOS app-container path change across reinstalls/updates)
+  // with no fallback — Avatar branched purely on photoUri truthiness, so a
+  // dead uri rendered an <Image> that silently failed: a blank circle
+  // instead of the honest initial-letter fallback the component otherwise
+  // guarantees.
+  describe("stale photo fallback", () => {
+    it("falls back to the honest initial-letter circle after the image fails to load", () => {
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(
+          <Avatar
+            user={{ displayName: "Sophie", email: null }}
+            photoUri="file:///stale.jpg"
+            testID="avatar"
+          />,
+        );
+      });
+      expect(queryId(comp, "avatar-photo")).toBeTruthy();
+      expect(queryId(comp, "avatar-initial")).toBeNull();
+
+      act(() => {
+        queryId(comp, "avatar-photo")!.props.onError();
+      });
+
+      expect(queryId(comp, "avatar-photo")).toBeNull();
+      expect(queryId(comp, "avatar-initial")).toBeTruthy();
+      act(() => comp.unmount());
+    });
+
+    it("resets the fallback and retries the photo once a new photoUri is set", () => {
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(
+          <Avatar
+            user={{ displayName: "Sophie", email: null }}
+            photoUri="file:///stale.jpg"
+            testID="avatar"
+          />,
+        );
+      });
+      act(() => {
+        queryId(comp, "avatar-photo")!.props.onError();
+      });
+      expect(queryId(comp, "avatar-initial")).toBeTruthy();
+
+      // A fresh capture (a new, different uri) should get its own chance to
+      // load rather than staying stuck on the fallback forever.
+      act(() => {
+        comp.update(
+          <Avatar
+            user={{ displayName: "Sophie", email: null }}
+            photoUri="file:///fresh.jpg"
+            testID="avatar"
+          />,
+        );
+      });
+      expect(queryId(comp, "avatar-photo")).toBeTruthy();
+      expect(queryId(comp, "avatar-initial")).toBeNull();
+      act(() => comp.unmount());
+    });
+  });
 });

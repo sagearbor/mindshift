@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, Image, StyleSheet } from "react-native";
 
 /** The slice of the signed-in user Avatar needs — matches authStore's
@@ -37,12 +37,25 @@ export default function Avatar({
 }: AvatarProps) {
   const dimensions = { width: size, height: size, borderRadius: size / 2 };
 
-  if (photoUri) {
+  // N7 fix round 1 (IMPORTANT 4): a persisted absolute file:// uri can go
+  // stale (e.g. an iOS app-container path change across reinstalls/
+  // updates), pointing at nothing. Branching purely on photoUri truthiness
+  // rendered an <Image> that silently failed — a blank circle instead of
+  // this component's otherwise-guaranteed honest fallback. Track load
+  // failure locally, reset whenever photoUri itself changes so a fresh uri
+  // (a new capture) always gets its own chance to load.
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+  }, [photoUri]);
+
+  if (photoUri && !failed) {
     return (
       <Image
         testID={`${testID}-photo`}
         source={{ uri: photoUri }}
         style={[styles.circle, dimensions]}
+        onError={() => setFailed(true)}
       />
     );
   }

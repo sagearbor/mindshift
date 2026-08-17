@@ -79,7 +79,15 @@ export type Screen =
   | { name: "analyze" }
   // Everything that doesn't fit the two modes: Settings (dashboard, watch
   // setup, voice profile, About, log out).
-  | { name: "advanced" }
+  //
+  // N7 fix round 1 (IMPORTANT 2): `returnTo` mirrors watch-setup/onboarding/
+  // dashboard below — Settings and Voice profile both route here and are
+  // reachable from every primary screen's avatar menu (not just Settings'
+  // own rows), so back needs to land wherever it was actually opened from,
+  // not always Home. Optional (defaulting to Home when absent) so every
+  // existing Home-originated `setScreen({ name: "advanced" })` call stays
+  // valid unchanged.
+  | { name: "advanced"; returnTo?: Screen }
   // Task N5 of P3-10: Settings' "Home screen design" editor — arrange
   // layoutStore's tabSlots/homeBoxes. Only reachable from Settings' own row
   // today (not the hamburger catalog — editing your own customization isn't
@@ -250,6 +258,19 @@ export default function App() {
   const signOut = useAuthStore((s) => s.signOut);
   const avatarUri = useAvatarStore((s) => s.uri);
 
+  // N7 fix round 1 (IMPORTANT 3): avatarStore's persisted uri has no uid in
+  // it and nothing cleared it on sign-out — on a shared device, account B
+  // signing in would see account A's selfie in the top bar. Both real
+  // sign-out entry points (the avatar menu's "Log out" and Settings' own
+  // row, wired below) go through this one helper instead of calling
+  // authStore's signOut() directly, reusing the same clear-state
+  // +best-effort-file-delete path "Remove photo" already built
+  // (avatarStore.removePhoto).
+  const handleSignOut = () => {
+    useAvatarStore.getState().removePhoto();
+    void signOut();
+  };
+
   // Task P3-7: has this account seen the first-launch onboarding walkthrough?
   // null = not checked yet (persisted read in flight); true/false once known.
   // Re-checked whenever the signed-in uid changes (e.g. a second account on
@@ -380,13 +401,16 @@ export default function App() {
       case "advanced":
         return (
           <AdvancedScreen
-            onBack={() => setScreen({ name: "home" })}
+            // N7 fix round 1 (IMPORTANT 2): back lands wherever this was
+            // actually launched from (any primary screen's avatar menu, or
+            // the hamburger catalog), defaulting to Home when absent —
+            // same dynamic-returnTo pattern as watch-setup/onboarding/
+            // dashboard below.
+            onBack={() => setScreen(screen.returnTo ?? { name: "home" })}
             onOpenDashboard={() =>
               setScreen({ name: "dashboard", returnTo: { name: "advanced" } })
             }
-            onSignOut={() => {
-              void signOut();
-            }}
+            onSignOut={handleSignOut}
             onOpenReplay={(id) =>
               setScreen({
                 name: "replay",
@@ -584,13 +608,13 @@ export default function App() {
   // Task N3: hand a destination straight to setScreen for every destination
   // whose DestScreen shape already matches its Screen counterpart exactly
   // (verified compile-time AND by hand — see destinations.ts's DestScreen
-  // comment). watch-setup/dashboard/onboarding are the one exception (Task
-  // N3 fix round 1, IMPORTANT 4): the registry can't know what screen the
-  // catalog was opened FROM (it's static data), so their `returnTo` is
-  // attached here instead, from whatever screen is current right now. Each
-  // check narrows `dest`'s type via an early return, so the final
-  // `setScreen(dest)` below stays a straight, uncast hand-off for everything
-  // else.
+  // comment). watch-setup/dashboard/onboarding/advanced are the exceptions
+  // (Task N3 fix round 1, IMPORTANT 4; N7 fix round 1, IMPORTANT 2 added
+  // "advanced"): the registry can't know what screen the catalog was opened
+  // FROM (it's static data), so their `returnTo` is attached here instead,
+  // from whatever screen is current right now. Each check narrows `dest`'s
+  // type via an early return, so the final `setScreen(dest)` below stays a
+  // straight, uncast hand-off for everything else.
   const handleNavigate = (dest: DestScreen) => {
     if (dest.name === "watch-setup") {
       setScreen({ ...dest, returnTo: screen });
@@ -601,6 +625,10 @@ export default function App() {
       return;
     }
     if (dest.name === "onboarding") {
+      setScreen({ ...dest, returnTo: screen });
+      return;
+    }
+    if (dest.name === "advanced") {
       setScreen({ ...dest, returnTo: screen });
       return;
     }
@@ -619,7 +647,7 @@ export default function App() {
             screenName={screen.name}
             onNavigate={handleNavigate}
             onGoHome={() => setScreen({ name: "home" })}
-            onSignOut={() => void signOut()}
+            onSignOut={handleSignOut}
             onSetProfilePhoto={() =>
               setScreen({ name: "avatar-capture", returnTo: screen })
             }

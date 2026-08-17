@@ -1,9 +1,48 @@
 import React from "react";
-import { Platform } from "react-native";
+import { Platform, BackHandler } from "react-native";
 import renderer, { act, ReactTestInstance } from "react-test-renderer";
 import * as Camera from "expo-camera";
 import AvatarCaptureScreen from "../src/screens/AvatarCaptureScreen";
+import { defaultPersistPhoto } from "../src/screens/AvatarCaptureScreenNative";
 import { useAvatarStore } from "../src/store/avatarStore";
+
+// N7 fix round 1 (CRITICAL 1): a minimal local override of the setup's
+// expo-file-system mock (same override pattern audioMode.test.ts uses for
+// expo-audio) — this file needs Directory/Paths in addition to File, which
+// the shared setup mock doesn't provide (it only covers the chunked-upload
+// File.open()/readBytes() path). Just enough surface for
+// defaultPersistPhoto's real move-into-permanent-storage code to run
+// end-to-end without throwing.
+jest.mock("expo-file-system", () => {
+  class Directory {
+    uri: string;
+    exists = true;
+    constructor(base: { uri: string } | string, name: string) {
+      const baseUri = typeof base === "string" ? base : base.uri;
+      this.uri = `${baseUri}/${name}`;
+    }
+    create() {}
+  }
+  class File {
+    uri: string;
+    exists = false;
+    constructor(source: { uri: string } | string, name?: string) {
+      if (typeof source === "string") {
+        this.uri = source;
+      } else {
+        this.uri = name ? `${source.uri}/${name}` : source.uri;
+      }
+    }
+    delete() {}
+    moveSync(_dest: unknown) {}
+  }
+  return {
+    __esModule: true,
+    Directory,
+    File,
+    Paths: { document: { uri: "file:///doc" } },
+  };
+});
 
 const originalOS = Platform.OS;
 
@@ -215,6 +254,80 @@ describe("AvatarCaptureScreen — capture, preview, Use/Retake", () => {
     // Still on the preview — Retake is still available.
     expect(queryId(comp, "avatar-retake-button")).toBeTruthy();
     act(() => comp.unmount());
+  });
+});
+
+describe("defaultPersistPhoto (N7 fix round 1, CRITICAL 1)", () => {
+  it("returns a uri that differs between two sequential captures, even though the underlying file always writes to the same fixed path", async () => {
+    // A test that only asserted setPhoto() was called (the shape of the
+    // pre-fix coverage) would NOT have caught this bug: it stubbed
+    // persistPhoto entirely, so it never exercised the real fixed-path
+    // write. This test calls the actual implementation twice — as a retake
+    // would — and asserts the two returned uris are genuinely different
+    // strings, which is what makes zustand's set({ uri }) actually notify
+    // subscribers and what busts Image's uri-keyed cache on both platforms.
+    const first = await defaultPersistPhoto("file:///captured-1.jpg");
+    const second = await defaultPersistPhoto("file:///captured-2.jpg");
+    expect(first).not.toBe(second);
+    // Still the same fixed destination file underneath — no accumulation of
+    // stale files, just a cache-busted uri.
+    expect(first.split("?")[0]).toBe(second.split("?")[0]);
+    expect(first.split("?")[0]).toBe("file:///doc/avatar/profile.jpg");
+  });
+});
+
+describe("AvatarCaptureScreen — hardware back from the preview (N7 fix round 1, IMPORTANT 5)", () => {
+  it("does not register a hardware-back listener while on the live camera (no in-progress capture)", () => {
+    const addEventListenerSpy = jest.spyOn(BackHandler, "addEventListener");
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(
+        <AvatarCaptureScreen onBack={() => {}} onSaved={() => {}} />,
+      );
+    });
+    expect(
+      addEventListenerSpy.mock.calls.some((c) => c[0] === "hardwareBackPress"),
+    ).toBe(false);
+    act(() => comp.unmount());
+    addEventListenerSpy.mockRestore();
+  });
+
+  it("consumes hardware back on the preview and returns to the live camera instead of exiting the whole flow", async () => {
+    const addEventListenerSpy = jest.spyOn(BackHandler, "addEventListener");
+    const onBack = jest.fn();
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(
+        <AvatarCaptureScreen onBack={onBack} onSaved={() => {}} />,
+      );
+    });
+    await act(async () => {
+      queryId(comp, "avatar-shutter-button")!.props.onPress();
+    });
+    await act(async () => {});
+    expect(queryId(comp, "avatar-preview-image")).toBeTruthy();
+
+    const registered = addEventListenerSpy.mock.calls.find(
+      (c) => c[0] === "hardwareBackPress",
+    );
+    expect(registered).toBeTruthy();
+
+    let handled: boolean | undefined;
+    act(() => {
+      handled = (registered![1] as () => boolean)();
+    });
+
+    // The press was consumed (not left for the outer chain's own back
+    // handling, which would have popped straight to `returnTo` and
+    // silently dropped the just-captured photo).
+    expect(handled).toBe(true);
+    expect(onBack).not.toHaveBeenCalled();
+    // Same effect as tapping Retake: back to the live camera, capture gone.
+    expect(queryId(comp, "avatar-camera-view")).toBeTruthy();
+    expect(queryId(comp, "avatar-preview-image")).toBeNull();
+
+    act(() => comp.unmount());
+    addEventListenerSpy.mockRestore();
   });
 });
 

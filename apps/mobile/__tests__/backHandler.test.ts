@@ -43,6 +43,22 @@ describe("backTarget", () => {
     },
   );
 
+  // N7 fix round 1 (IMPORTANT 2): "advanced" (Settings/Voice profile) now
+  // carries the same dynamic `returnTo` pattern as watch-setup/onboarding/
+  // dashboard above — it's reachable from every primary screen's avatar
+  // menu, not just Settings' own rows, so a hardcoded "home" target was the
+  // most-hit instance of the exact bug class those three already fixed.
+  it.each<[Screen, Screen]>([
+    [{ name: "advanced", returnTo: { name: "live-coach" } }, { name: "live-coach" }],
+    [{ name: "advanced", returnTo: { name: "analyze" } }, { name: "analyze" }],
+    [{ name: "advanced", returnTo: { name: "home" } }, { name: "home" }],
+  ])(
+    "%o pops to its returnTo when present — catalog-opened from a primary screen",
+    (screen, expected) => {
+      expect(backTarget(screen)).toEqual(expected);
+    },
+  );
+
   it("record pops to analyze", () => {
     expect(backTarget({ name: "record" })).toEqual({ name: "analyze" });
   });

@@ -1,10 +1,11 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   Image,
+  BackHandler,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useAvatarStore } from "../store/avatarStore";
@@ -18,13 +19,30 @@ const PRIMARY = "#4A90D9";
 const INK = "#1F2937";
 const MUTED = "#6B7280";
 
+/** Monotonic per-process counter backing defaultPersistPhoto's cache-busting
+ *  suffix (see that function's doc comment) — guarantees two sequential
+ *  captures never produce the same returned uri even if they land in the
+ *  same Date.now() millisecond. */
+let persistSeq = 0;
+
 /** The real filesystem write behind AvatarCaptureDeps.persistPhoto — moves
  *  the captured photo into the app's document directory under a fixed
- *  filename, so a retake always overwrites rather than accumulating stale
- *  files. Exercised for real on-device; tests supply `deps` instead of
- *  mocking expo-file-system's Directory/File API (see AvatarCaptureDeps's
- *  doc comment for why). */
-async function defaultPersistPhoto(capturedUri: string): Promise<string> {
+ *  filename, so a retake always overwrites the SAME on-disk file rather
+ *  than accumulating stale files. Exercised for real on-device; tests
+ *  supply `deps` instead of mocking expo-file-system's Directory/File API
+ *  (see AvatarCaptureDeps's doc comment for why).
+ *
+ *  N7 fix round 1 (CRITICAL 1): the RETURNED uri must still change on every
+ *  call even though the underlying path never does — the old code returned
+ *  `dest.uri` verbatim, so a retake called setPhoto() with a string
+ *  identical to the current one. zustand's set({ uri }) with an unchanged
+ *  value never notifies subscribers, and even if it did, <Image
+ *  source={{uri}}/> is cached by exact uri string on both Fresco (Android)
+ *  and iOS — so the same path would keep serving the stale bitmap either
+ *  way. Appending a monotonic cache-busting query suffix fixes both at
+ *  once, for a one-line diff, without touching the on-disk overwrite
+ *  behavior at all. */
+export async function defaultPersistPhoto(capturedUri: string): Promise<string> {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { Directory, File, Paths } = require("expo-file-system");
   const dir = new Directory(Paths.document, "avatar");
@@ -32,7 +50,8 @@ async function defaultPersistPhoto(capturedUri: string): Promise<string> {
   const dest = new File(dir, "profile.jpg");
   if (dest.exists) dest.delete();
   new File(capturedUri).moveSync(dest);
-  return dest.uri;
+  persistSeq += 1;
+  return `${dest.uri}?v=${Date.now()}-${persistSeq}`;
 }
 
 function defaultDeps(): AvatarCaptureDeps {
@@ -84,6 +103,30 @@ export default function AvatarCaptureScreen({
     setCaptured(null);
     setError(null);
   }, []);
+
+  // N7 fix round 1 (IMPORTANT 5): the branch's back contract is overlay ->
+  // pop -> double-back-exit, but the "Use this photo? / Retake" preview is
+  // an in-screen sub-state that chain doesn't know about — without this,
+  // backTarget sees {name:"avatar-capture"} and pops straight to returnTo,
+  // silently dropping the just-captured photo. Only subscribe while a photo
+  // is actually captured, so this consumes the press (and resets to the
+  // live camera, same as tapping Retake) exactly when there's an in-progress
+  // capture to protect; with no capture, no listener is registered here at
+  // all, so the outer chain's own back handling (App.tsx's
+  // useAndroidBackHandler) applies unchanged. RN's BackHandler calls the
+  // most-recently-registered listener first, so this local subscription —
+  // mounted after the app-level one — naturally gets first refusal.
+  useEffect(() => {
+    if (captured === null) return;
+    const subscription = BackHandler.addEventListener(
+      "hardwareBackPress",
+      () => {
+        handleRetake();
+        return true;
+      },
+    );
+    return () => subscription.remove();
+  }, [captured, handleRetake]);
 
   const handleUse = useCallback(async () => {
     if (!captured) return;

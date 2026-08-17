@@ -326,6 +326,28 @@ describe("home & primary-screen navigation", () => {
     act(() => comp.unmount());
   });
 
+  // N7 fix round 1 (IMPORTANT 3): the OTHER real sign-out entry point —
+  // Settings' own "advanced-sign-out" row — must clear avatarStore too, not
+  // just the avatar-menu path above.
+  it("Settings' own Sign out row clears the previous account's photo too", async () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+    act(() => {
+      useAvatarStore.setState({ uri: "file:///doc/avatar/profile.jpg" });
+    });
+
+    await openSettings(comp);
+    await act(async () => {
+      queryId(comp, "advanced-sign-out")!.props.onPress();
+    });
+
+    expect(useAvatarStore.getState().uri).toBeNull();
+    act(() => comp.unmount());
+  });
+
   it("Home → Advanced → Home screen design, and back walks the same path", async () => {
     let comp!: renderer.ReactTestRenderer;
     act(() => {
@@ -597,6 +619,31 @@ describe("AppChrome integration (Task N3)", () => {
       queryId(comp, "chrome-account-sign-out")!.props.onPress();
     });
     expect(fbSignOut as jest.Mock).toHaveBeenCalledTimes(1);
+    act(() => comp.unmount());
+  });
+
+  // N7 fix round 1 (IMPORTANT 3): avatarStore's KEY has no uid in it and
+  // nothing cleared it on sign-out — on a shared device, account B signing
+  // in would see account A's selfie in the top bar. Both real sign-out entry
+  // points (avatar menu "Log out" and Settings' own row) must clear it.
+  it("avatar menu Log out clears the previous account's photo (device-global storage must not leak across accounts)", async () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+    act(() => {
+      useAvatarStore.setState({ uri: "file:///doc/avatar/profile.jpg" });
+    });
+
+    await act(async () => {
+      queryId(comp, "chrome-avatar-button")!.props.onPress();
+    });
+    await act(async () => {
+      queryId(comp, "chrome-account-sign-out")!.props.onPress();
+    });
+
+    expect(useAvatarStore.getState().uri).toBeNull();
     act(() => comp.unmount());
   });
 
@@ -947,6 +994,54 @@ describe("hamburger catalog → watch-setup/dashboard/tutorial return to their r
     });
     expect(queryId(comp, "connection-status")).toBeTruthy(); // back on Live Coach
     expect(queryId(comp, "settings-heading")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  // N7 fix round 1 (IMPORTANT 2): Settings/Voice profile (both route to
+  // "advanced") were left hardcoded to Home while watch-setup/dashboard/
+  // tutorial above already got the dynamic-returnTo fix — the most-hit
+  // instance of the same bug class, since Settings is reachable from every
+  // primary screen's avatar menu.
+  it("Settings, opened from Live Coach via the avatar menu, returns to Live Coach (not Home)", async () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+
+    await act(async () => {
+      queryId(comp, "chrome-tab-coach")!.props.onPress();
+    });
+    expect(queryId(comp, "connection-status")).toBeTruthy();
+
+    await act(async () => {
+      queryId(comp, "chrome-avatar-button")!.props.onPress();
+    });
+    await act(async () => {
+      queryId(comp, "chrome-account-settings")!.props.onPress();
+    });
+    expect(queryId(comp, "settings-heading")).toBeTruthy();
+
+    await act(async () => {
+      queryId(comp, "advanced-back")!.props.onPress();
+    });
+    expect(queryId(comp, "connection-status")).toBeTruthy(); // back on Live Coach
+    expect(queryId(comp, "home-screen")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("Settings, opened from Home, still returns to Home (unchanged default)", async () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+    await openSettings(comp);
+
+    await act(async () => {
+      queryId(comp, "advanced-back")!.props.onPress();
+    });
+    expect(queryId(comp, "home-screen")).toBeTruthy();
     act(() => comp.unmount());
   });
 

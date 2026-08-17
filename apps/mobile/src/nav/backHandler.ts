@@ -40,8 +40,7 @@ export function backTarget(screen: Screen): Screen | null {
     case "growth":
       return { name: "home" };
 
-    // Pushed screens whose existing onBack targets Home.
-    case "advanced":
+    // Pushed screen whose existing onBack targets Home.
     case "your-day":
       return { name: "home" };
 
@@ -60,6 +59,14 @@ export function backTarget(screen: Screen): Screen | null {
     // be launched from any primary screen's avatar menu, or from Settings.
     case "avatar-capture":
       return screen.returnTo;
+
+    // N7 fix round 1 (IMPORTANT 2): same dynamic-returnTo treatment as the
+    // three above — Settings/Voice profile are reachable from every primary
+    // screen's avatar menu too, not just Settings' own rows. `returnTo` is
+    // optional (existing Home-originated navigations never set it), so
+    // default explicitly to Home rather than falling through to `undefined`.
+    case "advanced":
+      return screen.returnTo ?? { name: "home" };
 
     case "record":
       return { name: "analyze" };
