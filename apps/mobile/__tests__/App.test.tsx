@@ -798,7 +798,7 @@ describe("avatarStore hydration on mount (Task N6 of P3-10)", () => {
 });
 
 describe("Task N6: selfie avatar capture flow wiring", () => {
-  it("the avatar menu's 'Set profile photo' opens the capture flow, and Back returns to the launching screen", async () => {
+  it("the avatar menu no longer has its own profile-photo entry (lives in Settings only)", async () => {
     let comp!: renderer.ReactTestRenderer;
     act(() => {
       comp = renderer.create(<App />);
@@ -808,23 +808,7 @@ describe("Task N6: selfie avatar capture flow wiring", () => {
     await act(async () => {
       queryId(comp, "chrome-avatar-button")!.props.onPress();
     });
-    await act(async () => {
-      queryId(comp, "chrome-account-photo")!.props.onPress();
-    });
-
-    // Pushed screen — no chrome, camera or its permission gate renders.
-    expect(queryId(comp, "chrome-hamburger-button")).toBeNull();
-    const camera = queryId(comp, "avatar-camera-view");
-    const permGate = queryId(comp, "avatar-permission-gate");
-    expect(camera || permGate).toBeTruthy();
-
-    const backId = camera ? "avatar-back" : "avatar-capture-back";
-    await act(async () => {
-      queryId(comp, backId)!.props.onPress();
-    });
-    // Back to Home (where the avatar menu was opened from), chrome restored.
-    expect(queryId(comp, "home-screen")).toBeTruthy();
-    expect(queryId(comp, "chrome-hamburger-button")).toBeTruthy();
+    expect(queryId(comp, "chrome-account-photo")).toBeNull();
     act(() => comp.unmount());
   });
 

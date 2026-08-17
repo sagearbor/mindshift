@@ -43,7 +43,6 @@ function makeProps(
     onNavigate: jest.fn(),
     onGoHome: jest.fn(),
     onSignOut: jest.fn(),
-    onSetProfilePhoto: jest.fn(),
     user: { email: "sophie@example.com", displayName: "Sophie" },
     children: <Text testID="chrome-child">content</Text>,
     ...overrides,
@@ -160,7 +159,7 @@ describe("AppChrome — hamburger catalog", () => {
 });
 
 describe("AppChrome — avatar account menu", () => {
-  it("opens showing the signed-in account, Set profile photo, Settings, and Log out", () => {
+  it("opens showing the signed-in account, Settings, and Log out (profile-photo changes live in Settings only)", () => {
     let comp!: renderer.ReactTestRenderer;
     act(() => {
       comp = renderer.create(<AppChrome {...makeProps()} />);
@@ -170,23 +169,9 @@ describe("AppChrome — avatar account menu", () => {
     expect(queryId(comp, "chrome-account-menu")).toBeTruthy();
     const email = queryId(comp, "chrome-account-email")!;
     expect(JSON.stringify(email.props.children)).toContain("sophie@example.com");
-    expect(queryId(comp, "chrome-account-photo")).toBeTruthy();
+    expect(queryId(comp, "chrome-account-photo")).toBeNull();
     expect(queryId(comp, "chrome-account-settings")).toBeTruthy();
     expect(queryId(comp, "chrome-account-sign-out")).toBeTruthy();
-    act(() => comp.unmount());
-  });
-
-  it("Set profile photo calls onSetProfilePhoto and closes the menu", () => {
-    const props = makeProps();
-    let comp!: renderer.ReactTestRenderer;
-    act(() => {
-      comp = renderer.create(<AppChrome {...props} />);
-    });
-    act(() => queryId(comp, "chrome-avatar-button")!.props.onPress());
-    act(() => queryId(comp, "chrome-account-photo")!.props.onPress());
-
-    expect(props.onSetProfilePhoto).toHaveBeenCalledTimes(1);
-    expect(queryId(comp, "chrome-account-menu")).toBeNull();
     act(() => comp.unmount());
   });
 

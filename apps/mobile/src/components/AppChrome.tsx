@@ -28,9 +28,6 @@ interface AppChromeProps {
    *  (possibly zero-slot) tab bar. */
   onGoHome: () => void;
   onSignOut: () => void;
-  /** Open the selfie-capture flow (Task N6 of P3-10) from the avatar menu's
-   *  "Set profile photo" row. */
-  onSetProfilePhoto: () => void;
   user: AvatarUser | null;
   /** The captured selfie's uri (Task N6, avatarStore), or null/undefined —
    *  Avatar falls back to the account's initial when unset. */
@@ -67,7 +64,6 @@ const AppChrome = forwardRef<AppChromeHandle, AppChromeProps>(
       onNavigate,
       onGoHome,
       onSignOut,
-      onSetProfilePhoto,
       user,
       avatarUri,
       children,
@@ -199,10 +195,6 @@ const AppChrome = forwardRef<AppChromeHandle, AppChromeProps>(
           <AccountMenu
             user={user}
             onOpenSettings={openSettings}
-            onSetProfilePhoto={() => {
-              setAccountOpen(false);
-              onSetProfilePhoto();
-            }}
             onSignOut={() => {
               setAccountOpen(false);
               onSignOut();
