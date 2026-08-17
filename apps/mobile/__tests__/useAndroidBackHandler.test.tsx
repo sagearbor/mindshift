@@ -40,11 +40,13 @@ jest.mock("react-native", () => {
 function Harness({
   screen,
   setScreen,
+  closeOverlays,
 }: {
   screen: Screen;
   setScreen: (s: Screen) => void;
+  closeOverlays?: () => boolean;
 }) {
-  useAndroidBackHandler(screen, setScreen);
+  useAndroidBackHandler(screen, setScreen, closeOverlays);
   return null;
 }
 
@@ -124,5 +126,113 @@ describe("useAndroidBackHandler", () => {
     });
     act(() => comp.unmount());
     expect(mockRemove).toHaveBeenCalledTimes(1);
+  });
+
+  // Task N3 fix round 1, CRITICAL 1: an open overlay (hamburger catalog /
+  // account menu) must be dismissed by back BEFORE any navigation or
+  // double-back-to-exit decision — otherwise back could act right
+  // underneath it (including exiting the app with a menu still open).
+  describe("closeOverlays (CRITICAL 1 fix)", () => {
+    it("back closes an open overlay instead of navigating, on a pushed screen", () => {
+      Platform.OS = "android";
+      const setScreen = jest.fn();
+      const closeOverlays = jest.fn(() => true); // an overlay WAS open and got closed
+      act(() => {
+        renderer.create(
+          <Harness
+            screen={{ name: "live-coach" }}
+            setScreen={setScreen}
+            closeOverlays={closeOverlays}
+          />,
+        );
+      });
+      const handled = pressedHandler()();
+      expect(closeOverlays).toHaveBeenCalledTimes(1);
+      expect(setScreen).not.toHaveBeenCalled(); // no navigation underneath it
+      expect(handled).toBe(true);
+    });
+
+    it("back closes an open overlay instead of exiting, on Home", () => {
+      Platform.OS = "android";
+      const setScreen = jest.fn();
+      const closeOverlays = jest.fn(() => true);
+      act(() => {
+        renderer.create(
+          <Harness
+            screen={{ name: "home" }}
+            setScreen={setScreen}
+            closeOverlays={closeOverlays}
+          />,
+        );
+      });
+      const handled = pressedHandler()();
+      expect(closeOverlays).toHaveBeenCalledTimes(1);
+      expect(mockToastShow).not.toHaveBeenCalled(); // no exit-hint either
+      expect(handled).toBe(true); // never lets the app exit underneath a menu
+    });
+
+    it("with overlays closed, back behaves exactly as before (falls through to navigation)", () => {
+      Platform.OS = "android";
+      const setScreen = jest.fn();
+      const closeOverlays = jest.fn(() => false); // nothing was open
+      act(() => {
+        renderer.create(
+          <Harness
+            screen={{ name: "analyze" }}
+            setScreen={setScreen}
+            closeOverlays={closeOverlays}
+          />,
+        );
+      });
+      const handled = pressedHandler()();
+      expect(closeOverlays).toHaveBeenCalledTimes(1);
+      expect(setScreen).toHaveBeenCalledWith({ name: "home" });
+      expect(handled).toBe(true);
+    });
+
+    it("omitting closeOverlays entirely behaves exactly as before (back-compat)", () => {
+      Platform.OS = "android";
+      const setScreen = jest.fn();
+      act(() => {
+        renderer.create(
+          <Harness screen={{ name: "growth" }} setScreen={setScreen} />,
+        );
+      });
+      const handled = pressedHandler()();
+      expect(setScreen).toHaveBeenCalledWith({ name: "home" });
+      expect(handled).toBe(true);
+    });
+  });
+
+  // MINOR fix: a first press on Home shouldn't count toward a later,
+  // unrelated press after navigating away and back — only two CONSECUTIVE
+  // presses while staying on Home should exit.
+  it("resets the exit-window timer when navigating away from Home", () => {
+    Platform.OS = "android";
+    const setScreen = jest.fn();
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<Harness screen={{ name: "home" }} setScreen={setScreen} />);
+    });
+    // First press on Home: hint only, sets the pending-exit timer.
+    expect(pressedHandler()()).toBe(true);
+    expect(mockToastShow).toHaveBeenCalledTimes(1);
+
+    // Navigate away from Home (e.g. the user tapped Live Coach) — the
+    // pending timer should clear, not silently carry over.
+    act(() => {
+      comp.update(<Harness screen={{ name: "live-coach" }} setScreen={setScreen} />);
+    });
+    // ...and back to Home.
+    act(() => {
+      comp.update(<Harness screen={{ name: "home" }} setScreen={setScreen} />);
+    });
+
+    mockToastShow.mockClear();
+    // This press must be treated as a FIRST press again (hint, not exit) —
+    // if the old timer had leaked through, this would incorrectly exit.
+    const handled = pressedHandler()();
+    expect(mockToastShow).toHaveBeenCalledTimes(1);
+    expect(handled).toBe(true);
   });
 });

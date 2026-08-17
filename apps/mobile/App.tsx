@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet } from "react-native";
 // SafeAreaProvider/SafeAreaView come from react-native-safe-area-context (NOT
 // react-native): the RN SafeAreaView is a no-op on Android, so under Expo's
@@ -24,10 +24,11 @@ import LiveCoachScreen from "./src/screens/LiveCoachScreen";
 import LoginScreen from "./src/screens/LoginScreen";
 import OnboardingScreen from "./src/screens/OnboardingScreen";
 import UpdateBanner from "./src/components/UpdateBanner";
-import AppChrome from "./src/components/AppChrome";
+import AppChrome, { type AppChromeHandle } from "./src/components/AppChrome";
 import { useAndroidBackHandler } from "./src/nav/useAndroidBackHandler";
-import type { DestScreen } from "./src/nav/destinations";
+import { PRIMARY_ELIGIBLE_DESTINATIONS, type DestScreen } from "./src/nav/destinations";
 import { useAuthStore, initAuth } from "./src/store/authStore";
+import { useLayoutStore } from "./src/store/layoutStore";
 import { useSessionStore } from "./src/store/sessionStore";
 import { useRecorderStore } from "./src/store/recorderStore";
 import { getOnboardingSeen, setOnboardingSeen } from "./src/utils/onboardingStorage";
@@ -77,18 +78,28 @@ export type Screen =
   // setup, voice profile, About, log out).
   | { name: "advanced" }
   // Phase 3 Slice 1: install the watch app + redeem its pairing code.
-  // Pushed from Settings' "Set up your watch" row; returns there.
-  | { name: "watch-setup" }
+  // Pushed from Settings' "Set up your watch" row (returnTo "advanced") AND
+  // (Task N3 fix round 1) from the hamburger catalog on any primary screen —
+  // `returnTo` carries whichever screen it was actually launched from, so
+  // back lands there instead of always landing in Settings.
+  | { name: "watch-setup"; returnTo: Screen }
   // Task P3-7: the first-launch onboarding walkthrough, re-entered from
-  // Settings' "Show tutorial" row; returns there. (The auto-shown-once
+  // Settings' "Show tutorial" row (returnTo "advanced") or, since the
+  // hamburger catalog fix, from any primary screen. (The auto-shown-once
   // launch of this same screen is a separate top-level gate below, not part
   // of this pushed-screen union — see `onboardingSeen`.)
-  | { name: "onboarding" }
+  | { name: "onboarding"; returnTo: Screen }
   // The text tools (paste/type a transcript, suggestions). Pushed from
   // Analyze and from Live Coach's post-session review handoff.
   | { name: "session"; returnTo: SessionReturn }
-  | { name: "dashboard" }
-  | { name: "detail"; sessionId: string }
+  // Reachable from Settings' "Dashboard" row (returnTo "advanced") or the
+  // hamburger catalog from any primary screen — same returnTo treatment as
+  // watch-setup/onboarding above.
+  | { name: "dashboard"; returnTo: Screen }
+  // `returnTo` here is the FULL dashboard screen (itself carrying its own
+  // returnTo) it was pushed from, so back pops straight to it unchanged —
+  // same pattern as replay's returnTo below.
+  | { name: "detail"; sessionId: string; returnTo: Screen }
   // Post-session Conversation Dynamics analysis.
   //
   // `initialData` is a ready-made analysis handed over from the
@@ -141,41 +152,77 @@ export type Screen =
  * its Screen variant needs no extra context beyond `name` to render AND that
  * same shape is one of the registry's primary-eligible destinations
  * (src/nav/destinations.ts: PRIMARY_ELIGIBLE_DESTINATIONS — coach, analyze,
- * recordings, growth).
+ * recordings, growth). Derived from that list (plus "home") rather than
+ * hand-typed, so a future registry change can't silently drift from it.
  *
- * That mechanically EXCLUDES "recordings" from this set even though it IS
- * primary-eligible for tab/box slots: its Screen/DestScreen shape carries a
- * required `returnTo`, meaning it can only be reached WITH a known
- * "came from" screen — exactly the definition of PUSHED. So it keeps its
- * existing dedicated back button (returning to `returnTo`) completely
- * unchanged, whether reached from Home, Analyze, or a configured tab/box
- * slot (which uses the registry's own default,
- * `{ name: "recordings", returnTo: "home" }`).
+ * "recordings" is deliberately FILTERED OUT of this name-derived set: unlike
+ * the other three primary-eligible destinations, its Screen/DestScreen shape
+ * always carries a `returnTo` — whether it's actually PRIMARY depends on
+ * that field's VALUE, not just the screen's name. `isPrimary` below handles
+ * it as a one-off: `returnTo: "home"` (Home's own history row, a configured
+ * tab/box slot, or the hamburger catalog — all of which default to "home"
+ * per the registry) is primary and gets full chrome, no back button;
+ * `returnTo: "analyze"` (pushed from Analyze's own "past recordings" row)
+ * stays pushed with its existing dedicated back button, completely
+ * unchanged.
  *
  * Every other pushed screen (session, dynamics, watch-setup, onboarding,
  * dashboard, detail, your-day, record, replay, advanced) either isn't in the
  * registry at all or isn't primary-eligible, so it's pushed by definition —
- * same full-screen layout, same back affordance as before this task.
+ * same full-screen layout, same back affordance as before this task (though
+ * watch-setup/onboarding/dashboard now carry a dynamic `returnTo` instead of
+ * a hardcoded one — see the Task N3 fix-round-1 comments on those cases).
  */
-const PRIMARY_SCREEN_NAMES: ReadonlySet<Screen["name"]> = new Set([
+const PRIMARY_SCREEN_NAMES: ReadonlySet<Screen["name"]> = new Set<
+  Screen["name"]
+>([
   "home",
-  "live-coach",
-  "analyze",
-  "growth",
+  ...PRIMARY_ELIGIBLE_DESTINATIONS.filter((d) => d.id !== "recordings").map(
+    (d) => d.screen.name,
+  ),
 ]);
+
+/** PRIMARY vs PUSHED is a predicate over the screen INSTANCE, not just its
+ *  name — see PRIMARY_SCREEN_NAMES's comment for why "recordings" needs the
+ *  extra `returnTo` check below rather than a blanket name match. */
+function isPrimary(screen: Screen): boolean {
+  return (
+    PRIMARY_SCREEN_NAMES.has(screen.name) ||
+    (screen.name === "recordings" && screen.returnTo === "home")
+  );
+}
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>({ name: "home" });
+
+  // Task N3: AppChrome's hamburger catalog / account menu overlays own their
+  // open/closed state internally (encapsulated, easier to test in
+  // isolation) — but Android hardware-back needs to close THEM first,
+  // before falling through to screen navigation or double-back-to-exit
+  // (fix round 1, CRITICAL 1: back used to navigate/exit right underneath
+  // an open overlay). `closeOverlays()` returns true iff it actually closed
+  // something, so the back hook knows whether to swallow the press.
+  const chromeRef = useRef<AppChromeHandle>(null);
+  const closeChromeOverlays = () => chromeRef.current?.closeOverlays() ?? false;
 
   // Task N3: Android hardware-back — pushed screens pop to their launching
   // screen, Home double-back-exits with a toast hint. Pure decision logic
   // lives in src/nav/backHandler.ts (unit-tested there); this hook is just
   // the BackHandler/ToastAndroid wiring, a no-op off Android.
-  useAndroidBackHandler(screen, setScreen);
+  useAndroidBackHandler(screen, setScreen, closeChromeOverlays);
 
-  // Start listening to Firebase auth state once, on mount.
+  // Start listening to Firebase auth state once, on mount. Task N3 fix
+  // round 1 (IMPORTANT 2): layoutStore.hydrate() was defined back in N1 but
+  // never actually called anywhere — AppChrome's tab bar was silently
+  // running on hardcoded defaults forever, never loading a saved layout.
+  // Hydrate here too, once, on mount — before any primary screen (and its
+  // tab bar) can render, so the fast local read (SecureStore/localStorage)
+  // has every chance to land before the auth+onboarding gates below even
+  // resolve, minimizing any default-then-real flash. hydrate() itself is
+  // idempotent and respects its own `hydrated` flag (see layoutStore.ts).
   useEffect(() => {
     initAuth();
+    void useLayoutStore.getState().hydrate();
   }, []);
 
   const user = useAuthStore((s) => s.user);
@@ -313,7 +360,9 @@ export default function App() {
         return (
           <AdvancedScreen
             onBack={() => setScreen({ name: "home" })}
-            onOpenDashboard={() => setScreen({ name: "dashboard" })}
+            onOpenDashboard={() =>
+              setScreen({ name: "dashboard", returnTo: { name: "advanced" } })
+            }
             onSignOut={() => {
               void signOut();
             }}
@@ -324,18 +373,27 @@ export default function App() {
                 returnTo: { name: "advanced" },
               })
             }
-            onOpenWatchSetup={() => setScreen({ name: "watch-setup" })}
-            onOpenTutorial={() => setScreen({ name: "onboarding" })}
+            onOpenWatchSetup={() =>
+              setScreen({ name: "watch-setup", returnTo: { name: "advanced" } })
+            }
+            onOpenTutorial={() =>
+              setScreen({ name: "onboarding", returnTo: { name: "advanced" } })
+            }
           />
         );
       case "watch-setup":
-        return <WatchSetupScreen onBack={() => setScreen({ name: "advanced" })} />;
+        // Task N3 fix round 1: returns to wherever it was actually launched
+        // from (Settings' own row, or now the hamburger catalog from any
+        // primary screen) instead of always landing back in Settings.
+        return <WatchSetupScreen onBack={() => setScreen(screen.returnTo)} />;
       case "onboarding":
-        // Re-entry from Settings' "Show tutorial" row. Doesn't touch the
+        // Re-entry from Settings' "Show tutorial" row (or, since the
+        // hamburger catalog fix, any primary screen). Doesn't touch the
         // persisted seen-flag — it's already true by the time this is
-        // reachable — this is just a manual replay.
+        // reachable — this is just a manual replay. Returns to its origin
+        // (Task N3 fix round 1), not always Settings.
         return (
-          <OnboardingScreen onFinish={() => setScreen({ name: "advanced" })} />
+          <OnboardingScreen onFinish={() => setScreen(screen.returnTo)} />
         );
       case "session":
         // The text tools. Back returns to whichever screen pushed it (Analyze
@@ -387,14 +445,16 @@ export default function App() {
           />
         );
       case "recordings":
+        // Task N3 fix round 1: `returnTo: "home"` makes this PRIMARY (see
+        // isPrimary above) — AppChrome already provides a way back, so no
+        // dedicated back button then. `returnTo: "analyze"` (pushed from
+        // Analyze's own "past recordings" row) stays pushed, unchanged.
         return (
           <RecordingsScreen
-            onBack={() =>
-              setScreen(
-                screen.returnTo === "analyze"
-                  ? { name: "analyze" as const }
-                  : { name: "home" as const },
-              )
+            onBack={
+              screen.returnTo === "analyze"
+                ? () => setScreen({ name: "analyze" })
+                : undefined
             }
             onSelectRecording={(id) =>
               setScreen({
@@ -456,28 +516,53 @@ export default function App() {
           />
         );
       case "dashboard":
+        // Task N3 fix round 1: returns to wherever it was launched from
+        // (Settings, or now the hamburger catalog from any primary screen),
+        // not always Settings. `detail`'s returnTo carries this WHOLE screen
+        // (so ITS own returnTo survives the round trip).
         return (
           <TherapistDashboard
-            onBack={() => setScreen({ name: "advanced" })}
-            onSelectSession={(id) => setScreen({ name: "detail", sessionId: id })}
+            onBack={() => setScreen(screen.returnTo)}
+            onSelectSession={(id) =>
+              setScreen({ name: "detail", sessionId: id, returnTo: screen })
+            }
           />
         );
       case "detail":
         return (
           <SessionDetail
             sessionId={screen.sessionId}
-            onBack={() => setScreen({ name: "dashboard" })}
+            onBack={() => setScreen(screen.returnTo)}
           />
         );
     }
   };
 
-  // Task N3: hand a destination straight to setScreen — DestScreen's shape
-  // is verified (compile-time AND by hand) to match Screen exactly for every
-  // variant it defines, so this needs no cast. See destinations.ts's
-  // DestScreen comment.
-  const handleNavigate = (dest: DestScreen) => setScreen(dest);
-  const isPrimary = PRIMARY_SCREEN_NAMES.has(screen.name);
+  // Task N3: hand a destination straight to setScreen for every destination
+  // whose DestScreen shape already matches its Screen counterpart exactly
+  // (verified compile-time AND by hand — see destinations.ts's DestScreen
+  // comment). watch-setup/dashboard/onboarding are the one exception (Task
+  // N3 fix round 1, IMPORTANT 4): the registry can't know what screen the
+  // catalog was opened FROM (it's static data), so their `returnTo` is
+  // attached here instead, from whatever screen is current right now. Each
+  // check narrows `dest`'s type via an early return, so the final
+  // `setScreen(dest)` below stays a straight, uncast hand-off for everything
+  // else.
+  const handleNavigate = (dest: DestScreen) => {
+    if (dest.name === "watch-setup") {
+      setScreen({ ...dest, returnTo: screen });
+      return;
+    }
+    if (dest.name === "dashboard") {
+      setScreen({ ...dest, returnTo: screen });
+      return;
+    }
+    if (dest.name === "onboarding") {
+      setScreen({ ...dest, returnTo: screen });
+      return;
+    }
+    setScreen(dest);
+  };
 
   return (
     <SafeAreaProvider>
@@ -485,8 +570,9 @@ export default function App() {
         {/* Sits above every screen: a downloaded OTA update surfaces a subtle
             "restart to apply" bar here, and stays out of the way otherwise. */}
         <UpdateBanner />
-        {isPrimary ? (
+        {isPrimary(screen) ? (
           <AppChrome
+            ref={chromeRef}
             screenName={screen.name}
             onNavigate={handleNavigate}
             onGoHome={() => setScreen({ name: "home" })}

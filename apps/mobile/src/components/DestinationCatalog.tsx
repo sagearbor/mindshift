@@ -28,7 +28,15 @@ export default function DestinationCatalog({
   onClose,
 }: DestinationCatalogProps) {
   return (
-    <View style={styles.overlay} testID="chrome-catalog">
+    <View
+      style={styles.overlay}
+      testID="chrome-catalog"
+      // Full-screen overlay covering everything behind it — tell assistive
+      // tech this is the modal now (iOS VoiceOver's accessibilityViewIsModal;
+      // AppChrome separately marks the background no-hide-descendants for
+      // Android/general TalkBack).
+      accessibilityViewIsModal
+    >
       <View style={styles.header}>
         <Text style={styles.title}>Everything</Text>
         <TouchableOpacity

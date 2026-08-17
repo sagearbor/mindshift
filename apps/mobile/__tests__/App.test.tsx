@@ -5,6 +5,7 @@ import * as SecureStore from "expo-secure-store";
 import { signOut as fbSignOut } from "firebase/auth";
 import App from "../App";
 import { useAuthStore } from "../src/store/authStore";
+import { useLayoutStore, KEY as LAYOUT_STORE_KEY } from "../src/store/layoutStore";
 import { useSessionStore } from "../src/store/sessionStore";
 import { useAnalyzeStore } from "../src/store/analyzeStore";
 import { postAnalyzeUploadChunkedJob } from "../src/api/client";
@@ -100,6 +101,11 @@ beforeEach(() => {
   act(() => {
     useSessionStore.setState({ turns: [], suggestions: [], loading: false });
     useAnalyzeStore.setState({ relationship: null });
+    // Task N3 fix round 1 (IMPORTANT 2): App now calls layoutStore.hydrate()
+    // on every mount, so reset to the shipped defaults before each test —
+    // otherwise a hydrate-behavior test earlier in the run could leak a
+    // custom tabSlots list into an unrelated test later in this file.
+    useLayoutStore.getState().resetToDefaults();
   });
 });
 
@@ -200,7 +206,7 @@ describe("home & primary-screen navigation", () => {
     act(() => comp.unmount());
   });
 
-  it("Home → recordings history via its default home box, back returns Home", async () => {
+  it("Home → recordings history via its default home box opens it as a PRIMARY screen (chrome, no back button), wordmark returns Home", async () => {
     // The list fetch resolves empty — an honest empty state, no fabricated rows.
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({
@@ -217,10 +223,15 @@ describe("home & primary-screen navigation", () => {
     await act(async () => {
       queryId(comp, "home-box-recordings")!.props.onPress();
     });
-    expect(queryId(comp, "recordings-back")).toBeTruthy();
+    // Task N3 fix round 1 (IMPORTANT 3): Home's own history row uses
+    // returnTo "home", which makes this PRIMARY — chrome present, no
+    // dedicated back button (that would duplicate the chrome's own way
+    // back).
+    expect(queryId(comp, "recordings-back")).toBeNull();
+    expect(queryId(comp, "chrome-hamburger-button")).toBeTruthy();
 
     await act(async () => {
-      queryId(comp, "recordings-back")!.props.onPress();
+      queryId(comp, "chrome-wordmark")!.props.onPress();
     });
     expect(queryId(comp, "home-screen")).toBeTruthy();
     act(() => comp.unmount());
@@ -596,6 +607,220 @@ describe("Task N4: migration honesty", () => {
     expect(queryId(comp, "home-box-recordings")).toBeTruthy();
     expect(queryId(comp, "home-box-growth")).toBeTruthy();
 
+    act(() => comp.unmount());
+  });
+});
+
+describe("layoutStore hydration on mount (Task N3 fix round 1, IMPORTANT 2)", () => {
+  it("calls layoutStore.hydrate() (via its SecureStore read) once on mount", async () => {
+    const getItemAsync = SecureStore.getItemAsync as jest.Mock;
+    getItemAsync.mockClear();
+
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // hydrate() was defined back in N1 but never actually invoked anywhere
+    // — the tab bar silently ran on hardcoded defaults forever. This proves
+    // App.tsx now reads the persisted layout key, not just that SOME
+    // SecureStore read happened (onboardingStorage has its own key).
+    const calledKeys = getItemAsync.mock.calls.map((c) => c[0]);
+    expect(calledKeys).toContain(LAYOUT_STORE_KEY);
+    act(() => comp.unmount());
+  });
+
+  it("applies a persisted (non-default) layout by the time Home renders its tab bar", async () => {
+    const getItemAsync = SecureStore.getItemAsync as jest.Mock;
+    getItemAsync.mockImplementation((key: string) =>
+      Promise.resolve(
+        key === LAYOUT_STORE_KEY
+          ? JSON.stringify({ tabSlots: ["growth"], homeBoxes: [] })
+          : "true", // onboarding-seen and anything else
+      ),
+    );
+
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+    // Flush the hydrate() promise chain.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(queryId(comp, "chrome-tab-growth")).toBeTruthy();
+    expect(queryId(comp, "chrome-tab-coach")).toBeNull();
+    expect(queryId(comp, "chrome-tab-analyze")).toBeNull();
+    act(() => comp.unmount());
+  });
+});
+
+describe("recordings PRIMARY-vs-PUSHED is an instance predicate (Task N3 fix round 1, IMPORTANT 3)", () => {
+  it("tab-tapped recordings (returnTo home) renders full chrome with the tab marked active", async () => {
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ recordings: [] }) });
+
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+    // App's mount-time layoutStore.hydrate() (IMPORTANT 2 fix) runs once, on
+    // mount, from the (here, defaulting) persisted layout — set the tab
+    // slots AFTER that so this override is the one that sticks.
+    act(() => {
+      useLayoutStore.getState().setTabSlots(["coach", "recordings"]);
+    });
+
+    await act(async () => {
+      queryId(comp, "chrome-tab-recordings")!.props.onPress();
+    });
+
+    // Full chrome present (not pushed) and no dedicated back button.
+    expect(queryId(comp, "chrome-hamburger-button")).toBeTruthy();
+    expect(queryId(comp, "chrome-tab-bar")).toBeTruthy();
+    expect(queryId(comp, "recordings-back")).toBeNull();
+    // The recordings tab itself reads as the active one.
+    expect(queryId(comp, "chrome-tab-recordings")!.props.accessibilityState).toEqual(
+      { selected: true },
+    );
+    act(() => comp.unmount());
+  });
+
+  it("Analyze-pushed recordings (returnTo analyze) is unchanged: pushed, own back button, no chrome", async () => {
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ recordings: [] }) });
+
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+
+    // Reach Analyze via the tab bar (Task N4: Analyze is a default tab, not
+    // a home box/link anymore).
+    await act(async () => {
+      queryId(comp, "chrome-tab-analyze")!.props.onPress();
+    });
+    // AnalyzeScreen's own "▶ Recordings" entry point — returnTo "analyze".
+    await act(async () => {
+      queryId(comp, "open-recordings-link")!.props.onPress();
+    });
+
+    expect(queryId(comp, "recordings-back")).toBeTruthy();
+    expect(queryId(comp, "chrome-hamburger-button")).toBeNull();
+
+    await act(async () => {
+      queryId(comp, "recordings-back")!.props.onPress();
+    });
+    expect(queryId(comp, "pick-recording-button")).toBeTruthy(); // back on Analyze
+    act(() => comp.unmount());
+  });
+});
+
+describe("hamburger catalog → watch-setup/dashboard/tutorial return to their real origin (Task N3 fix round 1, IMPORTANT 4)", () => {
+  it("Set up your watch, opened from Home via the catalog, returns to Home (not Settings)", async () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+
+    await act(async () => {
+      queryId(comp, "chrome-hamburger-button")!.props.onPress();
+    });
+    await act(async () => {
+      queryId(comp, "chrome-catalog-item-watchSetup")!.props.onPress();
+    });
+    expect(queryId(comp, "watch-setup-screen")).toBeTruthy();
+
+    await act(async () => {
+      queryId(comp, "watch-setup-back")!.props.onPress();
+    });
+    expect(queryId(comp, "home-screen")).toBeTruthy();
+    expect(queryId(comp, "settings-heading")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("Dashboard, opened from Analyze via the catalog, returns to Analyze (not Settings)", async () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+
+    // Reach Analyze via the tab bar (Task N4: Analyze is a default tab).
+    await act(async () => {
+      queryId(comp, "chrome-tab-analyze")!.props.onPress();
+    });
+    await act(async () => {
+      queryId(comp, "chrome-hamburger-button")!.props.onPress();
+    });
+    await act(async () => {
+      queryId(comp, "chrome-catalog-item-therapistDashboard")!.props.onPress();
+    });
+    expect(queryId(comp, "therapist-dashboard")).toBeTruthy();
+
+    await act(async () => {
+      queryId(comp, "dashboard-back")!.props.onPress();
+    });
+    expect(queryId(comp, "pick-recording-button")).toBeTruthy(); // back on Analyze
+    expect(queryId(comp, "settings-heading")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("Show tutorial, opened from Live Coach via the catalog, returns to Live Coach (not Settings) on finish", async () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+
+    // Reach Live Coach via the tab bar (Task N4: Live Coach is a default
+    // tab, not a home box).
+    await act(async () => {
+      queryId(comp, "chrome-tab-coach")!.props.onPress();
+    });
+    expect(queryId(comp, "connection-status")).toBeTruthy();
+
+    await act(async () => {
+      queryId(comp, "chrome-hamburger-button")!.props.onPress();
+    });
+    await act(async () => {
+      queryId(comp, "chrome-catalog-item-tutorial")!.props.onPress();
+    });
+    expect(queryId(comp, "onboarding-screen")).toBeTruthy();
+
+    await act(async () => {
+      queryId(comp, "onboarding-skip")!.props.onPress();
+    });
+    expect(queryId(comp, "connection-status")).toBeTruthy(); // back on Live Coach
+    expect(queryId(comp, "settings-heading")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("still returns to Settings when opened from Settings' own rows (unchanged default)", async () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+
+    await openSettings(comp);
+    await act(async () => {
+      queryId(comp, "advanced-watch-setup")!.props.onPress();
+    });
+    await act(async () => {
+      queryId(comp, "watch-setup-back")!.props.onPress();
+    });
+    expect(queryId(comp, "settings-heading")).toBeTruthy();
     act(() => comp.unmount());
   });
 });

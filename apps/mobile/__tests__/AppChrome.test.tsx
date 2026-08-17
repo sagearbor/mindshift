@@ -1,7 +1,7 @@
 import React from "react";
 import { Text } from "react-native";
 import renderer, { act, ReactTestInstance } from "react-test-renderer";
-import AppChrome from "../src/components/AppChrome";
+import AppChrome, { type AppChromeHandle } from "../src/components/AppChrome";
 import { useLayoutStore, DEFAULT_TAB_SLOTS } from "../src/store/layoutStore";
 import { DESTINATIONS } from "../src/nav/destinations";
 
@@ -35,7 +35,9 @@ function queryAllIds(
   return out;
 }
 
-function makeProps(overrides: Partial<React.ComponentProps<typeof AppChrome>> = {}) {
+function makeProps(
+  overrides: Partial<React.ComponentProps<typeof AppChrome>> = {},
+): React.ComponentProps<typeof AppChrome> {
   return {
     screenName: "home",
     onNavigate: jest.fn(),
@@ -264,6 +266,91 @@ describe("AppChrome — bottom tab bar", () => {
     const analyzeTab = queryId(comp, "chrome-tab-analyze")!;
     expect(coachTab.props.accessibilityState).toEqual({ selected: false });
     expect(analyzeTab.props.accessibilityState).toEqual({ selected: true });
+    act(() => comp.unmount());
+  });
+});
+
+describe("AppChrome — closeOverlays imperative handle (fix round 1, CRITICAL 1)", () => {
+  it("closes the open catalog and reports true", () => {
+    const ref = React.createRef<AppChromeHandle>();
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<AppChrome ref={ref} {...makeProps()} />);
+    });
+    act(() => queryId(comp, "chrome-hamburger-button")!.props.onPress());
+    expect(queryId(comp, "chrome-catalog")).toBeTruthy();
+
+    let closed = false;
+    act(() => {
+      closed = ref.current!.closeOverlays();
+    });
+    expect(closed).toBe(true);
+    expect(queryId(comp, "chrome-catalog")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("closes the open account menu and reports true", () => {
+    const ref = React.createRef<AppChromeHandle>();
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<AppChrome ref={ref} {...makeProps()} />);
+    });
+    act(() => queryId(comp, "chrome-avatar-button")!.props.onPress());
+    expect(queryId(comp, "chrome-account-menu")).toBeTruthy();
+
+    let closed = false;
+    act(() => {
+      closed = ref.current!.closeOverlays();
+    });
+    expect(closed).toBe(true);
+    expect(queryId(comp, "chrome-account-menu")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("reports false and does nothing when no overlay is open", () => {
+    const ref = React.createRef<AppChromeHandle>();
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<AppChrome ref={ref} {...makeProps()} />);
+    });
+    let closed = true;
+    act(() => {
+      closed = ref.current!.closeOverlays();
+    });
+    expect(closed).toBe(false);
+    act(() => comp.unmount());
+  });
+});
+
+describe("AppChrome — accessibility while an overlay is open (MINOR fix)", () => {
+  it("marks the background content no-hide-descendants when the catalog is open, auto otherwise", () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<AppChrome {...makeProps()} />);
+    });
+    const content = queryId(comp, "chrome-content")!;
+    expect(content.props.importantForAccessibility).toBe("auto");
+
+    act(() => queryId(comp, "chrome-hamburger-button")!.props.onPress());
+    expect(content.props.importantForAccessibility).toBe("no-hide-descendants");
+    act(() => comp.unmount());
+  });
+
+  it("the catalog and account menu declare themselves modal to assistive tech", () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<AppChrome {...makeProps()} />);
+    });
+    act(() => queryId(comp, "chrome-hamburger-button")!.props.onPress());
+    expect(queryId(comp, "chrome-catalog")!.props.accessibilityViewIsModal).toBe(
+      true,
+    );
+    act(() => queryId(comp, "chrome-catalog-close")!.props.onPress());
+
+    act(() => queryId(comp, "chrome-avatar-button")!.props.onPress());
+    expect(
+      queryId(comp, "chrome-account-menu")!.props.accessibilityViewIsModal,
+    ).toBe(true);
     act(() => comp.unmount());
   });
 });

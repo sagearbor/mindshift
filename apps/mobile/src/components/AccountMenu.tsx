@@ -34,7 +34,11 @@ export default function AccountMenu({
         activeOpacity={1}
         onPress={onClose}
       />
-      <View style={styles.panel} testID="chrome-account-menu">
+      <View
+        style={styles.panel}
+        testID="chrome-account-menu"
+        accessibilityViewIsModal
+      >
         <Text style={styles.signedIn} testID="chrome-account-email">
           Signed in as {label}
         </Text>
@@ -70,7 +74,11 @@ const styles = StyleSheet.create({
   },
   panel: {
     position: "absolute",
-    top: 56,
+    // AppChrome's top bar is 64px tall (12 top padding + 40 icon button +
+    // 12 bottom padding — see AppChrome.tsx's topBar/iconButton styles);
+    // this used to say 56, sitting slightly inside the bar instead of
+    // right below it.
+    top: 64,
     right: 16,
     minWidth: 220,
     borderRadius: 14,

@@ -6,8 +6,10 @@
  *  - tabSlots: the configurable bottom bar, 0–5 entries.
  *  - homeBoxes: the home screen's icon+label boxes, 0–4 entries.
  *
- * No UI reads or writes this yet — App.tsx/HomeScreen are untouched in this
- * task. This file is pure store + persistence, fully unit-tested on its own.
+ * App.tsx calls `hydrate()` once on mount (Task N3 fix round 1 — it was
+ * defined here but never actually invoked anywhere, so the tab bar ran on
+ * hardcoded defaults forever). Otherwise this file is pure store +
+ * persistence, fully unit-tested on its own.
  *
  * Persistence mirrors onboardingStorage.ts's cross-platform pattern exactly
  * (this app's one established non-Firebase persistence approach) rather than
@@ -28,7 +30,9 @@ import { Platform } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import { type DestId, isPrimaryEligible } from "../nav/destinations";
 
-const KEY = "mindshift.layout.v1";
+// Exported so tests can assert against it directly instead of duplicating
+// the literal string (Task N3 fix round 1's hydrate-on-mount test).
+export const KEY = "mindshift.layout.v1";
 
 /** Bottom bar cap — 0–5 slots per the owner's locked design (P3-9 RESOLVED). */
 export const TAB_SLOT_CAP = 5;

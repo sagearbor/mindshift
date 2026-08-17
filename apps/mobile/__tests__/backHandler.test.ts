@@ -20,22 +20,38 @@ describe("backTarget", () => {
     expect(backTarget(screen)).toEqual(expected);
   });
 
+  // Task N3 fix round 1 (IMPORTANT 4): watch-setup/onboarding/dashboard now
+  // carry a dynamic `returnTo` (wherever they were actually launched from —
+  // Settings, or the hamburger catalog from any primary screen) instead of
+  // a hardcoded "advanced". backTarget just hands that value straight back.
   it.each<[Screen, Screen]>([
-    [{ name: "watch-setup" }, { name: "advanced" }],
-    [{ name: "onboarding" }, { name: "advanced" }],
-    [{ name: "dashboard" }, { name: "advanced" }],
-  ])("%o pops to Settings", (screen, expected) => {
+    [{ name: "watch-setup", returnTo: { name: "advanced" } }, { name: "advanced" }],
+    [{ name: "onboarding", returnTo: { name: "advanced" } }, { name: "advanced" }],
+    [{ name: "dashboard", returnTo: { name: "advanced" } }, { name: "advanced" }],
+  ])("%o pops to its returnTo (Settings here)", (screen, expected) => {
     expect(backTarget(screen)).toEqual(expected);
   });
+
+  it.each<[Screen, Screen]>([
+    [{ name: "watch-setup", returnTo: { name: "home" } }, { name: "home" }],
+    [{ name: "onboarding", returnTo: { name: "live-coach" } }, { name: "live-coach" }],
+    [{ name: "dashboard", returnTo: { name: "analyze" } }, { name: "analyze" }],
+  ])(
+    "%o pops to its returnTo even when that ISN'T Settings — catalog-opened from a primary screen",
+    (screen, expected) => {
+      expect(backTarget(screen)).toEqual(expected);
+    },
+  );
 
   it("record pops to analyze", () => {
     expect(backTarget({ name: "record" })).toEqual({ name: "analyze" });
   });
 
-  it("detail pops to dashboard", () => {
-    expect(backTarget({ name: "detail", sessionId: "s1" })).toEqual({
-      name: "dashboard",
-    });
+  it("detail pops to whatever dashboard screen (with its own returnTo) it carries", () => {
+    const returnTo: Screen = { name: "dashboard", returnTo: { name: "advanced" } };
+    expect(backTarget({ name: "detail", sessionId: "s1", returnTo })).toEqual(
+      returnTo,
+    );
   });
 
   describe("session", () => {

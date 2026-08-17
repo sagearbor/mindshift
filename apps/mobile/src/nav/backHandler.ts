@@ -45,11 +45,13 @@ export function backTarget(screen: Screen): Screen | null {
     case "your-day":
       return { name: "home" };
 
-    // Pushed screens whose existing onBack targets Settings ("advanced").
+    // Task N3 fix round 1: these carry a dynamic `returnTo` now (wherever
+    // they were actually launched from — Settings, or the hamburger catalog
+    // from any primary screen) instead of a hardcoded "advanced".
     case "watch-setup":
     case "onboarding":
     case "dashboard":
-      return { name: "advanced" };
+      return screen.returnTo;
 
     case "record":
       return { name: "analyze" };
@@ -71,7 +73,9 @@ export function backTarget(screen: Screen): Screen | null {
       return screen.returnTo;
 
     case "detail":
-      return { name: "dashboard" };
+      // returnTo is the whole dashboard screen (with ITS OWN returnTo) it
+      // was pushed from — popping to it exactly restores that chain.
+      return screen.returnTo;
 
     default: {
       // Exhaustiveness guard: a new Screen variant with no case above fails
