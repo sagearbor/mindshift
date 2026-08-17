@@ -22,10 +22,12 @@ import YourDayScreen from "./src/screens/YourDayScreen";
 import GrowthScreen from "./src/screens/GrowthScreen";
 import LiveCoachScreen from "./src/screens/LiveCoachScreen";
 import LoginScreen from "./src/screens/LoginScreen";
+import OnboardingScreen from "./src/screens/OnboardingScreen";
 import UpdateBanner from "./src/components/UpdateBanner";
 import { useAuthStore, initAuth } from "./src/store/authStore";
 import { useSessionStore } from "./src/store/sessionStore";
 import { useRecorderStore } from "./src/store/recorderStore";
+import { getOnboardingSeen, setOnboardingSeen } from "./src/utils/onboardingStorage";
 import type { AnalyzeResult } from "./src/api/client";
 
 // --- Two-mode navigation -----------------------------------------------------
@@ -67,6 +69,11 @@ type Screen =
   // Phase 3 Slice 1: install the watch app + redeem its pairing code.
   // Pushed from Settings' "Set up your watch" row; returns there.
   | { name: "watch-setup" }
+  // Task P3-7: the first-launch onboarding walkthrough, re-entered from
+  // Settings' "Show tutorial" row; returns there. (The auto-shown-once
+  // launch of this same screen is a separate top-level gate below, not part
+  // of this pushed-screen union — see `onboardingSeen`.)
+  | { name: "onboarding" }
   // The text tools (paste/type a transcript, suggestions). Pushed from
   // Analyze and from Live Coach's post-session review handoff.
   | { name: "session"; returnTo: SessionReturn }
@@ -129,6 +136,27 @@ export default function App() {
   const initializing = useAuthStore((s) => s.initializing);
   const signOut = useAuthStore((s) => s.signOut);
 
+  // Task P3-7: has this account seen the first-launch onboarding walkthrough?
+  // null = not checked yet (persisted read in flight); true/false once known.
+  // Re-checked whenever the signed-in uid changes (e.g. a second account on
+  // the same device gets its own first-launch tutorial).
+  const [onboardingSeen, setOnboardingSeenState] = useState<boolean | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!user) {
+      setOnboardingSeenState(null);
+      return;
+    }
+    let cancelled = false;
+    getOnboardingSeen().then((seen) => {
+      if (!cancelled) setOnboardingSeenState(seen);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
+
   // Cold start: wait for the first auth-state resolution before deciding which
   // surface to show, so we never flash the wrong screen.
   if (initializing) {
@@ -150,6 +178,36 @@ export default function App() {
       <SafeAreaProvider>
         <SafeAreaView style={styles.container}>
           <LoginScreen />
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  }
+
+  // Onboarding gate: hold the same loading spinner as the auth gate above
+  // while the persisted seen-flag loads (fast, local), then show the
+  // walkthrough full-screen — once — before any other app chrome.
+  if (onboardingSeen === null) {
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView
+          style={[styles.container, styles.center]}
+          testID="onboarding-loading"
+        >
+          <ActivityIndicator size="large" color="#4A90D9" />
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  }
+  if (onboardingSeen === false) {
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={styles.container}>
+          <OnboardingScreen
+            onFinish={() => {
+              setOnboardingSeenState(true);
+              void setOnboardingSeen(true);
+            }}
+          />
         </SafeAreaView>
       </SafeAreaProvider>
     );
@@ -220,10 +278,18 @@ export default function App() {
               })
             }
             onOpenWatchSetup={() => setScreen({ name: "watch-setup" })}
+            onOpenTutorial={() => setScreen({ name: "onboarding" })}
           />
         );
       case "watch-setup":
         return <WatchSetupScreen onBack={() => setScreen({ name: "advanced" })} />;
+      case "onboarding":
+        // Re-entry from Settings' "Show tutorial" row. Doesn't touch the
+        // persisted seen-flag — it's already true by the time this is
+        // reachable — this is just a manual replay.
+        return (
+          <OnboardingScreen onFinish={() => setScreen({ name: "advanced" })} />
+        );
       case "session":
         // The text tools. Back returns to whichever screen pushed it (Analyze
         // or, after a live session's review handoff, Home). Narrow returnTo to

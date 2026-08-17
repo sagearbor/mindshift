@@ -1,6 +1,7 @@
 import React from "react";
 import renderer, { act, ReactTestInstance } from "react-test-renderer";
 import * as DocumentPicker from "expo-document-picker";
+import * as SecureStore from "expo-secure-store";
 import App from "../App";
 import { useAuthStore } from "../src/store/authStore";
 import { useSessionStore } from "../src/store/sessionStore";
@@ -49,12 +50,21 @@ function queryId(
 }
 
 /** Boot the app and resolve auth as signed in — every navigation test starts
- *  on the two-mode Home screen. */
+ *  on the two-mode Home screen. Signing in also kicks off App's Task P3-7
+ *  onboarding-seen check (a second async read, off expo-secure-store, not
+ *  chained to the idTokenListener await above) — beforeEach below defaults
+ *  that read to "already seen" so these navigation tests land on Home, and
+ *  the extra flushing act() lets that separate promise chain settle before
+ *  asserting anything. */
 async function signIn(comp: renderer.ReactTestRenderer) {
   const user = fakeUser();
   await act(async () => {
     authMock.currentUser = user;
     await authMock.idTokenListener?.(user);
+  });
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
   });
   expect(queryId(comp, "home-live-coach")).toBeTruthy();
 }
@@ -63,6 +73,10 @@ beforeEach(() => {
   authMock.currentUser = null;
   mockPick.mockReset();
   mockUpload.mockReset();
+  // Task P3-7: default every navigation test to "onboarding already seen" so
+  // sign-in lands straight on Home; onboardingGate.test.tsx covers the
+  // first-launch (not yet seen) path explicitly.
+  (SecureStore.getItemAsync as jest.Mock).mockResolvedValue("true");
   useAuthStore.setState({
     user: null,
     initializing: true,

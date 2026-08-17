@@ -116,6 +116,7 @@ function makeHandlers() {
     onSignOut: jest.fn(),
     onOpenReplay: jest.fn(),
     onOpenWatchSetup: jest.fn(),
+    onOpenTutorial: jest.fn(),
   };
 }
 
@@ -193,6 +194,18 @@ describe("AdvancedScreen", () => {
 
     act(() => queryId(comp, "advanced-watch-setup")!.props.onPress());
     expect(handlers.onOpenWatchSetup).toHaveBeenCalledTimes(1);
+
+    act(() => comp.unmount());
+  });
+
+  it("renders the Show tutorial entry (under Your tools) and wires its press", async () => {
+    const handlers = makeHandlers();
+    const comp = await render(handlers);
+
+    const row = queryId(comp, "advanced-show-tutorial")!;
+    expect(textOf(row)).toContain("Show tutorial");
+    act(() => row.props.onPress());
+    expect(handlers.onOpenTutorial).toHaveBeenCalledTimes(1);
 
     act(() => comp.unmount());
   });
