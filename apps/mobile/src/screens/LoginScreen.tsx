@@ -6,12 +6,14 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   KeyboardAvoidingView,
+  ScrollView,
   Platform,
   StyleSheet,
 } from "react-native";
 import { useAuthStore } from "../store/authStore";
 import { googleSignInConfigured } from "../auth/firebaseConfig";
 import GoogleSignInButton from "../components/GoogleSignInButton";
+import HeroWipe from "../components/HeroWipe";
 
 type Mode = "signIn" | "signUp";
 
@@ -49,125 +51,173 @@ export default function LoginScreen() {
   const canSubmit = email.trim().length > 0 && password.length > 0 && !busy;
 
   return (
-    <KeyboardAvoidingView
-      style={styles.flex}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      <View style={styles.container} testID="login-screen">
-        <Text style={styles.brand}>MindShift</Text>
-        <Text style={styles.subtitle}>
-          {mode === "signIn"
-            ? "Sign in to continue"
-            : "Create your account"}
-        </Text>
-
-        <TextInput
-          testID="email-input"
-          style={styles.input}
-          placeholder="Email"
-          placeholderTextColor="#9CA3AF"
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="email-address"
-          textContentType="emailAddress"
-          value={email}
-          onChangeText={(v) => {
-            if (error || notice) clearError();
-            setEmail(v);
-          }}
-        />
-
-        <TextInput
-          testID="password-input"
-          style={styles.input}
-          placeholder="Password"
-          placeholderTextColor="#9CA3AF"
-          autoCapitalize="none"
-          autoCorrect={false}
-          secureTextEntry
-          textContentType="password"
-          value={password}
-          onChangeText={(v) => {
-            if (error || notice) clearError();
-            setPassword(v);
-          }}
-        />
-
-        {mode === "signIn" ? (
-          <TouchableOpacity
-            testID="forgot-password"
-            style={styles.forgot}
-            onPress={forgotPassword}
-            disabled={busy}
-          >
-            <Text style={styles.forgotText}>Forgot password?</Text>
-          </TouchableOpacity>
-        ) : null}
-
-        {error ? (
-          <Text testID="auth-error" style={styles.error}>
-            {error}
-          </Text>
-        ) : null}
-
-        {notice ? (
-          <Text testID="auth-notice" style={styles.notice}>
-            {notice}
-          </Text>
-        ) : null}
-
-        <TouchableOpacity
-          testID="submit-button"
-          style={[styles.primaryButton, !canSubmit && styles.buttonDisabled]}
-          onPress={submit}
-          disabled={!canSubmit}
+    <View style={styles.screen} testID="login-root">
+      {/* Web-only hero banner (Task P3-4b, owner: both placements) — renders
+          nothing on native. Sits in normal document flow ABOVE the
+          KeyboardAvoidingView/form below, not absolutely positioned, so it
+          can never overlap the title block: each takes its own height in
+          the flex column, full stop. heroBannerSlot's maxHeight is a
+          deliberate, explicit cap (not just HeroWipe's own fixed height)
+          so a large desktop viewport can never stretch the banner tall. */}
+      <View style={styles.heroBannerSlot} testID="hero-banner-slot">
+        <HeroWipe />
+      </View>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        {/* ROOT CAUSE FIX (review round 3): this used to be a plain View with
+            flex:1 + justifyContent:'center'. When the form's natural content
+            height exceeded that box (a short/constrained viewport — which
+            the hero banner above makes far more common, since it eats real
+            vertical space), centering with `overflow: visible` bled the
+            excess equally above AND below the box — pushing the "MindShift"
+            title up and OVER the hero's bottom edge. A ScrollView's content
+            container can grow past the visible area and scroll instead of
+            bleeding outside its own box: the form's rendered box can now
+            NEVER start above where the hero banner ends, whether or not its
+            content fits. */}
+        <ScrollView
+          testID="login-screen"
+          style={styles.containerScroll}
+          contentContainerStyle={styles.containerContent}
+          keyboardShouldPersistTaps="handled"
         >
-          {busy ? (
-            <ActivityIndicator color="#FFFFFF" />
+          <Text style={styles.brand}>MindShift</Text>
+          <Text style={styles.subtitle}>
+            {mode === "signIn"
+              ? "Sign in to continue"
+              : "Create your account"}
+          </Text>
+
+          <TextInput
+            testID="email-input"
+            style={styles.input}
+            placeholder="Email"
+            placeholderTextColor="#9CA3AF"
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="email-address"
+            textContentType="emailAddress"
+            value={email}
+            onChangeText={(v) => {
+              if (error || notice) clearError();
+              setEmail(v);
+            }}
+          />
+
+          <TextInput
+            testID="password-input"
+            style={styles.input}
+            placeholder="Password"
+            placeholderTextColor="#9CA3AF"
+            autoCapitalize="none"
+            autoCorrect={false}
+            secureTextEntry
+            textContentType="password"
+            value={password}
+            onChangeText={(v) => {
+              if (error || notice) clearError();
+              setPassword(v);
+            }}
+          />
+
+          {mode === "signIn" ? (
+            <TouchableOpacity
+              testID="forgot-password"
+              style={styles.forgot}
+              onPress={forgotPassword}
+              disabled={busy}
+            >
+              <Text style={styles.forgotText}>Forgot password?</Text>
+            </TouchableOpacity>
+          ) : null}
+
+          {error ? (
+            <Text testID="auth-error" style={styles.error}>
+              {error}
+            </Text>
+          ) : null}
+
+          {notice ? (
+            <Text testID="auth-notice" style={styles.notice}>
+              {notice}
+            </Text>
+          ) : null}
+
+          <TouchableOpacity
+            testID="submit-button"
+            style={[styles.primaryButton, !canSubmit && styles.buttonDisabled]}
+            onPress={submit}
+            disabled={!canSubmit}
+          >
+            {busy ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.primaryButtonText}>
+                {mode === "signIn" ? "Sign In" : "Sign Up"}
+              </Text>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            testID="toggle-mode"
+            style={styles.toggle}
+            onPress={toggleMode}
+          >
+            <Text style={styles.toggleText}>
+              {mode === "signIn"
+                ? "Don’t have an account? Sign up"
+                : "Already have an account? Sign in"}
+            </Text>
+          </TouchableOpacity>
+
+          <View style={styles.dividerRow}>
+            <View style={styles.divider} />
+            <Text style={styles.dividerText}>or</Text>
+            <View style={styles.divider} />
+          </View>
+
+          {googleSignInConfigured ? (
+            <GoogleSignInButton />
           ) : (
-            <Text style={styles.primaryButtonText}>
-              {mode === "signIn" ? "Sign In" : "Sign Up"}
+            <Text testID="google-unconfigured" style={styles.googleUnconfigured}>
+              Google sign-in isn’t configured yet.
             </Text>
           )}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          testID="toggle-mode"
-          style={styles.toggle}
-          onPress={toggleMode}
-        >
-          <Text style={styles.toggleText}>
-            {mode === "signIn"
-              ? "Don’t have an account? Sign up"
-              : "Already have an account? Sign in"}
-          </Text>
-        </TouchableOpacity>
-
-        <View style={styles.dividerRow}>
-          <View style={styles.divider} />
-          <Text style={styles.dividerText}>or</Text>
-          <View style={styles.divider} />
-        </View>
-
-        {googleSignInConfigured ? (
-          <GoogleSignInButton />
-        ) : (
-          <Text testID="google-unconfigured" style={styles.googleUnconfigured}>
-            Google sign-in isn’t configured yet.
-          </Text>
-        )}
-      </View>
-    </KeyboardAvoidingView>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: { flex: 1 },
+  // Empty (no min-height) on native, where HeroWipe renders null — this slot
+  // contributes zero layout impact there. On web it just bounds HeroWipe's
+  // own fixed-height banner well under the cap, so a very large viewport can
+  // never stretch it tall; the form below always starts in normal flow right
+  // after it, never behind or overlapping it.
+  heroBannerSlot: {
+    width: "100%",
+    maxHeight: 240,
+    overflow: "hidden",
+    flexShrink: 0,
+  },
   flex: { flex: 1 },
-  container: {
+  // The ScrollView itself always fills the KeyboardAvoidingView's box
+  // (background lives here so short content doesn't show a gap below it).
+  containerScroll: {
     flex: 1,
+    backgroundColor: "#F9FAFB",
+  },
+  // contentContainerStyle: flexGrow (not flex) lets this box grow taller
+  // than the visible ScrollView when content needs it — centered when it
+  // fits, scrollable (never bleeding outside its own box) when it doesn't.
+  containerContent: {
+    flexGrow: 1,
     justifyContent: "center",
     paddingHorizontal: 28,
-    backgroundColor: "#F9FAFB",
   },
   brand: {
     fontSize: 34,

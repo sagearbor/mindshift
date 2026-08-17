@@ -2,6 +2,7 @@ import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 
 import GrowthStrip from "../components/GrowthStrip";
+import HeroWipe from "../components/HeroWipe";
 
 /**
  * The two-mode home screen. There are exactly two things you'd do with this
@@ -32,6 +33,9 @@ export default function HomeScreen({
 }: HomeScreenProps) {
   return (
     <View style={styles.container} testID="home-screen">
+      {/* Web-only hero banner (Task P3-4b) — renders nothing on native. */}
+      <HeroWipe />
+
       {/* Top bar: wordmark + the small Advanced corner affordance. */}
       <View style={styles.topBar}>
         <Text style={styles.wordmark}>MindShift</Text>
