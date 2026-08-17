@@ -79,6 +79,23 @@ describe("LoginScreen (web hero placement)", () => {
     act(() => comp.unmount());
   });
 
+  it("shows a disabled 'Continue with Apple' placeholder on web too, honestly labeled coming soon", async () => {
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(<LoginScreen />);
+    });
+
+    const appleButton = comp.root.findAll(
+      (n) => n.props?.testID === "apple-button",
+    )[0];
+    expect(appleButton).toBeTruthy();
+    expect(appleButton.props.disabled).toBe(true);
+    expect(appleButton.props.accessibilityState).toEqual({ disabled: true });
+    expect(appleButton.props.onPress).toBeUndefined();
+
+    act(() => comp.unmount());
+  });
+
   it("bounds the hero banner slot with an explicit max height (sensible on large screens)", async () => {
     let comp!: renderer.ReactTestRenderer;
     await act(async () => {
