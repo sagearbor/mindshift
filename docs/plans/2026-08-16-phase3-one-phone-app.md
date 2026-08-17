@@ -33,8 +33,8 @@
 ### Task P3-4: Claim watch history button
 - `POST /me/claim-legacy` (strict auth) + returned counts UI (reference: web dashboard History page). Note: owner's watch currently runs as legacy `default` account — claiming moves those live sessions onto their uid; surface counts clearly.
 
-### Task P3-4b: Rotating hero art (owner request 2026-08-16)
-- The six owner-curated hero images live in `assets/brand/hero/`. Build a slow crossfade rotation (~8s per image, gentle 1.5s fade) for: the web app's landing/home hero, and optionally the mobile home header. Ship web first (redeploy site), mobile via OTA. Respect reduced-motion preferences. Owner picks final order/subset if they care; default = all six shuffled.
+### Task P3-4b: Rotating hero art — WIPE REVEAL (owner request 2026-08-16, refined)
+- The six owner-curated hero images live in `assets/brand/hero/`. NOT a crossfade: a slow **wipe reveal** — a vertical edge travels left→right (~6–8s hold, ~2.5s wipe), unveiling the next image beneath it like a before/after comparison slider (no fly-in; the new image is stationary under the moving blind). **Animated edge effects riding the wipe line, rotating per transition:** burning embers, ice crackle, bubbles (owner's list; extendable). Implementation: CSS clip-path/canvas for the wipe + a narrow particle/effect strip anchored to the edge. Web landing first (site redeploy), mobile home header optional later (OTA). Respect prefers-reduced-motion (fall back to plain crossfade or static). Default order: all six shuffled.
 
 ### Task P3-5: Retirements + branding
 - Gauge web dashboard (`gauge-dashboard.web.app`) → static redirect page to the MindShift web app (Firebase Hosting config in `../gauge/webApp`) — owner confirmation before flipping anything public-facing.
