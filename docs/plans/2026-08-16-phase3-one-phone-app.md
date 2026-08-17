@@ -41,3 +41,12 @@
 - Gauge Kotlin phone app: halt releases (no action needed beyond never publishing again); note in gauge repo README at Phase 4 archive time.
 - Watch branding: display name "MindShift", new non-dial icon (owner wants non-dial; generate options for owner pick), splash/copy pass. Package name NEVER changes. vc11 release via wear:internal when ready.
 - Phase 4 reminder: gauge-api decommission after ~2026-08-23 if telemetry shows no stragglers.
+
+### Task P3-6: State-aware Advanced rows (owner field feedback 2026-08-17)
+- "Set up your watch" must reflect reality: server-derived paired state (extend GET /me or a light endpoint to expose has-paired-watch via the account's device tokens; add the small pairing_store lookup if missing) → row shows "✓ Paired to this account" + remains tappable for re-pair/another watch. "Train my voice" → when enrolled, retitle to "Add more voice training" (profile state already fetched by the screen). No new prominent CTAs for done things.
+
+### Task P3-7: Onboarding walkthrough (owner request 2026-08-17)
+- First-launch tutorial: a few swipeable, skippable cards explaining Live Coach, Analyze a conversation, the watch app + nudges, Growth chart. Persist seen-state. "Show tutorial" row in Advanced re-runs it. OTA-shippable.
+
+### Task P3-8: Watch daily-calm surface — red→green + line chart (owner request 2026-08-17)
+- Wrist-glanceable "how am I doing today": extend the existing complication (RANGED_VALUE) to publish today's calm score (0–100 → red→green tint where the face supports it) and the existing tile to render a small today-line-chart. Data: /me/standing (watch already calls it; daily window). Cache last value for offline glance; honest empty state when no sessions today. Builds on Gauge v0.2.4 sparkline groundwork; needs a watch release (vc12) when done.
