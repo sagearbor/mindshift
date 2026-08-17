@@ -167,8 +167,13 @@ describe("App onboarding gate — re-entry from Settings", () => {
     await signIn(comp);
     expect(queryId(comp, "home-live-coach")).toBeTruthy();
 
+    // Settings is now reached via the avatar menu (Task N3) — Home's own
+    // "⋯" corner is gone.
     await act(async () => {
-      queryId(comp, "home-advanced-button")!.props.onPress();
+      queryId(comp, "chrome-avatar-button")!.props.onPress();
+    });
+    await act(async () => {
+      queryId(comp, "chrome-account-settings")!.props.onPress();
     });
     const tutorialRow = queryId(comp, "advanced-show-tutorial");
     expect(tutorialRow).toBeTruthy();

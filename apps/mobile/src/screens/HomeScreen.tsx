@@ -8,18 +8,22 @@ import HeroWipe from "../components/HeroWipe";
  * The two-mode home screen. There are exactly two things you'd do with this
  * app — coach a conversation live, or analyze one afterwards — so the home
  * screen is exactly two huge buttons, a narrow self-fetching "Your growth"
- * sparkline strip, a compact history row ("Your day"
- * timeline + "past recordings"), and
- * a small corner affordance for everything else (Settings). No forms, no
- * settings clutter here: users may open this mid-conflict and stressed, so
- * the primary targets are enormous and unambiguous.
+ * sparkline strip, and a compact history row ("Your day" timeline + "past
+ * recordings"). No forms, no settings clutter here: users may open this
+ * mid-conflict and stressed, so the primary targets are enormous and
+ * unambiguous.
+ *
+ * Task N3 (P3-10): the wordmark + Settings corner affordance that used to
+ * live here moved up into AppChrome's persistent top bar (hamburger +
+ * wordmark + avatar, wrapping every primary screen including this one) —
+ * Settings is now reached via the avatar menu or the hamburger's catalog, so
+ * there's no redundant "⋯" here anymore.
  */
 interface HomeScreenProps {
   onLiveCoach: () => void;
   onAnalyze: () => void;
   onOpenRecordings: () => void;
   onOpenYourDay: () => void;
-  onOpenAdvanced: () => void;
   onOpenGrowth: () => void;
 }
 
@@ -28,30 +32,12 @@ export default function HomeScreen({
   onAnalyze,
   onOpenRecordings,
   onOpenYourDay,
-  onOpenAdvanced,
   onOpenGrowth,
 }: HomeScreenProps) {
   return (
     <View style={styles.container} testID="home-screen">
       {/* Web-only hero banner (Task P3-4b) — renders nothing on native. */}
       <HeroWipe />
-
-      {/* Top bar: wordmark + the small Settings corner affordance (⋯). The
-          hamburger + full destination catalog arrive in a follow-up (P3-10);
-          for now this still opens the single grouped Settings screen. */}
-      <View style={styles.topBar}>
-        <Text style={styles.wordmark}>MindShift</Text>
-        <TouchableOpacity
-          testID="home-advanced-button"
-          accessibilityRole="button"
-          accessibilityLabel="Settings"
-          style={styles.advancedButton}
-          onPress={onOpenAdvanced}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Text style={styles.advancedGlyph}>⋯</Text>
-        </TouchableOpacity>
-      </View>
 
       {/* The two modes. */}
       <View style={styles.cards}>
@@ -122,33 +108,6 @@ const styles = StyleSheet.create({
     paddingTop: 24,
     paddingBottom: 20,
     backgroundColor: "#F9FAFB",
-  },
-  topBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 16,
-  },
-  wordmark: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#111827",
-  },
-  advancedButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    backgroundColor: "#FFFFFF",
-  },
-  advancedGlyph: {
-    fontSize: 22,
-    lineHeight: 24,
-    color: "#6B7280",
-    fontWeight: "700",
   },
   cards: {
     flex: 1,

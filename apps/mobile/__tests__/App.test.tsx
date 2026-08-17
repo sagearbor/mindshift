@@ -2,6 +2,7 @@ import React from "react";
 import renderer, { act, ReactTestInstance } from "react-test-renderer";
 import * as DocumentPicker from "expo-document-picker";
 import * as SecureStore from "expo-secure-store";
+import { signOut as fbSignOut } from "firebase/auth";
 import App from "../App";
 import { useAuthStore } from "../src/store/authStore";
 import { useSessionStore } from "../src/store/sessionStore";
@@ -69,6 +70,17 @@ async function signIn(comp: renderer.ReactTestRenderer) {
   expect(queryId(comp, "home-live-coach")).toBeTruthy();
 }
 
+/** Settings is now reached via the avatar menu (Task N3) — Home's own "⋯"
+ *  corner is gone. Opens the account menu and taps Settings. */
+async function openSettings(comp: renderer.ReactTestRenderer) {
+  await act(async () => {
+    queryId(comp, "chrome-avatar-button")!.props.onPress();
+  });
+  await act(async () => {
+    queryId(comp, "chrome-account-settings")!.props.onPress();
+  });
+}
+
 beforeEach(() => {
   authMock.currentUser = null;
   mockPick.mockReset();
@@ -126,17 +138,19 @@ describe("App auth gate", () => {
     });
     await signIn(comp);
 
-    // The home surface is exactly the two modes + history + advanced corner.
+    // The home surface is the two modes + history, wrapped in AppChrome
+    // (Task N3: hamburger + wordmark + avatar top bar, configurable tab bar).
     expect(queryId(comp, "home-analyze")).toBeTruthy();
     expect(queryId(comp, "home-recordings-link")).toBeTruthy();
-    expect(queryId(comp, "home-advanced-button")).toBeTruthy();
+    expect(queryId(comp, "chrome-hamburger-button")).toBeTruthy();
+    expect(queryId(comp, "chrome-avatar-button")).toBeTruthy();
     expect(queryId(comp, "login-screen")).toBeNull();
     act(() => comp.unmount());
   });
 });
 
 describe("two-mode navigation", () => {
-  it("Home → Live Coach, and back returns Home", async () => {
+  it("Home → Live Coach, and the chrome wordmark returns Home", async () => {
     let comp!: renderer.ReactTestRenderer;
     act(() => {
       comp = renderer.create(<App />);
@@ -149,15 +163,18 @@ describe("two-mode navigation", () => {
     // Live Coach is up (its connection dot renders); home is gone.
     expect(queryId(comp, "connection-status")).toBeTruthy();
     expect(queryId(comp, "home-live-coach")).toBeNull();
+    // PRIMARY screen (Task N3): no dedicated back button of its own — the
+    // chrome wraps it instead.
+    expect(queryId(comp, "live-coach-back")).toBeNull();
 
     await act(async () => {
-      queryId(comp, "live-coach-back")!.props.onPress();
+      queryId(comp, "chrome-wordmark")!.props.onPress();
     });
     expect(queryId(comp, "home-live-coach")).toBeTruthy();
     act(() => comp.unmount());
   });
 
-  it("Home → Analyze, and back returns Home", async () => {
+  it("Home → Analyze, and the chrome wordmark returns Home", async () => {
     let comp!: renderer.ReactTestRenderer;
     act(() => {
       comp = renderer.create(<App />);
@@ -170,9 +187,11 @@ describe("two-mode navigation", () => {
     expect(queryId(comp, "pick-recording-button")).toBeTruthy();
     expect(queryId(comp, "relationship-picker")).toBeTruthy();
     expect(queryId(comp, "home-analyze")).toBeNull();
+    // PRIMARY screen: no dedicated back button — same reasoning as Live Coach.
+    expect(queryId(comp, "analyze-back")).toBeNull();
 
     await act(async () => {
-      queryId(comp, "analyze-back")!.props.onPress();
+      queryId(comp, "chrome-wordmark")!.props.onPress();
     });
     expect(queryId(comp, "home-analyze")).toBeTruthy();
     act(() => comp.unmount());
@@ -238,9 +257,7 @@ describe("two-mode navigation", () => {
     });
     await signIn(comp);
 
-    await act(async () => {
-      queryId(comp, "home-advanced-button")!.props.onPress();
-    });
+    await openSettings(comp);
     expect(queryId(comp, "advanced-dashboard")).toBeTruthy();
     expect(queryId(comp, "advanced-sign-out")).toBeTruthy();
 
@@ -268,9 +285,7 @@ describe("two-mode navigation", () => {
     });
     await signIn(comp);
 
-    await act(async () => {
-      queryId(comp, "home-advanced-button")!.props.onPress();
-    });
+    await openSettings(comp);
     expect(queryId(comp, "advanced-watch-setup")).toBeTruthy();
 
     await act(async () => {
@@ -458,6 +473,84 @@ describe("two-mode navigation", () => {
       queryId(comp, "replay-back")!.props.onPress();
     });
     expect(queryId(comp, "pick-recording-button")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+});
+
+describe("AppChrome integration (Task N3)", () => {
+  it("the hamburger catalog navigates to a catalog-only destination and closes", async () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+
+    await act(async () => {
+      queryId(comp, "chrome-hamburger-button")!.props.onPress();
+    });
+    expect(queryId(comp, "chrome-catalog")).toBeTruthy();
+
+    await act(async () => {
+      queryId(comp, "chrome-catalog-item-settings")!.props.onPress();
+    });
+    expect(queryId(comp, "chrome-catalog")).toBeNull();
+    expect(queryId(comp, "advanced-sign-out")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("the default tab bar switches between the primary screens", async () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+
+    // Defaults: coach, analyze, growth (layoutStore's DEFAULT_TAB_SLOTS).
+    expect(queryId(comp, "chrome-tab-coach")).toBeTruthy();
+    expect(queryId(comp, "chrome-tab-analyze")).toBeTruthy();
+    expect(queryId(comp, "chrome-tab-growth")).toBeTruthy();
+
+    await act(async () => {
+      queryId(comp, "chrome-tab-analyze")!.props.onPress();
+    });
+    expect(queryId(comp, "pick-recording-button")).toBeTruthy();
+
+    await act(async () => {
+      queryId(comp, "chrome-tab-coach")!.props.onPress();
+    });
+    expect(queryId(comp, "connection-status")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("avatar menu Log out calls the app's real signOut", async () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+
+    (fbSignOut as jest.Mock).mockClear();
+
+    await act(async () => {
+      queryId(comp, "chrome-avatar-button")!.props.onPress();
+    });
+    await act(async () => {
+      queryId(comp, "chrome-account-sign-out")!.props.onPress();
+    });
+    expect(fbSignOut as jest.Mock).toHaveBeenCalledTimes(1);
+    act(() => comp.unmount());
+  });
+
+  it("pushed screens (e.g. Settings) render without the chrome", async () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<App />);
+    });
+    await signIn(comp);
+
+    await openSettings(comp);
+    expect(queryId(comp, "chrome-hamburger-button")).toBeNull();
+    expect(queryId(comp, "chrome-tab-bar")).toBeNull();
     act(() => comp.unmount());
   });
 });

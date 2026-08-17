@@ -42,7 +42,6 @@ function makeHandlers() {
     onAnalyze: jest.fn(),
     onOpenRecordings: jest.fn(),
     onOpenYourDay: jest.fn(),
-    onOpenAdvanced: jest.fn(),
     onOpenGrowth: jest.fn(),
   };
 }

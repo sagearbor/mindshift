@@ -23,7 +23,6 @@ function makeHandlers() {
     onAnalyze: jest.fn(),
     onOpenRecordings: jest.fn(),
     onOpenYourDay: jest.fn(),
-    onOpenAdvanced: jest.fn(),
     onOpenGrowth: jest.fn(),
   };
 }
@@ -36,7 +35,7 @@ beforeEach(() => {
 });
 
 describe("HomeScreen", () => {
-  it("renders the two primary modes, the history entry, and the advanced corner", async () => {
+  it("renders the two primary modes and the history entry (no corner affordance — that's AppChrome's job now)", async () => {
     let comp!: renderer.ReactTestRenderer;
     await act(async () => {
       comp = renderer.create(<HomeScreen {...makeHandlers()} />);
@@ -45,11 +44,9 @@ describe("HomeScreen", () => {
     expect(queryId(comp, "home-analyze")).toBeTruthy();
     expect(queryId(comp, "home-recordings-link")).toBeTruthy();
     expect(queryId(comp, "home-your-day-link")).toBeTruthy();
-    const settingsButton = queryId(comp, "home-advanced-button")!;
-    expect(settingsButton).toBeTruthy();
-    // User-facing label is "Settings" (Phase 0 of the nav redesign renamed
-    // Advanced → Settings); the "⋯" glyph and testID stay as-is for now.
-    expect(settingsButton.props.accessibilityLabel).toBe("Settings");
+    // Task N3: the wordmark + Settings "⋯" corner moved into AppChrome — no
+    // longer HomeScreen's own affordance.
+    expect(queryId(comp, "home-advanced-button")).toBeNull();
     // Growth unavailable → no strip, no broken chart.
     expect(queryId(comp, "growth-strip")).toBeNull();
     expect(comp.toJSON()).toMatchSnapshot();
@@ -74,9 +71,6 @@ describe("HomeScreen", () => {
 
     act(() => queryId(comp, "home-your-day-link")!.props.onPress());
     expect(handlers.onOpenYourDay).toHaveBeenCalledTimes(1);
-
-    act(() => queryId(comp, "home-advanced-button")!.props.onPress());
-    expect(handlers.onOpenAdvanced).toHaveBeenCalledTimes(1);
 
     // No cross-talk.
     expect(handlers.onLiveCoach).toHaveBeenCalledTimes(1);

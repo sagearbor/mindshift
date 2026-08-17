@@ -33,7 +33,15 @@ export type DestId =
 /** A navigation target shaped exactly like the App.tsx `Screen` union member
  *  it corresponds to. Only the fields those specific members need are
  *  present here — e.g. "recordings" carries `returnTo` because that member
- *  requires it. */
+ *  requires it.
+ *
+ *  Verified against App.tsx's real `Screen` union as part of Task N3 (P3-10)
+ *  — every variant below still matches its Screen counterpart exactly, no
+ *  drift found. This isn't just a one-time check: App.tsx now exports
+ *  `Screen` and hands a `DestScreen` straight to `setScreen()`
+ *  (App.tsx's `handleNavigate`), so a future drift (a Screen variant's shape
+ *  changing without this type following) fails the TypeScript build right
+ *  there, not silently at runtime. */
 export type DestScreen =
   | { name: "live-coach" }
   | { name: "analyze" }

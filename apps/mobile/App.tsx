@@ -24,6 +24,9 @@ import LiveCoachScreen from "./src/screens/LiveCoachScreen";
 import LoginScreen from "./src/screens/LoginScreen";
 import OnboardingScreen from "./src/screens/OnboardingScreen";
 import UpdateBanner from "./src/components/UpdateBanner";
+import AppChrome from "./src/components/AppChrome";
+import { useAndroidBackHandler } from "./src/nav/useAndroidBackHandler";
+import type { DestScreen } from "./src/nav/destinations";
 import { useAuthStore, initAuth } from "./src/store/authStore";
 import { useSessionStore } from "./src/store/sessionStore";
 import { useRecorderStore } from "./src/store/recorderStore";
@@ -34,12 +37,15 @@ import type { AnalyzeResult } from "./src/api/client";
 // The home screen is a radically simple choice between the app's two modes:
 // Live Coach (real-time earbud coaching) and Analyze a Conversation
 // (everything after-the-fact: record / upload / link / past recordings).
-// Everything else lives behind the small Settings ("⋯") corner affordance —
-// the "advanced" screen key below still names the destination internally
-// (AdvancedScreen), but the user-facing title is "Settings".
+// Everything else is reachable via AppChrome's hamburger catalog or avatar
+// menu (Task N3) — the "advanced" screen key below still names the
+// destination internally (AdvancedScreen), but the user-facing title is
+// "Settings".
 //
 // Navigation stays the same hand-rolled screen union as before (no nav lib):
-// every non-home screen is "pushed" and carries enough state to get back.
+// every screen is either PRIMARY (wrapped in AppChrome, no back button of
+// its own) or PUSHED (its existing back affordance, carries enough state to
+// get back) — see PRIMARY_SCREEN_NAMES below for the exact rule.
 
 /** Where the text-tools (Session) screen should return to: it's pushed both
  *  from Analyze ("Work with text") and from Live Coach's review handoff. */
@@ -58,7 +64,11 @@ type ReplayReturn =
   // The voice-profile card's per-sample "Play" opens the source recording.
   | { name: "advanced" };
 
-type Screen =
+// Exported (Task N3) so the pure Android back-handler logic
+// (src/nav/backHandler.ts) and the registry's DestScreen (src/nav/
+// destinations.ts) can be checked against the real union at compile time —
+// see destinations.ts's DestScreen comment for how that guard works.
+export type Screen =
   | { name: "home" }
   | { name: "live-coach" }
   // The Analyze mode hub: record / upload / link + relationship context.
@@ -124,8 +134,44 @@ type Screen =
       openAttach?: boolean;
     };
 
+/**
+ * PRIMARY vs PUSHED screens (Task N3 of P3-10). A screen is PRIMARY — wrapped
+ * in AppChrome's persistent top bar (hamburger + wordmark + avatar) and
+ * configurable tab bar, with no back button of its own — iff it's Home, or
+ * its Screen variant needs no extra context beyond `name` to render AND that
+ * same shape is one of the registry's primary-eligible destinations
+ * (src/nav/destinations.ts: PRIMARY_ELIGIBLE_DESTINATIONS — coach, analyze,
+ * recordings, growth).
+ *
+ * That mechanically EXCLUDES "recordings" from this set even though it IS
+ * primary-eligible for tab/box slots: its Screen/DestScreen shape carries a
+ * required `returnTo`, meaning it can only be reached WITH a known
+ * "came from" screen — exactly the definition of PUSHED. So it keeps its
+ * existing dedicated back button (returning to `returnTo`) completely
+ * unchanged, whether reached from Home, Analyze, or a configured tab/box
+ * slot (which uses the registry's own default,
+ * `{ name: "recordings", returnTo: "home" }`).
+ *
+ * Every other pushed screen (session, dynamics, watch-setup, onboarding,
+ * dashboard, detail, your-day, record, replay, advanced) either isn't in the
+ * registry at all or isn't primary-eligible, so it's pushed by definition —
+ * same full-screen layout, same back affordance as before this task.
+ */
+const PRIMARY_SCREEN_NAMES: ReadonlySet<Screen["name"]> = new Set([
+  "home",
+  "live-coach",
+  "analyze",
+  "growth",
+]);
+
 export default function App() {
   const [screen, setScreen] = useState<Screen>({ name: "home" });
+
+  // Task N3: Android hardware-back — pushed screens pop to their launching
+  // screen, Home double-back-exits with a toast hint. Pure decision logic
+  // lives in src/nav/backHandler.ts (unit-tested there); this hook is just
+  // the BackHandler/ToastAndroid wiring, a no-op off Android.
+  useAndroidBackHandler(screen, setScreen);
 
   // Start listening to Firebase auth state once, on mount.
   useEffect(() => {
@@ -224,14 +270,15 @@ export default function App() {
               setScreen({ name: "recordings", returnTo: "home" })
             }
             onOpenYourDay={() => setScreen({ name: "your-day" })}
-            onOpenAdvanced={() => setScreen({ name: "advanced" })}
             onOpenGrowth={() => setScreen({ name: "growth" })}
           />
         );
       case "live-coach":
+        // No onBack: Live Coach is a PRIMARY screen (see PRIMARY_SCREEN_NAMES
+        // above) — AppChrome already provides a way back to Home, so a
+        // dedicated back button here would just duplicate it.
         return (
           <LiveCoachScreen
-            onBack={() => setScreen({ name: "home" })}
             onReviewTranscript={(turns) => {
               // Hand the finished live conversation to the text tools, where
               // Get Suggestions / Analyze dynamics work off the loaded turns.
@@ -241,9 +288,10 @@ export default function App() {
           />
         );
       case "analyze":
+        // No onBack — Analyze is PRIMARY (see PRIMARY_SCREEN_NAMES above);
+        // same reasoning as Live Coach.
         return (
           <AnalyzeScreen
-            onBack={() => setScreen({ name: "home" })}
             onAnalyzeDynamics={(initialData, recordingId, cameFromRecorder) =>
               setScreen({
                 name: "dynamics",
@@ -359,9 +407,10 @@ export default function App() {
           />
         );
       case "growth":
+        // No onBack — Growth is PRIMARY (see PRIMARY_SCREEN_NAMES above);
+        // same reasoning as Live Coach/Analyze.
         return (
           <GrowthScreen
-            onBack={() => setScreen({ name: "home" })}
             onOpenRecording={(id) =>
               setScreen({
                 name: "replay",
@@ -424,13 +473,32 @@ export default function App() {
     }
   };
 
+  // Task N3: hand a destination straight to setScreen — DestScreen's shape
+  // is verified (compile-time AND by hand) to match Screen exactly for every
+  // variant it defines, so this needs no cast. See destinations.ts's
+  // DestScreen comment.
+  const handleNavigate = (dest: DestScreen) => setScreen(dest);
+  const isPrimary = PRIMARY_SCREEN_NAMES.has(screen.name);
+
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.container}>
         {/* Sits above every screen: a downloaded OTA update surfaces a subtle
             "restart to apply" bar here, and stays out of the way otherwise. */}
         <UpdateBanner />
-        {renderScreen()}
+        {isPrimary ? (
+          <AppChrome
+            screenName={screen.name}
+            onNavigate={handleNavigate}
+            onGoHome={() => setScreen({ name: "home" })}
+            onSignOut={() => void signOut()}
+            user={user}
+          >
+            {renderScreen()}
+          </AppChrome>
+        ) : (
+          renderScreen()
+        )}
       </SafeAreaView>
     </SafeAreaProvider>
   );

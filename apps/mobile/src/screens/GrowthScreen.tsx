@@ -24,7 +24,11 @@ const INK = "#111827";
 const MUTED = "#6B7280";
 
 interface GrowthScreenProps {
-  onBack: () => void;
+  /** Optional (Task N3): omitted when Growth is rendered as a primary
+   *  screen inside AppChrome, which already provides a way back to Home —
+   *  a dedicated back button here would just duplicate it. Still supported
+   *  for any other caller (e.g. this screen's own unit tests). */
+  onBack?: () => void;
   /** Tap a dot → that recording's replay/detail. */
   onOpenRecording: (recordingId: string) => void;
   /** Empty-state CTA → the recordings list, where "This is me" (the existing
@@ -228,14 +232,16 @@ export default function GrowthScreen({
       contentContainerStyle={styles.content}
       testID="growth-screen"
     >
-      <TouchableOpacity
-        testID="growth-back"
-        accessibilityRole="button"
-        style={styles.backButton}
-        onPress={onBack}
-      >
-        <Text style={styles.backText}>← Back</Text>
-      </TouchableOpacity>
+      {onBack && (
+        <TouchableOpacity
+          testID="growth-back"
+          accessibilityRole="button"
+          style={styles.backButton}
+          onPress={onBack}
+        >
+          <Text style={styles.backText}>← Back</Text>
+        </TouchableOpacity>
+      )}
       <Text style={styles.heading}>Your growth</Text>
       {renderBody()}
     </ScrollView>

@@ -1,6 +1,6 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`HomeScreen renders the two primary modes, the history entry, and the advanced corner 1`] = `
+exports[`HomeScreen renders the two primary modes and the history entry (no corner affordance — that's AppChrome's job now) 1`] = `
 <View
   style={
     {
@@ -13,94 +13,6 @@ exports[`HomeScreen renders the two primary modes, the history entry, and the ad
   }
   testID="home-screen"
 >
-  <View
-    style={
-      {
-        "alignItems": "center",
-        "flexDirection": "row",
-        "justifyContent": "space-between",
-        "marginBottom": 16,
-      }
-    }
-  >
-    <Text
-      style={
-        {
-          "color": "#111827",
-          "fontSize": 22,
-          "fontWeight": "700",
-        }
-      }
-    >
-      MindShift
-    </Text>
-    <View
-      accessibilityLabel="Settings"
-      accessibilityRole="button"
-      accessibilityState={
-        {
-          "busy": undefined,
-          "checked": undefined,
-          "disabled": undefined,
-          "expanded": undefined,
-          "selected": undefined,
-        }
-      }
-      accessibilityValue={
-        {
-          "max": undefined,
-          "min": undefined,
-          "now": undefined,
-          "text": undefined,
-        }
-      }
-      accessible={true}
-      collapsable={false}
-      focusable={true}
-      hitSlop={
-        {
-          "bottom": 8,
-          "left": 8,
-          "right": 8,
-          "top": 8,
-        }
-      }
-      onClick={[Function]}
-      onResponderGrant={[Function]}
-      onResponderMove={[Function]}
-      onResponderRelease={[Function]}
-      onResponderTerminate={[Function]}
-      onResponderTerminationRequest={[Function]}
-      onStartShouldSetResponder={[Function]}
-      style={
-        {
-          "alignItems": "center",
-          "backgroundColor": "#FFFFFF",
-          "borderColor": "#E5E7EB",
-          "borderRadius": 22,
-          "borderWidth": 1,
-          "height": 44,
-          "justifyContent": "center",
-          "opacity": 1,
-          "width": 44,
-        }
-      }
-      testID="home-advanced-button"
-    >
-      <Text
-        style={
-          {
-            "color": "#6B7280",
-            "fontSize": 22,
-            "fontWeight": "700",
-            "lineHeight": 24,
-          }
-        }
-      >
-        ⋯
-      </Text>
-    </View>
-  </View>
   <View
     style={
       {
