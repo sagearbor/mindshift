@@ -33,6 +33,9 @@
 ### Task P3-4: Claim watch history button
 - `POST /me/claim-legacy` (strict auth) + returned counts UI (reference: web dashboard History page). Note: owner's watch currently runs as legacy `default` account — claiming moves those live sessions onto their uid; surface counts clearly.
 
+### Task P3-4b: Rotating hero art (owner request 2026-08-16)
+- The six owner-curated hero images live in `assets/brand/hero/`. Build a slow crossfade rotation (~8s per image, gentle 1.5s fade) for: the web app's landing/home hero, and optionally the mobile home header. Ship web first (redeploy site), mobile via OTA. Respect reduced-motion preferences. Owner picks final order/subset if they care; default = all six shuffled.
+
 ### Task P3-5: Retirements + branding
 - Gauge web dashboard (`gauge-dashboard.web.app`) → static redirect page to the MindShift web app (Firebase Hosting config in `../gauge/webApp`) — owner confirmation before flipping anything public-facing.
 - Gauge Kotlin phone app: halt releases (no action needed beyond never publishing again); note in gauge repo README at Phase 4 archive time.
