@@ -6,7 +6,7 @@ const ROLES = [
   "Parent / Child",
   "Manager / Employee",
   "Therapist / Patient",
-  "Friend / Friend",
+  "Friends",
 ] as const;
 
 export { ROLES };

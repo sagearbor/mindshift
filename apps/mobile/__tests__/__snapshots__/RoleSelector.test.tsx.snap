@@ -297,7 +297,7 @@ exports[`RoleSelector renders correctly with a selected role 1`] = `
           "paddingVertical": 8,
         }
       }
-      testID="role-Friend / Friend"
+      testID="role-Friends"
     >
       <Text
         style={
@@ -310,7 +310,7 @@ exports[`RoleSelector renders correctly with a selected role 1`] = `
           ]
         }
       >
-        Friend / Friend
+        Friends
       </Text>
     </View>
   </View>
@@ -611,7 +611,7 @@ exports[`RoleSelector renders correctly with no selection 1`] = `
           "paddingVertical": 8,
         }
       }
-      testID="role-Friend / Friend"
+      testID="role-Friends"
     >
       <Text
         style={
@@ -624,7 +624,7 @@ exports[`RoleSelector renders correctly with no selection 1`] = `
           ]
         }
       >
-        Friend / Friend
+        Friends
       </Text>
     </View>
   </View>

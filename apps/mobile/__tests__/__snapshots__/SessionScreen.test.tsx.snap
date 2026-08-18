@@ -338,7 +338,7 @@ exports[`SessionScreen (text tools) renders loading state 1`] = `
                 "paddingVertical": 8,
               }
             }
-            testID="role-Friend / Friend"
+            testID="role-Friends"
           >
             <Text
               style={
@@ -351,7 +351,7 @@ exports[`SessionScreen (text tools) renders loading state 1`] = `
                 ]
               }
             >
-              Friend / Friend
+              Friends
             </Text>
           </View>
         </View>
@@ -1134,7 +1134,7 @@ exports[`SessionScreen (text tools) renders the initial screen 1`] = `
                 "paddingVertical": 8,
               }
             }
-            testID="role-Friend / Friend"
+            testID="role-Friends"
           >
             <Text
               style={
@@ -1147,7 +1147,7 @@ exports[`SessionScreen (text tools) renders the initial screen 1`] = `
                 ]
               }
             >
-              Friend / Friend
+              Friends
             </Text>
           </View>
         </View>
@@ -1844,7 +1844,7 @@ exports[`SessionScreen (text tools) renders with suggestions 1`] = `
                 "paddingVertical": 8,
               }
             }
-            testID="role-Friend / Friend"
+            testID="role-Friends"
           >
             <Text
               style={
@@ -1857,7 +1857,7 @@ exports[`SessionScreen (text tools) renders with suggestions 1`] = `
                 ]
               }
             >
-              Friend / Friend
+              Friends
             </Text>
           </View>
         </View>
@@ -2861,7 +2861,7 @@ exports[`SessionScreen (text tools) renders with turns in the transcript 1`] = `
                 "paddingVertical": 8,
               }
             }
-            testID="role-Friend / Friend"
+            testID="role-Friends"
           >
             <Text
               style={
@@ -2874,7 +2874,7 @@ exports[`SessionScreen (text tools) renders with turns in the transcript 1`] = `
                 ]
               }
             >
-              Friend / Friend
+              Friends
             </Text>
           </View>
         </View>
