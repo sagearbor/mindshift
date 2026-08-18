@@ -1873,6 +1873,49 @@ export async function enrollVoiceDirect(
   return (await res.json()) as DirectEnrollResult;
 }
 
+/** POST /voice/catch-up response — how many past recordings were examined vs.
+ *  actually newly labeled "You" this call, plus how many eligible candidates
+ *  were left un-attempted because the server's per-call batch cap was hit
+ *  (a future call — e.g. tapping the CTA again — would pick these up). */
+export interface CatchUpResult {
+  checked: number;
+  newly_identified: number;
+  remaining: number;
+}
+
+/**
+ * POST /voice/catch-up — "Catch up my past recordings": bulk re-match every
+ * already-stored, already-analyzed recording against the enrolled voiceprint,
+ * for recordings that predate enrollment (or predate any "This is me" tap).
+ * Cheap — decode + embed against the already-computed transcript, no
+ * re-transcription — so it can process several recordings in one call.
+ *
+ * Never 422s for "nothing enrolled yet" — that's a normal
+ * `{ checked: 0, newly_identified: 0 }` the caller renders honestly. The
+ * thrown error carries `.status` for a real 503 (voice ID unavailable /
+ * storage disabled) so the UI can say exactly what went wrong.
+ */
+export async function catchUpVoice(): Promise<CatchUpResult> {
+  const res = await fetch(`${API_URL}/voice/catch-up`, {
+    method: "POST",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) {
+    let detail = "";
+    try {
+      detail = ((await res.json()) as { detail?: string }).detail ?? "";
+    } catch {
+      // non-JSON body — leave detail empty
+    }
+    const err = new Error(detail || `API error: ${res.status}`) as Error & {
+      status?: number;
+    };
+    err.status = res.status;
+    throw err;
+  }
+  return (await res.json()) as CatchUpResult;
+}
+
 /**
  * DELETE /voice/voiceprint — "Forget my voice": really delete the stored
  * biometric signature. Resolves to whether one existed (idempotent); throws

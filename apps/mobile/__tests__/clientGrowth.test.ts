@@ -1,6 +1,7 @@
-/** getGrowth + deleteVoiceSample — the new client calls behind "Your growth"
- *  and the voice-profile card. Mirrors client.test.ts's global-fetch style. */
-import { deleteVoiceSample, getGrowth } from "../src/api/client";
+/** getGrowth + deleteVoiceSample + catchUpVoice — the new client calls behind
+ *  "Your growth" and the voice-profile card. Mirrors client.test.ts's
+ *  global-fetch style. */
+import { catchUpVoice, deleteVoiceSample, getGrowth } from "../src/api/client";
 import { setCachedToken, setTokenProvider } from "../src/auth/authToken";
 
 const mockFetch = global.fetch as jest.Mock;
@@ -91,5 +92,47 @@ describe("deleteVoiceSample", () => {
     expect(mockFetch.mock.calls[0][0]).toContain(
       "/voice/samples/legacy%20blend%2F1",
     );
+  });
+});
+
+describe("catchUpVoice", () => {
+  it("POSTs /voice/catch-up and returns the checked/newly_identified/remaining counts", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ checked: 5, newly_identified: 3, remaining: 2 }),
+    });
+
+    const result = await catchUpVoice();
+
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toContain("/voice/catch-up");
+    expect(init.method).toBe("POST");
+    expect(result).toEqual({ checked: 5, newly_identified: 3, remaining: 2 });
+  });
+
+  it("throws with .status and the server's honest detail on a non-OK", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      json: async () => ({ detail: "voice enrollment not available on this server" }),
+    });
+    await expect(catchUpVoice()).rejects.toMatchObject({
+      status: 503,
+      message: "voice enrollment not available on this server",
+    });
+  });
+
+  it("falls back to a generic message when the error body isn't JSON", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: async () => {
+        throw new Error("not json");
+      },
+    });
+    await expect(catchUpVoice()).rejects.toMatchObject({
+      status: 500,
+      message: "API error: 500",
+    });
   });
 });

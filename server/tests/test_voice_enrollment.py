@@ -179,20 +179,54 @@ def test_identify_skips_speaker_with_too_little_audio(monkeypatch):
 # ---------------------------------------------------------------------------
 
 class FakeVoiceStore:
-    """Minimal async store exposing only what the voice router + pipeline use."""
+    """Minimal async store exposing only what the voice router + pipeline use.
+
+    Extended (growth-voice-catchup) with ``list_recordings`` + an
+    ``analysis``/``created_at`` carrying ``get_recording`` and a real
+    ``overwrite_analysis`` — enough to exercise Part A's relabel-and-persist
+    end-to-end through GET /growth and GET /recordings/{id}, without pulling
+    in the full FakeGrowthStore from test_growth.py."""
 
     def __init__(self):
-        self._recordings: dict[str, dict] = {}  # (uid, rid) → {turns, audio}
+        self._recordings: dict[str, dict] = {}  # (uid, rid) → recording dict
         self._voiceprints: dict[str, dict] = {}  # uid → profile
 
-    def add_recording(self, uid, rid, turns, audio=b"AUDIO"):
-        self._recordings[(uid, rid)] = {"turns": turns, "audio": audio}
+    def add_recording(
+        self, uid, rid, turns, audio=b"AUDIO", analysis=None,
+        created_at="2026-08-01T00:00:00+00:00",
+    ):
+        self._recordings[(uid, rid)] = {
+            "turns": turns, "audio": audio, "analysis": analysis,
+            "created_at": created_at,
+        }
 
     async def get_recording(self, uid, recording_id):
         r = self._recordings.get((uid, recording_id))
         if r is None:
             return None
-        return {"id": recording_id, "turns": r["turns"], "analysis": None}
+        return {
+            "id": recording_id,
+            "created_at": r["created_at"],
+            "filename": "rec.m4a",
+            "title": None,
+            "media_type": "audio",
+            "duration_seconds": 60.0,
+            "turns": r["turns"],
+            "analysis": r["analysis"],
+        }
+
+    async def list_recordings(self, uid):
+        out = [
+            {
+                "id": rid,
+                "created_at": r["created_at"],
+                "has_analysis": r["analysis"] is not None,
+            }
+            for (u, rid), r in self._recordings.items()
+            if u == uid
+        ]
+        out.sort(key=lambda m: m["created_at"], reverse=True)
+        return out
 
     async def get_audio_bytes(self, uid, recording_id):
         r = self._recordings.get((uid, recording_id))
@@ -206,6 +240,15 @@ class FakeVoiceStore:
 
     async def delete_voiceprint(self, uid):
         return self._voiceprints.pop(uid, None) is not None
+
+    async def overwrite_analysis(self, uid, recording_id, *, turns, analysis, reanalyzed_at):
+        r = self._recordings.get((uid, recording_id))
+        if r is None:
+            return None
+        r["turns"] = turns
+        r["analysis"] = analysis
+        r["reanalyzed_at"] = reanalyzed_at
+        return {"id": recording_id, "reanalyzed_at": reanalyzed_at}
 
 
 @pytest.fixture
@@ -400,3 +443,192 @@ async def test_enroll_is_uid_scoped(client, voice_store, monkeypatch):
         headers={"X-Test-Uid": "u2"},
     )
     assert res.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Part A (growth-voice-catchup) — "This is me" relabels the TAPPED recording
+# ---------------------------------------------------------------------------
+
+def _report_card(score):
+    return {"score": score, "headline": "h", "did_well": "d", "work_on": "w"}
+
+
+def _unidentified_analysis():
+    return {
+        "speaker_labels": {
+            "Speaker A": {"display_label": "Speaker A", "label_source": "generic"},
+            "Speaker B": {"display_label": "Speaker B", "label_source": "generic"},
+        },
+        "report_cards": {
+            "Speaker A": _report_card(80),
+            "Speaker B": _report_card(40),
+        },
+    }
+
+
+async def test_enroll_relabels_this_recording_for_growth(client, voice_store, monkeypatch):
+    # The owner's exact bug: a recording ALREADY has a stored analysis (two
+    # generic speakers) when "This is me" is tapped on Speaker A. Growth must
+    # see this recording as identified immediately — no reanalysis required.
+    rid = _rid()
+    voice_store.add_recording("u1", rid, TURNS, analysis=_unidentified_analysis())
+    _enroll_ready(monkeypatch, np.array([1.0, 0.0, 0.0], dtype=np.float32))
+
+    pre = await client.get("/growth", headers={"X-Test-Uid": "u1"})
+    assert pre.json()["identified_recordings"] == 0
+
+    res = await client.post(
+        "/voice/enroll", json={"recording_id": rid, "speaker": "Speaker A"},
+        headers={"X-Test-Uid": "u1"},
+    )
+    assert res.status_code == 200, res.text
+
+    post = await client.get("/growth", headers={"X-Test-Uid": "u1"})
+    body = post.json()
+    assert body["identified_recordings"] == 1
+    assert body["points"][0]["recording_id"] == rid
+    assert body["points"][0]["my_score"] == 80  # Speaker A's card, not B's
+
+    # The exact shape _identify_enrolled_speakers'/the label ladder's "enrolled"
+    # rung normally produces: display_label "You", label_source "enrolled" —
+    # nothing thinner, nothing extra (SpeakerLabelOut has only these 2 fields).
+    detail = await client.get(f"/recordings/{rid}", headers={"X-Test-Uid": "u1"})
+    assert detail.status_code == 200, detail.text
+    labels = detail.json()["speaker_labels"]
+    assert labels["Speaker A"] == {
+        "display_label": "You", "label_source": "enrolled",
+    }
+    assert labels["Speaker B"]["label_source"] == "generic"  # untouched
+
+
+async def test_enroll_with_no_analysis_yet_does_not_error(client, voice_store, monkeypatch):
+    # A stored-but-never-analyzed recording: nothing to relabel — the endpoint
+    # must not error just because there's no analysis.speaker_labels to touch.
+    rid = _rid()
+    voice_store.add_recording("u1", rid, TURNS, analysis=None)
+    _enroll_ready(monkeypatch, np.array([1.0, 0.0, 0.0], dtype=np.float32))
+    res = await client.post(
+        "/voice/enroll", json={"recording_id": rid, "speaker": "Speaker A"},
+        headers={"X-Test-Uid": "u1"},
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["enrolled"] is True
+
+
+async def test_enroll_persist_failure_is_swallowed(client, voice_store, monkeypatch):
+    # The relabel-and-persist step is best-effort: a storage hiccup here must
+    # NEVER fail the enrollment itself — the voiceprint write is what matters.
+    rid = _rid()
+    voice_store.add_recording("u1", rid, TURNS, analysis=_unidentified_analysis())
+    _enroll_ready(monkeypatch, np.array([1.0, 0.0, 0.0], dtype=np.float32))
+
+    async def _boom(*a, **k):
+        raise RuntimeError("gcs hiccup")
+
+    monkeypatch.setattr(voice_store, "overwrite_analysis", _boom)
+
+    res = await client.post(
+        "/voice/enroll", json={"recording_id": rid, "speaker": "Speaker A"},
+        headers={"X-Test-Uid": "u1"},
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["enrolled"] is True
+    assert "u1" in voice_store._voiceprints  # the part that matters most
+
+
+# ---------------------------------------------------------------------------
+# Critical regression: a correction tap must never leave TWO "enrolled"
+# speakers (main._growth_point requires EXACTLY one — two silently drops the
+# recording out of Growth entirely).
+# ---------------------------------------------------------------------------
+
+def _identified_analysis(me="Speaker B"):
+    """Analysis where ``me`` is ALREADY "enrolled" — simulates a prior (right
+    or wrong) auto-match / "This is me" tap, for testing the demotion fix."""
+    a = _unidentified_analysis()
+    a["speaker_labels"][me] = {"display_label": "You", "label_source": "enrolled"}
+    return a
+
+
+async def test_enroll_correcting_a_wrong_match_demotes_the_old_one(
+    client, voice_store, monkeypatch,
+):
+    # The exact critical-bug scenario: the original analysis auto-matched the
+    # WRONG speaker (B) as "You". The user opens the recording and taps "This
+    # is me" on the RIGHT speaker (A) to correct it. Before the fix this left
+    # BOTH speakers "enrolled" — the recording would silently vanish from
+    # Growth (strictly worse than before this feature existed: the wrong
+    # single point at least stayed visible).
+    rid = _rid()
+    voice_store.add_recording(
+        "u1", rid, TURNS, analysis=_identified_analysis(me="Speaker B"),
+    )
+    _enroll_ready(monkeypatch, np.array([1.0, 0.0, 0.0], dtype=np.float32))
+
+    res = await client.post(
+        "/voice/enroll", json={"recording_id": rid, "speaker": "Speaker A"},
+        headers={"X-Test-Uid": "u1"},
+    )
+    assert res.status_code == 200, res.text
+
+    growth = await client.get("/growth", headers={"X-Test-Uid": "u1"})
+    body = growth.json()
+    assert body["identified_recordings"] == 1
+    assert len(body["points"]) == 1
+    assert body["points"][0]["recording_id"] == rid
+
+    detail = await client.get(f"/recordings/{rid}", headers={"X-Test-Uid": "u1"})
+    labels = detail.json()["speaker_labels"]
+    assert labels["Speaker A"] == {
+        "display_label": "You", "label_source": "enrolled",
+    }
+    # Speaker B — the old (wrong) match — is demoted, never left "enrolled".
+    assert labels["Speaker B"]["label_source"] != "enrolled"
+
+
+async def test_enroll_recomputes_stale_episodes_and_speaker_identity(
+    client, voice_store, monkeypatch,
+):
+    # The stored episodes + speaker_identity were both stale: matched_speaker
+    # said "Speaker B" (wrong). episodes_from_analysis PREFERS
+    # speaker_identity.matched_speaker over speaker_labels, so a stale
+    # identity can keep showing the WRONG speaker as "You" in the day
+    # timeline even after speaker_labels is correctly relabeled.
+    import episodes as episodes_mod
+
+    rid = _rid()
+    analysis = _unidentified_analysis()
+    analysis["per_turn"] = [{"heat": 10}, {"heat": 20}]
+    analysis["title"] = "Kitchen talk"
+    analysis["speaker_identity"] = {
+        "matched_speaker": "Speaker B",  # wrong — the stale-bug scenario
+        "match_threshold": 0.5,
+        "model": "test-model",
+        "speakers": {
+            "Speaker A": {"score": 0.1, "is_you": False},
+            "Speaker B": {"score": 0.6, "is_you": True},
+        },
+    }
+    analysis["episodes"] = episodes_mod.segment_episodes(
+        TURNS,
+        per_turn=analysis["per_turn"],
+        speaker_labels=analysis["speaker_labels"],
+        speaker_identity=analysis["speaker_identity"],
+        title=analysis["title"],
+    )
+    # Confirm the stale fixture really does show the WRONG speaker as "You".
+    assert analysis["episodes"][0]["participants"] == ["Speaker A", "You"]
+
+    voice_store.add_recording("u1", rid, TURNS, analysis=analysis)
+    _enroll_ready(monkeypatch, np.array([1.0, 0.0, 0.0], dtype=np.float32))
+
+    res = await client.post(
+        "/voice/enroll", json={"recording_id": rid, "speaker": "Speaker A"},
+        headers={"X-Test-Uid": "u1"},
+    )
+    assert res.status_code == 200, res.text
+
+    detail = await client.get(f"/recordings/{rid}", headers={"X-Test-Uid": "u1"})
+    body = detail.json()
+    assert body["analysis"]["speaker_identity"]["matched_speaker"] == "Speaker A"
+    assert body["analysis"]["episodes"][0]["participants"] == ["You", "Speaker B"]

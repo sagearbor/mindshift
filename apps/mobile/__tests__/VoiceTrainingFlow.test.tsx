@@ -205,6 +205,11 @@ describe("VoiceTrainingFlow — upload & outcomes", () => {
     // Success is stated with the server's real count, then handed back.
     const success = queryId(comp, "vt-success")!;
     expect(textOf(success)).toContain("3 sample");
+    // The owner's exact bug this whole fix addresses: guided enrollment only
+    // ever writes the voiceprint, never touches a stored recording — the
+    // success screen must point at Growth's catch-up option for recordings
+    // made before today (there's no "This is me" tap to guess at here).
+    expect(textOf(success)).toContain("Catch up my past recordings");
     await act(async () => queryId(comp, "vt-success-done")!.props.onPress());
     expect(handlers.onDone).toHaveBeenCalledWith(3);
 

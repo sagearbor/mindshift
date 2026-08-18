@@ -368,6 +368,12 @@ export default function VoiceTrainingFlow({
             {`Your voice profile now blends ${enrollCount} sample${enrollCount === 1 ? "" : "s"}. ` +
               "MindShift stores a numeric voice signature, never your audio."}
           </Text>
+          <Text style={styles.note} testID="vt-success-catchup-note">
+            Training your voice doesn’t relabel recordings you’ve already
+            stored — open “Your growth” and tap “Catch up my past
+            recordings” to match it against everything you recorded before
+            today.
+          </Text>
         </View>
         <TouchableOpacity
           testID="vt-success-done"
