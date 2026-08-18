@@ -1,6 +1,6 @@
 """Voice-enrollment router — "This is me" + the enrolled voiceprint's lifecycle.
 
-Five endpoints under ``/voice`` (included from main.py with one line):
+Six endpoints under ``/voice`` (included from main.py with one line):
 
 * ``GET  /voice/profile``      — status: is the feature available, is the user
                                  enrolled, and enrollment metadata incl. the v2
@@ -8,12 +8,21 @@ Five endpoints under ``/voice`` (included from main.py with one line):
                                  the raw signature never leaves the server).
 * ``POST /voice/enroll``       — "This is me": embed one diarized speaker from a
                                  stored recording and store it as an individual
-                                 sample (the blend is recomputed over all samples).
+                                 sample (the blend is recomputed over all samples),
+                                 AND relabel that same recording's stored analysis
+                                 so it counts as identified in Growth immediately
+                                 (see ``_label_enrolled_and_persist``).
 * ``POST /voice/enroll-direct``— guided "Train my voice": embed ONE uploaded
                                  clip of prompted phrases (single voice by
                                  client promise — no diarization, no stored
                                  recording) into a sample noted
                                  "guided enrollment".
+* ``POST /voice/catch-up``     — bulk re-match every already-stored recording
+                                 that predates enrollment (or predates any
+                                 "This is me" tap) against the enrolled
+                                 voiceprint — cheap (decode + embed, no
+                                 re-transcription) so it can process several
+                                 recordings in one call.
 * ``DELETE /voice/samples/{id}`` — remove ONE enrollment sample and recompute the
                                  blend; deleting the last sample leaves the same
                                  state as "forget my voice".
@@ -88,6 +97,65 @@ def _require_store(request: Request) -> "recordings_store.RecordingsStore":
     if store is None:
         raise HTTPException(status_code=503, detail=_STORAGE_DISABLED)
     return store
+
+
+# The label ladder's top rung, written directly (see main.py's
+# LABEL_SOURCE_ENROLLED / ENROLLED_DISPLAY_LABEL) — duplicated as plain string
+# literals here rather than importing main at module load time (main imports
+# THIS router; a top-level `import main` here would be circular). The shape
+# matches main.SpeakerLabelOut exactly: display_label + label_source, nothing
+# else — confirmed by reading that model, which has only those two fields.
+_ENROLLED_LABEL_SOURCE = "enrolled"
+_ENROLLED_DISPLAY_LABEL = "You"
+
+
+async def _label_enrolled_and_persist(
+    store: "recordings_store.RecordingsStore",
+    uid: str,
+    recording_id: str,
+    rec: dict,
+    speaker: str,
+    now_iso: str,
+) -> bool:
+    """Merge an "enrolled" display label for ``speaker`` into ``rec``'s stored
+    analysis and persist it via ``store.overwrite_analysis`` — the "relabel one
+    recording" logic shared by ``enroll_voice`` (Part A: relabel the recording
+    that was tapped) and ``catch_up_voice`` (Part B: relabel a recording matched
+    in bulk). Deliberately NOT ``manual_speaker_labels`` — that overlay always
+    carries ``label_source="manual"`` and is the human-correction rung, not this
+    one (see main.py's label-ladder docstring).
+
+    Best-effort by design (same "swallow and log" house style as
+    ``main._identify_enrolled_speakers``): returns ``False`` — never raises —
+    when ``rec`` has no analysis to update, or when the persist itself fails
+    (a storage hiccup here must never sink the caller, which already did the
+    part that matters most: writing the voiceprint). Returns ``True`` only when
+    the recording was actually updated.
+    """
+    analysis = rec.get("analysis")
+    if not isinstance(analysis, dict):
+        return False  # nothing analyzed yet — nothing to relabel
+    try:
+        updated = dict(analysis)
+        labels = dict(updated.get("speaker_labels") or {})
+        labels[speaker] = {
+            "display_label": _ENROLLED_DISPLAY_LABEL,
+            "label_source": _ENROLLED_LABEL_SOURCE,
+        }
+        updated["speaker_labels"] = labels
+        result = await store.overwrite_analysis(
+            uid, recording_id,
+            turns=rec.get("turns") or [],
+            analysis=updated,
+            reanalyzed_at=now_iso,
+        )
+        return result is not None
+    except Exception:  # noqa: BLE001 — best-effort, must never sink the caller
+        logger.warning(
+            "Failed to persist enrolled label uid=%s recording=%s speaker=%s",
+            uid, recording_id, speaker, exc_info=True,
+        )
+        return False
 
 
 class EnrollRequest(BaseModel):
@@ -265,6 +333,16 @@ async def enroll_voice(
         recording_id=body.recording_id, speaker=body.speaker, now_iso=now_iso,
     )
     await store.write_voiceprint(uid, profile)
+
+    # Relabel the VERY recording this was tapped on so it shows up in Growth
+    # immediately — the fix for "enrolled, but Growth still says no data yet"
+    # (the enrolled voiceprint alone never touched this recording's own stored
+    # labels before). Best-effort: never fails the enrollment response, which
+    # already carries the part that matters most (the voiceprint write above).
+    await _label_enrolled_and_persist(
+        store, uid, body.recording_id, rec, body.speaker, now_iso,
+    )
+
     logger.info(
         "Voice enrolled uid=%s recording=%s speaker=%s count=%d",
         uid, body.recording_id, body.speaker, profile["enroll_count"],
@@ -376,6 +454,119 @@ async def enroll_voice_direct(
         dim=profile["dim"],
         updated_at=profile["updated_at"],
     )
+
+
+class CatchUpResponse(BaseModel):
+    # How many not-yet-identified analyzed recordings were actually attempted
+    # (decode + match). Recordings already identified, never analyzed, or with
+    # no stored audio to decode are NOT wasted work — they don't count here
+    # except a no-audio recording, which IS an attempted-but-failed candidate.
+    checked: int
+    # Of those, how many were newly labeled "You" and persisted this call.
+    newly_identified: int
+
+
+@router.post("/catch-up", response_model=CatchUpResponse)
+async def catch_up_voice(
+    request: Request,
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+) -> CatchUpResponse:
+    """Bulk re-match already-stored recordings against the caller's ENROLLED
+    voiceprint — the "Catch up my past recordings" affordance on the empty
+    Growth screen, for recordings that predate enrollment entirely (the guided
+    "Train my voice" flow only ever writes the account-level voiceprint — it
+    never touches a single recording) or predate any "This is me" tap.
+
+    Deliberately NOT a full reanalyze: no re-transcription, just an audio
+    decode + embedding match against the ALREADY-computed turns (reusing
+    ``main._identify_enrolled_speakers`` — the exact function the initial
+    analysis pipeline and POST …/reanalyze use for this rung), so this endpoint
+    can cheaply process several stored recordings in one call where a full
+    reanalyze per recording would be needlessly expensive.
+
+    Honest gates: deps absent / storage disabled → 503 (same as ``enroll_voice``);
+    no enrolled voiceprint yet → ``{"checked": 0, "newly_identified": 0}``, never
+    a 422 — "nothing to catch up against yet" is a normal state the client
+    already renders (the empty-state copy), not an error.
+
+    Per-recording best-effort (house rule, same as ``_identify_enrolled_speakers``
+    itself: "enrollment matching must NEVER sink an analysis"): one recording's
+    decode/match failure is logged and skipped, never aborting the batch."""
+    if not speaker_id.is_available():
+        raise HTTPException(status_code=503, detail=_VOICE_UNAVAILABLE)
+    store = _require_store(request)
+
+    voiceprint = await store.read_voiceprint(uid)
+    if not voiceprint:
+        return CatchUpResponse(checked=0, newly_identified=0)
+
+    import main  # lazy — see _rate_limit's note on the circular import
+
+    metas = await store.list_recordings(uid)
+    analyzed_ids = [m["id"] for m in metas if m.get("has_analysis")]
+
+    checked = 0
+    newly_identified = 0
+    for recording_id in analyzed_ids:
+        try:
+            rec = await store.get_recording(uid, recording_id)
+        except Exception:  # noqa: BLE001 — one bad fetch must not sink the batch
+            logger.warning(
+                "Catch-up: failed to fetch uid=%s recording=%s",
+                uid, recording_id, exc_info=True,
+            )
+            continue
+        if rec is None:
+            continue
+        analysis = rec.get("analysis")
+        if not isinstance(analysis, dict):
+            continue  # never analyzed — not a candidate
+
+        # Same effective-label computation GET /growth uses — skip a recording
+        # that already has a confident "me" (no wasted re-matching).
+        effective = main._effective_speaker_labels(
+            analysis.get("speaker_labels"),
+            rec.get("manual_speaker_labels") or {},
+            main._recording_speaker_ids(rec),
+        )
+        already_identified = any(
+            entry.get("label_source") == main.LABEL_SOURCE_ENROLLED
+            for entry in effective.values()
+        )
+        if already_identified:
+            continue
+
+        checked += 1
+        try:
+            audio = await store.get_audio_bytes(uid, recording_id)
+            if not audio:
+                raise AudioDecodeError("no stored audio for this recording")
+            pcm, sr = await asyncio.to_thread(decode_to_pcm, audio, "audio.m4a")
+            turns = [main.AnalyzeTurn(**t) for t in (rec.get("turns") or [])]
+            report = await main._identify_enrolled_speakers(uid, pcm, sr, turns)
+        except Exception:  # noqa: BLE001 — one bad recording must not sink the batch
+            logger.warning(
+                "Catch-up: match failed uid=%s recording=%s",
+                uid, recording_id, exc_info=True,
+            )
+            continue
+
+        matched = report.get("matched_speaker") if report else None
+        if not matched:
+            continue  # honest no-match — never guess
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        if await _label_enrolled_and_persist(
+            store, uid, recording_id, rec, matched, now_iso,
+        ):
+            newly_identified += 1
+
+    logger.info(
+        "Voice catch-up uid=%s checked=%d newly_identified=%d",
+        uid, checked, newly_identified,
+    )
+    return CatchUpResponse(checked=checked, newly_identified=newly_identified)
 
 
 @router.delete("/samples/{sample_id}", response_model=DeleteSampleResponse)

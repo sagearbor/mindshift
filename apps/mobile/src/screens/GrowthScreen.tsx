@@ -9,7 +9,13 @@ import {
   useWindowDimensions,
 } from "react-native";
 
-import { getGrowth, type GrowthResult } from "../api/client";
+import {
+  catchUpVoice,
+  getGrowth,
+  getVoiceProfile,
+  type CatchUpResult,
+  type GrowthResult,
+} from "../api/client";
 import GrowthChart from "../components/GrowthChart";
 import {
   filterPoints,
@@ -81,6 +87,15 @@ export default function GrowthScreen({
   const { width: windowWidth } = useWindowDimensions();
   const [chartWidth, setChartWidth] = useState(windowWidth - 40);
 
+  // "Catch up my past recordings" — offered only once we know the caller has
+  // actually enrolled a voiceprint (GET /voice/profile). A failure here just
+  // means the affordance stays hidden, same "never crash on a status check"
+  // rule SpeakerEnrollment already follows.
+  const [voiceEnrolled, setVoiceEnrolled] = useState(false);
+  const [catchingUp, setCatchingUp] = useState(false);
+  const [catchUpResult, setCatchUpResult] = useState<CatchUpResult | null>(null);
+  const [catchUpError, setCatchUpError] = useState<string | null>(null);
+
   const load = useCallback(() => {
     setError(false);
     setResult(null);
@@ -91,6 +106,36 @@ export default function GrowthScreen({
 
   useEffect(() => {
     load();
+  }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getVoiceProfile()
+      .then((p) => {
+        if (!cancelled) setVoiceEnrolled(p.enrolled);
+      })
+      .catch(() => {
+        if (!cancelled) setVoiceEnrolled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleCatchUp = useCallback(() => {
+    setCatchingUp(true);
+    setCatchUpError(null);
+    catchUpVoice()
+      .then((res) => {
+        setCatchUpResult(res);
+        load(); // pull the newly identified points in immediately
+      })
+      .catch(() => {
+        setCatchUpError(
+          "Couldn’t check your past recordings. Please try again.",
+        );
+      })
+      .finally(() => setCatchingUp(false));
   }, [load]);
 
   const filters = useMemo<PartnerFilter[]>(() => {
@@ -134,6 +179,7 @@ export default function GrowthScreen({
       );
     }
     if (result.identified_recordings === 0) {
+      const offerCatchUp = voiceEnrolled && result.total_recordings > 0;
       return (
         <View style={styles.centerBox} testID="growth-empty">
           <Text style={styles.emptyTitle}>No growth data yet</Text>
@@ -143,9 +189,33 @@ export default function GrowthScreen({
                 "your voice by tapping “This is me” on your speaker."
               : `You have ${result.total_recordings} stored recording` +
                 `${result.total_recordings === 1 ? "" : "s"}, but none has ` +
-                "identified your voice yet. Open one and tap “This is me” on " +
-                "your speaker to start tracking your scores."}
+                "identified your voice yet. Tap “This is me” on a recording " +
+                "you're confident about" +
+                (offerCatchUp
+                  ? ", or use “Catch up my past recordings” below to " +
+                    "auto-match your enrolled voice against everything " +
+                    "you’ve already stored."
+                  : " to start tracking your scores.")}
           </Text>
+          {offerCatchUp ? (
+            <TouchableOpacity
+              testID="growth-catchup-cta"
+              accessibilityRole="button"
+              style={[styles.ctaButton, styles.catchUpButton]}
+              disabled={catchingUp}
+              onPress={handleCatchUp}
+            >
+              {catchingUp ? (
+                <ActivityIndicator
+                  size="small"
+                  color="#FFFFFF"
+                  testID="growth-catchup-pending"
+                />
+              ) : (
+                <Text style={styles.ctaText}>Catch up my past recordings</Text>
+              )}
+            </TouchableOpacity>
+          ) : null}
           <TouchableOpacity
             testID="growth-enroll-cta"
             accessibilityRole="button"
@@ -243,6 +313,24 @@ export default function GrowthScreen({
         </TouchableOpacity>
       )}
       <Text style={styles.heading}>Your growth</Text>
+      {/* Rendered OUTSIDE the empty/chart branches on purpose: a successful
+       *  catch-up refetches growth immediately, which can flip the screen
+       *  straight from the empty state to the chart — the result banner must
+       *  survive that transition instead of vanishing with the empty state. */}
+      {catchUpResult ? (
+        <Text style={styles.catchUpResult} testID="growth-catchup-result">
+          {catchUpResult.newly_identified > 0
+            ? `Found you in ${catchUpResult.newly_identified} of ` +
+              `${catchUpResult.checked} recordings`
+            : "No match found in your past recordings — try “This is me” " +
+              "on one you’re sure about"}
+        </Text>
+      ) : null}
+      {catchUpError ? (
+        <Text style={styles.error} testID="growth-catchup-error">
+          {catchUpError}
+        </Text>
+      ) : null}
       {renderBody()}
     </ScrollView>
   );
@@ -305,6 +393,24 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
     color: "#FFFFFF",
+  },
+  catchUpButton: {
+    marginBottom: 12,
+    backgroundColor: "#0F9D58",
+  },
+  catchUpResult: {
+    fontSize: 13.5,
+    lineHeight: 19,
+    color: "#0F9D58",
+    textAlign: "center",
+    marginBottom: 12,
+  },
+  error: {
+    fontSize: 13.5,
+    lineHeight: 19,
+    color: "#DC2626",
+    textAlign: "center",
+    marginBottom: 12,
   },
   chipRow: {
     marginBottom: 12,

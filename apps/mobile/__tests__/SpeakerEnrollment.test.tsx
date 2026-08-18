@@ -106,7 +106,12 @@ describe("SpeakerEnrollment", () => {
     await act(async () => {});
 
     expect(mockEnroll).toHaveBeenCalledWith("r1", "SPEAKER_00");
-    expect(JSON.stringify(comp.toJSON())).toContain("Voice saved");
+    const confirmText = JSON.stringify(comp.toJSON());
+    expect(confirmText).toContain("Voice saved");
+    // The confirmation is literally true for THIS recording now (Part A
+    // relabels it server-side), not just future ones — no hedging.
+    expect(confirmText).toContain("in this recording now");
+    expect(confirmText).toContain("every recording from now on");
 
     // The manage-it-later hint points at the shipped Settings naming (Phase
     // 0 renamed Advanced → Settings; the voice card lives in its "Voice"

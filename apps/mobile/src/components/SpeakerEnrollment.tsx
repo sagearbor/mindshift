@@ -36,7 +36,12 @@ interface SpeakerEnrollmentProps {
  * (`available` + `storage_enabled` from GET /voice/profile) — no dead button on
  * a server without the optional embedding deps. For each distinct diarized
  * speaker it offers a "This is me" tap that POSTs /voice/enroll and shows an
- * honest confirmation ("Voice saved — you'll be labeled 'You' from now on").
+ * honest confirmation ("Voice saved — you're labeled 'You' in this recording
+ * now, and in every recording from now on"). That confirmation is literally
+ * true for the CURRENT recording too: the server relabels the tapped
+ * recording's stored analysis in the same request (see voice.py's
+ * enroll_voice / _label_enrolled_and_persist), so this recording shows up in
+ * Growth immediately, not just future ones.
  *
  * Biometric transparency is stated up front and again in the confirmation: what
  * is stored is a numeric voice signature, not the audio.
@@ -116,8 +121,8 @@ export default function SpeakerEnrollment({
       <View style={styles.card} testID="speaker-enrollment">
         <Text style={styles.confirmTitle}>Voice saved</Text>
         <Text style={styles.confirmBody}>
-          You’ll be labeled “You” in your recordings from now on. We stored a
-          numeric voice signature — not your audio.
+          You’re labeled “You” in this recording now, and in every recording
+          from now on. We stored a numeric voice signature — not your audio.
         </Text>
         <Text style={styles.manageHint} testID="speaker-enrollment-manage-hint">
           You can remove it anytime under Settings → Voice → “Forget my voice”.
