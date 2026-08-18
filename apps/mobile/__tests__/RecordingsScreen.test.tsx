@@ -4,6 +4,7 @@ import RecordingsScreen, {
   formatParticipants,
 } from "../src/screens/RecordingsScreen";
 import { listRecordingsAndShared, deleteRecording } from "../src/api/client";
+import { deleteCachedMedia } from "../src/utils/mediaCache";
 import type {
   RecordingSummary,
   SharedRecordingSummary,
@@ -15,6 +16,16 @@ jest.mock("../src/api/client", () => ({
 }));
 const mockList = listRecordingsAndShared as jest.Mock;
 const mockDelete = deleteRecording as jest.Mock;
+
+// Mock the local media-disk-cache util (2026-08-18): confirmDelete hooks
+// into it for best-effort cleanup. Its own file-system behavior is covered
+// independently in __tests__/mediaCache.test.ts — here we only assert the
+// wiring (called with the right id, and only after a successful delete).
+jest.mock("../src/utils/mediaCache", () => ({
+  __esModule: true,
+  deleteCachedMedia: jest.fn().mockResolvedValue(undefined),
+}));
+const mockDeleteCachedMedia = deleteCachedMedia as jest.Mock;
 
 /** Resolve the list call with owned + (optional) shared recordings. */
 function resolveList(
@@ -65,6 +76,8 @@ function queryId(comp: renderer.ReactTestRenderer, id: string): ReactTestInstanc
 beforeEach(() => {
   mockList.mockReset();
   mockDelete.mockReset();
+  mockDeleteCachedMedia.mockReset();
+  mockDeleteCachedMedia.mockResolvedValue(undefined);
 });
 
 describe("RecordingsScreen", () => {
@@ -146,6 +159,8 @@ describe("RecordingsScreen", () => {
     expect(queryId(comp, "recording-r1")).toBeNull();
     // The other recording remains.
     expect(queryId(comp, "recording-r2")).toBeTruthy();
+    // Best-effort local-cache cleanup rides along with a successful delete.
+    expect(mockDeleteCachedMedia).toHaveBeenCalledWith("r1");
     act(() => comp.unmount());
   });
 
@@ -164,6 +179,34 @@ describe("RecordingsScreen", () => {
     expect(queryId(comp, "confirm-r1")).toBeNull();
     expect(mockDelete).not.toHaveBeenCalled();
     expect(queryId(comp, "recording-r1")).toBeTruthy();
+    // No server-side delete happened, so the local cache is left untouched.
+    expect(mockDeleteCachedMedia).not.toHaveBeenCalled();
+    act(() => comp.unmount());
+  });
+
+  it("does NOT clean up the local cache when the server-side delete fails — the recording still exists", async () => {
+    resolveList(recordings);
+    mockDelete.mockRejectedValueOnce(new Error("API error: 503"));
+
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(
+        <RecordingsScreen onSelectRecording={() => {}} onBack={() => {}} />,
+      );
+    });
+    await act(async () => {});
+
+    act(() => comp.root.find((n) => n.props?.testID === "recording-delete-r1").props.onPress());
+    await act(async () => {
+      comp.root.find((n) => n.props?.testID === "confirm-yes-r1").props.onPress();
+    });
+    await act(async () => {});
+
+    expect(mockDelete).toHaveBeenCalledWith("r1");
+    // The row stays (delete failed) — a cache-cleanup here would force a
+    // needless re-fetch next replay for a recording that never went away.
+    expect(queryId(comp, "recording-r1")).toBeTruthy();
+    expect(mockDeleteCachedMedia).not.toHaveBeenCalled();
     act(() => comp.unmount());
   });
 

@@ -11,6 +11,7 @@ import { listRecordingsAndShared, deleteRecording } from "../api/client";
 import type { RecordingSummary, SharedRecordingSummary } from "../api/client";
 import { formatTime } from "../components/MediaPlayer";
 import { formatDateTime } from "../utils/dateDisplay";
+import { deleteCachedMedia } from "../utils/mediaCache";
 
 // House colors.
 const PRIMARY = "#4A90D9";
@@ -123,6 +124,13 @@ export default function RecordingsScreen({
     setDeleteError(null);
     try {
       await deleteRecording(id);
+      // Best-effort local-cache cleanup (2026-08-18): only after the server
+      // confirms the delete — a failed deleteRecording must leave any cached
+      // copy alone, since the recording still exists and would otherwise be
+      // forced to re-fetch from the network on its next replay for no reason.
+      // Fire-and-forget, fail-open — mirrors avatarStore.ts's deleteAvatarFile;
+      // never blocks or fails this action over a cache-cleanup miss.
+      void deleteCachedMedia(id);
       if (mountedRef.current) {
         setRecordings((prev) => prev.filter((r) => r.id !== id));
         setConfirmingId(null);
