@@ -314,6 +314,45 @@ async def test_upload_one_speaker_adopts_local_diarization(client):
 
 
 @pytest.mark.anyio
+async def test_upload_crosscheck_resamples_non_16k_audio_before_diarizing(client):
+    """A real phone recording is rarely natively 16kHz (44.1/48kHz are common).
+    diarize_local.diarize_turns hard-requires 16kHz PCM (speaker_id.embed_pcm
+    raises SpeakerIdUnavailable otherwise, with no internal resampling) — so the
+    cross-check must decode/resample to 16kHz before calling it, independent of
+    whatever rate the upload natively decodes at. Before this fix, main.py fed
+    diarize_turns the SAME native-rate pcm/sr used for prosody, so on any
+    non-16kHz upload the cross-check silently raised internally and was
+    swallowed by the broad except-Exception guard — the safety net built to
+    catch exactly this class of vendor diarization regression never actually
+    ran on real (non-16kHz) recordings."""
+    native_wav = _wav_bytes(FIXTURE_PCM, sr=44100)
+    payload = _local_diarization_payload(MOCK_TURNS_COLLAPSED)
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS_COLLAPSED, None)), \
+         patch("main.get_llm_client",
+               return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))), \
+         patch("diarize_local.diarize_turns", return_value=payload) as dz:
+        resp = await client.post(
+            "/analyze/upload",
+            files={"file": ("clip.wav", native_wav, "audio/wav")},
+        )
+    assert resp.status_code == 200, resp.text
+    dz.assert_called_once()
+    # dz.call_args is (pcm, sr, turns) — the sr diarize_turns actually received.
+    called_sr = dz.call_args.args[1]
+    assert called_sr == 16000, (
+        f"diarize_turns was called with sr={called_sr}, not 16000 — the "
+        "cross-check will raise SpeakerIdUnavailable internally and be "
+        "silently swallowed on any non-16kHz upload"
+    )
+    # The cross-check actually adopted its result — proof it ran for real,
+    # not just that it was invoked with the right rate.
+    data = resp.json()
+    assert [t["speaker"] for t in data["turns"]] == [
+        t["speaker"] for t in payload["turns"]
+    ]
+
+
+@pytest.mark.anyio
 async def test_upload_two_speakers_skips_local_diarization(client):
     with patch("main.transcribe_upload", return_value=(MOCK_TURNS, None)), \
          patch("main.get_llm_client",
