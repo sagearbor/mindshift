@@ -56,6 +56,7 @@ from audio_ingest import (
     TranscriptionUnavailable,
     build_derivatives,
     decode_to_pcm,
+    decode_to_pcm_16k,
     transcribe_upload,
 )
 from audio_pipeline import UUID_PATTERN, audio_ws_endpoint
@@ -2458,8 +2459,22 @@ async def _analyze_recording_bytes(
         )
         if transcript_speakers < 2 or run_crosscheck:
             try:
+                # diarize_local.diarize_turns hard-requires 16kHz PCM
+                # (speaker_id.embed_pcm raises SpeakerIdUnavailable on any
+                # other rate, with no internal resampling) — decode
+                # SEPARATELY at 16kHz for this call rather than reusing the
+                # native-rate `pcm`/`sr` above (which prosody needs at its
+                # own rate): most real phone recordings are 44.1/48kHz, and
+                # feeding those in natively made this cross-check silently
+                # raise-and-get-swallowed by the except below on virtually
+                # every non-16kHz upload — the exact vendor-regression safety
+                # net this exists for was effectively never running.
+                crosscheck_pcm, crosscheck_sr = await asyncio.to_thread(
+                    decode_to_pcm_16k, data, filename or "",
+                )
                 local = await asyncio.to_thread(
-                    diarize_local.diarize_turns, pcm, sr, diarize_input,
+                    diarize_local.diarize_turns,
+                    crosscheck_pcm, crosscheck_sr, diarize_input,
                 )
             except Exception as exc:  # noqa: BLE001 — optional cross-check
                 logger.warning("local diarization failed (ignored): %s", exc)
