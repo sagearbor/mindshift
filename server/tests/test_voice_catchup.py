@@ -261,7 +261,6 @@ async def test_catchup_skips_already_identified_recording(client, store, monkeyp
 
 async def test_catchup_no_match_is_honest_zero(client, store, monkeypatch):
     # Neither speaker clears the match threshold — checked, but not identified.
-    weak_you = np.array([1.0, 0.0], dtype=np.float32)
     e_you = np.array([1.0, 0.0], dtype=np.float32)
     weak = np.array([0.1, np.sqrt(1 - 0.01)], dtype=np.float32)
     await store.write_voiceprint("u1", {"embedding": e_you.tolist()})
