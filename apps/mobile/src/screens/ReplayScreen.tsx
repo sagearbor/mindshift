@@ -24,6 +24,7 @@ import type {
   JobStatus,
   SpeakerLabel,
   PatchSpeakerLabelsResult,
+  MediaType,
 } from "../api/client";
 import HeatChart from "../components/HeatChart";
 import MediaPlayer, { MediaPlayerHandle } from "../components/MediaPlayer";
@@ -33,6 +34,7 @@ import {
   type SegmentAudition,
 } from "../components/auditionPlayback";
 import { speakerLabel } from "../utils/speakerLabels";
+import { getCachedMediaUri, cacheMediaInBackground } from "../utils/mediaCache";
 import RecordingShareManager from "../components/RecordingShareManager";
 import SpeakerEnrollment from "../components/SpeakerEnrollment";
 import SpeakerNaming from "../components/SpeakerNaming";
@@ -161,6 +163,12 @@ export default function ReplayScreen({
   // watchdog reads it to tell "loaded" from "stuck buffering". A ref (not state)
   // so updating it from the duration callback never re-renders.
   const durationKnownRef = useRef(false);
+  // The current recording's media type, set alongside `setDetail` in `load()`
+  // — read (not a dependency) by `loadDerivative`, which is also called from
+  // callbacks created before `detail` state existed (handlePlayerError, the
+  // load-timeout watchdog), so a ref avoids any stale-closure risk. Only used
+  // to pick the local cache filename's extension (see ../utils/mediaCache).
+  const mediaTypeRef = useRef<MediaType>("audio");
 
   // Playback position (seconds), pushed up from MediaPlayer at ~4Hz to drive the
   // heat chart playhead.
@@ -260,12 +268,32 @@ export default function ReplayScreen({
 
   // Resolve the stored derivative URL (our own copy). Shared by the upload path,
   // the link fallback, and the player-error fallback.
+  //
+  // Local-cache-first (2026-08-18): before touching the network at all, check
+  // whether this recording's media is already cached on disk from a PRIOR
+  // play (native only — see ../utils/mediaCache's doc comment). A hit hands
+  // the player a local `file://` uri with zero network calls and an instant
+  // start; nothing below this branch runs. A miss falls through to EXACTLY
+  // today's behavior — fetch the signed media_url and stream it — and only
+  // ADDS a fire-and-forget background download of that same url so the NEXT
+  // play/replay is a cache hit. First-play start time for a large video is
+  // unaffected either way: streaming never waits on the download.
   const loadDerivative = useCallback(async () => {
+    const mediaType = mediaTypeRef.current;
+    const cachedUri = getCachedMediaUri(recordingId, mediaType);
+    if (cachedUri) {
+      if (mountedRef.current) {
+        setMediaUrl(cachedUri);
+        setHd(false);
+      }
+      return;
+    }
     const media = await getRecordingMediaUrl(recordingId);
     if (mountedRef.current) {
       setMediaUrl(media.url);
       setHd(false);
     }
+    cacheMediaInBackground(recordingId, mediaType, media.url);
   }, [recordingId, setHd]);
 
   const load = useCallback(async (): Promise<RecordingDetail | null> => {
@@ -281,6 +309,7 @@ export default function ReplayScreen({
       // Detail first — its `source` decides whether a "Try HD" opt-in is offered.
       const rec = await getRecording(recordingId);
       fetched = rec;
+      mediaTypeRef.current = rec.media_type;
       if (mountedRef.current) {
         setDetail(rec);
         // Fresh read — the stored analysis already carries any manual overrides

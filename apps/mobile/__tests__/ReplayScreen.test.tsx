@@ -13,6 +13,7 @@ import {
 } from "../src/api/client";
 import type { RecordingDetail } from "../src/api/client";
 import { setPlaybackMode } from "../src/utils/audioMode";
+import { getCachedMediaUri, cacheMediaInBackground } from "../src/utils/mediaCache";
 
 // Mock the network fns.
 jest.mock("../src/api/client", () => ({
@@ -60,6 +61,19 @@ jest.mock("../src/utils/audioMode", () => ({
   setRecordingMode: jest.fn().mockResolvedValue(undefined),
 }));
 const mockSetPlaybackMode = setPlaybackMode as jest.Mock;
+
+// Mock the local media-disk-cache util (2026-08-18): `getCachedMediaUri`
+// defaults to a miss (null) so every EXISTING test below — none of which know
+// about the cache — keeps exercising exactly the pre-cache network path
+// (fetch media_url, stream it). Cache-hit/miss wiring gets its own dedicated
+// describe block further down, which overrides these per test.
+jest.mock("../src/utils/mediaCache", () => ({
+  __esModule: true,
+  getCachedMediaUri: jest.fn(() => null),
+  cacheMediaInBackground: jest.fn(),
+}));
+const mockGetCachedMediaUri = getCachedMediaUri as jest.Mock;
+const mockCacheMediaInBackground = cacheMediaInBackground as jest.Mock;
 
 // Mock the media player wholesale (per the brief): a host view that forwards a
 // ref exposing a shared `seek` spy, so tap-to-seek can be asserted without
@@ -142,6 +156,9 @@ beforeEach(() => {
   mockSetPlaybackMode.mockClear();
   mockReanalyze.mockReset();
   mockGetJob.mockReset();
+  mockGetCachedMediaUri.mockReset();
+  mockGetCachedMediaUri.mockReturnValue(null);
+  mockCacheMediaInBackground.mockReset();
   mockPlayerProps.uri = undefined;
   mockPlayerProps.onError = undefined;
   mockPlayerProps.onDurationChange = undefined;
@@ -1220,5 +1237,74 @@ describe("ReplayScreen speaker audition", () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+// Local disk cache (2026-08-18 brief): replaying a stored recording should
+// stop re-downloading from the network every time. These tests exercise the
+// SEAM (mediaCache mocked wholesale, per this file's convention) rather than
+// the real file-system code — that's covered independently in
+// __tests__/mediaCache.test.ts.
+describe("ReplayScreen local media cache", () => {
+  it("a cache hit skips the network entirely: no media_url fetch, player gets the local uri", async () => {
+    mockGetRecording.mockResolvedValueOnce(detail);
+    mockGetCachedMediaUri.mockReturnValue("file:///cache/media/r1.m4a");
+
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(<ReplayScreen recordingId="r1" onBack={() => {}} />);
+    });
+    await act(async () => {});
+
+    expect(mockGetCachedMediaUri).toHaveBeenCalledWith("r1", "audio");
+    // Zero network calls for media — the whole point of a cache hit.
+    expect(mockGetMediaUrl).not.toHaveBeenCalled();
+    expect(mockCacheMediaInBackground).not.toHaveBeenCalled();
+    expect(mockPlayerProps.uri).toBe("file:///cache/media/r1.m4a");
+    expect(queryId(comp, "replay-content")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("a cache miss streams the remote url exactly as before AND kicks off a background cache for next time", async () => {
+    mockGetRecording.mockResolvedValueOnce(detail);
+    mockGetCachedMediaUri.mockReturnValue(null); // explicit miss
+    mockGetMediaUrl.mockResolvedValueOnce({ url: "https://signed/x", expires_in: 600 });
+
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(<ReplayScreen recordingId="r1" onBack={() => {}} />);
+    });
+    await act(async () => {});
+
+    // Unchanged first-play behavior: still streams the remote signed url.
+    expect(mockGetMediaUrl).toHaveBeenCalledWith("r1");
+    expect(mockPlayerProps.uri).toBe("https://signed/x");
+    // ...but now ALSO opportunistically caches it for the next replay.
+    expect(mockCacheMediaInBackground).toHaveBeenCalledWith(
+      "r1",
+      "audio",
+      "https://signed/x",
+    );
+    act(() => comp.unmount());
+  });
+
+  it("keys the cache lookup by media type so a video recording checks for its own extension", async () => {
+    mockGetRecording.mockResolvedValueOnce({ ...detail, media_type: "video" });
+    mockGetCachedMediaUri.mockReturnValue(null);
+    mockGetMediaUrl.mockResolvedValueOnce({ url: "https://signed/vid", expires_in: 600 });
+
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(<ReplayScreen recordingId="r1" onBack={() => {}} />);
+    });
+    await act(async () => {});
+
+    expect(mockGetCachedMediaUri).toHaveBeenCalledWith("r1", "video");
+    expect(mockCacheMediaInBackground).toHaveBeenCalledWith(
+      "r1",
+      "video",
+      "https://signed/vid",
+    );
+    act(() => comp.unmount());
   });
 });
