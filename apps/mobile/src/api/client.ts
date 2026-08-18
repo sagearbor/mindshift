@@ -1874,10 +1874,13 @@ export async function enrollVoiceDirect(
 }
 
 /** POST /voice/catch-up response — how many past recordings were examined vs.
- *  actually newly labeled "You" this call. */
+ *  actually newly labeled "You" this call, plus how many eligible candidates
+ *  were left un-attempted because the server's per-call batch cap was hit
+ *  (a future call — e.g. tapping the CTA again — would pick these up). */
 export interface CatchUpResult {
   checked: number;
   newly_identified: number;
+  remaining: number;
 }
 
 /**

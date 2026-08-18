@@ -96,10 +96,10 @@ describe("deleteVoiceSample", () => {
 });
 
 describe("catchUpVoice", () => {
-  it("POSTs /voice/catch-up and returns the checked/newly_identified counts", async () => {
+  it("POSTs /voice/catch-up and returns the checked/newly_identified/remaining counts", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ checked: 5, newly_identified: 3 }),
+      json: async () => ({ checked: 5, newly_identified: 3, remaining: 2 }),
     });
 
     const result = await catchUpVoice();
@@ -107,7 +107,7 @@ describe("catchUpVoice", () => {
     const [url, init] = mockFetch.mock.calls[0];
     expect(url).toContain("/voice/catch-up");
     expect(init.method).toBe("POST");
-    expect(result).toEqual({ checked: 5, newly_identified: 3 });
+    expect(result).toEqual({ checked: 5, newly_identified: 3, remaining: 2 });
   });
 
   it("throws with .status and the server's honest detail on a non-OK", async () => {

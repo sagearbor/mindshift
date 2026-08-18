@@ -49,11 +49,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
+import episodes
 import recordings_store
 import speaker_id
 from audio_ingest import AudioDecodeError, decode_to_pcm, decode_to_pcm_16k
@@ -66,6 +69,76 @@ router = APIRouter(prefix="/voice", tags=["voice"])
 
 _VOICE_UNAVAILABLE = "voice enrollment not available on this server"
 _STORAGE_DISABLED = "recording storage is not enabled"
+
+# Same default as main.EPISODE_GAP_SECONDS (kept independently readable here
+# rather than importing main at module load time — see _rate_limit's note on
+# the main<->voice circular import; both read the SAME env var so a deployed
+# override stays in sync across both modules).
+_EPISODE_GAP_SECONDS = float(os.getenv("EPISODE_GAP_SECONDS", "60"))
+
+# Up to this many not-yet-identified candidates are actually decoded+matched
+# per /voice/catch-up call — each candidate is a GCS download + ffmpeg decode
+# + speechbrain embedding, the single most expensive per-item cost in the API.
+# Any candidates beyond the cap are reported via CatchUpResponse.remaining
+# rather than silently ignored.
+_CATCHUP_BATCH_LIMIT = 25
+
+# A dedicated, much TIGHTER per-IP budget than the generic per-route limiter
+# (main._rate_limit / RATE_LIMIT_PER_MINUTE, default 60/min shared by every
+# other route) — catch-up can decode+embed up to _CATCHUP_BATCH_LIMIT
+# recordings in a single call, so the generic budget is far too loose here.
+# A small, self-contained fixed-window counter (same algorithm as
+# main._RateLimiter) rather than a lazy cross-module construction — this
+# router already avoids importing main at module load time.
+_CATCHUP_RATE_LIMIT_PER_MINUTE = int(
+    os.getenv("VOICE_CATCHUP_RATE_LIMIT_PER_MINUTE", "5")
+)
+
+
+class _CatchUpRateLimiter:
+    """Fixed-window per-key request counter, scoped to /voice/catch-up only."""
+
+    def __init__(self, limit_per_minute: int, window_s: float = 60.0) -> None:
+        self.limit = limit_per_minute
+        self.window_s = window_s
+        self._hits: dict[str, tuple[float, int]] = {}
+        self._lock = asyncio.Lock()
+
+    async def allow(self, key: str) -> bool:
+        async with self._lock:
+            now = time.monotonic()
+            start, count = self._hits.get(key, (now, 0))
+            if now - start >= self.window_s:
+                start, count = now, 0  # window elapsed — reset
+            count += 1
+            self._hits[key] = (start, count)
+            return count <= self.limit
+
+    def reset(self) -> None:
+        """Drop all counters (used by tests to isolate windows)."""
+        self._hits.clear()
+
+
+_catchup_rate_limiter = _CatchUpRateLimiter(_CATCHUP_RATE_LIMIT_PER_MINUTE)
+
+
+async def _catchup_rate_limit(request: Request) -> None:
+    """A much tighter per-IP budget than ``_rate_limit`` — see the comment
+    above ``_CATCHUP_RATE_LIMIT_PER_MINUTE``. Honors the same
+    ``RATE_LIMIT_ENABLED`` escape hatch main.py's limiter does (read lazily —
+    main isn't imported at module load — so tests can disable rate limiting
+    globally the same way they already do for the rest of the API)."""
+    import main  # lazy — see _rate_limit's note on the circular import
+
+    if not main.RATE_LIMIT_ENABLED:
+        return
+    client = request.client
+    key = client.host if client else "unknown"
+    if not await _catchup_rate_limiter.allow(key):
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded — too many requests; please slow down.",
+        )
 
 # The provenance note stored on (and shown for) a guided-enrollment sample —
 # these samples have no source recording, so the note IS their provenance.
@@ -107,6 +180,7 @@ def _require_store(request: Request) -> "recordings_store.RecordingsStore":
 # else — confirmed by reading that model, which has only those two fields.
 _ENROLLED_LABEL_SOURCE = "enrolled"
 _ENROLLED_DISPLAY_LABEL = "You"
+_GENERIC_LABEL_SOURCE = "generic"
 
 
 async def _label_enrolled_and_persist(
@@ -125,6 +199,21 @@ async def _label_enrolled_and_persist(
     carries ``label_source="manual"`` and is the human-correction rung, not this
     one (see main.py's label-ladder docstring).
 
+    At most ONE speaker may carry "enrolled" (``main._growth_point`` requires
+    EXACTLY one — two reads as "no confident me" and drops the recording out of
+    Growth entirely). Any OTHER speaker currently holding "enrolled" — a stale
+    auto-match from the original analysis, or an earlier "This is me" tap being
+    corrected — is demoted to a plain generic label first, so a correction
+    tap (SpeakerEnrollment offers "This is me" on every speaker, filtered on
+    nothing) can never leave two speakers both "enrolled".
+
+    Also keeps ``analysis["speaker_identity"].matched_speaker`` in agreement
+    (``episodes_from_analysis`` PREFERS it over ``speaker_labels`` when
+    present — a stale identity would keep showing a stale/wrong "You" in the
+    day-timeline even after this correctly relabels ``speaker_labels``), and
+    recomputes ``analysis["episodes"]`` when present so its ``participants``
+    reflect the new label immediately rather than waiting for a reanalysis.
+
     Best-effort by design (same "swallow and log" house style as
     ``main._identify_enrolled_speakers``): returns ``False`` — never raises —
     when ``rec`` has no analysis to update, or when the persist itself fails
@@ -138,11 +227,44 @@ async def _label_enrolled_and_persist(
     try:
         updated = dict(analysis)
         labels = dict(updated.get("speaker_labels") or {})
+
+        # Demote any OTHER "enrolled" speaker before writing the new one.
+        for other, entry in labels.items():
+            if (
+                other != speaker
+                and isinstance(entry, dict)
+                and entry.get("label_source") == _ENROLLED_LABEL_SOURCE
+            ):
+                labels[other] = {
+                    "display_label": other, "label_source": _GENERIC_LABEL_SOURCE,
+                }
+
         labels[speaker] = {
             "display_label": _ENROLLED_DISPLAY_LABEL,
             "label_source": _ENROLLED_LABEL_SOURCE,
         }
         updated["speaker_labels"] = labels
+
+        # Keep speaker_identity in agreement — episodes_from_analysis prefers
+        # its matched_speaker over speaker_labels when both are present.
+        existing_identity = updated.get("speaker_identity")
+        identity = dict(existing_identity) if isinstance(existing_identity, dict) else {}
+        identity["matched_speaker"] = speaker
+        updated["speaker_identity"] = identity
+
+        # Recompute stored episodes (participants) so the day timeline agrees
+        # with the new label immediately — only when this analysis carries
+        # episodes at all (older/degraded analyses may not).
+        if isinstance(updated.get("episodes"), list):
+            updated["episodes"] = episodes.segment_episodes(
+                rec.get("turns") or [],
+                per_turn=updated.get("per_turn"),
+                speaker_labels=labels,
+                speaker_identity=identity,
+                title=updated.get("title"),
+                gap_seconds=_EPISODE_GAP_SECONDS,
+            )
+
         result = await store.overwrite_analysis(
             uid, recording_id,
             turns=rec.get("turns") or [],
@@ -458,19 +580,26 @@ async def enroll_voice_direct(
 
 class CatchUpResponse(BaseModel):
     # How many not-yet-identified analyzed recordings were actually attempted
-    # (decode + match). Recordings already identified, never analyzed, or with
-    # no stored audio to decode are NOT wasted work — they don't count here
-    # except a no-audio recording, which IS an attempted-but-failed candidate.
+    # (decode + match) THIS call. Recordings already identified, never
+    # analyzed, or beyond the per-call batch cap are NOT wasted work — they
+    # don't count here — except a no-audio recording, which IS an
+    # attempted-but-failed candidate.
     checked: int
-    # Of those, how many were newly labeled "You" and persisted this call.
+    # Of those, how many are now EFFECTIVELY identified (confirmed by
+    # re-computing the read-time label, not just "the write succeeded") —
+    # this is exactly the count Growth will show for this call.
     newly_identified: int
+    # Not-yet-identified candidates that exist but were NOT attempted this
+    # call because the batch cap (_CATCHUP_BATCH_LIMIT) was reached — a
+    # future call (the client can offer "keep going") would pick these up.
+    remaining: int
 
 
 @router.post("/catch-up", response_model=CatchUpResponse)
 async def catch_up_voice(
     request: Request,
     uid: str = Depends(get_current_uid),
-    _rl: None = Depends(_rate_limit),
+    _rl: None = Depends(_catchup_rate_limit),
 ) -> CatchUpResponse:
     """Bulk re-match already-stored recordings against the caller's ENROLLED
     voiceprint — the "Catch up my past recordings" affordance on the empty
@@ -483,12 +612,20 @@ async def catch_up_voice(
     ``main._identify_enrolled_speakers`` — the exact function the initial
     analysis pipeline and POST …/reanalyze use for this rung), so this endpoint
     can cheaply process several stored recordings in one call where a full
-    reanalyze per recording would be needlessly expensive.
+    reanalyze per recording would be needlessly expensive. Capped at
+    ``_CATCHUP_BATCH_LIMIT`` decode+match attempts per call (most-recent
+    candidates first — ``list_recordings`` is already newest-first) and rate
+    limited far more tightly than the rest of the API (``_catchup_rate_limit``)
+    — this is the single most expensive endpoint in the API.
 
     Honest gates: deps absent / storage disabled → 503 (same as ``enroll_voice``);
-    no enrolled voiceprint yet → ``{"checked": 0, "newly_identified": 0}``, never
-    a 422 — "nothing to catch up against yet" is a normal state the client
-    already renders (the empty-state copy), not an error.
+    no enrolled voiceprint yet → ``{"checked": 0, "newly_identified": 0,
+    "remaining": 0}``, never a 422 — "nothing to catch up against yet" is a
+    normal state the client already renders (the empty-state copy), not an
+    error. A candidate whose matched speaker was already given a MANUAL label
+    by the user is skipped entirely (no persist, no count) — a human's
+    explicit correction is never silently overwritten by an automatic match,
+    even though the manual overlay would already hide the effect at read time.
 
     Per-recording best-effort (house rule, same as ``_identify_enrolled_speakers``
     itself: "enrollment matching must NEVER sink an analysis"): one recording's
@@ -499,7 +636,7 @@ async def catch_up_voice(
 
     voiceprint = await store.read_voiceprint(uid)
     if not voiceprint:
-        return CatchUpResponse(checked=0, newly_identified=0)
+        return CatchUpResponse(checked=0, newly_identified=0, remaining=0)
 
     import main  # lazy — see _rate_limit's note on the circular import
 
@@ -508,6 +645,7 @@ async def catch_up_voice(
 
     checked = 0
     newly_identified = 0
+    remaining = 0
     for recording_id in analyzed_ids:
         try:
             rec = await store.get_recording(uid, recording_id)
@@ -523,18 +661,24 @@ async def catch_up_voice(
         if not isinstance(analysis, dict):
             continue  # never analyzed — not a candidate
 
+        manual = rec.get("manual_speaker_labels") or {}
+
         # Same effective-label computation GET /growth uses — skip a recording
         # that already has a confident "me" (no wasted re-matching).
         effective = main._effective_speaker_labels(
-            analysis.get("speaker_labels"),
-            rec.get("manual_speaker_labels") or {},
-            main._recording_speaker_ids(rec),
+            analysis.get("speaker_labels"), manual, main._recording_speaker_ids(rec),
         )
         already_identified = any(
             entry.get("label_source") == main.LABEL_SOURCE_ENROLLED
             for entry in effective.values()
         )
         if already_identified:
+            continue
+
+        # A genuine remaining candidate. Once the per-call batch cap is hit,
+        # stop doing expensive work but keep counting how many are left.
+        if checked >= _CATCHUP_BATCH_LIMIT:
+            remaining += 1
             continue
 
         checked += 1
@@ -556,17 +700,43 @@ async def catch_up_voice(
         if not matched:
             continue  # honest no-match — never guess
 
+        # A human already named this speaker — never silently overwritten by
+        # an automatic match, even though the manual overlay already hides
+        # the effect right now (clearing that manual label later would
+        # otherwise wrongly reveal "You").
+        manual_name = manual.get(matched)
+        if isinstance(manual_name, str) and manual_name.strip():
+            continue
+
         now_iso = datetime.now(timezone.utc).isoformat()
-        if await _label_enrolled_and_persist(
+        if not await _label_enrolled_and_persist(
             store, uid, recording_id, rec, matched, now_iso,
         ):
+            continue
+
+        # Confirm the recording is now EFFECTIVELY identified — mirrors
+        # exactly what GET /growth computes — rather than trusting
+        # persist-success alone (a manual label makes the write invisible;
+        # after the guard above that can't happen for `matched` itself, but
+        # this keeps the count honest against any future overlay subtlety).
+        after_labels = dict(analysis.get("speaker_labels") or {})
+        after_labels[matched] = {
+            "display_label": _ENROLLED_DISPLAY_LABEL,
+            "label_source": _ENROLLED_LABEL_SOURCE,
+        }
+        after_effective = main._effective_speaker_labels(
+            after_labels, manual, main._recording_speaker_ids(rec),
+        )
+        if after_effective.get(matched, {}).get("label_source") == main.LABEL_SOURCE_ENROLLED:
             newly_identified += 1
 
     logger.info(
-        "Voice catch-up uid=%s checked=%d newly_identified=%d",
-        uid, checked, newly_identified,
+        "Voice catch-up uid=%s checked=%d newly_identified=%d remaining=%d",
+        uid, checked, newly_identified, remaining,
     )
-    return CatchUpResponse(checked=checked, newly_identified=newly_identified)
+    return CatchUpResponse(
+        checked=checked, newly_identified=newly_identified, remaining=remaining,
+    )
 
 
 @router.delete("/samples/{sample_id}", response_model=DeleteSampleResponse)

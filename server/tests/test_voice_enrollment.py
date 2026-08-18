@@ -534,3 +534,101 @@ async def test_enroll_persist_failure_is_swallowed(client, voice_store, monkeypa
     assert res.status_code == 200, res.text
     assert res.json()["enrolled"] is True
     assert "u1" in voice_store._voiceprints  # the part that matters most
+
+
+# ---------------------------------------------------------------------------
+# Critical regression: a correction tap must never leave TWO "enrolled"
+# speakers (main._growth_point requires EXACTLY one — two silently drops the
+# recording out of Growth entirely).
+# ---------------------------------------------------------------------------
+
+def _identified_analysis(me="Speaker B"):
+    """Analysis where ``me`` is ALREADY "enrolled" — simulates a prior (right
+    or wrong) auto-match / "This is me" tap, for testing the demotion fix."""
+    a = _unidentified_analysis()
+    a["speaker_labels"][me] = {"display_label": "You", "label_source": "enrolled"}
+    return a
+
+
+async def test_enroll_correcting_a_wrong_match_demotes_the_old_one(
+    client, voice_store, monkeypatch,
+):
+    # The exact critical-bug scenario: the original analysis auto-matched the
+    # WRONG speaker (B) as "You". The user opens the recording and taps "This
+    # is me" on the RIGHT speaker (A) to correct it. Before the fix this left
+    # BOTH speakers "enrolled" — the recording would silently vanish from
+    # Growth (strictly worse than before this feature existed: the wrong
+    # single point at least stayed visible).
+    rid = _rid()
+    voice_store.add_recording(
+        "u1", rid, TURNS, analysis=_identified_analysis(me="Speaker B"),
+    )
+    _enroll_ready(monkeypatch, np.array([1.0, 0.0, 0.0], dtype=np.float32))
+
+    res = await client.post(
+        "/voice/enroll", json={"recording_id": rid, "speaker": "Speaker A"},
+        headers={"X-Test-Uid": "u1"},
+    )
+    assert res.status_code == 200, res.text
+
+    growth = await client.get("/growth", headers={"X-Test-Uid": "u1"})
+    body = growth.json()
+    assert body["identified_recordings"] == 1
+    assert len(body["points"]) == 1
+    assert body["points"][0]["recording_id"] == rid
+
+    detail = await client.get(f"/recordings/{rid}", headers={"X-Test-Uid": "u1"})
+    labels = detail.json()["speaker_labels"]
+    assert labels["Speaker A"] == {
+        "display_label": "You", "label_source": "enrolled",
+    }
+    # Speaker B — the old (wrong) match — is demoted, never left "enrolled".
+    assert labels["Speaker B"]["label_source"] != "enrolled"
+
+
+async def test_enroll_recomputes_stale_episodes_and_speaker_identity(
+    client, voice_store, monkeypatch,
+):
+    # The stored episodes + speaker_identity were both stale: matched_speaker
+    # said "Speaker B" (wrong). episodes_from_analysis PREFERS
+    # speaker_identity.matched_speaker over speaker_labels, so a stale
+    # identity can keep showing the WRONG speaker as "You" in the day
+    # timeline even after speaker_labels is correctly relabeled.
+    import episodes as episodes_mod
+
+    rid = _rid()
+    analysis = _unidentified_analysis()
+    analysis["per_turn"] = [{"heat": 10}, {"heat": 20}]
+    analysis["title"] = "Kitchen talk"
+    analysis["speaker_identity"] = {
+        "matched_speaker": "Speaker B",  # wrong — the stale-bug scenario
+        "match_threshold": 0.5,
+        "model": "test-model",
+        "speakers": {
+            "Speaker A": {"score": 0.1, "is_you": False},
+            "Speaker B": {"score": 0.6, "is_you": True},
+        },
+    }
+    analysis["episodes"] = episodes_mod.segment_episodes(
+        TURNS,
+        per_turn=analysis["per_turn"],
+        speaker_labels=analysis["speaker_labels"],
+        speaker_identity=analysis["speaker_identity"],
+        title=analysis["title"],
+    )
+    # Confirm the stale fixture really does show the WRONG speaker as "You".
+    assert analysis["episodes"][0]["participants"] == ["Speaker A", "You"]
+
+    voice_store.add_recording("u1", rid, TURNS, analysis=analysis)
+    _enroll_ready(monkeypatch, np.array([1.0, 0.0, 0.0], dtype=np.float32))
+
+    res = await client.post(
+        "/voice/enroll", json={"recording_id": rid, "speaker": "Speaker A"},
+        headers={"X-Test-Uid": "u1"},
+    )
+    assert res.status_code == 200, res.text
+
+    detail = await client.get(f"/recordings/{rid}", headers={"X-Test-Uid": "u1"})
+    body = detail.json()
+    assert body["analysis"]["speaker_identity"]["matched_speaker"] == "Speaker A"
+    assert body["analysis"]["episodes"][0]["participants"] == ["You", "Speaker B"]

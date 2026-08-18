@@ -22,6 +22,7 @@ import numpy as np
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+import routers.voice as voice_router
 import speaker_id
 from main import app, init_db
 
@@ -103,6 +104,12 @@ class FakeCatchUpStore:
 @pytest.fixture
 async def client():
     await init_db()
+    # This route has its OWN, much tighter rate limiter (_CATCHUP_RATE_LIMIT
+    # _PER_MINUTE, default 5/min) than the generic per-route one — reset it
+    # per test so this file's ~15 catch-up calls across many tests never
+    # trip it (same hygiene test_reanalyze.py/test_endpoints.py already do
+    # for main._rate_limiter).
+    voice_router._catchup_rate_limiter.reset()
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test",
     ) as ac:
@@ -194,7 +201,7 @@ async def test_catchup_no_voiceprint_is_honest_zero_not_422(client, store, monke
     store.add_recording("u1", rid, TURNS_AB, analysis=_unidentified_analysis())
     res = await client.post("/voice/catch-up", headers={"X-Test-Uid": "u1"})
     assert res.status_code == 200, res.text
-    assert res.json() == {"checked": 0, "newly_identified": 0}
+    assert res.json() == {"checked": 0, "newly_identified": 0, "remaining": 0}
 
 
 async def test_catchup_empty_store_is_zero(client, store, monkeypatch):
@@ -202,7 +209,7 @@ async def test_catchup_empty_store_is_zero(client, store, monkeypatch):
     await store.write_voiceprint("u1", {"embedding": [1.0, 0.0, 0.0]})
     res = await client.post("/voice/catch-up", headers={"X-Test-Uid": "u1"})
     assert res.status_code == 200, res.text
-    assert res.json() == {"checked": 0, "newly_identified": 0}
+    assert res.json() == {"checked": 0, "newly_identified": 0, "remaining": 0}
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +228,7 @@ async def test_catchup_matches_and_persists_reflected_in_growth(
 
     res = await client.post("/voice/catch-up", headers={"X-Test-Uid": "u1"})
     assert res.status_code == 200, res.text
-    assert res.json() == {"checked": 1, "newly_identified": 1}
+    assert res.json() == {"checked": 1, "newly_identified": 1, "remaining": 0}
 
     growth = await client.get("/growth", headers={"X-Test-Uid": "u1"})
     body = growth.json()
@@ -249,7 +256,7 @@ async def test_catchup_skips_already_identified_recording(client, store, monkeyp
     res = await client.post("/voice/catch-up", headers={"X-Test-Uid": "u1"})
     assert res.status_code == 200, res.text
     # Already identified — no wasted work re-matching it.
-    assert res.json() == {"checked": 0, "newly_identified": 0}
+    assert res.json() == {"checked": 0, "newly_identified": 0, "remaining": 0}
 
 
 async def test_catchup_no_match_is_honest_zero(client, store, monkeypatch):
@@ -264,7 +271,7 @@ async def test_catchup_no_match_is_honest_zero(client, store, monkeypatch):
 
     res = await client.post("/voice/catch-up", headers={"X-Test-Uid": "u1"})
     assert res.status_code == 200, res.text
-    assert res.json() == {"checked": 1, "newly_identified": 0}
+    assert res.json() == {"checked": 1, "newly_identified": 0, "remaining": 0}
 
     growth = await client.get("/growth", headers={"X-Test-Uid": "u1"})
     assert growth.json()["identified_recordings"] == 0
@@ -280,7 +287,7 @@ async def test_catchup_unanalyzed_recording_is_not_checked(client, store, monkey
 
     res = await client.post("/voice/catch-up", headers={"X-Test-Uid": "u1"})
     assert res.status_code == 200, res.text
-    assert res.json() == {"checked": 0, "newly_identified": 0}
+    assert res.json() == {"checked": 0, "newly_identified": 0, "remaining": 0}
 
 
 async def test_catchup_one_bad_recording_does_not_abort_the_batch(
@@ -340,7 +347,104 @@ async def test_catchup_is_uid_scoped(client, store, monkeypatch):
     # never be touched by u2's catch-up call.
     res = await client.post("/voice/catch-up", headers={"X-Test-Uid": "u2"})
     assert res.status_code == 200, res.text
-    assert res.json() == {"checked": 0, "newly_identified": 0}
+    assert res.json() == {"checked": 0, "newly_identified": 0, "remaining": 0}
 
     growth = await client.get("/growth", headers={"X-Test-Uid": "u1"})
     assert growth.json()["identified_recordings"] == 0
+
+
+# ---------------------------------------------------------------------------
+# A human's manual label always wins — never silently overwritten by a match
+# ---------------------------------------------------------------------------
+
+async def test_catchup_skips_a_speaker_with_an_existing_manual_label(
+    client, store, monkeypatch,
+):
+    # Speaker A was manually re-tagged "Bob" by the user — a human override.
+    # Catch-up's embedder still matches A to the enrolled voiceprint (a
+    # perfectly plausible false-negative-turned-into-a-match scenario, or
+    # just the user being wrong about who Bob is), but the match must NEVER
+    # silently overwrite the human's explicit correction, even though the
+    # manual overlay already hides the effect at read time — persisting it
+    # anyway would corrupt the base label for when the manual tag is cleared.
+    e_you = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+    e_other = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+    await store.write_voiceprint("u1", {"embedding": e_you.tolist()})
+    rid = _rid()
+    store.add_recording(
+        "u1", rid, TURNS_AB, analysis=_unidentified_analysis(),
+        manual_speaker_labels={"Speaker A": "Bob"},
+    )
+    _catchup_ready(monkeypatch, {"Speaker A": e_you, "Speaker B": e_other})
+
+    res = await client.post("/voice/catch-up", headers={"X-Test-Uid": "u1"})
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["checked"] == 1  # attempted — the match itself succeeded
+    assert body["newly_identified"] == 0  # but never persisted or counted
+
+    growth = await client.get("/growth", headers={"X-Test-Uid": "u1"})
+    assert growth.json()["identified_recordings"] == 0
+
+    detail = await client.get(f"/recordings/{rid}", headers={"X-Test-Uid": "u1"})
+    labels = detail.json()["speaker_labels"]
+    # The manual label is untouched — still "Bob", never silently "You".
+    assert labels["Speaker A"] == {"display_label": "Bob", "label_source": "manual"}
+
+
+# ---------------------------------------------------------------------------
+# Batch cap + remaining — catch-up must stay bounded per call
+# ---------------------------------------------------------------------------
+
+async def test_catchup_caps_the_batch_and_reports_remaining(
+    client, store, monkeypatch,
+):
+    e_you = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+    e_other = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+    await store.write_voiceprint("u1", {"embedding": e_you.tolist()})
+
+    limit = voice_router._CATCHUP_BATCH_LIMIT
+    total = limit + 3
+    rids = []
+    for i in range(total):
+        rid = _rid()
+        rids.append(rid)
+        store.add_recording(
+            "u1", rid, TURNS_AB, analysis=_unidentified_analysis(),
+            created_at=f"2026-08-{i + 1:02d}T00:00:00+00:00",
+        )
+    _catchup_ready(monkeypatch, {"Speaker A": e_you, "Speaker B": e_other})
+
+    res = await client.post("/voice/catch-up", headers={"X-Test-Uid": "u1"})
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["checked"] == limit
+    assert body["newly_identified"] == limit
+    assert body["remaining"] == 3
+
+    growth = await client.get("/growth", headers={"X-Test-Uid": "u1"})
+    # The most-recent `limit` recordings were processed (list_recordings is
+    # newest-first) — the 3 oldest are the ones left for "remaining".
+    assert growth.json()["identified_recordings"] == limit
+    identified_ids = {p["recording_id"] for p in growth.json()["points"]}
+    most_recent = set(rids[-limit:])  # created_at ascending in insertion order
+    assert identified_ids == most_recent
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting — this route has its OWN, much tighter budget
+# ---------------------------------------------------------------------------
+
+async def test_catchup_has_its_own_tighter_rate_limit(client, store, monkeypatch):
+    monkeypatch.setattr(speaker_id, "is_available", lambda: True)
+    monkeypatch.setattr(voice_router._catchup_rate_limiter, "limit", 2)
+    voice_router._catchup_rate_limiter.reset()
+
+    r1 = await client.post("/voice/catch-up", headers={"X-Test-Uid": "u1"})
+    r2 = await client.post("/voice/catch-up", headers={"X-Test-Uid": "u1"})
+    r3 = await client.post("/voice/catch-up", headers={"X-Test-Uid": "u1"})
+
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    assert r3.status_code == 429
+    assert "rate limit" in r3.json()["detail"].lower()

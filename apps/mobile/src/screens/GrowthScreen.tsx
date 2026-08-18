@@ -178,8 +178,35 @@ export default function GrowthScreen({
         </View>
       );
     }
+    // Offered whenever there's at least one enrolled-but-not-yet-identified
+    // recording left — NOT gated to the empty state. Part A's first "This is
+    // me" tap flips identified_recordings from 0 to 1 immediately, which
+    // would otherwise permanently strand every other unidentified recording
+    // behind a button that only ever existed in the now-gone empty state.
+    const canCatchUp =
+      voiceEnrolled && result.identified_recordings < result.total_recordings;
+
+    const catchUpButton = (
+      <TouchableOpacity
+        testID="growth-catchup-cta"
+        accessibilityRole="button"
+        style={[styles.ctaButton, styles.catchUpButton]}
+        disabled={catchingUp}
+        onPress={handleCatchUp}
+      >
+        {catchingUp ? (
+          <ActivityIndicator
+            size="small"
+            color="#FFFFFF"
+            testID="growth-catchup-pending"
+          />
+        ) : (
+          <Text style={styles.ctaText}>Catch up my past recordings</Text>
+        )}
+      </TouchableOpacity>
+    );
+
     if (result.identified_recordings === 0) {
-      const offerCatchUp = voiceEnrolled && result.total_recordings > 0;
       return (
         <View style={styles.centerBox} testID="growth-empty">
           <Text style={styles.emptyTitle}>No growth data yet</Text>
@@ -191,31 +218,13 @@ export default function GrowthScreen({
                 `${result.total_recordings === 1 ? "" : "s"}, but none has ` +
                 "identified your voice yet. Tap “This is me” on a recording " +
                 "you're confident about" +
-                (offerCatchUp
+                (canCatchUp
                   ? ", or use “Catch up my past recordings” below to " +
                     "auto-match your enrolled voice against everything " +
                     "you’ve already stored."
                   : " to start tracking your scores.")}
           </Text>
-          {offerCatchUp ? (
-            <TouchableOpacity
-              testID="growth-catchup-cta"
-              accessibilityRole="button"
-              style={[styles.ctaButton, styles.catchUpButton]}
-              disabled={catchingUp}
-              onPress={handleCatchUp}
-            >
-              {catchingUp ? (
-                <ActivityIndicator
-                  size="small"
-                  color="#FFFFFF"
-                  testID="growth-catchup-pending"
-                />
-              ) : (
-                <Text style={styles.ctaText}>Catch up my past recordings</Text>
-              )}
-            </TouchableOpacity>
-          ) : null}
+          {canCatchUp ? catchUpButton : null}
           <TouchableOpacity
             testID="growth-enroll-cta"
             accessibilityRole="button"
@@ -292,6 +301,13 @@ export default function GrowthScreen({
             `recording${result.total_recordings === 1 ? "" : "s"} identified ` +
             "your voice"}
         </Text>
+        {/* Stays reachable after the first identification — see canCatchUp's
+         *  comment: the empty state (where this button used to live
+         *  exclusively) is gone the moment even one recording is identified,
+         *  but there can still be plenty left to catch up. */}
+        {canCatchUp ? (
+          <View style={styles.footerCatchUp}>{catchUpButton}</View>
+        ) : null}
       </>
     );
   };
@@ -468,5 +484,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: MUTED,
     textAlign: "center",
+  },
+  footerCatchUp: {
+    marginTop: 16,
+    alignItems: "center",
   },
 });

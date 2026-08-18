@@ -180,7 +180,11 @@ describe("GrowthScreen — catch up my past recordings", () => {
         }),
       );
     mockGetVoiceProfile.mockResolvedValue(voiceProfile({ enrolled: true }));
-    let resolveCatchUp!: (v: { checked: number; newly_identified: number }) => void;
+    let resolveCatchUp!: (v: {
+      checked: number;
+      newly_identified: number;
+      remaining: number;
+    }) => void;
     mockCatchUpVoice.mockReturnValueOnce(
       new Promise((resolve) => {
         resolveCatchUp = resolve;
@@ -191,7 +195,9 @@ describe("GrowthScreen — catch up my past recordings", () => {
     act(() => queryId(comp, "growth-catchup-cta")!.props.onPress());
     expect(queryId(comp, "growth-catchup-pending")).toBeTruthy();
 
-    await act(async () => resolveCatchUp({ checked: 5, newly_identified: 3 }));
+    await act(async () =>
+      resolveCatchUp({ checked: 5, newly_identified: 3, remaining: 0 }),
+    );
 
     expect(mockGetGrowth).toHaveBeenCalledTimes(2); // refetched after success
     expect(textOf(queryId(comp, "growth-catchup-result")!)).toBe(
@@ -208,7 +214,9 @@ describe("GrowthScreen — catch up my past recordings", () => {
       .mockResolvedValueOnce(result({ total_recordings: 5 }))
       .mockResolvedValueOnce(result({ total_recordings: 5 }));
     mockGetVoiceProfile.mockResolvedValue(voiceProfile({ enrolled: true }));
-    mockCatchUpVoice.mockResolvedValueOnce({ checked: 5, newly_identified: 0 });
+    mockCatchUpVoice.mockResolvedValueOnce({
+      checked: 5, newly_identified: 0, remaining: 0,
+    });
 
     const comp = await render();
     await act(async () => queryId(comp, "growth-catchup-cta")!.props.onPress());
@@ -233,6 +241,91 @@ describe("GrowthScreen — catch up my past recordings", () => {
 
     expect(queryId(comp, "growth-catchup-error")).toBeTruthy();
     expect(mockGetGrowth).toHaveBeenCalledTimes(1); // no refetch on failure
+    act(() => comp.unmount());
+  });
+
+  it("stays reachable after the first identification: partially identified + enrolled shows the CTA next to the footer", async () => {
+    // The exact regression: Part A's first "This is me" tap instantly flips
+    // identified_recordings from 0 to 1 — the button must NOT become
+    // permanently unreachable just because the empty state is gone.
+    mockGetGrowth.mockResolvedValueOnce(
+      result({
+        points: series(2),
+        total_recordings: 5,
+        identified_recordings: 2,
+      }),
+    );
+    mockGetVoiceProfile.mockResolvedValue(voiceProfile({ enrolled: true }));
+    const comp = await render();
+
+    expect(queryId(comp, "growth-empty")).toBeNull(); // the chart renders
+    expect(queryId(comp, "growth-footer")).toBeTruthy();
+    expect(queryId(comp, "growth-catchup-cta")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("fully identified: no catch-up CTA left to offer", async () => {
+    mockGetGrowth.mockResolvedValueOnce(
+      result({
+        points: series(3),
+        total_recordings: 3,
+        identified_recordings: 3,
+      }),
+    );
+    mockGetVoiceProfile.mockResolvedValue(voiceProfile({ enrolled: true }));
+    const comp = await render();
+
+    expect(queryId(comp, "growth-catchup-cta")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("not enrolled: no catch-up CTA in the chart view either", async () => {
+    mockGetGrowth.mockResolvedValueOnce(
+      result({
+        points: series(2),
+        total_recordings: 5,
+        identified_recordings: 2,
+      }),
+    );
+    mockGetVoiceProfile.mockResolvedValue(voiceProfile({ enrolled: false }));
+    const comp = await render();
+
+    expect(queryId(comp, "growth-catchup-cta")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("tapping the footer-adjacent CTA catches up the rest and updates the footer", async () => {
+    mockGetGrowth
+      .mockResolvedValueOnce(
+        result({
+          points: series(2),
+          total_recordings: 5,
+          identified_recordings: 2,
+        }),
+      )
+      .mockResolvedValueOnce(
+        result({
+          points: series(5),
+          total_recordings: 5,
+          identified_recordings: 5,
+        }),
+      );
+    mockGetVoiceProfile.mockResolvedValue(voiceProfile({ enrolled: true }));
+    mockCatchUpVoice.mockResolvedValueOnce({
+      checked: 3, newly_identified: 3, remaining: 0,
+    });
+
+    const comp = await render();
+    await act(async () => queryId(comp, "growth-catchup-cta")!.props.onPress());
+
+    expect(textOf(queryId(comp, "growth-catchup-result")!)).toBe(
+      "Found you in 3 of 3 recordings",
+    );
+    expect(textOf(queryId(comp, "growth-footer")!)).toBe(
+      "5 of 5 recordings identified your voice",
+    );
+    // Nothing left to catch up — the CTA is gone now.
+    expect(queryId(comp, "growth-catchup-cta")).toBeNull();
     act(() => comp.unmount());
   });
 });
