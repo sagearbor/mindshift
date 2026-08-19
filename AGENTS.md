@@ -35,6 +35,15 @@ Guide AI agents contributing to MindShift (see [PRD.md](PRD.md) for the product 
   `EXPO_PUBLIC_*` env baked in, which shipped a broken build once (client
   fell back to `localhost:8000`). See the script's header comment.
 
+## Secrets in process listings
+- `scripts/deploy_cloudrun.sh` (and any `gcloud run deploy --set-env-vars`
+  call) passes `ANTHROPIC_API_KEY`/`DEEPGRAM_API_KEY` as command-line
+  arguments — `ps aux`/`ps -ef` show these in full while a deploy is
+  running. When checking whether a deploy is still running, use `ps -o
+  pid,etime,stat -p <pid>` or `pgrep -f <pattern>` instead — never a bare
+  `ps aux`/`ps aux | grep`. (2026-08-19: this leaked both keys into a
+  session transcript.)
+
 ## Exploratory / scratch work (`tmp/`)
 - Before any bulk cleanup (`rm -f`, `rm -rf`, overwriting a working dir) in a
   scratch investigation directory holding real generated artifacts
