@@ -34,3 +34,13 @@ Guide AI agents contributing to MindShift (see [PRD.md](PRD.md) for the product 
   `eas update` — the raw command bundles JS without the production
   `EXPO_PUBLIC_*` env baked in, which shipped a broken build once (client
   fell back to `localhost:8000`). See the script's header comment.
+
+## Exploratory / scratch work (`tmp/`)
+- Before any bulk cleanup (`rm -f`, `rm -rf`, overwriting a working dir) in a
+  scratch investigation directory holding real generated artifacts
+  (downloads, API call outputs, scored results — anything costly or
+  impossible to exactly regenerate): `git init` a throwaway LOCAL-ONLY repo
+  in that directory first and commit after each milestone. Never push it
+  anywhere. This is cheap insurance — an agent's overly-broad `rm -f`
+  destroyed ~4 hours of real transcription-comparison data on 2026-08-18
+  with no way to recover it.
