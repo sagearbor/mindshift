@@ -62,6 +62,8 @@ _FIXTURES = {
     "test_recording_gptaudio": _AUDIO_DIR / "test_recording_gptaudio.wav",
 }
 
+_REAL_FIXTURE = _AUDIO_DIR / "test_recording_family_real.wav"
+
 pytestmark = [
     pytest.mark.skipif(
         not speaker_id.is_available(),
@@ -200,3 +202,68 @@ def test_ecapa_clustering_gptaudio_fixture_full_accuracy():
     name = "test_recording_gptaudio"
     acc, correct, total, detail = _diarize_and_score(name)
     assert acc == 1.0, _format_detail(name, acc, correct, total, detail)
+
+
+@pytest.mark.skipif(
+    not _REAL_FIXTURE.exists(),
+    reason="real family fixture missing (test_recording_family_real.wav)",
+)
+def test_ecapa_clustering_family_real_fixture_full_accuracy():
+    """The project's FIRST real (not synthesized) calibration fixture: the
+    owner and his son alternating in strict ~5-second turns for ~30s
+    (2026-08-18). Deepgram's own diarization heard only ONE voice for the
+    entire clip on this file — a real vendor diarization failure on real,
+    very distinct human voices (an adult and a child), not a synthetic-
+    fixture edge case. The local ECAPA cross-check (this function) is what
+    actually produces the correct split; this test exists to make sure it
+    keeps doing so.
+
+    Ground truth here is the OWNER'S OWN STATED SCHEDULE (see the meta
+    file's ``_note``), not independently re-verified the way a synthetic
+    fixture's metadata needs to be — the owner directly authored it by
+    recording the clip himself.
+
+    Freshly measured 2026-08-18: 8/8 = 100% exact per-turn accuracy (best-
+    permutation matching; the pipeline's own turn segmentation naturally
+    produced 8 turns from 8 speech-pause boundaries, not a rigid re-cut to
+    6 — two turns straddle a 5s boundary by ~1s but still landed on the
+    majority-correct speaker). Pinned at that measured ceiling."""
+    wav_path = _REAL_FIXTURE
+    meta = json.loads(wav_path.with_name(wav_path.stem + "_meta.json").read_text())
+    pcm, sr = _load_16k_pcm(wav_path)
+    turns = [dict(t) for t in meta["turns"]]
+    truth = [t["speaker"] for t in turns]
+
+    got = diarize_local.diarize_turns(pcm, sr, [dict(t) for t in turns])
+    assert got is not None, (
+        "family_real: local diarization returned nothing trustworthy on a "
+        "2-speaker real recording"
+    )
+    pred = [t["speaker"] for t in got["turns"]]
+    assert len(pred) == len(truth), (
+        f"family_real: predicted {len(pred)} turns, expected {len(truth)} "
+        f"(word-level splitting behaved differently than the 2026-08-18 "
+        f"measurement: split_utterances={got['split_utterances']})"
+    )
+
+    acc, correct, mapping = _best_permutation_accuracy(truth, pred)
+    detail = [
+        {
+            "turn": i,
+            "truth": t,
+            "pred": p,
+            "mapped": mapping.get(p, "???"),
+            "ok": mapping.get(p) == t,
+        }
+        for i, (t, p) in enumerate(zip(truth, pred))
+    ]
+    lines = [
+        f"family_real: exact per-turn accuracy {correct}/{len(truth)} = {acc:.4f}",
+        "  turn  truth        pred         mapped       ok",
+    ]
+    for d in detail:
+        lines.append(
+            f"  {d['turn']:>4}  {d['truth']:<11} {d['pred']:<12} "
+            f"{d['mapped']:<12} {d['ok']}"
+        )
+    assert acc == 1.0, "\n".join(lines)

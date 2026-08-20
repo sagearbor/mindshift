@@ -1,0 +1,23 @@
+{
+  "_note": "REAL recording (not synthesized) — the project owner and his son, alternating in strict 5-second turns for ~30s. Ground truth is owner-stated: Sage speaks 0:00-0:05, 0:10-0:15, 0:20-0:25; Asher speaks 0:05-0:10, 0:15-0:20, 0:25-0:30. The pipeline's own turn segmentation follows natural speech pauses rather than the rigid 5s marks, so `speaker` below is the ground-truth label for each ACTUAL pipeline-produced turn (by majority time-overlap with the 5s schedule), not a re-cut to exactly 6 turns.",
+  "variant": "real",
+  "recorded_by": "owner + son (Sage + Asher)",
+  "sample_rate": 16000,
+  "scoring_note": "Score by best-permutation exact per-turn speaker accuracy against `speaker`, same method as the synthetic fixtures. Deepgram's own diarization heard only ONE voice for the full 30s on this file (verified 2026-08-18) — the local ECAPA cross-check is what actually produces the correct 2-speaker split; MINDSHIFT_DIARIZE_CROSSCHECK=1 must be set for this fixture to be meaningful (matches the deployed production default).",
+  "measured_2026-08-18": {
+    "num_speakers_detected": 2,
+    "exact_turn_accuracy": "8/8 = 100%",
+    "pooled_cosine": 0.063,
+    "note": "Deepgram nova-2 heard 1 speaker; local ECAPA cross-check (fallback path) correctly split into 2. All 8 pipeline-produced turns matched the correct person by majority overlap."
+  },
+  "turns": [
+    {"speaker": "Sage",  "text": "Okay. This is Sage talking or dad. I'm about to head off. A", "start_time": 0.96,  "end_time": 6.08},
+    {"speaker": "Asher", "text": "is talking. Yeah. Like, I'm so good. I know. And", "start_time": 6.08,  "end_time": 8.82},
+    {"speaker": "Asher", "text": "and yeah.", "start_time": 9.28,  "end_time": 10.0199995},
+    {"speaker": "Sage",  "text": "Okay. And now we're on the way going to his bike camp.", "start_time": 10.48, "end_time": 15.125},
+    {"speaker": "Asher", "text": "And", "start_time": 15.425, "end_time": 15.925},
+    {"speaker": "Asher", "text": "Wait. What? I don't wanna go to bike camp. What?", "start_time": 16.385, "end_time": 19.045},
+    {"speaker": "Sage",  "text": "Oh, you're going to bike camp, and I'm arguing now. And we'", "start_time": 20.465, "end_time": 25.7549995},
+    {"speaker": "Asher", "text": "Well, I don't wanna go to bike camp, dad. Stop. Stop.", "start_time": 25.7549995, "end_time": 29.125}
+  ]
+}
