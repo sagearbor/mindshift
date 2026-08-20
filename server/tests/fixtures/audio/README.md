@@ -1,14 +1,17 @@
-# Audio test fixtures — the three-rung ladder
+# Audio test fixtures — the four-rung ladder
 
-Synthesized 2026-07-12 (no human recordings). One scripted two-person argument
-(calm open → escalation → shouted spike → cold contempt → sad → scared →
-repair → calm close), three ways. Regenerate with scripts/make_test_recording*.py.
+Three synthesized (2026-07-12, no human recordings) plus one REAL recording
+(2026-08-18, the owner and his son). The synthesized three: one scripted
+two-person argument (calm open → escalation → shouted spike → cold contempt
+→ sad → scared → repair → calm close), three ways. Regenerate with
+scripts/make_test_recording*.py.
 
-| File | Engine | Deepgram diarization (nova-3, measured 2026-07-12) | diarize_local (ECAPA, measured 2026-08-17) | Use for |
+| File | Engine | Deepgram diarization | diarize_local (ECAPA, measured 2026-08-17/18) | Use for |
 |---|---|---|---|---|
-| test_recording.wav | Deepgram Aura-2 + mathematical gain/tempo modulation | **1 speaker (WRONG — merges everyone)**: robotic sameness + resample pitch-shift breaks voice identity | 2 speakers, agreement 0.7-1.0 ceiling (`test_diarize_local_live.py`) | Prosody-METER ground truth only (meta carries expected energy/rate labels; the modulated turns are physically known) |
-| test_recording_openai.wav | OpenAI gpt-4o-mini-tts-2025-12-15, acted via instructions | **2 speakers, clean** | **2 speakers, 10/10 = 100% exact per-turn accuracy** | The clean end-to-end pipeline case |
-| test_recording_gptaudio.wav | OpenAI gpt-audio-1.5 (voice-actor prompt) | 2 speakers + 2 turns misattributed to a phantom Speaker C | **2 speakers, 10/10 = 100% exact per-turn accuracy** — the old phantom-C regression is gone | Realism STRESS test — extreme acted shifts fool clustering the way real fights do. Owner-rated the most human-sounding of the three. |
+| test_recording.wav | Deepgram Aura-2 + mathematical gain/tempo modulation | **1 speaker (WRONG — merges everyone)**: robotic sameness + resample pitch-shift breaks voice identity (nova-3, measured 2026-07-12) | 2 speakers, agreement 0.7-1.0 ceiling (`test_diarize_local_live.py`) | Prosody-METER ground truth only (meta carries expected energy/rate labels; the modulated turns are physically known) |
+| test_recording_openai.wav | OpenAI gpt-4o-mini-tts-2025-12-15, acted via instructions | **2 speakers, clean** (nova-3, measured 2026-07-12) | **2 speakers, 10/10 = 100% exact per-turn accuracy** | The clean end-to-end pipeline case |
+| test_recording_gptaudio.wav | OpenAI gpt-audio-1.5 (voice-actor prompt) | 2 speakers + 2 turns misattributed to a phantom Speaker C (nova-3, measured 2026-07-12) | **2 speakers, 10/10 = 100% exact per-turn accuracy** — the old phantom-C regression is gone | Realism STRESS test — extreme acted shifts fool clustering the way real fights do. Owner-rated the most human-sounding of the three. |
+| test_recording_family_real.wav | REAL recording — owner + son, ~30s, alternating strict 5s turns | **1 speaker (WRONG — merges an adult and a child)** (nova-2, measured live 2026-08-18) | **2 speakers, 8/8 = 100% exact per-turn accuracy** | The project's first REAL (non-synthetic) calibration case, and proof the ECAPA cross-check earns its keep on real audio, not just acted TTS — see `test_recording_family_real_meta.json`'s `_note` for the full story. |
 
 The nova-3 column is the VENDOR diarizer (Deepgram) and was not re-measured
 here — it is a different system from `diarize_local`, the local ECAPA
@@ -34,8 +37,12 @@ Lessons encoded here:
   TTS fixtures are natively 24 kHz, so a caller must resample first (the
   regression tests use `audio_ingest.decode_to_pcm_16k`, the same path
   `routers/voice.py` uses for voice enrollment). This surfaced that
-  `main.py`'s `/analyze/upload` cross-check instead calls plain
+  `main.py`'s `/analyze/upload` cross-check was instead calling plain
   `decode_to_pcm` (native rate preserved) before invoking `diarize_local`,
   so on a real upload whose native WAV rate isn't already 16 kHz the ECAPA
-  cross-check silently no-ops (caught by the broad `except Exception` a few
-  lines later) — flagged in the report as a follow-up, not fixed here.
+  cross-check silently no-opped (caught by the broad `except Exception` a few
+  lines later) — **fixed 2026-08-18** (`main.py` now decodes separately at
+  16 kHz for the cross-check call). `test_recording_family_real.wav` is the
+  real-world proof this fix matters: its native rate isn't 16 kHz, Deepgram
+  mis-heard it as one speaker, and the (now-fixed) cross-check correctly
+  split it into two.
