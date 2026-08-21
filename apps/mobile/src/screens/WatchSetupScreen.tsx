@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -8,9 +8,11 @@ import {
   StyleSheet,
   Linking,
   ActivityIndicator,
+  Alert,
 } from "react-native";
 
-import { claimWatchPairing } from "../api/watchPairing";
+import { claimWatchPairing, disconnectWatch } from "../api/watchPairing";
+import { getMe } from "../api/me";
 
 /** Play listing for the watch app — package name is permanent (see
  *  apps/watch/PORTED_FROM_GAUGE.md), branding changes never touch it. Play
@@ -67,12 +69,71 @@ function StepBadge({ n, done }: { n: number; done: boolean }) {
  * watch, type it, done) AND keeps an explicit Pair button — needed for
  * retrying the same code after a transient failure, and as an unambiguous
  * affordance for anyone who prefers to press something.
+ *
+ * Paired-state awareness: on mount this fetches `GET /me` (same client
+ * function AdvancedScreen.tsx already uses for its own "✓ Paired to this
+ * account" badge) so the screen never pretends nothing is configured when
+ * the account already has a paired watch. `hasPairedWatch === true` swaps
+ * the heading to "Add another watch" and adds a "Disconnect this watch"
+ * action (confirm-then-delete, mirroring AdvancedScreen.tsx's "Forget my
+ * voice"/"Remove photo" destructive rows exactly) — the install/pair steps
+ * below stay fully usable either way, since adding a second watch is a
+ * legitimate case, not a blocked one. `null` (still loading, or /me
+ * couldn't be fetched) reads as the honest default: identical to the
+ * screen's pre-existing first-time behavior, never a fabricated guess.
  */
 export default function WatchSetupScreen({ onBack }: WatchSetupScreenProps) {
   const [code, setCode] = useState("");
   const [claiming, setClaiming] = useState(false);
   const [result, setResult] = useState<ClaimOutcome | null>(null);
   const [installOpened, setInstallOpened] = useState(false);
+  const [hasPairedWatch, setHasPairedWatch] = useState<boolean | null>(null);
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getMe()
+      .then((me) => {
+        if (!cancelled) setHasPairedWatch(me.has_paired_watch);
+      })
+      .catch(() => {
+        // Offline / signed-out / server hiccup: stay at the honest
+        // first-time default rather than a fabricated paired/unpaired guess.
+        if (!cancelled) setHasPairedWatch(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const confirmDisconnect = useCallback(() => {
+    Alert.alert(
+      "Disconnect this watch?",
+      "This watch will stop being able to sign in as you. Your recordings " +
+        "and data are safe — you can pair a watch again anytime.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Disconnect",
+          style: "destructive",
+          onPress: () => {
+            setDisconnecting(true);
+            disconnectWatch()
+              .then(() => {
+                setHasPairedWatch(false);
+              })
+              .catch(() => {
+                Alert.alert(
+                  "Couldn’t disconnect the watch",
+                  "Something went wrong. Please try again.",
+                );
+              })
+              .finally(() => setDisconnecting(false));
+          },
+        },
+      ],
+    );
+  }, []);
 
   const handleInstall = useCallback(() => {
     setInstallOpened(true);
@@ -151,7 +212,36 @@ export default function WatchSetupScreen({ onBack }: WatchSetupScreenProps) {
         <Text style={styles.backText}>← Back</Text>
       </TouchableOpacity>
 
-      <Text style={styles.heading}>Set up your watch</Text>
+      <Text style={styles.heading} testID="watch-setup-heading">
+        {hasPairedWatch ? "Add another watch" : "Set up your watch"}
+      </Text>
+
+      {hasPairedWatch ? (
+        <View style={styles.pairedNote} testID="watch-setup-paired-note">
+          <Text style={styles.pairedNoteText}>
+            ✓ This account already has a paired watch — the steps below add
+            another one.
+          </Text>
+          <TouchableOpacity
+            testID="watch-setup-disconnect-button"
+            accessibilityRole="button"
+            style={styles.disconnectButton}
+            onPress={confirmDisconnect}
+            disabled={disconnecting}
+          >
+            <View style={styles.disconnectTitleRow}>
+              <Text style={styles.disconnectText}>Disconnect this watch</Text>
+              {disconnecting ? (
+                <ActivityIndicator size="small" color="#6B7280" />
+              ) : null}
+            </View>
+            <Text style={styles.rowSub}>
+              Stops that watch from signing in as you. Your recordings and
+              data are safe — you can pair a watch again anytime.
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       <View style={styles.row}>
         <View style={styles.rowHeader}>
@@ -277,6 +367,40 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     padding: 18,
     marginBottom: 12,
+  },
+  pairedNote: {
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    padding: 18,
+    marginBottom: 12,
+  },
+  pairedNoteText: {
+    fontSize: 13.5,
+    lineHeight: 19,
+    fontWeight: "600",
+    color: "#15803D",
+  },
+  // Same visual treatment as AdvancedScreen.tsx's "Forget my voice"/"Remove
+  // photo" destructive rows — a top-border separator + red action text,
+  // never a solid red button (this is a confirm-gated action, not a
+  // one-tap one).
+  disconnectButton: {
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: "#F0F1F3",
+  },
+  disconnectTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  disconnectText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#DC2626",
   },
   rowHeader: {
     flexDirection: "row",

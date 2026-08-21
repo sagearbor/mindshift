@@ -147,6 +147,23 @@ class PairingStore(Protocol):
         online"."""
         ...
 
+    async def delete_device_tokens_for_account(self, account_id: str) -> int:
+        """Delete every ``DeviceToken`` bound to ``account_id`` — the
+        unpair/disconnect primitive behind ``DELETE /me/watch-pairing``
+        (server/watch/routers/rest.py). Returns the number of tokens
+        actually deleted (0 is a valid, non-error result — idempotent, same
+        house style as ``forgetVoice``'s ``{"deleted": bool}`` and
+        ``deleteVoiceSample``'s remaining-count response).
+
+        This ONLY revokes the watch's ability to authenticate as the
+        account (``DeviceToken`` is pure auth-linkage — see its docstring:
+        ``{token_hash, account_id, created_at, pairing_id}``, no reference
+        to any real data). Recordings, growth, live sessions, the speaker
+        profile, everything else keyed by ``account_id`` is completely
+        untouched; a fresh ``POST /me/pair/claim`` immediately sees all the
+        same cloud data again."""
+        ...
+
 
 class MemoryPairingStore:
     """In-memory implementation of PairingStore for testing and default runtime."""
@@ -209,6 +226,15 @@ class MemoryPairingStore:
 
     async def has_device_tokens_for_account(self, account_id: str) -> bool:
         return any(t.account_id == account_id for t in self._device_tokens.values())
+
+    async def delete_device_tokens_for_account(self, account_id: str) -> int:
+        # No lock, matching put_device_token/get_device_token_by_hash's own
+        # unguarded dict access above — device token storage was never given
+        # the same threading.Lock protection as _pairings in this store.
+        matching = [h for h, t in self._device_tokens.items() if t.account_id == account_id]
+        for h in matching:
+            del self._device_tokens[h]
+        return len(matching)
 
 
 class FirestorePairingStore:
@@ -348,6 +374,24 @@ class FirestorePairingStore:
         db = self._get_db()
         docs = db.collection("device_tokens").where("account_id", "==", account_id).limit(1).stream()
         return next(iter(docs), None) is not None
+
+    async def delete_device_tokens_for_account(self, account_id: str) -> int:
+        return await asyncio.to_thread(self._delete_device_tokens_for_account_sync, account_id)
+
+    def _delete_device_tokens_for_account_sync(self, account_id: str) -> int:
+        # Unlike _has_device_tokens_for_account_sync's limit(1) existence
+        # check, this needs every matching doc (there is no bulk
+        # delete-by-query in the Firestore client) -- an unpair is a rare,
+        # explicit user action (unlike the GET /me hot path above), so an
+        # unbounded stream over this account's own tokens is the right
+        # tradeoff, matching get_pairing_by_code_hash's same reasoning.
+        db = self._get_db()
+        docs = db.collection("device_tokens").where("account_id", "==", account_id).stream()
+        count = 0
+        for doc in docs:
+            doc.reference.delete()
+            count += 1
+        return count
 
 
 def get_pairing_store() -> PairingStore:

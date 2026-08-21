@@ -249,3 +249,67 @@ async def test_has_device_tokens_for_account_is_scoped_per_account():
     ))
     assert await store.has_device_tokens_for_account("acct-a") is True
     assert await store.has_device_tokens_for_account("acct-b") is False
+
+
+# --------------------------------------------- delete_device_tokens_for_account --
+
+@pytest.mark.anyio
+async def test_delete_device_tokens_for_account_returns_zero_when_none_issued():
+    store = MemoryPairingStore()
+    assert await store.delete_device_tokens_for_account("acct1") == 0
+
+
+@pytest.mark.anyio
+async def test_delete_device_tokens_for_account_deletes_the_token_and_returns_count():
+    store = MemoryPairingStore()
+    store.put_device_token(DeviceToken(
+        token_hash=hash_secret("raw-device-token"),
+        account_id="acct1",
+        created_at="2026-08-04T10:00:00+00:00",
+        pairing_id="pid-1",
+    ))
+    deleted = await store.delete_device_tokens_for_account("acct1")
+    assert deleted == 1
+    assert await store.has_device_tokens_for_account("acct1") is False
+    assert store.get_device_token_by_hash(hash_secret("raw-device-token")) is None
+
+
+@pytest.mark.anyio
+async def test_delete_device_tokens_for_account_deletes_all_tokens_for_that_account():
+    store = MemoryPairingStore()
+    store.put_device_token(DeviceToken(
+        token_hash=hash_secret("token-1"),
+        account_id="acct1",
+        created_at="2026-08-04T10:00:00+00:00",
+        pairing_id="pid-1",
+    ))
+    store.put_device_token(DeviceToken(
+        token_hash=hash_secret("token-2"),
+        account_id="acct1",
+        created_at="2026-08-05T10:00:00+00:00",
+        pairing_id="pid-2",
+    ))
+    deleted = await store.delete_device_tokens_for_account("acct1")
+    assert deleted == 2
+    assert await store.has_device_tokens_for_account("acct1") is False
+
+
+@pytest.mark.anyio
+async def test_delete_device_tokens_for_account_is_scoped_per_account():
+    store = MemoryPairingStore()
+    store.put_device_token(DeviceToken(
+        token_hash=hash_secret("token-a"),
+        account_id="acct-a",
+        created_at="2026-08-04T10:00:00+00:00",
+        pairing_id="pid-1",
+    ))
+    store.put_device_token(DeviceToken(
+        token_hash=hash_secret("token-b"),
+        account_id="acct-b",
+        created_at="2026-08-04T10:00:00+00:00",
+        pairing_id="pid-2",
+    ))
+    deleted = await store.delete_device_tokens_for_account("acct-a")
+    assert deleted == 1
+    assert await store.has_device_tokens_for_account("acct-a") is False
+    assert await store.has_device_tokens_for_account("acct-b") is True

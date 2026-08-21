@@ -128,6 +128,17 @@ class MeResponse(Principal):
     has_paired_watch: bool = False
 
 
+class DisconnectWatchResponse(BaseModel):
+    """``DELETE /me/watch-pairing``'s response — honest count, not just a
+    boolean, matching this file's other idempotent-delete house style (see
+    server/routers/voice.py's ``DELETE /voice/voiceprint`` -> ``{"deleted":
+    bool}`` and ``DELETE /voice/samples/{id}``'s remaining-count response).
+    ``count == 0`` is a valid, non-error outcome (no watch was paired) —
+    this endpoint is idempotent, never a 404 for "nothing to disconnect"."""
+    disconnected: bool
+    count: int
+
+
 class VoiceEnrollmentStatus(BaseModel):
     available: bool                 # can this server compute embeddings at all?
     enrolled: bool
@@ -287,6 +298,35 @@ def make_rest_router(
                 principal.account_id
             )
         return MeResponse(**principal.model_dump(), has_paired_watch=has_paired_watch)
+
+    @router.delete("/me/watch-pairing", response_model=DisconnectWatchResponse)
+    async def disconnect_watch(principal: Principal = Depends(auth_dep)) -> DisconnectWatchResponse:
+        """Unpair every watch currently bound to the caller's account —
+        clears ``DeviceToken`` records only (``pairing_store.
+        delete_device_tokens_for_account``, see its docstring). This is a
+        pure auth-revoke: it never touches recordings, growth, live
+        sessions, the speaker profile, or any other account data, all of
+        which live keyed by ``account_id`` directly, never by device token
+        or pairing (confirmed by reading ``DeviceToken``'s own docstring —
+        ``{token_hash, account_id, created_at, pairing_id}``, no data
+        reference at all). Re-pairing afterward (even a different watch)
+        immediately sees all the same cloud data again.
+
+        auth_dep (not strict_auth_dep) — same gate as ``GET /me`` above,
+        deliberately: a legacy ``?account=`` caller may disconnect a watch
+        from ITS OWN legacy account just like it can read `/me`, and there
+        is no stronger-than-`/me` sensitivity here (this only revokes a
+        credential, it doesn't expose or move data).
+
+        pairing_store is optional, mirroring ``me()``'s honest-degradation
+        default above: a caller that never wired one gets
+        ``{"disconnected": true, "count": 0}`` (nothing to disconnect
+        without a store) rather than a 500.
+        """
+        if pairing_store is None:
+            return DisconnectWatchResponse(disconnected=True, count=0)
+        count = await pairing_store.delete_device_tokens_for_account(principal.account_id)
+        return DisconnectWatchResponse(disconnected=True, count=count)
 
     @router.get("/me/standing", response_model=MemberStanding)
     async def my_standing(

@@ -1,4 +1,4 @@
-import { claimWatchPairing } from "../src/api/watchPairing";
+import { claimWatchPairing, disconnectWatch } from "../src/api/watchPairing";
 import { getFreshToken, setCachedToken, setTokenProvider } from "../src/auth/authToken";
 
 const mockFetch = global.fetch as jest.Mock;
@@ -118,5 +118,46 @@ describe("claimWatchPairing", () => {
 
     expect(result.ok).toBe(false);
     expect(result.detail).toMatch(/503|went wrong/i);
+  });
+});
+
+describe("disconnectWatch", () => {
+  it("DELETEs /me/watch-pairing with a fresh Bearer token and resolves the server's body", async () => {
+    setCachedToken("id-token-abc");
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ disconnected: true, count: 1 }),
+    });
+
+    const result = await disconnectWatch();
+
+    expect(result).toEqual({ disconnected: true, count: 1 });
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toMatch(/\/me\/watch-pairing$/);
+    expect(init.method).toBe("DELETE");
+    expect(init.headers.Authorization).toBe("Bearer id-token-abc");
+  });
+
+  it("resolves count:0 the same idempotent way when nothing was paired", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ disconnected: true, count: 0 }),
+    });
+
+    const result = await disconnectWatch();
+
+    expect(result).toEqual({ disconnected: true, count: 0 });
+  });
+
+  it("throws on a non-OK response, mirroring client.ts's forgetVoice", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      json: async () => ({ detail: "not authenticated" }),
+    });
+
+    await expect(disconnectWatch()).rejects.toThrow("API error: 401");
   });
 });
