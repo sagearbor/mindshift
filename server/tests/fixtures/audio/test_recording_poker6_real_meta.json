@@ -1,0 +1,29 @@
+{
+  "_note": "REAL recording (not synthesized) — the owner's poker night, 6 different real men each speaking for roughly 5 seconds in strict turn order (~30.12s total). Owner-stated: turns weren't perfectly on the 5s mark ('pretty close', he pointed at each speaker as he judged the mark) — treat turn BOUNDARIES as approximate (+/- 1-2s slop), not exact, unlike the family_real fixture's precisely self-timed turns. The owner (Sage) is the LAST speaker (turn/position 6 of 6). Generic labels Player1..Player6 are used since the other 5 speakers' names aren't recorded; Player6 == the owner's own enrolled voice.",
+  "variant": "real",
+  "recorded_by": "owner + 5 friends (poker night)",
+  "sample_rate": 16000,
+  "duration_sec": 30.12,
+  "num_speakers_true": 6,
+  "owner_is_speaker": "Player6",
+  "approx_turns": [
+    {"speaker": "Player1", "approx_start": 0.0,  "approx_end": 5.0},
+    {"speaker": "Player2", "approx_start": 5.0,  "approx_end": 10.0},
+    {"speaker": "Player3", "approx_start": 10.0, "approx_end": 15.0},
+    {"speaker": "Player4", "approx_start": 15.0, "approx_end": 20.0},
+    {"speaker": "Player5", "approx_start": 20.0, "approx_end": 25.0},
+    {"speaker": "Player6", "approx_start": 25.0, "approx_end": 30.12}
+  ],
+  "baseline_measured_2026-08-21": {
+    "engine": "Deepgram nova-2 transcription + local ECAPA cross-check (MINDSHIFT_DIARIZE_CROSSCHECK=1, matching deployed production config)",
+    "transcript_segments_total": 7,
+    "transcript_raw_speakers_detected": 4,
+    "cross_check_num_speakers": 4,
+    "cross_check_pooled_cosine_at_k4": 0.169,
+    "k_evaluated": "k=2 (cosine 0.073), k=3 (cosine 0.108), k=4 (cosine 0.169) — k=5/6 were NEVER EVALUATED because MAX_SPEAKERS_LOCAL=4 hard-caps the search",
+    "split_utterances": 0,
+    "owner_own_final_turn_misattributed": "the owner's real final turn (~25.55-28.77s, 'And this is Sage...') was clustered together with an earlier, different speaker's turn (~5.68-7.14s) under the same raw label — confirmed via the saved response, matches the owner's own report exactly",
+    "note": "Two segments are notably short (~1.3s, ~1.1s) — near or under MIN_SECONDS=1.0's per-utterance embedding floor, meaning they may not get embedded individually at all and instead silently inherit the nearest embedded segment's cluster. One segment spans ~7 seconds (15.79-22.77) — either one real longer turn, or two people's turns welded by the transcript with no detected pause between them; not yet determined which."
+  },
+  "scoring_note": "This fixture is NOT yet a pinned 100%-accuracy regression test like the synthetic fixtures or test_recording_family_real.wav — the honest current state is a KNOWN, MEASURED SHORTFALL (4 of 6 real speakers found). It exists to track improvement attempts against a fixed real baseline. Score any change by best-permutation accuracy against `approx_turns` (majority time-overlap per pipeline-produced turn, tolerant of the approximate boundaries), AND report num_speakers_detected honestly even if accuracy-scoring is not yet meaningful at the current 4-cluster ceiling."
+}
