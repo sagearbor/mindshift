@@ -248,7 +248,11 @@ function jobStageLabel(status: JobStatus): string {
     case "queued":
       return "Queued…";
     case "downloading":
-      return "Fetching video…";
+      // Media-type-neutral: this stage covers a chunked-upload reassembly
+      // (any file type, audio included — the owner hit this on a plain
+      // .m4a upload and it wrongly said "video") AND fetching a remote
+      // link, so it must never name a specific media type.
+      return "Uploading…";
     case "transcribing":
       return "Transcribing…";
     case "analyzing":

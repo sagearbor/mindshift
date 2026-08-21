@@ -1157,7 +1157,7 @@ describe("AnalyzeScreen", () => {
         expect(queryId(comp, "job-progress")).toBeTruthy();
         expect(queryId(comp, "download-progress")).toBeTruthy();
         const json = JSON.stringify(comp.toJSON());
-        expect(json).toContain("Fetching video…");
+        expect(json).toContain("Uploading…");
         // Honest bytes, never a fabricated percentage-only readout.
         expect(json).toContain("of");
         expect(json).toContain("116.0 MB");
