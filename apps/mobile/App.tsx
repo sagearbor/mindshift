@@ -183,11 +183,12 @@ export type Screen =
  * its Screen variant needs no extra context beyond `name` to render AND that
  * same shape is one of the registry's primary-eligible destinations
  * (src/nav/destinations.ts: PRIMARY_ELIGIBLE_DESTINATIONS — coach, analyze,
- * recordings, growth). Derived from that list (plus "home") rather than
- * hand-typed, so a future registry change can't silently drift from it.
+ * recordings, growth, and (2026-08-19 primary-eligible-expand) dashboard).
+ * Derived from that list (plus "home") rather than hand-typed, so a future
+ * registry change can't silently drift from it.
  *
  * "recordings" is deliberately FILTERED OUT of this name-derived set: unlike
- * the other three primary-eligible destinations, its Screen/DestScreen shape
+ * the other primary-eligible destinations, its Screen/DestScreen shape
  * always carries a `returnTo` — whether it's actually PRIMARY depends on
  * that field's VALUE, not just the screen's name. `isPrimary` below handles
  * it as a one-off: `returnTo: "home"` (Home's own history row, a configured
@@ -197,13 +198,41 @@ export type Screen =
  * stays pushed with its existing dedicated back button, completely
  * unchanged.
  *
+ * "dashboard" (2026-08-19 primary-eligible-expand: flipped to
+ * primaryEligible in the registry, so it belongs in this name-derived set,
+ * NOT filtered out like recordings) does NOT need recordings' instance-
+ * predicate treatment: it has exactly one push site in App.tsx
+ * (`onOpenDashboard`, plus the equivalent `handleNavigate` hamburger-catalog
+ * case) and both always attach a dynamic `returnTo` — there's no second,
+ * genuinely different origin the way recordings has "home" vs "analyze". So
+ * it's unconditionally primary by name, same as growth/coach/analyze; its
+ * render case below no longer passes `onBack` (AppChrome supplies the way
+ * back now), and backHandler.ts's `backTarget` now sends hardware back Home
+ * for it too, matching the other primary screens, instead of popping
+ * through `returnTo`.
+ *
+ * "onboarding"/tutorial was investigated for the same flip and deliberately
+ * LEFT catalog-only (primaryEligible: false) — see the reasoning on that
+ * destination in src/nav/destinations.ts. Summary: the first-launch
+ * walkthrough bypasses this Screen union/isPrimary entirely (a separate
+ * top-level gate below, before renderScreen() is ever called), so only
+ * re-entry (Settings' "Show tutorial" row / the hamburger catalog) would be
+ * affected — and OnboardingScreen is a focused, no-onBack card carousel
+ * where full AppChrome (letting a user tab away mid-walkthrough) would
+ * undermine the point, without recordings' static returnTo values available
+ * to represent an instance-predicate distinction (every reachable path
+ * patches `returnTo` dynamically via the same `handleNavigate` code, so
+ * there's nothing to key an instance check off of).
+ *
  * Every other pushed screen (session, dynamics, watch-setup, onboarding,
- * dashboard, detail, your-day, record, replay, advanced, home-design,
- * avatar-capture) either isn't in the registry at all or isn't
- * primary-eligible, so it's pushed by definition —
- * same full-screen layout, same back affordance as before this task (though
- * watch-setup/onboarding/dashboard now carry a dynamic `returnTo` instead of
- * a hardcoded one — see the Task N3 fix-round-1 comments on those cases).
+ * detail, your-day, record, replay, advanced, home-design, avatar-capture)
+ * either isn't in the registry at all or isn't primary-eligible, so it's
+ * pushed by definition — same full-screen layout, same back affordance as
+ * before this task (though watch-setup/onboarding/dashboard's `returnTo` is
+ * still dynamic rather than hardcoded — see the Task N3 fix-round-1
+ * comments on those cases; `dashboard`'s `returnTo` now only matters for
+ * restoring the chain when something like `detail` is pushed from it, not
+ * for rendering its own back button, since it no longer has one).
  */
 const PRIMARY_SCREEN_NAMES: ReadonlySet<Screen["name"]> = new Set<
   Screen["name"]
@@ -602,13 +631,16 @@ export default function App() {
           />
         );
       case "dashboard":
-        // Task N3 fix round 1: returns to wherever it was launched from
-        // (Settings, or now the hamburger catalog from any primary screen),
-        // not always Settings. `detail`'s returnTo carries this WHOLE screen
-        // (so ITS own returnTo survives the round trip).
+        // No onBack (2026-08-19 primary-eligible-expand) — Dashboard is now
+        // PRIMARY (see PRIMARY_SCREEN_NAMES above), same reasoning as
+        // Live Coach/Analyze/Growth: AppChrome already provides a way back,
+        // so a dedicated back button would be redundant. `screen.returnTo`
+        // is still carried and still matters for `detail` below: pushing
+        // "detail" from here hands it this WHOLE dashboard screen (with its
+        // own `returnTo`) so ITS back restores the chain correctly, even
+        // though dashboard itself no longer renders a back button.
         return (
           <TherapistDashboard
-            onBack={() => setScreen(screen.returnTo)}
             onSelectSession={(id) =>
               setScreen({ name: "detail", sessionId: id, returnTo: screen })
             }
