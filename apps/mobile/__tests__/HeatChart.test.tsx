@@ -893,6 +893,52 @@ describe("HeatChart wide invisible tap targets (owner report: tap-to-seek works 
     expect(inspector).toBeTruthy();
     act(() => comp.unmount());
   });
+
+  it("uses BUTT caps (not round) on the hit-line, so its reach ends exactly at the dash boundary — no bleed into a zero-gap neighbor", () => {
+    // The real family fixture's exact zero-gap 6→7 boundary (Sage ends
+    // 25.7549995s, Asher's next turn starts at literally the same instant) —
+    // the transition the owner's screenshot circled as suspicious. A ROUND
+    // cap on the wide hit-line would extend ~strokeWidth/2 (12px) PAST this
+    // boundary, along the time axis, into the neighboring turn's territory.
+    // Because dashLines groups dashes by first-appearance SPEAKER (not
+    // conversation order), whichever speaker's group paints second would win
+    // any such overlap by paint order — not by which turn a tap is actually
+    // closer to. BUTT caps end the hit-line's reach exactly at x1/x2, so two
+    // adjacent zero-gap dashes' hit-lines only ever touch at one pixel,
+    // never overlap.
+    const boundaryTurns: AnalyzePerTurn[] = [
+      { index: 6, speaker: "Sage", heat: 40, markers: [], is_spike: false, trigger_phrase: null },
+      { index: 7, speaker: "Asher", heat: 70, markers: [], is_spike: true, trigger_phrase: null },
+    ];
+    const boundaryTiming: TurnTiming[] = [
+      { start_time: 20.465, end_time: 25.7549995 },
+      { start_time: 25.7549995, end_time: 29.125 },
+    ];
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(
+        <HeatChart perTurn={boundaryTurns} turnsTiming={boundaryTiming} durationSeconds={29.125} />,
+      );
+    });
+    layout(comp, 400);
+
+    const hit6 = comp.root.find((n) => n.props?.testID === "heat-hit-6");
+    const hit7 = comp.root.find((n) => n.props?.testID === "heat-hit-7");
+
+    // Regression guard: the actual fix — must be "butt", never "round".
+    expect(hit6.props.strokeLinecap).toBe("butt");
+    expect(hit7.props.strokeLinecap).toBe("butt");
+
+    // With butt caps the hit-line's interactive reach IS exactly [x1,x2] — no
+    // extension past the endpoints — so at this zero-gap boundary the two
+    // hit-lines' spans meet at exactly one pixel and never overlap: whichever
+    // side of that pixel a tap lands on resolves by actual proximity, not by
+    // which speaker's group happened to render on top.
+    expect(hit6.props.x1).toBeLessThan(hit6.props.x2);
+    expect(hit7.props.x1).toBeLessThan(hit7.props.x2);
+    expect(hit6.props.x2).toBeCloseTo(hit7.props.x1, 6);
+    act(() => comp.unmount());
+  });
 });
 
 // ----------------- Color/speaker-mismatch investigation (§ owner bug 3) -----------------

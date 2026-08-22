@@ -1316,7 +1316,20 @@ export default function HeatChart({
                     wider, transparent twin at the SAME coordinates carries the
                     real onPress; strokeOpacity is a hair above 0 (not exactly 0)
                     because some SVG renderers treat a fully-transparent stroke as
-                    unpainted and skip hit-testing it entirely. */}
+                    unpainted and skip hit-testing it entirely.
+
+                    strokeLinecap is deliberately "butt", NOT "round": a round cap
+                    extends the tappable region by strokeWidth/2 (~12px) PAST each
+                    end ALONG the time axis, not just perpendicular to it. At a
+                    zero-gap speaker transition — exactly the kind of boundary the
+                    real family fixture's turn 6→7 has — two adjacent turns' round
+                    caps would overlap in that gap, and because dashLines groups by
+                    speaker (not conversation order), whichever speaker's group
+                    renders second would win that overlap by paint order, not by
+                    actual proximity to the tap. "butt" keeps the perpendicular
+                    widening (the actual fix for a too-thin line) while ending the
+                    hit region exactly at x1/x2 — the real fix belongs in
+                    strokeWidth, not in extending reach along the axis. */}
                 {dashLines.flatMap((line) =>
                   line.dashes.map((d) => (
                     <Line
@@ -1329,7 +1342,7 @@ export default function HeatChart({
                       stroke={line.color}
                       strokeWidth={DASH_HIT_PX}
                       strokeOpacity={0.01}
-                      strokeLinecap="round"
+                      strokeLinecap="butt"
                       onPress={() => selectTurn(d.index)}
                     />
                   )),
