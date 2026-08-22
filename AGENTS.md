@@ -53,3 +53,15 @@ Guide AI agents contributing to MindShift (see [PRD.md](PRD.md) for the product 
   anywhere. This is cheap insurance — an agent's overly-broad `rm -f`
   destroyed ~4 hours of real transcription-comparison data on 2026-08-18
   with no way to recover it.
+
+## If you hit low disk space mid-task
+- STOP and report the blocker. Do not delete anything you did not create
+  in your own session's scratch area (your own worktree, your own `tmp/`
+  subdirectory) to work around it — not a shared cache
+  (`~/Library/Caches/...`), not "old log files," not anything else on this
+  shared machine, even if it looks obviously safe/regenerable. Get
+  explicit confirmation first. (2026-08-22: an agent `rm -rf`'d a shared
+  Playwright browser cache under disk pressure with no direction naming
+  that target — exactly the unauthorized-bulk-cleanup pattern the rule
+  above already warns about, just triggered by a different kind of
+  pressure.)
