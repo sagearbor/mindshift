@@ -149,6 +149,19 @@ exports[`HeatChart — time axis rendering matches snapshot in legacy (no-timing
       </Text>
     </View>
   </View>
+  <Text
+    style={
+      {
+        "color": "#6B7280",
+        "fontSize": 11,
+        "fontWeight": "600",
+        "marginBottom": 4,
+      }
+    }
+    testID="heat-axis-label"
+  >
+    Heat (0–100) ↑
+  </Text>
   <View
     style={
       {
@@ -553,6 +566,19 @@ exports[`HeatChart — time axis rendering matches snapshot in time-axis mode 1`
       </Text>
     </View>
   </View>
+  <Text
+    style={
+      {
+        "color": "#6B7280",
+        "fontSize": 11,
+        "fontWeight": "600",
+        "marginBottom": 4,
+      }
+    }
+    testID="heat-axis-label"
+  >
+    Heat (0–100) ↑
+  </Text>
   <View
     style={
       {
@@ -605,6 +631,54 @@ exports[`HeatChart — time axis rendering matches snapshot in time-axis mode 1`
           strokeOpacity={0.25}
           strokeWidth={1}
           testID="heat-line-Bob"
+        />
+        <View
+          onPress={[Function]}
+          stroke="#F59E0B"
+          strokeLinecap="round"
+          strokeOpacity={0.01}
+          strokeWidth={24}
+          testID="heat-hit-0"
+          x1={16}
+          x2={69.6}
+          y1={134.4}
+          y2={134.4}
+        />
+        <View
+          onPress={[Function]}
+          stroke="#F59E0B"
+          strokeLinecap="round"
+          strokeOpacity={0.01}
+          strokeWidth={24}
+          testID="heat-hit-2"
+          x1={96.39999999999999}
+          x2={257.20000000000005}
+          y1={97.39999999999999}
+          y2={97.39999999999999}
+        />
+        <View
+          onPress={[Function]}
+          stroke="#4A90D9"
+          strokeLinecap="round"
+          strokeOpacity={0.01}
+          strokeWidth={24}
+          testID="heat-hit-1"
+          x1={69.6}
+          x2={96.39999999999999}
+          y1={119.6}
+          y2={119.6}
+        />
+        <View
+          onPress={[Function]}
+          stroke="#4A90D9"
+          strokeLinecap="round"
+          strokeOpacity={0.01}
+          strokeWidth={24}
+          testID="heat-hit-3"
+          x1={257.20000000000005}
+          x2={284}
+          y1={30.799999999999983}
+          y2={30.799999999999983}
         />
         <View
           onPress={[Function]}
