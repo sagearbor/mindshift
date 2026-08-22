@@ -88,9 +88,15 @@ logger = logging.getLogger(__name__)
 MAX_POOLED_COSINE = float(os.getenv("MINDSHIFT_DIARIZE_MAX_POOLED_COSINE", "0.45"))
 
 # Candidate speaker counts run k = 2 .. MAX_SPEAKERS_LOCAL (also capped by the
-# number of embeddable utterances). 4 covers the family recordings this app
-# targets while keeping the spurious-split surface small.
-MAX_SPEAKERS_LOCAL = 4
+# number of embeddable utterances). Raised 4 -> 6 on 2026-08-21: three
+# parallel experiments investigating a real 6-speaker recording confirmed
+# raising this cap is safe (full regression ladder: 61 passed, 2 skipped, 1
+# pre-existing test updated for the new constant, no accuracy regressions)
+# and costs nothing on the app's primary 2-4-person use case, since those
+# recordings never validate past their real k anyway. A higher ceiling does
+# genuinely help recordings with more real, well-separated speakers and
+# enough speech per person to clear MIN_CLUSTER_SECONDS_STRONG.
+MAX_SPEAKERS_LOCAL = 6
 
 # An utterance shorter than this is not embedded (too little voice signal); it
 # inherits the nearest embedded utterance's cluster (nearest by midpoint).
