@@ -84,9 +84,9 @@ describe("icon set", () => {
     }
   });
 
-  it("has all four chrome glyphs", () => {
+  it("has all five chrome glyphs", () => {
     expect(Object.keys(CHROME_ICONS).sort()).toEqual(
-      ["back", "camera", "close", "menu"].sort(),
+      ["back", "camera", "close", "home", "menu"].sort(),
     );
   });
 });

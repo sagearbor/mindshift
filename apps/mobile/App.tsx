@@ -27,6 +27,7 @@ import LoginScreen from "./src/screens/LoginScreen";
 import OnboardingScreen from "./src/screens/OnboardingScreen";
 import UpdateBanner from "./src/components/UpdateBanner";
 import AppChrome, { type AppChromeHandle } from "./src/components/AppChrome";
+import PushedScreenChrome from "./src/components/PushedScreenChrome";
 import { useAndroidBackHandler } from "./src/nav/useAndroidBackHandler";
 import { PRIMARY_ELIGIBLE_DESTINATIONS, type DestScreen } from "./src/nav/destinations";
 import { useAuthStore, initAuth } from "./src/store/authStore";
@@ -686,6 +687,12 @@ export default function App() {
     setScreen(dest);
   };
 
+  // AppChrome's wordmark tap and every pushed screen's new Home affordance
+  // (PushedScreenChrome, below) both go through this one handler — a pushed
+  // screen's Home tap must land exactly where the wordmark tap already does,
+  // not a separate reimplementation of "go home".
+  const goHome = () => setScreen({ name: "home" });
+
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.container}>
@@ -697,7 +704,7 @@ export default function App() {
             ref={chromeRef}
             screenName={screen.name}
             onNavigate={handleNavigate}
-            onGoHome={() => setScreen({ name: "home" })}
+            onGoHome={goHome}
             onSignOut={handleSignOut}
             user={user}
             avatarUri={avatarUri}
@@ -705,7 +712,14 @@ export default function App() {
             {renderScreen()}
           </AppChrome>
         ) : (
-          renderScreen()
+          // Additive only (see PushedScreenChrome's own comment): a thin
+          // "Home" tap target above the screen's own content, alongside its
+          // existing back button — not a replacement for it. Does not touch
+          // isPrimary/PRIMARY_SCREEN_NAMES or any screen's own onBack/
+          // backHandler.ts wiring.
+          <PushedScreenChrome onGoHome={goHome}>
+            {renderScreen()}
+          </PushedScreenChrome>
         )}
       </SafeAreaView>
     </SafeAreaProvider>
