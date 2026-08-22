@@ -959,6 +959,8 @@ class TestKSelectionFourVoices:
         assert [t["speaker"] for t in got["turns"]] == [
             "Speaker A", "Speaker B", "Speaker C", "Speaker D",
         ] * 2
-        # MAX_SPEAKERS_LOCAL caps evaluation at k=4 even with 8 turns.
-        assert [e["k"] for e in got["k_evaluated"]] == [2, 3, 4]
-        assert diarize_local.MAX_SPEAKERS_LOCAL == 4
+        # MAX_SPEAKERS_LOCAL (raised 4 -> 6 on 2026-08-21) caps evaluation at
+        # k=6 with 8 turns; k=5/6 are evaluated but correctly rejected,
+        # leaving the genuine k=4 split as the chosen result.
+        assert [e["k"] for e in got["k_evaluated"]] == [2, 3, 4, 5, 6]
+        assert diarize_local.MAX_SPEAKERS_LOCAL == 6
