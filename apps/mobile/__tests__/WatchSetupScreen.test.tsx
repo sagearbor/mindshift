@@ -1,13 +1,20 @@
 import React from "react";
-import { Linking } from "react-native";
+import { Alert, Linking } from "react-native";
 import renderer, { act, ReactTestInstance } from "react-test-renderer";
 import WatchSetupScreen from "../src/screens/WatchSetupScreen";
-import { claimWatchPairing } from "../src/api/watchPairing";
+import { claimWatchPairing, disconnectWatch } from "../src/api/watchPairing";
+import { getMe } from "../src/api/me";
 
 jest.mock("../src/api/watchPairing", () => ({
   claimWatchPairing: jest.fn(),
+  disconnectWatch: jest.fn(),
+}));
+jest.mock("../src/api/me", () => ({
+  getMe: jest.fn(),
 }));
 const mockClaim = claimWatchPairing as jest.Mock;
+const mockDisconnect = disconnectWatch as jest.Mock;
+const mockGetMe = getMe as jest.Mock;
 
 function queryId(
   comp: renderer.ReactTestRenderer,
@@ -35,6 +42,16 @@ async function render(onBack = jest.fn()) {
 
 beforeEach(() => {
   mockClaim.mockReset();
+  mockDisconnect.mockReset();
+  mockGetMe.mockReset();
+  // Default: honest "unknown" until a test overrides it — matches the
+  // screen's own default before the fetch resolves/rejects.
+  mockGetMe.mockResolvedValue({
+    account_id: "u1",
+    email: "a@example.com",
+    legacy: false,
+    has_paired_watch: false,
+  });
   jest.spyOn(Linking, "openURL").mockResolvedValue(true);
 });
 
@@ -248,6 +265,172 @@ describe("WatchSetupScreen", () => {
     });
 
     expect(queryId(comp, "watch-pair-error")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+});
+
+describe("WatchSetupScreen — paired-state awareness", () => {
+  it("shows the default first-time heading and no disconnect action while unpaired", async () => {
+    mockGetMe.mockResolvedValue({
+      account_id: "u1",
+      email: "a@example.com",
+      legacy: false,
+      has_paired_watch: false,
+    });
+    const comp = await render();
+
+    expect(textOf(queryId(comp, "watch-setup-heading")!)).toBe(
+      "Set up your watch",
+    );
+    expect(queryId(comp, "watch-setup-disconnect-button")).toBeNull();
+    // Install/pair flow stays fully visible even before /me resolves.
+    expect(queryId(comp, "watch-install-button")).toBeTruthy();
+    expect(queryId(comp, "watch-pair-code-input")).toBeTruthy();
+
+    act(() => comp.unmount());
+  });
+
+  it("switches to 'Add another watch' heading and offers disconnect once /me reports has_paired_watch", async () => {
+    mockGetMe.mockResolvedValue({
+      account_id: "u1",
+      email: "a@example.com",
+      legacy: false,
+      has_paired_watch: true,
+    });
+    const comp = await render();
+
+    expect(textOf(queryId(comp, "watch-setup-heading")!)).toContain(
+      "Add another watch",
+    );
+    expect(queryId(comp, "watch-setup-disconnect-button")).toBeTruthy();
+    // The install/pair flow (steps 1 + 2) stays fully usable — adding a
+    // second watch is a legitimate case, not a blocked one.
+    expect(queryId(comp, "watch-install-button")).toBeTruthy();
+    expect(queryId(comp, "watch-pair-code-input")).toBeTruthy();
+
+    act(() => comp.unmount());
+  });
+
+  it("stays on the honest default first-time heading if /me can't be fetched", async () => {
+    mockGetMe.mockRejectedValue(new Error("network down"));
+    const comp = await render();
+
+    expect(textOf(queryId(comp, "watch-setup-heading")!)).toBe(
+      "Set up your watch",
+    );
+    expect(queryId(comp, "watch-setup-disconnect-button")).toBeNull();
+
+    act(() => comp.unmount());
+  });
+
+  it("confirms before disconnecting, with accurate non-alarming copy", async () => {
+    mockGetMe.mockResolvedValue({
+      account_id: "u1",
+      email: "a@example.com",
+      legacy: false,
+      has_paired_watch: true,
+    });
+    mockDisconnect.mockReturnValue(new Promise(() => {})); // never resolves here
+    const alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    const comp = await render();
+
+    act(() => queryId(comp, "watch-setup-disconnect-button")!.props.onPress());
+
+    expect(alertSpy).toHaveBeenCalled();
+    const [title, message] = alertSpy.mock.calls[0];
+    expect(title).toMatch(/disconnect/i);
+    expect(message).toMatch(/stop being able to sign in/i);
+    // Accurate, non-alarming: explicitly says data/recordings are safe.
+    expect(message).toMatch(/recordings.*safe|safe.*recordings/i);
+    expect(mockDisconnect).not.toHaveBeenCalled();
+
+    alertSpy.mockRestore();
+    act(() => comp.unmount());
+  });
+
+  it("on confirm, calls disconnectWatch and reverts to the first-time state without a restart", async () => {
+    mockGetMe.mockResolvedValue({
+      account_id: "u1",
+      email: "a@example.com",
+      legacy: false,
+      has_paired_watch: true,
+    });
+    mockDisconnect.mockResolvedValue({ disconnected: true, count: 1 });
+    const alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    const comp = await render();
+
+    act(() => queryId(comp, "watch-setup-disconnect-button")!.props.onPress());
+    const buttons = alertSpy.mock.calls[0][2] as Array<{
+      style?: string;
+      onPress?: () => void;
+    }>;
+    const destructive = buttons.find((b) => b.style === "destructive")!;
+    await act(async () => destructive.onPress!());
+
+    expect(mockDisconnect).toHaveBeenCalledTimes(1);
+    expect(textOf(queryId(comp, "watch-setup-heading")!)).toBe(
+      "Set up your watch",
+    );
+    expect(queryId(comp, "watch-setup-disconnect-button")).toBeNull();
+
+    alertSpy.mockRestore();
+    act(() => comp.unmount());
+  });
+
+  it("shows an honest error and stays paired if the disconnect call fails", async () => {
+    mockGetMe.mockResolvedValue({
+      account_id: "u1",
+      email: "a@example.com",
+      legacy: false,
+      has_paired_watch: true,
+    });
+    mockDisconnect.mockRejectedValue(new Error("API error: 500"));
+    const alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    const comp = await render();
+
+    act(() => queryId(comp, "watch-setup-disconnect-button")!.props.onPress());
+    const buttons = alertSpy.mock.calls[0][2] as Array<{
+      style?: string;
+      onPress?: () => void;
+    }>;
+    const destructive = buttons.find((b) => b.style === "destructive")!;
+    await act(async () => destructive.onPress!());
+
+    expect(mockDisconnect).toHaveBeenCalledTimes(1);
+    // Still paired — the UI never claims success it didn't get.
+    expect(textOf(queryId(comp, "watch-setup-heading")!)).toContain(
+      "Add another watch",
+    );
+    expect(queryId(comp, "watch-setup-disconnect-button")).toBeTruthy();
+    // A second Alert.alert call reports the failure.
+    expect(alertSpy).toHaveBeenCalledTimes(2);
+
+    alertSpy.mockRestore();
+    act(() => comp.unmount());
+  });
+
+  it("cancel does not call disconnectWatch and leaves paired state untouched", async () => {
+    mockGetMe.mockResolvedValue({
+      account_id: "u1",
+      email: "a@example.com",
+      legacy: false,
+      has_paired_watch: true,
+    });
+    const alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    const comp = await render();
+
+    act(() => queryId(comp, "watch-setup-disconnect-button")!.props.onPress());
+    const buttons = alertSpy.mock.calls[0][2] as Array<{
+      style?: string;
+      onPress?: () => void;
+    }>;
+    const cancel = buttons.find((b) => b.style === "cancel")!;
+    if (cancel.onPress) act(() => cancel.onPress!());
+
+    expect(mockDisconnect).not.toHaveBeenCalled();
+    expect(queryId(comp, "watch-setup-disconnect-button")).toBeTruthy();
+
+    alertSpy.mockRestore();
     act(() => comp.unmount());
   });
 });

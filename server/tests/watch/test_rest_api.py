@@ -121,6 +121,141 @@ def test_me_preserves_existing_principal_fields_alongside_has_paired_watch():
     assert body["legacy"] is False
 
 
+# -------------------------------------------- DELETE /me/watch-pairing (unpair) --
+
+def test_disconnect_watch_returns_zero_when_no_pairing_store_wired():
+    # _authed_client omits pairing_store entirely -- the honest degradation
+    # default per disconnect_watch()'s docstring, not a 500.
+    _, client = _authed_client()
+    resp = client.delete("/me/watch-pairing", headers=AUTH_A)
+    assert resp.status_code == 200
+    assert resp.json() == {"disconnected": True, "count": 0}
+
+
+def test_disconnect_watch_returns_zero_when_account_has_no_paired_watch():
+    store = MemoryLiveSessionStore()
+    pairing_store = MemoryPairingStore()
+    client = TestClient(create_watch_test_app(
+        store=store, pairing_store=pairing_store, verifier=StubVerifier(TOKENS), allow_legacy=True,
+    ))
+    resp = client.delete("/me/watch-pairing", headers=AUTH_A)
+    assert resp.status_code == 200
+    assert resp.json() == {"disconnected": True, "count": 0}
+
+
+def test_disconnect_watch_deletes_the_device_token_and_reports_count():
+    store = MemoryLiveSessionStore()
+    pairing_store = MemoryPairingStore()
+    pairing_store.put_device_token(DeviceToken(
+        token_hash=hash_secret("raw-device-token"),
+        account_id="uid-a",
+        created_at="2026-08-17T10:00:00+00:00",
+        pairing_id="pid-1",
+    ))
+    client = TestClient(create_watch_test_app(
+        store=store, pairing_store=pairing_store, verifier=StubVerifier(TOKENS), allow_legacy=True,
+    ))
+    resp = client.delete("/me/watch-pairing", headers=AUTH_A)
+    assert resp.status_code == 200
+    assert resp.json() == {"disconnected": True, "count": 1}
+    assert pairing_store.get_device_token_by_hash(hash_secret("raw-device-token")) is None
+
+
+def test_disconnect_watch_is_idempotent_on_a_second_call():
+    store = MemoryLiveSessionStore()
+    pairing_store = MemoryPairingStore()
+    pairing_store.put_device_token(DeviceToken(
+        token_hash=hash_secret("raw-device-token"),
+        account_id="uid-a",
+        created_at="2026-08-17T10:00:00+00:00",
+        pairing_id="pid-1",
+    ))
+    client = TestClient(create_watch_test_app(
+        store=store, pairing_store=pairing_store, verifier=StubVerifier(TOKENS), allow_legacy=True,
+    ))
+    first = client.delete("/me/watch-pairing", headers=AUTH_A)
+    second = client.delete("/me/watch-pairing", headers=AUTH_A)
+    assert first.json() == {"disconnected": True, "count": 1}
+    assert second.status_code == 200
+    assert second.json() == {"disconnected": True, "count": 0}
+
+
+def test_disconnect_watch_only_affects_the_calling_account():
+    store = MemoryLiveSessionStore()
+    pairing_store = MemoryPairingStore()
+    pairing_store.put_device_token(DeviceToken(
+        token_hash=hash_secret("token-a"),
+        account_id="uid-a",
+        created_at="2026-08-17T10:00:00+00:00",
+        pairing_id="pid-1",
+    ))
+    pairing_store.put_device_token(DeviceToken(
+        token_hash=hash_secret("token-b"),
+        account_id="uid-b",
+        created_at="2026-08-17T10:00:00+00:00",
+        pairing_id="pid-2",
+    ))
+    client = TestClient(create_watch_test_app(
+        store=store, pairing_store=pairing_store, verifier=StubVerifier(TOKENS), allow_legacy=True,
+    ))
+    resp = client.delete("/me/watch-pairing", headers=AUTH_A)
+    assert resp.json() == {"disconnected": True, "count": 1}
+    assert pairing_store.get_device_token_by_hash(hash_secret("token-a")) is None
+    assert pairing_store.get_device_token_by_hash(hash_secret("token-b")) is not None
+
+
+def test_me_reflects_disconnect_watch_immediately():
+    # End-to-end: GET /me's has_paired_watch flips back to False right after
+    # DELETE /me/watch-pairing, no separate cleanup step needed.
+    store = MemoryLiveSessionStore()
+    pairing_store = MemoryPairingStore()
+    pairing_store.put_device_token(DeviceToken(
+        token_hash=hash_secret("raw-device-token"),
+        account_id="uid-a",
+        created_at="2026-08-17T10:00:00+00:00",
+        pairing_id="pid-1",
+    ))
+    client = TestClient(create_watch_test_app(
+        store=store, pairing_store=pairing_store, verifier=StubVerifier(TOKENS), allow_legacy=True,
+    ))
+    assert client.get("/me", headers=AUTH_A).json()["has_paired_watch"] is True
+    client.delete("/me/watch-pairing", headers=AUTH_A)
+    assert client.get("/me", headers=AUTH_A).json()["has_paired_watch"] is False
+
+
+def test_disconnect_watch_requires_auth():
+    _, client = _authed_client()
+    resp = client.delete("/me/watch-pairing")
+    assert resp.status_code == 401
+
+
+def test_disconnect_watch_rejects_unauthenticated_legacy_account_param_and_leaves_the_victim_paired():
+    # Regression: strict_auth_dep (not auth_dep) must gate this destructive
+    # route. `_authed_client` wires `allow_legacy=True` -- the same default
+    # as production (MINDSHIFT_ALLOW_LEGACY_ACCOUNT) -- so a request that
+    # supplies ONLY `?account=<victim>` and NO Authorization header at all
+    # is exactly the zero-credential attack this test guards against: an
+    # attacker who merely knows/guesses another account's id must never be
+    # able to unpair that account's watch. Also asserts the victim's token
+    # actually survives the attempted delete, not just the 401 itself.
+    store = MemoryLiveSessionStore()
+    pairing_store = MemoryPairingStore()
+    pairing_store.put_device_token(DeviceToken(
+        token_hash=hash_secret("victim-device-token"),
+        account_id="uid-a",
+        created_at="2026-08-17T10:00:00+00:00",
+        pairing_id="pid-1",
+    ))
+    client = TestClient(create_watch_test_app(
+        store=store, pairing_store=pairing_store, verifier=StubVerifier(TOKENS), allow_legacy=True,
+    ))
+
+    resp = client.delete("/me/watch-pairing", params={"account": "uid-a"})
+
+    assert resp.status_code == 401
+    assert pairing_store.get_device_token_by_hash(hash_secret("victim-device-token")) is not None
+
+
 # ----------------------------------------------------------------- live-sessions --
 
 def test_list_live_sessions_owner_and_shared():

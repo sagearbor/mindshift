@@ -110,3 +110,35 @@ export async function claimWatchPairing(
     detail: detail ?? `Something went wrong (error ${res.status}). Please try again.`,
   };
 }
+
+/** Result of `disconnectWatch()` — `count` is the number of device tokens
+ *  actually removed (0 is a valid, non-error outcome: nothing was paired). */
+export interface DisconnectWatchResult {
+  disconnected: boolean;
+  count: number;
+}
+
+/**
+ * DELETE /me/watch-pairing — "Disconnect this watch": revoke every device
+ * token bound to the signed-in account (server/watch/routers/rest.py's
+ * `disconnect_watch`). This is a pure auth-revoke, never a data deletion —
+ * recordings, growth, and everything else stay exactly as they were, and
+ * pairing a watch again (even a different one) immediately sees all the
+ * same cloud data.
+ *
+ * Unlike `claimWatchPairing` (whose failures are normal, expected human
+ * mistakes), a disconnect failure is unexpected — mirrors client.ts's
+ * `forgetVoice`: throws `API error: <status>` on any non-OK response so the
+ * confirm-then-delete UI can surface an honest error rather than silently
+ * pretending success.
+ */
+export async function disconnectWatch(): Promise<DisconnectWatchResult> {
+  const res = await fetch(`${API_URL}/me/watch-pairing`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+  return (await res.json()) as DisconnectWatchResult;
+}
