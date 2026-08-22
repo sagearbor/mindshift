@@ -125,10 +125,22 @@ describe("HomeDesignScreen — remove", () => {
 describe("HomeDesignScreen — add", () => {
   it("lists remaining primary-eligible destinations not already in the tab bar", () => {
     const { comp } = render();
-    // Defaults are coach/analyze/growth — recordings is the one remaining
-    // primary-eligible destination.
+    // Defaults are coach/analyze/growth — recordings and (2026-08-19
+    // primary-eligible-expand) therapistDashboard are the remaining
+    // primary-eligible destinations.
     expect(queryId(comp, "home-design-tab-add-recordings")).toBeTruthy();
+    expect(queryId(comp, "home-design-tab-add-therapistDashboard")).toBeTruthy();
     expect(queryId(comp, "home-design-tab-add-coach")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  // 2026-08-19 primary-eligible-expand: this is the exact editor behavior
+  // the owner asked about — "shouldn't something like the Therapist
+  // Dashboard also be an option there?" — now it is.
+  it("offers Dashboard as an addable tab/box option now that it's primary-eligible", () => {
+    const { comp } = render();
+    expect(queryId(comp, "home-design-tab-add-therapistDashboard")).toBeTruthy();
+    expect(queryId(comp, "home-design-box-add-therapistDashboard")).toBeTruthy();
     act(() => comp.unmount());
   });
 
@@ -148,9 +160,11 @@ describe("HomeDesignScreen — add", () => {
 
   it("home boxes add list offers destinations not already in homeBoxes", () => {
     const { comp } = render();
-    // Defaults are recordings/growth — coach and analyze remain offerable.
+    // Defaults are recordings/growth — coach, analyze, and (2026-08-19
+    // primary-eligible-expand) therapistDashboard remain offerable.
     expect(queryId(comp, "home-design-box-add-coach")).toBeTruthy();
     expect(queryId(comp, "home-design-box-add-analyze")).toBeTruthy();
+    expect(queryId(comp, "home-design-box-add-therapistDashboard")).toBeTruthy();
     expect(queryId(comp, "home-design-box-add-recordings")).toBeNull();
     act(() => comp.unmount());
   });
@@ -203,12 +217,17 @@ describe("HomeDesignScreen — reorder", () => {
 });
 
 describe("HomeDesignScreen — caps", () => {
-  // The registry currently has only 4 primary-eligible destinations against
-  // a 5-slot tab cap (see nav/destinations.ts) — the literal numeric cap
-  // isn't reachable today, so this exercises the OTHER "nothing left to
-  // add" reason: every eligible destination is already placed. Both reasons
-  // hide the add list behind the same hint (see the box cap test below for
-  // the literal-cap case, which the box section's 4-box cap does reach).
+  // 2026-08-19 primary-eligible-expand: the registry now has exactly 5
+  // primary-eligible destinations (coach, analyze, recordings, growth,
+  // therapistDashboard — see nav/destinations.ts) against the 5-slot tab
+  // cap, so placing every eligible destination now ALSO hits the literal
+  // numeric cap — the two "nothing left to add" reasons coincide instead of
+  // being independently reachable the way they were pre-2026-08-19 (4
+  // eligible destinations against a 5-slot cap, so this test's "every
+  // destination placed" case was strictly BELOW the cap). Both reasons hide
+  // the add list behind the same hint either way (see the box cap test
+  // below for a case where the cap is hit before all destinations are
+  // placed, since the box section's cap is only 4).
   it("hides the add list once every primary-eligible destination is already on the tab bar", () => {
     act(() => {
       useLayoutStore
@@ -219,9 +238,7 @@ describe("HomeDesignScreen — caps", () => {
     expect(useLayoutStore.getState().tabSlots.length).toBe(
       PRIMARY_ELIGIBLE_DESTINATIONS.length,
     );
-    expect(useLayoutStore.getState().tabSlots.length).toBeLessThan(
-      TAB_SLOT_CAP,
-    );
+    expect(useLayoutStore.getState().tabSlots.length).toBe(TAB_SLOT_CAP);
     expect(queryAllIds(comp, "home-design-tab-add-").length).toBe(0);
     expect(queryId(comp, "home-design-tab-cap-hint")).toBeTruthy();
     act(() => comp.unmount());

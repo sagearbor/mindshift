@@ -34,10 +34,15 @@ export function backTarget(screen: Screen): Screen | null {
 
     // Primary screens (Task N3: wrapped in AppChrome, no back button of
     // their own) — hardware back from any of them goes to Home, same target
-    // as AppChrome's wordmark tap.
+    // as AppChrome's wordmark tap. `dashboard` joined this group
+    // (2026-08-19 primary-eligible-expand): it's now unconditionally PRIMARY
+    // (see App.tsx's PRIMARY_SCREEN_NAMES comment), so hardware back matches
+    // the other primary screens — Home — rather than popping through its
+    // `returnTo` chain the way it did while still pushed-only.
     case "live-coach":
     case "analyze":
     case "growth":
+    case "dashboard":
       return { name: "home" };
 
     // Pushed screen whose existing onBack targets Home.
@@ -49,7 +54,6 @@ export function backTarget(screen: Screen): Screen | null {
     // from any primary screen) instead of a hardcoded "advanced".
     case "watch-setup":
     case "onboarding":
-    case "dashboard":
     // Task N6: same dynamic-returnTo treatment — the avatar-capture flow can
     // be launched from any primary screen's avatar menu, or from Settings.
     case "avatar-capture":

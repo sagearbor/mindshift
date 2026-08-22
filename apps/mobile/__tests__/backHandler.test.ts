@@ -10,24 +10,32 @@ describe("backTarget", () => {
     expect(backTarget({ name: "home" })).toBeNull();
   });
 
+  // 2026-08-19 primary-eligible-expand: dashboard is now unconditionally
+  // PRIMARY (see App.tsx's PRIMARY_SCREEN_NAMES/isPrimary), so hardware back
+  // goes Home like the other primary screens, regardless of its `returnTo` —
+  // it no longer pops through that chain (see the dedicated describe block
+  // below for the "regardless of returnTo" coverage).
   it.each<[Screen, Screen]>([
     [{ name: "live-coach" }, { name: "home" }],
     [{ name: "analyze" }, { name: "home" }],
     [{ name: "growth" }, { name: "home" }],
     [{ name: "advanced" }, { name: "home" }],
     [{ name: "your-day" }, { name: "home" }],
+    [{ name: "dashboard", returnTo: { name: "advanced" } }, { name: "home" }],
   ])("%o pops to home", (screen, expected) => {
     expect(backTarget(screen)).toEqual(expected);
   });
 
-  // Task N3 fix round 1 (IMPORTANT 4): watch-setup/onboarding/dashboard now
-  // carry a dynamic `returnTo` (wherever they were actually launched from —
+  // Task N3 fix round 1 (IMPORTANT 4): watch-setup/onboarding still carry a
+  // dynamic `returnTo` (wherever they were actually launched from —
   // Settings, or the hamburger catalog from any primary screen) instead of
   // a hardcoded "advanced". backTarget just hands that value straight back.
+  // (dashboard used to be in this group too — see the "pops to home"
+  // describe above and the dedicated describe block below for why it moved
+  // once it became unconditionally PRIMARY.)
   it.each<[Screen, Screen]>([
     [{ name: "watch-setup", returnTo: { name: "advanced" } }, { name: "advanced" }],
     [{ name: "onboarding", returnTo: { name: "advanced" } }, { name: "advanced" }],
-    [{ name: "dashboard", returnTo: { name: "advanced" } }, { name: "advanced" }],
   ])("%o pops to its returnTo (Settings here)", (screen, expected) => {
     expect(backTarget(screen)).toEqual(expected);
   });
@@ -35,9 +43,25 @@ describe("backTarget", () => {
   it.each<[Screen, Screen]>([
     [{ name: "watch-setup", returnTo: { name: "home" } }, { name: "home" }],
     [{ name: "onboarding", returnTo: { name: "live-coach" } }, { name: "live-coach" }],
-    [{ name: "dashboard", returnTo: { name: "analyze" } }, { name: "analyze" }],
   ])(
     "%o pops to its returnTo even when that ISN'T Settings — catalog-opened from a primary screen",
+    (screen, expected) => {
+      expect(backTarget(screen)).toEqual(expected);
+    },
+  );
+
+  // 2026-08-19 primary-eligible-expand: dashboard became unconditionally
+  // PRIMARY, so — unlike watch-setup/onboarding above, and unlike its own
+  // pre-flip behavior — hardware back always goes Home, regardless of what
+  // `returnTo` it's carrying (dashboard's `returnTo` still exists, just no
+  // longer drives back-navigation; it's only read again if `detail` gets
+  // pushed from here, restoring the whole chain).
+  it.each<[Screen, Screen]>([
+    [{ name: "dashboard", returnTo: { name: "advanced" } }, { name: "home" }],
+    [{ name: "dashboard", returnTo: { name: "analyze" } }, { name: "home" }],
+    [{ name: "dashboard", returnTo: { name: "live-coach" } }, { name: "home" }],
+  ])(
+    "%o always pops to home, ignoring returnTo, now that it's PRIMARY",
     (screen, expected) => {
       expect(backTarget(screen)).toEqual(expected);
     },

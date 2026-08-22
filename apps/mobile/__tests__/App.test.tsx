@@ -270,7 +270,7 @@ describe("home & primary-screen navigation", () => {
     act(() => comp.unmount());
   });
 
-  it("Home → Advanced → Therapist Dashboard, and back walks the same path", async () => {
+  it("Home → Advanced → Therapist Dashboard renders full chrome (2026-08-19: dashboard is now PRIMARY), wordmark returns Home", async () => {
     let comp!: renderer.ReactTestRenderer;
     act(() => {
       comp = renderer.create(<App />);
@@ -286,13 +286,14 @@ describe("home & primary-screen navigation", () => {
     });
     expect(queryId(comp, "therapist-dashboard")).toBeTruthy();
 
-    await act(async () => {
-      queryId(comp, "dashboard-back")!.props.onPress();
-    });
-    expect(queryId(comp, "advanced-dashboard")).toBeTruthy();
+    // Dashboard became primary-eligible (2026-08-19 primary-eligible-expand)
+    // so it's now unconditionally PRIMARY: full chrome, no dedicated back
+    // button of its own (same reasoning as Live Coach/Analyze/Growth).
+    expect(queryId(comp, "chrome-hamburger-button")).toBeTruthy();
+    expect(queryId(comp, "dashboard-back")).toBeNull();
 
     await act(async () => {
-      queryId(comp, "advanced-back")!.props.onPress();
+      queryId(comp, "chrome-wordmark")!.props.onPress();
     });
     expect(queryId(comp, "home-screen")).toBeTruthy();
     act(() => comp.unmount());
@@ -900,7 +901,7 @@ describe("recordings PRIMARY-vs-PUSHED is an instance predicate (Task N3 fix rou
   });
 });
 
-describe("hamburger catalog → watch-setup/dashboard/tutorial return to their real origin (Task N3 fix round 1, IMPORTANT 4)", () => {
+describe("hamburger catalog → watch-setup/tutorial return to their real origin (Task N3 fix round 1, IMPORTANT 4); dashboard is now PRIMARY instead (2026-08-19)", () => {
   it("Set up your watch, opened from Home via the catalog, returns to Home (not Settings)", async () => {
     let comp!: renderer.ReactTestRenderer;
     act(() => {
@@ -924,7 +925,7 @@ describe("hamburger catalog → watch-setup/dashboard/tutorial return to their r
     act(() => comp.unmount());
   });
 
-  it("Dashboard, opened from Analyze via the catalog, returns to Analyze (not Settings)", async () => {
+  it("Dashboard, opened from Analyze via the catalog, is PRIMARY (2026-08-19: no back button; wordmark returns Home, not Analyze/Settings)", async () => {
     let comp!: renderer.ReactTestRenderer;
     act(() => {
       comp = renderer.create(<App />);
@@ -943,10 +944,19 @@ describe("hamburger catalog → watch-setup/dashboard/tutorial return to their r
     });
     expect(queryId(comp, "therapist-dashboard")).toBeTruthy();
 
+    // Dashboard is now unconditionally PRIMARY (2026-08-19
+    // primary-eligible-expand): full chrome, no dedicated back button — its
+    // `returnTo` (Analyze here) is still carried internally for a nested
+    // `detail` push to restore, but no longer drives dashboard's own back
+    // navigation, so leaving is via the chrome (wordmark → Home), not a
+    // round trip back to Analyze.
+    expect(queryId(comp, "chrome-hamburger-button")).toBeTruthy();
+    expect(queryId(comp, "dashboard-back")).toBeNull();
+
     await act(async () => {
-      queryId(comp, "dashboard-back")!.props.onPress();
+      queryId(comp, "chrome-wordmark")!.props.onPress();
     });
-    expect(queryId(comp, "pick-recording-button")).toBeTruthy(); // back on Analyze
+    expect(queryId(comp, "home-screen")).toBeTruthy();
     expect(queryId(comp, "settings-heading")).toBeNull();
     act(() => comp.unmount());
   });

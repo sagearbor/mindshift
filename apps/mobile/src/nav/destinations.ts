@@ -162,9 +162,23 @@ export const DESTINATIONS: readonly Destination[] = [
     title: "Dashboard",
     iconId: "clipboard",
     screen: { name: "dashboard" },
-    // Catalog-only: a Settings ("Your tools") row for reviewing saved
-    // sessions, not a frequent primary action for most users.
-    primaryEligible: false,
+    // Primary (2026-08-19 primary-eligible-expand): the owner asked whether
+    // a destination like this should be addable to the bottom bar / home
+    // boxes too — it's a self-contained, meaningful screen a user might
+    // reasonably want quick access to, same reasoning as growth/coach/
+    // analyze already being primary-eligible. Safe to flip unconditionally:
+    // App.tsx's `dashboard` Screen variant has exactly ONE push site
+    // (`onOpenDashboard`, plus the equivalent hamburger-catalog case in
+    // `handleNavigate`), both always attaching a dynamic `returnTo` — unlike
+    // "recordings" below, there's no second genuinely-different origin that
+    // needs to stay pushed, so no instance-predicate special case is needed
+    // in App.tsx's `isPrimary()`; it just becomes unconditionally primary by
+    // name, same as growth/coach/analyze (see App.tsx's PRIMARY_SCREEN_NAMES
+    // comment and its `dashboard` render case, and backHandler.ts's
+    // `backTarget` — both updated to match: no more on-screen back button,
+    // and hardware back now goes Home like the other primary screens
+    // instead of popping through `returnTo`).
+    primaryEligible: true,
   },
   {
     id: "settings",
@@ -181,8 +195,33 @@ export const DESTINATIONS: readonly Destination[] = [
     title: "Show tutorial",
     iconId: "book",
     screen: { name: "onboarding" },
-    // Catalog-only: a rarely-revisited walkthrough (AdvancedScreen's "Show
-    // tutorial" row), not a daily action.
+    // Still catalog-only (2026-08-19 primary-eligible-expand investigated
+    // and deliberately DID NOT flip this one, unlike therapistDashboard
+    // above). Three reasons, not just "rarely revisited":
+    //  1. The FIRST-LAUNCH auto-shown walkthrough never goes through this
+    //     registry or App.tsx's isPrimary()/PRIMARY_SCREEN_NAMES at all —
+    //     it's a separate top-level gate in App.tsx (the `onboardingSeen`
+    //     check) rendered before the Screen union is even reached. So
+    //     flipping this flag would only affect RE-ENTRY (Settings' "Show
+    //     tutorial" row / the hamburger catalog), never the first-launch
+    //     flow.
+    //  2. OnboardingScreen is a focused, linear, skippable card carousel
+    //     (Skip / Back / Next / "Get started" — no `onBack` prop at all,
+    //     unlike every other pushed screen). Wrapping it in full AppChrome
+    //     (hamburger + avatar + tab bar) would let a user tap away to
+    //     another tab mid-walkthrough, undermining the one-thing-at-a-time
+    //     intent, while not even gaining a back button it doesn't
+    //     effectively already have via Skip.
+    //  3. Unlike "recordings" (whose two origins carry two different
+    //     literal `returnTo` values — "home" vs "analyze" — decidable
+    //     per-instance in isPrimary()), EVERY reachable path to the
+    //     `onboarding` pushed screen (tab tap, hamburger catalog, Settings'
+    //     row) goes through the same `handleNavigate` dynamic-`returnTo`
+    //     patch, so there's no static shape to distinguish "opened as a
+    //     tab" from "opened from the catalog" the way recordings' instance
+    //     predicate does. The recordings-style special case isn't cleanly
+    //     representable here without deeper Screen-union restructuring, so
+    //     it's left catalog-only for now rather than force-fit.
     primaryEligible: false,
   },
 ];

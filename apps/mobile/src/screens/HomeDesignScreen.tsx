@@ -240,9 +240,11 @@ function SlotSection({
 
       {atCap || remaining.length === 0 ? (
         // Two distinct reasons land here — the cap is full, or (today, with
-        // only 4 primary-eligible destinations registered against a 5-slot
-        // tab cap) every eligible destination is already placed — but both
-        // mean the same thing to the user: nothing left to add right now.
+        // 5 primary-eligible destinations registered — coach, analyze,
+        // recordings, growth, therapistDashboard, per 2026-08-19
+        // primary-eligible-expand — against a 5-slot tab cap) every eligible
+        // destination is already placed — but both mean the same thing to
+        // the user: nothing left to add right now.
         <Text style={styles.capHint} testID={`home-design-${prefix}-cap-hint`}>
           {atCap
             ? "Full — remove one to add another."
