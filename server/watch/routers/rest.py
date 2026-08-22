@@ -300,7 +300,7 @@ def make_rest_router(
         return MeResponse(**principal.model_dump(), has_paired_watch=has_paired_watch)
 
     @router.delete("/me/watch-pairing", response_model=DisconnectWatchResponse)
-    async def disconnect_watch(principal: Principal = Depends(auth_dep)) -> DisconnectWatchResponse:
+    async def disconnect_watch(principal: Principal = Depends(strict_auth_dep)) -> DisconnectWatchResponse:
         """Unpair every watch currently bound to the caller's account —
         clears ``DeviceToken`` records only (``pairing_store.
         delete_device_tokens_for_account``, see its docstring). This is a
@@ -312,11 +312,19 @@ def make_rest_router(
         reference at all). Re-pairing afterward (even a different watch)
         immediately sees all the same cloud data again.
 
-        auth_dep (not strict_auth_dep) — same gate as ``GET /me`` above,
-        deliberately: a legacy ``?account=`` caller may disconnect a watch
-        from ITS OWN legacy account just like it can read `/me`, and there
-        is no stronger-than-`/me` sensitivity here (this only revokes a
-        credential, it doesn't expose or move data).
+        strict_auth_dep (not auth_dep) — same gate as ``DELETE
+        /live-sessions/{id}`` and ``POST /me/claim-legacy`` below: this is a
+        DESTRUCTIVE write, not a read like ``GET /me`` above, so the legacy
+        ``?account=<anything>`` bridge (unauthenticated by design, and ON BY
+        DEFAULT in production per ``MINDSHIFT_ALLOW_LEGACY_ACCOUNT``) must
+        never reach it — a caller with no real credential must not be able
+        to disconnect ANY guessed/known account's watch as a zero-cost,
+        repeatable denial-of-service primitive. Only a verified Firebase
+        bearer token identifies the caller here, exactly like ``DELETE
+        /voice/voiceprint`` (server/routers/voice.py's "Forget my voice",
+        via server/auth.py's ``get_current_uid`` with no legacy fallback at
+        all) — that route, not ``GET /me``'s read posture, is the correct
+        precedent for a destructive delete.
 
         pairing_store is optional, mirroring ``me()``'s honest-degradation
         default above: a caller that never wired one gets

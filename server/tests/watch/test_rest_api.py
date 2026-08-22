@@ -229,6 +229,33 @@ def test_disconnect_watch_requires_auth():
     assert resp.status_code == 401
 
 
+def test_disconnect_watch_rejects_unauthenticated_legacy_account_param_and_leaves_the_victim_paired():
+    # Regression: strict_auth_dep (not auth_dep) must gate this destructive
+    # route. `_authed_client` wires `allow_legacy=True` -- the same default
+    # as production (MINDSHIFT_ALLOW_LEGACY_ACCOUNT) -- so a request that
+    # supplies ONLY `?account=<victim>` and NO Authorization header at all
+    # is exactly the zero-credential attack this test guards against: an
+    # attacker who merely knows/guesses another account's id must never be
+    # able to unpair that account's watch. Also asserts the victim's token
+    # actually survives the attempted delete, not just the 401 itself.
+    store = MemoryLiveSessionStore()
+    pairing_store = MemoryPairingStore()
+    pairing_store.put_device_token(DeviceToken(
+        token_hash=hash_secret("victim-device-token"),
+        account_id="uid-a",
+        created_at="2026-08-17T10:00:00+00:00",
+        pairing_id="pid-1",
+    ))
+    client = TestClient(create_watch_test_app(
+        store=store, pairing_store=pairing_store, verifier=StubVerifier(TOKENS), allow_legacy=True,
+    ))
+
+    resp = client.delete("/me/watch-pairing", params={"account": "uid-a"})
+
+    assert resp.status_code == 401
+    assert pairing_store.get_device_token_by_hash(hash_secret("victim-device-token")) is not None
+
+
 # ----------------------------------------------------------------- live-sessions --
 
 def test_list_live_sessions_owner_and_shared():
