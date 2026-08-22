@@ -26,6 +26,7 @@ import Menu from "./Menu";
 import ChevronLeft from "./ChevronLeft";
 import Close from "./Close";
 import Camera from "./Camera";
+import Home from "./Home";
 
 export type { IconProps } from "./types";
 export {
@@ -48,6 +49,7 @@ export {
   ChevronLeft,
   Close,
   Camera,
+  Home,
 };
 
 /** Every destination icon, keyed by the registry's IconId union. Adding a new
@@ -71,6 +73,7 @@ export const CHROME_ICONS = {
   back: ChevronLeft,
   close: Close,
   camera: Camera,
+  home: Home,
 } as const;
 
 /** Look up a destination's icon component by id. */

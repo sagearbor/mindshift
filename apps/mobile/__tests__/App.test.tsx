@@ -327,6 +327,101 @@ describe("home & primary-screen navigation", () => {
     act(() => comp.unmount());
   });
 
+  // Purely additive: every PUSHED screen now also renders a small, always-
+  // present "Home" tap target (PushedScreenChrome) above its own content,
+  // alongside its existing back button — not in place of it. Reuses exactly
+  // the same onGoHome handler AppChrome's wordmark tap already uses. Does
+  // NOT touch isPrimary/PRIMARY_SCREEN_NAMES or any screen's own onBack/
+  // backHandler.ts wiring — the existing back-button assertions above (e.g.
+  // "watch-setup-back" → "advanced-watch-setup") are unchanged by this.
+  describe("pushed screens: additive Home tap target (jump straight to Home)", () => {
+    it("watch-setup (pushed from Settings) shows the Home tap target alongside its own back button, and tapping it lands on Home directly", async () => {
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<App />);
+      });
+      await signIn(comp);
+
+      await openSettings(comp);
+      await act(async () => {
+        queryId(comp, "advanced-watch-setup")!.props.onPress();
+      });
+      expect(queryId(comp, "watch-setup-screen")).toBeTruthy();
+      // Both affordances present at once: the screen's own back button...
+      expect(queryId(comp, "watch-setup-back")).toBeTruthy();
+      // ...and the new, always-present Home tap target.
+      expect(queryId(comp, "pushed-chrome-home-button")).toBeTruthy();
+
+      await act(async () => {
+        queryId(comp, "pushed-chrome-home-button")!.props.onPress();
+      });
+      // Straight to Home — NOT back to Settings (which is what the screen's
+      // own back button/backTarget's returnTo chain would do instead).
+      expect(queryId(comp, "home-screen")).toBeTruthy();
+      act(() => comp.unmount());
+    });
+
+    it("watch-setup's own back button still pops to its returnTo (Settings) — unaffected by the new Home tap target existing alongside it", async () => {
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<App />);
+      });
+      await signIn(comp);
+
+      await openSettings(comp);
+      await act(async () => {
+        queryId(comp, "advanced-watch-setup")!.props.onPress();
+      });
+      expect(queryId(comp, "pushed-chrome-home-button")).toBeTruthy();
+
+      await act(async () => {
+        queryId(comp, "watch-setup-back")!.props.onPress();
+      });
+      // Unchanged behavior: back still returns to Settings, not Home.
+      expect(queryId(comp, "advanced-watch-setup")).toBeTruthy();
+      expect(queryId(comp, "home-screen")).toBeNull();
+      act(() => comp.unmount());
+    });
+
+    it("Your Day (pushed, no registry destination of its own) also gets the Home tap target", async () => {
+      mockFetch.mockReset();
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ recordings: [] }),
+      });
+
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<App />);
+      });
+      await signIn(comp);
+
+      await act(async () => {
+        queryId(comp, "home-your-day-link")!.props.onPress();
+      });
+      expect(queryId(comp, "your-day-screen")).toBeTruthy();
+      expect(queryId(comp, "pushed-chrome-home-button")).toBeTruthy();
+
+      await act(async () => {
+        queryId(comp, "pushed-chrome-home-button")!.props.onPress();
+      });
+      expect(queryId(comp, "home-screen")).toBeTruthy();
+      act(() => comp.unmount());
+    });
+
+    it("PRIMARY screens (Home) do NOT render the pushed-only Home tap target — AppChrome's wordmark already covers it", async () => {
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = renderer.create(<App />);
+      });
+      await signIn(comp);
+
+      expect(queryId(comp, "chrome-wordmark")).toBeTruthy();
+      expect(queryId(comp, "pushed-chrome-home-button")).toBeNull();
+      act(() => comp.unmount());
+    });
+  });
+
   // N7 fix round 1 (IMPORTANT 3): the OTHER real sign-out entry point —
   // Settings' own "advanced-sign-out" row — must clear avatarStore too, not
   // just the avatar-menu path above.
