@@ -635,7 +635,7 @@ exports[`HeatChart — time axis rendering matches snapshot in time-axis mode 1`
         <View
           onPress={[Function]}
           stroke="#F59E0B"
-          strokeLinecap="round"
+          strokeLinecap="butt"
           strokeOpacity={0.01}
           strokeWidth={24}
           testID="heat-hit-0"
@@ -647,7 +647,7 @@ exports[`HeatChart — time axis rendering matches snapshot in time-axis mode 1`
         <View
           onPress={[Function]}
           stroke="#F59E0B"
-          strokeLinecap="round"
+          strokeLinecap="butt"
           strokeOpacity={0.01}
           strokeWidth={24}
           testID="heat-hit-2"
@@ -659,7 +659,7 @@ exports[`HeatChart — time axis rendering matches snapshot in time-axis mode 1`
         <View
           onPress={[Function]}
           stroke="#4A90D9"
-          strokeLinecap="round"
+          strokeLinecap="butt"
           strokeOpacity={0.01}
           strokeWidth={24}
           testID="heat-hit-1"
@@ -671,7 +671,7 @@ exports[`HeatChart — time axis rendering matches snapshot in time-axis mode 1`
         <View
           onPress={[Function]}
           stroke="#4A90D9"
-          strokeLinecap="round"
+          strokeLinecap="butt"
           strokeOpacity={0.01}
           strokeWidth={24}
           testID="heat-hit-3"
