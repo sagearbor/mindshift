@@ -222,24 +222,6 @@ export default function WatchSetupScreen({ onBack }: WatchSetupScreenProps) {
             ✓ This account already has a paired watch — the steps below add
             another one.
           </Text>
-          <TouchableOpacity
-            testID="watch-setup-disconnect-button"
-            accessibilityRole="button"
-            style={styles.disconnectButton}
-            onPress={confirmDisconnect}
-            disabled={disconnecting}
-          >
-            <View style={styles.disconnectTitleRow}>
-              <Text style={styles.disconnectText}>Disconnect this watch</Text>
-              {disconnecting ? (
-                <ActivityIndicator size="small" color="#6B7280" />
-              ) : null}
-            </View>
-            <Text style={styles.rowSub}>
-              Stops that watch from signing in as you. Your recordings and
-              data are safe — you can pair a watch again anytime.
-            </Text>
-          </TouchableOpacity>
         </View>
       ) : null}
 
@@ -329,6 +311,28 @@ export default function WatchSetupScreen({ onBack }: WatchSetupScreenProps) {
           </Text>
         ) : null}
       </View>
+
+      {hasPairedWatch ? (
+        <View style={styles.disconnectCard}>
+          <TouchableOpacity
+            testID="watch-setup-disconnect-button"
+            accessibilityRole="button"
+            onPress={confirmDisconnect}
+            disabled={disconnecting}
+          >
+            <View style={styles.disconnectTitleRow}>
+              <Text style={styles.disconnectText}>Disconnect this watch</Text>
+              {disconnecting ? (
+                <ActivityIndicator size="small" color="#6B7280" />
+              ) : null}
+            </View>
+            <Text style={styles.rowSub}>
+              Stops that watch from signing in as you. Your recordings and
+              data are safe — you can pair a watch again anytime.
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
     </ScrollView>
   );
 }
@@ -382,15 +386,16 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#15803D",
   },
-  // Same visual treatment as AdvancedScreen.tsx's "Forget my voice"/"Remove
-  // photo" destructive rows — a top-border separator + red action text,
-  // never a solid red button (this is a confirm-gated action, not a
-  // one-tap one).
-  disconnectButton: {
-    marginTop: 14,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: "#F0F1F3",
+  // Its own card (unlike AdvancedScreen.tsx's "Forget my voice", which is a
+  // divider row nested inside an existing card) — this sits standalone
+  // after the pairing steps, not inside another bordered section.
+  disconnectCard: {
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    padding: 18,
+    marginTop: 12,
   },
   disconnectTitleRow: {
     flexDirection: "row",
