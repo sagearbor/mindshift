@@ -13,7 +13,7 @@ import {
   type RecordingTurn,
   type PatchSpeakerLabelsResult,
 } from "../api/client";
-import { getSpeakerColor } from "../utils/speakerColors";
+import { getSpeakerColor, resolveSpeakerColors } from "../utils/speakerColors";
 import {
   speakerLabel,
   labelProvenanceNote,
@@ -80,6 +80,21 @@ export default function SpeakerNaming({
     }
     return seen;
   }, [turns]);
+
+  // Collision-safe color resolution for THIS conversation's speaker set — the
+  // SAME resolveSpeakerColors HeatChart's legend/dashes use, fed the same
+  // first-appearance speaker order (both this component and HeatChart derive
+  // it from the full turn list of the same recording). Without this, a plain
+  // getSpeakerColor() lookup can render two distinct speakers in the
+  // IDENTICAL color here — confirmed for the project's own real fixture
+  // speakers "Sage"/"Asher" — even after HeatChart already shows them
+  // distinctly, a visible inconsistency between the two screens for the same
+  // conversation.
+  const speakerColors = useMemo(() => resolveSpeakerColors(speakers), [speakers]);
+  const colorOf = useCallback(
+    (speaker: string) => speakerColors.get(speaker) ?? getSpeakerColor(speaker),
+    [speakerColors],
+  );
 
   const openEditor = useCallback(
     (speaker: string) => {
@@ -159,7 +174,8 @@ export default function SpeakerNaming({
               <View style={styles.editWrap}>
                 <View style={styles.labelWrap}>
                   <View
-                    style={[styles.dot, { backgroundColor: getSpeakerColor(speaker) }]}
+                    testID={`name-swatch-${speaker}`}
+                    style={[styles.dot, { backgroundColor: colorOf(speaker) }]}
                   />
                   <TextInput
                     testID={`name-input-${speaker}`}
@@ -202,7 +218,8 @@ export default function SpeakerNaming({
               <>
                 <View style={styles.labelWrap}>
                   <View
-                    style={[styles.dot, { backgroundColor: getSpeakerColor(speaker) }]}
+                    testID={`name-swatch-${speaker}`}
+                    style={[styles.dot, { backgroundColor: colorOf(speaker) }]}
                   />
                   <View style={styles.nameCol}>
                     <Text style={styles.speakerName} numberOfLines={1}>
