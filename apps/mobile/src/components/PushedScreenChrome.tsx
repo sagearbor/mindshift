@@ -31,7 +31,7 @@ export default function PushedScreenChrome({
 }: PushedScreenChromeProps) {
   return (
     <View style={styles.container} testID="pushed-chrome">
-      <View style={styles.bar}>
+      <View style={styles.bar} testID="pushed-chrome-bar">
         <TouchableOpacity
           testID="pushed-chrome-home-button"
           accessibilityRole="button"
@@ -57,11 +57,16 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 4,
+    // Matches AppChrome's topBar paddingBottom (12) so the two components'
+    // icon rows read as the same visual weight even though this one has no
+    // background/border of its own.
+    paddingBottom: 12,
   },
   homeButton: {
-    width: 36,
-    height: 36,
+    // Matches AppChrome's iconButton (hamburger/avatar) 40×40 tap target —
+    // was 36×36, a visual/touch-target mismatch flagged in review.
+    width: 40,
+    height: 40,
     alignItems: "center",
     justifyContent: "center",
   },
