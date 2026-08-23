@@ -342,3 +342,53 @@ describe("HeatChart legend speaker isolation", () => {
     act(() => comp.unmount());
   });
 });
+
+describe("HeatChart PanResponder — stuck-gesture investigation (owner report: unresponsive until app restart)", () => {
+  // Traced every exit path of the gesture state (gestureRef.mode/startDist/
+  // focusSec, lastTapRef) across Grant, Move, Release, and Terminate — all
+  // reset correctly on the happy path. The one gap: beginPinch() mutates
+  // gestureRef.mode as soon as this surface merely EXPRESSES interest in
+  // becoming the responder (returning true from a "should set" callback),
+  // before a transfer is confirmed. If another view already holds the
+  // responder and refuses to yield, the negotiation is REJECTED rather than
+  // granted, and neither Release nor Terminate ever fires for that attempt.
+  // onPanResponderReject is the system's notification of exactly that outcome
+  // — this test proves it's wired and the surface stays fully usable
+  // afterward (a rejected claim must never leave the chart inert).
+  it("stays fully usable after a REJECTED responder claim — no swallowed input", () => {
+    const comp = render();
+    layout(comp);
+    const surface = surfaceOf(comp);
+
+    act(() => {
+      // A two-finger touch begins a pinch bid (mutates internal gesture mode)
+      // …
+      const start = touchEvt([t(100), t(200)]);
+      expect(surface.props.onStartShouldSetResponderCapture(start)).toBe(true);
+      // … but instead of being granted, it's rejected (another responder won
+      // the negotiation). onResponderReject must exist and not throw.
+      expect(typeof surface.props.onResponderReject).toBe("function");
+      expect(() => surface.props.onResponderReject(start)).not.toThrow();
+    });
+
+    // A plain single tap on a dash still selects the turn — the chart isn't
+    // stuck swallowing input after the lost negotiation.
+    act(() => pressable(comp, "heat-dash-0").props.onPress());
+    expect(queryId(comp, "turn-inspector")).toBeTruthy();
+
+    // A fresh pinch still works too — the surface can still legitimately win
+    // a NEW negotiation afterward.
+    pinchZoomIn(comp);
+    expect(queryId(comp, "chart-zoom-reset")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("never blocks a sibling's termination request (explicit onPanResponderTerminationRequest)", () => {
+    const comp = render();
+    layout(comp);
+    const surface = surfaceOf(comp);
+    expect(typeof surface.props.onResponderTerminationRequest).toBe("function");
+    expect(surface.props.onResponderTerminationRequest()).toBe(true);
+    act(() => comp.unmount());
+  });
+});

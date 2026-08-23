@@ -1,5 +1,5 @@
 import React from "react";
-import renderer, { act } from "react-test-renderer";
+import renderer, { act, ReactTestInstance } from "react-test-renderer";
 import HeatChart, {
   mapTurnsToLines,
   mapSimulatedToLines,
@@ -13,8 +13,10 @@ import HeatChart, {
   durationForTiming,
   buildTimeScrubCells,
   formatClock,
+  type TurnTiming,
 } from "../src/components/HeatChart";
 import type { AnalyzePerTurn, SimulatedTurn } from "../src/api/client";
+import { getSpeakerColor, resolveSpeakerColors } from "../src/utils/speakerColors";
 
 // Real utterance timing, index-aligned with `perTurn`. Alice dominates the
 // conversation: she talks 2s + 6s = 8s of the 10s, Bob 1s + 1s = 2s — an 80/20
@@ -802,6 +804,271 @@ describe("HeatChart speaker display labels (§3)", () => {
     const cell = comp.root.find((n) => n.props?.testID === "scrub-0");
     expect(cell.props.accessibilityLabel).toContain("Joe");
     expect(cell.props.accessibilityLabel).not.toContain("Alice");
+    act(() => comp.unmount());
+  });
+});
+
+// --------------------------- Y-axis label (§ owner bug 1) ---------------------------
+
+describe("HeatChart y-axis label (owner report: unlabeled y-axis)", () => {
+  it("renders a plain-language 'Heat' axis label near the chart", () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<HeatChart perTurn={perTurn} />);
+    });
+    layout(comp);
+    const label = comp.root.find((n) => n.props?.testID === "heat-axis-label");
+    expect(label).toBeTruthy();
+    // Same word the section title above this chart uses elsewhere
+    // (ReplayScreen/DynamicsScreen: "Heat over the conversation") — not
+    // invented terminology.
+    const text = JSON.stringify(comp.toJSON());
+    expect(text).toContain("Heat");
+    act(() => comp.unmount());
+  });
+
+  it("shows the axis label on the time-axis chart too", () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(
+        <HeatChart perTurn={perTurn} turnsTiming={timedTiming} durationSeconds={10} />,
+      );
+    });
+    layout(comp);
+    expect(comp.root.find((n) => n.props?.testID === "heat-axis-label")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+});
+
+// ------------------- Wide invisible tap targets (§ owner bug 2, hypothesis A) -------------------
+
+describe("HeatChart wide invisible tap targets (owner report: tap-to-seek works ~1/20)", () => {
+  it("renders one wide, near-transparent hit-target line per dash, at the same y and wider than any visible stroke", () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(
+        <HeatChart perTurn={perTurn} turnsTiming={timedTiming} durationSeconds={10} />,
+      );
+    });
+    layout(comp);
+    expect(countIds(comp, "heat-hit-")).toBe(4);
+
+    const hit = comp.root.find((n) => n.props?.testID === "heat-hit-0");
+    const visible = comp.root.find(
+      (n) => n.props?.testID === "heat-dash-0" && typeof n.props.onPress === "function",
+    );
+    // Wider than even the "selected" visible stroke (7px) — a real touch target.
+    expect(hit.props.strokeWidth).toBeGreaterThan(7);
+    expect(hit.props.strokeWidth).toBeGreaterThan(visible.props.strokeWidth);
+    // Effectively invisible (not exactly 0 — some SVG renderers skip hit-testing
+    // a fully-transparent stroke).
+    expect(hit.props.strokeOpacity).toBeGreaterThan(0);
+    expect(hit.props.strokeOpacity).toBeLessThan(0.05);
+    // Same geometry as the dash it backs, so it sits exactly over it.
+    expect(hit.props.x1).toBeCloseTo(visible.props.x1);
+    expect(hit.props.x2).toBeCloseTo(visible.props.x2);
+    expect(hit.props.y1).toBeCloseTo(visible.props.y1);
+    act(() => comp.unmount());
+  });
+
+  it("tapping the hit-target line selects the turn and seeks, exactly like the visible dash", () => {
+    const onSeekToTurn = jest.fn();
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(
+        <HeatChart
+          perTurn={perTurn}
+          turnsTiming={timedTiming}
+          durationSeconds={10}
+          onSeekToTurn={onSeekToTurn}
+        />,
+      );
+    });
+    layout(comp);
+    act(() =>
+      comp.root.find((n) => n.props?.testID === "heat-hit-3").props.onPress(),
+    );
+    expect(onSeekToTurn).toHaveBeenCalledWith(9); // turn 3's start_time
+    const inspector = comp.root.find((n) => n.props?.testID === "turn-inspector");
+    expect(inspector).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
+  it("uses BUTT caps (not round) on the hit-line, so its reach ends exactly at the dash boundary — no bleed into a zero-gap neighbor", () => {
+    // The real family fixture's exact zero-gap 6→7 boundary (Sage ends
+    // 25.7549995s, Asher's next turn starts at literally the same instant) —
+    // the transition the owner's screenshot circled as suspicious. A ROUND
+    // cap on the wide hit-line would extend ~strokeWidth/2 (12px) PAST this
+    // boundary, along the time axis, into the neighboring turn's territory.
+    // Because dashLines groups dashes by first-appearance SPEAKER (not
+    // conversation order), whichever speaker's group paints second would win
+    // any such overlap by paint order — not by which turn a tap is actually
+    // closer to. BUTT caps end the hit-line's reach exactly at x1/x2, so two
+    // adjacent zero-gap dashes' hit-lines only ever touch at one pixel,
+    // never overlap.
+    const boundaryTurns: AnalyzePerTurn[] = [
+      { index: 6, speaker: "Sage", heat: 40, markers: [], is_spike: false, trigger_phrase: null },
+      { index: 7, speaker: "Asher", heat: 70, markers: [], is_spike: true, trigger_phrase: null },
+    ];
+    const boundaryTiming: TurnTiming[] = [
+      { start_time: 20.465, end_time: 25.7549995 },
+      { start_time: 25.7549995, end_time: 29.125 },
+    ];
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(
+        <HeatChart perTurn={boundaryTurns} turnsTiming={boundaryTiming} durationSeconds={29.125} />,
+      );
+    });
+    layout(comp, 400);
+
+    const hit6 = comp.root.find((n) => n.props?.testID === "heat-hit-6");
+    const hit7 = comp.root.find((n) => n.props?.testID === "heat-hit-7");
+
+    // Regression guard: the actual fix — must be "butt", never "round".
+    expect(hit6.props.strokeLinecap).toBe("butt");
+    expect(hit7.props.strokeLinecap).toBe("butt");
+
+    // With butt caps the hit-line's interactive reach IS exactly [x1,x2] — no
+    // extension past the endpoints — so at this zero-gap boundary the two
+    // hit-lines' spans meet at exactly one pixel and never overlap: whichever
+    // side of that pixel a tap lands on resolves by actual proximity, not by
+    // which speaker's group happened to render on top.
+    expect(hit6.props.x1).toBeLessThan(hit6.props.x2);
+    expect(hit7.props.x1).toBeLessThan(hit7.props.x2);
+    expect(hit6.props.x2).toBeCloseTo(hit7.props.x1, 6);
+    act(() => comp.unmount());
+  });
+});
+
+// ----------------- Color/speaker-mismatch investigation (§ owner bug 3) -----------------
+
+describe("mapTurnsToDashes — real fixture (color/speaker-mismatch investigation)", () => {
+  // Exact turns from server/tests/fixtures/audio/test_recording_family_real_meta.json
+  // — the owner's actual real recording ("Sage & asher 5 sec turns"). Includes
+  // the BACK-TO-BACK zero-gap transition at index 6→7 (both at 25.7549995s)
+  // that the owner's screenshot circled as a suspicious color flip. heat/
+  // markers/is_spike aren't in the fixture (it's a diarization fixture, not an
+  // analysis one) so those are filled with plausible placeholders — only
+  // `speaker` + timing (the fixture's actual ground truth) drive this test.
+  const realTurns: AnalyzePerTurn[] = [
+    { index: 0, speaker: "Sage", heat: 20, markers: [], is_spike: false, trigger_phrase: null },
+    { index: 1, speaker: "Asher", heat: 25, markers: [], is_spike: false, trigger_phrase: null },
+    { index: 2, speaker: "Asher", heat: 30, markers: [], is_spike: false, trigger_phrase: null },
+    { index: 3, speaker: "Sage", heat: 22, markers: [], is_spike: false, trigger_phrase: null },
+    { index: 4, speaker: "Asher", heat: 35, markers: [], is_spike: false, trigger_phrase: null },
+    { index: 5, speaker: "Asher", heat: 60, markers: [], is_spike: false, trigger_phrase: null },
+    { index: 6, speaker: "Sage", heat: 40, markers: [], is_spike: false, trigger_phrase: null },
+    { index: 7, speaker: "Asher", heat: 70, markers: [], is_spike: true, trigger_phrase: null },
+  ];
+  const realTiming: TurnTiming[] = [
+    { start_time: 0.96, end_time: 6.08 },
+    { start_time: 6.08, end_time: 8.82 },
+    { start_time: 9.28, end_time: 10.0199995 },
+    { start_time: 10.48, end_time: 15.125 },
+    { start_time: 15.425, end_time: 15.925 },
+    { start_time: 16.385, end_time: 19.045 },
+    { start_time: 20.465, end_time: 25.7549995 },
+    { start_time: 25.7549995, end_time: 29.125 },
+  ];
+  const opts = { width: 400, height: 180, padding: 16, duration: 29.125 };
+
+  it("BUG CONFIRMED at the pure getSpeakerColor level: 'Sage' and 'Asher' hash to the identical color", () => {
+    // Direct evidence: mapTurnsToDashes' DEFAULT color resolver is plain
+    // getSpeakerColor (used whenever a caller doesn't pass colorOf, exactly
+    // as every unit test above this one in the file does). Fed the owner's
+    // own real fixture speakers, it assigns Sage and Asher THE SAME color —
+    // indistinguishable from "the wrong speaker's color at a turn
+    // transition", since the color never actually changes at the boundary.
+    const lines = mapTurnsToDashes(realTurns, realTiming, opts);
+    expect(lines.map((l) => l.speaker)).toEqual(["Sage", "Asher"]);
+    expect(lines[0].color).toBe(lines[1].color); // <- the confirmed bug
+    expect(lines[0].color).toBe("#8B5CF6");
+  });
+
+  it("FIXED: passing the component's colorOf (resolveSpeakerColors) gives every dash its own turn's speaker's color, distinctly, including the zero-gap 6→7 boundary", () => {
+    // This mirrors exactly what HeatChart itself now does: derive the
+    // conversation's speaker order from perTurn, resolve collision-free
+    // colors once, and thread that resolver into mapTurnsToDashes via the new
+    // optional `colorOf` option.
+    const speakerOrder = ["Sage", "Asher"]; // first-appearance order in realTurns
+    const colorOf = (s: string) => resolveSpeakerColors(speakerOrder).get(s)!;
+    const lines = mapTurnsToDashes(realTurns, realTiming, { ...opts, colorOf });
+
+    const sageColor = colorOf("Sage");
+    const asherColor = colorOf("Asher");
+    expect(sageColor).not.toBe(asherColor);
+
+    const bySpeaker = new Map(lines.map((l) => [l.speaker, l]));
+    const expectedSpeaker = ["Sage", "Asher", "Asher", "Sage", "Asher", "Asher", "Sage", "Asher"];
+    const byIndex = new Map<number, string>(); // index -> resolved color
+    for (const line of lines) {
+      for (const d of line.dashes) byIndex.set(d.index, line.color);
+    }
+    expectedSpeaker.forEach((sp, i) => {
+      expect(byIndex.get(i)).toBe(sp === "Sage" ? sageColor : asherColor);
+    });
+    expect(bySpeaker.get("Sage")!.dashes.map((d) => d.index)).toEqual([0, 3, 6]);
+    expect(bySpeaker.get("Asher")!.dashes.map((d) => d.index)).toEqual([1, 2, 4, 5, 7]);
+
+    // The specifically-circled transition: index 6 (Sage) ends exactly where
+    // index 7 (Asher) begins — zero gap — yet the two dashes are correctly
+    // and distinctly colored.
+    expect(byIndex.get(6)).toBe(sageColor);
+    expect(byIndex.get(7)).toBe(asherColor);
+    expect(byIndex.get(6)).not.toBe(byIndex.get(7));
+  });
+
+  it("is unaffected by manual speaker naming — SpeakerNaming.tsx relabels display text only, never the color-keying raw id", () => {
+    // mapTurnsToDashes/getSpeakerColor/resolveSpeakerColors only ever see the
+    // RAW speaker id ("Sage"/"Asher"); a speakerLabels display map (produced
+    // by the "Name the speakers" flow) is never passed into any of them —
+    // it's consumed separately, only for the text shown in the
+    // legend/inspector. Naming one speaker cannot recolor another's
+    // already-rendered dashes.
+    const colorOf = (s: string) => resolveSpeakerColors(["Sage", "Asher"]).get(s)!;
+    const lines = mapTurnsToDashes(realTurns, realTiming, { ...opts, colorOf });
+    expect(lines.map((l) => l.speaker)).toEqual(["Sage", "Asher"]);
+    expect(lines[0].color).toBe(colorOf("Sage"));
+    expect(lines[1].color).toBe(colorOf("Asher"));
+  });
+
+  it("INTEGRATION: the full HeatChart component renders Sage's and Asher's dashes in distinct colors (the actual owner-facing fix)", () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(
+        <HeatChart
+          perTurn={realTurns}
+          turnsTiming={realTiming}
+          durationSeconds={29.125}
+        />,
+      );
+    });
+    layout(comp, 400);
+
+    const swatches = comp.root.findAll(
+      (n) => typeof n.props?.testID === "string" && n.props.testID.startsWith("legend-swatch-"),
+    );
+    // style is [styles.swatch, { backgroundColor }] — an array, not a flat object.
+    const swatchBg = (n: ReactTestInstance): string =>
+      (n.props.style as { backgroundColor?: string }[]).find((s) => s?.backgroundColor)!
+        .backgroundColor!;
+    const colorBySwatchId = new Map(
+      swatches.map((n) => [n.props.testID as string, swatchBg(n)]),
+    );
+    expect(colorBySwatchId.get("legend-swatch-Sage")).toBeTruthy();
+    expect(colorBySwatchId.get("legend-swatch-Asher")).toBeTruthy();
+    // Before the fix these were both "#8B5CF6" — the confirmed collision.
+    expect(colorBySwatchId.get("legend-swatch-Sage")).not.toBe(
+      colorBySwatchId.get("legend-swatch-Asher"),
+    );
+
+    // And the rendered dashes at the circled 6→7 boundary agree with the legend.
+    const dash6 = comp.root.find((n) => n.props?.testID === "heat-dash-6");
+    const dash7 = comp.root.find((n) => n.props?.testID === "heat-dash-7");
+    expect(dash6.props.stroke).toBe(colorBySwatchId.get("legend-swatch-Sage"));
+    expect(dash7.props.stroke).toBe(colorBySwatchId.get("legend-swatch-Asher"));
+    expect(dash6.props.stroke).not.toBe(dash7.props.stroke);
     act(() => comp.unmount());
   });
 });

@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import Svg, { Polyline, Circle, Line, Rect } from "react-native-svg";
 import type { AnalyzePerTurn, SimulatedTurn, Voice } from "../api/client";
-import { getSpeakerColor } from "../utils/speakerColors";
+import { getSpeakerColor, resolveSpeakerColors } from "../utils/speakerColors";
 import { speakerLabel, type SpeakerLabels } from "../utils/speakerLabels";
 import {
   type ZoomWindow,
@@ -85,6 +85,13 @@ const HEAT_MAX = 100;
 // is still comfortably hittable on a phone.
 const MIN_TAP_PX = 28;
 
+// Width (px) of the invisible tap-target line drawn under each visible dash
+// (see the "heat-hit-" Lines below). The VISIBLE dash stroke is only 4-7px —
+// nowhere near a real touch target — so we back it with a much wider,
+// fully-transparent twin at the same coordinates, echoing MIN_TAP_PX's bar
+// for "comfortably hittable" above.
+const DASH_HIT_PX = 24;
+
 // --- Touch geometry for pinch zoom (native). Operate on the responder's touch
 // list, using locationX/Y (coordinates relative to the chart surface). ---
 type TouchList = GestureResponderEvent["nativeEvent"]["touches"];
@@ -126,6 +133,13 @@ export interface MapOptions {
   /** Total turns in the conversation, used to normalize x. When omitted, it's
    *  derived from the max turn index in `perTurn`. */
   totalTurns?: number;
+  /** Per-speaker color resolver. Defaults to getSpeakerColor (its plain,
+   *  order-independent hash) when omitted, preserving prior behavior exactly
+   *  for direct unit tests of this function. The component itself passes a
+   *  `resolveSpeakerColors`-backed resolver so two speakers whose hashes
+   *  collide (confirmed real case: "Sage"/"Asher") still render distinctly
+   *  within one conversation — see resolveSpeakerColors' own doc comment. */
+  colorOf?: (speaker: string) => string;
 }
 
 /**
@@ -181,9 +195,10 @@ export function mapTurnsToLines(
     });
   }
 
+  const colorOf = opts.colorOf ?? getSpeakerColor;
   return order.map((speaker) => ({
     speaker,
-    color: getSpeakerColor(speaker),
+    color: colorOf(speaker),
     points: bySpeaker.get(speaker)!,
   }));
 }
@@ -238,9 +253,10 @@ export function mapSimulatedToLines(
     });
   }
 
+  const colorOf = opts.colorOf ?? getSpeakerColor;
   return order.map((speaker) => ({
     speaker,
-    color: getSpeakerColor(speaker),
+    color: colorOf(speaker),
     points: bySpeaker.get(speaker)!,
   }));
 }
@@ -351,6 +367,10 @@ export interface TimeMapOptions {
    *  x is NOT clamped — off-window dashes fall outside the SVG viewport and are
    *  clipped. Absent = the full unzoomed view (identical to before). */
   window?: ZoomWindow;
+  /** Per-speaker color resolver — see MapOptions.colorOf for why this exists
+   *  (a confirmed real hash collision between two speakers' plain
+   *  getSpeakerColor() results). Defaults to getSpeakerColor when omitted. */
+  colorOf?: (speaker: string) => string;
 }
 
 /**
@@ -447,9 +467,10 @@ export function mapTurnsToDashes(
     });
   });
 
+  const colorOf = opts.colorOf ?? getSpeakerColor;
   return order.map((speaker) => ({
     speaker,
-    color: getSpeakerColor(speaker),
+    color: colorOf(speaker),
     dashes: bySpeaker.get(speaker)!,
   }));
 }
@@ -885,6 +906,24 @@ export default function HeatChart({
         onPanResponderTerminate: () => {
           gestureRef.current.mode = "none";
         },
+        // Exit path #3 — the one release/terminate alone miss. beginPinch()
+        // (above) and the pan-move threshold check mutate gestureRef.mode as
+        // soon as this surface EXPRESSES interest in becoming the responder
+        // (returning true from a "should set" callback), not once the transfer
+        // is actually confirmed. If another view already holds the responder
+        // and refuses to yield, the negotiation is REJECTED rather than
+        // granted — neither onPanResponderRelease nor onPanResponderTerminate
+        // ever fires for that attempt, leaving gestureRef.mode stuck at
+        // "pan"/"pinch" with no cleanup. onPanResponderReject is the system's
+        // notification of exactly that outcome, so it gets the same reset.
+        onPanResponderReject: () => {
+          gestureRef.current.mode = "none";
+        },
+        // Explicit rather than relying on an unspecified (and library-
+        // dependent) default — this surface never has a legitimate reason to
+        // block a sibling's claim, so it should never be the reason a
+        // responder handoff stalls.
+        onPanResponderTerminationRequest: () => true,
       }),
     // Built once; all inputs are read through refs above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -929,16 +968,31 @@ export default function HeatChart({
   // Stable speaker order + color for the legend (independent of measured width,
   // so the legend is populated before the first layout pass), shared by both
   // modes.
-  const speakerOrder: { speaker: string; color: string }[] = [];
+  const conversationSpeakerOrder: string[] = [];
   {
     const seen = new Set<string>();
     for (const t of perTurn) {
       if (!seen.has(t.speaker)) {
         seen.add(t.speaker);
-        speakerOrder.push({ speaker: t.speaker, color: getSpeakerColor(t.speaker) });
+        conversationSpeakerOrder.push(t.speaker);
       }
     }
   }
+  // Collision-safe color resolution for THIS conversation's speaker set (see
+  // resolveSpeakerColors' doc comment: a plain getSpeakerColor() lookup alone
+  // can — and, for the project's own real fixture, does — collide for two
+  // distinct real speaker names, "Sage"/"Asher" both landing on the same
+  // palette color; that's indistinguishable from "the wrong speaker's color
+  // at a turn transition", the confirmed root cause of the owner's report).
+  // Recomputed only when the conversation's speaker set actually changes.
+  const speakerColorMap = useMemo(
+    () => resolveSpeakerColors(conversationSpeakerOrder),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [conversationSpeakerOrder.join(" ")],
+  );
+  const colorOf = (speaker: string) => speakerColorMap.get(speaker) ?? getSpeakerColor(speaker);
+  const speakerOrder: { speaker: string; color: string }[] =
+    conversationSpeakerOrder.map((speaker) => ({ speaker, color: colorOf(speaker) }));
 
   const overlayActive = !!simulated && simulated.length > 0 && showSimulation;
 
@@ -976,6 +1030,7 @@ export default function HeatChart({
           height,
           padding,
           duration,
+          colorOf,
           ...zoomOpt,
         })
       : [];
@@ -986,6 +1041,7 @@ export default function HeatChart({
           height,
           padding,
           duration,
+          colorOf,
           ...zoomOpt,
         })
       : [];
@@ -1026,6 +1082,7 @@ export default function HeatChart({
           height,
           padding,
           totalTurns: perTurn.length,
+          colorOf,
         })
       : [];
   const simLines =
@@ -1035,6 +1092,7 @@ export default function HeatChart({
           height,
           padding,
           totalTurns: perTurn.length,
+          colorOf,
         })
       : [];
   const legacyPlayheadX =
@@ -1146,6 +1204,17 @@ export default function HeatChart({
         )}
       </View>
 
+      {/* Y-axis label: the vertical position of every dash/point is HEAT
+          (0–100, an LLM-scored intensity per turn — see mapTurnsToDashes'
+          own comment "y = heat 0–100"), not time or volume. Nothing on
+          screen said that (owner feedback: "unlabeled y-axis") — this plain
+          caption fixes it, using the same word ("Heat") as the section
+          title above this chart on ReplayScreen/DynamicsScreen ("Heat over
+          the conversation") rather than inventing new terminology. */}
+      <Text style={styles.axisLabel} testID="heat-axis-label">
+        Heat (0–100) ↑
+      </Text>
+
       {/* Chart area. The INNER surface hosts onLayout (responsive width) and,
           on the time axis, the zoom gestures: pinch + drag (native), wheel +
           drag (web); double-tap/double-click resets. A single tap always falls
@@ -1239,9 +1308,50 @@ export default function HeatChart({
                     />
                   )),
                 )}
+                {/* Wide, invisible tap target UNDER each visible dash. SVG's
+                    <Line> has no hitSlop, and the visible stroke is only 4-7px —
+                    a very small real-world touch target — which is the confirmed
+                    root cause of "tap-to-seek works ~1/20" (owner report): most
+                    taps simply missed the thin line's geometric hit area. This
+                    wider, transparent twin at the SAME coordinates carries the
+                    real onPress; strokeOpacity is a hair above 0 (not exactly 0)
+                    because some SVG renderers treat a fully-transparent stroke as
+                    unpainted and skip hit-testing it entirely.
+
+                    strokeLinecap is deliberately "butt", NOT "round": a round cap
+                    extends the tappable region by strokeWidth/2 (~12px) PAST each
+                    end ALONG the time axis, not just perpendicular to it. At a
+                    zero-gap speaker transition — exactly the kind of boundary the
+                    real family fixture's turn 6→7 has — two adjacent turns' round
+                    caps would overlap in that gap, and because dashLines groups by
+                    speaker (not conversation order), whichever speaker's group
+                    renders second would win that overlap by paint order, not by
+                    actual proximity to the tap. "butt" keeps the perpendicular
+                    widening (the actual fix for a too-thin line) while ending the
+                    hit region exactly at x1/x2 — the real fix belongs in
+                    strokeWidth, not in extending reach along the axis. */}
+                {dashLines.flatMap((line) =>
+                  line.dashes.map((d) => (
+                    <Line
+                      key={`hit-${line.speaker}-${d.index}`}
+                      testID={`heat-hit-${d.index}`}
+                      x1={d.x1}
+                      y1={d.y}
+                      x2={d.x2}
+                      y2={d.y}
+                      stroke={line.color}
+                      strokeWidth={DASH_HIT_PX}
+                      strokeOpacity={0.01}
+                      strokeLinecap="butt"
+                      onPress={() => selectTurn(d.index)}
+                    />
+                  )),
+                )}
                 {/* The primary mark: one horizontal dash per turn, speaker-
                     colored, spanning its real talk time. The selected dash reads
-                    thicker; others dim slightly so the selection stands out. */}
+                    thicker; others dim slightly so the selection stands out.
+                    Keeps its own onPress too (harmless belt-and-suspenders: only
+                    the topmost element under a given tap ever fires). */}
                 {dashLines.flatMap((line) =>
                   line.dashes.map((d) => (
                     <Line
@@ -1470,7 +1580,7 @@ export default function HeatChart({
             <Text
               style={[
                 styles.inspectorSpeaker,
-                { color: getSpeakerColor(selectedTurn.speaker) },
+                { color: colorOf(selectedTurn.speaker) },
               ]}
             >
               {speakerLabel(selectedTurn.speaker, speakerLabels)}
@@ -1595,6 +1705,12 @@ const styles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 3,
+  },
+  axisLabel: {
+    fontSize: 11,
+    color: MUTED,
+    fontWeight: "600",
+    marginBottom: 4,
   },
   legendText: {
     fontSize: 13,
