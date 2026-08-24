@@ -706,3 +706,19 @@ async def test_enroll_direct_accepts_person_form_fields(client, voice_store, mon
         files={"file": ("clip.wav", b"RIFF-not-really", "audio/wav")}, headers=H,
     )
     assert res.status_code == 200 and res.json()["person_id"] == "self"
+
+
+# ---------------------------------------------------------------------------
+# review 2026-08-24: /voice/enroll is behind the per-IP limiter like every
+# other expensive route (GCS download + ffmpeg decode + ECAPA embed per call)
+# ---------------------------------------------------------------------------
+
+async def test_enroll_from_recording_is_rate_limited(client, monkeypatch):
+    main._rate_limiter.reset()
+    monkeypatch.setattr(main._rate_limiter, "limit", 1)
+    body = {"recording_id": str(uuid.uuid4()), "speaker": "Speaker A"}
+    first = await client.post("/voice/enroll", json=body, headers=H)
+    assert first.status_code != 429  # the budget's one request (503/404 here)
+    second = await client.post("/voice/enroll", json=body, headers=H)
+    assert second.status_code == 429
+    main._rate_limiter.reset()

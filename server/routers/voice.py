@@ -610,6 +610,9 @@ async def enroll_voice(
     body: EnrollRequest,
     request: Request,
     uid: str = Depends(get_current_uid),
+    # Review 2026-08-24: a GCS download + ffmpeg decode + ECAPA embed per
+    # call, and the ONE /voice route that was not behind the per-IP limiter.
+    _rl: None = Depends(_rate_limit),
 ) -> EnrollResponse:
     """"This is me" — enroll a diarized speaker from a stored recording.
 
