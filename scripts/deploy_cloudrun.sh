@@ -133,9 +133,10 @@ MINDSHIFT_WATCH_STT="${MINDSHIFT_WATCH_STT:-$(read_env MINDSHIFT_WATCH_STT)}"
 MINDSHIFT_WATCH_STT="${MINDSHIFT_WATCH_STT:-whisper}"
 # Server-side audio tone (server/tone_id.py) — the CODE default is "dark"
 # (compute + log, never surface), which on the first live turn still pulls
-# the ~750MB wav2vec2 checkpoint into a 2Gi instance that already holds
-# whisper + ECAPA. Deploy defaults it to "off" unless .env / the shell says
-# otherwise (see the MINDSHIFT_TONE_AUDIO note below). Review 2026-08-24.
+# the tone checkpoint (1.3 GB / ~3 GB RSS for the default odyssey_dim backend)
+# into a 2Gi instance that already holds whisper + ECAPA. Deploy defaults it
+# to "off" unless .env / the shell says otherwise (see the
+# MINDSHIFT_TONE_AUDIO note below). Review 2026-08-24; round 2 same day.
 MINDSHIFT_TONE_AUDIO="${MINDSHIFT_TONE_AUDIO:-$(read_env MINDSHIFT_TONE_AUDIO)}"
 MINDSHIFT_TONE_AUDIO="${MINDSHIFT_TONE_AUDIO:-off}"
 
@@ -143,13 +144,20 @@ MINDSHIFT_TONE_AUDIO="${MINDSHIFT_TONE_AUDIO:-off}"
 # env var). This is what makes MINDSHIFT_MODEL, STT_PROVIDER, etc. genuinely
 # switch-in-.env — no code change needed as models/config evolve.
 # MINDSHIFT_TONE_AUDIO: the audio tone classifier (server/tone_id.py) defaults
-# to "dark" (compute+log, never surface) — but "dark" still fetches a ~750MB
-# wav2vec2 model on the first live turn, which on Cloud Run's ephemeral FS is
-# pure cost while it ships dark. Deploy with MINDSHIFT_TONE_AUDIO=off unless
-# the eval (docs/research/tone-audio/) has been beaten and you WANT it on.
+# to "dark" (compute+log, never surface) — but "dark" still fetches the model
+# on the first live turn, which on Cloud Run's ephemeral FS is pure cost while
+# it ships dark. Deploy with MINDSHIFT_TONE_AUDIO=off unless the eval
+# (docs/research/tone-audio/2026-08-24-round2.md) has been beaten and you WANT
+# it on. Round 2 measured the per-speaker escalation delta at 83% (odyssey_dim)
+# but with no significant lift over text-tone (86%), so it stays off here.
+# MINDSHIFT_TONE_BACKEND: odyssey_dim (default; MIT WavLM-large, 1.3 GB on
+# disk, ~3 GB RSS — needs --memory 4Gi, NOT the 2Gi below) | superb_er
+# (Apache wav2vec2-base, 378 MB, ~0.5 GB RSS, fits 2Gi, but its delta is no
+# better than volume) | iemocap (round-1 model). Only matters when TONE_AUDIO
+# is dark/on.
 # MINDSHIFT_ECAPA_ONNX_PATH: override for the phone-served ONNX (Dockerfile
 # pre-exports it into the image's default cache path, so normally unset).
-for k in MINDSHIFT_MODEL STT_PROVIDER MINDSHIFT_UPLOAD_STT WHISPER_MODEL MINDSHIFT_ALLOWED_ORIGINS MINDSHIFT_RECORDINGS_BUCKET LOG_LEVEL RATE_LIMIT_ENABLED RATE_LIMIT_PER_MINUTE MINDSHIFT_DIARIZE_CROSSCHECK MINDSHIFT_DIARIZE_MAX_POOLED_COSINE MINDSHIFT_DIARIZE_SPLIT_MIN_MARGIN MINDSHIFT_FIRESTORE_PROJECT MINDSHIFT_CAPTURE_BUCKET MINDSHIFT_ALLOW_LEGACY_ACCOUNT MINDSHIFT_WATCH_STT MINDSHIFT_TONE_AUDIO MINDSHIFT_ECAPA_ONNX_PATH; do
+for k in MINDSHIFT_MODEL STT_PROVIDER MINDSHIFT_UPLOAD_STT WHISPER_MODEL MINDSHIFT_ALLOWED_ORIGINS MINDSHIFT_RECORDINGS_BUCKET LOG_LEVEL RATE_LIMIT_ENABLED RATE_LIMIT_PER_MINUTE MINDSHIFT_DIARIZE_CROSSCHECK MINDSHIFT_DIARIZE_MAX_POOLED_COSINE MINDSHIFT_DIARIZE_SPLIT_MIN_MARGIN MINDSHIFT_FIRESTORE_PROJECT MINDSHIFT_CAPTURE_BUCKET MINDSHIFT_ALLOW_LEGACY_ACCOUNT MINDSHIFT_WATCH_STT MINDSHIFT_TONE_AUDIO MINDSHIFT_TONE_BACKEND MINDSHIFT_ECAPA_ONNX_PATH; do
   v="${!k:-}"
   [[ -n "$v" ]] || v="$(read_env "$k")"
   if [[ -n "$v" ]]; then

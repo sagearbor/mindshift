@@ -1,0 +1,4674 @@
+{
+ "backend": "iemocap",
+ "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+ "license": "Apache-2.0",
+ "load_s": 1.3762317500077188,
+ "rss_before_mb": 60.70272,
+ "rss_after_load_mb": 1210.499072,
+ "size_bytes": 377575130,
+ "pinned_threshold": 1.5,
+ "fixtures": {
+  "gptaudio": {
+   "self_speaker": null,
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker A",
+     "seconds": 7.25,
+     "text": "Hey, can we talk about the dishes? They've been piling up all week and I wanted to check in before it becomes a thing.",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 148.4,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 0.9953,
+       "happy": 0.0,
+       "sad": 0.0047
+      },
+      "confidence": 0.9953,
+      "arousal": 5.3634,
+      "logits": {
+       "neutral": -3.1725,
+       "angry": 7.8556,
+       "happy": -4.2524,
+       "sad": 2.4923
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 0.995,
+       "happy": 0.0,
+       "sad": 0.0049
+      },
+      "confidence": 0.995,
+      "arousal": 5.3074,
+      "logits": {
+       "neutral": -3.1887,
+       "angry": 7.8245,
+       "happy": -4.2357,
+       "sad": 2.5171
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker B",
+     "seconds": 6.05,
+     "text": "Sure, but I did them Tuesday night. I don't think it's fair to act like I never touch them.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 128.9,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -11.111,
+      "logits": {
+       "neutral": 13.351,
+       "angry": 2.2401,
+       "happy": -7.3882,
+       "sad": -9.1456
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -11.1023,
+      "logits": {
+       "neutral": 13.3477,
+       "angry": 2.2455,
+       "happy": -7.3883,
+       "sad": -9.145
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker A",
+     "seconds": 6.85,
+     "text": "Tuesday was five days ago. I've done every load since then and I'm getting tired of keeping score.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 136.5,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 26.7231,
+      "logits": {
+       "neutral": -5.1783,
+       "angry": 22.2789,
+       "happy": -4.4442,
+       "sad": -6.0694
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 21.3597,
+       "baseline": 5.3634,
+       "history": 1,
+       "flag": true,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 26.7236,
+      "logits": {
+       "neutral": -5.1782,
+       "angry": 22.279,
+       "happy": -4.4446,
+       "sad": -6.0692
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 21.4162,
+       "baseline": 5.3074,
+       "history": 1,
+       "flag": true,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker B",
+     "seconds": 6.4,
+     "text": "So now I'm the villain because I didn't get to it fast enough? I have a life outside this kitchen too.",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 129.8,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.9866,
+       "angry": 0.0134,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -4.2996,
+      "logits": {
+       "neutral": 12.556,
+       "angry": 8.2564,
+       "happy": -9.3755,
+       "sad": -10.2123
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 6.8114,
+       "baseline": -11.111,
+       "history": 1,
+       "flag": true,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.9865,
+       "angry": 0.0135,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -4.2945,
+      "logits": {
+       "neutral": 12.5537,
+       "angry": 8.2591,
+       "happy": -9.3748,
+       "sad": -10.2122
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 6.8078,
+       "baseline": -11.1023,
+       "history": 1,
+       "flag": true,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker A",
+     "seconds": 7.25,
+     "text": "I AM SO SICK OF BEING THE ONLY ONE WHO CARES ABOUT THIS HOUSE! I CANNOT DO THIS BY MYSELF ANYMORE!",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 135.7,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 27.1808,
+      "logits": {
+       "neutral": -4.6423,
+       "angry": 22.5385,
+       "happy": -5.8015,
+       "sad": -5.527
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 11.1376,
+       "baseline": 16.0433,
+       "history": 2,
+       "flag": true,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 27.1809,
+      "logits": {
+       "neutral": -4.6425,
+       "angry": 22.5384,
+       "happy": -5.8015,
+       "sad": -5.5267
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 11.1654,
+       "baseline": 16.0155,
+       "history": 2,
+       "flag": true,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker B",
+     "seconds": 5.75,
+     "text": "Wow. Impressive speech. You really do love playing the martyr, don't you.",
+     "scripted": "cold_contempt",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 116.0,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.9974,
+       "angry": 0.0026,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.5796,
+      "arousal": -5.9664,
+      "logits": {
+       "neutral": 9.5847,
+       "angry": 3.6182,
+       "happy": -1.8342,
+       "sad": -11.5362
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 1.7389,
+       "baseline": -7.7053,
+       "history": 2,
+       "flag": true,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.9974,
+       "angry": 0.0026,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.5797,
+      "arousal": -5.9594,
+      "logits": {
+       "neutral": 9.5814,
+       "angry": 3.622,
+       "happy": -1.833,
+       "sad": -11.5367
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 1.739,
+       "baseline": -7.6984,
+       "history": 2,
+       "flag": true,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker A",
+     "seconds": 7.85,
+     "text": "I don't want to be the martyr. I just... I wanted us to be a team, and I don't feel like one right now.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 160.9,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 0.9693,
+       "happy": 0.0001,
+       "sad": 0.0306
+      },
+      "confidence": 0.9693,
+      "arousal": 3.457,
+      "logits": {
+       "neutral": -5.6842,
+       "angry": 7.0072,
+       "happy": -2.0565,
+       "sad": 3.5502
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -23.2661,
+       "baseline": 26.7231,
+       "history": 3,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 0.9691,
+       "happy": 0.0001,
+       "sad": 0.0307
+      },
+      "confidence": 0.9691,
+      "arousal": 3.4508,
+      "logits": {
+       "neutral": -5.6862,
+       "angry": 7.0007,
+       "happy": -2.0496,
+       "sad": 3.55
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -23.2728,
+       "baseline": 26.7236,
+       "history": 3,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker B",
+     "seconds": 8.55,
+     "text": "I don't want that either. I don't want us to be like this. I'm actually scared we're breaking something here.",
+     "scripted": "scared_shaky",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 178.4,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -25.9268,
+      "logits": {
+       "neutral": 17.4775,
+       "angry": -8.4492,
+       "happy": -7.5846,
+       "sad": -6.2571
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -19.9604,
+       "baseline": -5.9664,
+       "history": 3,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -25.9263,
+      "logits": {
+       "neutral": 17.4776,
+       "angry": -8.4487,
+       "happy": -7.5847,
+       "sad": -6.2576
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -19.9669,
+       "baseline": -5.9594,
+       "history": 3,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker A",
+     "seconds": 7.9,
+     "text": "I don't want that either. Can we just stop and figure out a system together? Something that actually works for both of us?",
+     "scripted": "repair_hopeful",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 154.2,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 13.7662,
+      "logits": {
+       "neutral": 2.7005,
+       "angry": 16.4667,
+       "happy": -6.3633,
+       "sad": -8.5835
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -2.2771,
+       "baseline": 16.0433,
+       "history": 4,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 13.7464,
+      "logits": {
+       "neutral": 2.7176,
+       "angry": 16.464,
+       "happy": -6.3695,
+       "sad": -8.5935
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -2.2691,
+       "baseline": 16.0155,
+       "history": 4,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker B",
+     "seconds": 7.25,
+     "text": "Yeah. Let's start over. I'm sorry I got so defensive \u2014 I do want to fix this with you.",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 136.6,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9997,
+       "angry": 0.0003,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.9997,
+      "arousal": -8.0125,
+      "logits": {
+       "neutral": 9.8982,
+       "angry": 1.8856,
+       "happy": -3.4943,
+       "sad": -9.289
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 0.5262,
+       "baseline": -8.5387,
+       "history": 4,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9997,
+       "angry": 0.0003,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.9997,
+      "arousal": -8.0092,
+      "logits": {
+       "neutral": 9.8977,
+       "angry": 1.8884,
+       "happy": -3.4952,
+       "sad": -9.2893
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 0.5216,
+       "baseline": -8.5308,
+       "history": 4,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    }
+   ]
+  },
+  "openai": {
+   "self_speaker": null,
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker A",
+     "seconds": 7.2,
+     "text": "Hey, can we talk about the dishes? They've been piling up all week and I wanted to check in before it becomes a thing.",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 151.2,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 21.6969,
+      "logits": {
+       "neutral": -2.3032,
+       "angry": 19.3937,
+       "happy": -4.878,
+       "sad": -6.564
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 21.6976,
+      "logits": {
+       "neutral": -2.3073,
+       "angry": 19.3903,
+       "happy": -4.8744,
+       "sad": -6.5606
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker B",
+     "seconds": 5.55,
+     "text": "Sure, but I did them Tuesday night. I don't think it's fair to act like I never touch them.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 111.7,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.5862,
+       "angry": 0.4138,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.5862,
+      "arousal": -0.3483,
+      "logits": {
+       "neutral": 10.492,
+       "angry": 10.1438,
+       "happy": -8.3214,
+       "sad": -10.5561
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.5845,
+       "angry": 0.4155,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.5845,
+      "arousal": -0.3412,
+      "logits": {
+       "neutral": 10.489,
+       "angry": 10.1477,
+       "happy": -8.3209,
+       "sad": -10.556
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker A",
+     "seconds": 6.0,
+     "text": "Tuesday was five days ago. I've done every load since then and I'm getting tired of keeping score.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 117.9,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 26.1205,
+      "logits": {
+       "neutral": -3.4027,
+       "angry": 22.7178,
+       "happy": -5.6728,
+       "sad": -7.0365
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 4.4236,
+       "baseline": 21.6969,
+       "history": 1,
+       "flag": true,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 26.1209,
+      "logits": {
+       "neutral": -3.4031,
+       "angry": 22.7178,
+       "happy": -5.6727,
+       "sad": -7.0363
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 4.4233,
+       "baseline": 21.6976,
+       "history": 1,
+       "flag": true,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker B",
+     "seconds": 7.2,
+     "text": "So now I'm the villain because I didn't get to it fast enough? I have a life outside this kitchen too.",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 137.3,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -12.8,
+      "logits": {
+       "neutral": 14.6812,
+       "angry": 1.8812,
+       "happy": -8.9692,
+       "sad": -8.7484
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -12.4517,
+       "baseline": -0.3483,
+       "history": 1,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -12.8005,
+      "logits": {
+       "neutral": 14.6817,
+       "angry": 1.8811,
+       "happy": -8.9692,
+       "sad": -8.749
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -12.4593,
+       "baseline": -0.3412,
+       "history": 1,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker A",
+     "seconds": 7.1,
+     "text": "I AM SO SICK OF BEING THE ONLY ONE WHO CARES ABOUT THIS HOUSE! I CANNOT DO THIS BY MYSELF ANYMORE!",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 141.8,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.8183,
+      "arousal": 26.3636,
+      "logits": {
+       "neutral": -3.6195,
+       "angry": 22.7441,
+       "happy": -5.7252,
+       "sad": -6.8145
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 2.4549,
+       "baseline": 23.9087,
+       "history": 2,
+       "flag": true,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.8182,
+      "arousal": 26.3637,
+      "logits": {
+       "neutral": -3.6198,
+       "angry": 22.7439,
+       "happy": -5.7247,
+       "sad": -6.8146
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 2.4545,
+       "baseline": 23.9093,
+       "history": 2,
+       "flag": true,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker B",
+     "seconds": 5.5,
+     "text": "Wow. Impressive speech. You really do love playing the martyr, don't you.",
+     "scripted": "cold_contempt",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 122.6,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9974,
+       "angry": 0.0002,
+       "happy": 0.0024,
+       "sad": 0.0
+      },
+      "confidence": 0.9974,
+      "arousal": -8.6517,
+      "logits": {
+       "neutral": 8.6678,
+       "angry": 0.0161,
+       "happy": 2.6422,
+       "sad": -12.6749
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -2.0775,
+       "baseline": -6.5742,
+       "history": 2,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9974,
+       "angry": 0.0002,
+       "happy": 0.0024,
+       "sad": 0.0
+      },
+      "confidence": 0.9974,
+      "arousal": -8.6448,
+      "logits": {
+       "neutral": 8.6644,
+       "angry": 0.0196,
+       "happy": 2.6434,
+       "sad": -12.675
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -2.0739,
+       "baseline": -6.5709,
+       "history": 2,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker A",
+     "seconds": 7.1,
+     "text": "I don't want to be the martyr. I just... I wanted us to be a team, and I don't feel like one right now.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 147.2,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0001,
+       "angry": 0.6884,
+       "happy": 0.3057,
+       "sad": 0.0059
+      },
+      "confidence": 0.6884,
+      "arousal": 0.8118,
+      "logits": {
+       "neutral": -5.314,
+       "angry": 4.1319,
+       "happy": 3.32,
+       "sad": -0.6324
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -25.3087,
+       "baseline": 26.1205,
+       "history": 3,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0001,
+       "angry": 0.6895,
+       "happy": 0.3046,
+       "sad": 0.0058
+      },
+      "confidence": 0.6895,
+      "arousal": 0.817,
+      "logits": {
+       "neutral": -5.3143,
+       "angry": 4.1381,
+       "happy": 3.3211,
+       "sad": -0.638
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -25.3039,
+       "baseline": 26.1209,
+       "history": 3,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker B",
+     "seconds": 6.95,
+     "text": "I don't want that either. I don't want us to be like this. I'm actually scared we're breaking something here.",
+     "scripted": "scared_shaky",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 134.8,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.9988,
+       "angry": 0.0011,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.6201,
+      "arousal": -6.7913,
+      "logits": {
+       "neutral": 7.2435,
+       "angry": 0.4522,
+       "happy": -2.8039,
+       "sad": -6.1032
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 1.8604,
+       "baseline": -8.6517,
+       "history": 3,
+       "flag": true,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.9988,
+       "angry": 0.0011,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.619,
+      "arousal": -6.7879,
+      "logits": {
+       "neutral": 7.2415,
+       "angry": 0.4536,
+       "happy": -2.8035,
+       "sad": -6.1023
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 1.8569,
+       "baseline": -8.6448,
+       "history": 3,
+       "flag": true,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker A",
+     "seconds": 8.35,
+     "text": "I don't want that either. Can we just stop and figure out a system together? Something that actually works for both of us?",
+     "scripted": "repair_hopeful",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 158.5,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 23.6543,
+      "logits": {
+       "neutral": -2.9284,
+       "angry": 20.726,
+       "happy": -4.9905,
+       "sad": -6.7863
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -0.2544,
+       "baseline": 23.9087,
+       "history": 4,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 23.6528,
+      "logits": {
+       "neutral": -2.9271,
+       "angry": 20.7257,
+       "happy": -4.9903,
+       "sad": -6.7874
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -0.2565,
+       "baseline": 23.9093,
+       "history": 4,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker B",
+     "seconds": 5.85,
+     "text": "Yeah. Let's start over. I'm sorry I got so defensive \u2014 I do want to fix this with you.",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 115.6,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9998,
+       "angry": 0.0002,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.9998,
+      "arousal": -8.4528,
+      "logits": {
+       "neutral": 12.3348,
+       "angry": 3.8819,
+       "happy": -7.1595,
+       "sad": -9.5033
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -0.7313,
+       "baseline": -7.7215,
+       "history": 4,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9998,
+       "angry": 0.0002,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.9998,
+      "arousal": -8.4484,
+      "logits": {
+       "neutral": 12.3316,
+       "angry": 3.8832,
+       "happy": -7.1571,
+       "sad": -9.5033
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -0.732,
+       "baseline": -7.7164,
+       "history": 4,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    }
+   ]
+  },
+  "scene_couple_escalation": {
+   "self_speaker": "Speaker A",
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker A",
+     "seconds": 4.097,
+     "text": "Hey, I looked at the credit card statement tonight. Can we go over it?",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 94.0,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -10.7561,
+      "logits": {
+       "neutral": 13.9431,
+       "angry": 3.187,
+       "happy": -8.4719,
+       "sad": -8.9202
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -10.7524,
+      "logits": {
+       "neutral": 13.942,
+       "angry": 3.1896,
+       "happy": -8.4718,
+       "sad": -8.9205
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker B",
+     "seconds": 5.242,
+     "text": "Sure. I know it's higher than usual, but most of that was the car repair.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 114.0,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 20.7037,
+      "logits": {
+       "neutral": -0.1426,
+       "angry": 20.561,
+       "happy": -6.0169,
+       "sad": -8.6101
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 20.7049,
+      "logits": {
+       "neutral": -0.1436,
+       "angry": 20.5613,
+       "happy": -6.0163,
+       "sad": -8.6098
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker A",
+     "seconds": 4.705,
+     "text": "The car was six hundred. There's another nine hundred I can't place.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 105.1,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9999,
+       "angry": 0.0001,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.9999,
+      "arousal": -9.5673,
+      "logits": {
+       "neutral": 13.5109,
+       "angry": 3.9436,
+       "happy": -8.3869,
+       "sad": -9.4105
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 1.1888,
+       "baseline": -10.7561,
+       "history": 1,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9999,
+       "angry": 0.0001,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.9999,
+      "arousal": -9.5664,
+      "logits": {
+       "neutral": 13.5109,
+       "angry": 3.9445,
+       "happy": -8.3873,
+       "sad": -9.4105
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 1.186,
+       "baseline": -10.7524,
+       "history": 1,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker B",
+     "seconds": 5.126,
+     "text": "Some was groceries, some was your mom's birthday gift. I didn't hide anything.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 113.0,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 10.089,
+      "logits": {
+       "neutral": 5.8707,
+       "angry": 15.9597,
+       "happy": -7.603,
+       "sad": -10.0785
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -10.6147,
+       "baseline": 20.7037,
+       "history": 1,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 10.0923,
+      "logits": {
+       "neutral": 5.8691,
+       "angry": 15.9615,
+       "happy": -7.6025,
+       "sad": -10.0784
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -10.6126,
+       "baseline": 20.7049,
+       "history": 1,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker A",
+     "seconds": 4.942,
+     "text": "I'm not saying you hid it. I'm saying we agreed to talk before spending like that.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 114.8,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 11.0521,
+      "logits": {
+       "neutral": 4.1851,
+       "angry": 15.2372,
+       "happy": -7.0763,
+       "sad": -8.5204
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 21.2138,
+       "baseline": -10.1617,
+       "history": 2,
+       "flag": true,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 11.0523,
+      "logits": {
+       "neutral": 4.185,
+       "angry": 15.2372,
+       "happy": -7.0762,
+       "sad": -8.5203
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 21.2117,
+       "baseline": -10.1594,
+       "history": 2,
+       "flag": true,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker B",
+     "seconds": 5.234,
+     "text": "We talked about it in the car. You just weren't listening, like always.",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 124.7,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 25.2478,
+      "logits": {
+       "neutral": -4.3173,
+       "angry": 20.9305,
+       "happy": -5.17,
+       "sad": -5.3897
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 9.8514,
+       "baseline": 15.3964,
+       "history": 2,
+       "flag": true,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 25.248,
+      "logits": {
+       "neutral": -4.3183,
+       "angry": 20.9297,
+       "happy": -5.1693,
+       "sad": -5.3886
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 9.8494,
+       "baseline": 15.3986,
+       "history": 2,
+       "flag": true,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker A",
+     "seconds": 5.699,
+     "text": "LIKE ALWAYS? I AM THE ONLY ONE IN THIS HOUSE WHO EVEN LOOKS AT THE BILLS!",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 130.6,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -14.7998,
+      "logits": {
+       "neutral": 15.5546,
+       "angry": 0.7548,
+       "happy": -8.5414,
+       "sad": -8.8662
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -5.2325,
+       "baseline": -9.5673,
+       "history": 3,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -14.7976,
+      "logits": {
+       "neutral": 15.5539,
+       "angry": 0.7563,
+       "happy": -8.5412,
+       "sad": -8.8664
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -5.2312,
+       "baseline": -9.5664,
+       "history": 3,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker B",
+     "seconds": 3.921,
+     "text": "Please don't yell at me. I'm right here, I can hear you.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 90.9,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 25.7877,
+      "logits": {
+       "neutral": -5.7062,
+       "angry": 21.829,
+       "happy": -3.9587,
+       "sad": -5.7406
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 5.084,
+       "baseline": 20.7037,
+       "history": 3,
+       "flag": true,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 25.7891,
+      "logits": {
+       "neutral": -5.7051,
+       "angry": 21.8291,
+       "happy": -3.96,
+       "sad": -5.7405
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 5.0842,
+       "baseline": 20.7049,
+       "history": 3,
+       "flag": true,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker A",
+     "seconds": 5.267,
+     "text": "Forget it. Clearly budgeting is beneath you. I'll just handle it, like everything else.",
+     "scripted": "cold_contempt",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 115.3,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -14.3656,
+      "logits": {
+       "neutral": 14.2342,
+       "angry": -0.1314,
+       "happy": -7.4325,
+       "sad": -8.4051
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -4.2039,
+       "baseline": -10.1617,
+       "history": 4,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -14.3606,
+      "logits": {
+       "neutral": 14.2302,
+       "angry": -0.1303,
+       "happy": -7.4297,
+       "sad": -8.4044
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -4.2012,
+       "baseline": -10.1594,
+       "history": 4,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker B",
+     "seconds": 5.695,
+     "text": "That's not fair. I'm trying, and you talk to me like I'm a child.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 118.9,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 27.0076,
+      "logits": {
+       "neutral": -4.4489,
+       "angry": 22.5588,
+       "happy": -5.2128,
+       "sad": -6.2529
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 4.0318,
+       "baseline": 22.9758,
+       "history": 4,
+       "flag": true,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 27.0076,
+      "logits": {
+       "neutral": -4.449,
+       "angry": 22.5586,
+       "happy": -5.2126,
+       "sad": -6.2529
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 4.0312,
+       "baseline": 22.9764,
+       "history": 4,
+       "flag": true,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 10,
+     "speaker": "Speaker A",
+     "seconds": 4.332,
+     "text": "You're right. I'm sorry. That came out way harsher than I meant.",
+     "scripted": "repair_apology",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 98.3,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -14.0509,
+      "logits": {
+       "neutral": 14.8071,
+       "angry": 0.7563,
+       "happy": -8.7634,
+       "sad": -8.0991
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -3.2948,
+       "baseline": -10.7561,
+       "history": 5,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -14.0533,
+      "logits": {
+       "neutral": 14.8084,
+       "angry": 0.7551,
+       "happy": -8.764,
+       "sad": -8.099
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -3.3009,
+       "baseline": -10.7524,
+       "history": 5,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 11,
+     "speaker": "Speaker B",
+     "seconds": 5.579,
+     "text": "Thank you. Can we just sit down Sunday and do it together, no phones?",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 123.9,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 18.9302,
+      "logits": {
+       "neutral": -0.2969,
+       "angry": 18.6333,
+       "happy": -4.6915,
+       "sad": -8.4765
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -6.3176,
+       "baseline": 25.2478,
+       "history": 5,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 18.9135,
+      "logits": {
+       "neutral": -0.2844,
+       "angry": 18.6292,
+       "happy": -4.6971,
+       "sad": -8.4808
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -6.3345,
+       "baseline": 25.248,
+       "history": 5,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 12,
+     "speaker": "Speaker A",
+     "seconds": 4.927,
+     "text": "Yeah. Sunday. I'd like that. And I'll bring the good coffee.",
+     "scripted": "warm_happy",
+     "coarse": "happy",
+     "skipped": null,
+     "latency_ms": 111.8,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.7697,
+      "arousal": -10.0944,
+      "logits": {
+       "neutral": 12.6918,
+       "angry": 2.5973,
+       "happy": -6.9073,
+       "sad": -8.9855
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 2.3091,
+       "baseline": -12.4035,
+       "history": 6,
+       "flag": true,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.7709,
+      "arousal": -10.0902,
+      "logits": {
+       "neutral": 12.69,
+       "angry": 2.5998,
+       "happy": -6.907,
+       "sad": -8.9856
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 2.3127,
+       "baseline": -12.4029,
+       "history": 6,
+       "flag": true,
+       "threshold": 1.5
+      }
+     }
+    }
+   ]
+  },
+  "scene_family3": {
+   "self_speaker": "Speaker A",
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker C",
+     "seconds": 3.862,
+     "text": "Okay, dinner's in ten minutes. Who's setting the table tonight?",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 91.8,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 18.8728,
+      "logits": {
+       "neutral": 1.5881,
+       "angry": 20.4609,
+       "happy": -7.1982,
+       "sad": -9.2154
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 18.8719,
+      "logits": {
+       "neutral": 1.5887,
+       "angry": 20.4605,
+       "happy": -7.1983,
+       "sad": -9.2155
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker B",
+     "seconds": 4.277,
+     "text": "Not me, I did it yesterday. And the day before, actually.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 101.7,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 23.3673,
+      "logits": {
+       "neutral": -2.2437,
+       "angry": 21.1236,
+       "happy": -3.8359,
+       "sad": -9.2841
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 23.3688,
+      "logits": {
+       "neutral": -2.2446,
+       "angry": 21.1242,
+       "happy": -3.836,
+       "sad": -9.2833
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker A",
+     "seconds": 3.284,
+     "text": "Then it's my turn. Grab the plates for me, would you?",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 85.1,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0096,
+       "angry": 0.9904,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.9904,
+      "arousal": 4.6385,
+      "logits": {
+       "neutral": 9.0369,
+       "angry": 13.6755,
+       "happy": -8.3735,
+       "sad": -11.2
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0096,
+       "angry": 0.9904,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.9904,
+      "arousal": 4.6374,
+      "logits": {
+       "neutral": 9.0373,
+       "angry": 13.6748,
+       "happy": -8.3735,
+       "sad": -11.1998
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker C",
+     "seconds": 3.672,
+     "text": "Also, someone left the milk out again. All afternoon.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 87.0,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.1757,
+       "angry": 0.8243,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.8243,
+      "arousal": 1.5458,
+      "logits": {
+       "neutral": 9.8764,
+       "angry": 11.4222,
+       "happy": -8.2238,
+       "sad": -10.5633
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -17.327,
+       "baseline": 18.8728,
+       "history": 1,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.1758,
+       "angry": 0.8242,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.8242,
+      "arousal": 1.5453,
+      "logits": {
+       "neutral": 9.8767,
+       "angry": 11.422,
+       "happy": -8.2242,
+       "sad": -10.5631
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -17.3266,
+       "baseline": 18.8719,
+       "history": 1,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker B",
+     "seconds": 4.842,
+     "text": "Why do you always assume it's me? Maybe ask Dad for once.",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 116.3,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 21.833,
+      "logits": {
+       "neutral": -1.2546,
+       "angry": 20.5785,
+       "happy": -4.326,
+       "sad": -9.2891
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -1.5343,
+       "baseline": 23.3673,
+       "history": 1,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 21.8319,
+      "logits": {
+       "neutral": -1.254,
+       "angry": 20.5778,
+       "happy": -4.3261,
+       "sad": -9.2891
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -1.5369,
+       "baseline": 23.3688,
+       "history": 1,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker A",
+     "seconds": 4.5,
+     "text": "It was probably me, honestly. I made coffee around two.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 100.3,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9997,
+       "angry": 0.0003,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.9997,
+      "arousal": -8.1583,
+      "logits": {
+       "neutral": 12.4627,
+       "angry": 4.3044,
+       "happy": -7.8043,
+       "sad": -9.0386
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -12.7968,
+       "baseline": 4.6385,
+       "history": 1,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9997,
+       "angry": 0.0003,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.9997,
+      "arousal": -8.1437,
+      "logits": {
+       "neutral": 12.4559,
+       "angry": 4.3123,
+       "happy": -7.8026,
+       "sad": -9.0385
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -12.7811,
+       "baseline": 4.6374,
+       "history": 1,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker C",
+     "seconds": 3.579,
+     "text": "That's the third time this week. It's not funny anymore.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 86.2,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 24.8801,
+      "logits": {
+       "neutral": -2.3358,
+       "angry": 22.5444,
+       "happy": -5.9246,
+       "sad": -7.8215
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 14.6708,
+       "baseline": 10.2093,
+       "history": 2,
+       "flag": true,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 24.8803,
+      "logits": {
+       "neutral": -2.3359,
+       "angry": 22.5444,
+       "happy": -5.9246,
+       "sad": -7.8215
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 14.6717,
+       "baseline": 10.2086,
+       "history": 2,
+       "flag": true,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker B",
+     "seconds": 5.804,
+     "text": "OH MY GOD, IT'S MILK! WHY IS EVERYTHING IN THIS HOUSE A CRISIS?",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 129.5,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 10.5696,
+      "logits": {
+       "neutral": -8.5047,
+       "angry": 16.0291,
+       "happy": 5.4595,
+       "sad": -8.5464
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -12.0305,
+       "baseline": 22.6001,
+       "history": 2,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 10.5964,
+      "logits": {
+       "neutral": -8.5008,
+       "angry": 16.0422,
+       "happy": 5.4457,
+       "sad": -8.5448
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -12.0039,
+       "baseline": 22.6003,
+       "history": 2,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker C",
+     "seconds": 4.612,
+     "text": "Don't shout at me. I'm tired and I'm just asking for a little help.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 104.8,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 22.048,
+      "logits": {
+       "neutral": -0.6331,
+       "angry": 21.4148,
+       "happy": -6.2925,
+       "sad": -8.4508
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 3.1752,
+       "baseline": 18.8728,
+       "history": 3,
+       "flag": true,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 22.0482,
+      "logits": {
+       "neutral": -0.6333,
+       "angry": 21.415,
+       "happy": -6.2926,
+       "sad": -8.4508
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 3.1763,
+       "baseline": 18.8719,
+       "history": 3,
+       "flag": true,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker A",
+     "seconds": 4.556,
+     "text": "Hey! Don't talk to your mother like that, and don't drag me into it either!",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 104.2,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.3415,
+       "angry": 0.6585,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.8055,
+      "arousal": 0.6566,
+      "logits": {
+       "neutral": 8.7849,
+       "angry": 9.4415,
+       "happy": -7.2782,
+       "sad": -9.3777
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 2.4165,
+       "baseline": -1.7599,
+       "history": 2,
+       "flag": true,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.3391,
+       "angry": 0.6609,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.8068,
+      "arousal": 0.6671,
+      "logits": {
+       "neutral": 8.7792,
+       "angry": 9.4463,
+       "happy": -7.2757,
+       "sad": -9.3776
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 2.4203,
+       "baseline": -1.7532,
+       "history": 2,
+       "flag": true,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 10,
+     "speaker": "Speaker B",
+     "seconds": 4.168,
+     "text": "Fine. Sorry. I'm just sick of getting blamed for everything.",
+     "scripted": "sullen_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 100.1,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 20.0097,
+      "logits": {
+       "neutral": -0.2843,
+       "angry": 19.7254,
+       "happy": -4.9997,
+       "sad": -9.1841
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -1.8233,
+       "baseline": 21.833,
+       "history": 3,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 20.0239,
+      "logits": {
+       "neutral": -0.2934,
+       "angry": 19.7306,
+       "happy": -4.9963,
+       "sad": -9.1813
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -1.808,
+       "baseline": 21.8319,
+       "history": 3,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 11,
+     "speaker": "Speaker A",
+     "seconds": 4.218,
+     "text": "I know. I snapped too. Let's all just reset, okay?",
+     "scripted": "repair_apology",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 95.2,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -18.4854,
+      "logits": {
+       "neutral": 17.1219,
+       "angry": -1.3634,
+       "happy": -9.1847,
+       "sad": -8.8362
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -19.142,
+       "baseline": 0.6566,
+       "history": 3,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -18.4851,
+      "logits": {
+       "neutral": 17.1222,
+       "angry": -1.3629,
+       "happy": -9.185,
+       "sad": -8.8365
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -19.1522,
+       "baseline": 0.6671,
+       "history": 3,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 12,
+     "speaker": "Speaker C",
+     "seconds": 4.273,
+     "text": "Reset. Plates, forks, and somebody put the milk in the fridge.",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 93.3,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.6476,
+       "angry": 0.3524,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.6476,
+      "arousal": -0.6087,
+      "logits": {
+       "neutral": 11.3865,
+       "angry": 10.7778,
+       "happy": -9.6343,
+       "sad": -10.252
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -21.0691,
+       "baseline": 20.4604,
+       "history": 4,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.6472,
+       "angry": 0.3528,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.6472,
+      "arousal": -0.6069,
+      "logits": {
+       "neutral": 11.3858,
+       "angry": 10.7789,
+       "happy": -9.6343,
+       "sad": -10.2519
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -21.067,
+       "baseline": 20.4601,
+       "history": 4,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 13,
+     "speaker": "Speaker B",
+     "seconds": 3.851,
+     "text": "On it. And for the record, I'm making the garlic bread.",
+     "scripted": "warm_happy",
+     "coarse": "happy",
+     "skipped": null,
+     "latency_ms": 83.5,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 24.4631,
+      "logits": {
+       "neutral": -2.7486,
+       "angry": 21.7144,
+       "happy": -4.1631,
+       "sad": -8.7542
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 3.5418,
+       "baseline": 20.9213,
+       "history": 4,
+       "flag": true,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 24.4628,
+      "logits": {
+       "neutral": -2.7485,
+       "angry": 21.7143,
+       "happy": -4.1631,
+       "sad": -8.7543
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 3.5349,
+       "baseline": 20.9279,
+       "history": 4,
+       "flag": true,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 14,
+     "speaker": "Speaker A",
+     "seconds": 4.064,
+     "text": "Now we're talking. Best part of the week, right here.",
+     "scripted": "warm_happy",
+     "coarse": "happy",
+     "skipped": null,
+     "latency_ms": 90.6,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.7748,
+       "angry": 0.2252,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.8384,
+      "arousal": -1.2356,
+      "logits": {
+       "neutral": 10.9395,
+       "angry": 9.7039,
+       "happy": -8.7124,
+       "sad": -10.0814
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 2.5152,
+       "baseline": -3.7509,
+       "history": 4,
+       "flag": true,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.7736,
+       "angry": 0.2264,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.8366,
+      "arousal": -1.2285,
+      "logits": {
+       "neutral": 10.9365,
+       "angry": 9.708,
+       "happy": -8.7117,
+       "sad": -10.0816
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 2.5098,
+       "baseline": -3.7383,
+       "history": 4,
+       "flag": true,
+       "threshold": 1.5
+      }
+     }
+    }
+   ]
+  },
+  "scene_meeting4": {
+   "self_speaker": "Speaker A",
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker B",
+     "seconds": 4.011,
+     "text": "Okay, let's start. First item: the March launch timeline.",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 305.9,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 19.7786,
+      "logits": {
+       "neutral": 1.3251,
+       "angry": 21.1037,
+       "happy": -7.3508,
+       "sad": -9.2246
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 19.7787,
+      "logits": {
+       "neutral": 1.325,
+       "angry": 21.1037,
+       "happy": -7.3508,
+       "sad": -9.2246
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker C",
+     "seconds": 4.852,
+     "text": "Engineering's on track. Integration tests finish by the twentieth.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 345.7,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 22.8172,
+      "logits": {
+       "neutral": -1.2206,
+       "angry": 21.5966,
+       "happy": -5.8817,
+       "sad": -8.4351
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 22.8163,
+      "logits": {
+       "neutral": -1.2201,
+       "angry": 21.5962,
+       "happy": -5.8819,
+       "sad": -8.4353
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker D",
+     "seconds": 4.723,
+     "text": "Marketing needs final screenshots by the fifteenth, or the press kit slips.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 241.8,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0054,
+       "angry": 0.9946,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.9946,
+      "arousal": 5.223,
+      "logits": {
+       "neutral": 8.4558,
+       "angry": 13.6789,
+       "happy": -8.513,
+       "sad": -10.239
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0053,
+       "angry": 0.9947,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.9947,
+      "arousal": 5.2254,
+      "logits": {
+       "neutral": 8.4548,
+       "angry": 13.6802,
+       "happy": -8.5129,
+       "sad": -10.2389
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker A",
+     "seconds": 4.664,
+     "text": "Tight, but doable. I'll have design prioritize the screenshots.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 299.5,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9998,
+       "angry": 0.0002,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.9998,
+      "arousal": -8.5143,
+      "logits": {
+       "neutral": 14.0275,
+       "angry": 5.5132,
+       "happy": -9.3787,
+       "sad": -9.9419
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9998,
+       "angry": 0.0002,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.9998,
+      "arousal": -8.5135,
+      "logits": {
+       "neutral": 14.0272,
+       "angry": 5.5137,
+       "happy": -9.3787,
+       "sad": -9.9419
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker B",
+     "seconds": 4.538,
+     "text": "Good. Second item: the support backlog is up thirty percent.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 292.7,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 20.1702,
+      "logits": {
+       "neutral": 1.1386,
+       "angry": 21.3088,
+       "happy": -7.253,
+       "sad": -9.2872
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 0.3916,
+       "baseline": 19.7786,
+       "history": 1,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 20.1707,
+      "logits": {
+       "neutral": 1.1382,
+       "angry": 21.3089,
+       "happy": -7.2529,
+       "sad": -9.2871
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 0.392,
+       "baseline": 19.7787,
+       "history": 1,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker A",
+     "seconds": 3.97,
+     "text": "I'll pull the top ten tickets and send them round this afternoon.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 278.2,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9997,
+       "angry": 0.0003,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.9997,
+      "arousal": -7.9581,
+      "logits": {
+       "neutral": 12.8741,
+       "angry": 4.9161,
+       "happy": -8.2614,
+       "sad": -9.4408
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 0.5562,
+       "baseline": -8.5143,
+       "history": 1,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9996,
+       "angry": 0.0004,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.9996,
+      "arousal": -7.9564,
+      "logits": {
+       "neutral": 12.8738,
+       "angry": 4.9174,
+       "happy": -8.2619,
+       "sad": -9.4407
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 0.5571,
+       "baseline": -8.5135,
+       "history": 1,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker B",
+     "seconds": 4.057,
+     "text": "Third item, budget. Finance wants every team to trim eight percent.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 251.4,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 10.0367,
+      "logits": {
+       "neutral": 6.7866,
+       "angry": 16.8234,
+       "happy": -8.5416,
+       "sad": -10.8844
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -9.9377,
+       "baseline": 19.9744,
+       "history": 2,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 10.0392,
+      "logits": {
+       "neutral": 6.7853,
+       "angry": 16.8245,
+       "happy": -8.5413,
+       "sad": -10.8841
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -9.9355,
+       "baseline": 19.9747,
+       "history": 2,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker D",
+     "seconds": 3.878,
+     "text": "Eight percent? We already cut the contractor budget last quarter.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 225.7,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0873,
+       "angry": 0.9127,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.9127,
+      "arousal": 2.3471,
+      "logits": {
+       "neutral": 10.3718,
+       "angry": 12.7189,
+       "happy": -9.5268,
+       "sad": -10.6832
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -2.8759,
+       "baseline": 5.223,
+       "history": 1,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0874,
+       "angry": 0.9126,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.9126,
+      "arousal": 2.346,
+      "logits": {
+       "neutral": 10.3723,
+       "angry": 12.7183,
+       "happy": -9.5269,
+       "sad": -10.6832
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -2.8794,
+       "baseline": 5.2254,
+       "history": 1,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker C",
+     "seconds": 5.071,
+     "text": "We could delay the second hire until June. That covers most of it.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 275.1,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 22.8001,
+      "logits": {
+       "neutral": -1.1161,
+       "angry": 21.6841,
+       "happy": -6.0629,
+       "sad": -8.5251
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -0.0171,
+       "baseline": 22.8172,
+       "history": 1,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 22.8009,
+      "logits": {
+       "neutral": -1.1167,
+       "angry": 21.6842,
+       "happy": -6.0626,
+       "sad": -8.5248
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -0.0154,
+       "baseline": 22.8163,
+       "history": 1,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker B",
+     "seconds": 3.18,
+     "text": "That's one option. What about the conference sponsorship?",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 225.2,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9914,
+       "angry": 0.0086,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.9914,
+      "arousal": -4.7523,
+      "logits": {
+       "neutral": 13.4699,
+       "angry": 8.7176,
+       "happy": -10.2258,
+       "sad": -10.7336
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -24.5309,
+       "baseline": 19.7786,
+       "history": 3,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9914,
+       "angry": 0.0086,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.9914,
+      "arousal": -4.7446,
+      "logits": {
+       "neutral": 13.4671,
+       "angry": 8.7225,
+       "happy": -10.2256,
+       "sad": -10.734
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -24.5233,
+       "baseline": 19.7787,
+       "history": 3,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 10,
+     "speaker": "Speaker D",
+     "seconds": 5.333,
+     "text": "We signed that in December. Backing out costs almost as much as going.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 340.9,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 10.7769,
+      "logits": {
+       "neutral": 4.6782,
+       "angry": 15.4551,
+       "happy": -6.8546,
+       "sad": -9.3242
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 6.9918,
+       "baseline": 3.7851,
+       "history": 2,
+       "flag": true,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 10.7778,
+      "logits": {
+       "neutral": 4.6778,
+       "angry": 15.4556,
+       "happy": -6.8544,
+       "sad": -9.3242
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 6.9921,
+       "baseline": 3.7857,
+       "history": 2,
+       "flag": true,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 11,
+     "speaker": "Speaker A",
+     "seconds": 3.758,
+     "text": "So we delay my hire again? That's the third time this year.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 309.2,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -10.8945,
+      "logits": {
+       "neutral": 15.1567,
+       "angry": 4.2623,
+       "happy": -9.8731,
+       "sad": -9.8567
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -2.6583,
+       "baseline": -8.2362,
+       "history": 2,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -10.8932,
+      "logits": {
+       "neutral": 15.1561,
+       "angry": 4.2629,
+       "happy": -9.8731,
+       "sad": -9.8562
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -2.6582,
+       "baseline": -8.235,
+       "history": 2,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 12,
+     "speaker": "Speaker B",
+     "seconds": 3.333,
+     "text": "Nobody's decided anything. We're just listing options.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 219.9,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 19.7291,
+      "logits": {
+       "neutral": 1.3987,
+       "angry": 21.1277,
+       "happy": -7.6488,
+       "sad": -9.0688
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 4.8214,
+       "baseline": 14.9077,
+       "history": 4,
+       "flag": true,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 19.7284,
+      "logits": {
+       "neutral": 1.3991,
+       "angry": 21.1275,
+       "happy": -7.649,
+       "sad": -9.0689
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 4.8194,
+       "baseline": 14.909,
+       "history": 4,
+       "flag": true,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 13,
+     "speaker": "Speaker A",
+     "seconds": 5.417,
+     "text": "THEN LIST A DIFFERENT ONE! MY TEAM IS DROWNING AND EVERYONE HERE KNOWS IT!",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 357.3,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.9695,
+       "angry": 0.0305,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -3.46,
+      "logits": {
+       "neutral": 10.5999,
+       "angry": 7.1398,
+       "happy": -6.0317,
+       "sad": -10.6434
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 5.0543,
+       "baseline": -8.5143,
+       "history": 3,
+       "flag": true,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.9695,
+       "angry": 0.0305,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -3.4587,
+      "logits": {
+       "neutral": 10.6,
+       "angry": 7.1413,
+       "happy": -6.0331,
+       "sad": -10.6431
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 5.0548,
+       "baseline": -8.5135,
+       "history": 3,
+       "flag": true,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 14,
+     "speaker": "Speaker C",
+     "seconds": 6.992,
+     "text": "Okay. Let's take that seriously. Can we table this and come back with real numbers?",
+     "scripted": "calm_deescalate",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 426.3,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 21.0222,
+      "logits": {
+       "neutral": -4.6247,
+       "angry": 19.3282,
+       "happy": -1.6939,
+       "sad": -7.574
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -1.7864,
+       "baseline": 22.8087,
+       "history": 2,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 21.0249,
+      "logits": {
+       "neutral": -4.6264,
+       "angry": 19.33,
+       "happy": -1.6949,
+       "sad": -7.5724
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -1.7837,
+       "baseline": 22.8086,
+       "history": 2,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 15,
+     "speaker": "Speaker A",
+     "seconds": 5.522,
+     "text": "Yeah. Sorry, everyone. That was out of line. Real numbers by Thursday.",
+     "scripted": "repair_apology",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 352.7,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9999,
+       "angry": 0.0001,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.9999,
+      "arousal": -8.8534,
+      "logits": {
+       "neutral": 11.8025,
+       "angry": 2.9491,
+       "happy": -6.6942,
+       "sad": -8.6164
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -0.6172,
+       "baseline": -8.2362,
+       "history": 4,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9999,
+       "angry": 0.0001,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.9999,
+      "arousal": -8.8565,
+      "logits": {
+       "neutral": 11.8048,
+       "angry": 2.9482,
+       "happy": -6.6957,
+       "sad": -8.617
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -0.6215,
+       "baseline": -8.235,
+       "history": 4,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 16,
+     "speaker": "Speaker B",
+     "seconds": 3.185,
+     "text": "Thursday works. Thanks, everyone. That's all for today.",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 263.3,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.8259,
+       "angry": 0.1741,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.8259,
+      "arousal": -1.5568,
+      "logits": {
+       "neutral": 12.1999,
+       "angry": 10.6431,
+       "happy": -10.2355,
+       "sad": -10.5792
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -21.2859,
+       "baseline": 19.7291,
+       "history": 5,
+       "flag": false,
+       "threshold": 1.5
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.8259,
+       "angry": 0.1741,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 0.8259,
+      "arousal": -1.5566,
+      "logits": {
+       "neutral": 12.1999,
+       "angry": 10.6432,
+       "happy": -10.2355,
+       "sad": -10.5792
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -21.285,
+       "baseline": 19.7284,
+       "history": 5,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    }
+   ]
+  },
+  "family_real": {
+   "self_speaker": null,
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Sage",
+     "seconds": 5.12,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 350.1,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -23.3052,
+      "logits": {
+       "neutral": 18.0109,
+       "angry": -5.2943,
+       "happy": -8.5773,
+       "sad": -8.1539
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Asher",
+     "seconds": 2.74,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 249.2,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -23.7789,
+      "logits": {
+       "neutral": 16.908,
+       "angry": -6.871,
+       "happy": -5.2768,
+       "sad": -9.5085
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Asher",
+     "seconds": 0.74,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": "too_short",
+     "latency_ms": 0.0,
+     "tone": null
+    },
+    {
+     "index": 3,
+     "speaker": "Sage",
+     "seconds": 4.645,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 396.1,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -16.523,
+      "logits": {
+       "neutral": 15.961,
+       "angry": -0.5621,
+       "happy": -7.3419,
+       "sad": -10.8119
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 6.7822,
+       "baseline": -23.3052,
+       "history": 1,
+       "flag": true,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Asher",
+     "seconds": 0.5,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": "too_short",
+     "latency_ms": 0.0,
+     "tone": null
+    },
+    {
+     "index": 5,
+     "speaker": "Asher",
+     "seconds": 2.66,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 300.2,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 1.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 22.9474,
+      "logits": {
+       "neutral": -1.8446,
+       "angry": 21.1028,
+       "happy": -3.8769,
+       "sad": -9.1041
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 46.7263,
+       "baseline": -23.7789,
+       "history": 1,
+       "flag": true,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Sage",
+     "seconds": 5.29,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 386.5,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.9993,
+       "angry": 0.0005,
+       "happy": 0.0002,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -7.5448,
+      "logits": {
+       "neutral": 9.6015,
+       "angry": 2.0567,
+       "happy": 1.1606,
+       "sad": -14.2327
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": 12.3693,
+       "baseline": -19.9141,
+       "history": 2,
+       "flag": true,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Asher",
+     "seconds": 3.37,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 356.1,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -15.1132,
+      "logits": {
+       "neutral": 15.5709,
+       "angry": 0.4576,
+       "happy": -5.5847,
+       "sad": -12.7498
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": -14.6974,
+       "baseline": -0.4158,
+       "history": 2,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    }
+   ]
+  },
+  "poker6_real": {
+   "self_speaker": null,
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Player1",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 353.4,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -28.2802,
+      "logits": {
+       "neutral": 15.8846,
+       "angry": -12.3956,
+       "happy": -4.2127,
+       "sad": -5.535
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Player2",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 288.4,
+     "tone": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.0,
+       "angry": 0.0,
+       "happy": 1.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -25.8308,
+      "logits": {
+       "neutral": -4.8748,
+       "angry": -8.4429,
+       "happy": 17.388,
+       "sad": -7.0924
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Player3",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 371.8,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -27.9261,
+      "logits": {
+       "neutral": 16.734,
+       "angry": -11.1921,
+       "happy": -4.3732,
+       "sad": -6.8531
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Player4",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 274.1,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -25.4842,
+      "logits": {
+       "neutral": 17.5578,
+       "angry": -7.9265,
+       "happy": -7.7055,
+       "sad": -6.7615
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Player5",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 412.8,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -23.9656,
+      "logits": {
+       "neutral": 17.2897,
+       "angry": -6.6759,
+       "happy": -7.3336,
+       "sad": -8.0015
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Player6",
+     "seconds": 5.12,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 374.2,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 1.0,
+       "angry": 0.0,
+       "happy": 0.0,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": -27.3649,
+      "logits": {
+       "neutral": 17.0683,
+       "angry": -10.2965,
+       "happy": -7.0611,
+       "sad": -5.2234
+      },
+      "kind": "categorical",
+      "backend": "iemocap",
+      "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 1.5
+      }
+     }
+    }
+   ]
+  }
+ },
+ "rss_peak_mb": 1615.642624
+}

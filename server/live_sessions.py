@@ -106,6 +106,9 @@ ESCALATION_LABELS: frozenset[str] = frozenset({
     "defensive", "sarcastic", "frustrated", "angry", "anger", "hostile",
     "contempt", "contemptuous", "irritated", "annoyed", "critical",
     "aggressive", "dismissive", "frustration", "defensiveness", "sarcasm",
+    # tone_id.ESCALATION_LABEL: the audio backend's per-speaker delta verdict
+    # (this turn's arousal over the speaker's own running baseline).
+    "escalating", "escalation",
 })
 
 # The derived label for a scored turn that is neither escalating nor clearly

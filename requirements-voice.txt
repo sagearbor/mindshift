@@ -19,15 +19,21 @@
 torch>=2.2,<3
 torchaudio>=2.2,<3
 speechbrain>=1.0,<2
-# Audio tone (server/tone_id.py): SpeechBrain's wav2vec2 fine-tune on IEMOCAP
-# (speechbrain/emotion-recognition-wav2vec2-IEMOCAP, revision pinned in
-# tone_id.TONE_REVISION). Its recipe builds the wav2vec2 backbone through
-# speechbrain.integrations.huggingface, which imports `transformers` — the
-# ECAPA speaker model above does not need it, so this line is here ONLY for
-# tone. NOTE: transformers 4.x pins huggingface_hub<1.0, so installing this
-# downgrades a 1.x hub (pip resolves it; speaker_id's snapshot_download call is
-# unaffected either way).
+# Audio tone (server/tone_id.py, MINDSHIFT_TONE_BACKEND): every backend runs
+# through `transformers` —
+#   odyssey_dim (default): 3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes
+#     (MIT) = transformers' WavLMModel + a vendored head, weights loaded via
+#     `safetensors` (a transformers dependency, listed here for clarity);
+#   superb_er: superb/wav2vec2-base-superb-er (Apache-2.0), stock
+#     Wav2Vec2ForSequenceClassification;
+#   iemocap: speechbrain/emotion-recognition-wav2vec2-IEMOCAP, whose recipe
+#     builds its backbone through speechbrain.integrations.huggingface.
+# Revisions are pinned in tone_id.py. The ECAPA speaker model above does not
+# need transformers, so these lines are here ONLY for tone. NOTE: transformers
+# 4.x pins huggingface_hub<1.0, so installing this downgrades a 1.x hub (pip
+# resolves it; speaker_id's snapshot_download call is unaffected either way).
 transformers>=4.40,<5
+safetensors>=0.4,<1
 # ONNX export of the pinned ECAPA model (server/ecapa_onnx.py) — served to the
 # phone by GET /models/ecapa.onnx for on-device speaker-ID (PR #139) and
 # pre-exported at image build time (Dockerfile). onnxruntime is only needed
