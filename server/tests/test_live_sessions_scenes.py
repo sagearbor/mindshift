@@ -152,6 +152,9 @@ def store():
     fake = FakeLiveStore()
     app.state.recordings_store = fake
     sessions_router._REFLECT_LOCKS.clear()
+    sessions_router._REFLECT_LOCK_USERS.clear()
+    import main
+    main._rate_limiter.reset()  # process-wide per-IP budget; see test_sessions_live
     yield fake
     del app.state.recordings_store
 
