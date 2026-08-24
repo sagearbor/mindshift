@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from typing import Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +163,53 @@ class LLMClient:
 
         raise ValueError(f"No completion handler for provider: {self._provider}")
 
+    def stream_complete(
+        self,
+        system: str,
+        user: str,
+        temperature: float = 0.7,
+        max_tokens: int = 512,
+    ) -> Iterator[str]:
+        """Yield the completion as text deltas as they arrive (blocking iterator).
+
+        Anthropic: genuine token streaming through the SDK's ``messages.stream``
+        helper, so a caller can act on the first complete sentence of a
+        suggestion while the rest is still being generated (the realtime
+        pipeline sends a ``partial`` SuggestionEvent from it). Every other
+        provider: a NON-streaming fallback that yields the whole
+        :meth:`complete` result as one chunk — honest (nothing is fabricated,
+        just delivered all at once) and it lets callers always iterate
+        without a per-provider branch. Concatenating every yielded chunk is
+        always exactly what ``complete()`` would have returned.
+
+        Blocking, like ``complete()``: callers on an event loop run the
+        iteration in a thread (``asyncio.to_thread``) the same way.
+        """
+        temp = self._resolve_temperature(temperature)
+        if self._provider == "anthropic":
+            yield from self._stream_anthropic(system, user, temp, max_tokens)
+            return
+        yield self.complete(system, user, temperature, max_tokens)
+
     # --- Anthropic Messages API ---
+
+    def _stream_anthropic(
+        self, system: str, user: str, temp: float | None, max_tokens: int,
+    ) -> Iterator[str]:
+        kwargs: dict = dict(
+            model=self.model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+        if temp is not None:
+            kwargs["temperature"] = temp
+        # The context manager closes the SSE connection even if the consumer
+        # stops iterating early (e.g. the pipeline's worker is cancelled on
+        # a mid-generation stop) — a bare `stream=True` iterator would not.
+        with self._client.messages.stream(**kwargs) as stream:
+            for text in stream.text_stream:
+                yield text
 
     def _complete_anthropic(
         self, system: str, user: str, temp: float | None, max_tokens: int,

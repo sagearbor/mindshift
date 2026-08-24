@@ -21,27 +21,56 @@ import base64
 import contextlib
 import hashlib
 import hmac
+import inspect
 import json
 import logging
+import math
 import os
 import re
 import ssl
 import time
-from collections import Counter
+from collections import Counter, deque
 from dataclasses import dataclass, field
+from typing import Callable
 from urllib.parse import urlencode
 
 import httpx
+import numpy as np
 import websockets
 from fastapi import WebSocket, WebSocketDisconnect
+from pydantic import ValidationError
 
 from llm_client import LLMClient
 from models.audio import (
     DiarizationConfig,
+    SpeakerIdentityEvent,
     SuggestionEvent,
+    ToneFlagEvent,
     TranscriptEvent,
+    TurnLocalEvent,
     Utterance,
 )
+
+# Optional enrichment modules for local-first (phone-orchestrated) sessions —
+# see the "turn_local" section of audio_ws_endpoint's docstring. Each is
+# guarded so this module imports (and every legacy code path runs) on a
+# checkout or deployment that lacks it: audio tone (Foundation C,
+# server/tone_id.py — the model deps themselves are a further optional
+# install), voiceprint identity (server/speaker_id.py, torch optional) and
+# the watch relay (Track 1, server/watch/relay.py). Tests swap these module
+# attributes for fakes; production leaves them alone.
+try:
+    import tone_id
+except ImportError:  # pragma: no cover — depends on which foundations landed
+    tone_id = None
+try:
+    import speaker_id
+except ImportError:  # pragma: no cover
+    speaker_id = None
+try:
+    from watch import relay as watch_relay
+except ImportError:  # pragma: no cover
+    watch_relay = None
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +166,34 @@ STOP_DRAIN_TIMEOUT_S = 30.0
 # buffer exceeds MAX, only the most recent KEEP entries are retained.
 UTTERANCE_BUFFER_MAX = 1000
 UTTERANCE_BUFFER_KEEP = 500
+
+# Track 3-server: latency instrumentation. The last N per-stage timings are
+# kept per session (a deque each) so the stop handler can report p50/p95
+# without the memory growing with an hour-long session. 200 utterances is
+# well past a whole conversation's worth of coaching turns.
+LATENCY_WINDOW = 200
+
+# Track 3-server: the per-session PCM ring buffer that lets a turn the PHONE
+# finalized (turn_local, reported by session-relative time) be recovered as
+# audio for server-side enrichment (tone / identity). 90 s at 16 kHz int16 is
+# ~2.9 MB per session — bounded, and comfortably longer than the phone's
+# on-device pipeline lag plus the longest plausible turn.
+PCM_RING_SECONDS = float(os.getenv("PCM_RING_SECONDS", "90"))
+
+# Track 3-server: a Deepgram segment whose midpoint falls inside a
+# locally-handled turn's [start, end] (padded by this much on both sides) is
+# a duplicate of what the phone already showed and is dropped. The pad
+# absorbs the small disagreement between Deepgram's endpointing and the
+# phone's VAD about exactly where a turn begins/ends.
+LOCAL_RANGE_PAD_S = 0.25
+# Bound on remembered locally-handled ranges (oldest dropped). Deepgram never
+# finalizes minutes late, so 500 turns of history is far more than enough.
+LOCAL_RANGES_MAX = 500
+
+# Track 3-server: on a graceful stop, how long to wait for in-flight
+# enrichment tasks (tone / identity / relay for the last turn) before
+# sending session_complete without them. Short — enrichment is best-effort.
+ENRICHMENT_DRAIN_TIMEOUT_S = 5.0
 
 # P2-7: server-generated session/relationship ids are UUIDs. Path params that
 # reach routing and (for session_id) the export ``Content-Disposition``
@@ -670,6 +727,357 @@ class TTSClient:
 
 
 # ---------------------------------------------------------------------------
+# Latency instrumentation (Track 3-server)
+# ---------------------------------------------------------------------------
+#
+# "Measure everything" is the precondition for the phone-orchestrated
+# (local-first) path: we need a baseline of where the seconds go in today's
+# cloud path — Deepgram endpointing, queue wait, LLM, TTS, send — before we
+# can claim the on-device path beats it. Stamps are ``time.monotonic()``
+# (never wall-clock: NTP steps would corrupt a stage), taken through the
+# existing hot path at the same places for both paths so the numbers are
+# comparable. One structured INFO line per utterance; the session keeps the
+# last LATENCY_WINDOW samples per stage for the p50/p95 stop summary.
+
+@dataclass
+class UtteranceTiming:
+    """Monotonic stamps for one utterance's trip through the hot path.
+
+    Every stamp is ``None`` until that point is reached, so a stage whose
+    endpoints were never both hit (no TTS because the phone speaks; a nudge
+    that stayed silent) is simply absent from the report — never a fake 0.
+    """
+
+    frame_received: float | None = None    # the WS frame that finalized the turn arrived
+    segment_finalized: float | None = None  # transcriber returned the segment / turn_local parsed
+    enqueued: float | None = None           # handed to the suggestion worker
+    llm_start: float | None = None
+    llm_first_partial: float | None = None  # first suggestion string complete (streaming)
+    llm_end: float | None = None
+    tts_start: float | None = None
+    tts_end: float | None = None
+    sent: float | None = None               # SuggestionEvent on the wire (or decided: nothing to send)
+    queue_depth: int = 0                    # items ahead of this one at enqueue time
+
+    # (stage name, start stamp, end stamp) — in the order they are logged.
+    _STAGES = (
+        ("seg_to_enqueue", "segment_finalized", "enqueued"),
+        ("queue_wait", "enqueued", "llm_start"),
+        ("llm", "llm_start", "llm_end"),
+        ("llm_first_partial", "llm_start", "llm_first_partial"),
+        ("tts", "tts_start", "tts_end"),
+        ("total", "frame_received", "sent"),
+    )
+
+    def stage_ms(self) -> dict[str, float]:
+        """Per-stage durations in milliseconds, only for stages fully stamped."""
+        out: dict[str, float] = {}
+        for name, a, b in self._STAGES:
+            start, end = getattr(self, a), getattr(self, b)
+            if start is not None and end is not None:
+                out[name] = round((end - start) * 1000.0, 1)
+        return out
+
+
+class LatencyRecorder:
+    """Per-session collector of :class:`UtteranceTiming` results.
+
+    ``clock`` is injectable (tests pass a fake monotonic clock via
+    ``app.state.monotonic_clock``) so the stage arithmetic is testable
+    exactly, not just "some positive number".
+    """
+
+    STAGES = tuple(name for name, _a, _b in UtteranceTiming._STAGES)
+
+    def __init__(
+        self,
+        clock: Callable[[], float] = time.monotonic,
+        window: int = LATENCY_WINDOW,
+    ) -> None:
+        self.clock = clock
+        self._samples: dict[str, deque[float]] = {
+            stage: deque(maxlen=window) for stage in self.STAGES
+        }
+        self.count = 0
+
+    def now(self) -> float:
+        return self.clock()
+
+    def start(
+        self,
+        frame_received: float | None = None,
+        segment_finalized: float | None = None,
+    ) -> UtteranceTiming:
+        return UtteranceTiming(
+            frame_received=frame_received, segment_finalized=segment_finalized,
+        )
+
+    def record(self, timing: UtteranceTiming, session_id: str) -> dict[str, float]:
+        """Fold one finished utterance into the window and log its line.
+
+        The log line is the per-utterance product of this instrumentation:
+        one INFO record, fixed field order, ``-`` for a stage that didn't
+        happen, so Cloud Run log queries can grep/aggregate it. No transcript
+        text (P1-4) — only durations and the session id.
+        """
+        stages = timing.stage_ms()
+        for name, value in stages.items():
+            self._samples[name].append(value)
+        self.count += 1
+        logger.info(
+            "latency session=%s seg_to_enqueue=%s queue_wait=%s llm=%s "
+            "llm_first_partial=%s tts=%s total=%s queue_depth=%d",
+            session_id,
+            *(
+                f"{stages[name]:.1f}ms" if name in stages else "-"
+                for name in self.STAGES
+            ),
+            timing.queue_depth,
+        )
+        return stages
+
+    def summary(self) -> dict[str, dict[str, float | int]]:
+        """``{stage: {"p50": ms, "p95": ms, "n": count}}`` over the window,
+        omitting stages with no samples. Nearest-rank percentiles — exact for
+        small n (no interpolation inventing a value nobody measured)."""
+        out: dict[str, dict[str, float | int]] = {}
+        for stage, samples in self._samples.items():
+            if not samples:
+                continue
+            ordered = sorted(samples)
+            out[stage] = {
+                "p50": _nearest_rank(ordered, 50),
+                "p95": _nearest_rank(ordered, 95),
+                "n": len(ordered),
+            }
+        return out
+
+
+def _nearest_rank(ordered: list[float], percentile: int) -> float:
+    """Nearest-rank percentile of an already-sorted, non-empty list."""
+    rank = max(1, math.ceil(percentile / 100.0 * len(ordered)))
+    return ordered[min(rank, len(ordered)) - 1]
+
+
+# ---------------------------------------------------------------------------
+# PCM ring buffer (Track 3-server)
+# ---------------------------------------------------------------------------
+
+class PcmRingBuffer:
+    """The last ~``seconds`` of the client's raw PCM, addressable by
+    session-relative time, so a phone-finalized turn can be recovered as
+    audio for server-side enrichment.
+
+    Timeline contract — t = 0 is the FIRST audio frame of the session and
+    time advances by AUDIO RECEIVED (``bytes / (2 * sample_rate)``), not by
+    wall clock. Three consequences the phone must honour:
+
+    * ``turn_local.start_time/end_time`` must be stamped on the phone's own
+      capture timeline (seconds of audio captured since its first streamed
+      frame). That timeline and this one advance in lockstep, so there is no
+      drift as long as every captured frame is also streamed.
+    * A frame the phone captured but never sent (network drop) shifts every
+      later server-side time EARLIER by that frame's duration. The pad on
+      overlap suppression (LOCAL_RANGE_PAD_S) absorbs a frame or two; a
+      sustained loss makes the recovered slice wrong, which is why every
+      consumer of a slice is best-effort and a clearly-wrong slice degrades
+      to "no enrichment", never to a confident wrong label.
+    * Deepgram's ``start``/``duration`` are on the same audio timeline (its
+      clock is the bytes we forwarded), which is what makes the overlap check
+      between Deepgram segments and turn_local ranges meaningful at all.
+
+    Frames are the endpoint's contract: int16 little-endian mono 16 kHz.
+    Stored as raw bytes (no numpy per frame — the receive loop is hot);
+    converted to float32 only when a slice is actually consumed.
+    """
+
+    def __init__(
+        self,
+        seconds: float = PCM_RING_SECONDS,
+        sample_rate: int = DEEPGRAM_SAMPLE_RATE,
+    ) -> None:
+        self.sample_rate = sample_rate
+        self._capacity_bytes = int(seconds * sample_rate) * 2
+        self._buf = bytearray()
+        # Bytes trimmed off the front so far: the session-timeline offset of
+        # ``_buf[0]``. Always even so a slice can never start mid-sample.
+        self._dropped_bytes = 0
+        self.total_bytes = 0
+
+    @property
+    def seconds_received(self) -> float:
+        """Session-relative time of the END of the audio received so far."""
+        return self.total_bytes / (2.0 * self.sample_rate)
+
+    def append(self, frame: bytes) -> None:
+        self._buf += frame
+        self.total_bytes += len(frame)
+        excess = len(self._buf) - self._capacity_bytes
+        # Trim in blocks (≥10% of capacity) rather than per frame: a bytearray
+        # front-delete is a memmove of the whole buffer, and doing ~2.9 MB of
+        # that ten times a second for every session is needless churn. The
+        # buffer therefore holds between 100% and 110% of ``seconds``.
+        if excess > self._capacity_bytes // 10:
+            excess -= excess % 2
+            del self._buf[:excess]
+            self._dropped_bytes += excess
+
+    def slice(self, start_s: float, end_s: float) -> bytes:
+        """Raw PCM16 bytes for ``[start_s, end_s)`` on the session timeline,
+        clamped to what is still held. Empty when nothing usable remains
+        (window entirely trimmed, inverted, or not yet received)."""
+        b0 = int(start_s * self.sample_rate) * 2
+        b1 = int(end_s * self.sample_rate) * 2
+        b0 = max(b0, self._dropped_bytes)
+        b1 = min(b1, self.total_bytes)
+        if b1 <= b0:
+            return b""
+        lo = b0 - self._dropped_bytes
+        return bytes(self._buf[lo:lo + (b1 - b0)])
+
+
+def _pcm16_to_float32(raw: bytes) -> np.ndarray:
+    """int16 LE bytes → float32 in [-1, 1) — the shape tone_id/speaker_id take."""
+    usable = len(raw) - (len(raw) % 2)
+    return np.frombuffer(raw[:usable], dtype="<i2").astype(np.float32) / 32768.0
+
+
+# ---------------------------------------------------------------------------
+# Suggestion job (what the worker queue carries)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SuggestionJob:
+    """One queued coaching job plus its enqueue-time snapshot.
+
+    empathy/interject/role/self_speaker are snapshotted at ENQUEUE time so a
+    mid-flight config change never retypes an already-queued turn (the
+    pre-existing tuple contract, now named). ``is_self`` is the phone's
+    verdict from turn_local — when it is not None it WINS over the fragile
+    ``self_speaker`` label comparison; None means "decide the legacy way".
+    ``tone_context`` is the phone's text-tone/prosody for the prompt.
+    """
+
+    utterance: Utterance
+    empathy_slider: int
+    interject_level: int
+    role: str
+    self_speaker: str | None
+    timing: UtteranceTiming
+    is_self: bool | None = None
+    tone_context: dict | None = None
+
+
+# ---------------------------------------------------------------------------
+# turn_local helpers (Track 3-server) — pure, unit-testable
+# ---------------------------------------------------------------------------
+
+def _remember_local_range(ranges: list[tuple[float, float]], start: float, end: float) -> None:
+    ranges.append((start, end))
+    if len(ranges) > LOCAL_RANGES_MAX:
+        del ranges[:-LOCAL_RANGES_MAX]
+
+
+def _covered_by_local_range(
+    ranges: list[tuple[float, float]], start: float, end: float,
+    pad: float = LOCAL_RANGE_PAD_S,
+) -> bool:
+    """Whether a Deepgram segment duplicates a turn the phone already
+    handled: its midpoint lies inside some remembered ``[start-pad, end+pad]``.
+
+    Midpoint (not any-overlap) on purpose: Deepgram and the phone's VAD split
+    speech at slightly different points, and a Deepgram segment that merely
+    brushes the edge of a local turn is far more likely to be the NEXT (or
+    previous) un-covered span than a duplicate — dropping it would lose
+    speech the phone never reported. The pad handles the edge disagreement
+    for genuine duplicates.
+    """
+    mid = (start + end) / 2.0
+    return any(lo - pad <= mid <= hi + pad for lo, hi in ranges)
+
+
+def _tone_context_from_event(event: TurnLocalEvent) -> dict | None:
+    """The phone's measurements, as the dict the prompt renderer takes.
+
+    ``{"text_tone": {...}, "prosody": {...}}`` with every ``None`` field
+    dropped (a phone that couldn't estimate pitch sends null and the prompt
+    must not say "pitch: None"); ``None`` when there is nothing at all so the
+    prompt stays byte-identical to the legacy one.
+    """
+    out: dict = {}
+    for key, model in (("text_tone", event.text_tone), ("prosody", event.prosody)):
+        if model is None:
+            continue
+        values = {k: v for k, v in model.model_dump().items() if v is not None}
+        if values:
+            out[key] = values
+    return out or None
+
+
+# Human-readable labels/units for the prompt; anything not listed renders as
+# "key: value" so a new field (or a free-form ``label``) still reaches the
+# model without a code change.
+_TONE_FIELD_FORMAT: dict[str, str] = {
+    "warmth": "warmth {}/100",
+    "defensiveness": "defensiveness {}/100",
+    "sarcasm": "sarcasm {}/100",
+    "sadness": "sadness {}/100",
+    "frustration": "frustration {}/100",
+    "label": 'label "{}"',
+    "rms_dbfs": "loudness {} dBFS",
+    "pitch_hz": "median pitch {} Hz",
+    "speech_rate": "speech rate {} syl/s",
+}
+
+
+def _render_tone_context(tone_context: dict | None) -> str:
+    """Render the phone's tone/prosody as a short prompt block, or ``""``.
+
+    Framed as HINTS, explicitly, because these are best-effort on-device
+    estimates (see TurnProsody's honesty rule) and the model must weigh the
+    words first. Deterministic order so prompts are reproducible in tests.
+    """
+    if not tone_context:
+        return ""
+    lines: list[str] = []
+    for section, title in (("text_tone", "text tone"), ("prosody", "prosody")):
+        values = tone_context.get(section)
+        if not values:
+            continue
+        parts = [
+            _TONE_FIELD_FORMAT.get(k, k + " {}").format(v)
+            for k, v in sorted(values.items())
+        ]
+        lines.append(f"- {title}: " + ", ".join(parts))
+    if not lines:
+        return ""
+    return (
+        "On-device signals for this turn (measured by the phone; treat as "
+        "hints, not facts):\n" + "\n".join(lines)
+    )
+
+
+def _turn_prompt(utterance: Utterance, tone_context: dict | None = None) -> str:
+    """The user-turn content for both coaching prompts. Byte-identical to the
+    pre-Track-3 prompt when there is no tone context."""
+    content = f'Transcript turn: "{utterance.text}"'
+    block = _render_tone_context(tone_context)
+    if block:
+        content += "\n\n" + block
+    return content
+
+
+def _validation_summary(exc: ValidationError) -> str:
+    """Field locations + error types only — never the offending values,
+    which for turn_local include transcript text (P1-4 applies to error
+    frames too: they end up in client logs and crash reports)."""
+    return "; ".join(
+        ".".join(str(p) for p in err.get("loc", ())) + ": " + str(err.get("type"))
+        for err in exc.errors()
+    ) or "invalid"
+
+
+# ---------------------------------------------------------------------------
 # Session context (in-memory, per-connection)
 # ---------------------------------------------------------------------------
 
@@ -704,6 +1112,28 @@ class SessionContext:
     # Snapshotted at ENQUEUE time (like empathy/interject/role) so a mid-flight
     # config change never retypes an already-queued turn.
     self_speaker: str | None = None
+    # Track 3-server — local-first (phone-orchestrated) sessions. Latched
+    # True by the FIRST turn_local frame and never reset: a client that has
+    # proven it segments/transcribes/speaks on-device keeps that role for
+    # the session. Effects: server TTS off (unless tts_mode == "server"),
+    # progressive `partial` suggestions on, latency_summary in
+    # session_complete. A client that never sends turn_local sees exactly
+    # the pre-Track-3 behaviour.
+    local_first: bool = False
+    # Time ranges (session-relative seconds) of turns the phone finalized;
+    # Deepgram segments landing inside one are duplicates and are dropped.
+    local_ranges: list[tuple[float, float]] = field(default_factory=list)
+    # Config `tts`: "server" | "on-device" | None (unset). Only consulted
+    # when local_first — a legacy client never sends it and always gets
+    # server TTS. When local_first and unset, the phone speaks (expo-speech),
+    # so the server must NOT also synthesize (double voice in the earpiece).
+    tts_mode: str | None = None
+    # Config `report_latency`: opt a legacy-protocol client into the
+    # latency_summary on session_complete (local-first clients get it
+    # automatically). Off by default so the old payload stays byte-identical.
+    report_latency: bool = False
+    latency: LatencyRecorder = field(default_factory=LatencyRecorder)
+    pcm: PcmRingBuffer = field(default_factory=PcmRingBuffer)
 
 
 def _remember_utterance(ctx: SessionContext, utterance: Utterance) -> None:
@@ -793,6 +1223,17 @@ async def _apply_config(ctx: SessionContext, payload: dict) -> None:
             ctx.self_speaker = self_val
         elif self_val is None:
             ctx.self_speaker = None
+    # Track 3-server: who voices suggestions in a local-first session. Same
+    # validated-or-ignored / null-resets shape as self_speaker. Has no effect
+    # until the session is local_first (see SessionContext.tts_mode).
+    if "tts" in payload:
+        tts_val = payload["tts"]
+        if tts_val in ("server", "on-device"):
+            ctx.tts_mode = tts_val
+        elif tts_val is None:
+            ctx.tts_mode = None
+    if "report_latency" in payload and isinstance(payload["report_latency"], bool):
+        ctx.report_latency = payload["report_latency"]
     # Load the profile ONCE, the first time both ids are known — not per
     # utterance. uid-scoped, so a session can never load another user's stored
     # voice. A lookup failure degrades to no profile, never breaks the session.
@@ -930,6 +1371,40 @@ async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                                                  the stop drain timed out
         {"error": ...}                         — malformed client input
 
+    Track 3-server — local-first (phone-orchestrated) clients. A phone that
+    captures, segments, identifies the speaker, transcribes and coaches
+    ON-DEVICE still streams the same raw PCM frames as above, and adds:
+    Client → Server (text):
+        {"type": "turn_local", ...}            — a ``TurnLocalEvent`` per turn the
+                                                 phone finalized itself. The FIRST
+                                                 one latches the session local-first
+                                                 (see ``SessionContext.local_first``):
+                                                 no transcript is echoed back, a
+                                                 CLOUD suggestion is generated from
+                                                 the phone's transcript (+ its tone
+                                                 measurements), server TTS is off
+                                                 unless config ``tts: "server"``,
+                                                 and Deepgram segments overlapping
+                                                 a reported turn are dropped.
+        config keys ``tts`` ("server" | "on-device" | null) and
+        ``report_latency`` (bool) — see ``_apply_config``.
+    Server → Client (text):
+        {"type": "suggestion", "suggestion_source": "cloud", "partial": bool}
+                                               — the cloud suggestion for a
+                                                 turn_local; when the LLM streams,
+                                                 a ``partial: true`` preview with the
+                                                 first suggestion precedes the final
+        {"type": "tone_flag", "source": "audio", ...}
+                                               — ``ToneFlagEvent`` from the streamed
+                                                 audio (only if tone_id surfaces)
+        {"type": "speaker_identity", ...}      — ``SpeakerIdentityEvent``: the
+                                                 server's voiceprint verdict on the
+                                                 turn's speaker
+        {"type": "session_complete",
+         "latency_summary": {stage: {p50, p95, n}}}
+                                               — per-stage ms percentiles for
+                                                 local-first / report_latency clients
+
     New WebSockets beyond ``MAX_WS_SESSIONS`` concurrent sessions are closed
     immediately with code 1013 ("try again later") — an honest rejection
     instead of letting every session degrade (P2-1).
@@ -1015,103 +1490,176 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
     transcriber = transcriber_factory()
     diarizer = diarizer_factory()
     labeler = SpeakerLabelAssigner(diarizer)
+    # Track 3-server: the enrichment path reads the user's voiceprint through
+    # the recordings store when one is configured (None → identity skipped).
+    recordings_store = getattr(state, "recordings_store", None)
+    # Injectable monotonic clock so latency tests can assert exact stage
+    # arithmetic; production uses time.monotonic.
+    ctx.latency = LatencyRecorder(
+        clock=getattr(state, "monotonic_clock", None) or time.monotonic,
+    )
 
     # Suggestion generation (LLM via thread + TTS HTTP, up to ~15s) runs on a
     # single background worker so it never stalls the audio receive loop —
     # audio keeps flowing to Deepgram while a suggestion is being generated.
     # One worker (not a pool) keeps SuggestionEvents in utterance order.
-    # Queue items carry the (empathy, interject, role, self_speaker) snapshot at
-    # enqueue time — self_speaker is snapshotted too so a mid-flight config
-    # change never retypes a queued turn (SELF vs OTHER).
-    suggestion_queue: "asyncio.Queue[tuple[Utterance, int, int, str, str | None]]" = (
-        asyncio.Queue()
-    )
+    # Queue items are SuggestionJobs carrying the (empathy, interject, role,
+    # self_speaker) snapshot at enqueue time — self_speaker is snapshotted too
+    # so a mid-flight config change never retypes a queued turn (SELF vs OTHER).
+    suggestion_queue: "asyncio.Queue[SuggestionJob]" = asyncio.Queue()
     # enqueued-vs-finished counters let the stop handler report honestly how
     # many suggestions were dropped when draining times out (P1-8) — qsize()
     # alone would miss the item the worker is currently processing.
-    # "superseded" counts stale turns dropped by the latest-wins policy below.
-    queue_stats = {"enqueued": 0, "finished": 0, "superseded": 0}
+    # "superseded" counts stale turns dropped by the latest-wins policy below;
+    # "suppressed" counts Deepgram segments dropped as duplicates of turns the
+    # phone already handled (Track 3-server).
+    queue_stats = {"enqueued": 0, "finished": 0, "superseded": 0, "suppressed": 0}
 
-    async def process_segment(
-        utterance: Utterance, empathy_slider: int, interject_level: int,
-        role: str, self_speaker: str | None,
-    ) -> None:
-        # Side-aware coaching: when the coached user is known (self_speaker set)
-        # and THIS turn is theirs, coach their DELIVERY (one whispered nudge)
-        # rather than suggesting what to say to the other person. self_speaker
-        # is the enqueue-time snapshot, so a mid-flight config change never
-        # retypes this already-queued turn. self_speaker None → every turn is an
-        # OTHER turn, i.e. today's exact behaviour.
-        if self_speaker is not None and utterance.speaker == self_speaker:
-            nudge, importance = await _generate_nudge(
-                llm_client, utterance, empathy_slider, role, ctx.voice_profile,
+    # Track 3-server: best-effort background enrichment (audio tone / voice
+    # identity / watch relay) spawned per turn_local. Tracked so a graceful
+    # stop can drain them (bounded) and cleanup can cancel them; never awaited
+    # inline, so a slow model can't stall the receive loop.
+    enrichment_tasks: set[asyncio.Task] = set()
+
+    async def send_event(event) -> None:
+        async with send_lock:
+            await websocket.send_text(event.model_dump_json())
+
+    async def process_segment(job: SuggestionJob) -> None:
+        utterance, timing = job.utterance, job.timing
+
+        def server_owns_tts() -> bool:
+            # Who voices this suggestion. Decided at the moment we would
+            # SYNTHESIZE (not at enqueue, not at the start of processing) on
+            # purpose: the first turn_local can arrive while a Deepgram-
+            # transcribed job is mid-LLM, and by the time that job is voiced
+            # the phone is already speaking its own suggestions — a server
+            # voice on top would be two voices in one earpiece. A legacy
+            # client is never local_first, so it always gets server TTS
+            # exactly as before.
+            return (not ctx.local_first) or ctx.tts_mode == "server"
+
+        # Progressive `partial` previews only for clients that have proven
+        # they understand the field (see SuggestionEvent.partial).
+        progressive = ctx.local_first
+
+        # Side-aware coaching: is this the coached user's OWN turn? The phone's
+        # voiceprint verdict (job.is_self, from turn_local) wins when present;
+        # otherwise the legacy label comparison — self_speaker is the enqueue-
+        # time snapshot, so a mid-flight config change never retypes this
+        # already-queued turn. Neither known → every turn is an OTHER turn,
+        # i.e. the original behaviour.
+        if job.is_self is not None:
+            self_turn = job.is_self
+        else:
+            self_turn = (
+                job.self_speaker is not None
+                and utterance.speaker == job.self_speaker
             )
+
+        if self_turn:
+            # Coach their DELIVERY (one whispered nudge) rather than suggesting
+            # what to say to the other person.
+            timing.llm_start = ctx.latency.now()
+            nudge, importance = await _generate_nudge(
+                llm_client, utterance, job.empathy_slider, job.role,
+                ctx.voice_profile, job.tone_context,
+            )
+            timing.llm_end = ctx.latency.now()
             if not nudge:
                 # "Only speak when something should change." The transcript
                 # event already went out at enqueue; a self turn that needs no
                 # correction sends NOTHING further — no suggestion event, no TTS.
+                timing.sent = ctx.latency.now()
+                ctx.latency.record(timing, session_id)
                 return
             # Same interjection gate as below: voice (and synthesize TTS) only
             # when the nudge's urgency clears the session's threshold.
-            speak = importance >= interject_level
-            tts_audio = await tts.synthesize(nudge) if speak else None
-            event = SuggestionEvent(
+            speak = importance >= job.interject_level
+            tts_audio = None
+            if speak and server_owns_tts():
+                timing.tts_start = ctx.latency.now()
+                tts_audio = await tts.synthesize(nudge)
+                timing.tts_end = ctx.latency.now()
+            await send_event(SuggestionEvent(
                 session_id=session_id,
                 utterance_text=utterance.text,
                 speaker=utterance.speaker,
                 suggestions=[nudge],
-                empathy_slider=empathy_slider,
+                empathy_slider=job.empathy_slider,
                 audio_b64=tts_audio,
                 importance=importance,
                 speak=speak,
                 kind="nudge",
-            )
-            async with send_lock:
-                await websocket.send_text(event.model_dump_json())
+            ))
+            timing.sent = ctx.latency.now()
+            ctx.latency.record(timing, session_id)
             return
 
-        # OTHER turn (including the legacy self_speaker=None case): today's
-        # behaviour exactly. Generate suggestion via LLM. ctx.voice_profile was
-        # loaded once at config time (None when unset → today's exact prompt).
+        # OTHER turn (including the legacy self_speaker=None case): the
+        # original behaviour. Generate suggestion via LLM. ctx.voice_profile
+        # was loaded once at config time (None when unset → the exact legacy
+        # prompt; likewise a None tone_context).
+        async def on_first_suggestion(text: str) -> None:
+            # Streaming preview: the first suggestion string is complete while
+            # the model is still writing the rest. Never voiced, placeholder
+            # importance; the final event below supersedes it. Best-effort — a
+            # failed preview send must never sink the final suggestion.
+            timing.llm_first_partial = ctx.latency.now()
+            with contextlib.suppress(Exception):
+                await send_event(SuggestionEvent(
+                    session_id=session_id,
+                    utterance_text=utterance.text,
+                    speaker=utterance.speaker,
+                    suggestions=[text],
+                    empathy_slider=job.empathy_slider,
+                    audio_b64=None,
+                    speak=False,
+                    partial=True,
+                ))
+
+        timing.llm_start = ctx.latency.now()
         suggestion_texts, importance = await _generate_suggestions(
-            llm_client, utterance, empathy_slider, role, ctx.voice_profile,
+            llm_client, utterance, job.empathy_slider, job.role,
+            ctx.voice_profile, job.tone_context,
+            on_first_suggestion=on_first_suggestion if progressive else None,
         )
+        timing.llm_end = ctx.latency.now()
 
         # Interjection gate: the coach only VOICES a suggestion when the
         # LLM-scored importance of the moment clears the session's threshold.
         # The event is still sent (client may render it dimmed) — but no TTS
-        # is synthesized for it, so the earpiece stays quiet.
-        speak = importance >= interject_level
+        # is synthesized for it, so the earpiece stays quiet. `speak` stays
+        # True for a local-first client even without server TTS: it means
+        # "worth voicing", and the phone voices it itself.
+        speak = importance >= job.interject_level
 
-        # TTS for first suggestion (only when it will actually be voiced)
-        tts_audio = (
-            await tts.synthesize(suggestion_texts[0])
-            if (speak and suggestion_texts) else None
-        )
+        # TTS for first suggestion (only when it will actually be voiced, and
+        # only when this server is the voice).
+        tts_audio = None
+        if speak and suggestion_texts and server_owns_tts():
+            timing.tts_start = ctx.latency.now()
+            tts_audio = await tts.synthesize(suggestion_texts[0])
+            timing.tts_end = ctx.latency.now()
 
-        event = SuggestionEvent(
+        await send_event(SuggestionEvent(
             session_id=session_id,
             utterance_text=utterance.text,
             speaker=utterance.speaker,
             suggestions=suggestion_texts,
-            empathy_slider=empathy_slider,
+            empathy_slider=job.empathy_slider,
             audio_b64=tts_audio,
             importance=importance,
             speak=speak,
-        )
-        async with send_lock:
-            await websocket.send_text(event.model_dump_json())
+        ))
+        timing.sent = ctx.latency.now()
+        ctx.latency.record(timing, session_id)
 
     async def suggestion_worker() -> None:
         while True:
-            utterance, empathy_slider, interject_level, role, self_speaker = (
-                await suggestion_queue.get()
-            )
+            job = await suggestion_queue.get()
             try:
-                await process_segment(
-                    utterance, empathy_slider, interject_level, role,
-                    self_speaker,
-                )
+                await process_segment(job)
             except Exception as exc:
                 # P0-2: a failed suggestion (LLM/TTS error, missing key, rate
                 # limit) must never be silently swallowed — the client is told
@@ -1121,7 +1669,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 # or queue.join() deadlocks.
                 logger.warning(
                     "Suggestion processing failed for session %s (%s)",
-                    session_id, _redact(utterance.text), exc_info=True,
+                    session_id, _redact(job.utterance.text), exc_info=True,
                 )
                 reason = (
                     exc.reason if isinstance(exc, SuggestionUnavailable)
@@ -1131,7 +1679,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 with contextlib.suppress(Exception):
                     await send_json({
                         "type": "suggestion_error",
-                        "utterance_text": utterance.text,
+                        "utterance_text": job.utterance.text,
                         "reason": reason,
                     })
             finally:
@@ -1140,9 +1688,79 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
 
     limit_notified = False
 
-    async def enqueue_segments(result) -> None:
+    async def enqueue_job(
+        utterance: Utterance,
+        timing: UtteranceTiming,
+        *,
+        is_self: bool | None = None,
+        tone_context: dict | None = None,
+    ) -> None:
+        """Hand one turn to the suggestion worker: utterance budget (P2-1),
+        latest-wins supersede, then put. Shared by the Deepgram path and the
+        turn_local path so the two can never drift apart on policy."""
         nonlocal limit_notified
+        if queue_stats["enqueued"] >= MAX_UTTERANCES:
+            # P2-1: utterance budget exhausted — every suggestion is an
+            # LLM + TTS spend. Say so ONCE, then drop further segments
+            # (transcription itself keeps running; only suggestion
+            # generation stops).
+            if not limit_notified:
+                limit_notified = True
+                logger.info(
+                    "Session %s reached MAX_UTTERANCES=%d — no further "
+                    "suggestions will be generated", session_id, MAX_UTTERANCES,
+                )
+                with contextlib.suppress(Exception):
+                    await send_json({"type": "limit_reached"})
+            return
+
+        # Latest-wins: a suggestion takes seconds (LLM + TTS). If newer
+        # speech has arrived while one is still cooking, coaching the
+        # backlog is stale by definition — the user hears advice about
+        # something said a minute ago, arriving after they stopped
+        # talking. Drop pending (not-yet-started) turns so the coach
+        # always reacts to the most recent thing said; the dropped turns
+        # remain in the transcript and the utterance buffer above.
+        while not suggestion_queue.empty():
+            with contextlib.suppress(asyncio.QueueEmpty):
+                suggestion_queue.get_nowait()
+                suggestion_queue.task_done()
+                queue_stats["finished"] += 1
+                queue_stats["superseded"] += 1
+
+        queue_stats["enqueued"] += 1
+        timing.enqueued = ctx.latency.now()
+        timing.queue_depth = suggestion_queue.qsize()
+        suggestion_queue.put_nowait(SuggestionJob(
+            utterance=utterance,
+            empathy_slider=ctx.empathy_slider,
+            interject_level=ctx.interject_level,
+            role=ctx.role,
+            self_speaker=ctx.self_speaker,
+            timing=timing,
+            is_self=is_self,
+            tone_context=tone_context,
+        ))
+
+    async def enqueue_segments(result, frame_received: float | None = None) -> None:
+        segment_finalized = ctx.latency.now()
         for segment in _normalize_segments(result):
+            if ctx.local_ranges and _covered_by_local_range(
+                ctx.local_ranges, segment.start_time, segment.end_time,
+            ):
+                # Track 3-server: the phone already showed (and coached) this
+                # span from its own transcript — a second transcript line and
+                # a second suggestion for the same words would be the exact
+                # duplication local-first exists to avoid. Deepgram keeps
+                # running only as the fallback for spans the phone did NOT
+                # report (a turn its VAD missed), which pass straight through.
+                queue_stats["suppressed"] += 1
+                logger.debug(
+                    "Suppressed Deepgram segment [%.2f, %.2f] for session %s — "
+                    "covered by a phone-handled turn",
+                    segment.start_time, segment.end_time, session_id,
+                )
+                continue
             # Label + remember + surface the transcript line IMMEDIATELY —
             # the words should never wait on (or be dropped with) a
             # suggestion. This also keeps the utterance buffer complete even
@@ -1166,40 +1784,55 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                     end_time=segment.end_time,
                 ).model_dump())
 
-            if queue_stats["enqueued"] >= MAX_UTTERANCES:
-                # P2-1: utterance budget exhausted — every suggestion is an
-                # LLM + TTS spend. Say so ONCE, then drop further segments
-                # (transcription itself keeps running; only suggestion
-                # generation stops).
-                if not limit_notified:
-                    limit_notified = True
-                    logger.info(
-                        "Session %s reached MAX_UTTERANCES=%d — no further "
-                        "suggestions will be generated", session_id, MAX_UTTERANCES,
-                    )
-                    with contextlib.suppress(Exception):
-                        await send_json({"type": "limit_reached"})
-                return
+            await enqueue_job(utterance, ctx.latency.start(
+                frame_received=frame_received, segment_finalized=segment_finalized,
+            ))
 
-            # Latest-wins: a suggestion takes seconds (LLM + TTS). If newer
-            # speech has arrived while one is still cooking, coaching the
-            # backlog is stale by definition — the user hears advice about
-            # something said a minute ago, arriving after they stopped
-            # talking. Drop pending (not-yet-started) turns so the coach
-            # always reacts to the most recent thing said; the dropped turns
-            # remain in the transcript and the utterance buffer above.
-            while not suggestion_queue.empty():
-                with contextlib.suppress(asyncio.QueueEmpty):
-                    suggestion_queue.get_nowait()
-                    suggestion_queue.task_done()
-                    queue_stats["finished"] += 1
-                    queue_stats["superseded"] += 1
+    async def handle_turn_local(event: TurnLocalEvent, received: float) -> None:
+        """A turn the PHONE finalized (Track 3-server).
 
-            queue_stats["enqueued"] += 1
-            suggestion_queue.put_nowait(
-                (utterance, ctx.empathy_slider, ctx.interject_level, ctx.role,
-                 ctx.self_speaker)
+        Emit nothing redundant: the phone already rendered the transcript
+        and spoke its own fast suggestion. What the server adds, all async:
+        a richer CLOUD suggestion from the phone's transcript + tone context
+        (the same worker/queue as the Deepgram path, so ordering, budget and
+        latest-wins hold across both), and best-effort enrichment on the
+        streamed audio (tone, identity, watch relay) in a background task.
+        """
+        if not ctx.local_first:
+            ctx.local_first = True
+            logger.info(
+                "Session %s is local-first: the phone orchestrates capture/STT/"
+                "speech; server TTS %s",
+                session_id,
+                "on (config tts=server)" if ctx.tts_mode == "server" else "off",
             )
+        _remember_local_range(ctx.local_ranges, event.start_time, event.end_time)
+        utterance = Utterance(
+            session_id=session_id,
+            speaker=event.speaker,
+            text=event.text,
+            start_time=event.start_time,
+            end_time=event.end_time,
+        )
+        _remember_utterance(ctx, utterance)
+
+        # Enrichment BEFORE the suggestion budget check on purpose: it is not
+        # an LLM/TTS spend, and identity/tone on a turn are worth having even
+        # once coaching has stopped. Fire-and-forget; see enrichment_tasks.
+        task = asyncio.create_task(
+            _enrich_turn_local(ctx, event, send_json, recordings_store)
+        )
+        enrichment_tasks.add(task)
+        task.add_done_callback(enrichment_tasks.discard)
+
+        if not event.text.strip():
+            return  # nothing to coach; the range is still remembered above
+        await enqueue_job(
+            utterance,
+            ctx.latency.start(frame_received=received, segment_finalized=received),
+            is_self=event.is_self,
+            tone_context=_tone_context_from_event(event),
+        )
 
     worker_task = asyncio.create_task(suggestion_worker())
     # P1-7: this try must start IMMEDIATELY after the worker task is created.
@@ -1264,6 +1897,10 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
 
         while True:
             message = await websocket.receive()
+            # Latency: the moment this frame arrived — the "frame received"
+            # stamp for any utterance it finalizes (or, for a turn_local, the
+            # moment the phone's report landed).
+            frame_received = ctx.latency.now()
 
             # --- Disconnect ---
             if message.get("type") == "websocket.disconnect":
@@ -1272,7 +1909,16 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             # --- Binary audio chunk ---
             if "bytes" in message and message["bytes"] is not None:
                 audio_bytes: bytes = message["bytes"]
-                if len(audio_bytes) == 0 or not transcription_available:
+                if len(audio_bytes) == 0:
+                    continue
+                # Track 3-server: keep the audio (contract-sized frames only)
+                # whether or not cloud transcription is up — a local-first
+                # phone with no Deepgram still wants tone/identity enrichment
+                # on the slices it reports. Before the availability check so
+                # the wire behaviour below stays exactly as it was.
+                if len(audio_bytes) <= MAX_AUDIO_FRAME_BYTES:
+                    ctx.pcm.append(audio_bytes)
+                if not transcription_available:
                     continue
                 if len(audio_bytes) > MAX_AUDIO_FRAME_BYTES:
                     # P2-3: contract frames are ~3200 bytes — reject the
@@ -1311,7 +1957,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                             {"type": "transcription_unavailable", "reason": str(exc)}
                         )
                     continue
-                await enqueue_segments(result)
+                await enqueue_segments(result, frame_received=frame_received)
 
             # --- Text control message ---
             elif "text" in message and message["text"] is not None:
@@ -1329,12 +1975,34 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                     # not (and do not) re-present a token.
                     await _apply_config(ctx, payload)
                     await send_json({"type": "config_ack"})
+                elif msg_type == "turn_local":
+                    # Track 3-server: a phone-finalized turn. Validated with
+                    # the shared model so a malformed report is rejected at
+                    # the door ({"error": ...}, like invalid JSON) rather than
+                    # half-applied; the summary names fields, never values.
+                    try:
+                        event = TurnLocalEvent.model_validate(payload)
+                    except ValidationError as exc:
+                        await send_json({
+                            "error": f"invalid turn_local: {_validation_summary(exc)}"
+                        })
+                        continue
+                    if event.session_id != session_id:
+                        await send_json({"error": "turn_local session_id mismatch"})
+                        continue
+                    if event.end_time < event.start_time:
+                        await send_json({"error": "turn_local end_time before start_time"})
+                        continue
+                    await handle_turn_local(event, frame_received)
                 elif msg_type == "stop":
                     # Graceful stop: flush the transcriber so the FINAL
                     # utterance is delivered, wait (bounded — P1-8) for the
                     # pending SuggestionEvents to go out, then confirm
                     # completion and close server-side.
-                    await enqueue_segments(await _finish_transcriber(transcriber))
+                    await enqueue_segments(
+                        await _finish_transcriber(transcriber),
+                        frame_received=frame_received,
+                    )
                     completion: dict = {"type": "session_complete"}
                     try:
                         await asyncio.wait_for(
@@ -1360,6 +2028,20 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                             "pending suggestion(s) for session %s",
                             STOP_DRAIN_TIMEOUT_S, pending, session_id,
                         )
+                    # Track 3-server: let in-flight enrichment (tone/identity/
+                    # relay for the last turn_local) land before completion —
+                    # bounded, because it is best-effort by definition.
+                    if enrichment_tasks:
+                        with contextlib.suppress(Exception):
+                            await asyncio.wait(
+                                set(enrichment_tasks),
+                                timeout=ENRICHMENT_DRAIN_TIMEOUT_S,
+                            )
+                    # The per-stage p50/p95 report — only for clients that
+                    # asked (report_latency) or proved they speak the new
+                    # protocol (local_first); the legacy payload stays exact.
+                    if ctx.local_first or ctx.report_latency:
+                        completion["latency_summary"] = ctx.latency.summary()
                     # Bound the final send + close too — a connected-but-not-reading
                     # client must not hang the stop indefinitely.
                     with contextlib.suppress(Exception):
@@ -1377,6 +2059,13 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         worker_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await worker_task
+        # Enrichment tasks may still be inside a model call (to_thread) — the
+        # thread finishes on its own; the task just stops mattering.
+        for task in list(enrichment_tasks):
+            task.cancel()
+        for task in list(enrichment_tasks):
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
         try:
             # Abrupt disconnect (no "stop"): still finish() so Deepgram closes
             # cleanly, but the client is gone — drained segments are discarded.
@@ -1422,6 +2111,293 @@ def _normalize_segments(
 
 
 # ---------------------------------------------------------------------------
+# turn_local enrichment (Track 3-server) — best-effort, never sinks a session
+# ---------------------------------------------------------------------------
+#
+# Mirrors the stance of main._match_enrolled_speaker: "a cross-check must
+# never sink the analysis". Every step here is independent, wrapped, and
+# logged on failure; the session (and the cloud suggestion, which runs on
+# the worker, not here) is unaffected by anything that goes wrong below.
+
+# How long an enrichment task will wait for the ring buffer to catch up to
+# the turn's end_time. The phone reports a turn only after its own STT
+# finished, so the audio frames for the turn's tail have normally arrived
+# already; this covers a network hiccup that reorders the report ahead of
+# the last frames. Tests set it to 0.
+SLICE_GRACE_S = 1.0
+
+
+async def _await_audio_through(ctx: SessionContext, end_time: float) -> None:
+    deadline = time.monotonic() + SLICE_GRACE_S
+    while ctx.pcm.seconds_received < end_time and time.monotonic() < deadline:
+        await asyncio.sleep(0.05)
+
+
+async def _enrich_turn_local(
+    ctx: SessionContext, event: TurnLocalEvent, send_json, store,
+) -> None:
+    """Server-side enrichment of a phone-finalized turn: (a) audio tone,
+    (b) voiceprint identity, (c) watch relay. Each is best-effort and
+    isolated — one failing is logged and the others still run."""
+    await _await_audio_through(ctx, event.end_time)
+    pcm_bytes = ctx.pcm.slice(event.start_time, event.end_time)
+
+    async def guarded(name: str, coro):
+        try:
+            return await coro
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning(
+                "turn_local %s enrichment failed for session %s",
+                name, ctx.session_id, exc_info=True,
+            )
+            return None
+
+    # Ordered on purpose: the relay (Track 1) escalates the WATCH from the
+    # tone flag and only for the user's own turns, so it gets the audio tone
+    # (if computed) and the server-corrected identity (if any) — the most
+    # informed view of the turn, not the phone's first guess.
+    tone_flag = await guarded("tone", _enrich_tone(ctx, event, pcm_bytes, send_json))
+    identity = await guarded(
+        "identity", _enrich_identity(ctx, event, pcm_bytes, send_json, store),
+    )
+    relayed = event
+    if identity is not None:
+        relayed = event.model_copy(update={
+            "is_self": identity.is_self,
+            "speaker_person_id": identity.person_id,
+            "speaker_match_score": identity.score,
+        })
+    await guarded("relay", _relay_turn_local(ctx, relayed, tone_flag))
+
+
+async def _enrich_tone(
+    ctx: SessionContext, event: TurnLocalEvent, pcm_bytes: bytes, send_json,
+) -> ToneFlagEvent | None:
+    """(a) Classify the turn's AUDIO tone (tone_id) and surface it as a
+    ToneFlagEvent(source="audio") — but only when tone_id.surface_allowed();
+    otherwise it ships DARK: computed and logged, never shown (the owner's
+    rule for a signal that measured weak, see server/tone_id.py). Returns
+    the flag ONLY when it was surfaced, for the watch relay — a dark flag
+    must not reach the user through the watch's haptics either, so dark
+    mode returns None exactly as "skipped" does."""
+    if tone_id is None or not tone_id.is_enabled():
+        return None
+    # is_available() imports torch/speechbrain on first use (seconds) — off
+    # the loop, like every model-touching call.
+    if not await asyncio.to_thread(tone_id.is_available):
+        return None
+    sr = ctx.pcm.sample_rate
+    pcm = _pcm16_to_float32(pcm_bytes)
+    min_seconds = float(getattr(tone_id, "MIN_TURN_SECONDS", 1.0))
+    if pcm.size < int(min_seconds * sr):
+        logger.debug(
+            "Skipping audio tone for session %s: %.2fs of audio recovered "
+            "for [%.2f, %.2f] (< %.1fs)",
+            ctx.session_id, pcm.size / sr, event.start_time, event.end_time,
+            min_seconds,
+        )
+        return None
+    max_seconds = float(getattr(tone_id, "MAX_TURN_SECONDS", 30.0))
+    pcm = pcm[: int(max_seconds * sr)]
+    unavailable = getattr(tone_id, "ToneUnavailable", ())
+    try:
+        result = await asyncio.to_thread(tone_id.classify_pcm, pcm, sr)
+    except unavailable as exc:
+        # Flag off / model missing — an expected skip, not a failure.
+        logger.debug("Audio tone unavailable for session %s: %s", ctx.session_id, exc)
+        return None
+    flag = ToneFlagEvent(
+        session_id=ctx.session_id,
+        speaker=event.speaker,
+        start_time=event.start_time,
+        end_time=event.end_time,
+        source="audio",
+        scores={str(k): float(v) for k, v in (result.get("scores") or {}).items()},
+        label=str(result["label"]),
+        confidence=max(0.0, min(1.0, float(result.get("confidence", 0.0)))),
+    )
+    if tone_id.surface_allowed():
+        await send_json(flag.model_dump())
+        return flag
+    # Dark mode: this log line IS the feature's output — nothing reaches the
+    # client, and nothing reaches the watch (see the return contract above).
+    logger.info(
+        "audio tone (dark) session=%s speaker=%s label=%s confidence=%.2f "
+        "seconds=%.1f phone_label=%s",
+        ctx.session_id, event.speaker, flag.label, flag.confidence,
+        pcm.size / sr,
+        event.text_tone.label if event.text_tone else None,
+    )
+    return None
+
+
+def _identify_turn_person(
+    pcm: np.ndarray, sr: int, speaker: str, docs: list[dict],
+) -> dict | None:
+    """Blocking: who is this slice, among the uid's enrolled people?
+
+    Runs Foundation B's :func:`speaker_id.identify_speakers_multi` over the
+    recovered slice as ONE turn by ``speaker`` against every enrolled
+    voiceprint (the owner is ``"self"``; partners are named people), so the
+    verdict is a person id + display name, not just self/other. Returns
+    that speaker's report entry — ``{matched_person_id, is_self,
+    display_name, scores, ...}`` — or ``None`` when the slice was too short
+    to embed (the report omits it honestly rather than scoring noise).
+    """
+    voiceprints = {
+        d["person_id"]: np.asarray(d["embedding"], dtype=np.float32)
+        for d in docs
+        if isinstance(d.get("embedding"), list) and d.get("person_id")
+    }
+    if not voiceprints:
+        return None
+    people = {
+        d["person_id"]: {
+            "display_name": d.get("display_name"), "is_self": bool(d.get("is_self")),
+        }
+        for d in docs if d.get("person_id") in voiceprints
+    }
+    turns = [{"speaker": speaker, "start_time": 0.0, "end_time": pcm.size / sr}]
+    report = speaker_id.identify_speakers_multi(
+        pcm, sr, turns, voiceprints, people=people,
+    )
+    return (report.get("speakers") or {}).get(speaker)
+
+
+async def _enrich_identity(
+    ctx: SessionContext, event: TurnLocalEvent, pcm_bytes: bytes, send_json, store,
+) -> SpeakerIdentityEvent | None:
+    """(b) Confirm or correct the phone's speaker verdict against the user's
+    server-side voiceprints (every enrolled person, Foundation B); emit a
+    SpeakerIdentityEvent either way (the client reconciles) and return it
+    for the relay. Skipped cleanly (None) without deps, store, enrollment,
+    or enough audio."""
+    if speaker_id is None or store is None or not ctx.uid:
+        return None
+    if not await asyncio.to_thread(speaker_id.is_available):
+        return None
+    docs = await store.list_voiceprints(ctx.uid)
+    if not docs:
+        return None
+    sr = ctx.pcm.sample_rate
+    pcm = _pcm16_to_float32(pcm_bytes)
+    min_seconds = float(getattr(speaker_id, "MIN_MATCH_SECONDS", 1.0))
+    if pcm.size < int(min_seconds * sr):
+        return None
+    entry = await asyncio.to_thread(
+        _identify_turn_person, pcm, sr, event.speaker, docs,
+    )
+    if entry is None:
+        return None
+    person_id = entry.get("matched_person_id")
+    is_self = bool(entry.get("is_self"))
+    scores = entry.get("scores") or {}
+    # The score that justified the verdict; for "unknown", the best near-miss
+    # so a client (or a log reader) can see how close it came.
+    score = float(scores.get(person_id, max(scores.values(), default=0.0)))
+    if event.is_self is not None and event.is_self != is_self:
+        logger.info(
+            "Correcting phone speaker verdict for session %s: phone is_self=%s, "
+            "server is_self=%s person=%s (score %.3f)",
+            ctx.session_id, event.is_self, is_self, person_id, score,
+        )
+    identity = SpeakerIdentityEvent(
+        session_id=ctx.session_id,
+        speaker=event.speaker,
+        person_id=person_id,
+        display_name=entry.get("display_name") if person_id else None,
+        is_self=is_self,
+        score=round(score, 4),
+    )
+    await send_json(identity.model_dump())
+    return identity
+
+
+async def _relay_turn_local(
+    ctx: SessionContext, event: TurnLocalEvent, tone_flag: ToneFlagEvent | None,
+) -> None:
+    """(c) Hand the turn to the watch relay (Track 1's
+    ``watch.relay.push_turn_local(uid, event, *, tone_flag=None)``) so a
+    paired watch escalates on the phone's turns too. The relay itself keeps
+    the self-turns-only rule and its own confidence gate on the tone flag;
+    this just delivers the most informed view. Sync or async relay accepted."""
+    if watch_relay is None or not ctx.uid:
+        return
+    push = getattr(watch_relay, "push_turn_local", None)
+    if push is None:
+        return
+    result = push(ctx.uid, event, tone_flag=tone_flag)
+    if inspect.isawaitable(result):
+        await result
+
+
+# ---------------------------------------------------------------------------
+# Streaming LLM helpers (Track 3-server)
+# ---------------------------------------------------------------------------
+
+def _supports_streaming(llm) -> bool:
+    """Whether ``llm`` offers ``stream_complete()``. Checked on the TYPE so
+    test doubles built from MagicMock (which auto-create any attribute on the
+    instance) keep the plain ``complete()`` path and its exact call shape."""
+    return callable(getattr(type(llm), "stream_complete", None))
+
+
+# The first complete string inside `"suggestions": [ ... ]` of a (possibly
+# fenced, possibly still-streaming) JSON response. Only matches once the
+# closing quote has arrived, so a preview is never a truncated sentence.
+_FIRST_SUGGESTION_RE = re.compile(r'"suggestions"\s*:\s*\[\s*("(?:[^"\\]|\\.)*")')
+
+
+def _first_suggestion_in(buffer: str) -> str | None:
+    match = _FIRST_SUGGESTION_RE.search(buffer)
+    if not match:
+        return None
+    try:
+        text = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return None
+    return text if isinstance(text, str) and text.strip() else None
+
+
+async def _stream_with_first_suggestion(
+    llm, system: str, user: str, on_first_suggestion,
+) -> str:
+    """Consume ``llm.stream_complete`` in a thread; fire ``on_first_suggestion``
+    (a coroutine function) exactly once, as soon as the first suggestion
+    string is complete; return the full response text.
+
+    The preview coroutine is scheduled onto the event loop from the worker
+    thread and awaited (failures suppressed) before returning, so the
+    partial event is always on the wire BEFORE the caller sends the final
+    one — the client never sees a preview after the real thing.
+    """
+    loop = asyncio.get_running_loop()
+    previews: list = []
+
+    def run() -> str:
+        parts: list[str] = []
+        notified = False
+        for delta in llm.stream_complete(system=system, user=user):
+            parts.append(delta)
+            if not notified:
+                first = _first_suggestion_in("".join(parts))
+                if first is not None:
+                    notified = True
+                    previews.append(asyncio.run_coroutine_threadsafe(
+                        on_first_suggestion(first), loop,
+                    ))
+        return "".join(parts)
+
+    raw = await asyncio.to_thread(run)
+    for fut in previews:
+        with contextlib.suppress(Exception):
+            await asyncio.wrap_future(fut)
+    return raw
+
+
+# ---------------------------------------------------------------------------
 # LLM suggestion helper
 # ---------------------------------------------------------------------------
 
@@ -1431,6 +2407,9 @@ async def _generate_suggestions(
     empathy_slider: int,
     role: str,
     voice_profile: dict | None = None,
+    tone_context: dict | None = None,
+    *,
+    on_first_suggestion=None,
 ) -> tuple[list[str], int]:
     """Call LLMClient.complete(); parse suggestions + moment importance.
 
@@ -1446,13 +2425,25 @@ async def _generate_suggestions(
     be TTS-spoken as if the coach really produced it. Honest failure instead:
     the suggestion worker turns the exception into a ``suggestion_error``
     event so the client knows this utterance yielded nothing.
+
+    ``tone_context`` (Track 3-server) is the phone's text-tone/prosody dict
+    (see :func:`_tone_context_from_event`); it is rendered into the user
+    turn as hints. ``on_first_suggestion`` — when given AND the client
+    supports ``stream_complete`` — is awaited once with the first complete
+    suggestion string while the rest is still streaming. Both None → the
+    prompt and the ``complete()`` call are byte-identical to before.
     """
     from main import empathy_system_prompt, parse_llm_json
 
     system = empathy_system_prompt(empathy_slider, role, voice_profile)
-    user_content = f'Transcript turn: "{utterance.text}"'
+    user_content = _turn_prompt(utterance, tone_context)
 
-    raw = await asyncio.to_thread(llm.complete, system=system, user=user_content)
+    if on_first_suggestion is not None and _supports_streaming(llm):
+        raw = await _stream_with_first_suggestion(
+            llm, system, user_content, on_first_suggestion,
+        )
+    else:
+        raw = await asyncio.to_thread(llm.complete, system=system, user=user_content)
 
     try:
         data = parse_llm_json(raw)
@@ -1491,6 +2482,7 @@ async def _generate_nudge(
     empathy_slider: int,
     role: str,
     voice_profile: dict | None = None,
+    tone_context: dict | None = None,
 ) -> tuple[str, int]:
     """Call the LLM for a SELF turn; parse the single delivery nudge + urgency.
 
@@ -1513,7 +2505,10 @@ async def _generate_nudge(
     from main import parse_llm_json, self_feedback_prompt
 
     system = self_feedback_prompt(empathy_slider, role, voice_profile)
-    user_content = f'Transcript turn: "{utterance.text}"'
+    # tone_context renders the phone's measurements as hints (Track 3-server);
+    # None keeps the prompt byte-identical. No streaming preview for a nudge:
+    # it is one short phrase, there is nothing to preview.
+    user_content = _turn_prompt(utterance, tone_context)
 
     raw = await asyncio.to_thread(llm.complete, system=system, user=user_content)
 

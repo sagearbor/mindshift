@@ -11,12 +11,14 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import logging
 import threading
 import time
 import types
 import uuid
 from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
@@ -236,7 +238,11 @@ class BlockingLLM:
 
 
 def _clear_overrides() -> None:
-    for attr in ("transcriber_factory", "tts_client", "diarizer_factory"):
+    for attr in (
+        "transcriber_factory", "tts_client", "diarizer_factory",
+        # Track 3-server injection points (fake clock, fake voiceprint store).
+        "monotonic_clock", "recordings_store",
+    ):
         if hasattr(app.state, attr):
             delattr(app.state, attr)
 
@@ -1851,3 +1857,818 @@ class TestGenerateNudgeUnit:
         with pytest.raises(SuggestionUnavailable) as excinfo:
             await _generate_nudge(llm, u, 50, "Husband")
         assert excinfo.value.reason == "llm_parse_error"
+
+
+# ---------------------------------------------------------------------------
+# Track 3-server: latency instrumentation, local-first (turn_local) path,
+# PCM ring buffer + enrichment, streaming cloud suggestions
+# ---------------------------------------------------------------------------
+# The phone (Track 3-mobile) becomes the orchestrator: it still streams PCM,
+# and ALSO sends one ``turn_local`` per turn it finalized itself. For such a
+# session the server must not duplicate the phone's work (no transcript echo,
+# no Deepgram duplicate, no server TTS) and enriches asynchronously (cloud
+# suggestion, audio tone, identity, watch relay). Legacy clients never send
+# turn_local and get exactly the behaviour every test above pins.
+
+LOCAL_SID = "5f0a1b2c-0000-4000-8000-0000000003a1"
+FRAME_100MS = b"\x01\x00" * 1600  # 1600 int16 samples = 100 ms at 16 kHz = 3200 bytes
+
+
+def _turn_local(sid: str = LOCAL_SID, **overrides) -> dict:
+    """A well-formed turn_local payload; overrides replace/add fields."""
+    payload = {
+        "type": "turn_local",
+        "session_id": sid,
+        "speaker": "Speaker A",
+        "text": "You never listen to me.",
+        "start_time": 0.0,
+        "end_time": 1.0,
+        "transcript_source": "on-device",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def recv_until(ws, predicate, limit: int = 12) -> tuple[dict, list[dict]]:
+    """Receive events until one satisfies ``predicate``; return it and every
+    event seen. Enrichment events and the cloud suggestion come from
+    independent tasks, so their relative order on the wire is not fixed."""
+    seen: list[dict] = []
+    for _ in range(limit):
+        msg = json.loads(ws.receive_text())
+        seen.append(msg)
+        if predicate(msg):
+            return msg, seen
+    raise AssertionError(f"no event matched within {limit} events: {seen}")
+
+
+class SteppingClock:
+    """Fake monotonic clock: every call advances by ``step`` seconds."""
+
+    def __init__(self, step: float = 0.5) -> None:
+        self.t = 0.0
+        self.step = step
+
+    def __call__(self) -> float:
+        self.t += self.step
+        return self.t
+
+
+class StreamingLLM:
+    """LLM double with a REAL ``stream_complete`` (defined on the class, so
+    ``_supports_streaming`` sees it) that yields the response in chunks."""
+
+    def __init__(self, response: str, chunk: int = 7) -> None:
+        self._response = response
+        self._chunk = chunk
+        self.complete_calls: list[str] = []
+        self.stream_calls: list[str] = []
+
+    def complete(self, system: str, user: str) -> str:
+        self.complete_calls.append(user)
+        return self._response
+
+    def stream_complete(self, system: str, user: str):
+        self.stream_calls.append(user)
+        for i in range(0, len(self._response), self._chunk):
+            yield self._response[i:i + self._chunk]
+
+
+class FakeToneId:
+    """Stand-in for server/tone_id.py at the module-attribute seam."""
+
+    MIN_TURN_SECONDS = 1.0
+    MAX_TURN_SECONDS = 30.0
+
+    class ToneUnavailable(RuntimeError):
+        pass
+
+    def __init__(self, result=None, surface=True, error=None) -> None:
+        self._result = result or {
+            "label": "angry", "scores": {"neutral": 0.1, "angry": 0.8, "happy": 0.05, "sad": 0.05},
+            "confidence": 0.8, "model": "fake",
+        }
+        self._surface = surface
+        self._error = error
+        self.calls: list[tuple[int, int]] = []
+
+    def is_enabled(self) -> bool:
+        return True
+
+    def is_available(self) -> bool:
+        return True
+
+    def surface_allowed(self) -> bool:
+        return self._surface
+
+    def classify_pcm(self, pcm, sr):
+        self.calls.append((int(pcm.size), sr))
+        if self._error is not None:
+            raise self._error
+        return dict(self._result)
+
+
+class FakeSpeakerId:
+    """Stand-in for server/speaker_id.py's Foundation B surface: the slice
+    always embeds to [1, 0], so cosine against each enrolled print is that
+    print's first component — the test picks the prints to decide who wins.
+    Returns the documented identify_speakers_multi report shape."""
+
+    MATCH_THRESHOLD = 0.5
+    MIN_MATCH_SECONDS = 1.0
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def is_available(self) -> bool:
+        return True
+
+    def identify_speakers_multi(self, pcm, sr, turns, voiceprints, *, threshold=None,
+                                people=None):
+        self.calls.append({
+            "samples": int(pcm.size), "sr": sr, "turns": turns,
+            "people": sorted(voiceprints),
+        })
+        emb = np.array([1.0, 0.0], dtype=np.float32)
+        speaker = turns[0]["speaker"]
+        scores = {pid: round(float(np.dot(emb, vec)), 4) for pid, vec in voiceprints.items()}
+        best = max(scores, key=scores.get)
+        matched = best if scores[best] >= self.MATCH_THRESHOLD else None
+        meta = (people or {}).get(matched or "", {})
+        return {
+            "matched": {speaker: matched} if matched else {},
+            "speakers": {speaker: {
+                "scores": scores,
+                "matched_person_id": matched,
+                "is_self": bool(meta.get("is_self")) if matched else False,
+                "display_name": meta.get("display_name") if matched else None,
+            }},
+        }
+
+
+SELF_DOC = {"person_id": "self", "display_name": "You", "is_self": True, "embedding": [1.0, 0.0]}
+ALEX_DOC = {"person_id": "alex", "display_name": "Alex", "is_self": False, "embedding": [0.0, 1.0]}
+
+
+class FakeVoiceprintStore:
+    """Per-person voiceprint docs, as recordings_store.list_voiceprints
+    returns them (person views: person_id / display_name / is_self)."""
+
+    def __init__(self, docs=None, error=None) -> None:
+        self._docs = list(docs or [])
+        self._error = error
+        self.reads: list[str] = []
+
+    async def list_voiceprints(self, uid: str):
+        self.reads.append(uid)
+        if self._error is not None:
+            raise self._error
+        return list(self._docs)
+
+
+class FakeRelay:
+    """Track 1's relay surface: push_turn_local(uid, event, *, tone_flag=None)."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def push_turn_local(self, uid: str, event, *, tone_flag=None) -> None:
+        self.calls.append({"uid": uid, "event": event, "tone_flag": tone_flag})
+
+
+@pytest.fixture
+def local_first_env(monkeypatch):
+    """Isolate the local-first tests from whatever optional modules this
+    checkout has: no real tone/speaker models, no relay, no slice grace wait
+    (every test streams its audio BEFORE the turn_local, so the ring buffer
+    is already caught up). Tests install fakes on top as needed."""
+    monkeypatch.setattr(audio_pipeline, "tone_id", None)
+    monkeypatch.setattr(audio_pipeline, "speaker_id", None)
+    monkeypatch.setattr(audio_pipeline, "watch_relay", None)
+    monkeypatch.setattr(audio_pipeline, "SLICE_GRACE_S", 0.0)
+    yield
+    _clear_overrides()
+
+
+# --- Latency instrumentation ----------------------------------------------
+
+class TestLatencyInstrumentation:
+    def test_stage_ms_exact_arithmetic(self):
+        from audio_pipeline import UtteranceTiming
+
+        t = UtteranceTiming(
+            frame_received=10.0, segment_finalized=10.1, enqueued=10.15,
+            llm_start=10.2, llm_first_partial=10.6, llm_end=11.2,
+            tts_start=11.25, tts_end=11.75, sent=11.8,
+        )
+        assert t.stage_ms() == {
+            "seg_to_enqueue": 50.0,
+            "queue_wait": 50.0,
+            "llm": 1000.0,
+            "llm_first_partial": 400.0,
+            "tts": 500.0,
+            "total": 1800.0,
+        }
+
+    def test_unreached_stages_are_absent_not_zero(self):
+        from audio_pipeline import UtteranceTiming
+
+        # A local-first turn: no TTS, no partial — those stages must be
+        # MISSING, never reported as 0 ms.
+        t = UtteranceTiming(
+            frame_received=1.0, segment_finalized=1.0, enqueued=1.0,
+            llm_start=1.0, llm_end=2.0, sent=2.0,
+        )
+        stages = t.stage_ms()
+        assert "tts" not in stages and "llm_first_partial" not in stages
+        assert stages["llm"] == 1000.0
+
+    def test_recorder_with_fake_clock_logs_and_summarizes(self, caplog):
+        from audio_pipeline import LatencyRecorder
+
+        clock = SteppingClock(step=0.1)
+        rec = LatencyRecorder(clock=clock, window=3)
+        with caplog.at_level(logging.INFO, logger="audio_pipeline"):
+            for _ in range(5):
+                timing = rec.start(frame_received=rec.now(), segment_finalized=rec.now())
+                timing.enqueued = rec.now()
+                timing.llm_start = rec.now()
+                timing.llm_end = rec.now()
+                timing.sent = rec.now()
+                stages = rec.record(timing, "sess-1")
+        # Every step is exactly one clock tick (100 ms) — fake-clock exactness.
+        assert stages == {
+            "seg_to_enqueue": 100.0, "queue_wait": 100.0, "llm": 100.0,
+            "total": 500.0,
+        }
+        # window=3 keeps only the last 3 samples per stage.
+        summary = rec.summary()
+        assert summary["llm"] == {"p50": 100.0, "p95": 100.0, "n": 3}
+        assert "tts" not in summary  # never stamped → omitted
+        lines = [r.getMessage() for r in caplog.records if "latency session=" in r.getMessage()]
+        assert len(lines) == 5
+        assert lines[-1].startswith("latency session=sess-1 seg_to_enqueue=100.0ms ")
+        assert "llm=100.0ms" in lines[-1]
+        assert "tts=-" in lines[-1]  # unreached stage rendered as "-"
+        assert "queue_depth=0" in lines[-1]
+
+    def test_nearest_rank_percentiles(self):
+        from audio_pipeline import _nearest_rank
+
+        ordered = [10.0, 20.0, 30.0, 40.0, 100.0]
+        assert _nearest_rank(ordered, 50) == 30.0
+        assert _nearest_rank(ordered, 95) == 100.0
+        assert _nearest_rank([7.0], 95) == 7.0
+
+    def test_report_latency_config_adds_summary_to_session_complete(self, fake_ws, caplog):
+        """A legacy-protocol client can opt in with config report_latency;
+        the fake clock makes every stage a known, positive number and the
+        per-utterance INFO line is emitted through the real hot path."""
+        app.state.monotonic_clock = SteppingClock(step=0.25)
+        try:
+            with caplog.at_level(logging.INFO, logger="audio_pipeline"):
+                with open_ws(fake_ws, f"/ws/session/{LOCAL_SID}") as ws:
+                    ws.send_text(json.dumps({"type": "config", "report_latency": True}))
+                    assert json.loads(ws.receive_text())["type"] == "config_ack"
+                    ws.send_bytes(b"\x00" * 50)
+                    assert recv_skipping_transcripts(ws)["type"] == "suggestion"
+                    ws.send_text(json.dumps({"type": "stop"}))
+                    done = json.loads(ws.receive_text())
+        finally:
+            _clear_overrides()
+
+        assert done["type"] == "session_complete"
+        summary = done["latency_summary"]
+        for stage in ("seg_to_enqueue", "queue_wait", "llm", "tts", "total"):
+            assert summary[stage]["n"] == 1
+            assert summary[stage]["p50"] == summary[stage]["p95"] > 0
+        assert any("latency session=" in r.getMessage() for r in caplog.records)
+
+    def test_legacy_stop_payload_has_no_summary(self, fake_ws):
+        """Without report_latency (and without turn_local) the completion
+        payload stays exactly the pre-existing bare dict."""
+        with open_ws(fake_ws, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_bytes(b"\x00" * 50)
+            assert recv_skipping_transcripts(ws)["type"] == "suggestion"
+            ws.send_text(json.dumps({"type": "stop"}))
+            assert json.loads(ws.receive_text()) == {"type": "session_complete"}
+
+
+# --- turn_local → cloud suggestion ------------------------------------------
+
+class TestTurnLocal:
+    def test_turn_local_yields_cloud_suggestion_without_transcript_echo(
+        self, local_first_env,
+    ):
+        client = _inject(StoppableTranscriber())
+        app.state.llm_client.complete.reset_mock()
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_text(json.dumps(_turn_local(
+                text_tone={"warmth": 20, "defensiveness": 80, "label": "defensive"},
+                prosody={"rms_dbfs": -18.0, "pitch_hz": 210.0, "speech_rate": None},
+            )))
+            resp = json.loads(ws.receive_text())
+
+        # The very first event is the suggestion — no transcript echo.
+        assert resp["type"] == "suggestion"
+        assert resp["suggestion_source"] == "cloud"
+        assert resp["partial"] is False
+        assert resp["utterance_text"] == "You never listen to me."
+        assert resp["speaker"] == "Speaker A"
+        assert len(resp["suggestions"]) == 3
+        # The phone's tone context reached the LLM prompt, as hints.
+        user = app.state.llm_client.complete.call_args.kwargs["user"]
+        assert user.startswith('Transcript turn: "You never listen to me."')
+        assert "On-device signals for this turn" in user
+        assert "defensiveness 80/100" in user and 'label "defensive"' in user
+        assert "median pitch 210.0 Hz" in user and "loudness -18.0 dBFS" in user
+        assert "speech rate" not in user  # null measurement never rendered
+
+    def test_is_self_true_routes_to_nudge_even_without_self_speaker(self, local_first_env):
+        client = _inject(StoppableTranscriber())
+        app.state.llm_client.complete.return_value = NUDGE_LLM_JSON
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_text(json.dumps(_turn_local(is_self=True)))
+            resp = json.loads(ws.receive_text())
+        assert resp["type"] == "suggestion"
+        assert resp["kind"] == "nudge"
+        assert resp["suggestions"] == ["ease up"]
+        # The nudge prompt gets the tone context too when present.
+        assert "Transcript turn" in app.state.llm_client.complete.call_args.kwargs["user"]
+
+    def test_is_self_false_wins_over_matching_self_speaker(self, local_first_env):
+        """The phone's voiceprint verdict beats the label compare: speaker
+        label matches self_speaker, but is_self=false → OTHER → response."""
+        client = _inject(StoppableTranscriber())
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_text(json.dumps({"type": "config", "self_speaker": "Speaker A"}))
+            assert json.loads(ws.receive_text())["type"] == "config_ack"
+            ws.send_text(json.dumps(_turn_local(speaker="Speaker A", is_self=False)))
+            resp = json.loads(ws.receive_text())
+        assert resp["kind"] == "response"
+        assert len(resp["suggestions"]) == 3
+
+    def test_is_self_null_falls_back_to_label_compare(self, local_first_env):
+        client = _inject(StoppableTranscriber())
+        app.state.llm_client.complete.return_value = NUDGE_LLM_JSON
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_text(json.dumps({"type": "config", "self_speaker": "Speaker A"}))
+            assert json.loads(ws.receive_text())["type"] == "config_ack"
+            ws.send_text(json.dumps(_turn_local(speaker="Speaker A")))  # is_self absent
+            resp = json.loads(ws.receive_text())
+        assert resp["kind"] == "nudge"
+
+    def test_invalid_turn_local_is_rejected_without_leaking_values(self, local_first_env):
+        client = _inject(StoppableTranscriber())
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            bad = _turn_local(text="SECRET WORDS", transcript_source="magic")
+            del bad["start_time"]
+            ws.send_text(json.dumps(bad))
+            resp = json.loads(ws.receive_text())
+            # Session survives: control channel still works.
+            ws.send_text(json.dumps({"type": "config"}))
+            assert json.loads(ws.receive_text())["type"] == "config_ack"
+        assert resp["error"].startswith("invalid turn_local: ")
+        assert "start_time" in resp["error"] and "transcript_source" in resp["error"]
+        assert "SECRET" not in resp["error"] and "magic" not in resp["error"]
+
+    def test_session_id_mismatch_and_inverted_times_rejected(self, local_first_env):
+        client = _inject(StoppableTranscriber())
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_text(json.dumps(_turn_local(session_id="someone-else")))
+            assert json.loads(ws.receive_text())["error"] == "turn_local session_id mismatch"
+            ws.send_text(json.dumps(_turn_local(start_time=2.0, end_time=1.0)))
+            assert "end_time" in json.loads(ws.receive_text())["error"]
+
+    def test_turn_local_counts_against_utterance_budget(self, local_first_env, monkeypatch):
+        monkeypatch.setattr(audio_pipeline, "MAX_UTTERANCES", 1)
+        client = _inject(StoppableTranscriber())
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_text(json.dumps(_turn_local()))
+            assert json.loads(ws.receive_text())["type"] == "suggestion"
+            ws.send_text(json.dumps(_turn_local(start_time=2.0, end_time=3.0)))
+            assert json.loads(ws.receive_text())["type"] == "limit_reached"
+
+
+# --- Deepgram overlap suppression -------------------------------------------
+
+class TestDeepgramOverlapSuppression:
+    def test_covered_by_local_range_uses_midpoint_with_pad(self):
+        from audio_pipeline import _covered_by_local_range
+
+        ranges = [(1.0, 3.0)]
+        assert _covered_by_local_range(ranges, 1.1, 2.9)        # inside
+        assert _covered_by_local_range(ranges, 0.9, 3.1)        # slightly wider — pad
+        assert _covered_by_local_range(ranges, 2.8, 3.6)        # midpoint 3.2 ≤ 3.25
+        assert not _covered_by_local_range(ranges, 2.6, 4.0)    # midpoint 3.3 > pad
+        assert not _covered_by_local_range(ranges, 3.5, 4.5)    # the next span
+        assert not _covered_by_local_range([], 1.0, 2.0)
+
+    def test_local_ranges_are_bounded(self):
+        from audio_pipeline import LOCAL_RANGES_MAX, _remember_local_range
+
+        ranges: list = []
+        for i in range(LOCAL_RANGES_MAX + 10):
+            _remember_local_range(ranges, float(i), float(i) + 0.5)
+        assert len(ranges) == LOCAL_RANGES_MAX
+        assert ranges[-1] == (float(LOCAL_RANGES_MAX + 9), float(LOCAL_RANGES_MAX + 9) + 0.5)
+
+    def test_deepgram_segment_inside_local_turn_is_dropped_uncovered_passes(
+        self, local_first_env,
+    ):
+        t = SequentialSegmentTranscriber([
+            TranscriptSegment("Duplicate of the phone's turn.", 1.0, 3.0, speaker=0),
+            TranscriptSegment("The phone missed this.", 5.0, 6.0, speaker=1),
+        ])
+        client = _inject(t)
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_text(json.dumps(_turn_local(
+                text="You never listen.", start_time=0.9, end_time=3.1,
+            )))
+            first = json.loads(ws.receive_text())
+            ws.send_bytes(FRAME_100MS)  # → the covered segment: suppressed, silence
+            ws.send_bytes(FRAME_100MS)  # → the uncovered span: transcript + suggestion
+            second = json.loads(ws.receive_text())
+            third = json.loads(ws.receive_text())
+
+        assert first["type"] == "suggestion"
+        assert first["utterance_text"] == "You never listen."
+        assert second["type"] == "transcript"
+        assert second["text"] == "The phone missed this."
+        assert third["type"] == "suggestion"
+        assert third["utterance_text"] == "The phone missed this."
+
+
+# --- Server TTS ownership in a local-first session --------------------------
+
+class TestLocalFirstTTS:
+    def test_server_tts_skipped_once_local_first(self, local_first_env):
+        """FakeTTS always returns audio when called — a None audio_b64 proves
+        synthesize() was genuinely skipped. `speak` stays True: the phone
+        voices it."""
+        client = _inject(StoppableTranscriber())
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_text(json.dumps(_turn_local()))
+            resp = json.loads(ws.receive_text())
+        assert resp["type"] == "suggestion"
+        assert resp["speak"] is True
+        assert resp["audio_b64"] is None
+
+    def test_config_tts_server_keeps_server_voice(self, local_first_env):
+        client = _inject(StoppableTranscriber())
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_text(json.dumps({"type": "config", "tts": "server"}))
+            assert json.loads(ws.receive_text())["type"] == "config_ack"
+            ws.send_text(json.dumps(_turn_local()))
+            resp = json.loads(ws.receive_text())
+        assert resp["audio_b64"] is not None
+
+    def test_queued_deepgram_turn_loses_server_tts_after_first_turn_local(
+        self, local_first_env,
+    ):
+        """TTS ownership is decided at the moment of synthesis: a Deepgram
+        turn already IN FLIGHT (LLM running) when the first turn_local lands
+        is voiced by the phone, not the server, because by the time its
+        suggestion is ready the session is local-first. (A merely QUEUED
+        Deepgram turn is superseded by the turn_local job — latest-wins.)"""
+        llm = BlockingLLM(MOCK_LLM_JSON)
+        t = SequentialSegmentTranscriber([
+            TranscriptSegment("Queued before local-first.", 0.0, 1.0, speaker=0),
+        ])
+        client = _inject(t)
+        app.state.llm_client = llm
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_bytes(FRAME_100MS)
+            assert llm.started.wait(timeout=5)
+            assert json.loads(ws.receive_text())["type"] == "transcript"
+            ws.send_text(json.dumps(_turn_local(start_time=2.0, end_time=3.0)))
+            llm.release.set()
+            first = json.loads(ws.receive_text())
+            second = json.loads(ws.receive_text())
+        assert [first["utterance_text"], second["utterance_text"]] == [
+            "Queued before local-first.", "You never listen to me.",
+        ]
+        assert first["audio_b64"] is None and second["audio_b64"] is None
+
+    @pytest.mark.anyio
+    async def test_tts_config_parsing(self):
+        from audio_pipeline import SessionContext, _apply_config
+
+        ctx = SessionContext(session_id="tts-cfg")
+        await _apply_config(ctx, {"tts": "server"})
+        assert ctx.tts_mode == "server"
+        await _apply_config(ctx, {"tts": "elevenlabs"})  # unknown → ignored
+        assert ctx.tts_mode == "server"
+        await _apply_config(ctx, {"tts": None})
+        assert ctx.tts_mode is None
+        await _apply_config(ctx, {"tts": "on-device"})
+        assert ctx.tts_mode == "on-device"
+        await _apply_config(ctx, {"report_latency": "yes"})  # wrong type → ignored
+        assert ctx.report_latency is False
+        await _apply_config(ctx, {"report_latency": True})
+        assert ctx.report_latency is True
+
+
+# --- PCM ring buffer ---------------------------------------------------------
+
+class TestPcmRingBuffer:
+    def test_slice_by_session_time_is_exact(self):
+        from audio_pipeline import PcmRingBuffer
+
+        buf = PcmRingBuffer(seconds=2.0, sample_rate=1000)  # 1 kHz keeps the math legible
+        # Ten 100 ms frames whose samples encode the frame index.
+        for i in range(10):
+            buf.append(np.full(100, i, dtype="<i2").tobytes())
+        assert buf.seconds_received == 1.0
+        samples = np.frombuffer(buf.slice(0.3, 0.5), dtype="<i2")
+        assert samples.size == 200
+        assert set(samples[:100].tolist()) == {3} and set(samples[100:].tolist()) == {4}
+        # End clamped to what has been received; start before origin clamped to 0.
+        assert np.frombuffer(buf.slice(0.95, 5.0), dtype="<i2").size == 50
+        assert buf.slice(0.5, 0.5) == b"" and buf.slice(0.6, 0.4) == b""
+        assert buf.slice(3.0, 4.0) == b""  # not yet received
+
+    def test_old_audio_is_trimmed_but_addressing_stays_session_relative(self):
+        from audio_pipeline import PcmRingBuffer
+
+        buf = PcmRingBuffer(seconds=1.0, sample_rate=1000)  # capacity 2000 bytes
+        for i in range(40):  # 4 s of audio into a 1 s buffer
+            buf.append(np.full(100, i, dtype="<i2").tobytes())
+        assert buf.seconds_received == 4.0
+        # Something recent is still addressable by its ORIGINAL session time.
+        recent = np.frombuffer(buf.slice(3.8, 3.9), dtype="<i2")
+        assert recent.size == 100 and set(recent.tolist()) == {38}
+        # The oldest audio is gone: an all-old window yields nothing, a window
+        # straddling the trim point yields only the retained tail.
+        assert buf.slice(0.0, 0.5) == b""
+        assert len(buf._buf) <= int(1.1 * 2000) + 200  # bounded (hysteresis block)
+
+    def test_pcm16_to_float32(self):
+        from audio_pipeline import _pcm16_to_float32
+
+        raw = np.array([0, 16384, -32768, 32767], dtype="<i2").tobytes() + b"\x01"  # stray odd byte
+        out = _pcm16_to_float32(raw)
+        assert out.dtype == np.float32 and out.size == 4
+        assert out[0] == 0.0 and out[1] == 0.5 and out[2] == -1.0
+
+
+# --- Enrichment on the streamed PCM ----------------------------------------
+
+def _stream_one_second(ws) -> None:
+    for _ in range(10):
+        ws.send_bytes(FRAME_100MS)
+
+
+class TestTurnLocalEnrichment:
+    def test_tone_identity_and_relay_emitted_from_recovered_slice(
+        self, local_first_env, monkeypatch,
+    ):
+        tone = FakeToneId(surface=True)
+        spk = FakeSpeakerId()
+        # Two enrolled people: the owner's print matches the slice (cosine 1.0),
+        # the partner's doesn't (0.0) — so the verdict is "self".
+        store = FakeVoiceprintStore(docs=[SELF_DOC, ALEX_DOC])
+        relay = FakeRelay()
+        monkeypatch.setattr(audio_pipeline, "tone_id", tone)
+        monkeypatch.setattr(audio_pipeline, "speaker_id", spk)
+        monkeypatch.setattr(audio_pipeline, "watch_relay", relay)
+        client = _inject(StoppableTranscriber())
+        app.state.recordings_store = store
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            _stream_one_second(ws)
+            # The phone says Speaker A is NOT self; the server's voiceprint
+            # disagrees and corrects it.
+            ws.send_text(json.dumps(_turn_local(start_time=0.0, end_time=1.0, is_self=False)))
+            types_seen: dict[str, dict] = {}
+            for _ in range(3):
+                msg = json.loads(ws.receive_text())
+                types_seen[msg["type"]] = msg
+            ws.send_text(json.dumps({"type": "stop"}))
+            done = json.loads(ws.receive_text())
+
+        assert set(types_seen) == {"suggestion", "tone_flag", "speaker_identity"}
+        flag = types_seen["tone_flag"]
+        assert flag["source"] == "audio" and flag["label"] == "angry"
+        assert flag["scores"]["angry"] == 0.8 and flag["confidence"] == 0.8
+        assert flag["speaker"] == "Speaker A" and flag["end_time"] == 1.0
+        # The slice handed to the model is the 1 s the phone reported, at 16 kHz.
+        assert tone.calls == [(16000, 16000)]
+        ident = types_seen["speaker_identity"]
+        assert ident["is_self"] is True and ident["score"] == 1.0
+        assert ident["person_id"] == "self" and ident["display_name"] == "You"
+        assert store.reads == ["test-user"]
+        # Embedded as ONE turn by the phone's label, against every enrolled print.
+        assert spk.calls == [{
+            "samples": 16000, "sr": 16000,
+            "turns": [{"speaker": "Speaker A", "start_time": 0.0, "end_time": 1.0}],
+            "people": ["alex", "self"],
+        }]
+        # The relay got the most informed view: the server-CORRECTED identity
+        # (phone said is_self=False) and the audio tone flag.
+        assert len(relay.calls) == 1
+        call = relay.calls[0]
+        assert call["uid"] == "test-user"
+        assert call["event"].text == "You never listen to me."
+        assert call["event"].is_self is True
+        assert call["event"].speaker_person_id == "self"
+        assert call["event"].speaker_match_score == 1.0
+        assert call["tone_flag"].label == "angry" and call["tone_flag"].source == "audio"
+        assert "latency_summary" in done  # local-first → summary automatically
+
+    def test_dark_tone_is_logged_not_surfaced(self, local_first_env, monkeypatch, caplog):
+        tone = FakeToneId(surface=False)
+        relay = FakeRelay()
+        monkeypatch.setattr(audio_pipeline, "tone_id", tone)
+        monkeypatch.setattr(audio_pipeline, "watch_relay", relay)
+        client = _inject(StoppableTranscriber())
+        with caplog.at_level(logging.INFO, logger="audio_pipeline"):
+            with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+                _stream_one_second(ws)
+                ws.send_text(json.dumps(_turn_local()))
+                assert json.loads(ws.receive_text())["type"] == "suggestion"
+                ws.send_text(json.dumps({"type": "stop"}))  # drains enrichment first
+                done = json.loads(ws.receive_text())
+        assert done["type"] == "session_complete"  # no tone_flag ever hit the wire
+        assert tone.calls  # …but it WAS computed
+        assert any("audio tone (dark)" in r.getMessage() for r in caplog.records)
+        # …and it did not leak to the watch through the relay either.
+        assert relay.calls and relay.calls[0]["tone_flag"] is None
+
+    def test_too_little_audio_skips_models_cleanly(self, local_first_env, monkeypatch):
+        tone = FakeToneId()
+        spk = FakeSpeakerId()
+        monkeypatch.setattr(audio_pipeline, "tone_id", tone)
+        monkeypatch.setattr(audio_pipeline, "speaker_id", spk)
+        client = _inject(StoppableTranscriber())
+        app.state.recordings_store = FakeVoiceprintStore(docs=[SELF_DOC])
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_bytes(FRAME_100MS)  # 100 ms — below both 1 s floors
+            ws.send_text(json.dumps(_turn_local(start_time=0.0, end_time=0.1)))
+            assert json.loads(ws.receive_text())["type"] == "suggestion"
+            ws.send_text(json.dumps({"type": "stop"}))
+            assert json.loads(ws.receive_text())["type"] == "session_complete"
+        assert tone.calls == [] and spk.calls == []
+
+    def test_partner_match_names_the_person(self, local_first_env, monkeypatch):
+        """A slice matching a PARTNER's print names them (is_self False) even
+        though the phone claimed is_self=True; the relay is handed the
+        corrected event and no tone flag (tone_id absent here)."""
+        spk = FakeSpeakerId()
+        relay = FakeRelay()
+        monkeypatch.setattr(audio_pipeline, "speaker_id", spk)
+        monkeypatch.setattr(audio_pipeline, "watch_relay", relay)
+        client = _inject(StoppableTranscriber())
+        app.state.recordings_store = FakeVoiceprintStore(docs=[
+            dict(SELF_DOC, embedding=[0.2, 0.0]),   # 0.2 < threshold
+            dict(ALEX_DOC, embedding=[0.9, 0.0]),   # 0.9 → Alex
+        ])
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            _stream_one_second(ws)
+            ws.send_text(json.dumps(_turn_local(speaker="Speaker B", is_self=True)))
+            ident, _ = recv_until(ws, lambda m: m["type"] == "speaker_identity")
+            ws.send_text(json.dumps({"type": "stop"}))
+            json.loads(ws.receive_text())
+        assert ident == {
+            "type": "speaker_identity", "session_id": LOCAL_SID,
+            "speaker": "Speaker B", "person_id": "alex", "display_name": "Alex",
+            "is_self": False, "score": 0.9,
+        }
+        assert relay.calls[0]["event"].is_self is False
+        assert relay.calls[0]["event"].speaker_person_id == "alex"
+        assert relay.calls[0]["tone_flag"] is None
+
+    def test_no_match_is_an_honest_unknown(self, local_first_env, monkeypatch):
+        spk = FakeSpeakerId()
+        monkeypatch.setattr(audio_pipeline, "speaker_id", spk)
+        client = _inject(StoppableTranscriber())
+        app.state.recordings_store = FakeVoiceprintStore(docs=[
+            dict(SELF_DOC, embedding=[0.3, 0.0]),
+        ])
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            _stream_one_second(ws)
+            ws.send_text(json.dumps(_turn_local()))
+            ident, _ = recv_until(ws, lambda m: m["type"] == "speaker_identity")
+        assert ident["person_id"] is None and ident["display_name"] is None
+        assert ident["is_self"] is False
+        assert ident["score"] == 0.3  # the best near-miss, for inspectability
+
+    def test_enrichment_failures_never_break_the_session(
+        self, local_first_env, monkeypatch, caplog,
+    ):
+        """Tone model raises, voiceprint store raises, relay raises — the
+        cloud suggestion still arrives, the other steps still run, the
+        control channel still works, and stop completes."""
+        tone = FakeToneId(error=RuntimeError("model exploded"))
+        spk = FakeSpeakerId()
+        store = FakeVoiceprintStore(error=OSError("gcs down"))
+
+        class ExplodingRelay:
+            def push_turn_local(self, uid, event, *, tone_flag=None):
+                raise RuntimeError("watch relay down")
+
+        monkeypatch.setattr(audio_pipeline, "tone_id", tone)
+        monkeypatch.setattr(audio_pipeline, "speaker_id", spk)
+        monkeypatch.setattr(audio_pipeline, "watch_relay", ExplodingRelay())
+        client = _inject(StoppableTranscriber())
+        app.state.recordings_store = store
+        with caplog.at_level(logging.WARNING, logger="audio_pipeline"):
+            with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+                _stream_one_second(ws)
+                ws.send_text(json.dumps(_turn_local()))
+                assert json.loads(ws.receive_text())["type"] == "suggestion"
+                ws.send_text(json.dumps({"type": "config"}))
+                assert json.loads(ws.receive_text())["type"] == "config_ack"
+                ws.send_text(json.dumps({"type": "stop"}))
+                done = json.loads(ws.receive_text())
+        assert done["type"] == "session_complete"
+        assert tone.calls and store.reads  # every step was attempted
+        failed = {
+            r.getMessage().split(" enrichment failed")[0].split()[-1]
+            for r in caplog.records if "enrichment failed" in r.getMessage()
+        }
+        assert failed == {"tone", "identity", "relay"}
+
+    def test_enrichment_skipped_without_optional_modules(self, local_first_env):
+        # tone_id / speaker_id / relay all None (the fixture) → only the
+        # suggestion, and the session is otherwise indistinguishable.
+        client = _inject(StoppableTranscriber())
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            _stream_one_second(ws)
+            ws.send_text(json.dumps(_turn_local()))
+            assert json.loads(ws.receive_text())["type"] == "suggestion"
+            ws.send_text(json.dumps({"type": "stop"}))
+            assert json.loads(ws.receive_text())["type"] == "session_complete"
+
+
+# --- Streaming cloud LLM: partial preview then final -------------------------
+
+class TestStreamingCloudSuggestion:
+    def test_first_suggestion_extraction(self):
+        from audio_pipeline import _first_suggestion_in
+
+        assert _first_suggestion_in('{"suggestions": ["I hear') is None  # unterminated
+        assert _first_suggestion_in('{"suggestions": ["I hear you."') == "I hear you."
+        assert _first_suggestion_in('```json\n{"suggestions": ["Say \\"no\\"."') == 'Say "no".'
+        assert _first_suggestion_in('{"suggestions": [""') is None  # empty string is no preview
+        assert _first_suggestion_in('{"tone_score": {}') is None
+
+    def test_partial_then_final_for_local_first_client(self, local_first_env):
+        llm = StreamingLLM(MOCK_LLM_JSON, chunk=5)
+        client = _inject(StoppableTranscriber())
+        app.state.llm_client = llm
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_text(json.dumps(_turn_local()))
+            partial = json.loads(ws.receive_text())
+            final = json.loads(ws.receive_text())
+
+        assert partial["type"] == "suggestion" and partial["partial"] is True
+        assert partial["suggestions"] == ["I hear what you're saying."]
+        assert partial["speak"] is False and partial["audio_b64"] is None
+        assert partial["suggestion_source"] == "cloud"
+        assert partial["utterance_text"] == final["utterance_text"]
+        assert final["partial"] is False
+        assert len(final["suggestions"]) == 3
+        assert llm.stream_calls and not llm.complete_calls  # streamed, not completed
+        assert "You never listen to me." in llm.stream_calls[0]
+
+    def test_legacy_client_never_sees_a_partial(self, local_first_env):
+        """Same streaming-capable LLM, but no turn_local → the plain
+        complete() path and a single final event (an old client would render
+        a partial as a second suggestion)."""
+        llm = StreamingLLM(MOCK_LLM_JSON)
+        client = _inject(FakeTranscriber())
+        app.state.llm_client = llm
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_bytes(b"\x00" * 50)
+            resp = recv_skipping_transcripts(ws)
+            ws.send_text(json.dumps({"type": "config"}))
+            assert json.loads(ws.receive_text())["type"] == "config_ack"  # nothing else queued
+        assert resp["type"] == "suggestion" and resp["partial"] is False
+        assert llm.complete_calls and not llm.stream_calls
+
+    def test_stream_without_a_complete_suggestion_still_yields_final(self, local_first_env):
+        llm = StreamingLLM(json.dumps({"suggestions": [], "importance": 10}))
+        client = _inject(StoppableTranscriber())
+        app.state.llm_client = llm
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_text(json.dumps(_turn_local()))
+            resp = json.loads(ws.receive_text())
+            ws.send_text(json.dumps({"type": "config"}))
+            assert json.loads(ws.receive_text())["type"] == "config_ack"
+        assert resp["partial"] is False and resp["suggestions"] == []
+
+    @pytest.mark.anyio
+    async def test_generate_suggestions_prompt_byte_identical_without_tone(self):
+        from audio_pipeline import _generate_suggestions
+        from models.audio import Utterance
+
+        llm = MagicMock()
+        llm.complete.return_value = MOCK_LLM_JSON
+        u = Utterance(session_id="s", speaker="Speaker A", text="hi", start_time=0.0, end_time=1.0)
+        await _generate_suggestions(llm, u, 50, "Husband")
+        assert llm.complete.call_args.kwargs["user"] == 'Transcript turn: "hi"'
+        await _generate_suggestions(llm, u, 50, "Husband", None, {"text_tone": {"sarcasm": 90}})
+        assert llm.complete.call_args.kwargs["user"] == (
+            'Transcript turn: "hi"\n\nOn-device signals for this turn (measured by '
+            "the phone; treat as hints, not facts):\n- text tone: sarcasm 90/100"
+        )

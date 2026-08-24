@@ -81,6 +81,16 @@ class SuggestionEvent(BaseModel):
     # as `kind`: every legacy event is "cloud", and an old client that never
     # reads this field still parses the event.
     suggestion_source: str = Field(default="cloud", description='"cloud" | "on-device"')
+    # True for a PROGRESSIVE preview of a cloud suggestion (Track 3-server):
+    # the streaming LLM has completed the FIRST suggestion string, and it is
+    # sent ahead of the full event so the phone can show something ~1s
+    # earlier. A partial is never voiced (speak=False, audio_b64=None) and
+    # its importance is a placeholder; the final event for the same
+    # utterance_text (partial=False) supersedes it. Only sent to clients
+    # that have proven they speak the new protocol (a session that sent a
+    # turn_local) — an older client would render it as a second suggestion.
+    # Default False keeps every legacy event byte-compatible.
+    partial: bool = Field(default=False)
 
 
 # ---------------------------------------------------------------------------
