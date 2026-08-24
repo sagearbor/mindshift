@@ -1,5 +1,7 @@
 package app.gauge.wear.haptics
 
+import app.gauge.shared.NudgeHapticSchedule
+
 /**
  * Device-tuned system effects channel A's cues map onto. SDK-agnostic on purpose (no android
  * import in this file): the mapping stays plain-JVM testable, and [app.gauge.wear.haptics.
@@ -30,8 +32,16 @@ sealed interface HapticCue {
  * THE single home of every haptic pattern constant in this app (v0.2.4 rule — rationale lives
  * next to the numbers, and no other file may define pattern timings/amplitudes):
  *
- * - Channel A ("you" — the wearer's own escalation) is crisp clicks: L1 a plain click, L2 a heavy
- *   click, L3 three composed full-scale clicks. Crispness is the channel's identity.
+ * - Channel A ("you" — the wearer's own escalation) is crisp clicks, and its SHAPE per level is
+ *   PRD §6's schedule as encoded in the shared [NudgeHapticSchedule] (Track 1, 2026-08-24): L1 a
+ *   single soft click, L2 a DOUBLE click (two composed clicks — was one heavy click before Track
+ *   1; the PRD's "double pulse" is a count, and one heavy tap is not distinguishable from one
+ *   soft tap through a band), L3 three composed clicks whose fallback waveform RAMPS
+ *   ([NudgeHapticSchedule.ESCALATING_RAMP]) — "continuous escalating". Tap counts come from
+ *   [NudgeHapticSchedule.planFor]'s `pulses`, so this file can't drift from the schedule the
+ *   tests pin; the REPEAT cadence per level (every 2 min / 1 min / 10 s) is owned by
+ *   [HapticDirector]'s reminder, not by these one-shot patterns. Crispness is the channel's
+ *   identity.
  * - Channel B ("partner/paired cue") is long smooth buzzes (250–400ms) and deliberately NEVER
  *   uses predefined click effects — the two channels must stay distinguishable by feel alone.
  * - Every gap between taps in any multi-tap pattern is [MIN_GAP_MS] (170ms) — the same
@@ -59,9 +69,11 @@ object HapticPatterns {
         if (level < 1 || level > 3) return null
         return when (channel) {
             "A" -> when (level) {
+                // One pulse: the OEM-tuned soft click (PRD §6 "single soft pulse").
                 1 -> HapticCue.Predefined(PredefinedEffect.CLICK)
-                2 -> HapticCue.Predefined(PredefinedEffect.HEAVY_CLICK)
-                else -> HapticCue.ComposedClicks(count = 3, gapMs = MIN_GAP_MS)
+                // Two / three pulses: N full-scale clicks composed as one platform effect, N from
+                // the shared schedule (2 for DOUBLE, 3 for ESCALATING).
+                else -> HapticCue.ComposedClicks(count = NudgeHapticSchedule.planFor(level).pulses, gapMs = MIN_GAP_MS)
             }
             "B" -> when (level) {
                 1 -> HapticCue.Waveform(listOf(0L, 250L), listOf(0, 220))
@@ -84,10 +96,16 @@ object HapticPatterns {
             "A" -> when (level) {
                 1 -> HapticCue.Waveform(listOf(0L, 75L), listOf(0, 255))
                 2 -> HapticCue.Waveform(listOf(0L, 75L, MIN_GAP_MS, 75L), listOf(0, 255, 0, 255))
-                else -> HapticCue.Waveform(
-                    listOf(0L, 100L, MIN_GAP_MS, 100L, MIN_GAP_MS, 100L),
-                    listOf(0, 255, 0, 255, 0, 255),
-                )
+                // Escalating: three 100ms taps whose amplitudes rise tap over tap (200 -> 230 ->
+                // 255, from the shared schedule) so the cue itself builds — the composed-click
+                // path above can't scale per primitive, so the ramp lives in the fallback only.
+                else -> {
+                    val ramp = NudgeHapticSchedule.planFor(3).amplitudeRamp
+                    HapticCue.Waveform(
+                        listOf(0L, 100L, MIN_GAP_MS, 100L, MIN_GAP_MS, 100L),
+                        listOf(0, ramp[0], 0, ramp[1], 0, ramp[2]),
+                    )
+                }
             }
             "B" -> cue("B", level) as? HapticCue.Waveform
             else -> null

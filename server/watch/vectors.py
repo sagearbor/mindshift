@@ -100,19 +100,37 @@ def estimate_f0(samples: np.ndarray, sr: int) -> float | None:
     return sr / peak_lag
 
 
-def _level_for(value: float, thresholds: tuple[tuple[float, int], ...]) -> int:
+def level_for(value: float, thresholds: tuple[tuple[float, int], ...]) -> int:
     """Highest level whose threshold ``value`` clears; 0 if none (thresholds
-    must be given highest-first)."""
+    must be given highest-first).
+
+    Public (Track 1, 2026-08-24): ``watch/relay.py`` maps the PHONE's
+    per-turn loudness onto the same ``YELLING_LEVELS`` ladder this engine
+    uses for the watch's own PCM windows, and must not grow a second copy of
+    the threshold walk — one ladder, one comparison rule (``>=``), or the
+    two inputs could disagree about what "level 2" means.
+    """
     for threshold, level in thresholds:
         if value >= threshold:
             return level
     return 0
 
 
-def _running_median(history: deque[float]) -> float | None:
+def running_median(history: deque[float]) -> float | None:
+    """Median of a bounded history, or None when it's empty (no baseline yet
+    — callers must treat that as "can't measure", never as 0). Public for
+    the same reason as ``level_for``: ``watch/relay.py`` keeps a phone-side
+    loudness history and needs the identical fallback rule."""
     if not history:
         return None
     return float(np.median(np.asarray(history, dtype=np.float64)))
+
+
+# Backwards-compatible private aliases — every in-module call site below
+# still reads as it did in gauge@2157433, and nothing outside this module
+# ever imported the underscored names (verified 2026-08-24).
+_level_for = level_for
+_running_median = running_median
 
 
 class VectorEngine:
