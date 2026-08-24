@@ -1,0 +1,82 @@
+{
+  "poker6": {
+    "auto": {
+      "num_speakers_true": 6,
+      "num_speakers_pred": 4,
+      "elapsed_sec": 11.9,
+      "per_turn_accuracy": 0.385,
+      "per_turn_correct": 5,
+      "per_turn_total": 13,
+      "duration_weighted_accuracy": 0.33
+    },
+    "num_speakers_hint": {
+      "num_speakers_true": 6,
+      "num_speakers_pred": 4,
+      "elapsed_sec": 12.2,
+      "per_turn_accuracy": 0.385,
+      "per_turn_correct": 5,
+      "per_turn_total": 13,
+      "duration_weighted_accuracy": 0.33
+    }
+  },
+  "family_real": {
+    "auto": {
+      "num_speakers_true": 2,
+      "num_speakers_pred": 4,
+      "elapsed_sec": 11.8,
+      "per_turn_accuracy": 0.312,
+      "per_turn_correct": 5,
+      "per_turn_total": 16,
+      "duration_weighted_accuracy": 0.38
+    },
+    "num_speakers_hint": {
+      "num_speakers_true": 2,
+      "num_speakers_pred": 2,
+      "elapsed_sec": 11.8,
+      "per_turn_accuracy": 0.933,
+      "per_turn_correct": 14,
+      "per_turn_total": 15,
+      "duration_weighted_accuracy": 0.996
+    }
+  },
+  "openai": {
+    "auto": {
+      "num_speakers_true": 2,
+      "num_speakers_pred": 2,
+      "elapsed_sec": 35.5,
+      "per_turn_accuracy": 1.0,
+      "per_turn_correct": 12,
+      "per_turn_total": 12,
+      "duration_weighted_accuracy": 1.0
+    },
+    "num_speakers_hint": {
+      "num_speakers_true": 2,
+      "num_speakers_pred": 2,
+      "elapsed_sec": 36.5,
+      "per_turn_accuracy": 1.0,
+      "per_turn_correct": 12,
+      "per_turn_total": 12,
+      "duration_weighted_accuracy": 1.0
+    }
+  },
+  "gptaudio": {
+    "auto": {
+      "num_speakers_true": 2,
+      "num_speakers_pred": 3,
+      "elapsed_sec": 41.0,
+      "per_turn_accuracy": 0.357,
+      "per_turn_correct": 5,
+      "per_turn_total": 14,
+      "duration_weighted_accuracy": 0.42
+    },
+    "num_speakers_hint": {
+      "num_speakers_true": 2,
+      "num_speakers_pred": 2,
+      "elapsed_sec": 41.4,
+      "per_turn_accuracy": 1.0,
+      "per_turn_correct": 14,
+      "per_turn_total": 14,
+      "duration_weighted_accuracy": 1.0
+    }
+  }
+}

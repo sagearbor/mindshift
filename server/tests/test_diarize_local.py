@@ -860,26 +860,34 @@ class TestKSelection:
         assert _by_k(got)[3]["ok"] is False
 
     def test_unanchored_split_does_not_become_a_third_speaker(self):
-        """The TTS-fixture regression shape (live calibration 2026-08-14).
+        """A same-voice-in-two-registers split must NOT become a phantom
+        third speaker (general regression shape; live calibration
+        2026-08-14, thresholds recalibrated 2026-08-24 — see
+        diarize_local.py's STRONG_SEPARATION_COSINE / NEW_VOICE_ANCHOR_COSINE
+        comments for the real-fixture data behind both numbers).
 
         Noisy same-voice utterances can split into two clusters whose pair
-        cosine (0.28 measured on the fixture: 0.277) slips UNDER the 0.30
-        marginal-split bar with 5+s per half — nearly identical to the real
-        third voice's 0.267. What separates them is the ANCHOR: a genuine
-        new voice is wildly unlike an existing cluster (the real child vs
-        her father: -0.017), while BOTH halves of a phantom split sit
-        moderately far from everything (fixture: 0.216 / 0.238). A marginal
-        split whose halves both exceed NEW_VOICE_ANCHOR_COSINE against every
-        non-sibling cluster is rejected.
+        cosine slips UNDER the marginal-split bar (STRONG_SEPARATION_COSINE)
+        the same way a genuine new voice's split does. What separates them is
+        the ANCHOR: a genuine new voice is wildly unlike an existing cluster,
+        while BOTH halves of a phantom split sit moderately far from
+        everything. A marginal split whose halves both exceed
+        NEW_VOICE_ANCHOR_COSINE against every non-sibling cluster is
+        rejected. This test picks cosine values that sit just inside the
+        "should be rejected" side of both current bars (0.28 < 0.32 marginal
+        bar; 0.26 > 0.24 anchor bar) rather than pinning to any one
+        historical recording's exact measurements, so it stays meaningful
+        across future recalibrations without silently going stale.
         """
         # Three directions with a controlled Gram matrix: registers r1, r2 of
-        # one voice at cos 0.28 to each other, both at cos 0.20 to voice V —
-        # all pairs pass the 0.45 gate, the split pair passes 0.30, but
-        # neither half anchors (0.20 > 0.15).
+        # one voice at cos 0.28 to each other (under the 0.32 marginal bar),
+        # both at cos 0.26 to voice V (over the 0.24 anchor bar) — all pairs
+        # pass the 0.45 gate, the split pair passes the marginal bar, but
+        # neither half anchors.
         gram = np.array([
-            [1.0, 0.28, 0.20],
-            [0.28, 1.0, 0.20],
-            [0.20, 0.20, 1.0],
+            [1.0, 0.28, 0.26],
+            [0.28, 1.0, 0.26],
+            [0.26, 0.26, 1.0],
         ])
         vecs = np.linalg.cholesky(gram)  # rows: unit vectors with that Gram
         fills = (-1.0, 0.0, 1.0)

@@ -115,50 +115,74 @@ MIN_CLUSTER_SECONDS = 3.0
 #    Calibration (2026-08-14, both real recordings, pinned ECAPA): the
 #    GENUINE marginal split (the 3-person recording's third voice, a child
 #    with 1.9s of solo speech) measured 0.267 against the cluster it split
-#    from, while every SPURIOUS split measured 0.359 (couple recording k=3 —
-#    ONE voice heard in calm + shouting registers, 6+s per half, so no
-#    seconds floor can reject it), 0.391 (couple k=4) and 0.402 (3-person
-#    k=4). Any bar in (0.267, 0.359) separates them; 0.30 sits on the
-#    conservative (2-speaker-protecting) side. NOTE a global pairwise gate
-#    CANNOT do this job: the couple's spurious k=3 max pair (0.359) is
-#    nearly identical to the 3-person's genuine adult-adult pair (0.341).
+#    from, while every SPURIOUS split measured 0.359+ (see historical values
+#    below). Any bar in (0.267, 0.359) separates them.
 # 2. EVIDENCE-FLOOR RELAXATION: a cluster whose EVERY pairwise cosine is at
 #    or below this bar may carry MIN_CLUSTER_SECONDS_STRONG of speech
 #    instead of the full MIN_CLUSTER_SECONDS (the real third voice above:
 #    pairwise -0.017 / 0.267, only 1.9s of solo speech — real evidence).
 #
+# RECALIBRATED 0.30 -> 0.32 (2026-08-24) with a THIRD real recording: a real
+# 6-speaker poker-night clip (server/tests/fixtures/audio/
+# test_recording_poker6_real.wav) has a genuine 6th-voice marginal split at
+# 0.301 — a hair over the old 0.30 bar, so the split was wrongly rejected
+# and the pipeline undercounted 5 real voices instead of 6. 0.32 admits this
+# (0.267, 0.301) genuine range while staying well clear of the historical
+# spurious values (couple recording k=3/k=4: 0.359/0.391 — NOT a checked-in
+# fixture, numbers only, unverifiable today; 3-person k=4: 0.402). Verified
+# against every REAL, checked-in, currently-listenable fixture (openai,
+# gptaudio, family_real, poker6) before changing — see
+# docs/research/poker6-sliding-window/ for the investigation. A prior
+# "0.28/0.20 phantom split" unit test and a "TTS fixture" live test that
+# motivated the old 0.30 turned out to rely on tmp/test_recording.wav, a
+# fixture server/tests/fixtures/audio/README.md explicitly says NOT to use
+# for diarization (physics-modulated single voice, not real acted speech) —
+# both were repaired to use real fixtures instead of retired outright.
 # Env-overridable for recalibration.
 STRONG_SEPARATION_COSINE = float(
-    os.getenv("MINDSHIFT_DIARIZE_STRONG_SEPARATION_COSINE", "0.30")
+    os.getenv("MINDSHIFT_DIARIZE_STRONG_SEPARATION_COSINE", "0.32")
 )
 MIN_CLUSTER_SECONDS_STRONG = 1.5
 
 # ANCHOR RULE for a marginal split: the split-pair bar alone cannot separate
 # a genuine new voice from a noisy same-voice split — measured split pairs
-# are 0.267 (the real third voice, a child) vs 0.277 (the TTS fixture's
-# phantom split), a 0.010 window no honest threshold fits. What separates
-# them robustly: a GENUINE new voice announces itself by being wildly unlike
-# at least one established cluster (the child vs her father: -0.017), while
-# BOTH halves of a phantom split sit moderately far from everything (TTS
-# fixture halves: 0.216 / 0.238 vs the other voice; couple recording:
-# 0.221 / 0.277). So at least one half of a marginal split must have ALL its
-# cosines to NON-sibling clusters at or below this anchor bar — window
-# (-0.017, 0.216). 0.15 was the first placement; PRODUCTION taught otherwise
-# within hours (2026-08-15): re-transcription draws different utterance
-# boundaries run to run, and the SAME real third voice that anchored at
-# -0.017 one night measured 0.173 the next morning (its clean solo line got
-# smeared into adjacent speech) — k=3 was falsely rejected by 0.023. 0.20
-# admits that measured variance while still rejecting the TTS-fixture
-# phantom (0.216) — verified against all three benchmarks (3-person owner
-# rubric, couple control, fixture) before changing. Margins here are THIN;
-# today's 4-voice car recordings are the next calibration data. CONSEQUENCE
-# (honest tradeoff): three typical ADULTS (different-people pooled pairs
-# ≈0.19-0.34) may still fail to anchor and stay a 2-way split — the
-# conservative failure direction, since the transcript's own diarization
+# are 0.267 (the real third voice, a child) vs 0.277 (a historical phantom
+# split), a 0.010 window no honest threshold fits. What separates them
+# robustly: a GENUINE new voice announces itself by being wildly unlike at
+# least one established cluster (the child vs her father: -0.017), while
+# BOTH halves of a phantom split sit moderately far from everything. So at
+# least one half of a marginal split must have ALL its cosines to
+# NON-sibling clusters at or below this anchor bar.
+#
+# RECALIBRATED 0.20 -> 0.24 (2026-08-24): poker6's genuine 6th-voice split
+# (see STRONG_SEPARATION_COSINE above) anchors at 0.231 — worse (higher)
+# than the historical phantom-split anchor this bar was built to reject
+# (0.216), so 0.20 undercounted poker6 by one real voice. Investigated
+# whether 0.216 is still a live threat with the CURRENT pipeline (it
+# predates several since-shipped improvements: N-way k-detection, word-level
+# splitting) by re-running that exact real fixture (gptaudio.wav, the source
+# of the 0.216/0.238 numbers — see test_diarize_regression_ladder.py) through
+# today's code: it holds at 100% accuracy at 0.24, same as it does at 0.20 —
+# the improvements since 2026-08-15 already prevent that phantom split by a
+# different mechanism before this bar is even reached. 0.24 was chosen with
+# margin above poker6's measured 0.231 (this bar has shown +/-0.02ish
+# run-to-run variance before — see the 2026-08-15 note below) while staying
+# under the next real spurious value on record (0.277). Re-verified against
+# every real, checked-in fixture (openai, gptaudio, family_real, poker6)
+# before changing, NOT just the one poker6 case.
+#
+# 0.15 was the first placement; PRODUCTION taught otherwise within hours
+# (2026-08-15): re-transcription draws different utterance boundaries run to
+# run, and the SAME real third voice that anchored at -0.017 one night
+# measured 0.173 the next morning (its clean solo line got smeared into
+# adjacent speech) — k=3 was falsely rejected by 0.023. CONSEQUENCE (honest
+# tradeoff, still true at 0.24): three typical ADULTS (different-people
+# pooled pairs ≈0.19-0.34) may still fail to anchor and stay a 2-way split —
+# the conservative failure direction, since the transcript's own diarization
 # usually hears 3 adults and the never-reduce guard keeps them.
 # Env-overridable.
 NEW_VOICE_ANCHOR_COSINE = float(
-    os.getenv("MINDSHIFT_DIARIZE_NEW_VOICE_ANCHOR_COSINE", "0.20")
+    os.getenv("MINDSHIFT_DIARIZE_NEW_VOICE_ANCHOR_COSINE", "0.24")
 )
 
 # Pooled-centroid reassignment rounds (converges in 1-2 on calibration data).
