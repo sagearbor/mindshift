@@ -1,0 +1,184 @@
+{
+  "_note": "Acted emotion, not physical ground truth: each turn is the model performing `instruction`; no expected pitch/energy labels on purpose (see scripts/make_test_recording_scenes.py). `expected_nudges` is HAND-AUTHORED from the script (which self turns a coach should react to, and how hard) \u2014 a spec for the product tracks, NOT a measurement of any model's output. `emotion_coarse` is the fixed scripted_emotion->{neutral,angry,sad,happy} table from the same script.",
+  "variant": "tts-scene",
+  "scene": "meeting4",
+  "summary": "4 voices, self + 3 colleagues. Status meeting, mostly neutral for ~45s, then a budget item: self gets tense, then shouts (late strong nudge), a colleague de-escalates, self apologises.",
+  "model_used": "gpt-4o-mini-tts-2025-12-15",
+  "sample_rate": 16000,
+  "silence_gap_sec": 0.4,
+  "num_speakers_true": 4,
+  "self_speaker": "Speaker A",
+  "speakers": {
+    "Speaker A": {
+      "voice": "onyx",
+      "is_self": true,
+      "role": "self"
+    },
+    "Speaker B": {
+      "voice": "marin",
+      "is_self": false,
+      "role": "chair"
+    },
+    "Speaker C": {
+      "voice": "ballad",
+      "is_self": false,
+      "role": "engineering lead"
+    },
+    "Speaker D": {
+      "voice": "nova",
+      "is_self": false,
+      "role": "marketing lead"
+    }
+  },
+  "turns": [
+    {
+      "speaker": "Speaker B",
+      "text": "Okay, let's start. First item: the March launch timeline.",
+      "scripted_emotion": "calm_open",
+      "emotion_coarse": "neutral",
+      "instruction": "Calm, warm, and a little tentative \u2014 opening a conversation gently.",
+      "duration_sec": 4.011
+    },
+    {
+      "speaker": "Speaker C",
+      "text": "Engineering's on track. Integration tests finish by the twentieth.",
+      "scripted_emotion": "calm_neutral",
+      "emotion_coarse": "neutral",
+      "instruction": "Even, matter-of-fact, conversational \u2014 no strong emotion.",
+      "duration_sec": 4.8519
+    },
+    {
+      "speaker": "Speaker D",
+      "text": "Marketing needs final screenshots by the fifteenth, or the press kit slips.",
+      "scripted_emotion": "calm_neutral",
+      "emotion_coarse": "neutral",
+      "instruction": "Even, matter-of-fact, conversational \u2014 no strong emotion.",
+      "duration_sec": 4.7233
+    },
+    {
+      "speaker": "Speaker A",
+      "text": "Tight, but doable. I'll have design prioritize the screenshots.",
+      "scripted_emotion": "calm_neutral",
+      "emotion_coarse": "neutral",
+      "instruction": "Even, matter-of-fact, conversational \u2014 no strong emotion.",
+      "duration_sec": 4.664
+    },
+    {
+      "speaker": "Speaker B",
+      "text": "Good. Second item: the support backlog is up thirty percent.",
+      "scripted_emotion": "calm_neutral",
+      "emotion_coarse": "neutral",
+      "instruction": "Even, matter-of-fact, conversational \u2014 no strong emotion.",
+      "duration_sec": 4.5379
+    },
+    {
+      "speaker": "Speaker A",
+      "text": "I'll pull the top ten tickets and send them round this afternoon.",
+      "scripted_emotion": "calm_neutral",
+      "emotion_coarse": "neutral",
+      "instruction": "Even, matter-of-fact, conversational \u2014 no strong emotion.",
+      "duration_sec": 3.9696
+    },
+    {
+      "speaker": "Speaker B",
+      "text": "Third item, budget. Finance wants every team to trim eight percent.",
+      "scripted_emotion": "calm_neutral",
+      "emotion_coarse": "neutral",
+      "instruction": "Even, matter-of-fact, conversational \u2014 no strong emotion.",
+      "duration_sec": 4.057
+    },
+    {
+      "speaker": "Speaker D",
+      "text": "Eight percent? We already cut the contractor budget last quarter.",
+      "scripted_emotion": "tense_rising",
+      "emotion_coarse": "angry",
+      "instruction": "Tense and clipped, patience visibly running out.",
+      "duration_sec": 3.8777
+    },
+    {
+      "speaker": "Speaker C",
+      "text": "We could delay the second hire until June. That covers most of it.",
+      "scripted_emotion": "calm_guarded",
+      "emotion_coarse": "neutral",
+      "instruction": "Calm but guarded, a hint of defensiveness under the surface.",
+      "duration_sec": 5.0713
+    },
+    {
+      "speaker": "Speaker B",
+      "text": "That's one option. What about the conference sponsorship?",
+      "scripted_emotion": "calm_neutral",
+      "emotion_coarse": "neutral",
+      "instruction": "Even, matter-of-fact, conversational \u2014 no strong emotion.",
+      "duration_sec": 3.1803
+    },
+    {
+      "speaker": "Speaker D",
+      "text": "We signed that in December. Backing out costs almost as much as going.",
+      "scripted_emotion": "calm_guarded",
+      "emotion_coarse": "neutral",
+      "instruction": "Calm but guarded, a hint of defensiveness under the surface.",
+      "duration_sec": 5.3326
+    },
+    {
+      "speaker": "Speaker A",
+      "text": "So we delay my hire again? That's the third time this year.",
+      "scripted_emotion": "tense_rising",
+      "emotion_coarse": "angry",
+      "instruction": "Tense and clipped, patience visibly running out.",
+      "duration_sec": 3.7584
+    },
+    {
+      "speaker": "Speaker B",
+      "text": "Nobody's decided anything. We're just listing options.",
+      "scripted_emotion": "calm_neutral",
+      "emotion_coarse": "neutral",
+      "instruction": "Even, matter-of-fact, conversational \u2014 no strong emotion.",
+      "duration_sec": 3.3335
+    },
+    {
+      "speaker": "Speaker A",
+      "text": "THEN LIST A DIFFERENT ONE! MY TEAM IS DROWNING AND EVERYONE HERE KNOWS IT!",
+      "scripted_emotion": "shout_angry",
+      "emotion_coarse": "angry",
+      "instruction": "Shout this, furious and losing control.",
+      "duration_sec": 5.4174
+    },
+    {
+      "speaker": "Speaker C",
+      "text": "Okay. Let's take that seriously. Can we table this and come back with real numbers?",
+      "scripted_emotion": "calm_deescalate",
+      "emotion_coarse": "neutral",
+      "instruction": "Calm and steady, deliberately lowering the temperature of the room.",
+      "duration_sec": 6.9918
+    },
+    {
+      "speaker": "Speaker A",
+      "text": "Yeah. Sorry, everyone. That was out of line. Real numbers by Thursday.",
+      "scripted_emotion": "repair_apology",
+      "emotion_coarse": "neutral",
+      "instruction": "Quiet and sincere, a little sheepish \u2014 a genuine apology.",
+      "duration_sec": 5.5219
+    },
+    {
+      "speaker": "Speaker B",
+      "text": "Thursday works. Thanks, everyone. That's all for today.",
+      "scripted_emotion": "calm_close",
+      "emotion_coarse": "neutral",
+      "instruction": "Calm and warm, relieved, sincere.",
+      "duration_sec": 3.1849
+    }
+  ],
+  "expected_nudges": [
+    {
+      "after_turn_index": 11,
+      "level": "mild",
+      "reason": "self tense_rising: first crack after ~45s of neutral meeting talk \u2014 mild. Speaker D's tense_rising at turn 7 is NOT self: no nudge there"
+    },
+    {
+      "after_turn_index": 13,
+      "level": "strong",
+      "reason": "self shout_angry: the late shouted spike this scene exists for \u2014 strong"
+    }
+  ],
+  "expected_nudges_note": "after_turn_index is 0-based into `turns` and always names a SELF turn (Speaker A). level: mild = tense/defensive rising, strong = shout or contempt. Non-self escalations deliberately have NO entry: a nudge on them is a false positive."
+}

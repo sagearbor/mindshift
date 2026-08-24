@@ -1,0 +1,158 @@
+{
+  "_note": "Acted emotion, not physical ground truth: each turn is the model performing `instruction`; no expected pitch/energy labels on purpose (see scripts/make_test_recording_scenes.py). `expected_nudges` is HAND-AUTHORED from the script (which self turns a coach should react to, and how hard) \u2014 a spec for the product tracks, NOT a measurement of any model's output. `emotion_coarse` is the fixed scripted_emotion->{neutral,angry,sad,happy} table from the same script.",
+  "variant": "tts-scene",
+  "scene": "family3",
+  "summary": "3 voices, self (parent) + teen + other parent. Dinner-prep squabble with rapid turn-taking: the TEEN escalates (non-self shout, no nudge expected), self flares once (defensive_rising -> one mild nudge), everyone resets.",
+  "model_used": "gpt-4o-mini-tts-2025-12-15",
+  "sample_rate": 16000,
+  "silence_gap_sec": 0.25,
+  "num_speakers_true": 3,
+  "self_speaker": "Speaker A",
+  "speakers": {
+    "Speaker A": {
+      "voice": "onyx",
+      "is_self": true,
+      "role": "self (parent)"
+    },
+    "Speaker B": {
+      "voice": "ballad",
+      "is_self": false,
+      "role": "teen"
+    },
+    "Speaker C": {
+      "voice": "nova",
+      "is_self": false,
+      "role": "other parent"
+    }
+  },
+  "turns": [
+    {
+      "speaker": "Speaker C",
+      "text": "Okay, dinner's in ten minutes. Who's setting the table tonight?",
+      "scripted_emotion": "calm_open",
+      "emotion_coarse": "neutral",
+      "instruction": "Calm, warm, and a little tentative \u2014 opening a conversation gently.",
+      "duration_sec": 3.8621
+    },
+    {
+      "speaker": "Speaker B",
+      "text": "Not me, I did it yesterday. And the day before, actually.",
+      "scripted_emotion": "calm_guarded",
+      "emotion_coarse": "neutral",
+      "instruction": "Calm but guarded, a hint of defensiveness under the surface.",
+      "duration_sec": 4.2769
+    },
+    {
+      "speaker": "Speaker A",
+      "text": "Then it's my turn. Grab the plates for me, would you?",
+      "scripted_emotion": "calm_neutral",
+      "emotion_coarse": "neutral",
+      "instruction": "Even, matter-of-fact, conversational \u2014 no strong emotion.",
+      "duration_sec": 3.2843
+    },
+    {
+      "speaker": "Speaker C",
+      "text": "Also, someone left the milk out again. All afternoon.",
+      "scripted_emotion": "calm_neutral",
+      "emotion_coarse": "neutral",
+      "instruction": "Even, matter-of-fact, conversational \u2014 no strong emotion.",
+      "duration_sec": 3.6716
+    },
+    {
+      "speaker": "Speaker B",
+      "text": "Why do you always assume it's me? Maybe ask Dad for once.",
+      "scripted_emotion": "defensive_rising",
+      "emotion_coarse": "angry",
+      "instruction": "Defensive and sharp, volume and pace rising.",
+      "duration_sec": 4.8424
+    },
+    {
+      "speaker": "Speaker A",
+      "text": "It was probably me, honestly. I made coffee around two.",
+      "scripted_emotion": "calm_neutral",
+      "emotion_coarse": "neutral",
+      "instruction": "Even, matter-of-fact, conversational \u2014 no strong emotion.",
+      "duration_sec": 4.4997
+    },
+    {
+      "speaker": "Speaker C",
+      "text": "That's the third time this week. It's not funny anymore.",
+      "scripted_emotion": "tense_rising",
+      "emotion_coarse": "angry",
+      "instruction": "Tense and clipped, patience visibly running out.",
+      "duration_sec": 3.5793
+    },
+    {
+      "speaker": "Speaker B",
+      "text": "OH MY GOD, IT'S MILK! WHY IS EVERYTHING IN THIS HOUSE A CRISIS?",
+      "scripted_emotion": "shout_angry",
+      "emotion_coarse": "angry",
+      "instruction": "Shout this, furious and losing control.",
+      "duration_sec": 5.8044
+    },
+    {
+      "speaker": "Speaker C",
+      "text": "Don't shout at me. I'm tired and I'm just asking for a little help.",
+      "scripted_emotion": "hurt_sad",
+      "emotion_coarse": "sad",
+      "instruction": "Hurt and vulnerable, on the edge of tears.",
+      "duration_sec": 4.6119
+    },
+    {
+      "speaker": "Speaker A",
+      "text": "Hey! Don't talk to your mother like that, and don't drag me into it either!",
+      "scripted_emotion": "defensive_rising",
+      "emotion_coarse": "angry",
+      "instruction": "Defensive and sharp, volume and pace rising.",
+      "duration_sec": 4.5558
+    },
+    {
+      "speaker": "Speaker B",
+      "text": "Fine. Sorry. I'm just sick of getting blamed for everything.",
+      "scripted_emotion": "sullen_sad",
+      "emotion_coarse": "sad",
+      "instruction": "Sullen and deflated, quiet, a little wounded.",
+      "duration_sec": 4.1677
+    },
+    {
+      "speaker": "Speaker A",
+      "text": "I know. I snapped too. Let's all just reset, okay?",
+      "scripted_emotion": "repair_apology",
+      "emotion_coarse": "neutral",
+      "instruction": "Quiet and sincere, a little sheepish \u2014 a genuine apology.",
+      "duration_sec": 4.2184
+    },
+    {
+      "speaker": "Speaker C",
+      "text": "Reset. Plates, forks, and somebody put the milk in the fridge.",
+      "scripted_emotion": "calm_close",
+      "emotion_coarse": "neutral",
+      "instruction": "Calm and warm, relieved, sincere.",
+      "duration_sec": 4.2732
+    },
+    {
+      "speaker": "Speaker B",
+      "text": "On it. And for the record, I'm making the garlic bread.",
+      "scripted_emotion": "warm_happy",
+      "emotion_coarse": "happy",
+      "instruction": "Warm, upbeat, genuinely pleased.",
+      "duration_sec": 3.8514
+    },
+    {
+      "speaker": "Speaker A",
+      "text": "Now we're talking. Best part of the week, right here.",
+      "scripted_emotion": "warm_happy",
+      "emotion_coarse": "happy",
+      "instruction": "Warm, upbeat, genuinely pleased.",
+      "duration_sec": 4.0636
+    }
+  ],
+  "expected_nudges": [
+    {
+      "after_turn_index": 9,
+      "level": "mild",
+      "reason": "self defensive_rising: a brief flare in defence of the other parent \u2014 one mild nudge. NOTE the teen's shout_angry at turn 7 and the other parent's tense_rising at turn 6 are NOT self turns: a nudge there is a false positive"
+    }
+  ],
+  "expected_nudges_note": "after_turn_index is 0-based into `turns` and always names a SELF turn (Speaker A). level: mild = tense/defensive rising, strong = shout or contempt. Non-self escalations deliberately have NO entry: a nudge on them is a false positive."
+}
