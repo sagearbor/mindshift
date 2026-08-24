@@ -7,13 +7,15 @@
  *
  * - `ortNative.ts` — production, over `onnxruntime-react-native` (CPU/XNNPACK,
  *   fixed-shape inputs; see docs/research/on-device-stack-2026-08-24.md).
+ * - `ortWeb.ts` — the web build (iOS Safari / Chrome), over `onnxruntime-web`
+ *   (wasm, single-threaded) loaded at runtime from the site's own /ort/.
  * - `testing/ortNode.ts` — Jest, over `onnxruntime-node` (a devDependency),
  *   so the test suite runs the REAL models on the REAL fixture PCM instead of
  *   a stub that fabricates probabilities.
  *
- * Both packages expose the same `onnxruntime-common` API shape
+ * All three packages expose the same `onnxruntime-common` API shape
  * (`InferenceSession.create` + `Tensor`), so one adapter (`wrapOrtRuntime`)
- * serves both — the seam exists so the pure logic never imports either.
+ * serves them all — the seam exists so the pure logic never imports either.
  */
 
 export type OnnxTensorType = "float32" | "int64";
@@ -32,8 +34,13 @@ export interface OnnxSession {
   release(): Promise<void>;
 }
 
-/** Builds a session from a model file path (native) or path/buffer (node). */
-export type OnnxSessionFactory = (model: string) => Promise<OnnxSession>;
+/** A model as ORT accepts it: a filesystem path (native), a URL (web —
+ *  the bundled Silero asset), or the raw bytes (web — the ECAPA download
+ *  read back from the browser cache). */
+export type OnnxModelSource = string | Uint8Array;
+
+/** Builds a session from a model path / URL / byte buffer. */
+export type OnnxSessionFactory = (model: OnnxModelSource) => Promise<OnnxSession>;
 
 export function float32Tensor(
   data: Float32Array,
@@ -67,7 +74,7 @@ interface OrtSessionLike {
 /** What `import * as ort from "onnxruntime-{node,react-native}"` gives us. */
 export interface OrtRuntimeLike {
   InferenceSession: {
-    create(model: string, options?: unknown): Promise<OrtSessionLike>;
+    create(model: OnnxModelSource, options?: unknown): Promise<OrtSessionLike>;
   };
   Tensor: new (
     type: string,
@@ -85,7 +92,7 @@ export function wrapOrtRuntime(
   ort: OrtRuntimeLike,
   sessionOptions?: unknown,
 ): OnnxSessionFactory {
-  return async (model: string): Promise<OnnxSession> => {
+  return async (model: OnnxModelSource): Promise<OnnxSession> => {
     const session = await ort.InferenceSession.create(model, sessionOptions);
     return {
       inputNames: session.inputNames,

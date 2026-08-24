@@ -31,6 +31,7 @@ import {
   type SpeakerIdCapability,
 } from "./speakerIdSetup";
 import { ensureOfflineModel, ExpoSpeechRecognizer } from "./expoStt";
+import type { SpeechRecognizer } from "./stt";
 import {
   bundledModelProvider,
   cloudProvider,
@@ -45,7 +46,14 @@ import type { HapticSink } from "./nudgePolicy";
 export type FastLoopHandlers = Pick<
   FastLoopDeps,
   "speak" | "send" | "onTurn" | "onNudge" | "onSttError" | "onDegrade"
->;
+> & {
+  /** Progress while the loop is being built ("Downloading voice model … 42 %").
+   *  The web build uses it; native builds are quick enough not to. */
+  onStatus?: (line: string) => void;
+  /** A recognizer already started inside the user gesture (web: iOS Safari
+   *  gates speech permission on one). Native ignores it. */
+  recognizer?: SpeechRecognizer | null;
+};
 
 export interface DefaultFastLoopOptions {
   providerOrder?: ProviderName[];
@@ -182,8 +190,12 @@ export async function createDefaultFastLoop(
       : buildSpeakerId(),
   ]);
   const llm = buildLlm(options.providerOrder);
+  // The web-only extras never reach the loop's deps.
+  const { recognizer: _primed, onStatus: _status, ...loopHandlers } = handlers;
+  void _primed;
+  void _status;
   const loop = new FastLoop({
-    ...handlers,
+    ...loopHandlers,
     vad,
     embedder: speaker.embedder,
     labeler: speaker.labeler,

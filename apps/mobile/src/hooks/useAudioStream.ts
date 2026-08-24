@@ -18,6 +18,7 @@ import {
   WebCaptureError,
   isWebAudioCaptureSupported,
 } from "../utils/webAudioCapture";
+import { unlockWebSpeechSynthesis, webSpeechSynthesisAvailable } from "../utils/webSpeech";
 import { getCachedToken } from "../auth/authToken";
 import type { FastLoop } from "../live/fastLoop";
 import { formatLatencyLog } from "../live/fastLoop";
@@ -27,6 +28,8 @@ import type {
   FastLoopHandlers,
 } from "../live/defaultDeps";
 import { createDefaultFastLoop, probeFastLoopCapabilities } from "../live/defaultDeps";
+import { createWebFastLoop, primeWebRecognizer, probeWebFastLoopCapabilities } from "../live/webDeps";
+import type { SpeechRecognizer } from "../live/stt";
 import type { TurnLatency } from "../live/fastLoop";
 import { summarizeSession, type SessionSummary } from "../live/sessionSummary";
 import { useLiveEpisodeStore } from "../store/liveEpisodeStore";
@@ -248,11 +251,7 @@ function empathyTone(slider: number): string {
  */
 function detectSpeechSupport(): boolean {
   if (Platform.OS !== "web") return true; // iOS/Android ship a TTS engine.
-  return (
-    typeof window !== "undefined" &&
-    typeof window.speechSynthesis !== "undefined" &&
-    typeof SpeechSynthesisUtterance !== "undefined"
-  );
+  return webSpeechSynthesisAvailable();
 }
 
 /**
@@ -268,11 +267,14 @@ function stopSpeechSafely() {
   }
 }
 
-/** Production fast-loop factory (native stack). */
+/** Production fast-loop factory: the native stack, or the browser stack on
+ *  the web build (onnxruntime-web + Web Speech API — src/live/webDeps.ts). */
 const defaultMakeFastLoop = (handlers: FastLoopHandlers) =>
-  createDefaultFastLoop(handlers);
-/** Production pre-flight probe (same builders, no loop). */
-const defaultProbeCapabilities = () => probeFastLoopCapabilities();
+  Platform.OS === "web" ? createWebFastLoop(handlers) : createDefaultFastLoop(handlers);
+/** Production pre-flight probe (same builders, no loop): the native stack,
+ *  or the browser stack on the web build. */
+const defaultProbeCapabilities = () =>
+  Platform.OS === "web" ? probeWebFastLoopCapabilities() : probeFastLoopCapabilities();
 
 /**
  * While the on-device loop runs, should a CLOUD suggestion be voiced?
@@ -478,6 +480,9 @@ export function useAudioStream(
       if (!speechEnabledRef.current) return; // Visual mode: stay silent.
       if (!speechAvailableRef.current) return; // No TTS here: honest silence.
       if (drainingRef.current) return; // User pressed stop: don't keep talking.
+      // Therapist mode is on-screen only, by contract — the fast loop never
+      // asks to speak in it, and neither may the cloud's suggestion event.
+      if (liveActiveRef.current && sessionModeRef.current === "therapist") return;
       try {
         // Unconditional stop guarantees most-recent-wins without tracking
         // speaking state (Speech.stop() is a no-op when nothing is speaking,
@@ -568,12 +573,17 @@ export function useAudioStream(
    * path running and says so in liveStatus — never a broken session.
    */
   const startFastLoop = useCallback(
-    async (sessionId: string, empathy: number) => {
+    async (sessionId: string, empathy: number, primedRecognizer: SpeechRecognizer | null = null) => {
       // Set by onSttError during loop.start() (a recognizer that fails to
       // start) so the status line below can say so instead of claiming a
       // working loop.
       let sttFailure: string | null = null;
       const handlers: FastLoopHandlers = {
+        ...(primedRecognizer ? { recognizer: primedRecognizer } : {}),
+        // Build progress (the web build's one-time voice-model download).
+        onStatus: (line) => {
+          if (sessionActiveRef.current && !drainingRef.current) setLiveStatus(line);
+        },
         speak: (text) => speakSuggestion(text),
         send: (event) => {
           localTurnsRef.current.push(event);
@@ -650,6 +660,7 @@ export function useAudioStream(
         if (!sessionActiveRef.current || drainingRef.current) {
           // The user stopped while models were loading: don't start now.
           void build.loop.stop().catch(() => {});
+          primedRecognizer?.stop();
           return;
         }
         // Reset BEFORE start: onSttError may fire inside start() and must
@@ -680,6 +691,7 @@ export function useAudioStream(
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        primedRecognizer?.stop();
         setLiveStatus(`On-device coaching unavailable (${msg}) — using the server.`);
       }
     },
@@ -1223,16 +1235,26 @@ export function useAudioStream(
    * recorder, so we capture the mic ourselves with getUserMedia + an
    * AudioWorklet (see utils/webAudioCapture) and feed the SAME resample /
    * int16 / batching / WebSocket pipeline the native path uses — the backend
-   * cannot tell the two apart.
+   * cannot tell the two apart. The on-device fast loop (src/live/webDeps.ts:
+   * Silero + ECAPA over onnxruntime-web, the Web Speech API for words) then
+   * hears exactly those frames too, from handleAudioBuffer.
    *
-   * Ordering matters for iOS Safari: `capture.start()` is reached with only
-   * synchronous setState calls before it, so the AudioContext is created and
-   * resumed inside the Start-button gesture (Safari refuses to resume it
-   * later). getUserMedia inside start() is the permission prompt — we request
-   * the mic BEFORE opening the session, mirroring the native path.
+   * Ordering matters for iOS Safari, which gates three things on the Start
+   * tap's user gesture: the AudioContext (created + resumed at the top of
+   * `capture.start()`), speech recognition (`primeWebRecognizer` starts it
+   * synchronously — its permission prompt needs the gesture) and speech
+   * synthesis (`unlockWebSpeechSynthesis` speaks a silent utterance so the
+   * first real suggestion, seconds later, isn't dropped). Everything before
+   * the first `await` below runs inside that gesture. getUserMedia inside
+   * start() is the mic prompt — requested BEFORE the session opens,
+   * mirroring the native path.
+   *
+   * Known limit (documented for the therapist): the page must stay in the
+   * foreground — locking the screen or switching apps stops the microphone
+   * (iOS releases it), and the session must be restarted.
    */
   const startWebSession = useCallback(
-    async (sessionId: string) => {
+    async (sessionId: string, empathyLevel: number) => {
       if (!isWebAudioCaptureSupported()) {
         // Honest unsupported-browser state. Still run the session (no audio):
         // the coaching UI works and the server reports its own state (e.g.
@@ -1246,10 +1268,26 @@ export function useAudioStream(
         return;
       }
 
-      const capture = new WebAudioCapture({ onBuffer: handleAudioBuffer });
+      const wantLive = liveModeRef.current && liveCapability.capable;
+      // Still inside the Start gesture: unlock TTS, start speech recognition.
+      if (speechAvailableRef.current) unlockWebSpeechSynthesis();
+      const primed = wantLive ? primeWebRecognizer() : null;
+
+      const capture = new WebAudioCapture({
+        onBuffer: handleAudioBuffer,
+        onTrackEnded: (reason) => {
+          if (!sessionActiveRef.current || drainingRef.current) return;
+          setMicError(
+            reason === "ended"
+              ? "The browser released the microphone (screen locked or app switched?) — stop and start the session again."
+              : "The microphone was muted by the browser — check for another app using it, then restart the session.",
+          );
+        },
+      });
       try {
         await capture.start();
       } catch (err) {
+        primed?.stop();
         // Permission denied / no mic / unsupported: surface the honest reason
         // and open no session (nothing to record).
         const kind = err instanceof WebCaptureError ? err.kind : "unavailable";
@@ -1281,8 +1319,14 @@ export function useAudioStream(
       setSessionActive(true);
       connectWebSocket(sessionId);
       setIsRecording(true);
+
+      if (wantLive) {
+        // Mic is flowing: bring up the browser fast loop alongside the server
+        // stream. Failure degrades to the server path (see startFastLoop).
+        await startFastLoop(sessionId, empathyLevel, primed);
+      }
     },
-    [connectWebSocket, handleAudioBuffer],
+    [connectWebSocket, handleAudioBuffer, startFastLoop, liveCapability.capable],
   );
 
   const startSession = useCallback(
@@ -1344,7 +1388,7 @@ export function useAudioStream(
       setSelfSpeakerState("Speaker A");
 
       if (Platform.OS === "web") {
-        await startWebSession(sessionId);
+        await startWebSession(sessionId, empathyLevel);
         return;
       }
 
