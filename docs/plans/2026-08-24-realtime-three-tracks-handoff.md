@@ -99,18 +99,27 @@ Studio, AVDs `pixel10_api35` and `wear_os5`, `JAVA_HOME`/`ANDROID_HOME` in
 `tmp/` (`venv-voice` has torch+speechbrain+transformers+onnx/onnxruntime;
 `venv-whisper` runs the plain suite; `venv-pyannote` is research-only).
 `HF_TOKEN` in `.env`. A LaunchAgent keeps the Mac awake for Sage's account.
-**Not installed: Xcode.app** (App Store only; `mas` needs an interactive
-sudo). Claude Code's sandbox shell does not source `~/.zprofile` — prefix
+**Xcode 26.3 installed** later the same day (+ iOS 26.3 simulator runtime,
+CocoaPods). `apps/mobile/ios` prebuilds and builds (PR #141 fixed the two
+Podfile issues: workspace-hoisted ORT pod path, AppCheckCore static
+frameworks); the Release app boots on the iPhone 17 Pro simulator. Run
+`pod install` with `LANG=en_US.UTF-8`. Claude Code's sandbox shell does not source `~/.zprofile` — prefix
 `export PATH="/opt/homebrew/bin:$PATH"`.
 
 ## 6. Only-Sage items (nothing else is blocked on these)
 
-1. **Xcode**: App Store → Xcode → `sudo xcode-select -s /Applications/Xcode.app`.
-   Until then iOS native (SpeechAnalyzer / Apple FM providers via
-   expo-ai-kit) is written and Jest-tested but never compiled here.
-2. **Pixel 10**: enable Developer options → USB debugging; then from
-   `apps/mobile`: `npx expo run:android --device` (dev build; ~10 min first
-   time). On first launch the app downloads `ecapa.onnx` (~80 MB) once.
+1. ~~Xcode~~ — done (see §5). The iOS providers still need a REAL iPhone
+   15 Pro+ to exercise Apple FM / SpeechAnalyzer; the simulator only proves
+   it compiles and boots.
+2. **Pixel 10**: enable Developer options → USB debugging, plug in, tap
+   Allow. A standalone release APK is already built and verified on the
+   emulator (no Metro needed): `adb install -r
+   ~/Desktop/mindshift-release-cf7310a.apk` (278 MB universal; points at
+   the production Cloud Run URL from `eas.json`; signed with the debug
+   keystore; frozen at cf7310a — no OTA will touch it). For a live-reload
+   dev build instead: `cd apps/mobile && npx expo run:android --device`.
+   On first launch the app downloads `ecapa.onnx` (~80 MB) once — which
+   requires the server deploy below.
 3. **Enroll voices** in the app: yourself ("You") and "Mom" as a named
    person (new multi-person enrollment in Voice settings) before the demo.
 4. **Demo run** (speaker-phone mode): start a live session in `speaker`
