@@ -47,7 +47,11 @@ export interface VoiceTrainingDeps {
   /** Persist the finished wav; returns the handle enrollVoiceDirect accepts
    *  (a file URI on native, a File on web). */
   saveWav: (bytes: Uint8Array) => Promise<string | File>;
-  enroll: (file: string | File, name: string) => Promise<DirectEnrollResult>;
+  enroll: (
+    file: string | File,
+    name: string,
+    person?: { personId: string; displayName?: string | null },
+  ) => Promise<DirectEnrollResult>;
   getPermission: () => Promise<boolean>;
   requestPermission: () => Promise<boolean>;
 }
@@ -67,7 +71,7 @@ function defaultDeps(): VoiceTrainingDeps {
       new File(uri).write(bytes);
       return uri;
     },
-    enroll: (file, name) => enrollVoiceDirect(file, name),
+    enroll: (file, name, person) => enrollVoiceDirect(file, name, person),
     getPermission: async () => {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const { getRecordingPermissionsAsync } = require("expo-audio");
@@ -94,6 +98,10 @@ interface VoiceTrainingFlowProps {
    *  real sample count (the parent refetches the profile for detail). */
   onDone: (count: number) => void;
   onCancel: () => void;
+  /** People labeling: train ANOTHER person's voice ("Mom") instead of the
+   *  owner's. Omitted → the owner ("This is me"), exactly as before. The
+   *  phrases are read by that person; the copy names them. */
+  person?: { personId: string; displayName: string };
   /** Test seam; production uses the lazy defaults. */
   deps?: VoiceTrainingDeps;
 }
@@ -114,8 +122,13 @@ type Stage = "phrase" | "uploading" | "success" | "error";
 export default function VoiceTrainingFlow({
   onDone,
   onCancel,
+  person,
   deps,
 }: VoiceTrainingFlowProps) {
+  // "your voice" for the owner; "Mom's voice" for a partner.
+  const whose = person ? `${person.displayName}’s` : "your";
+  const personRef = useRef(person);
+  personRef.current = person;
   const depsRef = useRef<VoiceTrainingDeps | null>(deps ?? null);
   if (!depsRef.current) depsRef.current = defaultDeps();
 
@@ -223,7 +236,11 @@ export default function VoiceTrainingFlow({
     }
     try {
       const file = await depsRef.current!.saveWav(wav);
-      const result = await depsRef.current!.enroll(file, "guided-enrollment.wav");
+      // The person is passed only when training someone else's voice, so
+      // the owner's upload is byte-for-byte the pre-existing call.
+      const result = personRef.current
+        ? await depsRef.current!.enroll(file, "guided-enrollment.wav", personRef.current)
+        : await depsRef.current!.enroll(file, "guided-enrollment.wav");
       if (mountedRef.current) {
         setEnrollCount(result.enroll_count);
         setStage("success");
@@ -353,7 +370,7 @@ export default function VoiceTrainingFlow({
       <View style={styles.container} testID="voice-training-flow">
         <View style={styles.uploadingRow} testID="vt-uploading">
           <ActivityIndicator size="small" color="#4A90D9" />
-          <Text style={styles.note}>Teaching the app your voice…</Text>
+          <Text style={styles.note}>{`Teaching the app ${whose} voice…`}</Text>
         </View>
       </View>
     );
@@ -365,14 +382,14 @@ export default function VoiceTrainingFlow({
         <View testID="vt-success">
           <Text style={styles.successTitle}>Voice trained</Text>
           <Text style={styles.note}>
-            {`Your voice profile now blends ${enrollCount} sample${enrollCount === 1 ? "" : "s"}. ` +
-              "MindShift stores a numeric voice signature, never your audio."}
+            {`${person ? `${person.displayName}’s` : "Your"} voice profile now blends ${enrollCount} sample${enrollCount === 1 ? "" : "s"}. ` +
+              `MindShift stores a numeric voice signature, never ${person ? "the" : "your"} audio.`}
           </Text>
           <Text style={styles.note} testID="vt-success-catchup-note">
-            Training your voice doesn’t relabel recordings you’ve already
-            stored — open “Your growth” and tap “Catch up my past
-            recordings” to match it against everything you recorded before
-            today.
+            {`Training ${whose} voice doesn’t relabel recordings you’ve already ` +
+              "stored — open “Your growth” and tap “Catch up my past " +
+              "recordings” to match it against everything you recorded before " +
+              "today."}
           </Text>
         </View>
         <TouchableOpacity

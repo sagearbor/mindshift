@@ -558,10 +558,13 @@ async def test_list_and_detail_happy_path(client, store):
         "duration_seconds", "turns", "analysis", "source", "storage_note",
         "episodes", "word_metrics", "reanalyzed_at",
         "speaker_labels", "manual_speaker_labels",
+        # People labeling — {speaker: person_id}; empty until someone is picked.
+        "manual_speaker_people",
         "shared", "owner_email", "shares",
         # Track 2 (live sessions) — None for an upload.
         "mode", "session_id",
     }
+    assert d["manual_speaker_people"] == {}
     assert d["mode"] is None and d["session_id"] is None
     # Owner's own recording → not shared, no owner_email, empty shares.
     assert d["shared"] is False
@@ -1231,7 +1234,9 @@ async def test_patch_speaker_labels_returns_effective_shape(client, store):
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert set(body) == {"id", "manual_speaker_labels", "speaker_labels"}
+    assert set(body) == {
+        "id", "manual_speaker_labels", "manual_speaker_people", "speaker_labels",
+    }
     assert body["id"] == rid
     # Raw map for the editor (stripped); effective map carries the source.
     assert body["manual_speaker_labels"] == {"Speaker A": "Alex"}

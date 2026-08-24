@@ -269,14 +269,12 @@ def _self_speaker_of(rec: dict) -> str | None:
         analysis.get("speaker_labels"),
         rec.get("manual_speaker_labels") or {},
         main._recording_speaker_ids(rec),
+        main._recording_manual_people(rec),
     )
-    # The enrolled rung's "You" specifically — an enrolled PARTNER is also
-    # label_source "enrolled" under multi-person voiceprints.
-    me = [
-        sp for sp, entry in effective.items()
-        if entry.get("label_source") == main.LABEL_SOURCE_ENROLLED
-        and entry.get("display_label") == main.ENROLLED_DISPLAY_LABEL
-    ]
+    # The enrolled rung's "You" specifically (an enrolled PARTNER is also
+    # label_source "enrolled" under multi-person voiceprints) — or a
+    # manual-person label the user pointed at "self" (people labeling).
+    me = [sp for sp, entry in effective.items() if main._is_me_label(entry)]
     return me[0] if len(me) == 1 else None
 
 

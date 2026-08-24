@@ -401,6 +401,37 @@ class RecordingsStore:
         )
         return meta
 
+    async def update_manual_speaker_people(
+        self, uid: str, recording_id: str, people: dict,
+    ) -> dict | None:
+        """Persist the recording's manual-person map (``{speaker: person_id}``
+        — people labeling: which ENROLLED person a manually named speaker is),
+        returning the updated meta, or ``None`` when the recording does not
+        exist for this uid (→ 404). Same meta.json read-modify-write as
+        ``update_manual_speaker_labels`` — stored beside the name map so a
+        re-analyze never wipes it; an empty map removes the key."""
+        return await asyncio.to_thread(
+            self._update_manual_speaker_people_sync, uid, recording_id, people,
+        )
+
+    def _update_manual_speaker_people_sync(
+        self, uid, recording_id, people,
+    ) -> dict | None:
+        blob = self._bucket.blob(
+            self._prefix(uid, recording_id) + "meta.json"
+        )
+        if not blob.exists():
+            return None
+        meta = json.loads(blob.download_as_bytes())
+        if people:
+            meta["manual_speaker_people"] = people
+        else:
+            meta.pop("manual_speaker_people", None)
+        blob.upload_from_string(
+            json.dumps(meta), content_type="application/json",
+        )
+        return meta
+
     # -- delete ------------------------------------------------------------
     async def delete_recording(self, uid: str, recording_id: str) -> bool:
         """Delete every object for a recording. ``False`` when none existed
@@ -746,8 +777,9 @@ class RecordingsStore:
         The caller mints ``recording_id`` deterministically from the session
         id so a re-POST of the same session lands on the same objects. When a
         meta.json already exists, the human-owned fields it carries —
-        ``manual_speaker_labels`` (a correction), ``shares`` (grants) and
-        ``title`` when the new meta has none — are preserved: a phone
+        ``manual_speaker_labels`` / ``manual_speaker_people`` (a correction),
+        ``shares`` (grants) and ``title`` when the new meta has none — are
+        preserved: a phone
         re-sending its turns must never wipe what the user did afterwards.
         Returns the meta actually written."""
         return await asyncio.to_thread(
@@ -760,7 +792,7 @@ class RecordingsStore:
         written = dict(meta)
         if meta_blob.exists():
             existing = json.loads(meta_blob.download_as_bytes())
-            for key in ("manual_speaker_labels", "shares"):
+            for key in ("manual_speaker_labels", "manual_speaker_people", "shares"):
                 if key in existing and key not in written:
                     written[key] = existing[key]
             if not written.get("title") and existing.get("title"):

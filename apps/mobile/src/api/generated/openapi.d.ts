@@ -253,6 +253,64 @@ export interface paths {
         delete: operations["forget_voice_person_voice_people__person_id__delete"];
         options?: never;
         head?: never;
+        /**
+         * Rename Voice Person
+         * @description Rename an enrolled partner ("alex" → "Alexander"). The owner is always
+         *     "You" and cannot be renamed (422). 404 when that person has no profile
+         *     (uid-scoped: another account's people never resolve here). The new name
+         *     applies to every FUTURE label the enrolled rung writes; labels already
+         *     stored on recordings keep the name they were written with (a stored
+         *     analysis is never rewritten by a rename — the People screen says so).
+         */
+        patch: operations["rename_voice_person_voice_people__person_id__patch"];
+        trace?: never;
+    };
+    "/voice/people/{person_id}/enroll-from-recording": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enroll Person From Recording
+         * @description "Remember this voice" — learn ``person_id``'s voice from ONE diarized
+         *     speaker of a stored recording, creating the person when it is new (a
+         *     ``display_name`` is then required).
+         *
+         *     Pools that speaker's turns from the stored ``audio.m4a`` (decoded to
+         *     16 kHz), embeds them once, and appends the result as a NEW SAMPLE on the
+         *     person's v2 profile (provenance: recording id + speaker label + seconds
+         *     of pooled speech), reblending over all samples. Then relabels THIS
+         *     recording's stored analysis so the speaker shows the person's name on the
+         *     enrolled rung immediately (same relabel ``POST /voice/enroll`` does).
+         *
+         *     Honest refusals — every one a 422 whose detail starts with a bracketed
+         *     reason tag the client keys its copy on:
+         *
+         *     * ``[no-audio]`` — a live session keeps no audio on the server
+         *       (``media_type: none``), or the derivative is missing: nothing to learn
+         *       from; record a 20-second sample on the People screen instead.
+         *     * ``[too-little-speech]`` — fewer than ``MIN_ENROLL_SECONDS`` (3 s) of
+         *       pooled speech under that speaker's turns. The MATCHING floor is 1 s,
+         *       but a print every future match depends on wants more than a matched
+         *       turn does (same rule as POST /voice/enroll).
+         *     * ``[sounds-like-someone-else]`` — the pooled voice clears
+         *       ``MATCH_THRESHOLD`` against a DIFFERENT enrolled person and is not
+         *       closer to this one by ``ENROLL_CONFLICT_MARGIN`` (see
+         *       ``speaker_id.enrollment_conflict``). The user most likely tapped the
+         *       wrong row; appending it would poison this print.
+         *
+         *     Other gates as for ``/voice/enroll``: deps absent / storage disabled →
+         *     503; recording missing or foreign → 404; speaker not in the recording →
+         *     422; a brand-new person with no name → 422.
+         */
+        post: operations["enroll_person_from_recording_voice_people__person_id__enroll_from_recording_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
         trace?: never;
     };
@@ -2169,6 +2227,53 @@ export interface components {
             /** Context */
             context: string;
         };
+        /** EnrollFromRecordingRequest */
+        EnrollFromRecordingRequest: {
+            /** Recording Id */
+            recording_id: string;
+            /** Speaker Label */
+            speaker_label: string;
+            /** Display Name */
+            display_name?: string | null;
+        };
+        /** EnrollFromRecordingResponse */
+        EnrollFromRecordingResponse: {
+            /** Enrolled */
+            enrolled: boolean;
+            /** Person Id */
+            person_id: string;
+            /** Display Name */
+            display_name?: string | null;
+            /**
+             * Is Self
+             * @default false
+             */
+            is_self: boolean;
+            /** Created */
+            created: boolean;
+            /** Enroll Count */
+            enroll_count: number;
+            /** Seconds */
+            seconds: number;
+            /** Dim */
+            dim: number;
+            /** Updated At */
+            updated_at: string;
+            /**
+             * Speaker Labels
+             * @default {}
+             */
+            speaker_labels: {
+                [key: string]: {
+                    [key: string]: unknown;
+                };
+            };
+            /**
+             * Stored
+             * @default a numeric voice signature (192 numbers), not the audio
+             */
+            stored: string;
+        };
         /** EnrollRequest */
         EnrollRequest: {
             /** Recording Id */
@@ -2776,6 +2881,11 @@ export interface components {
          * @enum {string}
          */
         RelationshipType: "couple" | "parent_child" | "coach_team" | "org" | "custom";
+        /** RenamePersonRequest */
+        RenamePersonRequest: {
+            /** Display Name */
+            display_name: string;
+        };
         /** ReportCardOut */
         ReportCardOut: {
             /** Score */
@@ -2936,6 +3046,10 @@ export interface components {
             /** Labels */
             labels?: {
                 [key: string]: string;
+            };
+            /** People */
+            people?: {
+                [key: string]: string | null;
             };
         };
         /** TelemetryEvent */
@@ -3392,6 +3506,8 @@ export interface components {
             at?: string | null;
             /** Note */
             note?: string | null;
+            /** Seconds */
+            seconds?: number | null;
         };
         /** Participant */
         models__relationship__Participant: {
@@ -3683,6 +3799,80 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ForgetPersonResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_voice_person_voice_people__person_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                person_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenamePersonRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceProfileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enroll_person_from_recording_voice_people__person_id__enroll_from_recording_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                person_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnrollFromRecordingRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollFromRecordingResponse"];
                 };
             };
             /** @description Validation Error */

@@ -79,6 +79,19 @@ ECAPA_REVISION = os.getenv(
 # speaker keeps its generic label; we NEVER force a match. Overridable via env.
 MATCH_THRESHOLD = float(os.getenv("MINDSHIFT_VOICE_MATCH_THRESHOLD", "0.65"))
 
+# "Learn this voice from a recording" guard (people labeling). Before a pooled
+# speaker embedding is appended to person P's print, it is scored against
+# EVERY other enrolled person. If it clears MATCH_THRESHOLD against someone
+# ELSE — i.e. the matcher would already call this voice "Mom" — AND it is not
+# at least this much closer to P (or P has no print yet), the enrollment is
+# refused: the user has most likely tapped the wrong speaker, and appending a
+# second person's voice to P's print would poison it (every later match would
+# then confuse the two). 0.10 is the width of the gap between the ~0.55
+# merged-diarization artifacts and the 0.72+ genuine same-voice scores in the
+# calibration table above: a voice genuinely closer to P by that much is P's,
+# even if it also resembles someone else (siblings, parent/child). Overridable.
+ENROLL_CONFLICT_MARGIN = float(os.getenv("MINDSHIFT_VOICE_ENROLL_CONFLICT_MARGIN", "0.10"))
+
 # ECAPA is trained on 16 kHz audio; our stored derivatives + live contract are
 # already 16 kHz mono, so no resample is normally needed. Kept explicit so a
 # mismatched input is caught, not silently mis-embedded.
@@ -666,6 +679,56 @@ def without_matches_for(speaker_identity: dict, speakers) -> dict:
     return out
 
 
+def enrollment_conflict(
+    embedding: np.ndarray,
+    profiles: list[dict],
+    person_id: str,
+    *,
+    threshold: float = MATCH_THRESHOLD,
+    margin: float = ENROLL_CONFLICT_MARGIN,
+) -> dict | None:
+    """Would appending ``embedding`` to ``person_id``'s print mislabel someone
+    ELSE's voice? Pure (no torch): scores the candidate against every stored
+    person document in ``profiles`` (the ``list_voiceprints`` shape —
+    ``person_id`` + blended ``embedding``).
+
+    Returns ``None`` when the enrollment is safe, else a dict describing the
+    conflict — ``{"person_id", "display_name", "score", "own_score"}`` —
+    where ``score`` is the cosine to the closest OTHER person and
+    ``own_score`` the cosine to ``person_id``'s existing print (``None`` for
+    a brand-new person). The rule (see :data:`ENROLL_CONFLICT_MARGIN`): a
+    conflict exists iff some other person's print clears ``threshold`` (the
+    matcher would call this voice theirs) AND the candidate is NOT closer to
+    ``person_id`` by at least ``margin``. Documents without a usable vector
+    contribute nothing."""
+    candidate = l2_normalize(np.asarray(embedding, dtype=np.float32))
+    own_score: float | None = None
+    best: tuple[float, str, str | None] | None = None
+    for doc in profiles or ():
+        if not isinstance(doc, dict):
+            continue
+        raw = doc.get("embedding")
+        if not isinstance(raw, list) or not raw:
+            continue
+        pid = doc.get("person_id") or SELF_PERSON_ID
+        score = cosine(candidate, np.asarray(raw, dtype=np.float32))
+        if pid == person_id:
+            own_score = score
+            continue
+        if best is None or score > best[0]:
+            best = (score, pid, _person_meta(pid, {pid: doc})["display_name"])
+    if best is None or best[0] < threshold:
+        return None
+    if own_score is not None and own_score - best[0] >= margin:
+        return None
+    return {
+        "person_id": best[1],
+        "display_name": best[2] or best[1],
+        "score": round(best[0], 4),
+        "own_score": None if own_score is None else round(own_score, 4),
+    }
+
+
 def blend_samples(samples: list[dict]) -> np.ndarray:
     """The blended voiceprint for a v2 sample list: the L2-normalized mean of
     the (normalized) per-sample embeddings. With per-sample storage the blend is
@@ -773,6 +836,7 @@ def new_profile(
     note: str | None = None,
     person_id: str | None = None,
     display_name: str | None = None,
+    seconds: float | None = None,
 ) -> dict:
     """Build the stored v2 voiceprint document: append this enrollment as an
     individual sample and recompute the blend over ALL samples. Pure (no I/O) so
@@ -788,6 +852,11 @@ def new_profile(
     voiceprints, see :func:`as_person`); both default to what ``existing``
     already says, and ultimately to the account owner ("self"/"You"), so every
     pre-existing caller keeps building the owner's own print unchanged.
+
+    ``seconds`` — how much pooled speech the sample was embedded from — is
+    stored on the sample as provenance when known (the People screen shows
+    "12 s from <recording>"); omitted (not null) otherwise so older samples
+    are byte-identical.
     """
     existing_v2 = as_person(existing, person_id=person_id, display_name=display_name)
     person = as_person(
@@ -805,6 +874,8 @@ def new_profile(
     }
     if note is not None:
         sample["note"] = note
+    if seconds is not None:
+        sample["seconds"] = round(float(seconds), 1)
     samples.append(sample)
     blended = blend_samples(samples)
     created_at = (existing_v2 or {}).get("created_at") or now_iso

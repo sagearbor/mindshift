@@ -26,6 +26,7 @@ export type DestId =
   | "growth"
   | "watchSetup"
   | "voiceProfile"
+  | "people"
   | "therapistDashboard"
   | "settings"
   | "tutorial";
@@ -66,7 +67,10 @@ export type DestScreen =
   | { name: "watch-setup" }
   | { name: "advanced" }
   | { name: "onboarding" }
-  | { name: "dashboard" };
+  | { name: "dashboard" }
+  // People labeling — case 3 like watch-setup: `returnTo` is patched in by
+  // App.tsx's handleNavigate from whatever screen is current.
+  | { name: "people" };
 
 /** Icon key naming — N2 will name its SVG components with these exact
  *  strings (mic/coach, waveform/analyze, list/recordings, trendline/growth,
@@ -155,6 +159,17 @@ export const DESTINATIONS: readonly Destination[] = [
     screen: { name: "advanced" },
     // Catalog-only: infrequent account-management action, and not even an
     // independently addressable screen yet.
+    primaryEligible: false,
+  },
+  {
+    id: "people",
+    title: "People",
+    iconId: "voice",
+    // People labeling: everyone whose voice the app recognizes. A pushed
+    // screen (App.tsx `people`, dynamic returnTo via handleNavigate).
+    screen: { name: "people" },
+    // Catalog-only: account management (add/rename/forget voices), not a
+    // daily action — same reasoning as voiceProfile above.
     primaryEligible: false,
   },
   {

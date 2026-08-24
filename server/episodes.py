@@ -44,6 +44,13 @@ _EXCERPT_MAX_CHARS = 100
 SUMMARY_SOURCE_TITLE = "title"
 SUMMARY_SOURCE_EXCERPT = "excerpt"
 
+# The human-assertion rungs of main's label ladder (LABEL_SOURCE_MANUAL /
+# LABEL_SOURCE_MANUAL_PERSON) — string literals here because main imports
+# this module. A speaker carrying one of these keeps that label even when an
+# enrolled match for the same speaker is present in ``speaker_identity``
+# (the human correction outranks the machine).
+MANUAL_LABEL_SOURCES = frozenset({"manual", "manual-person"})
+
 
 def _excerpt(text: object) -> str | None:
     """A verbatim, length-capped quote of ``text`` (the honest no-LLM summary).
@@ -68,20 +75,25 @@ def _display_label(
 ) -> str:
     """The display label for one canonical speaker id.
 
-    Precedence mirrors the server's label ladder: an enrolled voiceprint match
-    renders as "You" (the owner) or the enrolled partner's name; else the
-    resolved ``speaker_labels`` display_label; else the raw id. Read
-    defensively — stored analyses vary by server version.
+    Precedence mirrors the server's label ladder: a MANUAL label (``manual``
+    — free text — or ``manual-person`` — an enrolled person the user picked;
+    people labeling) is the human's assertion and wins outright; else an
+    enrolled voiceprint match renders as "You" (the owner) or the enrolled
+    partner's name; else the resolved ``speaker_labels`` display_label; else
+    the raw id. Read defensively — stored analyses vary by server version.
     """
-    enrolled = enrolled_labels.get(speaker)
-    if enrolled:
-        return enrolled
     entry = (speaker_labels or {}).get(speaker)
+    entry_label: str | None = None
     if isinstance(entry, dict):
         label = entry.get("display_label")
         if isinstance(label, str) and label.strip():
-            return label.strip()
-    return speaker
+            entry_label = label.strip()
+        if entry_label and entry.get("label_source") in MANUAL_LABEL_SOURCES:
+            return entry_label
+    enrolled = enrolled_labels.get(speaker)
+    if enrolled:
+        return enrolled
+    return entry_label or speaker
 
 
 def _enrolled_labels(speaker_identity: object) -> dict[str, str]:

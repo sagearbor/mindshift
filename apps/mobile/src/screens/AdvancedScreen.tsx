@@ -80,6 +80,10 @@ interface AdvancedScreenProps {
   /** Open the "Home screen design" editor (Task N5 of P3-10) — arrange the
    *  configurable bottom bar and home boxes. */
   onOpenHomeDesign: () => void;
+  /** People labeling: open the People screen (everyone whose voice the app
+   *  recognizes — add, rename, forget). Optional so existing callers and
+   *  tests that don't wire it keep rendering; the row hides without it. */
+  onOpenPeople?: () => void;
   /** Open the selfie-capture flow (Task N6 of P3-10) — the same flow the
    *  avatar menu's "Set profile photo" row opens. "Remove photo" doesn't
    *  need navigation (see the Account section below) — it clears
@@ -122,6 +126,7 @@ export default function AdvancedScreen({
   onOpenWatchSetup,
   onOpenTutorial,
   onOpenHomeDesign,
+  onOpenPeople,
   onSetProfilePhoto,
 }: AdvancedScreenProps) {
   // Voice profile card — full detail (per-sample provenance) once loaded.
@@ -377,6 +382,20 @@ export default function AdvancedScreen({
           <Text style={styles.sectionHeading} testID="section-voice">
             Voice
           </Text>
+          {onOpenPeople ? (
+            <TouchableOpacity
+              testID="advanced-people"
+              accessibilityRole="button"
+              style={styles.row}
+              onPress={onOpenPeople}
+            >
+              <Text style={styles.rowTitle}>People</Text>
+              <Text style={styles.rowSub}>
+                Everyone whose voice MindShift recognizes — name someone once
+                (“that’s Mom”) and they’re labeled in every later session.
+              </Text>
+            </TouchableOpacity>
+          ) : null}
           <View style={styles.row} testID="voice-profile-card">
             <Text style={styles.rowTitle}>Voice profile</Text>
             {profile.enrolled ? (

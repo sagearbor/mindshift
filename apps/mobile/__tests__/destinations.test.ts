@@ -13,13 +13,15 @@ const EXPECTED_IDS: DestId[] = [
   "growth",
   "watchSetup",
   "voiceProfile",
+  // People labeling: the People screen (App.tsx `people`, catalog-only).
+  "people",
   "therapistDashboard",
   "settings",
   "tutorial",
 ];
 
 describe("destinations registry", () => {
-  it("has exactly the nine real destinations from the current app", () => {
+  it("has exactly the ten real destinations from the current app", () => {
     expect(DESTINATIONS.map((d) => d.id).sort()).toEqual(
       [...EXPECTED_IDS].sort(),
     );

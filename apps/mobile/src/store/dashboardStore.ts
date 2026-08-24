@@ -3,6 +3,7 @@ import { create } from "zustand";
 import {
   listDashboardSessions,
   type CouldHaveSaid,
+  type DashboardSpeaker,
   type ToneSummary,
 } from "../api/client";
 
@@ -17,6 +18,11 @@ export interface ToneScores {
 
 export interface ScoredTurn {
   speaker: string;
+  // People labeling (newer servers): the raw diarized id behind the display
+  // name + its provenance, so "Who is this?" can relabel this speaker.
+  speakerId?: string | null;
+  labelSource?: string | null;
+  personId?: string | null;
   text: string;
   // Optional (Track 2): a live-session turn has no empathy-slider setting —
   // the slider belongs to the text coaching flow. Absent → not rendered.
@@ -55,6 +61,10 @@ export interface SavedSession {
   toneSummary?: ToneSummary | null;
   couldHaveSaid?: CouldHaveSaid[] | null;
   analysisStatus?: string | null;
+  // People labeling (newer servers): distinct speakers with provenance, and
+  // whether the server kept audio ("Remember this voice" needs it).
+  speakers?: DashboardSpeaker[];
+  hasAudio?: boolean;
 }
 
 interface DashboardState {

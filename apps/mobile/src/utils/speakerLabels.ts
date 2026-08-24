@@ -38,7 +38,10 @@ export function speakerLabel(speaker: string, labels?: SpeakerLabels): string {
  * This mirrors the server's own "me" resolution for /growth.
  */
 export function isYou(entry: SpeakerLabel | null | undefined): boolean {
-  return entry?.label_source === "enrolled";
+  if (entry?.label_source === "enrolled") return true;
+  // People labeling: the user picked THEMSELVES from the people list — the
+  // server treats this manual-person "self" exactly like the enrolled "You".
+  return entry?.label_source === "manual-person" && entry.person_id === "self";
 }
 
 /**
@@ -54,6 +57,8 @@ export function labelProvenanceNote(
   switch (source) {
     case "manual":
       return "named by you";
+    case "manual-person":
+      return "named by you · a person you know";
     case "enrolled":
       return "your enrolled voice";
     case "name":
