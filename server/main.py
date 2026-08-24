@@ -46,6 +46,7 @@ import diarize_local
 import dynamics
 import episodes
 import link_fetch
+import live_sessions
 import prosody
 import recordings_store
 import speaker_id
@@ -944,6 +945,14 @@ app.add_middleware(
 from routers import voice as _voice_router  # noqa: E402
 
 app.include_router(_voice_router.router)
+
+# Live sessions (Track 2 — phone later analysis): POST /sessions/live ingest,
+# POST /episodes/{id}/reflect ("what you could have said"), GET /sessions for
+# the therapist dashboard. Own file for the same reason as the voice router;
+# it reads the recordings store off app.state and imports main lazily.
+from routers import sessions as _sessions_router  # noqa: E402
+
+app.include_router(_sessions_router.router)
 
 # Watch domain (ported from Gauge — docs/plans/2026-08-15-unification-*.md):
 from watch.app import build_watch_routers  # noqa: E402
@@ -3036,6 +3045,10 @@ def _recording_summary(m: dict) -> dict:
         # the client overlays these on whatever labels it already has. An
         # empty map when the user has set none.
         "manual_speaker_labels": m.get("manual_speaker_labels") or {},
+        # Live sessions only (Track 2): the coaching mode the phone ran in
+        # ("earpiece" | "speaker" | "therapist"). None for uploads/links, so
+        # the list can badge a live session without loading its analysis.
+        "mode": m.get("mode"),
     }
 
 
@@ -3095,6 +3108,15 @@ class GrowthPoint(BaseModel):
     # artifacts; grouping by them across recordings would fabricate an identity,
     # so such partners stay anonymous (the client's "Unidentified partner").
     partner_names: list[str] = Field(default_factory=list)
+    # Track 2 additions (all additive; an older client ignores them):
+    # provenance ("live" | "upload" | "link"), the live coaching mode, and —
+    # for a live session that carried per-turn text tone — the user's OWN
+    # tone bucket (label counts, mean scores, escalation count) plus the same
+    # split per conversation partner. None for uploads: no per-turn tone was
+    # measured, so the client counts those as unscored rather than neutral.
+    source: Optional[str] = None
+    mode: Optional[str] = None
+    self_tone: Optional[dict] = None
 
 
 class GrowthResponse(BaseModel):
@@ -3104,6 +3126,11 @@ class GrowthResponse(BaseModel):
     # == len(points); carried explicitly so the client's honest footer
     # ("N of M recordings identified your voice") never has to re-derive it.
     identified_recordings: int
+    # Track 2: "how do I sound with Mom vs with Asher" ACROSS sessions — one
+    # row per identified person (person_id / identity-path name only; a raw
+    # "Speaker B" is never merged across sessions). Empty when no live
+    # session identified anyone. See live_sessions.aggregate_people.
+    people: list[dict] = Field(default_factory=list)
 
 
 # Label sources that name a partner ACROSS recordings (see GrowthPoint). An
@@ -3161,6 +3188,8 @@ def _growth_point(rec: dict) -> GrowthPoint | None:
         title=rec.get("title") or rec.get("filename") or "",
         my_score=score,
         partner_names=partner_names,
+        # Track 2 — provenance + the live session's self/per-person tone.
+        **live_sessions.growth_extras(rec),
     )
 
 
@@ -3184,6 +3213,12 @@ async def get_growth(uid: str = Depends(get_current_uid)):
         points=points,
         total_recordings=len(metas),
         identified_recordings=len(points),
+        # Track 2 — per-person rows over the SAME identified recordings the
+        # chart shows (a recording the user isn't confidently in has no
+        # honest "how I sound with X" to contribute).
+        people=live_sessions.aggregate_people(
+            rec for rec in recs if rec is not None and _growth_point(rec) is not None
+        ),
     )
 
 
@@ -3293,6 +3328,10 @@ async def get_recording(
         # When the recording was last re-analyzed (POST …/reanalyze). None for a
         # recording that has only ever had its original analysis.
         "reanalyzed_at": rec.get("reanalyzed_at"),
+        # Live sessions only (Track 2): coaching mode + the phone's session
+        # id. None for uploads/links — additive, older clients ignore them.
+        "mode": rec.get("mode"),
+        "session_id": rec.get("session_id"),
         "turns": rec.get("turns", []),
         "analysis": analysis,
         "episodes": stored_episodes,

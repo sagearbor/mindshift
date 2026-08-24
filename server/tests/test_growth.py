@@ -160,6 +160,8 @@ async def test_growth_empty_store(client, store):
     body = res.json()
     assert body == {
         "points": [], "total_recordings": 0, "identified_recordings": 0,
+        # Track 2: per-person "how I sound with X" rows — none without sessions.
+        "people": [],
     }
 
 

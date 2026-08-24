@@ -20,6 +20,7 @@ import {
   recordingsForDay,
 } from "./dayTimeline";
 import { formatDateTime } from "../utils/dateDisplay";
+import { episodeToneLine, modeLabel } from "./toneTrends";
 
 // House colors.
 const PRIMARY = "#4A90D9";
@@ -220,6 +221,11 @@ export default function YourDayScreen({
             <View key={recording.id} testID={`day-recording-${recording.id}`}>
               <Text style={styles.recordingHeader} numberOfLines={1}>
                 {recording.title || recording.filename}
+                {/* Track 2: a live coaching session is badged as such (with
+                    its mode) so it's never mistaken for an upload. */}
+                {recording.source_type === "live"
+                  ? ` · live${modeLabel(recording.mode) ? ` · ${modeLabel(recording.mode)}` : ""}`
+                  : ""}
               </Text>
               {/* Full date + wall-clock start, so the day a row belongs to is
                   never in doubt. From the recording's real created_at; omitted
@@ -289,6 +295,25 @@ export default function YourDayScreen({
                             ? ` · peak heat ${ep.peak_heat}`
                             : " · heat unknown"}
                         </Text>
+                        {/* Track 2: your OWN tone inside this episode (live
+                            sessions only) — label counts + escalations
+                            from the phone's per-turn tone. Omitted when the
+                            episode carries none; never "neutral" by default. */}
+                        {episodeToneLine(
+                          ep.self_tone_labels,
+                          ep.self_escalation_count,
+                        ) !== null && (
+                          <Text
+                            style={styles.episodeTone}
+                            numberOfLines={1}
+                            testID={`episode-tone-${recording.id}-${ep.index}`}
+                          >
+                            {episodeToneLine(
+                              ep.self_tone_labels,
+                              ep.self_escalation_count,
+                            )}
+                          </Text>
+                        )}
                       </View>
                       <Text style={styles.chevron}>›</Text>
                     </TouchableOpacity>
@@ -414,5 +439,6 @@ const styles = StyleSheet.create({
   participants: { fontSize: 14.5, fontWeight: "700", color: INK },
   summary: { fontSize: 13, color: "#374151", marginTop: 2 },
   episodeMeta: { fontSize: 12, color: MUTED, marginTop: 4 },
+  episodeTone: { fontSize: 12, color: "#2F5F9E", marginTop: 2, fontWeight: "600" },
   chevron: { fontSize: 20, color: MUTED, paddingHorizontal: 10 },
 });

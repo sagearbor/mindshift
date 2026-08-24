@@ -16,6 +16,7 @@ import {
   patchRecordingTitle,
   postReanalyze,
   getAnalyzeJob,
+  postReflect,
 } from "../api/client";
 import type {
   RecordingDetail,
@@ -25,7 +26,11 @@ import type {
   SpeakerLabel,
   PatchSpeakerLabelsResult,
   MediaType,
+  CouldHaveSaid,
 } from "../api/client";
+import ToneSummaryCard from "../components/ToneSummaryCard";
+import CouldHaveSaidList from "../components/CouldHaveSaidList";
+import { modeLabel } from "./toneTrends";
 import HeatChart from "../components/HeatChart";
 import MediaPlayer, { MediaPlayerHandle } from "../components/MediaPlayer";
 import {
@@ -144,6 +149,17 @@ export default function ReplayScreen({
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<RecordingDetail | null>(null);
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
+  // Track 2: a LIVE coaching session kept no audio on the server
+  // (media_type "none") — the screen renders transcript + analysis without
+  // a player, and never asks for a media URL it knows doesn't exist.
+  const [noMedia, setNoMedia] = useState(false);
+  // "What you could have said": the server's cached reflection (seeded from
+  // the detail read), or fetched on demand. `reflectError` is honest copy
+  // for the failure modes (no identified "you", shared, model failure).
+  const [reflections, setReflections] = useState<CouldHaveSaid[] | null>(null);
+  const [reflecting, setReflecting] = useState(false);
+  const [reflectError, setReflectError] = useState<string | null>(null);
+  const reflectInFlightRef = useRef(false);
   // Replay plays our STORED DERIVATIVE first for every source — the /media
   // endpoint serves it with proper HTTP Range support, so it loads reliably.
   // For a link-sourced recording the user's OWN hosted original is an opt-in
@@ -310,6 +326,7 @@ export default function ReplayScreen({
       const rec = await getRecording(recordingId);
       fetched = rec;
       mediaTypeRef.current = rec.media_type;
+      const liveNoMedia = rec.media_type === "none";
       if (mountedRef.current) {
         setDetail(rec);
         // Fresh read — the stored analysis already carries any manual overrides
@@ -317,6 +334,17 @@ export default function ReplayScreen({
         // manual map for the editor's prefill.
         setLabelOverride(null);
         setManualLabels(rec.manual_speaker_labels ?? {});
+        setNoMedia(liveNoMedia);
+        // The cached "what you could have said", if the server has one.
+        setReflections(rec.analysis?.live?.could_have_said ?? null);
+        setReflectError(null);
+      }
+
+      if (liveNoMedia) {
+        // Nothing to stream — a live session's audio never reached the
+        // server. Leave mediaUrl null; the content gate below accepts that.
+        if (mountedRef.current) setMediaUrl(null);
+        return fetched;
       }
 
       // Derivative-FIRST for every source. The stored copy streams from our
@@ -635,6 +663,50 @@ export default function ReplayScreen({
     }
   }, [recordingId, load, detail]);
 
+  // Track 2 — "What you could have said": ask the server for the reflection
+  // over the user's own turns. The server caches it on the episode, so a
+  // repeat tap is free; a real LLM call happens at most once per transcript.
+  // Failure copy is honest per status: 422 = nobody in the recording is
+  // identified as the user (point at "This is me"), 403 = a shared recording
+  // (the owner's spend), 502 = the model gave nothing usable.
+  const handleReflect = useCallback(async () => {
+    if (reflectInFlightRef.current) return; // One costed call at a time.
+    reflectInFlightRef.current = true;
+    setReflecting(true);
+    setReflectError(null);
+    try {
+      const result = await postReflect(recordingId);
+      if (mountedRef.current) setReflections(result.could_have_said);
+    } catch (e) {
+      if (mountedRef.current) {
+        const status = statusOf(e);
+        if (status === 422) {
+          setReflectError(
+            "No speaker in this recording is identified as you yet — tap " +
+              "“This is me” on your voice below, then try again.",
+          );
+        } else if (status === 403) {
+          setReflectError("Only the recording’s owner can ask for reflections.");
+        } else if (status === 502) {
+          setReflectError(
+            "The coach couldn’t produce a reflection just now — please try again.",
+          );
+        } else if (status === 401) {
+          setReflectError("Please sign in again to reflect on this recording.");
+        } else if (status === 503) {
+          setReflectError("Reflections aren’t available right now.");
+        } else {
+          setReflectError(
+            humanizeError(e instanceof Error ? e.message : "Something went wrong."),
+          );
+        }
+      }
+    } finally {
+      reflectInFlightRef.current = false;
+      if (mountedRef.current) setReflecting(false);
+    }
+  }, [recordingId]);
+
   // A save's resolved labels win; otherwise the stored analysis labels (which
   // already reflect any manual overrides applied server-side on read). Shared by
   // the chart legend/inspector, the enrollment card, and the naming panel so a
@@ -685,7 +757,7 @@ export default function ReplayScreen({
   // The audition affordance: only while a speaker is isolated. When the media
   // never loaded there is nothing to play — say so instead of a dead button.
   const auditionBlock =
-    hasChart && isolatedSpeaker != null ? (
+    hasChart && isolatedSpeaker != null && !noMedia ? (
       <View style={styles.auditionRow} testID="audition-block">
         {mediaStuck ? (
           <Text style={styles.auditionUnavailable} testID="audition-unavailable">
@@ -802,6 +874,20 @@ export default function ReplayScreen({
         </Text>
       )}
 
+      {/* Track 2: a live coaching session says so (with its mode) and, while
+          its heat analysis is still pending or failed, says that too. */}
+      {detail?.source?.type === "live" && (
+        <Text style={styles.liveBadge} testID="replay-live-badge">
+          Live session
+          {modeLabel(detail.mode) ? ` · ${modeLabel(detail.mode)}` : ""}
+          {detail.analysis?.live?.analysis_status === "lite"
+            ? " · heat analysis pending"
+            : detail.analysis?.live?.analysis_status === "failed"
+              ? " · heat analysis unavailable"
+              : ""}
+        </Text>
+      )}
+
       {/* Read-only shared recording — say who it's from, plainly. */}
       {isShared && (
         <Text style={styles.sharedFrom} testID="replay-shared-from">
@@ -840,7 +926,7 @@ export default function ReplayScreen({
         </View>
       )}
 
-      {!loading && !error && detail && mediaUrl && (
+      {!loading && !error && detail && (mediaUrl || noMedia) && (
         <ScrollView
           style={styles.flex}
           contentContainerStyle={styles.content}
@@ -849,8 +935,9 @@ export default function ReplayScreen({
           {/* Attach / replace HD source. When the recording isn't yet
               link-sourced we offer "Attach HD source"; when it already is, a
               quieter "Replace source link". Both reveal the same input.
-              Owner-only — hidden in read-only shared mode. */}
-          {!isShared && (
+              Owner-only — hidden in read-only shared mode, and for a live
+              session (there is no stored copy to replace). */}
+          {!isShared && !noMedia && (
           <View style={styles.attachSection}>
             {!attachOpen ? (
               detail.source?.type === "link" ? (
@@ -1013,8 +1100,11 @@ export default function ReplayScreen({
             </TouchableOpacity>
           )}
 
-          {overlayMode && isVideo && hasChart ? (
+          {overlayMode && isVideo && hasChart && mediaUrl ? (
             // Overlay mode: chart floats over the bottom third of the video.
+            // (`mediaUrl` is always set for video; the guard just narrows the
+            // type now that a live session may reach this branch's sibling
+            // with no media at all.)
             <>
             <View style={styles.overlayWrap} testID="replay-overlay">
               <MediaPlayer
@@ -1034,14 +1124,23 @@ export default function ReplayScreen({
           ) : (
             // Default stacked layout: player on top, chart beneath.
             <>
-              <MediaPlayer
-                ref={playerRef}
-                uri={mediaUrl}
-                mediaType={detail.media_type}
-                onPositionChange={handlePositionChange}
-                onDurationChange={handleDurationChange}
-                onError={handlePlayerError}
-              />
+              {noMedia || !mediaUrl ? (
+                <View style={styles.noMediaCard} testID="replay-no-media">
+                  <Text style={styles.noMediaText}>
+                    Live session — no audio was kept. The transcript and
+                    analysis are below.
+                  </Text>
+                </View>
+              ) : (
+                <MediaPlayer
+                  ref={playerRef}
+                  uri={mediaUrl}
+                  mediaType={detail.media_type}
+                  onPositionChange={handlePositionChange}
+                  onDurationChange={handleDurationChange}
+                  onError={handlePlayerError}
+                />
+              )}
               <View style={styles.chartCard}>
                 {hasChart ? (
                   <>
@@ -1051,26 +1150,89 @@ export default function ReplayScreen({
                     {chart}
                     {auditionBlock}
                     <Text style={styles.hint}>
-                      Each dash is one turn across the recording — length shows
-                      how long they spoke. Tap a dash to jump there.
+                      {noMedia
+                        ? "Each dash is one turn across the session — length shows how long they spoke."
+                        : "Each dash is one turn across the recording — length shows how long they spoke. Tap a dash to jump there."}
                     </Text>
                   </>
                 ) : (
                   <Text style={styles.noAnalysis} testID="replay-no-analysis">
-                    This recording hasn’t been analyzed, so there’s no heat graph
-                    to sync.
+                    {detail.analysis?.live?.analysis_status === "lite"
+                      ? "The heat analysis for this live session is still running — check back in a moment."
+                      : "This recording hasn’t been analyzed, so there’s no heat graph to sync."}
                   </Text>
                 )}
               </View>
             </>
           )}
 
+          {/* Track 2 — "Your tone": the live session's self / per-person tone
+              summary from the phone's per-turn tone + identity. Only live
+              sessions carry it; uploads render nothing here. */}
+          {detail.analysis?.live?.tone_summary ? (
+            <ToneSummaryCard
+              summary={detail.analysis.live.tone_summary}
+              testID="replay-tone-summary"
+            />
+          ) : null}
+
+          {/* Track 2 — "What you could have said": the LLM reflection over
+              the user's OWN turns. Served from the episode's cache when the
+              server already ran it (ingest schedules one); otherwise the
+              owner can ask for it here. Never runs twice for the same words. */}
+          <View style={styles.reflectSection} testID="replay-reflect-section">
+            <Text style={styles.sectionTitle}>What you could have said</Text>
+            {reflections && reflections.length > 0 ? (
+              <CouldHaveSaidList
+                items={reflections}
+                turns={turns}
+                testID="replay-could-have-said"
+              />
+            ) : reflections && reflections.length === 0 ? (
+              <Text style={styles.reflectEmpty} testID="replay-reflect-empty">
+                Nothing to add — your turns already landed well.
+              </Text>
+            ) : null}
+            {!isShared && !(reflections && reflections.length > 0) && (
+              reflecting ? (
+                <View style={styles.reflectRow} testID="replay-reflect-pending">
+                  <ActivityIndicator color={PRIMARY} />
+                  <Text style={styles.reflectPendingText}>
+                    Reading your turns…
+                  </Text>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  testID="replay-reflect-button"
+                  style={styles.reflectButton}
+                  onPress={() => void handleReflect()}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.reflectButtonText}>
+                    {reflections ? "Reflect again" : "Reflect on my turns"}
+                  </Text>
+                </TouchableOpacity>
+              )
+            )}
+            {isShared && !(reflections && reflections.length > 0) && (
+              <Text style={styles.reflectEmpty} testID="replay-reflect-shared">
+                The owner hasn’t reflected on this recording yet.
+              </Text>
+            )}
+            {reflectError && (
+              <Text style={styles.reflectError} testID="replay-reflect-error">
+                {reflectError}
+              </Text>
+            )}
+          </View>
+
           {/* Re-analyze with the latest engine. Reuses the job-progress card
               pattern; on completion the recording is refetched so the fresh
               analysis renders. Honest errors (e.g. a 422 when no audio was
               kept) surface below instead of a silent no-op. Owner-only — a
-              recipient can't spend a re-analysis on someone else's recording. */}
-          {!isShared && (
+              recipient can't spend a re-analysis on someone else's recording,
+              and a live session kept no audio to re-run. */}
+          {!isShared && !noMedia && (
           <View style={styles.reanalyzeSection}>
             {!reanalyzing ? (
               <TouchableOpacity
@@ -1212,7 +1374,7 @@ export default function ReplayScreen({
               in future recordings. Self-hides when the server can't do voice ID
               or there are no diarized turns to choose from. Owner-only:
               enrolling from someone else's shared recording is meaningless. */}
-          {!isShared && turns.length > 0 ? (
+          {!isShared && turns.length > 0 && !noMedia ? (
             <SpeakerEnrollment
               recordingId={recordingId}
               turns={turns}
@@ -1226,6 +1388,60 @@ export default function ReplayScreen({
 }
 
 const styles = StyleSheet.create({
+  liveBadge: {
+    fontSize: 12.5,
+    color: PRIMARY,
+    fontWeight: "600",
+    textAlign: "center",
+    paddingHorizontal: 16,
+    paddingTop: 2,
+  },
+  noMediaCard: {
+    backgroundColor: "#EAF2FB",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+  },
+  noMediaText: {
+    fontSize: 13,
+    color: "#2F5F9E",
+    textAlign: "center",
+  },
+  reflectSection: {
+    marginBottom: 16,
+  },
+  reflectEmpty: {
+    fontSize: 13,
+    color: MUTED,
+    marginBottom: 8,
+  },
+  reflectRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 8,
+  },
+  reflectPendingText: {
+    fontSize: 13.5,
+    color: MUTED,
+  },
+  reflectButton: {
+    alignSelf: "flex-start",
+    backgroundColor: PRIMARY,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+  },
+  reflectButtonText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  reflectError: {
+    fontSize: 13,
+    color: DANGER,
+    marginTop: 8,
+  },
   flex: { flex: 1, backgroundColor: "#F9FAFB" },
   header: {
     flexDirection: "row",

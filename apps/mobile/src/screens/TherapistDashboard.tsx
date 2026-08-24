@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { useDashboardStore, SavedSession } from "../store/dashboardStore";
 import ToneSparkline from "../components/ToneSparkline";
+import { describeBucket, modeLabel } from "./toneTrends";
 
 interface TherapistDashboardProps {
   onSelectSession: (id: string) => void;
@@ -121,7 +122,18 @@ export default function TherapistDashboard({
       {Array.from(grouped.entries()).map(([role, groupSessions]) => (
         <View key={role} style={styles.group}>
           <Text style={styles.groupTitle}>{role}</Text>
-          {groupSessions.map((session) => (
+          {groupSessions.map((session) => {
+            // Track 2: a live session's self-tone one-liner ("mostly warm ·
+            // 2 escalations") from the same server bucket SessionDetail shows.
+            const me = session.toneSummary?.self ?? null;
+            const toneLine = me
+              ? describeBucket(me.labels, me.escalation_count, me.scored_turns)
+              : null;
+            const mode = modeLabel(session.mode);
+            const scores = session.turns
+              .map((t) => t.toneScores.pleasantness)
+              .filter((v): v is number => typeof v === "number");
+            return (
             <TouchableOpacity
               key={session.id}
               testID={`session-${session.id}`}
@@ -134,28 +146,41 @@ export default function TherapistDashboard({
                 </Text>
                 <View style={styles.scoreBadge}>
                   <Text style={styles.scoreText}>
-                    {Math.round(session.avgPleasantness)}
+                    {/* "—" until the batch analysis has scored the turns —
+                        never a fabricated 0. */}
+                    {typeof session.avgPleasantness === "number"
+                      ? Math.round(session.avgPleasantness)
+                      : "—"}
                   </Text>
                 </View>
               </View>
+              {session.source === "live" && (
+                <Text style={styles.liveBadge} testID={`session-${session.id}-live`}>
+                  Live{mode ? ` · ${mode}` : ""}
+                  {session.title ? ` · ${session.title}` : ""}
+                </Text>
+              )}
               <Text style={styles.sessionMeta}>
                 {session.turns.length} turns
+                {toneLine ? ` · ${toneLine}` : ""}
               </Text>
               <ToneSparkline
-                scores={session.turns.map((t) => t.toneScores.pleasantness)}
+                scores={scores}
                 width={200}
                 height={36}
                 color={getScoreColor(session.avgPleasantness)}
               />
             </TouchableOpacity>
-          ))}
+            );
+          })}
         </View>
       ))}
     </ScrollView>
   );
 }
 
-function getScoreColor(score: number): string {
+function getScoreColor(score: number | null): string {
+  if (typeof score !== "number") return "#9CA3AF"; // unscored → neutral gray
   if (score >= 70) return "#10B981";
   if (score >= 40) return "#F59E0B";
   return "#EF4444";
@@ -267,5 +292,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#6B7280",
     marginBottom: 8,
+  },
+  liveBadge: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#4A90D9",
+    marginBottom: 2,
   },
 });
