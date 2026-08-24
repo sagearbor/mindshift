@@ -10,6 +10,7 @@ import {
   cosine,
   EcapaEmbedder,
   ECAPA_DIM,
+  MIN_CLUSTER_SECONDS,
   l2Normalize,
   MATCH_THRESHOLD,
   runningMeanEmbedding,
@@ -20,6 +21,7 @@ import {
 import type { OnnxSession, OnnxTensor } from "../src/live/ort";
 import { nodeOrtSessionFactory } from "../src/live/testing/ortNode";
 import { AUDIO_FIXTURES_DIR, loadWav16k, sineF32, unitVector } from "../src/live/testing/synth";
+import { findEcapaModel } from "../src/live/replay/sceneReplay";
 
 const D = ECAPA_DIM;
 
@@ -107,6 +109,22 @@ describe("SpeakerLabeler", () => {
     expect(none.label(unitVector(D, 7))).toMatchObject({ speaker: "Speaker A", isSelf: null });
   });
 
+  it("a segment under MIN_CLUSTER_SECONDS may match but never founds a cluster (Unknown, isSelf null)", () => {
+    const lab = new SpeakerLabeler([you, mom]);
+    const short = lab.label(unitVector(D, 7), 1.0);
+    expect(short).toEqual({ speaker: "Unknown", personId: null, displayName: null, isSelf: null, score: null });
+    // Nothing was minted: the next long stranger is the FIRST cluster.
+    const long = lab.label(unitVector(D, 7), 2.0);
+    expect(long.speaker).toBe("Speaker A");
+    expect(long.isSelf).toBe(false);
+    // Short segments still join an existing cluster or match a print.
+    expect(lab.label(unitVector(D, 7, 0.15, 21), 0.8).speaker).toBe("Speaker A");
+    expect(lab.label(unitVector(D, 0, 0.15, 22), 0.8)).toMatchObject({ speaker: "You", isSelf: true });
+    // No duration given => no guard (batch callers with known-good segments).
+    expect(lab.label(unitVector(D, 9)).speaker).toBe("Speaker B");
+    expect(MIN_CLUSTER_SECONDS).toBe(1.5);
+  });
+
   it("no embedding => Unknown, nothing decided", () => {
     const lab = new SpeakerLabeler([you]);
     expect(lab.label(null)).toEqual({ speaker: "Unknown", personId: null, displayName: null, isSelf: null, score: null });
@@ -165,13 +183,9 @@ describe("EcapaEmbedder", () => {
   const reference = JSON.parse(
     fs.readFileSync(path.resolve(__dirname, "fixtures/ecapa_reference.json"), "utf8"),
   ) as Reference;
-  const candidates = [
-    path.resolve(__dirname, `../../../server/.ecapa_cache/ecapa_${reference.revision}.onnx`),
-    path.resolve(__dirname, "../assets/models/ecapa.onnx"),
-    path.resolve(__dirname, "../../../server/.ecapa_cache/ecapa.onnx"),
-    path.resolve(__dirname, "../../../tmp/ecapa.onnx"),
-  ];
-  const ecapaPath = candidates.find((p) => fs.existsSync(p));
+  // Same lookup the replay harness uses (revision-pinned cache first, then
+  // the main checkout's cache when running inside a git worktree).
+  const ecapaPath = findEcapaModel();
   const fixturesPresent = reference.slices.every((s) => fs.existsSync(path.join(AUDIO_FIXTURES_DIR, s.fixture)));
   const maybe = ecapaPath && fixturesPresent ? it : it.skip;
 

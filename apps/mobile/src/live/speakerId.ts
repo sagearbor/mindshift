@@ -25,6 +25,18 @@ import { float32Tensor } from "./ort";
 export const MATCH_THRESHOLD = 0.65;
 export const CLUSTER_THRESHOLD = 0.55;
 export const ECAPA_DIM = 192;
+/**
+ * Below this much audio an ECAPA embedding is too unstable to FOUND a new
+ * unknown-speaker cluster on. Measured with the replay harness (cosine of a
+ * sliding window of the self voice against a print pooled from another
+ * scene): p10 0.14 @ 0.6 s, 0.29 @ 1.0 s, 0.43 @ 1.5 s, 0.54 @ 2.0 s, while
+ * every other voice stayed < 0.31 at any length. Before this guard the
+ * live loop minted a fresh "Speaker X" for nearly every sub-1.5 s fragment
+ * (13 clusters for 2 voices on scene_couple_escalation). A short segment may
+ * still MATCH an enrolled person or an existing cluster — it just never
+ * spawns one; unmatched it is "Unknown" with `isSelf: null`.
+ */
+export const MIN_CLUSTER_SECONDS = 1.5;
 
 export interface EnrolledPerson {
   personId: string;
@@ -164,6 +176,7 @@ export class SpeakerLabeler {
     people: EnrolledPerson[],
     private readonly matchThreshold = MATCH_THRESHOLD,
     private readonly clusterThreshold = CLUSTER_THRESHOLD,
+    private readonly minClusterSeconds = MIN_CLUSTER_SECONDS,
   ) {
     this.people = people.map((person) => ({
       person,
@@ -176,7 +189,9 @@ export class SpeakerLabeler {
     return this.people.length;
   }
 
-  label(embedding: ArrayLike<number> | null): SpeakerVerdict {
+  /** `seconds` is the segment's audio length; omit it to disable the
+   *  short-segment guard (batch callers with known-good segments). */
+  label(embedding: ArrayLike<number> | null, seconds?: number): SpeakerVerdict {
     if (embedding === null || embedding.length === 0) {
       return { speaker: "Unknown", personId: null, displayName: null, isSelf: null, score: null };
     }
@@ -212,6 +227,10 @@ export class SpeakerLabeler {
       this.centroids[idx] = runningMeanEmbedding(this.centroids[idx], this.counts[idx], embedding);
       this.counts[idx] += 1;
       score = bestScore;
+    } else if (seconds !== undefined && seconds < this.minClusterSeconds) {
+      // Too short to be evidence of a NEW voice: no cluster, no identity,
+      // and no claim about self either way.
+      return { speaker: "Unknown", personId: null, displayName: null, isSelf: null, score: null };
     } else {
       this.centroids.push(l2Normalize(embedding));
       this.counts.push(1);

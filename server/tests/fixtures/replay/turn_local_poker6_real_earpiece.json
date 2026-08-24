@@ -1,0 +1,160 @@
+{
+  "scene": "poker6_real",
+  "mode": "earpiece",
+  "generated_by": "apps/mobile/src/live/replay/sceneReplay.ts",
+  "options": {
+    "stt_final_latency_ms": 500,
+    "os_latency_ms": 400,
+    "enroll": "self",
+    "speaker_id": true
+  },
+  "events": [
+    {
+      "type": "turn_local",
+      "session_id": "replay-poker6_real-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": false,
+      "text": "",
+      "start_time": 2.112,
+      "end_time": 4.448,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -34.66,
+        "pitch_hz": 100.31,
+        "speech_rate": null
+      },
+      "text_tone": null,
+      "suggestion": null,
+      "suggestion_source": null,
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-poker6_real-earpiece",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "",
+      "start_time": 5.952,
+      "end_time": 7.232,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -33.82,
+        "pitch_hz": 134.45,
+        "speech_rate": null
+      },
+      "text_tone": null,
+      "suggestion": null,
+      "suggestion_source": null,
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-poker6_real-earpiece",
+      "speaker": "Speaker B",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": false,
+      "text": "",
+      "start_time": 8.352,
+      "end_time": 11.296,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -32.35,
+        "pitch_hz": 139.13,
+        "speech_rate": null
+      },
+      "text_tone": null,
+      "suggestion": null,
+      "suggestion_source": null,
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-poker6_real-earpiece",
+      "speaker": "Speaker C",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": false,
+      "text": "",
+      "start_time": 11.68,
+      "end_time": 15.168,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -27.49,
+        "pitch_hz": 125,
+        "speech_rate": null
+      },
+      "text_tone": null,
+      "suggestion": null,
+      "suggestion_source": null,
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-poker6_real-earpiece",
+      "speaker": "Speaker D",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": false,
+      "text": "",
+      "start_time": 15.936,
+      "end_time": 18.592,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -24.93,
+        "pitch_hz": 190.48,
+        "speech_rate": null
+      },
+      "text_tone": null,
+      "suggestion": null,
+      "suggestion_source": null,
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-poker6_real-earpiece",
+      "speaker": "Speaker E",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": false,
+      "text": "",
+      "start_time": 18.912,
+      "end_time": 23.744,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -23.29,
+        "pitch_hz": 118.52,
+        "speech_rate": null
+      },
+      "text_tone": null,
+      "suggestion": null,
+      "suggestion_source": null,
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-poker6_real-earpiece",
+      "speaker": "Speaker F",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": false,
+      "text": "",
+      "start_time": 25.824,
+      "end_time": 28.672,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -24.46,
+        "pitch_hz": 119.4,
+        "speech_rate": null
+      },
+      "text_tone": null,
+      "suggestion": null,
+      "suggestion_source": null,
+      "tts_source": "on-device"
+    }
+  ]
+}

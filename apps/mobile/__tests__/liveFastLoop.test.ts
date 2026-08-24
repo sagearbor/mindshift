@@ -8,7 +8,7 @@ import { EnergyVad } from "../src/live/vad";
 import { FakeSpeechRecognizer } from "../src/live/stt";
 import { cloudProvider, ProviderChain, parseSuggestionJson, type SuggestionProvider } from "../src/live/localLlm";
 import { SpeakerLabeler, type Embedder } from "../src/live/speakerId";
-import type { NudgeEvent } from "../src/live/nudgePolicy";
+import { phoneNudgePolicy, type NudgeEvent } from "../src/live/nudgePolicy";
 import type { TurnLocalEvent } from "../src/live/types";
 import { silenceInt16, toneInt16, unitVector } from "../src/live/testing/synth";
 
@@ -217,7 +217,8 @@ describe("FastLoop", () => {
     const h = harness({ embedder, labeler: new SpeakerLabeler([]) });
     await h.loop.start({ sessionId: "s5", mode: "earpiece", empathy: 50 });
     for (let i = 0; i < 2; i++) {
-      push(h.loop, toneInt16(1.0, -20));
+      // >= MIN_CLUSTER_SECONDS: long enough to found an unknown cluster.
+      push(h.loop, toneInt16(2.0, -20));
       h.rec.emit({ text: "some words here", isFinal: true });
       push(h.loop, silenceInt16(0.5));
       await h.loop.settle();
@@ -226,6 +227,90 @@ describe("FastLoop", () => {
     expect(h.turns.map((t) => t.suggestionKind)).toEqual(["nudge", "response"]);
     expect(h.sent.map((e) => e.is_self)).toEqual([null, null]);
     await h.loop.stop();
+  });
+
+  it("a cooldown decay updates the screen (onNudge) but never buzzes, whoever was speaking", async () => {
+    const D = 192;
+    const you = { personId: "p-you", displayName: "You", isSelf: true, embedding: unitVector(D, 0) };
+    const queue: Float32Array[] = [unitVector(D, 0), unitVector(D, 5), unitVector(D, 0)];
+    const embedder: Embedder = { embed: async () => queue.shift() ?? unitVector(D, 5) };
+    const h = harness({ provider: okProvider(LOUD), embedder, labeler: new SpeakerLabeler([you]) });
+    // Cooldown 20 s: after a level-2 tone nudge, a turn > 20 s later decays it.
+    (h.loop as unknown as { policy: unknown }).policy = phoneNudgePolicy(20);
+    await h.loop.start({ sessionId: "s5d", mode: "earpiece", empathy: 50 });
+    push(h.loop, toneInt16(2.0, -20)); // self, aggressive tone -> level 3 event
+    h.rec.emit({ text: "shouting words here", isFinal: true });
+    push(h.loop, silenceInt16(0.5));
+    await h.loop.settle();
+    expect(h.haptic).toEqual([3]);
+    push(h.loop, silenceInt16(21)); // cooldown elapses in audio time
+    push(h.loop, toneInt16(2.0, -20)); // a stranger's turn: the policy decays 3 -> 2
+    h.rec.emit({ text: "other person talking", isFinal: true });
+    push(h.loop, silenceInt16(0.5));
+    await h.loop.settle();
+    expect(h.nudges.map((n) => [n.level, n.vectors.length])).toEqual([
+      [3, 1],
+      [2, 0],
+    ]);
+    expect(h.haptic).toEqual([3]); // the decay did not buzz
+    await h.loop.stop();
+  });
+
+  it("a sub-1.5 s fragment that matches nobody is Unknown (no cluster, is_self null) and is not coached as self", async () => {
+    // Replay-harness finding: before the guard, every short fragment minted
+    // a fresh "Speaker X" (13 clusters for 2 voices on the couple scene).
+    const D = 192;
+    const you = { personId: "p-you", displayName: "You", isSelf: true, embedding: unitVector(D, 0) };
+    const embedder: Embedder = { embed: async () => unitVector(D, 5) }; // a stranger
+    const h = harness({ embedder, labeler: new SpeakerLabeler([you]) });
+    await h.loop.start({ sessionId: "s5b", mode: "earpiece", empathy: 50 });
+    push(h.loop, toneInt16(1.0, -20));
+    h.rec.emit({ text: "some words here", isFinal: true });
+    push(h.loop, silenceInt16(0.5));
+    await h.loop.settle();
+    push(h.loop, toneInt16(2.0, -20));
+    h.rec.emit({ text: "more words here now", isFinal: true });
+    push(h.loop, silenceInt16(0.5));
+    await h.loop.settle();
+    expect(h.turns.map((t) => t.speaker)).toEqual(["Unknown", "Speaker A"]);
+    expect(h.turns.map((t) => t.isSelf)).toEqual([null, false]);
+    expect(h.turns.map((t) => t.suggestionKind)).toEqual(["response", "response"]);
+    expect(h.sent.map((e) => e.is_self)).toEqual([null, false]);
+    await h.loop.stop();
+  });
+
+  it("speakQuietMs holds a suggestion until the VAD has been quiet that long (a 300 ms pause is not a turn end)", async () => {
+    const h = harness();
+    const loop = new FastLoop({
+      vad: new EnergyVad(-45, 0.032),
+      embedder: null,
+      labeler: null,
+      recognizer: h.rec,
+      llm: new ProviderChain([okProvider(), cloudProvider()]),
+      speak: (t) => h.spoken.push(t),
+      send: (e) => h.sent.push(e),
+      onTurn: (t) => h.turns.push(t),
+      sttGraceMs: 150,
+      pollMs: 5,
+      speakQuietMs: 600,
+    });
+    await loop.start({ sessionId: "s5c", mode: "speaker", empathy: 50 });
+    push(loop, toneInt16(1.0, -20));
+    h.rec.emit({ text: "you never call", isFinal: true });
+    // The segmenter closes the turn after 0.3 s of silence; 0.5 s is not
+    // yet 0.6 s of quiet, so the suggestion is HELD, not spoken.
+    push(loop, silenceInt16(0.5));
+    await loop.settle();
+    expect(h.turns).toHaveLength(1);
+    expect(h.turns[0].suggestion).toBe("Tell her you miss the calls too.");
+    expect(h.spoken).toEqual([]);
+    expect(h.turns[0].latency.held).toBe(true);
+    // Another 0.3 s of silence crosses the quiet threshold: released.
+    push(loop, silenceInt16(0.3));
+    await loop.settle();
+    expect(h.spoken).toEqual(["Tell her you miss the calls too."]);
+    expect(h.turns[0].spoken).toBe(true);
+    await loop.stop();
   });
 
   it("with no recognizer: empty text, no LLM call, turn_local still sent; stop() flushes an open turn", async () => {

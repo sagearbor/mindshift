@@ -1,0 +1,965 @@
+{
+  "scene": "scene_meeting4",
+  "mode": "earpiece",
+  "generated_by": "apps/mobile/src/live/replay/sceneReplay.ts",
+  "options": {
+    "stt_final_latency_ms": 500,
+    "os_latency_ms": 400,
+    "enroll": "self",
+    "speaker_id": true
+  },
+  "events": [
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "Okay, let's start. First",
+      "start_time": 0.704,
+      "end_time": 1.312,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -22.75,
+        "pitch_hz": 231.93,
+        "speech_rate": 6.579
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — Okay, let's start. First…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": false,
+      "text": "First item: the March launch timeline.",
+      "start_time": 1.76,
+      "end_time": 3.968,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -20.11,
+        "pitch_hz": 216.22,
+        "speech_rate": 2.717
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — First item: the March…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker B",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": false,
+      "text": "Engineering's on track. Integration",
+      "start_time": 4.48,
+      "end_time": 6.112,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -24.35,
+        "pitch_hz": 195.12,
+        "speech_rate": 2.451
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — Engineering's on track. Integration…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker B",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.6491897257177087,
+      "is_self": false,
+      "text": "Integration tests finish by the twentieth.",
+      "start_time": 6.624,
+      "end_time": 9.312,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -25.02,
+        "pitch_hz": 186.05,
+        "speech_rate": 2.232
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — Integration tests finish by…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker C",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": false,
+      "text": "Marketing needs final screenshots by the fifteenth, or the press kit slips.",
+      "start_time": 9.696,
+      "end_time": 14.368,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -20.82,
+        "pitch_hz": 179.78,
+        "speech_rate": 2.568
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — Marketing needs final screenshots…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker D",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": false,
+      "text": "Tight, but doable. I'll",
+      "start_time": 14.88,
+      "end_time": 16.416,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -23.31,
+        "pitch_hz": 102.56,
+        "speech_rate": 2.604
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — Tight, but doable. I'll…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker E",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": false,
+      "text": "I'll have design prioritize the screenshots.",
+      "start_time": 16.8,
+      "end_time": 19.424,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -20.59,
+        "pitch_hz": 95.24,
+        "speech_rate": 2.287
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — I'll have design prioritize…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "Good. Second item: the support",
+      "start_time": 20.64,
+      "end_time": 21.44,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -21.92,
+        "pitch_hz": 158.42,
+        "speech_rate": 6.25
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — Good. Second item: the…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.579215531841209,
+      "is_self": false,
+      "text": "support backlog is up thirty percent.",
+      "start_time": 21.92,
+      "end_time": 24.352,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -20.69,
+        "pitch_hz": 202.53,
+        "speech_rate": 2.467
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — support backlog is up…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": "p-Speaker A",
+      "speaker_match_score": 0.8373330966633326,
+      "is_self": true,
+      "text": "I'll pull the top ten tickets and send them round this afternoon.",
+      "start_time": 24.864,
+      "end_time": 28.736,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -22.61,
+        "pitch_hz": 92.49,
+        "speech_rate": 3.099
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "keep going",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "Third item, budget. Finance wants",
+      "start_time": 29.216,
+      "end_time": 30.464,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -20.91,
+        "pitch_hz": 250,
+        "speech_rate": 4.006
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — Third item, budget. Finance…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.602907970473476,
+      "is_self": false,
+      "text": "wants every team to trim eight percent.",
+      "start_time": 30.848,
+      "end_time": 33.184,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -20.63,
+        "pitch_hz": 211.93,
+        "speech_rate": 2.997
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — wants every team to…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "Eight percent? We already",
+      "start_time": 33.696,
+      "end_time": 34.432,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -19.11,
+        "pitch_hz": 200,
+        "speech_rate": 5.435
+      },
+      "text_tone": {
+        "warmth": 10,
+        "defensiveness": 60,
+        "sarcasm": 20,
+        "sadness": 10,
+        "frustration": 72,
+        "label": "angry"
+      },
+      "suggestion": "Try: \"I hear you — Eight percent? We already…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker C",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.7536232186670985,
+      "is_self": false,
+      "text": "already cut the contractor budget last quarter.",
+      "start_time": 34.944,
+      "end_time": 37.504,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -18.7,
+        "pitch_hz": 170.21,
+        "speech_rate": 2.734
+      },
+      "text_tone": {
+        "warmth": 10,
+        "defensiveness": 60,
+        "sarcasm": 20,
+        "sadness": 10,
+        "frustration": 72,
+        "label": "angry"
+      },
+      "suggestion": "Try: \"I hear you — already cut the contractor…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker B",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.6799885944247235,
+      "is_self": false,
+      "text": "We could delay the second hire until June. That covers",
+      "start_time": 37.92,
+      "end_time": 41.28,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -26.93,
+        "pitch_hz": 166.67,
+        "speech_rate": 2.976
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — We could delay the…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker B",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.5536235873638702,
+      "is_self": false,
+      "text": "covers most of it.",
+      "start_time": 41.696,
+      "end_time": 42.976,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -27.25,
+        "pitch_hz": 162.44,
+        "speech_rate": 3.125
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — covers most of it.…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.5837004656811309,
+      "is_self": false,
+      "text": "That's one option. What about",
+      "start_time": 43.392,
+      "end_time": 44.512,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -24.11,
+        "pitch_hz": 197.53,
+        "speech_rate": 4.464
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — That's one option. What…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.691889289042012,
+      "is_self": false,
+      "text": "What about the conference sponsorship?",
+      "start_time": 44.864,
+      "end_time": 46.56,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -22.44,
+        "pitch_hz": 205.13,
+        "speech_rate": 2.948
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — What about the conference…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker C",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.7272607816304267,
+      "is_self": false,
+      "text": "We signed that in December. Backing",
+      "start_time": 46.976,
+      "end_time": 48.832,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -20.62,
+        "pitch_hz": 164.95,
+        "speech_rate": 3.233
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — We signed that in…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker C",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.6793682865358933,
+      "is_self": false,
+      "text": "Backing out costs almost as much as going.",
+      "start_time": 49.472,
+      "end_time": 52.256,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -18.71,
+        "pitch_hz": 173.91,
+        "speech_rate": 2.874
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — Backing out costs almost…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": "p-Speaker A",
+      "speaker_match_score": 0.6814031137564718,
+      "is_self": true,
+      "text": "So we delay my hire again? That's the",
+      "start_time": 52.768,
+      "end_time": 54.432,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -20.61,
+        "pitch_hz": 93.3,
+        "speech_rate": 4.808
+      },
+      "text_tone": {
+        "warmth": 10,
+        "defensiveness": 60,
+        "sarcasm": 20,
+        "sadness": 10,
+        "frustration": 72,
+        "label": "angry"
+      },
+      "suggestion": "ease up",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": "p-Speaker A",
+      "speaker_match_score": 0.7132251945089888,
+      "is_self": true,
+      "text": "That's the third time this year.",
+      "start_time": 54.976,
+      "end_time": 56.416,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -22.34,
+        "pitch_hz": 89.39,
+        "speech_rate": 4.167
+      },
+      "text_tone": {
+        "warmth": 10,
+        "defensiveness": 60,
+        "sarcasm": 20,
+        "sadness": 10,
+        "frustration": 72,
+        "label": "angry"
+      },
+      "suggestion": "ease up",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.753500119370187,
+      "is_self": false,
+      "text": "Nobody's decided anything. We're just listing options.",
+      "start_time": 56.832,
+      "end_time": 60.192,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -22.99,
+        "pitch_hz": 195.12,
+        "speech_rate": 2.083
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — Nobody's decided anything. We're…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker F",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": false,
+      "text": "THEN LIST A DIFFERENT ONE! MY TEAM",
+      "start_time": 60.576,
+      "end_time": 62.624,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -21.61,
+        "pitch_hz": 112.68,
+        "speech_rate": 3.418
+      },
+      "text_tone": {
+        "warmth": 10,
+        "defensiveness": 60,
+        "sarcasm": 20,
+        "sadness": 10,
+        "frustration": 72,
+        "label": "angry"
+      },
+      "suggestion": "Try: \"I hear you — THEN LIST A DIFFERENT…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "THEN LIST A DIFFERENT ONE! MY TEAM IS DROWNING AND EVERYONE",
+      "start_time": 62.944,
+      "end_time": 64.256,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -18.5,
+        "pitch_hz": 102.56,
+        "speech_rate": 8.384
+      },
+      "text_tone": {
+        "warmth": 10,
+        "defensiveness": 60,
+        "sarcasm": 20,
+        "sadness": 10,
+        "frustration": 72,
+        "label": "angry"
+      },
+      "suggestion": "Try: \"I hear you — THEN LIST A DIFFERENT…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "AND EVERYONE HERE KNOWS IT!",
+      "start_time": 64.576,
+      "end_time": 65.984,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -19.17,
+        "pitch_hz": 103.23,
+        "speech_rate": 3.551
+      },
+      "text_tone": {
+        "warmth": 10,
+        "defensiveness": 60,
+        "sarcasm": 20,
+        "sadness": 10,
+        "frustration": 72,
+        "label": "angry"
+      },
+      "suggestion": "Try: \"I hear you — AND EVERYONE HERE KNOWS…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker B",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.582695383756837,
+      "is_self": false,
+      "text": "Okay. Let's take that seriously. Can we",
+      "start_time": 67.552,
+      "end_time": 69.248,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -27.34,
+        "pitch_hz": 155.34,
+        "speech_rate": 4.127
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — Okay. Let's take that…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker B",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.6830075656367601,
+      "is_self": false,
+      "text": "Okay. Let's take that seriously. Can we table this and come back",
+      "start_time": 69.92,
+      "end_time": 71.264,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -27.66,
+        "pitch_hz": 202.53,
+        "speech_rate": 8.929
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — Okay. Let's take that…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker B",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.6201329261461157,
+      "is_self": false,
+      "text": "come back with real numbers?",
+      "start_time": 71.616,
+      "end_time": 73.376,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -25.17,
+        "pitch_hz": 160,
+        "speech_rate": 2.841
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — come back with real…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker G",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": false,
+      "text": "Yeah. Sorry, everyone. That was",
+      "start_time": 73.856,
+      "end_time": 75.584,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -22.67,
+        "pitch_hz": 86.49,
+        "speech_rate": 2.894
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — Yeah. Sorry, everyone. That…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": "p-Speaker A",
+      "speaker_match_score": 0.7212216087783353,
+      "is_self": true,
+      "text": "Yeah. Sorry, everyone. That was out of line. Real",
+      "start_time": 76.256,
+      "end_time": 77.248,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -21.07,
+        "pitch_hz": 83.12,
+        "speech_rate": 9.073
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "keep going",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "Real numbers by Thursday.",
+      "start_time": 77.888,
+      "end_time": 79.296,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -21.9,
+        "pitch_hz": 84.66,
+        "speech_rate": 2.841
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — Real numbers by Thursday.…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.5832434590014436,
+      "is_self": false,
+      "text": "Thursday works. Thanks, everyone. That's all",
+      "start_time": 79.776,
+      "end_time": 81.664,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -22.43,
+        "pitch_hz": 177.78,
+        "speech_rate": 3.178
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — Thursday works. Thanks, everyone.…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_meeting4-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.5929737180977434,
+      "is_self": false,
+      "text": "all for today.",
+      "start_time": 81.984,
+      "end_time": 82.848,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -20.01,
+        "pitch_hz": 190.48,
+        "speech_rate": 3.472
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — all for today.…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    }
+  ]
+}

@@ -1,0 +1,853 @@
+{
+  "scene": "scene_couple_escalation",
+  "mode": "therapist",
+  "generated_by": "apps/mobile/src/live/replay/sceneReplay.ts",
+  "options": {
+    "stt_final_latency_ms": 500,
+    "os_latency_ms": 400,
+    "enroll": "all",
+    "speaker_id": true
+  },
+  "events": [
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Speaker A",
+      "speaker_person_id": "p-Speaker A",
+      "speaker_match_score": 0.6933812708485704,
+      "is_self": true,
+      "text": "Hey, I looked at the credit card statement tonight. Can we go",
+      "start_time": 0.864,
+      "end_time": 2.848,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -22.37,
+        "pitch_hz": 96.39,
+        "speech_rate": 6.048
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "keep going",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "we go over it?",
+      "start_time": 3.264,
+      "end_time": 4.128,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -20.27,
+        "pitch_hz": 96.39,
+        "speech_rate": 4.63
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — we go over it?…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Speaker B",
+      "speaker_person_id": "p-Speaker B",
+      "speaker_match_score": 0.8000252377130403,
+      "is_self": false,
+      "text": "Sure. I know it's higher than usual, but most of",
+      "start_time": 5.536,
+      "end_time": 7.2,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -24.98,
+        "pitch_hz": 216.22,
+        "speech_rate": 6.01
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — Sure. I know it's…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Speaker B",
+      "speaker_person_id": "p-Speaker B",
+      "speaker_match_score": 0.7922964412524238,
+      "is_self": false,
+      "text": "most of that was the car repair.",
+      "start_time": 7.584,
+      "end_time": 9.76,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -27.65,
+        "pitch_hz": 188.24,
+        "speech_rate": 3.217
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — most of that was…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Speaker A",
+      "speaker_person_id": "p-Speaker A",
+      "speaker_match_score": 0.6690891898004099,
+      "is_self": true,
+      "text": "The car was six hundred. There's",
+      "start_time": 10.208,
+      "end_time": 11.744,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -24.08,
+        "pitch_hz": 91.43,
+        "speech_rate": 3.906
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "keep going",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Speaker A",
+      "speaker_person_id": "p-Speaker A",
+      "speaker_match_score": 0.6557059712082389,
+      "is_self": true,
+      "text": "another nine hundred I can't place.",
+      "start_time": 12.832,
+      "end_time": 14.848,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -19.73,
+        "pitch_hz": 90.91,
+        "speech_rate": 2.976
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "keep going",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Speaker B",
+      "speaker_person_id": "p-Speaker B",
+      "speaker_match_score": 0.9099888065749092,
+      "is_self": false,
+      "text": "Some was groceries, some was your mom's birthday gift. I didn't hide anything.",
+      "start_time": 15.264,
+      "end_time": 20.384,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -29.88,
+        "pitch_hz": 219.18,
+        "speech_rate": 2.539
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — Some was groceries, some…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "I'm not saying you hid it.",
+      "start_time": 20.768,
+      "end_time": 22.112,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -20.26,
+        "pitch_hz": 94.12,
+        "speech_rate": 4.464
+      },
+      "text_tone": {
+        "warmth": 10,
+        "defensiveness": 60,
+        "sarcasm": 20,
+        "sadness": 10,
+        "frustration": 72,
+        "label": "angry"
+      },
+      "suggestion": "Try: \"I hear you — I'm not saying you…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Speaker A",
+      "speaker_person_id": "p-Speaker A",
+      "speaker_match_score": 0.787235503060306,
+      "is_self": true,
+      "text": "hid it. I'm saying we agreed to talk before spending like that.",
+      "start_time": 22.496,
+      "end_time": 25.696,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -21.39,
+        "pitch_hz": 91.43,
+        "speech_rate": 3.75
+      },
+      "text_tone": {
+        "warmth": 10,
+        "defensiveness": 60,
+        "sarcasm": 20,
+        "sadness": 10,
+        "frustration": 72,
+        "label": "angry"
+      },
+      "suggestion": "ease up",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Speaker A",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": false,
+      "text": "We talked about it in the car.",
+      "start_time": 26.144,
+      "end_time": 28.192,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -25.75,
+        "pitch_hz": 242.42,
+        "speech_rate": 3.418
+      },
+      "text_tone": {
+        "warmth": 10,
+        "defensiveness": 60,
+        "sarcasm": 20,
+        "sadness": 10,
+        "frustration": 72,
+        "label": "angry"
+      },
+      "suggestion": "Try: \"I hear you — We talked about it…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "We talked about it in the car. You just weren't listening, like",
+      "start_time": 28.896,
+      "end_time": 30.08,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -25.84,
+        "pitch_hz": 197.53,
+        "speech_rate": 10.135
+      },
+      "text_tone": {
+        "warmth": 10,
+        "defensiveness": 60,
+        "sarcasm": 20,
+        "sadness": 10,
+        "frustration": 72,
+        "label": "angry"
+      },
+      "suggestion": "Try: \"I hear you — We talked about it…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "listening, like always.",
+      "start_time": 30.496,
+      "end_time": 31.36,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -29.88,
+        "pitch_hz": 166.67,
+        "speech_rate": 3.472
+      },
+      "text_tone": {
+        "warmth": 10,
+        "defensiveness": 60,
+        "sarcasm": 20,
+        "sadness": 10,
+        "frustration": 72,
+        "label": "angry"
+      },
+      "suggestion": "Try: \"I hear you — listening, like always.…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "LIKE ALWAYS? I AM THE ONLY",
+      "start_time": 31.84,
+      "end_time": 33.312,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -21.96,
+        "pitch_hz": 102.89,
+        "speech_rate": 4.076
+      },
+      "text_tone": {
+        "warmth": 10,
+        "defensiveness": 60,
+        "sarcasm": 20,
+        "sadness": 10,
+        "frustration": 72,
+        "label": "angry"
+      },
+      "suggestion": "Try: \"I hear you — LIKE ALWAYS? I AM…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Speaker A",
+      "speaker_person_id": "p-Speaker A",
+      "speaker_match_score": 0.7915348330951657,
+      "is_self": true,
+      "text": "ONLY ONE IN THIS HOUSE WHO EVEN LOOKS AT THE BILLS!",
+      "start_time": 33.952,
+      "end_time": 37.44,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -20.87,
+        "pitch_hz": 100.63,
+        "speech_rate": 3.154
+      },
+      "text_tone": {
+        "warmth": 10,
+        "defensiveness": 60,
+        "sarcasm": 20,
+        "sadness": 10,
+        "frustration": 72,
+        "label": "angry"
+      },
+      "suggestion": "ease up",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Speaker B",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": false,
+      "text": "Please don't yell at me. I'm right",
+      "start_time": 37.856,
+      "end_time": 39.36,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -29.91,
+        "pitch_hz": 209.16,
+        "speech_rate": 4.654
+      },
+      "text_tone": {
+        "warmth": 35,
+        "defensiveness": 20,
+        "sarcasm": 5,
+        "sadness": 75,
+        "frustration": 20,
+        "label": "sad"
+      },
+      "suggestion": "Try: \"I hear you — Please don't yell at…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "Please don't yell at me. I'm right here, I can hear",
+      "start_time": 39.776,
+      "end_time": 40.608,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -25.11,
+        "pitch_hz": 238.81,
+        "speech_rate": 13.221
+      },
+      "text_tone": {
+        "warmth": 35,
+        "defensiveness": 20,
+        "sarcasm": 5,
+        "sadness": 75,
+        "frustration": 20,
+        "label": "sad"
+      },
+      "suggestion": "Try: \"I hear you — Please don't yell at…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "I can hear you.",
+      "start_time": 40.928,
+      "end_time": 41.76,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -25.9,
+        "pitch_hz": 266.67,
+        "speech_rate": 4.808
+      },
+      "text_tone": {
+        "warmth": 35,
+        "defensiveness": 20,
+        "sarcasm": 5,
+        "sadness": 75,
+        "frustration": 20,
+        "label": "sad"
+      },
+      "suggestion": "Try: \"I hear you — I can hear you.…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Speaker A",
+      "speaker_person_id": "p-Speaker A",
+      "speaker_match_score": 0.6978335698662426,
+      "is_self": true,
+      "text": "Forget it. Clearly budgeting is beneath you. I'll just",
+      "start_time": 43.36,
+      "end_time": 45.024,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -20.45,
+        "pitch_hz": 85.56,
+        "speech_rate": 5.409
+      },
+      "text_tone": {
+        "warmth": 10,
+        "defensiveness": 60,
+        "sarcasm": 20,
+        "sadness": 10,
+        "frustration": 72,
+        "label": "angry"
+      },
+      "suggestion": "ease up",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Speaker A",
+      "speaker_person_id": "p-Speaker A",
+      "speaker_match_score": 0.6801818419036921,
+      "is_self": true,
+      "text": "just handle it, like everything else.",
+      "start_time": 45.664,
+      "end_time": 47.424,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -22.28,
+        "pitch_hz": 84.66,
+        "speech_rate": 3.409
+      },
+      "text_tone": {
+        "warmth": 10,
+        "defensiveness": 60,
+        "sarcasm": 20,
+        "sadness": 10,
+        "frustration": 72,
+        "label": "angry"
+      },
+      "suggestion": "ease up",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Speaker B",
+      "speaker_person_id": "p-Speaker B",
+      "speaker_match_score": 0.6568217052584285,
+      "is_self": false,
+      "text": "That's not fair. I'm trying,",
+      "start_time": 47.872,
+      "end_time": 49.024,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -30.51,
+        "pitch_hz": 175.82,
+        "speech_rate": 4.34
+      },
+      "text_tone": {
+        "warmth": 35,
+        "defensiveness": 20,
+        "sarcasm": 5,
+        "sadness": 75,
+        "frustration": 20,
+        "label": "sad"
+      },
+      "suggestion": "Try: \"I hear you — That's not fair. I'm…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "That's not fair. I'm trying, and you talk to",
+      "start_time": 49.824,
+      "end_time": 50.656,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -26.04,
+        "pitch_hz": 186.05,
+        "speech_rate": 10.817
+      },
+      "text_tone": {
+        "warmth": 35,
+        "defensiveness": 20,
+        "sarcasm": 5,
+        "sadness": 75,
+        "frustration": 20,
+        "label": "sad"
+      },
+      "suggestion": "Try: \"I hear you — That's not fair. I'm…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "That's not fair. I'm trying, and you talk to me like I'm",
+      "start_time": 51.136,
+      "end_time": 52.192,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -25.83,
+        "pitch_hz": 181.82,
+        "speech_rate": 11.364
+      },
+      "text_tone": {
+        "warmth": 35,
+        "defensiveness": 20,
+        "sarcasm": 5,
+        "sadness": 75,
+        "frustration": 20,
+        "label": "sad"
+      },
+      "suggestion": "Try: \"I hear you — That's not fair. I'm…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "I'm a child.",
+      "start_time": 52.512,
+      "end_time": 53.536,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -26.8,
+        "pitch_hz": 181.82,
+        "speech_rate": 2.93
+      },
+      "text_tone": {
+        "warmth": null,
+        "defensiveness": null,
+        "sarcasm": null,
+        "sadness": null,
+        "frustration": null,
+        "label": null
+      },
+      "suggestion": "Try: \"I hear you — I'm a child.…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "You're right. I'm sorry. That came out",
+      "start_time": 55.104,
+      "end_time": 55.712,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -23.04,
+        "pitch_hz": 91.95,
+        "speech_rate": 11.513
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — You're right. I'm sorry.…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Speaker A",
+      "speaker_person_id": "p-Speaker A",
+      "speaker_match_score": 0.715372457404551,
+      "is_self": true,
+      "text": "out way harsher than I meant.",
+      "start_time": 56.384,
+      "end_time": 58.24,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -22.04,
+        "pitch_hz": 90.4,
+        "speech_rate": 3.233
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "keep going",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Speaker B",
+      "speaker_person_id": "p-Speaker B",
+      "speaker_match_score": 0.7515686570150479,
+      "is_self": false,
+      "text": "Thank you. Can we just sit down Sunday and do it together,",
+      "start_time": 60.096,
+      "end_time": 62.944,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -28.89,
+        "pitch_hz": 179.78,
+        "speech_rate": 4.213
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — Thank you. Can we…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "together, no phones?",
+      "start_time": 63.456,
+      "end_time": 64.256,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -31.06,
+        "pitch_hz": 164.95,
+        "speech_rate": 3.75
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — together, no phones?…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "Yeah. Sunday. I'd like that.",
+      "start_time": 65.696,
+      "end_time": 66.336,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -22.26,
+        "pitch_hz": 86.96,
+        "speech_rate": 7.812
+      },
+      "text_tone": {
+        "warmth": 85,
+        "defensiveness": 5,
+        "sarcasm": 5,
+        "sadness": 5,
+        "frustration": 5,
+        "label": "happy"
+      },
+      "suggestion": "Try: \"I hear you — Yeah. Sunday. I'd like…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "Yeah. Sunday. I'd like that. And I'll bring",
+      "start_time": 66.944,
+      "end_time": 67.68,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -21.47,
+        "pitch_hz": 94.96,
+        "speech_rate": 10.87
+      },
+      "text_tone": {
+        "warmth": 85,
+        "defensiveness": 5,
+        "sarcasm": 5,
+        "sadness": 5,
+        "frustration": 5,
+        "label": "happy"
+      },
+      "suggestion": "Try: \"I hear you — Yeah. Sunday. I'd like…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_couple_escalation-therapist",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "bring the good coffee.",
+      "start_time": 68.256,
+      "end_time": 69.568,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -21.22,
+        "pitch_hz": 92.49,
+        "speech_rate": 3.049
+      },
+      "text_tone": {
+        "warmth": 85,
+        "defensiveness": 5,
+        "sarcasm": 5,
+        "sadness": 5,
+        "frustration": 5,
+        "label": "happy"
+      },
+      "suggestion": "Try: \"I hear you — bring the good coffee.…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    }
+  ]
+}

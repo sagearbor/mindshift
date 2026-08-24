@@ -107,6 +107,11 @@ export interface FastLoopDeps {
   /** Prior turns handed to the LLM as context. */
   contextTurns?: number;
   speakHoldMaxMs?: number;
+  /** Minimum VAD-quiet (ms since the last speech frame) before a suggestion
+   *  is voiced. 0 = speak as soon as the segmenter closes the turn (a 300 ms
+   *  pause) — which the replay harness showed lands most suggestions inside
+   *  the other person's sentence pauses; see the PR for the measurements. */
+  speakQuietMs?: number;
   /** With no voiceprint verdict, which unknown-cluster label is treated as
    *  the coached user for coaching purposes (the app's "you speak first"
    *  convention). Null disables the convention. */
@@ -142,6 +147,7 @@ export class FastLoop {
   private readonly pollMs: number;
   private readonly contextTurns: number;
   private readonly speakHoldMaxMs: number;
+  private readonly speakQuietMs: number;
   private readonly historySamples: number;
 
   private session: FastLoopSession | null = null;
@@ -154,6 +160,10 @@ export class FastLoop {
   private turnQueue: Promise<void> = Promise.resolve();
   private turns: LocalTurn[] = [];
   private held: { text: string; expiresAtMs: number; latency: TurnLatency; turn: LocalTurn } | null = null;
+  /** Audio seconds: end of the most recent speech frame / most recent
+   *  frame — quiet is measured on the frame clock, like the segmenter. */
+  private lastSpeechEnd = -Infinity;
+  private lastFrameEnd = 0;
   private sttAvailable = false;
   private sttStartSeconds = 0;
   private unsubscribe: (() => void)[] = [];
@@ -170,6 +180,7 @@ export class FastLoop {
     this.pollMs = deps.pollMs ?? 50;
     this.contextTurns = deps.contextTurns ?? 6;
     this.speakHoldMaxMs = deps.speakHoldMaxMs ?? 3000;
+    this.speakQuietMs = deps.speakQuietMs ?? 0;
     this.historySamples = Math.round((deps.historySeconds ?? 30) * SILERO_SAMPLE_RATE);
   }
 
@@ -191,6 +202,8 @@ export class FastLoop {
     this.history = [];
     this.turns = [];
     this.held = null;
+    this.lastSpeechEnd = -Infinity;
+    this.lastFrameEnd = 0;
     this.latencyLog.length = 0;
     this.segmenter.reset();
     this.aligner.reset();
@@ -298,9 +311,17 @@ export class FastLoop {
     const isSpeech = await this.deps.vad.isSpeech(frame);
     const tStart = startSample / SILERO_SAMPLE_RATE;
     const tEnd = (startSample + frame.length) / SILERO_SAMPLE_RATE;
+    if (isSpeech) this.lastSpeechEnd = tEnd;
+    this.lastFrameEnd = tEnd;
     const span = this.segmenter.push(isSpeech, tStart, tEnd);
     if (span) this.enqueueTurn(span);
-    if (!this.segmenter.inSpeech) this.releaseHeld(false);
+    if (this.quietEnoughToSpeak()) this.releaseHeld(false);
+  }
+
+  /** Nobody is talking, and hasn't been for at least speakQuietMs. */
+  private quietEnoughToSpeak(): boolean {
+    if (this.segmenter.inSpeech) return false;
+    return (this.lastFrameEnd - this.lastSpeechEnd) * 1000 >= this.speakQuietMs;
   }
 
   private enqueueTurn(span: Span) {
@@ -355,7 +376,7 @@ export class FastLoop {
       if (this.deps.embedder && this.deps.labeler) {
         try {
           const emb = await this.deps.embedder.embed(pcm, SILERO_SAMPLE_RATE);
-          verdict = this.deps.labeler.label(emb);
+          verdict = this.deps.labeler.label(emb, duration);
         } catch {
           // Unembeddable segment: no identity, never a guess.
         }
@@ -437,20 +458,24 @@ export class FastLoop {
     this.latencyLog.push(latency);
 
     // Nudge policy over the user's own delivery; other turns tick the clock.
-    if (coachedAsSelf) {
-      const over = this.baseline.observe(prosody.rms_dbfs);
-      const events = selfTurnVectorEvents(span.end, over, textTone ?? { frustration: null, defensiveness: null });
-      for (const n of this.policy.onEvents(events, span.end)) {
-        this.deps.onNudge?.(n);
-        if (n.level > 0 && this.deps.haptics) void this.deps.haptics.nudge(n.level).catch(() => {});
+    const events = coachedAsSelf
+      ? selfTurnVectorEvents(span.end, this.baseline.observe(prosody.rms_dbfs), textTone ?? { frustration: null, defensiveness: null })
+      : [];
+    for (const n of this.policy.onEvents(events, span.end)) {
+      this.deps.onNudge?.(n);
+      // Haptic on ESCALATION only (`vectors` names what raised the level).
+      // A cooldown decay (level 2 -> 1, no vectors) updates the screen but
+      // never buzzes — before this it buzzed if and only if the decay
+      // happened to land on the user's own turn (replay-harness finding).
+      if (n.level > 0 && n.vectors.length > 0 && this.deps.haptics) {
+        void this.deps.haptics.nudge(n.level).catch(() => {});
       }
-    } else {
-      for (const n of this.policy.onEvents([], span.end)) this.deps.onNudge?.(n);
     }
 
     if (suggestion && session.mode !== "therapist") {
-      if (this.segmenter.inSpeech) {
-        // Someone is talking: hold until the VAD goes quiet (most recent wins).
+      if (!this.quietEnoughToSpeak()) {
+        // Someone is talking (or just stopped): hold until the VAD has been
+        // quiet long enough (most recent wins).
         this.held = { text: suggestion, expiresAtMs: this.now() + this.speakHoldMaxMs, latency, turn };
         latency.held = true;
       } else {
