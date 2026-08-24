@@ -9,12 +9,27 @@
  *   ECAPA + voiceprints -> speaker-ID off (turns are "Unknown"/"Speaker A")
  *   OS model / bundled LLM -> the cloud's suggestion event
  *   on-device STT -> handled upstream: without it the loop isn't started
+ *
+ * Speaker-ID is real end to end since the seam PR: the ECAPA ONNX export
+ * comes from `GET|HEAD /models/ecapa.onnx` (download once, ETag re-check
+ * each launch — src/live/modelDownload.ts) and the enrolled voiceprints from
+ * `GET /voice/people?include_embeddings=true`. A server that can't serve
+ * the model (503: voice deps absent) or an older server (404) leaves
+ * speaker-ID OFF with the reason in `FastLoopBuild.status` /
+ * `.capabilities.speakerId` — one console line, never an error toast.
  */
 import { Platform } from "react-native";
 import { ecapaModelUrl, fetchVoiceprints, authHeaders } from "../api/liveSessions";
 import { FastLoop, type FastLoopDeps } from "./fastLoop";
 import { EnergyVad, SileroVad, type FrameVad } from "./vad";
-import { EcapaEmbedder, SpeakerLabeler, type Embedder, type EnrolledPerson } from "./speakerId";
+import { EcapaEmbedder, SpeakerLabeler, type Embedder } from "./speakerId";
+import {
+  activeCapability,
+  describeSpeakerId,
+  inactiveCapability,
+  peopleForModel,
+  type SpeakerIdCapability,
+} from "./speakerIdSetup";
 import { ensureOfflineModel, ExpoSpeechRecognizer } from "./expoStt";
 import {
   bundledModelProvider,
@@ -36,10 +51,19 @@ export interface DefaultFastLoopOptions {
   lang?: string;
 }
 
+export interface FastLoopCapabilities {
+  vad: "silero" | "energy";
+  speakerId: SpeakerIdCapability;
+  /** Provider chain in fallback order (ProviderChain.providerNames). */
+  llm: string[];
+}
+
 export interface FastLoopBuild {
   loop: FastLoop;
   /** Human-readable summary of what actually loaded, for the UI. */
   status: string;
+  /** The same, structured — which loop stages are actually active. */
+  capabilities: FastLoopCapabilities;
 }
 
 // Native packages are resolved lazily inside the builders: expo-ai-kit (and
@@ -88,19 +112,42 @@ async function buildVad(): Promise<{ vad: FrameVad; name: string }> {
   return { vad: new EnergyVad(), name: "energy VAD" };
 }
 
-async function buildSpeakerId(): Promise<{ embedder: Embedder | null; labeler: SpeakerLabeler | null; name: string }> {
-  let people: EnrolledPerson[] = [];
-  try {
-    people = await fetchVoiceprints();
-  } catch {
-    people = [];
+interface SpeakerIdBuild {
+  embedder: Embedder | null;
+  labeler: SpeakerLabeler | null;
+  capability: SpeakerIdCapability;
+}
+
+function speakerIdOff(reason: string): SpeakerIdBuild {
+  // One log line, not an error: speaker-ID is an optional rung.
+  console.log(`[live] speaker-ID off: ${reason}`);
+  return { embedder: null, labeler: null, capability: inactiveCapability(reason) };
+}
+
+async function buildSpeakerId(): Promise<SpeakerIdBuild> {
+  const native = ortNative();
+  if (!native) return speakerIdOff("native ONNX Runtime unavailable");
+  // Model download/revalidation and the voiceprint fetch are independent
+  // network calls: run them together so a cold launch pays the longer one.
+  const [voiceprints, loaded] = await Promise.all([
+    fetchVoiceprints(),
+    native.loadEcapaSession(ecapaModelUrl(), await authHeaders(false)),
+  ]);
+  if (!loaded.session || loaded.model.status !== "ready") {
+    const reason = loaded.model.status === "ready" ? "ONNX session failed" : loaded.model.reason;
+    return speakerIdOff(reason);
   }
-  const session = await ortNative()?.loadEcapaSession(ecapaModelUrl(), await authHeaders(false));
-  if (!session) return { embedder: null, labeler: null, name: "speaker-ID off (no ECAPA model)" };
+  const { kept, dropped } = peopleForModel(voiceprints.people, loaded.model.etag);
+  if (dropped.length > 0) {
+    console.log(
+      `[live] speaker-ID: skipped ${dropped.length} voiceprint(s) from another model revision`,
+    );
+  }
+  const capability = activeCapability(loaded.model, kept, dropped.length, voiceprints.error);
   return {
-    embedder: new EcapaEmbedder(session),
-    labeler: new SpeakerLabeler(people),
-    name: `speaker-ID on (${people.length} enrolled)`,
+    embedder: new EcapaEmbedder(loaded.session),
+    labeler: new SpeakerLabeler(kept),
+    capability,
   };
 }
 
@@ -124,7 +171,11 @@ export async function createDefaultFastLoop(
   const [{ vad, name: vadName }, speaker] = await Promise.all([
     buildVad(),
     options.speakerId === false
-      ? Promise.resolve({ embedder: null, labeler: null, name: "speaker-ID off" })
+      ? Promise.resolve<SpeakerIdBuild>({
+          embedder: null,
+          labeler: null,
+          capability: inactiveCapability("disabled for this session"),
+        })
       : buildSpeakerId(),
   ]);
   const llm = buildLlm(options.providerOrder);
@@ -137,8 +188,14 @@ export async function createDefaultFastLoop(
     llm,
     haptics: expoHaptics,
   });
+  const capabilities: FastLoopCapabilities = {
+    vad: vad instanceof SileroVad ? "silero" : "energy",
+    speakerId: speaker.capability,
+    llm: llm.providerNames,
+  };
   return {
     loop,
-    status: `${vadName} · ${speaker.name} · LLM ${llm.providerNames.join(" → ")}`,
+    status: `${vadName} · ${describeSpeakerId(speaker.capability)} · LLM ${llm.providerNames.join(" → ")}`,
+    capabilities,
   };
 }

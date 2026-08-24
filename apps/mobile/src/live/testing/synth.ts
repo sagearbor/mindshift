@@ -17,6 +17,47 @@ export function loadFixture<T = unknown>(name: string): T {
   return JSON.parse(fs.readFileSync(path.join(FIXTURES_DIR, name), "utf8")) as T;
 }
 
+/** server/tests/fixtures/audio — the real recordings the parity tests use. */
+export const AUDIO_FIXTURES_DIR = path.resolve(FIXTURES_DIR, "../audio");
+
+/**
+ * Read a canonical 16 kHz mono int16 RIFF wav into float32 in [-1, 1) via
+ * `/ 32768` — the same arithmetic scripts/export_ecapa_onnx.py's reference
+ * writer applies, so the two sides embed identical samples. Throws on any
+ * other format (the fixtures are checked in that shape; a resampler here
+ * would only hide a fixture regression).
+ */
+export function loadWav16k(file: string): Float32Array {
+  const buf = fs.readFileSync(file);
+  if (buf.toString("ascii", 0, 4) !== "RIFF" || buf.toString("ascii", 8, 12) !== "WAVE") {
+    throw new Error(`${file}: not a RIFF/WAVE file`);
+  }
+  let offset = 12;
+  let channels = 0;
+  let sampleRate = 0;
+  let bits = 0;
+  let data: Buffer | null = null;
+  while (offset + 8 <= buf.length) {
+    const id = buf.toString("ascii", offset, offset + 4);
+    const size = buf.readUInt32LE(offset + 4);
+    const body = offset + 8;
+    if (id === "fmt ") {
+      channels = buf.readUInt16LE(body + 2);
+      sampleRate = buf.readUInt32LE(body + 4);
+      bits = buf.readUInt16LE(body + 14);
+    } else if (id === "data") {
+      data = buf.subarray(body, Math.min(body + size, buf.length));
+    }
+    offset = body + size + (size % 2);
+  }
+  if (!data || channels !== 1 || sampleRate !== SR || bits !== 16) {
+    throw new Error(`${file}: expected 16 kHz mono int16 wav (got ${channels}ch ${sampleRate}Hz ${bits}-bit)`);
+  }
+  const out = new Float32Array(Math.floor(data.length / 2));
+  for (let i = 0; i < out.length; i++) out[i] = data.readInt16LE(i * 2) / INT16_FULL_SCALE;
+  return out;
+}
+
 export interface VadStretch {
   seconds: number;
   dbfs: number | null;

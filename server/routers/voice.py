@@ -15,7 +15,12 @@ Eight endpoints under ``/voice`` (included from main.py with one line):
                                  the raw signature never leaves the server).
                                  ``?person_id=`` reads another enrolled person.
 * ``GET  /voice/people``       — every enrolled person (self first) with the
-                                 same per-person metadata.
+                                 same per-person metadata. ``?include_embeddings
+                                 =true`` is the ONE deliberate exception to
+                                 "the signature never leaves the server": it
+                                 adds each person's blended voiceprint so the
+                                 caller's OWN phone can match speakers on-device
+                                 (see ``list_voice_people``).
 * ``POST /voice/enroll``       — "This is me" (default) or "This is <name>"
                                  (``person_id`` + ``display_name``): embed one
                                  diarized speaker from a stored recording and
@@ -219,10 +224,26 @@ async def _resolve_person(
 
 def _profile_response(
     profile: dict, *, available: bool, storage_enabled: bool = True,
+    include_embedding: bool = False,
 ) -> "VoiceProfileResponse":
     """The per-person status view of one stored profile (person view) — the
-    metadata GET /voice/profile and GET /voice/people share, never an
-    embedding."""
+    metadata GET /voice/profile and GET /voice/people share. The embedding is
+    attached ONLY on ``include_embedding`` (the on-device opt-in of
+    ``GET /voice/people?include_embeddings=true``): the stored blend,
+    L2-normalized — which is exactly the vector ``main._identify_enrolled_
+    speakers`` hands the matcher (cosine normalizes anyway, so the phone and
+    the server score a turn identically). A stored profile without a usable
+    vector (never expected — it can't have been enrolled) is served without
+    one rather than with an invented zero vector."""
+    embedding: list[float] | None = None
+    if include_embedding:
+        raw = profile.get("embedding")
+        if isinstance(raw, list) and raw:
+            import numpy as np
+
+            embedding = [
+                float(x) for x in speaker_id.l2_normalize(np.asarray(raw, dtype=np.float32)).tolist()
+            ]
     return VoiceProfileResponse(
         available=available,
         storage_enabled=storage_enabled,
@@ -234,6 +255,7 @@ def _profile_response(
         updated_at=profile.get("updated_at"),
         model=profile.get("model"),
         dim=profile.get("dim"),
+        embedding=embedding,
         samples=[
             VoiceSampleOut(
                 id=str(s.get("id")),
@@ -453,6 +475,12 @@ class VoiceProfileResponse(BaseModel):
     # v2 — the per-sample provenance list (empty when unenrolled). A stored v1
     # profile is served through the same view: one legacy-blend sample.
     samples: list[VoiceSampleOut] = []
+    # The blended, L2-normalized voiceprint (``dim`` floats) — present ONLY
+    # for GET /voice/people?include_embeddings=true, the on-device speaker-ID
+    # opt-in. ``exclude_if`` drops the key entirely (not ``null``) otherwise,
+    # so every pre-existing response is byte-identical to before and the
+    # default remains "the raw signature never leaves the server".
+    embedding: list[float] | None = Field(default=None, exclude_if=lambda v: v is None)
 
 
 class DeleteSampleResponse(BaseModel):
@@ -518,11 +546,32 @@ class VoicePeopleResponse(BaseModel):
 async def list_voice_people(
     request: Request,
     uid: str = Depends(get_current_uid),
+    include_embeddings: bool = Query(
+        default=False,
+        description=(
+            "Also return each person's blended, L2-normalized voiceprint "
+            "(`embedding`, `dim` floats) so the caller's own device can match "
+            "speakers locally with the ECAPA model from GET /models/ecapa.onnx. "
+            "Off by default: the signature never leaves the server unless asked."
+        ),
+    ),
 ) -> VoicePeopleResponse:
     """Every person this account has enrolled a voice for (the owner first,
-    then partners by name). Same honesty rules as GET /voice/profile: never
-    an embedding, never a 503, a legacy single-document owner print is served
-    as "self" without being rewritten."""
+    then partners by name). Same honesty rules as GET /voice/profile: never a
+    503, a legacy single-document owner print is served as "self" without
+    being rewritten, and — by default — never an embedding.
+
+    ``include_embeddings=true`` is the deliberate exception, for the phone's
+    on-device speaker-ID (apps/mobile/src/live/speakerId.ts): the realtime
+    loop can only tell "you" from "Mom" locally if it holds the same
+    voiceprints the server matches with. Scope is structural, not a filter:
+    ``store.list_voiceprints(uid)`` is keyed by the VERIFIED uid, so a caller
+    can only ever receive the prints their own account enrolled (a partner's
+    voiceprint is data the account owner enrolled, on their own device, of a
+    voice they recorded — never another account's biometric). Each returned
+    person carries ``embedding`` + ``dim`` + ``model`` (the pinned ECAPA
+    revision) so the client can refuse a print from a different model
+    rather than match across embedding spaces."""
     available = speaker_id.is_available()
     store = _get_store(request)
     if store is None:
@@ -532,7 +581,10 @@ async def list_voice_people(
         available=available,
         storage_enabled=True,
         people=[
-            _profile_response(speaker_id.as_person(p), available=available)
+            _profile_response(
+                speaker_id.as_person(p), available=available,
+                include_embedding=include_embeddings,
+            )
             for p in profiles
             if isinstance(p, dict)
         ],

@@ -1,6 +1,6 @@
 fastapi>=0.110,<1
 uvicorn>=0.29,<1
-pydantic>=2,<3
+pydantic>=2.12,<3  # >=2.12 for Field(exclude_if=...) (routers/voice.py)
 aiosqlite>=0.20,<1
 anthropic>=0.39,<1
 # Firebase ID-token verification (user auth). On Cloud Run it uses Application

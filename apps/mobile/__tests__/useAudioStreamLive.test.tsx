@@ -100,7 +100,15 @@ function makeFakeFastLoop(opts: { provider?: "ok" | "cloud" } = {}) {
         sttGraceMs: 100,
         pollMs: 5,
       });
-      return { loop: build.loop, status: "energy VAD · speaker-ID off · LLM os → cloud" };
+      return {
+        loop: build.loop,
+        status: "energy VAD · speaker-ID off · LLM os → cloud",
+        capabilities: {
+          vad: "energy" as const,
+          speakerId: { active: false, reason: "test", enrolled: 0, model: null, droppedForModel: 0 },
+          llm: ["os", "cloud"],
+        },
+      };
     },
   };
   return build;
