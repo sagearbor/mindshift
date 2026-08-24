@@ -2141,14 +2141,10 @@ async def _enrich_turn_local(
     isolated — one failing is logged and the others still run."""
     await _await_audio_through(ctx, event.end_time)
     pcm_bytes = ctx.pcm.slice(event.start_time, event.end_time)
-    steps = (
-        ("tone", _enrich_tone(ctx, event, pcm_bytes, send_json)),
-        ("identity", _enrich_identity(ctx, event, pcm_bytes, send_json, store)),
-        ("relay", _relay_turn_local(ctx, event)),
-    )
-    for name, coro in steps:
+
+    async def guarded(name: str, coro):
         try:
-            await coro
+            return await coro
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -2156,21 +2152,42 @@ async def _enrich_turn_local(
                 "turn_local %s enrichment failed for session %s",
                 name, ctx.session_id, exc_info=True,
             )
+            return None
+
+    # Ordered on purpose: the relay (Track 1) escalates the WATCH from the
+    # tone flag and only for the user's own turns, so it gets the audio tone
+    # (if computed) and the server-corrected identity (if any) — the most
+    # informed view of the turn, not the phone's first guess.
+    tone_flag = await guarded("tone", _enrich_tone(ctx, event, pcm_bytes, send_json))
+    identity = await guarded(
+        "identity", _enrich_identity(ctx, event, pcm_bytes, send_json, store),
+    )
+    relayed = event
+    if identity is not None:
+        relayed = event.model_copy(update={
+            "is_self": identity.is_self,
+            "speaker_person_id": identity.person_id,
+            "speaker_match_score": identity.score,
+        })
+    await guarded("relay", _relay_turn_local(ctx, relayed, tone_flag))
 
 
 async def _enrich_tone(
     ctx: SessionContext, event: TurnLocalEvent, pcm_bytes: bytes, send_json,
-) -> None:
+) -> ToneFlagEvent | None:
     """(a) Classify the turn's AUDIO tone (tone_id) and surface it as a
     ToneFlagEvent(source="audio") — but only when tone_id.surface_allowed();
     otherwise it ships DARK: computed and logged, never shown (the owner's
-    rule for a signal that measured weak, see server/tone_id.py)."""
+    rule for a signal that measured weak, see server/tone_id.py). Returns
+    the flag ONLY when it was surfaced, for the watch relay — a dark flag
+    must not reach the user through the watch's haptics either, so dark
+    mode returns None exactly as "skipped" does."""
     if tone_id is None or not tone_id.is_enabled():
-        return
+        return None
     # is_available() imports torch/speechbrain on first use (seconds) — off
     # the loop, like every model-touching call.
     if not await asyncio.to_thread(tone_id.is_available):
-        return
+        return None
     sr = ctx.pcm.sample_rate
     pcm = _pcm16_to_float32(pcm_bytes)
     min_seconds = float(getattr(tone_id, "MIN_TURN_SECONDS", 1.0))
@@ -2181,7 +2198,7 @@ async def _enrich_tone(
             ctx.session_id, pcm.size / sr, event.start_time, event.end_time,
             min_seconds,
         )
-        return
+        return None
     max_seconds = float(getattr(tone_id, "MAX_TURN_SECONDS", 30.0))
     pcm = pcm[: int(max_seconds * sr)]
     unavailable = getattr(tone_id, "ToneUnavailable", ())
@@ -2190,7 +2207,7 @@ async def _enrich_tone(
     except unavailable as exc:
         # Flag off / model missing — an expected skip, not a failure.
         logger.debug("Audio tone unavailable for session %s: %s", ctx.session_id, exc)
-        return
+        return None
     flag = ToneFlagEvent(
         session_id=ctx.session_id,
         speaker=event.speaker,
@@ -2203,81 +2220,115 @@ async def _enrich_tone(
     )
     if tone_id.surface_allowed():
         await send_json(flag.model_dump())
-    else:
-        # Dark mode: this log line IS the feature's output.
-        logger.info(
-            "audio tone (dark) session=%s speaker=%s label=%s confidence=%.2f "
-            "seconds=%.1f phone_label=%s",
-            ctx.session_id, event.speaker, flag.label, flag.confidence,
-            pcm.size / sr,
-            event.text_tone.label if event.text_tone else None,
-        )
+        return flag
+    # Dark mode: this log line IS the feature's output — nothing reaches the
+    # client, and nothing reaches the watch (see the return contract above).
+    logger.info(
+        "audio tone (dark) session=%s speaker=%s label=%s confidence=%.2f "
+        "seconds=%.1f phone_label=%s",
+        ctx.session_id, event.speaker, flag.label, flag.confidence,
+        pcm.size / sr,
+        event.text_tone.label if event.text_tone else None,
+    )
+    return None
 
 
-def _identify_turn_speaker(
-    pcm: np.ndarray, sr: int, profile: dict,
-) -> tuple[bool, float]:
-    """Blocking: is this slice the enrolled user? ``(is_self, cosine)``.
+def _identify_turn_person(
+    pcm: np.ndarray, sr: int, speaker: str, docs: list[dict],
+) -> dict | None:
+    """Blocking: who is this slice, among the uid's enrolled people?
 
-    Embeds the slice with speaker_id and compares it to the uid's stored
-    voiceprint blend. Foundation B's ``identify_speakers_multi`` (per-person
-    voiceprints → a person id, not just self/other) is the intended
-    successor here once it is on main; this single-voiceprint form uses
-    only primitives that exist today.
+    Runs Foundation B's :func:`speaker_id.identify_speakers_multi` over the
+    recovered slice as ONE turn by ``speaker`` against every enrolled
+    voiceprint (the owner is ``"self"``; partners are named people), so the
+    verdict is a person id + display name, not just self/other. Returns
+    that speaker's report entry — ``{matched_person_id, is_self,
+    display_name, scores, ...}`` — or ``None`` when the slice was too short
+    to embed (the report omits it honestly rather than scoring noise).
     """
-    voiceprint = np.asarray(profile["embedding"], dtype=np.float32)
-    emb = speaker_id.embed_pcm(pcm, sr)
-    score = float(speaker_id.cosine(emb, voiceprint))
-    threshold = float(getattr(speaker_id, "MATCH_THRESHOLD", 0.5))
-    return score >= threshold, score
+    voiceprints = {
+        d["person_id"]: np.asarray(d["embedding"], dtype=np.float32)
+        for d in docs
+        if isinstance(d.get("embedding"), list) and d.get("person_id")
+    }
+    if not voiceprints:
+        return None
+    people = {
+        d["person_id"]: {
+            "display_name": d.get("display_name"), "is_self": bool(d.get("is_self")),
+        }
+        for d in docs if d.get("person_id") in voiceprints
+    }
+    turns = [{"speaker": speaker, "start_time": 0.0, "end_time": pcm.size / sr}]
+    report = speaker_id.identify_speakers_multi(
+        pcm, sr, turns, voiceprints, people=people,
+    )
+    return (report.get("speakers") or {}).get(speaker)
 
 
 async def _enrich_identity(
     ctx: SessionContext, event: TurnLocalEvent, pcm_bytes: bytes, send_json, store,
-) -> None:
+) -> SpeakerIdentityEvent | None:
     """(b) Confirm or correct the phone's speaker verdict against the user's
-    server-side voiceprint; emit a SpeakerIdentityEvent either way (the
-    client reconciles). Skipped cleanly without deps, store, or enrollment."""
+    server-side voiceprints (every enrolled person, Foundation B); emit a
+    SpeakerIdentityEvent either way (the client reconciles) and return it
+    for the relay. Skipped cleanly (None) without deps, store, enrollment,
+    or enough audio."""
     if speaker_id is None or store is None or not ctx.uid:
-        return
+        return None
     if not await asyncio.to_thread(speaker_id.is_available):
-        return
-    profile = await store.read_voiceprint(ctx.uid)
-    if not profile or not isinstance(profile.get("embedding"), list):
-        return
+        return None
+    docs = await store.list_voiceprints(ctx.uid)
+    if not docs:
+        return None
     sr = ctx.pcm.sample_rate
     pcm = _pcm16_to_float32(pcm_bytes)
     min_seconds = float(getattr(speaker_id, "MIN_MATCH_SECONDS", 1.0))
     if pcm.size < int(min_seconds * sr):
-        return
-    is_self, score = await asyncio.to_thread(_identify_turn_speaker, pcm, sr, profile)
+        return None
+    entry = await asyncio.to_thread(
+        _identify_turn_person, pcm, sr, event.speaker, docs,
+    )
+    if entry is None:
+        return None
+    person_id = entry.get("matched_person_id")
+    is_self = bool(entry.get("is_self"))
+    scores = entry.get("scores") or {}
+    # The score that justified the verdict; for "unknown", the best near-miss
+    # so a client (or a log reader) can see how close it came.
+    score = float(scores.get(person_id, max(scores.values(), default=0.0)))
     if event.is_self is not None and event.is_self != is_self:
         logger.info(
             "Correcting phone speaker verdict for session %s: phone is_self=%s, "
-            "server is_self=%s (score %.3f)",
-            ctx.session_id, event.is_self, is_self, score,
+            "server is_self=%s person=%s (score %.3f)",
+            ctx.session_id, event.is_self, is_self, person_id, score,
         )
-    await send_json(SpeakerIdentityEvent(
+    identity = SpeakerIdentityEvent(
         session_id=ctx.session_id,
         speaker=event.speaker,
-        # The only person with a server-side voiceprint today is the user
-        # themself; their uid is the stable id the client already knows.
-        person_id=ctx.uid if is_self else None,
-        display_name="You" if is_self else None,
+        person_id=person_id,
+        display_name=entry.get("display_name") if person_id else None,
         is_self=is_self,
         score=round(score, 4),
-    ).model_dump())
+    )
+    await send_json(identity.model_dump())
+    return identity
 
 
-async def _relay_turn_local(ctx: SessionContext, event: TurnLocalEvent) -> None:
-    """(c) Hand the turn to the watch relay (Track 1) so a paired watch sees
-    the phone's turns too. Sync or async relay both accepted."""
+async def _relay_turn_local(
+    ctx: SessionContext, event: TurnLocalEvent, tone_flag: ToneFlagEvent | None,
+) -> None:
+    """(c) Hand the turn to the watch relay (Track 1's
+    ``watch.relay.push_turn_local(uid, event, *, tone_flag=None)``) so a
+    paired watch escalates on the phone's turns too. The relay itself keeps
+    the self-turns-only rule and its own confidence gate on the tone flag;
+    this just delivers the most informed view. Sync or async relay accepted."""
     if watch_relay is None or not ctx.uid:
         return
     push = getattr(watch_relay, "push_turn_local", None)
     if push is None:
         return
-    result = push(ctx.uid, event)
+    result = push(ctx.uid, event, tone_flag=tone_flag)
     if inspect.isawaitable(result):
         await result
 

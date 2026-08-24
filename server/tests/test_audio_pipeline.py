@@ -1969,45 +1969,71 @@ class FakeToneId:
 
 
 class FakeSpeakerId:
-    """Stand-in for server/speaker_id.py: a 2-d 'embedding' so cosine is
-    trivially [1,0]·voiceprint — the test picks the voiceprint to decide."""
+    """Stand-in for server/speaker_id.py's Foundation B surface: the slice
+    always embeds to [1, 0], so cosine against each enrolled print is that
+    print's first component — the test picks the prints to decide who wins.
+    Returns the documented identify_speakers_multi report shape."""
 
     MATCH_THRESHOLD = 0.5
     MIN_MATCH_SECONDS = 1.0
 
     def __init__(self) -> None:
-        self.embed_calls = 0
+        self.calls: list[dict] = []
 
     def is_available(self) -> bool:
         return True
 
-    def embed_pcm(self, pcm, sr):
-        self.embed_calls += 1
-        return np.array([1.0, 0.0], dtype=np.float32)
+    def identify_speakers_multi(self, pcm, sr, turns, voiceprints, *, threshold=None,
+                                people=None):
+        self.calls.append({
+            "samples": int(pcm.size), "sr": sr, "turns": turns,
+            "people": sorted(voiceprints),
+        })
+        emb = np.array([1.0, 0.0], dtype=np.float32)
+        speaker = turns[0]["speaker"]
+        scores = {pid: round(float(np.dot(emb, vec)), 4) for pid, vec in voiceprints.items()}
+        best = max(scores, key=scores.get)
+        matched = best if scores[best] >= self.MATCH_THRESHOLD else None
+        meta = (people or {}).get(matched or "", {})
+        return {
+            "matched": {speaker: matched} if matched else {},
+            "speakers": {speaker: {
+                "scores": scores,
+                "matched_person_id": matched,
+                "is_self": bool(meta.get("is_self")) if matched else False,
+                "display_name": meta.get("display_name") if matched else None,
+            }},
+        }
 
-    def cosine(self, a, b) -> float:
-        return float(np.dot(a, b))
+
+SELF_DOC = {"person_id": "self", "display_name": "You", "is_self": True, "embedding": [1.0, 0.0]}
+ALEX_DOC = {"person_id": "alex", "display_name": "Alex", "is_self": False, "embedding": [0.0, 1.0]}
 
 
 class FakeVoiceprintStore:
-    def __init__(self, profile=None, error=None) -> None:
-        self._profile = profile
+    """Per-person voiceprint docs, as recordings_store.list_voiceprints
+    returns them (person views: person_id / display_name / is_self)."""
+
+    def __init__(self, docs=None, error=None) -> None:
+        self._docs = list(docs or [])
         self._error = error
         self.reads: list[str] = []
 
-    async def read_voiceprint(self, uid: str):
+    async def list_voiceprints(self, uid: str):
         self.reads.append(uid)
         if self._error is not None:
             raise self._error
-        return self._profile
+        return list(self._docs)
 
 
 class FakeRelay:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, object]] = []
+    """Track 1's relay surface: push_turn_local(uid, event, *, tone_flag=None)."""
 
-    def push_turn_local(self, uid: str, event) -> None:
-        self.calls.append((uid, event))
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def push_turn_local(self, uid: str, event, *, tone_flag=None) -> None:
+        self.calls.append({"uid": uid, "event": event, "tone_flag": tone_flag})
 
 
 @pytest.fixture
@@ -2399,7 +2425,9 @@ class TestTurnLocalEnrichment:
     ):
         tone = FakeToneId(surface=True)
         spk = FakeSpeakerId()
-        store = FakeVoiceprintStore(profile={"embedding": [1.0, 0.0]})  # cosine 1.0 → self
+        # Two enrolled people: the owner's print matches the slice (cosine 1.0),
+        # the partner's doesn't (0.0) — so the verdict is "self".
+        store = FakeVoiceprintStore(docs=[SELF_DOC, ALEX_DOC])
         relay = FakeRelay()
         monkeypatch.setattr(audio_pipeline, "tone_id", tone)
         monkeypatch.setattr(audio_pipeline, "speaker_id", spk)
@@ -2427,16 +2455,31 @@ class TestTurnLocalEnrichment:
         assert tone.calls == [(16000, 16000)]
         ident = types_seen["speaker_identity"]
         assert ident["is_self"] is True and ident["score"] == 1.0
-        assert ident["person_id"] == "test-user" and ident["display_name"] == "You"
-        assert store.reads == ["test-user"] and spk.embed_calls == 1
+        assert ident["person_id"] == "self" and ident["display_name"] == "You"
+        assert store.reads == ["test-user"]
+        # Embedded as ONE turn by the phone's label, against every enrolled print.
+        assert spk.calls == [{
+            "samples": 16000, "sr": 16000,
+            "turns": [{"speaker": "Speaker A", "start_time": 0.0, "end_time": 1.0}],
+            "people": ["alex", "self"],
+        }]
+        # The relay got the most informed view: the server-CORRECTED identity
+        # (phone said is_self=False) and the audio tone flag.
         assert len(relay.calls) == 1
-        uid, event = relay.calls[0]
-        assert uid == "test-user" and event.text == "You never listen to me."
+        call = relay.calls[0]
+        assert call["uid"] == "test-user"
+        assert call["event"].text == "You never listen to me."
+        assert call["event"].is_self is True
+        assert call["event"].speaker_person_id == "self"
+        assert call["event"].speaker_match_score == 1.0
+        assert call["tone_flag"].label == "angry" and call["tone_flag"].source == "audio"
         assert "latency_summary" in done  # local-first → summary automatically
 
     def test_dark_tone_is_logged_not_surfaced(self, local_first_env, monkeypatch, caplog):
         tone = FakeToneId(surface=False)
+        relay = FakeRelay()
         monkeypatch.setattr(audio_pipeline, "tone_id", tone)
+        monkeypatch.setattr(audio_pipeline, "watch_relay", relay)
         client = _inject(StoppableTranscriber())
         with caplog.at_level(logging.INFO, logger="audio_pipeline"):
             with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
@@ -2448,6 +2491,8 @@ class TestTurnLocalEnrichment:
         assert done["type"] == "session_complete"  # no tone_flag ever hit the wire
         assert tone.calls  # …but it WAS computed
         assert any("audio tone (dark)" in r.getMessage() for r in caplog.records)
+        # …and it did not leak to the watch through the relay either.
+        assert relay.calls and relay.calls[0]["tone_flag"] is None
 
     def test_too_little_audio_skips_models_cleanly(self, local_first_env, monkeypatch):
         tone = FakeToneId()
@@ -2455,14 +2500,57 @@ class TestTurnLocalEnrichment:
         monkeypatch.setattr(audio_pipeline, "tone_id", tone)
         monkeypatch.setattr(audio_pipeline, "speaker_id", spk)
         client = _inject(StoppableTranscriber())
-        app.state.recordings_store = FakeVoiceprintStore(profile={"embedding": [1.0, 0.0]})
+        app.state.recordings_store = FakeVoiceprintStore(docs=[SELF_DOC])
         with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
             ws.send_bytes(FRAME_100MS)  # 100 ms — below both 1 s floors
             ws.send_text(json.dumps(_turn_local(start_time=0.0, end_time=0.1)))
             assert json.loads(ws.receive_text())["type"] == "suggestion"
             ws.send_text(json.dumps({"type": "stop"}))
             assert json.loads(ws.receive_text())["type"] == "session_complete"
-        assert tone.calls == [] and spk.embed_calls == 0
+        assert tone.calls == [] and spk.calls == []
+
+    def test_partner_match_names_the_person(self, local_first_env, monkeypatch):
+        """A slice matching a PARTNER's print names them (is_self False) even
+        though the phone claimed is_self=True; the relay is handed the
+        corrected event and no tone flag (tone_id absent here)."""
+        spk = FakeSpeakerId()
+        relay = FakeRelay()
+        monkeypatch.setattr(audio_pipeline, "speaker_id", spk)
+        monkeypatch.setattr(audio_pipeline, "watch_relay", relay)
+        client = _inject(StoppableTranscriber())
+        app.state.recordings_store = FakeVoiceprintStore(docs=[
+            dict(SELF_DOC, embedding=[0.2, 0.0]),   # 0.2 < threshold
+            dict(ALEX_DOC, embedding=[0.9, 0.0]),   # 0.9 → Alex
+        ])
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            _stream_one_second(ws)
+            ws.send_text(json.dumps(_turn_local(speaker="Speaker B", is_self=True)))
+            ident, _ = recv_until(ws, lambda m: m["type"] == "speaker_identity")
+            ws.send_text(json.dumps({"type": "stop"}))
+            json.loads(ws.receive_text())
+        assert ident == {
+            "type": "speaker_identity", "session_id": LOCAL_SID,
+            "speaker": "Speaker B", "person_id": "alex", "display_name": "Alex",
+            "is_self": False, "score": 0.9,
+        }
+        assert relay.calls[0]["event"].is_self is False
+        assert relay.calls[0]["event"].speaker_person_id == "alex"
+        assert relay.calls[0]["tone_flag"] is None
+
+    def test_no_match_is_an_honest_unknown(self, local_first_env, monkeypatch):
+        spk = FakeSpeakerId()
+        monkeypatch.setattr(audio_pipeline, "speaker_id", spk)
+        client = _inject(StoppableTranscriber())
+        app.state.recordings_store = FakeVoiceprintStore(docs=[
+            dict(SELF_DOC, embedding=[0.3, 0.0]),
+        ])
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            _stream_one_second(ws)
+            ws.send_text(json.dumps(_turn_local()))
+            ident, _ = recv_until(ws, lambda m: m["type"] == "speaker_identity")
+        assert ident["person_id"] is None and ident["display_name"] is None
+        assert ident["is_self"] is False
+        assert ident["score"] == 0.3  # the best near-miss, for inspectability
 
     def test_enrichment_failures_never_break_the_session(
         self, local_first_env, monkeypatch, caplog,
@@ -2475,7 +2563,7 @@ class TestTurnLocalEnrichment:
         store = FakeVoiceprintStore(error=OSError("gcs down"))
 
         class ExplodingRelay:
-            def push_turn_local(self, uid, event):
+            def push_turn_local(self, uid, event, *, tone_flag=None):
                 raise RuntimeError("watch relay down")
 
         monkeypatch.setattr(audio_pipeline, "tone_id", tone)
