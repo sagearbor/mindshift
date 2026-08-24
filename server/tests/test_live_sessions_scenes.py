@@ -32,9 +32,55 @@ from httpx import ASGITransport, AsyncClient
 
 from main import app, init_db
 from routers import sessions as sessions_router
-from tests.test_sessions_live import FakeLiveStore
 
 pytestmark = pytest.mark.anyio
+
+
+class FakeLiveStore:
+    """The slice of the recordings-store surface this path touches (a
+    deliberate near-copy of test_sessions_live.FakeLiveStore rather than an
+    import: the repo collects BOTH ``server/tests`` and the top-level
+    ``tests/`` as a package named ``tests``, so a cross-module import here
+    resolves to the wrong package under the full run)."""
+
+    def __init__(self):
+        self._by_uid: dict = {}
+
+    async def save_live_session(self, uid, recording_id, *, meta, turns, analysis):
+        self._by_uid.setdefault(uid, {})[recording_id] = {
+            "meta": dict(meta), "turns": turns, "analysis": analysis,
+        }
+        return dict(meta)
+
+    async def update_analysis(self, uid, recording_id, analysis):
+        r = self._by_uid.get(uid, {}).get(recording_id)
+        if r is None:
+            return False
+        r["analysis"] = analysis
+        return True
+
+    async def list_recordings(self, uid):
+        out = [
+            {**r["meta"], "has_analysis": r["analysis"] is not None}
+            for r in self._by_uid.get(uid, {}).values()
+        ]
+        out.sort(key=lambda m: m["created_at"], reverse=True)
+        return out
+
+    async def get_recording(self, uid, recording_id):
+        r = self._by_uid.get(uid, {}).get(recording_id)
+        if r is None:
+            return None
+        return {**r["meta"], "turns": r["turns"], "analysis": r["analysis"]}
+
+    async def find_share(self, recipient_uid, recording_id):
+        return None
+
+    async def list_shared_with(self, recipient_uid):
+        return []
+
+    async def list_voiceprints(self, uid):
+        return []
 
 FIXTURE_DIR = os.path.join(os.path.dirname(__file__), "fixtures", "audio")
 SCENE_METAS = sorted(glob.glob(os.path.join(FIXTURE_DIR, "test_recording_scene_*_meta.json")))

@@ -20,6 +20,7 @@ import type {
 import HeatChart from "../components/HeatChart";
 import GlanceSummary from "../components/GlanceSummary";
 import WordPatternsPanel from "../components/WordPatternsPanel";
+import ToneSummaryCard from "../components/ToneSummaryCard";
 import { getSpeakerColor } from "../utils/speakerColors";
 import { speakerLabel, type SpeakerLabels } from "../utils/speakerLabels";
 
@@ -476,6 +477,17 @@ export default function DynamicsScreen({
                 </View>
               </View>
             )}
+
+          {/* Track 2 — "Your tone": the live session's self / per-person
+              tone summary (from the phone's per-turn tone + identity), the
+              same card Replay and the therapist view render. Hides itself on
+              a plain upload / text analysis (no `live` block). */}
+          {data.live?.tone_summary ? (
+            <ToneSummaryCard
+              summary={data.live.tone_summary}
+              testID="dynamics-tone-summary"
+            />
+          ) : null}
 
           {/* Relationship dynamics insights. */}
           <View style={styles.card}>

@@ -184,6 +184,108 @@ export interface AnalyzeResult {
   // a newer server; OPTIONAL so an old server (or old stored analysis) simply
   // omits it and the "Word patterns" panel hides itself entirely.
   word_metrics?: WordMetrics;
+  // Track 2 — the LIVE-session block: per-turn tone/identity rows, the
+  // self / per-person tone summary, and the cached "what you could have
+  // said" reflection. Present on live sessions (and on any recording that
+  // has been reflected on); absent on plain uploads and older servers.
+  live?: LiveBlock;
+}
+
+// --- Track 2: live-session tone + identity + reflection ----------------------
+
+/** One turn's derived tone facts (server: live_sessions.turn_tone_rows),
+ *  index-aligned with the recording's `turns`. `label` is null when the phone
+ *  sent no tone for the turn — an honest gap, never "neutral". */
+export interface TurnToneRow {
+  index: number;
+  speaker: string | null;
+  is_self: boolean;
+  person_id: string | null;
+  display_name: string | null;
+  // Self turns only: the OTHER party this turn was said to.
+  with_speaker: string | null;
+  label: string | null;
+  escalated: boolean;
+  scored: boolean;
+  // Audio-tone verdicts — filled ONLY when the server's tone classifier is
+  // allowed to surface (MINDSHIFT_TONE_AUDIO=on); null otherwise.
+  audio_label: string | null;
+  audio_escalated: boolean | null;
+}
+
+/** A set of the USER'S OWN turns summarized: label counts, per-dimension
+ *  mean scores (null when no turn scored that dimension), and which turns
+ *  read as escalations. */
+export interface ToneBucket {
+  turns: number;
+  scored_turns: number;
+  labels: Record<string, number>;
+  mean: Record<string, number | null>;
+  escalation_turns: number[];
+  escalation_count: number;
+}
+
+/** "How I sound WITH this person": the user's own turns said to one
+ *  conversation partner. `display_name` is a real identity (a matched
+ *  voiceprint) or null — then `speaker` (the raw label) is all we have. */
+export interface PersonTone extends ToneBucket {
+  speaker: string;
+  person_id: string | null;
+  display_name: string | null;
+  their_turns: number;
+  self_turns: number;
+}
+
+export interface ToneSummary {
+  self_speaker: string | null;
+  // Null when no turn in the session is the user's — nothing honest to sum.
+  self: ToneBucket | null;
+  // Audio-tone bucket over self turns, ONLY when surfacing is allowed.
+  audio: {
+    turns: number;
+    labels: Record<string, number>;
+    escalation_turns: number[];
+    escalation_count: number;
+  } | null;
+  audio_tone_surfaced: boolean;
+  people: PersonTone[];
+}
+
+/** One "what you could have said" reflection for a self turn. */
+export interface CouldHaveSaid {
+  turn_index: number;
+  could_have_said: string;
+  why: string;
+  tone_read: string;
+}
+
+export interface LiveBlock {
+  session_id?: string;
+  mode?: LiveMode | string | null;
+  started_at?: string | null;
+  ended_at?: string | null;
+  turn_count?: number;
+  self_speaker?: string | null;
+  tone_summary?: ToneSummary | null;
+  turn_tone?: TurnToneRow[];
+  // Null until a reflection has run (ingest schedules one; the Replay screen
+  // can request one on demand).
+  could_have_said?: CouldHaveSaid[] | null;
+  reflection?: { reflected_at?: string; turns_hash?: string } | null;
+  // "lite" (derived only, no heats yet) | "full" (batch analysis merged) |
+  // "failed" (attempted; `analysis_error` says why). Undefined on uploads.
+  analysis_status?: "lite" | "full" | "failed" | string | null;
+  analysis_error?: string | null;
+}
+
+/** POST /episodes/{id}/reflect result. */
+export interface ReflectResult {
+  episode_id: string;
+  self_speaker: string;
+  could_have_said: CouldHaveSaid[];
+  // True when served from the episode's cache (no LLM spend).
+  cached: boolean;
+  reflected_at: string | null;
 }
 
 // --- Transparent word metrics ("the numbers a therapist can check by hand") ---
@@ -1212,7 +1314,13 @@ export async function postCounterfactual(
 // `API error: <status>` on any non-OK so callers surface honest 401/404/503
 // states instead of a fabricated recording).
 
-export type MediaType = "audio" | "video";
+// "none" (Track 2): a LIVE coaching session ingested from the phone — the
+// server kept no audio at all (the phone did the listening), so there is
+// nothing to play. Replay renders the transcript + analysis without a player.
+export type MediaType = "audio" | "video" | "none";
+
+/** The coaching mode a live session ran in (server: routers/sessions.py). */
+export type LiveMode = "earpiece" | "speaker" | "therapist";
 
 /** One grant on a recording the caller OWNS: the account it's shared with. The
  *  owner sees these (to show + revoke); a recipient never sees co-recipients.
@@ -1239,8 +1347,11 @@ export interface RecordingSummary {
   // the transcript carried no end time) — type matches the wire honestly.
   duration_seconds: number | null;
   has_analysis: boolean;
-  // Provenance: "upload" | "link" (present on newer servers).
+  // Provenance: "upload" | "link" | "live" (present on newer servers).
   source_type?: string;
+  // Live sessions only (Track 2): the coaching mode the phone ran in. Null /
+  // absent for uploads and links, and on servers that predate live ingest.
+  mode?: LiveMode | string | null;
   // Raw MANUAL per-speaker name map ({canonical_id: name}) the user set on this
   // recording — the list carries this straight from meta.json (no analysis load)
   // so a row can show its named participants ("Linda & Sage"). Absent on servers
@@ -1282,7 +1393,8 @@ export interface RecordingTurn {
  *  `link` = the user linked their own hosted media (a durable share/direct URL
  *  we can re-resolve for HD replay from the original source). */
 export interface RecordingSource {
-  type: "upload" | "link";
+  // "live" = a phone coaching session ingested at session end (no audio kept).
+  type: "upload" | "link" | "live";
   // The durable user-provided URL for a link source; null for an upload (or a
   // link recording stored before the url was kept).
   url: string | null;
@@ -1316,6 +1428,10 @@ export interface RecordingDetail extends RecordingSummary {
   // Who the OWNER has shared this recording with (owner view only; a recipient
   // gets an empty list). Absent on servers that predate sharing.
   shares?: RecordingShare[];
+  // Live sessions only (Track 2): coaching mode + the phone's own session id.
+  // Null/absent for uploads and links.
+  mode?: LiveMode | string | null;
+  session_id?: string | null;
 }
 
 /** GET /recordings/{id}/media_url — a short-lived signed URL for playback. */
@@ -1972,6 +2088,44 @@ export interface GrowthPoint {
   title: string;
   my_score: number | null;
   partner_names: string[];
+  // Track 2 additions (absent on older servers): provenance, the live
+  // coaching mode, and — for a live session that carried per-turn text tone
+  // — the user's OWN tone bucket plus the per-person split. Null/absent for
+  // uploads: no per-turn tone was measured, so "How you sound" counts them
+  // as unscored rather than neutral.
+  source?: string | null;
+  mode?: LiveMode | string | null;
+  self_tone?: GrowthSelfTone | null;
+}
+
+/** The self-tone facts /growth carries per live session (a slimmed
+ *  ToneBucket) plus the per-person split for that session. */
+export interface GrowthSelfTone {
+  scored_turns: number;
+  labels: Record<string, number>;
+  mean: Record<string, number | null>;
+  escalation_count: number;
+  people: GrowthPersonTone[];
+}
+
+export interface GrowthPersonTone {
+  person_id: string | null;
+  display_name: string | null;
+  scored_turns: number;
+  labels: Record<string, number>;
+  escalation_count: number;
+}
+
+/** One cross-session "how I sound with X" row (server: live_sessions.
+ *  aggregate_people) — only REAL identities (a person_id or a matched
+ *  voiceprint name), never a per-session "Speaker B". */
+export interface GrowthPerson {
+  person_id: string | null;
+  display_name: string | null;
+  sessions: number;
+  scored_turns: number;
+  labels: Record<string, number>;
+  escalation_count: number;
 }
 
 export interface GrowthResult {
@@ -1981,6 +2135,9 @@ export interface GrowthResult {
   /** How many of those identified the user's voice — the honest footer's "N
    *  of M". Equals points.length. */
   identified_recordings: number;
+  /** Track 2: per-person rows across sessions. Always an array — empty on
+   *  older servers that omit the key. */
+  people: GrowthPerson[];
 }
 
 /**
@@ -2001,7 +2158,102 @@ export async function getGrowth(): Promise<GrowthResult> {
     points: Array.isArray(data.points) ? data.points : [],
     total_recordings: data.total_recordings ?? 0,
     identified_recordings: data.identified_recordings ?? 0,
+    people: Array.isArray(data.people) ? data.people : [],
   };
+}
+
+// ---------------------------------------------------------------------------
+// Track 2 — "what you could have said" + the therapist dashboard list
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /episodes/{id}/reflect — the LLM's "what you could have said" for the
+ * caller's OWN turns in one episode (a live session, or an upload whose
+ * enrolled voice is known). The server caches the result on the episode, so
+ * repeat calls are free (`cached: true`); `force` re-runs it. Throws
+ * `API error: <status>` on any non-OK — 422 means no turn is identified as
+ * the caller (the UI says so and points at "This is me"), 403 a shared
+ * episode, 502 an unusable model answer.
+ */
+export async function postReflect(
+  episodeId: string,
+  force = false,
+): Promise<ReflectResult> {
+  const query = force ? "?force=true" : "";
+  const res = await fetch(
+    `${API_URL}/episodes/${encodeURIComponent(episodeId)}/reflect${query}`,
+    { method: "POST", headers: await authHeaders() },
+  );
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+  const data = (await res.json()) as Partial<ReflectResult>;
+  return {
+    episode_id: data.episode_id ?? episodeId,
+    self_speaker: data.self_speaker ?? "",
+    could_have_said: Array.isArray(data.could_have_said) ? data.could_have_said : [],
+    cached: data.cached === true,
+    reflected_at: data.reflected_at ?? null,
+  };
+}
+
+/** One row of GET /sessions — the therapist dashboard's session shape
+ *  (server: live_sessions.dashboard_session). `role` is the PATIENT label
+ *  ("You" for the caller's own episodes, the owner's email for episodes a
+ *  patient shared) — the dashboard groups and filters by it. Per-turn
+ *  `toneScores` carry ONLY what was measured (pleasantness = 100 − heat when
+ *  the batch analysis ran; warmth from the phone's text tone). */
+export interface DashboardSessionTurn {
+  speaker: string;
+  text: string;
+  toneScores: Partial<{
+    warmth: number;
+    constructiveness: number;
+    calmness: number;
+    respect: number;
+    engagement: number;
+    pleasantness: number;
+  }>;
+  isSelf?: boolean;
+  toneLabel?: string | null;
+  escalated?: boolean;
+  audioLabel?: string | null;
+  withPerson?: string | null;
+}
+
+export interface DashboardSession {
+  id: string;
+  recordingId?: string;
+  date: string;
+  role: string;
+  patient?: string;
+  shared?: boolean;
+  title?: string | null;
+  source?: string | null;
+  mode?: LiveMode | string | null;
+  turns: DashboardSessionTurn[];
+  // Null when no turn carries a heat (no batch analysis yet) — never 0.
+  avgPleasantness: number | null;
+  toneSummary?: ToneSummary | null;
+  couldHaveSaid?: CouldHaveSaid[] | null;
+  analysisStatus?: string | null;
+}
+
+/**
+ * GET /sessions — every analyzed episode the caller can see (own + shared
+ * with them), newest first, in the dashboard shape. Throws `API error:
+ * <status>` on any non-OK (401 signed out, 503 storage disabled).
+ */
+export async function listDashboardSessions(): Promise<DashboardSession[]> {
+  const res = await fetch(`${API_URL}/sessions`, {
+    method: "GET",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+  const data = (await res.json()) as { sessions?: DashboardSession[] };
+  return Array.isArray(data.sessions) ? data.sessions : [];
 }
 
 export async function postRespond(
@@ -2068,6 +2320,11 @@ export interface Episode {
   // neither exists — the server never fabricates a description.
   summary: string | null;
   summary_source: "title" | "excerpt" | null;
+  // Track 2 (live sessions): the user's OWN tone inside this episode — label
+  // counts over their scored turns and how many read as escalations. Absent
+  // on uploads / older servers; empty when the episode has no self turns.
+  self_tone_labels?: Record<string, number>;
+  self_escalation_count?: number;
 }
 
 /**

@@ -55,6 +55,7 @@ function result(overrides: Partial<GrowthResult> = {}): GrowthResult {
     points: [],
     total_recordings: 0,
     identified_recordings: 0,
+    people: [],
     ...overrides,
   };
 }

@@ -10,6 +10,9 @@ import {
 } from "react-native";
 import { useDashboardStore, ToneScores } from "../store/dashboardStore";
 import ToneSparkline from "../components/ToneSparkline";
+import ToneSummaryCard from "../components/ToneSummaryCard";
+import CouldHaveSaidList from "../components/CouldHaveSaidList";
+import { modeLabel, toneChipColors } from "./toneTrends";
 
 interface SessionDetailProps {
   sessionId: string;
@@ -25,25 +28,49 @@ export default function SessionDetail({
 
   const aggregateStats = useMemo(() => {
     if (!session || session.turns.length === 0) return null;
-    const totals: ToneScores = {
-      warmth: 0,
-      constructiveness: 0,
-      calmness: 0,
-      respect: 0,
-      engagement: 0,
-      pleasantness: 0,
-    };
-    for (const turn of session.turns) {
-      for (const key of Object.keys(totals) as (keyof ToneScores)[]) {
-        totals[key] += turn.toneScores[key];
+    // Average each dimension over the turns that actually CARRY it: a
+    // server-projected live session scores only what was measured
+    // (Track 2), so a missing key is skipped, never counted as zero. A
+    // dimension no turn carries is omitted from the grid entirely.
+    const keys: (keyof ToneScores)[] = [
+      "warmth",
+      "constructiveness",
+      "calmness",
+      "respect",
+      "engagement",
+      "pleasantness",
+    ];
+    const totals: Partial<ToneScores> = {};
+    for (const key of keys) {
+      let sum = 0;
+      let n = 0;
+      for (const turn of session.turns) {
+        const v = turn.toneScores[key];
+        if (typeof v === "number") {
+          sum += v;
+          n += 1;
+        }
       }
+      if (n > 0) totals[key] = Math.round(sum / n);
     }
-    const count = session.turns.length;
-    for (const key of Object.keys(totals) as (keyof ToneScores)[]) {
-      totals[key] = Math.round(totals[key] / count);
-    }
-    return totals;
+    return Object.keys(totals).length > 0 ? totals : null;
   }, [session]);
+
+  // Track 2: the reflections keyed by turn index so each self turn can show
+  // its "what you could have said" card right beneath the words.
+  const reflectionsByTurn = useMemo(() => {
+    const map = new Map<number, NonNullable<typeof session>["couldHaveSaid"]>();
+    for (const item of session?.couldHaveSaid ?? []) {
+      map.set(item.turn_index, [item]);
+    }
+    return map;
+  }, [session]);
+  const pleasantnessSeries = session
+    ? session.turns
+        .map((t) => t.toneScores.pleasantness)
+        .filter((v): v is number => typeof v === "number")
+    : [];
+  const modeText = modeLabel(session?.mode);
 
   const handleExport = async () => {
     try {
@@ -93,17 +120,44 @@ export default function SessionDetail({
       <Text style={styles.meta}>
         {new Date(session.date).toLocaleDateString()} — {session.role}
       </Text>
+      {/* Track 2: a live session says so, with its coaching mode and the
+          honest state of its analysis (heats arrive after the batch pass). */}
+      {session.source === "live" && (
+        <Text style={styles.liveMeta} testID="session-live-meta">
+          {session.title ? `${session.title} · ` : ""}Live session
+          {modeText ? ` · ${modeText}` : ""}
+          {session.analysisStatus === "lite"
+            ? " · heat analysis pending"
+            : session.analysisStatus === "failed"
+              ? " · heat analysis unavailable"
+              : ""}
+        </Text>
+      )}
 
-      {/* Tone timeline */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Tone Timeline</Text>
-        <ToneSparkline
-          scores={session.turns.map((t) => t.toneScores.pleasantness)}
-          width={320}
-          height={60}
-          color="#4A90D9"
-        />
-      </View>
+      {/* Tone timeline — only over turns that carry a pleasantness score. */}
+      {pleasantnessSeries.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Tone Timeline</Text>
+          <ToneSparkline
+            scores={pleasantnessSeries}
+            width={320}
+            height={60}
+            color="#4A90D9"
+          />
+        </View>
+      )}
+
+      {/* Track 2: the user's own tone + per-person split, same card as
+          Replay/Dynamics so a therapist and a patient read the same thing. */}
+      {session.toneSummary && (
+        <View style={styles.section}>
+          <ToneSummaryCard
+            summary={session.toneSummary}
+            title="Patient's tone"
+            testID="session-tone-summary"
+          />
+        </View>
+      )}
 
       {/* Aggregate stats */}
       {aggregateStats && (
@@ -126,7 +180,18 @@ export default function SessionDetail({
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Transcript</Text>
         {session.turns.map((turn, i) => {
-          const toneColor = getTurnColor(turn.toneScores.pleasantness);
+          const pleasantness = turn.toneScores.pleasantness;
+          const toneColor = getTurnColor(pleasantness);
+          const chip = turn.toneLabel ? toneChipColors(turn.toneLabel) : null;
+          const reflections = reflectionsByTurn.get(i);
+          const scoreBadge =
+            typeof pleasantness === "number" ? (
+              <View style={styles.turnScoreBadge}>
+                <Text style={[styles.turnScoreText, { color: toneColor }]}>
+                  {Math.round(pleasantness)}
+                </Text>
+              </View>
+            ) : null;
           return (
             <View
               key={i}
@@ -135,16 +200,43 @@ export default function SessionDetail({
             >
               <View style={styles.turnHeader}>
                 <Text style={styles.turnSpeaker}>{turn.speaker}</Text>
-                <View style={styles.turnScoreBadge}>
-                  <Text style={[styles.turnScoreText, { color: toneColor }]}>
-                    {Math.round(turn.toneScores.pleasantness)}
-                  </Text>
-                </View>
+                {/* Track 2: the phone's tone read for this turn (+ an
+                    escalation marker) sits beside the score. The row wrapper
+                    exists only when there IS a chip, so a legacy session
+                    renders byte-for-byte as before. */}
+                {chip && turn.toneLabel ? (
+                  <View style={styles.turnBadges}>
+                    <View
+                      style={[styles.toneChip, { backgroundColor: chip.bg }]}
+                      testID={`turn-${i}-tone`}
+                    >
+                      <Text style={[styles.toneChipText, { color: chip.fg }]}>
+                        {turn.toneLabel}
+                        {turn.escalated ? " ↑" : ""}
+                      </Text>
+                    </View>
+                    {scoreBadge}
+                  </View>
+                ) : (
+                  scoreBadge
+                )}
               </View>
               <Text style={styles.turnText}>{turn.text}</Text>
-              <Text style={styles.empathyLabel}>
-                Empathy: {turn.empathyLevel}
-              </Text>
+              {typeof turn.empathyLevel === "number" ? (
+                <Text style={styles.empathyLabel}>
+                  Empathy: {turn.empathyLevel}
+                </Text>
+              ) : null}
+              {reflections && reflections.length > 0 ? (
+                <View style={styles.reflection}>
+                  <Text style={styles.reflectionTitle}>Could have said</Text>
+                  <CouldHaveSaidList
+                    items={reflections}
+                    turns={null}
+                    testID={`turn-${i}-could-have-said`}
+                  />
+                </View>
+              ) : null}
             </View>
           );
         })}
@@ -153,7 +245,11 @@ export default function SessionDetail({
   );
 }
 
-function getTurnColor(pleasantness: number): string {
+function getTurnColor(pleasantness: number | undefined): string {
+  // No pleasantness yet (a live session before its batch analysis) → the
+  // neutral gray the rest of the app uses for "heat unknown", never a color
+  // that would read as a verdict.
+  if (typeof pleasantness !== "number") return "#9CA3AF";
   if (pleasantness >= 65) return "#10B981"; // green = warm
   if (pleasantness >= 40) return "#F59E0B"; // amber = neutral
   return "#EF4444"; // red = defensive
@@ -210,6 +306,38 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#6B7280",
     marginBottom: 20,
+  },
+  liveMeta: {
+    fontSize: 13,
+    color: "#4A90D9",
+    fontWeight: "600",
+    marginTop: -14,
+    marginBottom: 20,
+  },
+  turnBadges: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  toneChip: {
+    borderRadius: 8,
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+  },
+  toneChipText: {
+    fontSize: 11.5,
+    fontWeight: "600",
+  },
+  reflection: {
+    marginTop: 8,
+  },
+  reflectionTitle: {
+    fontSize: 11.5,
+    fontWeight: "700",
+    color: "#6B7280",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    marginBottom: 4,
   },
   section: {
     marginBottom: 24,

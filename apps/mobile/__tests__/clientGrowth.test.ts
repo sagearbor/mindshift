@@ -41,7 +41,9 @@ describe("getGrowth", () => {
     const [url, init] = mockFetch.mock.calls[0];
     expect(url).toContain("/growth");
     expect(init.method).toBe("GET");
-    expect(result).toEqual(body);
+    // `people` (Track 2) is always an array — an older server that omits
+    // the key yields an empty list, never undefined.
+    expect(result).toEqual({ ...body, people: [] });
     // Null scores pass through as null — gaps, never zeroed.
     expect(result.points[1].my_score).toBeNull();
   });
@@ -52,7 +54,45 @@ describe("getGrowth", () => {
       points: [],
       total_recordings: 0,
       identified_recordings: 0,
+      people: [],
     });
+  });
+
+  it("passes Track 2 tone/people through verbatim", async () => {
+    const body = {
+      points: [
+        {
+          recording_id: "r1",
+          timestamp: "2026-08-24T18:05:00+00:00",
+          title: "Live session · earpiece",
+          my_score: 64,
+          partner_names: ["Mom"],
+          source: "live",
+          mode: "earpiece",
+          self_tone: {
+            scored_turns: 3,
+            labels: { warm: 1, frustrated: 1, defensive: 1 },
+            mean: { warmth: 50, frustration: 42 },
+            escalation_count: 2,
+            people: [],
+          },
+        },
+      ],
+      total_recordings: 1,
+      identified_recordings: 1,
+      people: [
+        {
+          person_id: "p-mom",
+          display_name: "Mom",
+          sessions: 1,
+          scored_turns: 3,
+          labels: { warm: 1, frustrated: 1, defensive: 1 },
+          escalation_count: 2,
+        },
+      ],
+    };
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => body });
+    await expect(getGrowth()).resolves.toEqual(body);
   });
 
   it("throws with the status on a non-OK (503 storage disabled)", async () => {

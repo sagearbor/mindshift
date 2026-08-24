@@ -2,6 +2,16 @@ import React from "react";
 import renderer, { act } from "react-test-renderer";
 import TherapistDashboard from "../src/screens/TherapistDashboard";
 import { useDashboardStore } from "../src/store/dashboardStore";
+import { listDashboardSessions } from "../src/api/client";
+
+// The dashboard's mount-time fetch is a real, authenticated GET /sessions
+// (Track 2). Mock it like every other screen test mocks the client so the
+// snapshots below stay a pure render of the store state set in each test
+// (the fetch resolves to nothing and never replaces what the test seeded).
+jest.mock("../src/api/client", () => ({
+  listDashboardSessions: jest.fn(),
+}));
+const mockListSessions = listDashboardSessions as jest.Mock;
 
 const mockSessions = [
   {
@@ -62,6 +72,10 @@ const mockSessions = [
 ];
 
 beforeEach(() => {
+  // A never-settling fetch: the render under test is exactly the seeded
+  // store state, and nothing lands after the test tears down.
+  mockListSessions.mockReset();
+  mockListSessions.mockImplementation(() => new Promise(() => {}));
   act(() => {
     useDashboardStore.setState({
       sessions: [],

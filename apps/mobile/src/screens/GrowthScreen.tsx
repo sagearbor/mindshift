@@ -17,6 +17,7 @@ import {
   type GrowthResult,
 } from "../api/client";
 import GrowthChart from "../components/GrowthChart";
+import ToneSparkline from "../components/ToneSparkline";
 import {
   filterPoints,
   hasUnidentifiedPartner,
@@ -24,6 +25,15 @@ import {
   scoredPoints,
   type PartnerFilter,
 } from "../components/growthSeries";
+import {
+  bucketToneByDay,
+  calmShare,
+  dayLabel,
+  describeBucket,
+  peopleRows,
+  toneChipColors,
+  topLabels,
+} from "./toneTrends";
 
 const PRIMARY = "#4A90D9";
 const INK = "#111827";
@@ -151,6 +161,17 @@ export default function GrowthScreen({
   }, [result]);
 
   const visible = result ? filterPoints(result.points, filter) : [];
+
+  // Track 2 — "How you sound": the user's OWN tone per local day, summed
+  // over the live sessions that carried per-turn tone (respecting the
+  // partner filter, so "with Mom" narrows the days too), plus the
+  // cross-session per-person rows the server aggregated. Both are empty —
+  // and the section hidden — when no live session has tone yet.
+  const toneDays = useMemo(() => bucketToneByDay(visible), [visible]);
+  const people = useMemo(() => peopleRows(result?.people), [result]);
+  const calmSeries = toneDays
+    .map((d) => calmShare(d.scored_turns, d.escalation_count))
+    .filter((v): v is number => typeof v === "number");
 
   const renderBody = () => {
     if (error) {
@@ -301,6 +322,86 @@ export default function GrowthScreen({
             `recording${result.total_recordings === 1 ? "" : "s"} identified ` +
             "your voice"}
         </Text>
+
+        {(toneDays.length > 0 || people.length > 0) && (
+          <View style={styles.toneCard} testID="growth-tone-section">
+            <Text style={styles.toneTitle}>How you sound</Text>
+            <Text style={styles.toneHint}>
+              Your own tone in live sessions, by day — from the words you said.
+            </Text>
+            {calmSeries.length > 1 && (
+              <View style={styles.toneSpark}>
+                <ToneSparkline
+                  scores={calmSeries}
+                  width={chartWidth}
+                  height={44}
+                  color="#1B7A4B"
+                />
+                <Text style={styles.toneSparkCaption}>
+                  share of your turns that stayed calm, day by day
+                </Text>
+              </View>
+            )}
+            {toneDays.map((day) => {
+              const chips = topLabels(day.labels, 3);
+              const line = describeBucket(
+                day.labels,
+                day.escalation_count,
+                day.scored_turns,
+              );
+              return (
+                <View
+                  key={day.key}
+                  style={styles.toneDayRow}
+                  testID={`growth-tone-day-${day.key}`}
+                >
+                  <Text style={styles.toneDayLabel}>{dayLabel(day)}</Text>
+                  <View style={styles.toneDayBody}>
+                    <View style={styles.toneChipRow}>
+                      {chips.map((c) => {
+                        const colors = toneChipColors(c.label);
+                        return (
+                          <View
+                            key={c.label}
+                            style={[styles.toneChip, { backgroundColor: colors.bg }]}
+                          >
+                            <Text style={[styles.toneChipText, { color: colors.fg }]}>
+                              {c.label} ×{c.count}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                    <Text style={styles.toneDayLine} numberOfLines={1}>
+                      {line}
+                      {day.sessions > 1 ? ` · ${day.sessions} sessions` : ""}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+            {people.length > 0 && (
+              <View style={styles.tonePeople}>
+                <Text style={styles.tonePeopleTitle}>With people</Text>
+                {people.map((p) => (
+                  <View
+                    key={p.person_id ?? p.name}
+                    style={styles.tonePersonRow}
+                    testID={`growth-tone-person-${p.person_id ?? p.name}`}
+                  >
+                    <Text style={styles.tonePersonName} numberOfLines={1}>
+                      with {p.name}
+                    </Text>
+                    <Text style={styles.tonePersonLine} numberOfLines={1}>
+                      {p.summary}
+                      {` · ${p.sessions} session${p.sessions === 1 ? "" : "s"}`}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
         {/* Stays reachable after the first identification — see canCatchUp's
          *  comment: the empty state (where this button used to live
          *  exclusively) is gone the moment even one recording is identified,
@@ -488,5 +589,100 @@ const styles = StyleSheet.create({
   footerCatchUp: {
     marginTop: 16,
     alignItems: "center",
+  },
+  toneCard: {
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    padding: 12,
+  },
+  toneTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: INK,
+  },
+  toneHint: {
+    fontSize: 12.5,
+    color: MUTED,
+    marginTop: 2,
+    marginBottom: 10,
+  },
+  toneSpark: {
+    marginBottom: 10,
+  },
+  toneSparkCaption: {
+    fontSize: 11,
+    color: "#9CA3AF",
+    marginTop: 2,
+  },
+  toneDayRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    paddingVertical: 6,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+  },
+  toneDayLabel: {
+    width: 56,
+    fontSize: 12.5,
+    fontWeight: "700",
+    color: MUTED,
+    paddingTop: 3,
+  },
+  toneDayBody: {
+    flex: 1,
+  },
+  toneChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  toneChip: {
+    borderRadius: 12,
+    paddingVertical: 3,
+    paddingHorizontal: 10,
+  },
+  toneChipText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  toneDayLine: {
+    fontSize: 12.5,
+    color: INK,
+    marginTop: 4,
+  },
+  tonePeople: {
+    marginTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+    paddingTop: 8,
+  },
+  tonePeopleTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: MUTED,
+    marginBottom: 6,
+  },
+  tonePersonRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 4,
+  },
+  tonePersonName: {
+    fontSize: 13.5,
+    fontWeight: "600",
+    color: INK,
+    flexShrink: 1,
+  },
+  tonePersonLine: {
+    fontSize: 12.5,
+    color: MUTED,
+    flexShrink: 1,
+    textAlign: "right",
   },
 });

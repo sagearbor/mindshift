@@ -244,6 +244,72 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ingest Live Session */
+        post: operations["ingest_live_session_sessions_live_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/episodes/{episode_id}/reflect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reflect Episode
+         * @description "What you could have said" for the caller's OWN turns in one episode.
+         *
+         *     Served from the cache stored on the episode when the transcript is
+         *     unchanged (``cached: true`` — no LLM spend); ``force=true`` discards it
+         *     and re-runs. Owner-only: a shared episode is 403 (the recipient can see
+         *     it; reflecting is the owner's spend), a foreign/missing one 404.
+         */
+        post: operations["reflect_episode_episodes__episode_id__reflect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Dashboard Sessions
+         * @description Every analyzed episode the caller can see, in the dashboard's
+         *     session shape: their own (patient label "You") and those SHARED with
+         *     them by other accounts (patient label = the owner's email — the therapist
+         *     → patient navigation is the existing read-only share grant). Newest
+         *     first. Unanalyzed recordings are skipped (nothing to show).
+         */
+        get: operations["list_dashboard_sessions_sessions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me": {
         parameters: {
             query?: never;
@@ -2233,6 +2299,14 @@ export interface components {
             my_score?: number | null;
             /** Partner Names */
             partner_names?: string[];
+            /** Source */
+            source?: string | null;
+            /** Mode */
+            mode?: string | null;
+            /** Self Tone */
+            self_tone?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** GrowthResponse */
         GrowthResponse: {
@@ -2242,6 +2316,10 @@ export interface components {
             total_recordings: number;
             /** Identified Recordings */
             identified_recordings: number;
+            /** People */
+            people?: {
+                [key: string]: unknown;
+            }[];
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -2347,6 +2425,67 @@ export interface components {
              * @default []
              */
             consents: components["schemas"]["ConsentRecord"][];
+        };
+        /**
+         * LiveSessionIn
+         * @description The seam contract with Track 3-mobile (see the module docstring).
+         */
+        LiveSessionIn: {
+            /** Session Id */
+            session_id: string;
+            /** Started At */
+            started_at: string;
+            /** Ended At */
+            ended_at: string;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "earpiece" | "speaker" | "therapist";
+            /** Turns */
+            turns: components["schemas"]["TurnLocalEvent"][];
+            /** Tone Flags */
+            tone_flags?: components["schemas"]["ToneFlagEvent"][];
+            /** Speaker Identities */
+            speaker_identities?: components["schemas"]["SpeakerIdentityEvent"][];
+            /** Title */
+            title?: string | null;
+            /**
+             * Context
+             * @default
+             */
+            context: string;
+            /**
+             * Analyze
+             * @default true
+             */
+            analyze: boolean;
+            /**
+             * Reflect
+             * @default true
+             */
+            reflect: boolean;
+        };
+        /** LiveSessionOut */
+        LiveSessionOut: {
+            /** Episode Id */
+            episode_id: string;
+            /** Recording Id */
+            recording_id: string;
+            /** Session Id */
+            session_id: string;
+            /** Created */
+            created: boolean;
+            /** Turn Count */
+            turn_count: number;
+            /** Self Speaker */
+            self_speaker: string | null;
+            /** Analysis Status */
+            analysis_status: string;
+            /** Analysis Scheduled */
+            analysis_scheduled: boolean;
+            /** Reflect Scheduled */
+            reflect_scheduled: boolean;
         };
         /**
          * MeResponse
@@ -2513,6 +2652,30 @@ export interface components {
         RecordingTitleRequest: {
             /** Title */
             title: string;
+        };
+        /** ReflectOut */
+        ReflectOut: {
+            /** Episode Id */
+            episode_id: string;
+            /** Self Speaker */
+            self_speaker: string;
+            /** Could Have Said */
+            could_have_said: components["schemas"]["ReflectionOut"][];
+            /** Cached */
+            cached: boolean;
+            /** Reflected At */
+            reflected_at: string | null;
+        };
+        /** ReflectionOut */
+        ReflectionOut: {
+            /** Turn Index */
+            turn_index: number;
+            /** Could Have Said */
+            could_have_said: string;
+            /** Why */
+            why: string;
+            /** Tone Read */
+            tone_read: string;
         };
         /** RelationshipCreate */
         RelationshipCreate: {
@@ -2701,6 +2864,36 @@ export interface components {
             /** With Account */
             with_account: string;
         };
+        /**
+         * SpeakerIdentityEvent
+         * @description Server→client: the server's (possibly revised) identity for a speaker
+         *     label — who "Speaker A" turned out to be once a voiceprint matched.
+         *
+         *     ``person_id``/``display_name`` are null when the speaker is unknown;
+         *     ``is_self`` is a definite bool here (unlike TurnLocalEvent, this is the
+         *     server's verdict, and "unknown" is expressed as is_self=False with a null
+         *     person_id). ``score`` is the match similarity that justified it.
+         */
+        SpeakerIdentityEvent: {
+            /**
+             * Type
+             * @description Event type discriminator
+             * @default speaker_identity
+             */
+            type: string;
+            /** Session Id */
+            session_id: string;
+            /** Speaker */
+            speaker: string;
+            /** Person Id */
+            person_id?: string | null;
+            /** Display Name */
+            display_name?: string | null;
+            /** Is Self */
+            is_self: boolean;
+            /** Score */
+            score: number;
+        };
         /** SpeakerLabelOut */
         SpeakerLabelOut: {
             /** Display Label */
@@ -2759,6 +2952,45 @@ export interface components {
             events: components["schemas"]["TelemetryEventIn"][];
         };
         /**
+         * ToneFlagEvent
+         * @description Server→client: the server noticed a tone worth surfacing on a turn.
+         *
+         *     ``source`` says which analysis raised it — "text" (LLM/lexical tone over
+         *     the words) or "audio" (prosody over the signal); the client may render
+         *     them differently. ``scores`` is an open dict (e.g. {"frustration": 78})
+         *     rather than a fixed model so new dimensions don't need a protocol bump —
+         *     the same reasoning as TurnTextTone.label.
+         */
+        ToneFlagEvent: {
+            /**
+             * Type
+             * @description Event type discriminator
+             * @default tone_flag
+             */
+            type: string;
+            /** Session Id */
+            session_id: string;
+            /** Speaker */
+            speaker: string;
+            /** Start Time */
+            start_time: number;
+            /** End Time */
+            end_time: number;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "text" | "audio";
+            /** Scores */
+            scores?: {
+                [key: string]: number;
+            };
+            /** Label */
+            label: string;
+            /** Confidence */
+            confidence: number;
+        };
+        /**
          * TranscribedTurn
          * @description One diarized turn recovered from the recording, echoed back so the
          *     client can render the transcript it never had.
@@ -2784,6 +3016,100 @@ export interface components {
             /** Heat Delta */
             heat_delta: number;
         };
+        /**
+         * TurnLocalEvent
+         * @description Client→server: a turn the PHONE finalized itself (on-device STT and/or
+         *     on-device coaching), reported so the server's transcript, episode record
+         *     and coaching context stay complete even when the cloud didn't hear the
+         *     audio. Distinct from AudioChunk on purpose — this carries words and
+         *     measurements, never PCM.
+         *
+         *     ``speaker`` is the label the phone assigned; ``speaker_person_id`` /
+         *     ``speaker_match_score`` / ``is_self`` are the phone's voiceprint verdict
+         *     (null when it has no enrolled voiceprint to match against — there is no
+         *     "self" without one, mirroring server/watch/diarize.py's rule).
+         */
+        TurnLocalEvent: {
+            /**
+             * Type
+             * @description Event type discriminator
+             * @default turn_local
+             */
+            type: string;
+            /** Session Id */
+            session_id: string;
+            /**
+             * Speaker
+             * @description Speaker label as the phone assigned it, e.g. 'Speaker A'
+             */
+            speaker: string;
+            /**
+             * Speaker Person Id
+             * @description Matched person/profile id, if any
+             */
+            speaker_person_id?: string | null;
+            /**
+             * Speaker Match Score
+             * @description Voiceprint similarity that produced the match
+             */
+            speaker_match_score?: number | null;
+            /**
+             * Is Self
+             * @description True/False when the phone could decide; null when it couldn't
+             */
+            is_self?: boolean | null;
+            /** Text */
+            text: string;
+            /**
+             * Start Time
+             * @description Turn start in seconds
+             */
+            start_time: number;
+            /**
+             * End Time
+             * @description Turn end in seconds
+             */
+            end_time: number;
+            /**
+             * Transcript Source
+             * @enum {string}
+             */
+            transcript_source: "on-device" | "cloud";
+            prosody?: components["schemas"]["TurnProsody"] | null;
+            text_tone?: components["schemas"]["TurnTextTone"] | null;
+            /** Suggestion */
+            suggestion?: string | null;
+            /** Suggestion Source */
+            suggestion_source?: ("on-device" | "cloud") | null;
+            /** Tts Source */
+            tts_source?: ("on-device" | "server") | null;
+        };
+        /**
+         * TurnProsody
+         * @description Acoustic measurements the phone took on its own copy of a turn.
+         *
+         *     Every field is optional because on-device measurement is best-effort:
+         *     a phone that couldn't estimate pitch (unvoiced/too short — see
+         *     server/prosody.py's honesty rule) sends ``pitch_hz: null`` rather than a
+         *     guess, and the server must never treat a missing value as 0.
+         */
+        TurnProsody: {
+            /**
+             * Rms Dbfs
+             * @description Loudness of the turn, dB relative to full scale
+             */
+            rms_dbfs?: number | null;
+            /**
+             * Pitch Hz
+             * @description Median F0 in Hz; null when unvoiced
+             */
+            pitch_hz?: number | null;
+            /**
+             * Speech Rate
+             * @description Syllables (or words) per second
+             */
+            speech_rate?: number | null;
+        };
         /** TurnResponse */
         TurnResponse: {
             /** Session Id */
@@ -2794,6 +3120,31 @@ export interface components {
             turn: {
                 [key: string]: unknown;
             };
+        };
+        /**
+         * TurnTextTone
+         * @description Text-derived tone scores (0–100 each) the phone computed locally.
+         *
+         *     All optional for the same best-effort reason as TurnProsody; ``label`` is
+         *     a free string ("defensive", "warm", ...) so an on-device model can name
+         *     a tone the fixed score set doesn't cover without a protocol bump.
+         */
+        TurnTextTone: {
+            /** Warmth */
+            warmth?: number | null;
+            /** Defensiveness */
+            defensiveness?: number | null;
+            /** Sarcasm */
+            sarcasm?: number | null;
+            /** Sadness */
+            sadness?: number | null;
+            /** Frustration */
+            frustration?: number | null;
+            /**
+             * Label
+             * @description Free-text tone label from the on-device classifier
+             */
+            label?: string | null;
         };
         /** UploadStartRequest */
         UploadStartRequest: {
@@ -3297,6 +3648,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ForgetPersonResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ingest_live_session_sessions_live_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LiveSessionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiveSessionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reflect_episode_episodes__episode_id__reflect_post: {
+        parameters: {
+            query?: {
+                force?: boolean;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                episode_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReflectOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_dashboard_sessions_sessions_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
