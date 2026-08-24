@@ -215,6 +215,10 @@ tmp/
 # Voice enrollment: the ECAPA speaker-model checkpoint is fetched from the HF Hub
 # at runtime and cached here (see server/speaker_id.py) — never commit model weights.
 server/.ecapa_cache/
+# Audio tone: the wav2vec2-IEMOCAP emotion checkpoint (+ its wav2vec2-base
+# backbone) is fetched from the HF Hub at runtime and cached here (see
+# server/tone_id.py) — ~750MB of weights, never commit them.
+server/.tone_cache/
 
 # Node.js
 node_modules/

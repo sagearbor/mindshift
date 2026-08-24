@@ -1,0 +1,973 @@
+{
+  "date": "2026-08-24",
+  "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b",
+  "base_model": "facebook/wav2vec2-base@0b5b8e868dd84f03fd87d01f9c4ff0f080fecfe8",
+  "cold_load_s": 1.5389526250000927,
+  "model_size_bytes": {
+    "wav2vec2.ckpt": 377575130,
+    "model.ckpt": 13176,
+    "wav2vec2-base/pytorch_model.bin": 380267417
+  },
+  "machine": "arm64 / macOS-15.6-arm64-arm-64bit / python 3.12.14 / torch 2.13.0 (4 threads)",
+  "scripted": {
+    "gptaudio": {
+      "model_used": "gpt-audio-1.5",
+      "score": {
+        "rows": [
+          {
+            "index": 0,
+            "speaker": "Speaker A",
+            "scripted_emotion": "calm_open",
+            "accepted": [
+              "neutral"
+            ],
+            "pred": "angry",
+            "scores": {
+              "neutral": 0.0,
+              "angry": 0.9953,
+              "happy": 0.0,
+              "sad": 0.0047
+            },
+            "confidence": 0.9953,
+            "seconds": 7.25,
+            "latency_ms": 256.1,
+            "skipped": null,
+            "strict_ok": false,
+            "primary_ok": false,
+            "arousal_ok": false
+          },
+          {
+            "index": 1,
+            "speaker": "Speaker B",
+            "scripted_emotion": "calm_guarded",
+            "accepted": [
+              "neutral"
+            ],
+            "pred": "neutral",
+            "scores": {
+              "neutral": 1.0,
+              "angry": 0.0,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 1.0,
+            "seconds": 6.05,
+            "latency_ms": 231.7,
+            "skipped": null,
+            "strict_ok": true,
+            "primary_ok": true,
+            "arousal_ok": true
+          },
+          {
+            "index": 2,
+            "speaker": "Speaker A",
+            "scripted_emotion": "tense_rising",
+            "accepted": [
+              "angry"
+            ],
+            "pred": "angry",
+            "scores": {
+              "neutral": 0.0,
+              "angry": 1.0,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 1.0,
+            "seconds": 6.85,
+            "latency_ms": 212.6,
+            "skipped": null,
+            "strict_ok": true,
+            "primary_ok": true,
+            "arousal_ok": true
+          },
+          {
+            "index": 3,
+            "speaker": "Speaker B",
+            "scripted_emotion": "defensive_rising",
+            "accepted": [
+              "angry"
+            ],
+            "pred": "neutral",
+            "scores": {
+              "neutral": 0.9866,
+              "angry": 0.0134,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 0.9866,
+            "seconds": 6.4,
+            "latency_ms": 221.3,
+            "skipped": null,
+            "strict_ok": false,
+            "primary_ok": false,
+            "arousal_ok": false
+          },
+          {
+            "index": 4,
+            "speaker": "Speaker A",
+            "scripted_emotion": "shout_angry",
+            "accepted": [
+              "angry"
+            ],
+            "pred": "angry",
+            "scores": {
+              "neutral": 0.0,
+              "angry": 1.0,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 1.0,
+            "seconds": 7.25,
+            "latency_ms": 183.7,
+            "skipped": null,
+            "strict_ok": true,
+            "primary_ok": true,
+            "arousal_ok": true
+          },
+          {
+            "index": 5,
+            "speaker": "Speaker B",
+            "scripted_emotion": "cold_contempt",
+            "accepted": [
+              "angry"
+            ],
+            "pred": "neutral",
+            "scores": {
+              "neutral": 0.9974,
+              "angry": 0.0026,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 0.9974,
+            "seconds": 5.75,
+            "latency_ms": 161.0,
+            "skipped": null,
+            "strict_ok": false,
+            "primary_ok": false,
+            "arousal_ok": false
+          },
+          {
+            "index": 6,
+            "speaker": "Speaker A",
+            "scripted_emotion": "hurt_sad",
+            "accepted": [
+              "sad"
+            ],
+            "pred": "angry",
+            "scores": {
+              "neutral": 0.0,
+              "angry": 0.9693,
+              "happy": 0.0001,
+              "sad": 0.0306
+            },
+            "confidence": 0.9693,
+            "seconds": 7.85,
+            "latency_ms": 196.5,
+            "skipped": null,
+            "strict_ok": false,
+            "primary_ok": false,
+            "arousal_ok": false
+          },
+          {
+            "index": 7,
+            "speaker": "Speaker B",
+            "scripted_emotion": "scared_shaky",
+            "accepted": [
+              "sad"
+            ],
+            "pred": "neutral",
+            "scores": {
+              "neutral": 1.0,
+              "angry": 0.0,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 1.0,
+            "seconds": 8.55,
+            "latency_ms": 204.6,
+            "skipped": null,
+            "strict_ok": false,
+            "primary_ok": false,
+            "arousal_ok": true
+          },
+          {
+            "index": 8,
+            "speaker": "Speaker A",
+            "scripted_emotion": "repair_hopeful",
+            "accepted": [
+              "neutral",
+              "happy"
+            ],
+            "pred": "angry",
+            "scores": {
+              "neutral": 0.0,
+              "angry": 1.0,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 1.0,
+            "seconds": 7.9,
+            "latency_ms": 272.8,
+            "skipped": null,
+            "strict_ok": false,
+            "primary_ok": false,
+            "arousal_ok": false
+          },
+          {
+            "index": 9,
+            "speaker": "Speaker B",
+            "scripted_emotion": "calm_close",
+            "accepted": [
+              "neutral",
+              "happy"
+            ],
+            "pred": "neutral",
+            "scores": {
+              "neutral": 0.9997,
+              "angry": 0.0003,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 0.9997,
+            "seconds": 7.25,
+            "latency_ms": 272.5,
+            "skipped": null,
+            "strict_ok": true,
+            "primary_ok": true,
+            "arousal_ok": true
+          }
+        ],
+        "scored": 10,
+        "strict_acc": 0.4,
+        "primary_acc": 0.4,
+        "arousal_acc": 0.5,
+        "angry_precision": 0.4,
+        "angry_recall": 0.5,
+        "confusion": {
+          "neutral": {
+            "neutral": 2,
+            "angry": 2,
+            "happy": 0,
+            "sad": 0
+          },
+          "angry": {
+            "neutral": 2,
+            "angry": 2,
+            "happy": 0,
+            "sad": 0
+          },
+          "happy": {
+            "neutral": 0,
+            "angry": 0,
+            "happy": 0,
+            "sad": 0
+          },
+          "sad": {
+            "neutral": 1,
+            "angry": 1,
+            "happy": 0,
+            "sad": 0
+          }
+        }
+      },
+      "gain": [
+        {
+          "db": -6.0,
+          "strict_acc": 0.4,
+          "arousal_acc": 0.5,
+          "changed": 0,
+          "preds": [
+            "angry",
+            "neutral",
+            "angry",
+            "neutral",
+            "angry",
+            "neutral",
+            "angry",
+            "neutral",
+            "angry",
+            "neutral"
+          ]
+        },
+        {
+          "db": -20.0,
+          "strict_acc": 0.4,
+          "arousal_acc": 0.5,
+          "changed": 0,
+          "preds": [
+            "angry",
+            "neutral",
+            "angry",
+            "neutral",
+            "angry",
+            "neutral",
+            "angry",
+            "neutral",
+            "angry",
+            "neutral"
+          ]
+        }
+      ]
+    },
+    "openai": {
+      "model_used": "gpt-4o-mini-tts-2025-12-15",
+      "score": {
+        "rows": [
+          {
+            "index": 0,
+            "speaker": "Speaker A",
+            "scripted_emotion": "calm_open",
+            "accepted": [
+              "neutral"
+            ],
+            "pred": "angry",
+            "scores": {
+              "neutral": 0.0,
+              "angry": 1.0,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 1.0,
+            "seconds": 7.2,
+            "latency_ms": 278.7,
+            "skipped": null,
+            "strict_ok": false,
+            "primary_ok": false,
+            "arousal_ok": false
+          },
+          {
+            "index": 1,
+            "speaker": "Speaker B",
+            "scripted_emotion": "calm_guarded",
+            "accepted": [
+              "neutral"
+            ],
+            "pred": "neutral",
+            "scores": {
+              "neutral": 0.5862,
+              "angry": 0.4138,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 0.5862,
+            "seconds": 5.55,
+            "latency_ms": 223.1,
+            "skipped": null,
+            "strict_ok": true,
+            "primary_ok": true,
+            "arousal_ok": true
+          },
+          {
+            "index": 2,
+            "speaker": "Speaker A",
+            "scripted_emotion": "tense_rising",
+            "accepted": [
+              "angry"
+            ],
+            "pred": "angry",
+            "scores": {
+              "neutral": 0.0,
+              "angry": 1.0,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 1.0,
+            "seconds": 6.0,
+            "latency_ms": 245.6,
+            "skipped": null,
+            "strict_ok": true,
+            "primary_ok": true,
+            "arousal_ok": true
+          },
+          {
+            "index": 3,
+            "speaker": "Speaker B",
+            "scripted_emotion": "defensive_rising",
+            "accepted": [
+              "angry"
+            ],
+            "pred": "neutral",
+            "scores": {
+              "neutral": 1.0,
+              "angry": 0.0,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 1.0,
+            "seconds": 7.2,
+            "latency_ms": 263.6,
+            "skipped": null,
+            "strict_ok": false,
+            "primary_ok": false,
+            "arousal_ok": false
+          },
+          {
+            "index": 4,
+            "speaker": "Speaker A",
+            "scripted_emotion": "shout_angry",
+            "accepted": [
+              "angry"
+            ],
+            "pred": "angry",
+            "scores": {
+              "neutral": 0.0,
+              "angry": 1.0,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 1.0,
+            "seconds": 7.1,
+            "latency_ms": 258.0,
+            "skipped": null,
+            "strict_ok": true,
+            "primary_ok": true,
+            "arousal_ok": true
+          },
+          {
+            "index": 5,
+            "speaker": "Speaker B",
+            "scripted_emotion": "cold_contempt",
+            "accepted": [
+              "angry"
+            ],
+            "pred": "neutral",
+            "scores": {
+              "neutral": 0.9974,
+              "angry": 0.0002,
+              "happy": 0.0024,
+              "sad": 0.0
+            },
+            "confidence": 0.9974,
+            "seconds": 5.5,
+            "latency_ms": 205.9,
+            "skipped": null,
+            "strict_ok": false,
+            "primary_ok": false,
+            "arousal_ok": false
+          },
+          {
+            "index": 6,
+            "speaker": "Speaker A",
+            "scripted_emotion": "hurt_sad",
+            "accepted": [
+              "sad"
+            ],
+            "pred": "angry",
+            "scores": {
+              "neutral": 0.0001,
+              "angry": 0.6884,
+              "happy": 0.3057,
+              "sad": 0.0059
+            },
+            "confidence": 0.6884,
+            "seconds": 7.1,
+            "latency_ms": 257.2,
+            "skipped": null,
+            "strict_ok": false,
+            "primary_ok": false,
+            "arousal_ok": false
+          },
+          {
+            "index": 7,
+            "speaker": "Speaker B",
+            "scripted_emotion": "scared_shaky",
+            "accepted": [
+              "sad"
+            ],
+            "pred": "neutral",
+            "scores": {
+              "neutral": 0.9988,
+              "angry": 0.0011,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 0.9988,
+            "seconds": 6.95,
+            "latency_ms": 233.0,
+            "skipped": null,
+            "strict_ok": false,
+            "primary_ok": false,
+            "arousal_ok": true
+          },
+          {
+            "index": 8,
+            "speaker": "Speaker A",
+            "scripted_emotion": "repair_hopeful",
+            "accepted": [
+              "neutral",
+              "happy"
+            ],
+            "pred": "angry",
+            "scores": {
+              "neutral": 0.0,
+              "angry": 1.0,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 1.0,
+            "seconds": 8.35,
+            "latency_ms": 292.2,
+            "skipped": null,
+            "strict_ok": false,
+            "primary_ok": false,
+            "arousal_ok": false
+          },
+          {
+            "index": 9,
+            "speaker": "Speaker B",
+            "scripted_emotion": "calm_close",
+            "accepted": [
+              "neutral",
+              "happy"
+            ],
+            "pred": "neutral",
+            "scores": {
+              "neutral": 0.9998,
+              "angry": 0.0002,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 0.9998,
+            "seconds": 5.85,
+            "latency_ms": 218.9,
+            "skipped": null,
+            "strict_ok": true,
+            "primary_ok": true,
+            "arousal_ok": true
+          }
+        ],
+        "scored": 10,
+        "strict_acc": 0.4,
+        "primary_acc": 0.4,
+        "arousal_acc": 0.5,
+        "angry_precision": 0.4,
+        "angry_recall": 0.5,
+        "confusion": {
+          "neutral": {
+            "neutral": 2,
+            "angry": 2,
+            "happy": 0,
+            "sad": 0
+          },
+          "angry": {
+            "neutral": 2,
+            "angry": 2,
+            "happy": 0,
+            "sad": 0
+          },
+          "happy": {
+            "neutral": 0,
+            "angry": 0,
+            "happy": 0,
+            "sad": 0
+          },
+          "sad": {
+            "neutral": 1,
+            "angry": 1,
+            "happy": 0,
+            "sad": 0
+          }
+        }
+      },
+      "gain": [
+        {
+          "db": -6.0,
+          "strict_acc": 0.4,
+          "arousal_acc": 0.5,
+          "changed": 0,
+          "preds": [
+            "angry",
+            "neutral",
+            "angry",
+            "neutral",
+            "angry",
+            "neutral",
+            "angry",
+            "neutral",
+            "angry",
+            "neutral"
+          ]
+        },
+        {
+          "db": -20.0,
+          "strict_acc": 0.4,
+          "arousal_acc": 0.5,
+          "changed": 0,
+          "preds": [
+            "angry",
+            "neutral",
+            "angry",
+            "neutral",
+            "angry",
+            "neutral",
+            "angry",
+            "neutral",
+            "angry",
+            "neutral"
+          ]
+        }
+      ]
+    }
+  },
+  "real": {
+    "family_real": {
+      "note": "REAL recording (not synthesized) \u2014 the project owner and his son, alternating in strict 5-second turns for ~30s.",
+      "distribution": {
+        "neutral": 5,
+        "angry": 1,
+        "happy": 0,
+        "sad": 0,
+        "skipped": 2
+      },
+      "results": [
+        {
+          "index": 0,
+          "speaker": "Sage",
+          "start_time": 0.96,
+          "end_time": 6.08,
+          "seconds": 5.12,
+          "tone": {
+            "label": "neutral",
+            "scores": {
+              "neutral": 1.0,
+              "angry": 0.0,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 1.0,
+            "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b"
+          },
+          "skipped": null,
+          "truncated": false,
+          "latency_ms": 113.5
+        },
+        {
+          "index": 1,
+          "speaker": "Asher",
+          "start_time": 6.08,
+          "end_time": 8.82,
+          "seconds": 2.74,
+          "tone": {
+            "label": "neutral",
+            "scores": {
+              "neutral": 1.0,
+              "angry": 0.0,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 1.0,
+            "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b"
+          },
+          "skipped": null,
+          "truncated": false,
+          "latency_ms": 69.1
+        },
+        {
+          "index": 2,
+          "speaker": "Asher",
+          "start_time": 9.28,
+          "end_time": 10.0199995,
+          "seconds": 0.74,
+          "tone": null,
+          "skipped": "too_short",
+          "truncated": false,
+          "latency_ms": 0.0
+        },
+        {
+          "index": 3,
+          "speaker": "Sage",
+          "start_time": 10.48,
+          "end_time": 15.125,
+          "seconds": 4.645,
+          "tone": {
+            "label": "neutral",
+            "scores": {
+              "neutral": 1.0,
+              "angry": 0.0,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 1.0,
+            "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b"
+          },
+          "skipped": null,
+          "truncated": false,
+          "latency_ms": 105.7
+        },
+        {
+          "index": 4,
+          "speaker": "Asher",
+          "start_time": 15.425,
+          "end_time": 15.925,
+          "seconds": 0.5,
+          "tone": null,
+          "skipped": "too_short",
+          "truncated": false,
+          "latency_ms": 0.0
+        },
+        {
+          "index": 5,
+          "speaker": "Asher",
+          "start_time": 16.385,
+          "end_time": 19.045,
+          "seconds": 2.66,
+          "tone": {
+            "label": "angry",
+            "scores": {
+              "neutral": 0.0,
+              "angry": 1.0,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 1.0,
+            "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b"
+          },
+          "skipped": null,
+          "truncated": false,
+          "latency_ms": 71.3
+        },
+        {
+          "index": 6,
+          "speaker": "Sage",
+          "start_time": 20.465,
+          "end_time": 25.7549995,
+          "seconds": 5.29,
+          "tone": {
+            "label": "neutral",
+            "scores": {
+              "neutral": 0.9993,
+              "angry": 0.0005,
+              "happy": 0.0002,
+              "sad": 0.0
+            },
+            "confidence": 0.9993,
+            "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b"
+          },
+          "skipped": null,
+          "truncated": false,
+          "latency_ms": 112.0
+        },
+        {
+          "index": 7,
+          "speaker": "Asher",
+          "start_time": 25.7549995,
+          "end_time": 29.125,
+          "seconds": 3.37,
+          "tone": {
+            "label": "neutral",
+            "scores": {
+              "neutral": 1.0,
+              "angry": 0.0,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 1.0,
+            "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b"
+          },
+          "skipped": null,
+          "truncated": false,
+          "latency_ms": 81.4
+        }
+      ]
+    },
+    "poker6_real": {
+      "note": "REAL recording (not synthesized) \u2014 the owner's poker night, 6 different real men each speaking for roughly 5 seconds in strict turn order (~30.12s total).",
+      "distribution": {
+        "neutral": 5,
+        "angry": 0,
+        "happy": 1,
+        "sad": 0,
+        "skipped": 0
+      },
+      "results": [
+        {
+          "index": 0,
+          "speaker": "Player1",
+          "start_time": 0.0,
+          "end_time": 5.0,
+          "seconds": 5.0,
+          "tone": {
+            "label": "neutral",
+            "scores": {
+              "neutral": 1.0,
+              "angry": 0.0,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 1.0,
+            "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b"
+          },
+          "skipped": null,
+          "truncated": false,
+          "latency_ms": 103.5
+        },
+        {
+          "index": 1,
+          "speaker": "Player2",
+          "start_time": 5.0,
+          "end_time": 10.0,
+          "seconds": 5.0,
+          "tone": {
+            "label": "happy",
+            "scores": {
+              "neutral": 0.0,
+              "angry": 0.0,
+              "happy": 1.0,
+              "sad": 0.0
+            },
+            "confidence": 1.0,
+            "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b"
+          },
+          "skipped": null,
+          "truncated": false,
+          "latency_ms": 105.7
+        },
+        {
+          "index": 2,
+          "speaker": "Player3",
+          "start_time": 10.0,
+          "end_time": 15.0,
+          "seconds": 5.0,
+          "tone": {
+            "label": "neutral",
+            "scores": {
+              "neutral": 1.0,
+              "angry": 0.0,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 1.0,
+            "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b"
+          },
+          "skipped": null,
+          "truncated": false,
+          "latency_ms": 106.7
+        },
+        {
+          "index": 3,
+          "speaker": "Player4",
+          "start_time": 15.0,
+          "end_time": 20.0,
+          "seconds": 5.0,
+          "tone": {
+            "label": "neutral",
+            "scores": {
+              "neutral": 1.0,
+              "angry": 0.0,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 1.0,
+            "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b"
+          },
+          "skipped": null,
+          "truncated": false,
+          "latency_ms": 110.1
+        },
+        {
+          "index": 4,
+          "speaker": "Player5",
+          "start_time": 20.0,
+          "end_time": 25.0,
+          "seconds": 5.0,
+          "tone": {
+            "label": "neutral",
+            "scores": {
+              "neutral": 1.0,
+              "angry": 0.0,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 1.0,
+            "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b"
+          },
+          "skipped": null,
+          "truncated": false,
+          "latency_ms": 109.5
+        },
+        {
+          "index": 5,
+          "speaker": "Player6",
+          "start_time": 25.0,
+          "end_time": 30.12,
+          "seconds": 5.12,
+          "tone": {
+            "label": "neutral",
+            "scores": {
+              "neutral": 1.0,
+              "angry": 0.0,
+              "happy": 0.0,
+              "sad": 0.0
+            },
+            "confidence": 1.0,
+            "model": "speechbrain/emotion-recognition-wav2vec2-IEMOCAP@117a9c3dff08be81a3628eecf6a66b547ec1659b"
+          },
+          "skipped": null,
+          "truncated": false,
+          "latency_ms": 106.9
+        }
+      ]
+    }
+  },
+  "combined": {
+    "scored": 20,
+    "strict_acc": 0.4,
+    "primary_acc": 0.4,
+    "arousal_acc": 0.5,
+    "angry_precision": 0.4,
+    "angry_recall": 0.5,
+    "confusion": {
+      "neutral": {
+        "neutral": 4,
+        "angry": 4,
+        "happy": 0,
+        "sad": 0
+      },
+      "angry": {
+        "neutral": 4,
+        "angry": 4,
+        "happy": 0,
+        "sad": 0
+      },
+      "happy": {
+        "neutral": 0,
+        "angry": 0,
+        "happy": 0,
+        "sad": 0
+      },
+      "sad": {
+        "neutral": 2,
+        "angry": 2,
+        "happy": 0,
+        "sad": 0
+      }
+    }
+  },
+  "latency": {
+    "n": 32,
+    "mean_ms": 183.8875,
+    "median_ms": 205.25,
+    "min_ms": 69.1,
+    "max_ms": 292.2,
+    "mean_rtf": 0.029884212226768046,
+    "max_rtf": 0.04093333333333333
+  },
+  "decision": {
+    "mode": "dark",
+    "why": "Combined 4-class accuracy 40% is under the ~60% bar on our own scripted ground truth, so per the owner's rule it ships dark: computed and logged on every analysis, never surfaced, until a better model or a calibration on real couple audio lifts it."
+  },
+  "analysis": [
+    "- **Strict 4-class: 40%** over 20 acted turns (primary-only 40%). Chance on 4 classes is 25%; the model card's 78.7% is on IEMOCAP's own acted-in-lab test split, so a drop on out-of-domain TTS-acted audio is expected \u2014 the question is how far.",
+    "- **Arousal (angry vs not): 50%**, angry precision 40% / recall 50% (4 of 8 angry-truth turns caught; 6 false 'angry' calls).",
+    "- Per scripted emotion (\u2717 = outside accepted set): calm_open: gptaudio=angry\u2717, openai=angry\u2717; calm_guarded: gptaudio=neutral, openai=neutral; tense_rising: gptaudio=angry, openai=angry; defensive_rising: gptaudio=neutral\u2717, openai=neutral\u2717; shout_angry: gptaudio=angry, openai=angry; cold_contempt: gptaudio=neutral\u2717, openai=neutral\u2717; hurt_sad: gptaudio=angry\u2717, openai=angry\u2717; scared_shaky: gptaudio=neutral\u2717, openai=neutral\u2717; repair_hopeful: gptaudio=angry\u2717, openai=angry\u2717; calm_close: gptaudio=neutral, openai=neutral.",
+    "- **Per speaker** (a real emotion reader must vary its label within a voice): gptaudio \u2014 Speaker A: angry\u00d75 (ONE label for all its turns); Speaker B: neutral\u00d75 (ONE label for all its turns) | openai \u2014 Speaker A: angry\u00d75 (ONE label for all its turns); Speaker B: neutral\u00d75 (ONE label for all its turns).",
+    "- Calibration: 18/20 acted turns are called at confidence \u2265 0.95, and 11 of those are WRONG. The softmax is saturated, not informative \u2014 a confidence floor cannot rescue a selective 'on'; the flag is all-or-nothing.",
+    "- Gain invariance: gptaudio -6 dB \u2192 0 label(s) changed, strict 40%; gptaudio -20 dB \u2192 0 label(s) changed, strict 40%; openai -6 dB \u2192 0 label(s) changed, strict 40%; openai -20 dB \u2192 0 label(s) changed, strict 40%. Labels that survive a -20 dB cut are being read from the voice (pitch/rate/quality), not the level \u2014 this is the owner's 'not just a yelling detector' check.",
+    "- Real `family_real` (calm, ordinary speech, no emotion labels): {'neutral': 5, 'angry': 1, 'happy': 0, 'sad': 0, 'skipped': 2}.",
+    "- Real `poker6_real` (calm, ordinary speech, no emotion labels): {'neutral': 5, 'angry': 0, 'happy': 1, 'sad': 0, 'skipped': 0}.",
+    "- Cost: ~205 ms median per 5\u20139 s turn on CPU (RTF 0.030) \u2014 cheap enough to run per utterance inside the existing asyncio.to_thread analysis path without touching realtime budgets; the one-off 1.5 s load happens once per process.",
+    "- Text-alone comparison (a judgment, not a measurement \u2014 we did not run an LLM text baseline here): a reader of the TRANSCRIPT alone gets the emotion of 8/10 scripted turns from the words (the shout is written in caps, 'I'm actually scared' names its fear, 'I'm sorry \u2026 fix this with you' names the repair, 'tired of keeping score' / 'so now I'm the villain' name the escalation). The audio model got 4/10 right on BOTH fixtures (calm_close, calm_guarded, shout_angry, tense_rising) \u2014 every one of which text already covers. The two turns where audio could add lift over text \u2014 cold_contempt (polite words, hostile delivery) and calm_guarded (the words are defensive, the delivery calm) \u2014 it called 'neutral' both times, i.e. it did not read the delivery. Net lift over text: none measurable on this data.",
+    "- Caveats on the ground truth itself: 20 turns is a small set; both fixtures are TTS *acting* (two synthetic voices), not real couples; IEMOCAP's 4 classes cannot express contempt/fear/hope, so the mapping above is doing real work. None of these caveats cut in the model's favor though \u2014 a per-voice constant label is a failure on any labeling.",
+    "- What would move it out of dark (in order of cheapness): (1) per-speaker normalization \u2014 subtract each diarized speaker's median logit over the recording so a voice's timbre bias cancels and only within-speaker CHANGE is reported (dark mode logs the raw scores needed to try this offline); (2) a model trained on naturalistic rather than acted speech with continuous arousal/valence/dominance outputs (e.g. the audeering wav2vec2 MSP-Podcast dimensional model) \u2014 arousal-as-a-number suits the coaching layer better than a 4-way label anyway; (3) a small labeled set of REAL recordings from the owner (the family/poker clips show the plumbing works on real phone audio) to re-run this exact script against."
+  ]
+}
