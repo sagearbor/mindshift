@@ -164,6 +164,26 @@ export default function TherapistDashboard({
                 {session.turns.length} turns
                 {toneLine ? ` · ${toneLine}` : ""}
               </Text>
+              {/* People labeling (name display only): the patient's own
+                  names for who they spoke with — a person the server
+                  identified or the patient labeled, never a raw
+                  "Speaker B". */}
+              {(() => {
+                const named = (session.speakers ?? [])
+                  .filter(
+                    (s) =>
+                      s.display !== "You" &&
+                      s.labelSource &&
+                      s.labelSource !== "generic" &&
+                      s.labelSource !== "voice",
+                  )
+                  .map((s) => s.display);
+                return named.length > 0 ? (
+                  <Text style={styles.sessionPeople} testID={`session-${session.id}-people`}>
+                    {`with ${named.join(", ")}`}
+                  </Text>
+                ) : null;
+              })()}
               <ToneSparkline
                 scores={scores}
                 width={200}
@@ -291,6 +311,13 @@ const styles = StyleSheet.create({
   sessionMeta: {
     fontSize: 12,
     color: "#6B7280",
+    marginBottom: 8,
+  },
+  sessionPeople: {
+    fontSize: 12,
+    color: "#374151",
+    fontWeight: "600",
+    marginTop: -4,
     marginBottom: 8,
   },
   liveBadge: {

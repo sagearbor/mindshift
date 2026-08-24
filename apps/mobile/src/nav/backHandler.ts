@@ -63,6 +63,9 @@ export function backTarget(screen: Screen): Screen | null {
     // `returnTo`) it was pushed from, same as `detail` below, so popping
     // back restores that chain instead of resetting it.
     case "home-design":
+    // People labeling: same dynamic-returnTo treatment (Settings' row or
+    // the hamburger catalog from any primary screen).
+    case "people":
       return screen.returnTo;
 
     // N7 fix round 1 (IMPORTANT 2): same dynamic-returnTo treatment as the

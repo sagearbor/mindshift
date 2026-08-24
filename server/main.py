@@ -6,6 +6,7 @@ import io
 import logging
 import os
 import json
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager, suppress
@@ -273,6 +274,15 @@ ANALYZE_REQUEST_OUTCOMES = frozenset(("granted", "denied", "deferred", "unclear"
 # labels are applied as a READ-TIME overlay (they live in meta.json, set after
 # analysis via PATCH …/speaker-labels — see _effective_speaker_labels).
 LABEL_SOURCE_MANUAL = "manual"
+# People labeling: a manual label that names an ENROLLED PERSON (the user
+# picked "Mom" from their people list rather than typing free text). Same
+# precedence as "manual" — it IS a manual assertion — but it carries a
+# ``person_id``, so /growth's people grouping, the therapist rows, and the
+# self-speaker resolution ("self" → this recording counts as identified)
+# can follow the person across recordings the way the enrolled rung does.
+# Stored beside the name map as meta.json ``manual_speaker_people``
+# ({speaker: person_id}); see _effective_speaker_labels.
+LABEL_SOURCE_MANUAL_PERSON = "manual-person"
 LABEL_SOURCE_ENROLLED = "enrolled"
 LABEL_SOURCE_NAME = "name"
 LABEL_SOURCE_VOICE = "voice"
@@ -649,6 +659,14 @@ class SpeakerLabelsRequest(BaseModel):
     # per-name strip + length cap is applied at the endpoint against the
     # recording's actual speakers (an unknown speaker id is a 422).
     labels: dict[str, str] = Field(default_factory=dict)
+    # People labeling: ``{speaker_id: person_id}`` — say WHICH enrolled person
+    # a speaker is ("self" for the account owner, else a person from GET
+    # /voice/people). Same merge semantics as ``labels``; an empty string /
+    # null clears the person association (the name, if any, stays). Setting a
+    # person without a name in ``labels`` uses that person's display name as
+    # the manual label. A person id that is not enrolled (other than "self")
+    # is a 422 — a label may only point at a person who exists.
+    people: dict[str, str | None] = Field(default_factory=dict)
 
 
 class RecordingShareRequest(BaseModel):
@@ -2012,10 +2030,24 @@ def _partition_manual_labels(
     return sets, clears
 
 
+def _recording_manual_people(rec: dict) -> dict[str, str]:
+    """The recording's ``{speaker: person_id}`` manual-person map (meta.json
+    ``manual_speaker_people``), cleaned: only string → non-empty string."""
+    raw = rec.get("manual_speaker_people") or {}
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        sp: pid.strip()
+        for sp, pid in raw.items()
+        if isinstance(sp, str) and isinstance(pid, str) and pid.strip()
+    }
+
+
 def _effective_speaker_labels(
     base_labels: dict | None,
     manual_labels: dict | None,
     valid_speakers: set[str],
+    manual_people: dict | None = None,
 ) -> dict[str, dict]:
     """Overlay manual labels (top rung, ``label_source="manual"``) onto the
     resolved ladder labels stored in analysis.json.
@@ -2026,19 +2058,48 @@ def _effective_speaker_labels(
     the ladder produced for that speaker — including the voiceprint "You" — so the
     human correction always wins. Only speakers present in the recording's turns
     receive an override (defensive: a stale manual id is ignored). The base map is
-    shallow-copied so the caller never mutates the stored analysis."""
+    shallow-copied so the caller never mutates the stored analysis.
+
+    ``manual_people`` (meta.json ``manual_speaker_people``, ``{speaker:
+    person_id}``) upgrades a manual entry to the ``manual-person`` rung
+    carrying ``person_id`` — same precedence, but a cross-recording identity
+    (people labeling). A person id with no manual NAME for that speaker is
+    ignored here (the PATCH endpoint always writes both), never an invented
+    label."""
     effective = {
         speaker: dict(entry)
         for speaker, entry in (base_labels or {}).items()
         if isinstance(entry, dict)
     }
+    people = manual_people or {}
     for speaker, name in (manual_labels or {}).items():
         if speaker in valid_speakers and isinstance(name, str) and name.strip():
-            effective[speaker] = {
-                "display_label": name.strip(),
-                "label_source": LABEL_SOURCE_MANUAL,
-            }
+            pid = people.get(speaker)
+            if isinstance(pid, str) and pid.strip():
+                effective[speaker] = {
+                    "display_label": name.strip(),
+                    "label_source": LABEL_SOURCE_MANUAL_PERSON,
+                    "person_id": pid.strip(),
+                }
+            else:
+                effective[speaker] = {
+                    "display_label": name.strip(),
+                    "label_source": LABEL_SOURCE_MANUAL,
+                }
     return effective
+
+
+def _is_me_label(entry: dict) -> bool:
+    """Is this effective label entry the VIEWER? Either the enrolled rung's
+    "You" (a voiceprint match to the owner) or a manual-person label pointing
+    at the reserved ``self`` person (the user said "that's me" from the people
+    picker) — never an enrolled PARTNER, which shares the enrolled rung."""
+    source = entry.get("label_source")
+    if source == LABEL_SOURCE_ENROLLED:
+        return entry.get("display_label") == ENROLLED_DISPLAY_LABEL
+    if source == LABEL_SOURCE_MANUAL_PERSON:
+        return entry.get("person_id") == speaker_id.SELF_PERSON_ID
+    return False
 
 
 async def _run_analysis(
@@ -3145,7 +3206,10 @@ class GrowthResponse(BaseModel):
 # enrolled partner ("Alex", matched by voiceprint — multi-person enrollment)
 # is the strongest cross-recording identity of all; the enrolled "You" is
 # excluded from partners by construction (it is "me", see _growth_point).
-_PARTNER_NAME_SOURCES = {LABEL_SOURCE_MANUAL, LABEL_SOURCE_NAME, LABEL_SOURCE_ENROLLED}
+_PARTNER_NAME_SOURCES = {
+    LABEL_SOURCE_MANUAL, LABEL_SOURCE_MANUAL_PERSON, LABEL_SOURCE_NAME,
+    LABEL_SOURCE_ENROLLED,
+}
 
 
 def _growth_point(rec: dict) -> GrowthPoint | None:
@@ -3164,15 +3228,13 @@ def _growth_point(rec: dict) -> GrowthPoint | None:
         analysis.get("speaker_labels"),
         rec.get("manual_speaker_labels") or {},
         _recording_speaker_ids(rec),
+        _recording_manual_people(rec),
     )
-    # "Me" is the enrolled rung's "You" specifically: with multi-person
-    # voiceprints an enrolled PARTNER ("Alex") is also label_source "enrolled",
-    # and must never be mistaken for the viewer.
-    me = [
-        sp for sp, entry in effective.items()
-        if entry.get("label_source") == LABEL_SOURCE_ENROLLED
-        and entry.get("display_label") == ENROLLED_DISPLAY_LABEL
-    ]
+    # "Me" is the enrolled rung's "You" specifically (with multi-person
+    # voiceprints an enrolled PARTNER ("Alex") is also label_source
+    # "enrolled", and must never be mistaken for the viewer) — or a
+    # manual-person label the user pointed at "self" (people labeling).
+    me = [sp for sp, entry in effective.items() if _is_me_label(entry)]
     if len(me) != 1:  # no confident "me" (or a malformed doc) — never guess
         return None
 
@@ -3269,12 +3331,13 @@ async def get_recording(
     # resolved labels (incl. the voiceprint "You") on every read, without touching
     # the stored analysis (a re-analyze must never wipe a human correction).
     manual = rec.get("manual_speaker_labels") or {}
+    manual_people = _recording_manual_people(rec)
     valid_speakers = _recording_speaker_ids(rec)
     base_labels = (
         analysis.get("speaker_labels") if isinstance(analysis, dict) else None
     )
     effective_labels = _effective_speaker_labels(
-        base_labels, manual, valid_speakers,
+        base_labels, manual, valid_speakers, manual_people,
     )
 
     # Companion P1 — episodes for the day timeline. New analyses store them in
@@ -3351,6 +3414,9 @@ async def get_recording(
         # Raw manual name map ({speaker_id: name}) so the label editor can prefill;
         # empty when the user has set none.
         "manual_speaker_labels": manual,
+        # People labeling: which enrolled person each manually labeled speaker
+        # IS ({speaker_id: person_id}); empty when none were picked.
+        "manual_speaker_people": manual_people,
         # Provenance verbatim (type/url/original_filename) so a future replay
         # feature can stream the user's own hosted copy. Metadata only.
         "source": rec.get("source"),
@@ -3429,11 +3495,65 @@ async def update_recording_speaker_labels(
             detail=f"unknown speaker id: {exc.args[0]!r}",
         )
 
+    # People labeling: which enrolled person a speaker IS. Validated against
+    # the recording's speakers (422) and against the account's enrolled
+    # people (422 — a label may only point at a person who exists; "self" is
+    # the owner and always exists). Clearing (null / "") drops the person but
+    # keeps the name.
+    people_sets: dict[str, str] = {}
+    people_clears: set[str] = set()
+    person_names: dict[str, str] = {}
+    if req.people:
+        known: dict[str, str] | None = None
+        for speaker, pid in req.people.items():
+            if speaker not in valid_speakers:
+                raise HTTPException(
+                    status_code=422, detail=f"unknown speaker id: {speaker!r}",
+                )
+            cleaned = pid.strip() if isinstance(pid, str) else ""
+            if not cleaned:
+                people_clears.add(speaker)
+                continue
+            if not re.fullmatch(speaker_id.PERSON_ID_PATTERN, cleaned):
+                raise HTTPException(
+                    status_code=422, detail=f"invalid person id: {cleaned!r}",
+                )
+            if cleaned == speaker_id.SELF_PERSON_ID:
+                person_names[speaker] = ENROLLED_DISPLAY_LABEL
+            else:
+                if known is None:
+                    list_people = getattr(store_backend, "list_voiceprints", None)
+                    docs = (await list_people(uid)) if callable(list_people) else []
+                    known = {
+                        d["person_id"]: (d.get("display_name") or d["person_id"])
+                        for d in (docs or [])
+                        if isinstance(d, dict) and isinstance(d.get("person_id"), str)
+                    }
+                if cleaned not in known:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"person {cleaned!r} is not enrolled on this account",
+                    )
+                person_names[speaker] = known[cleaned]
+            people_sets[speaker] = cleaned
+
     # Merge onto whatever manual labels the recording already carries.
     merged = dict(rec.get("manual_speaker_labels") or {})
     merged.update(sets)
     for speaker in clears:
         merged.pop(speaker, None)
+    # A person assignment with no name for that speaker takes the person's
+    # display name — a manual-person label always has a name to show.
+    for speaker, name in person_names.items():
+        if speaker not in merged:
+            merged[speaker] = name[:MANUAL_SPEAKER_LABEL_MAX]
+
+    merged_people = dict(_recording_manual_people(rec))
+    merged_people.update(people_sets)
+    for speaker in people_clears | clears:
+        merged_people.pop(speaker, None)
+    # A person can only be attached to a speaker that has a manual name.
+    merged_people = {sp: pid for sp, pid in merged_people.items() if sp in merged}
 
     updated = await store_backend.update_manual_speaker_labels(
         uid, recording_id, merged,
@@ -3441,6 +3561,17 @@ async def update_recording_speaker_labels(
     if updated is None:
         # Deleted between our read and this write — fail honestly.
         raise HTTPException(status_code=404, detail="Recording not found")
+    people_changed = merged_people != _recording_manual_people(rec)
+    update_people = getattr(store_backend, "update_manual_speaker_people", None)
+    if people_changed and callable(update_people):
+        if await update_people(uid, recording_id, merged_people) is None:
+            raise HTTPException(status_code=404, detail="Recording not found")
+    elif people_changed:
+        # A store without the people map (older backend) can't hold it — say
+        # so rather than silently dropping the person association.
+        raise HTTPException(
+            status_code=503, detail="this storage backend cannot store people labels",
+        )
 
     manual = updated.get("manual_speaker_labels") or {}
     analysis = rec.get("analysis")
@@ -3451,10 +3582,14 @@ async def update_recording_speaker_labels(
         "id": recording_id,
         # Raw name map — what the editor UI prefills its fields from.
         "manual_speaker_labels": manual,
+        # People labeling: {speaker_id: person_id} for manually named speakers
+        # the user attached to an enrolled person.
+        "manual_speaker_people": merged_people,
         # Resolved ladder with the manual overrides on top, each entry carrying
-        # its label_source ("manual" for an override, else the inferred rung).
+        # its label_source ("manual"/"manual-person" for an override, else the
+        # inferred rung).
         "speaker_labels": _effective_speaker_labels(
-            base_labels, manual, valid_speakers,
+            base_labels, manual, valid_speakers, merged_people,
         ),
     }
 

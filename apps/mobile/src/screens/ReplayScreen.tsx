@@ -27,7 +27,9 @@ import type {
   PatchSpeakerLabelsResult,
   MediaType,
   CouldHaveSaid,
+  VoicePerson,
 } from "../api/client";
+import * as apiClient from "../api/client";
 import ToneSummaryCard from "../components/ToneSummaryCard";
 import CouldHaveSaidList from "../components/CouldHaveSaidList";
 import { modeLabel } from "./toneTrends";
@@ -236,6 +238,21 @@ export default function ReplayScreen({
   > | null>(null);
   const [manualLabels, setManualLabels] = useState<Record<string, string>>({});
   const [namingUnsupported, setNamingUnsupported] = useState(false);
+  // People labeling: the account's enrolled people for the "Who is this?"
+  // sheet. Null until fetched (or when the server has no people endpoint —
+  // the sheet then simply isn't offered, and the plain name editor remains).
+  const [people, setPeople] = useState<VoicePerson[] | null>(null);
+  const refreshPeople = useCallback(async () => {
+    try {
+      const res = await apiClient.listVoicePeople();
+      setPeople(res.available && res.storage_enabled ? res.people : null);
+    } catch {
+      setPeople(null);
+    }
+  }, []);
+  useEffect(() => {
+    void refreshPeople();
+  }, [refreshPeople, recordingId]);
 
   // --- Re-analyze with the latest engine ---
   // `reanalyzing` gates the button vs the progress card; `reanalyzeJob` is the
@@ -1367,6 +1384,12 @@ export default function ReplayScreen({
               manualLabels={manualLabels}
               onSaved={handleLabelsSaved}
               onUnsupported={() => setNamingUnsupported(true)}
+              // People labeling: "Who is this?" per speaker (enrolled people +
+              // "New person…" + "Remember this voice"). Only when the server
+              // has people; a live session kept no audio to learn from.
+              people={people ?? undefined}
+              hasAudio={!noMedia}
+              onPeopleChanged={() => void refreshPeople()}
             />
           ) : null}
 

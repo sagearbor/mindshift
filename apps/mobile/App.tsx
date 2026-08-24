@@ -10,6 +10,7 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import HomeScreen from "./src/screens/HomeScreen";
 import AnalyzeScreen from "./src/screens/AnalyzeScreen";
 import AdvancedScreen from "./src/screens/AdvancedScreen";
+import PeopleScreen from "./src/screens/PeopleScreen";
 import HomeDesignScreen from "./src/screens/HomeDesignScreen";
 import WatchSetupScreen from "./src/screens/WatchSetupScreen";
 import SessionScreen from "./src/screens/SessionScreen";
@@ -104,6 +105,11 @@ export type Screen =
   // `{name:"advanced"}` that's forgotten where Settings itself was opened
   // from.
   | { name: "home-design"; returnTo: Screen }
+  // People labeling: everyone whose voice the app recognizes — add / rename /
+  // forget. Pushed from Settings' "People" row and the hamburger catalog;
+  // `returnTo` carries wherever it was launched from (same dynamic-returnTo
+  // pattern as watch-setup below).
+  | { name: "people"; returnTo: Screen }
   // Phase 3 Slice 1: install the watch app + redeem its pairing code.
   // Pushed from Settings' "Set up your watch" row (returnTo "advanced") AND
   // (Task N3 fix round 1) from the hamburger catalog on any primary screen —
@@ -474,6 +480,7 @@ export default function App() {
             onOpenHomeDesign={() =>
               setScreen({ name: "home-design", returnTo: screen })
             }
+            onOpenPeople={() => setScreen({ name: "people", returnTo: screen })}
             onSetProfilePhoto={() =>
               setScreen({
                 name: "avatar-capture",
@@ -487,6 +494,17 @@ export default function App() {
         // this was pushed from (with its own `returnTo` intact) rather than
         // a bare reset — see the Screen union's comment on this variant.
         return <HomeDesignScreen onBack={() => setScreen(screen.returnTo)} />;
+      case "people":
+        // People labeling: pops back to wherever it was launched from
+        // (Settings' row, or the hamburger catalog from any primary screen).
+        return (
+          <PeopleScreen
+            onBack={() => setScreen(screen.returnTo)}
+            onOpenReplay={(id) =>
+              setScreen({ name: "replay", recordingId: id, returnTo: { name: "advanced" } })
+            }
+          />
+        );
       case "watch-setup":
         // Task N3 fix round 1: returns to wherever it was actually launched
         // from (Settings' own row, or now the hamburger catalog from any
@@ -681,6 +699,10 @@ export default function App() {
       return;
     }
     if (dest.name === "advanced") {
+      setScreen({ ...dest, returnTo: screen });
+      return;
+    }
+    if (dest.name === "people") {
       setScreen({ ...dest, returnTo: screen });
       return;
     }

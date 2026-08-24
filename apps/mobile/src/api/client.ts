@@ -161,7 +161,17 @@ export interface SpeakerLabel {
   // beating the enrolled "You", an inferred name, a relative-pitch voice label,
   // or the raw id. Kept open (`| string`) for forward-compatibility with any new
   // rung the server adds.
-  label_source: "manual" | "enrolled" | "name" | "voice" | "generic" | string;
+  label_source:
+    | "manual"
+    | "manual-person"
+    | "enrolled"
+    | "name"
+    | "voice"
+    | "generic"
+    | string;
+  // People labeling: set on the "manual-person" rung — WHICH enrolled person
+  // the user said this speaker is ("self" for themselves). Absent otherwise.
+  person_id?: string | null;
 }
 
 export interface AnalyzeResult {
@@ -1418,6 +1428,9 @@ export interface RecordingDetail extends RecordingSummary {
   // source of truth for the raw text. Absent on servers without manual-label
   // support (the naming affordance hides itself then); an empty object when none.
   manual_speaker_labels?: Record<string, string>;
+  // People labeling: {canonical_id: person_id} for manually named speakers the
+  // user attached to an enrolled person. Absent on older servers.
+  manual_speaker_people?: Record<string, string>;
   // True when the caller is a RECIPIENT viewing a recording shared with them
   // (read-only) — the UI hides every owner-only affordance in this mode. Absent
   // or false ⇒ the caller owns it. Older servers omit it (treated as owned).
@@ -1735,6 +1748,8 @@ export async function patchRecordingTitle(
 export interface PatchSpeakerLabelsResult {
   id: string;
   manual_speaker_labels: Record<string, string>;
+  // People labeling: {canonical_id: person_id}. Absent on older servers.
+  manual_speaker_people?: Record<string, string>;
   speaker_labels: Record<string, SpeakerLabel>;
 }
 
@@ -1758,13 +1773,18 @@ export interface PatchSpeakerLabelsResult {
 export async function patchSpeakerLabels(
   id: string,
   labels: Record<string, string>,
+  // People labeling: {canonical_id: person_id | ""} — say WHICH enrolled
+  // person a speaker is ("self" = me); "" clears the person, keeping the
+  // name. Omitted entirely when not given so older servers see the same
+  // body as before.
+  people?: Record<string, string>,
 ): Promise<PatchSpeakerLabelsResult> {
   const res = await fetch(
     `${API_URL}/recordings/${encodeURIComponent(id)}/speaker-labels`,
     {
       method: "PATCH",
       headers: await authHeaders(),
-      body: JSON.stringify({ labels }),
+      body: JSON.stringify(people ? { labels, people } : { labels }),
     },
   );
   if (!res.ok) {
@@ -1845,6 +1865,27 @@ export interface VoiceProfile {
   // v2 — per-sample provenance (metadata only; embeddings never leave the
   // server). Absent on a pre-v2 server; empty when unenrolled.
   samples?: VoiceSample[];
+  // Multi-person voiceprints (Foundation B): WHOSE profile this is. The
+  // owner is "self" / "You" / is_self; a partner carries the name the user
+  // gave. Absent on a pre-multi-person server (always the owner then).
+  person_id?: string;
+  display_name?: string | null;
+  is_self?: boolean;
+}
+
+/** One enrolled person (GET /voice/people) — the owner ("self", shown "You")
+ *  or a partner the user named. Same per-person shape as VoiceProfile with
+ *  the person fields guaranteed. */
+export interface VoicePerson extends VoiceProfile {
+  person_id: string;
+  display_name: string | null;
+  is_self: boolean;
+}
+
+export interface VoicePeopleResult {
+  available: boolean;
+  storage_enabled: boolean;
+  people: VoicePerson[];
 }
 
 /** One enrollment sample's provenance. `recording_id` is null for the migrated
@@ -1857,6 +1898,9 @@ export interface VoiceSample {
   speaker: string | null;
   at: string | null;
   note?: string | null;
+  // Seconds of pooled speech the sample was learned from, when the server
+  // measured it (enroll-from-recording); null/absent otherwise.
+  seconds?: number | null;
 }
 
 /** DELETE /voice/samples/{id} response — what remains after the removal. */
@@ -1948,12 +1992,20 @@ export interface DirectEnrollResult {
 export async function enrollVoiceDirect(
   file: string | File,
   name: string = "guided-enrollment.wav",
+  // People labeling: train a PARTNER's voice instead of the owner's. The
+  // form fields are omitted for the owner so older servers see the same
+  // upload as before.
+  person?: { personId: string; displayName?: string | null },
 ): Promise<DirectEnrollResult> {
   const form = new FormData();
   if (Platform.OS === "web") {
     form.append("file", file as File, name);
   } else {
     form.append("file", new FSFile(file as string) as unknown as Blob, name);
+  }
+  if (person && person.personId !== "self") {
+    form.append("person_id", person.personId);
+    if (person.displayName) form.append("display_name", person.displayName);
   }
   const token = await getFreshToken();
   const headers: Record<string, string> = {};
@@ -2070,6 +2122,131 @@ export async function deleteVoiceSample(
     throw err;
   }
   return (await res.json()) as DeleteSampleResult;
+}
+
+// ---------------------------------------------------------------------------
+// People — "that's Mom": named voiceprints, learned once, recognized everywhere
+// ---------------------------------------------------------------------------
+
+/** Throw an Error carrying `.status` + the server's honest `detail`. */
+async function throwWithDetail(res: Response): Promise<never> {
+  let detail = "";
+  try {
+    detail = ((await res.json()) as { detail?: string }).detail ?? "";
+  } catch {
+    // non-JSON body — leave detail empty
+  }
+  const err = new Error(detail || `API error: ${res.status}`) as Error & {
+    status?: number;
+    detail?: string;
+  };
+  err.status = res.status;
+  err.detail = detail || undefined;
+  throw err;
+}
+
+/**
+ * GET /voice/people — every person this account has enrolled a voice for
+ * (the owner "self" first, then partners by name). Never 503s: `available`
+ * / `storage_enabled` say whether voice ID works at all. Throws `API error`
+ * on a transport/auth failure; a 404 (older server without people) resolves
+ * to an empty list with `available: false` so the People screen says so.
+ */
+export async function listVoicePeople(): Promise<VoicePeopleResult> {
+  const res = await fetch(`${API_URL}/voice/people`, {
+    method: "GET",
+    headers: await authHeaders(),
+  });
+  if (res.status === 404) {
+    return { available: false, storage_enabled: false, people: [] };
+  }
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  const data = (await res.json()) as Partial<VoicePeopleResult>;
+  return {
+    available: data.available === true,
+    storage_enabled: data.storage_enabled === true,
+    people: Array.isArray(data.people) ? data.people : [],
+  };
+}
+
+/** PATCH /voice/people/{id} — rename an enrolled partner. The owner can't
+ *  be renamed (always "You" — the server 422s). Throws with `.status`. */
+export async function renameVoicePerson(
+  personId: string,
+  displayName: string,
+): Promise<VoicePerson> {
+  const res = await fetch(
+    `${API_URL}/voice/people/${encodeURIComponent(personId)}`,
+    {
+      method: "PATCH",
+      headers: await authHeaders(),
+      body: JSON.stringify({ display_name: displayName }),
+    },
+  );
+  if (!res.ok) await throwWithDetail(res);
+  return (await res.json()) as VoicePerson;
+}
+
+/** DELETE /voice/people/{id} — forget ONE person's voiceprint for real
+ *  (idempotent; "self" is the same as "Forget my voice"). */
+export async function deleteVoicePerson(
+  personId: string,
+): Promise<{ deleted: boolean; person_id: string }> {
+  const res = await fetch(
+    `${API_URL}/voice/people/${encodeURIComponent(personId)}`,
+    { method: "DELETE", headers: await authHeaders() },
+  );
+  if (!res.ok) await throwWithDetail(res);
+  return (await res.json()) as { deleted: boolean; person_id: string };
+}
+
+/** POST /voice/people/{id}/enroll-from-recording response. */
+export interface EnrollFromRecordingResult {
+  enrolled: boolean;
+  person_id: string;
+  display_name: string | null;
+  is_self: boolean;
+  created: boolean;
+  enroll_count: number;
+  seconds: number;
+  dim: number;
+  updated_at: string;
+  // The recording's effective labels after the relabel (empty when it had
+  // no stored analysis) — render the "enrolled" badge without a refetch.
+  speaker_labels: Record<string, SpeakerLabel>;
+  stored: string;
+}
+
+/**
+ * POST /voice/people/{id}/enroll-from-recording — "Remember this voice":
+ * learn a person's voice from ONE diarized speaker of a stored recording
+ * (creating the person when `displayName` is given for a new id). The
+ * thrown error carries `.status` and the server's `.detail`, whose leading
+ * bracketed tag ("[too-little-speech]", "[sounds-like-someone-else]",
+ * "[no-audio]") the UI keys its inline copy on — see
+ * `enrollRefusalReason` in utils/people.ts.
+ */
+export async function enrollPersonFromRecording(
+  personId: string,
+  recordingId: string,
+  speakerLabel: string,
+  displayName?: string | null,
+): Promise<EnrollFromRecordingResult> {
+  const body: Record<string, string> = {
+    recording_id: recordingId,
+    speaker_label: speakerLabel,
+  };
+  if (displayName) body.display_name = displayName;
+  const res = await fetch(
+    `${API_URL}/voice/people/${encodeURIComponent(personId)}/enroll-from-recording`,
+    {
+      method: "POST",
+      headers: await authHeaders(),
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) await throwWithDetail(res);
+  return (await res.json()) as EnrollFromRecordingResult;
 }
 
 // ---------------------------------------------------------------------------
@@ -2205,6 +2382,11 @@ export async function postReflect(
  *  the batch analysis ran; warmth from the phone's text tone). */
 export interface DashboardSessionTurn {
   speaker: string;
+  // People labeling (newer servers): the raw diarized id behind the display
+  // name above + its provenance, so "Who is this?" can relabel THIS speaker.
+  speakerId?: string | null;
+  labelSource?: string | null;
+  personId?: string | null;
   text: string;
   toneScores: Partial<{
     warmth: number;
@@ -2221,6 +2403,13 @@ export interface DashboardSessionTurn {
   withPerson?: string | null;
 }
 
+export interface DashboardSpeaker {
+  id: string;
+  display: string;
+  labelSource?: string | null;
+  personId?: string | null;
+}
+
 export interface DashboardSession {
   id: string;
   recordingId?: string;
@@ -2232,6 +2421,12 @@ export interface DashboardSession {
   source?: string | null;
   mode?: LiveMode | string | null;
   turns: DashboardSessionTurn[];
+  // People labeling (newer servers): every distinct speaker with its
+  // effective label + provenance, first-appearance order.
+  speakers?: DashboardSpeaker[];
+  // Whether the server kept audio (false for a live session) — "Remember
+  // this voice" is only offered when true.
+  hasAudio?: boolean;
   // Null when no turn carries a heat (no batch analysis yet) — never 0.
   avgPleasantness: number | null;
   toneSummary?: ToneSummary | null;

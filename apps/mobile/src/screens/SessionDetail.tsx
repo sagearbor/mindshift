@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -8,11 +8,47 @@ import {
   Share,
   StyleSheet,
 } from "react-native";
-import { useDashboardStore, ToneScores } from "../store/dashboardStore";
+import { useDashboardStore, ToneScores, type SavedSession } from "../store/dashboardStore";
 import ToneSparkline from "../components/ToneSparkline";
 import ToneSummaryCard from "../components/ToneSummaryCard";
 import CouldHaveSaidList from "../components/CouldHaveSaidList";
+import WhoIsThisSheet from "../components/WhoIsThisSheet";
+import * as apiClient from "../api/client";
+import type { PatchSpeakerLabelsResult, VoicePerson } from "../api/client";
+import { isEnrolledPersonLabel } from "../utils/people";
 import { modeLabel, toneChipColors } from "./toneTrends";
+
+/**
+ * Apply a speaker-labels save to a stored session row: every turn (and the
+ * `speakers` list) whose raw speaker id is in the server's resolved map
+ * takes the new display name + provenance. Pure; exported for tests.
+ */
+export function applyLabelsToSession(
+  session: SavedSession,
+  labels: PatchSpeakerLabelsResult["speaker_labels"],
+): SavedSession {
+  const turns = session.turns.map((t) => {
+    const entry = t.speakerId ? labels[t.speakerId] : undefined;
+    if (!entry) return t;
+    return {
+      ...t,
+      speaker: entry.display_label,
+      labelSource: entry.label_source,
+      personId: entry.person_id ?? null,
+    };
+  });
+  const speakers = (session.speakers ?? []).map((s) => {
+    const entry = labels[s.id];
+    if (!entry) return s;
+    return {
+      ...s,
+      display: entry.display_label,
+      labelSource: entry.label_source,
+      personId: entry.person_id ?? null,
+    };
+  });
+  return { ...session, turns, speakers };
+}
 
 interface SessionDetailProps {
   sessionId: string;
@@ -23,8 +59,42 @@ export default function SessionDetail({
   sessionId,
   onBack,
 }: SessionDetailProps) {
-  const { sessions, exportSession } = useDashboardStore();
+  const { sessions, exportSession, setSessions } = useDashboardStore();
   const session = sessions.find((s) => s.id === sessionId);
+
+  // People labeling: "Who is this?" on a speaker row — only for the caller's
+  // OWN sessions (a therapist can't relabel a patient's recording) whose
+  // server rows carry raw speaker ids (newer servers).
+  const canLabel =
+    !!session &&
+    session.shared !== true &&
+    typeof session.recordingId === "string" &&
+    session.turns.some((t) => typeof t.speakerId === "string" && t.speakerId);
+  const [people, setPeople] = useState<VoicePerson[]>([]);
+  const [who, setWho] = useState<{ speaker: string; label: string; personId: string | null } | null>(null);
+  const refreshPeople = useCallback(async () => {
+    try {
+      const res = await apiClient.listVoicePeople();
+      setPeople(res.people);
+    } catch {
+      // No people list (older server / offline) — the sheet still offers
+      // "New person…"; naming this recording never depends on it.
+    }
+  }, []);
+  useEffect(() => {
+    if (canLabel) void refreshPeople();
+  }, [canLabel, refreshPeople]);
+
+  const handleLabeled = useCallback(
+    (result: PatchSpeakerLabelsResult) => {
+      setSessions(
+        useDashboardStore
+          .getState()
+          .sessions.map((s) => (s.id === sessionId ? applyLabelsToSession(s, result.speaker_labels) : s)),
+      );
+    },
+    [sessionId, setSessions],
+  );
 
   const aggregateStats = useMemo(() => {
     if (!session || session.turns.length === 0) return null;
@@ -199,7 +269,41 @@ export default function SessionDetail({
               testID={`turn-${i}`}
             >
               <View style={styles.turnHeader}>
-                <Text style={styles.turnSpeaker}>{turn.speaker}</Text>
+                {canLabel && turn.speakerId ? (
+                  <TouchableOpacity
+                    testID={`turn-${i}-who`}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Who is ${turn.speaker}?`}
+                    style={styles.turnSpeakerRow}
+                    onPress={() =>
+                      setWho({
+                        speaker: turn.speakerId as string,
+                        label: turn.speaker,
+                        personId: turn.personId ?? null,
+                      })
+                    }
+                  >
+                    <Text style={[styles.turnSpeaker, styles.turnSpeakerLink]}>
+                      {turn.speaker}
+                    </Text>
+                    {isEnrolledPersonLabel(
+                      {
+                        display_label: turn.speaker,
+                        label_source: turn.labelSource ?? "generic",
+                        person_id: turn.personId ?? null,
+                      },
+                      people,
+                    ) ? (
+                      <View style={styles.enrolledBadge} testID={`turn-${i}-enrolled`}>
+                        <Text style={styles.enrolledBadgeText}>enrolled</Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.whoHint}>who?</Text>
+                    )}
+                  </TouchableOpacity>
+                ) : (
+                  <Text style={styles.turnSpeaker}>{turn.speaker}</Text>
+                )}
                 {/* Track 2: the phone's tone read for this turn (+ an
                     escalation marker) sits beside the score. The row wrapper
                     exists only when there IS a chip, so a legacy session
@@ -241,6 +345,21 @@ export default function SessionDetail({
           );
         })}
       </View>
+
+      {canLabel && who && session.recordingId ? (
+        <WhoIsThisSheet
+          visible
+          recordingId={session.recordingId}
+          speaker={who.speaker}
+          currentLabel={who.label}
+          currentPersonId={who.personId}
+          people={people}
+          hasAudio={session.hasAudio === true}
+          onClose={() => setWho(null)}
+          onLabeled={handleLabeled}
+          onEnrolled={() => void refreshPeople()}
+        />
+      ) : null}
     </ScrollView>
   );
 }
@@ -393,6 +512,33 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     color: "#374151",
+  },
+  turnSpeakerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 1,
+  },
+  turnSpeakerLink: {
+    color: "#4A90D9",
+  },
+  whoHint: {
+    fontSize: 11,
+    color: "#9CA3AF",
+    fontStyle: "italic",
+  },
+  enrolledBadge: {
+    backgroundColor: "#ECFDF5",
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  enrolledBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#047857",
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
   },
   turnScoreBadge: {
     backgroundColor: "#F9FAFB",

@@ -12,8 +12,11 @@ import {
   patchSpeakerLabels,
   type RecordingTurn,
   type PatchSpeakerLabelsResult,
+  type VoicePerson,
 } from "../api/client";
+import WhoIsThisSheet from "./WhoIsThisSheet";
 import { getSpeakerColor, resolveSpeakerColors } from "../utils/speakerColors";
+import { isEnrolledPersonLabel, labelPersonId } from "../utils/people";
 import {
   speakerLabel,
   labelProvenanceNote,
@@ -41,6 +44,16 @@ interface SpeakerNamingProps {
   /** A save 404'd — the server has no manual-labels route (older build). The
    *  parent hides the whole affordance rather than leave a button that can't work. */
   onUnsupported?: () => void;
+  /** People labeling: the account's enrolled people. When given, every row
+   *  also offers "Who is this?" — pick a person (or a new one) and optionally
+   *  remember their voice from this recording. Omitted → the plain name
+   *  editor only, exactly as before. */
+  people?: VoicePerson[];
+  /** Whether the server kept audio for this recording (a live session has
+   *  none) — gates the "Remember this voice" step. */
+  hasAudio?: boolean;
+  /** A voice was learned — the parent refetches its people list. */
+  onPeopleChanged?: () => void;
 }
 
 /**
@@ -64,6 +77,9 @@ export default function SpeakerNaming({
   manualLabels,
   onSaved,
   onUnsupported,
+  people,
+  hasAudio = true,
+  onPeopleChanged,
 }: SpeakerNamingProps) {
   // The speaker whose inline editor is open (canonical id), the draft text, and
   // per-save busy/error state (scoped to the open row).
@@ -71,6 +87,8 @@ export default function SpeakerNaming({
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // People labeling: the speaker whose "Who is this?" sheet is open.
+  const [whoSpeaker, setWhoSpeaker] = useState<string | null>(null);
 
   // Distinct speakers in first-appearance order (matches the transcript/legend).
   const speakers = useMemo(() => {
@@ -164,10 +182,12 @@ export default function SpeakerNaming({
       </Text>
 
       {speakers.map((speaker) => {
-        const source = speakerLabels?.[speaker]?.label_source;
+        const entry = speakerLabels?.[speaker];
+        const source = entry?.label_source;
         const provenance = labelProvenanceNote(source);
         const display = speakerLabel(speaker, speakerLabels);
         const isEditing = editing === speaker;
+        const recognized = people ? isEnrolledPersonLabel(entry, people) : false;
         return (
           <View key={speaker} style={styles.speakerRow} testID={`name-row-${speaker}`}>
             {isEditing ? (
@@ -222,9 +242,16 @@ export default function SpeakerNaming({
                     style={[styles.dot, { backgroundColor: colorOf(speaker) }]}
                   />
                   <View style={styles.nameCol}>
-                    <Text style={styles.speakerName} numberOfLines={1}>
-                      {display}
-                    </Text>
+                    <View style={styles.nameRow}>
+                      <Text style={styles.speakerName} numberOfLines={1}>
+                        {display}
+                      </Text>
+                      {recognized ? (
+                        <View style={styles.badge} testID={`name-enrolled-${speaker}`}>
+                          <Text style={styles.badgeText}>enrolled</Text>
+                        </View>
+                      ) : null}
+                    </View>
                     {provenance ? (
                       <Text
                         style={styles.provenance}
@@ -235,6 +262,17 @@ export default function SpeakerNaming({
                     ) : null}
                   </View>
                 </View>
+                {people ? (
+                  <TouchableOpacity
+                    testID={`who-open-${speaker}`}
+                    style={styles.editButton}
+                    onPress={() => setWhoSpeaker(speaker)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Who is ${display}?`}
+                  >
+                    <Text style={styles.editButtonText}>Who is this?</Text>
+                  </TouchableOpacity>
+                ) : null}
                 <TouchableOpacity
                   testID={`name-edit-${speaker}`}
                   style={styles.editButton}
@@ -254,6 +292,21 @@ export default function SpeakerNaming({
         <Text style={styles.error} testID="name-error">
           {error}
         </Text>
+      ) : null}
+
+      {people && whoSpeaker ? (
+        <WhoIsThisSheet
+          visible
+          recordingId={recordingId}
+          speaker={whoSpeaker}
+          currentLabel={speakerLabel(whoSpeaker, speakerLabels)}
+          currentPersonId={labelPersonId(speakerLabels?.[whoSpeaker])}
+          people={people}
+          hasAudio={hasAudio}
+          onClose={() => setWhoSpeaker(null)}
+          onLabeled={onSaved}
+          onEnrolled={() => onPeopleChanged?.()}
+        />
       ) : null}
     </View>
   );
@@ -302,6 +355,24 @@ const styles = StyleSheet.create({
   },
   nameCol: {
     flexShrink: 1,
+  },
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  badge: {
+    backgroundColor: "#ECFDF5",
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  badgeText: {
+    fontSize: 10.5,
+    fontWeight: "700",
+    color: "#047857",
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
   },
   speakerName: {
     fontSize: 15,

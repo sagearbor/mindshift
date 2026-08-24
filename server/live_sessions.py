@@ -122,6 +122,10 @@ NEUTRAL_LABEL = "neutral"
 # same rule main._growth_point applies).
 LABEL_SOURCE_ENROLLED = "enrolled"
 LABEL_SOURCE_GENERIC = "generic"
+# The human-assertion rungs (main.LABEL_SOURCE_MANUAL / _MANUAL_PERSON) —
+# literals here because main imports this module. See manual_overlay.
+LABEL_SOURCE_MANUAL = "manual"
+LABEL_SOURCE_MANUAL_PERSON = "manual-person"
 ENROLLED_DISPLAY_LABEL = speaker_id.SELF_DISPLAY_NAME  # "You"
 SELF_PERSON_ID = speaker_id.SELF_PERSON_ID              # "self"
 
@@ -904,6 +908,55 @@ def cached_reflection(analysis: dict | None, turns: list[dict]) -> list[dict] | 
 # Cross-recording aggregates (GET /growth) + the therapist dashboard shape
 # ---------------------------------------------------------------------------
 
+def manual_overlay(rec: dict) -> dict[str, dict]:
+    """The recording's MANUAL speaker labels as ladder entries —
+    ``{speaker: {display_label, label_source, person_id?}}`` — read from
+    meta.json's ``manual_speaker_labels`` (names) + ``manual_speaker_people``
+    (people labeling: which enrolled person a named speaker is). The same
+    overlay main._effective_speaker_labels applies at read time, duplicated
+    here (main imports this module) so the growth aggregates and the
+    therapist rows honor a human's correction exactly as the detail endpoint
+    does. Only speakers present in the turns count."""
+    names = rec.get("manual_speaker_labels") or {}
+    people = rec.get("manual_speaker_people") or {}
+    if not isinstance(names, dict):
+        return {}
+    speakers = {
+        t.get("speaker") for t in (rec.get("turns") or [])
+        if isinstance(t, dict) and isinstance(t.get("speaker"), str)
+    }
+    out: dict[str, dict] = {}
+    for speaker, name in names.items():
+        if speaker not in speakers or not (isinstance(name, str) and name.strip()):
+            continue
+        pid = people.get(speaker) if isinstance(people, dict) else None
+        if isinstance(pid, str) and pid.strip():
+            out[speaker] = {
+                "display_label": name.strip(),
+                "label_source": LABEL_SOURCE_MANUAL_PERSON,
+                "person_id": pid.strip(),
+            }
+        else:
+            out[speaker] = {
+                "display_label": name.strip(), "label_source": LABEL_SOURCE_MANUAL,
+            }
+    return out
+
+
+def _person_row_with_manual(p: dict, overlay: dict[str, dict]) -> dict:
+    """A tone-summary person bucket with the recording's manual label for
+    that speaker applied: a manual-person label supplies the cross-session
+    ``person_id`` (and its name); a plain manual name supplies the name."""
+    entry = overlay.get(p.get("speaker") or "")
+    if not entry:
+        return p
+    out = dict(p)
+    out["display_name"] = entry["display_label"]
+    if entry.get("person_id"):
+        out["person_id"] = entry["person_id"]
+    return out
+
+
 def growth_extras(rec: dict) -> dict:
     """Additive GrowthPoint fields for one stored recording: ``source``
     ("live"/"upload"/"link"), ``mode``, and ``self_tone`` — the session's
@@ -917,6 +970,14 @@ def growth_extras(rec: dict) -> dict:
     summary = live.get("tone_summary") if isinstance(live, dict) else None
     self_bucket = summary.get("self") if isinstance(summary, dict) else None
     people = summary.get("people") if isinstance(summary, dict) else None
+    # People labeling: a manual "that's Mom" on this recording names (and
+    # identifies, via person_id) the per-person bucket without a re-ingest.
+    overlay = manual_overlay(rec)
+    if overlay and isinstance(people, list):
+        people = [
+            _person_row_with_manual(p, overlay) if isinstance(p, dict) else p
+            for p in people
+        ]
     return {
         "source": source,
         "mode": rec.get("mode") or (live.get("mode") if isinstance(live, dict) else None),
@@ -1000,15 +1061,29 @@ def dashboard_session(rec: dict, *, patient: str, shared: bool) -> dict:
     live = analysis.get("live") if isinstance(analysis.get("live"), dict) else None
     per_turn = analysis.get("per_turn") if isinstance(analysis.get("per_turn"), list) else []
     labels = analysis.get("speaker_labels") if isinstance(analysis.get("speaker_labels"), dict) else {}
+    # People labeling: the human's manual labels (incl. the person picked
+    # from the people list) sit on top, exactly as the detail endpoint
+    # serves them — a therapist sees the patient's own names for people.
+    labels = {**labels, **manual_overlay(rec)}
     turns = rec.get("turns") or []
     rows = (live or {}).get("turn_tone") or []
     by_index = {r.get("index"): r for r in rows if isinstance(r, dict)}
     out_turns: list[dict] = []
     pleasantness: list[float] = []
+    speakers_out: list[dict] = []
+    seen_speakers: set[str] = set()
     for i, turn in enumerate(turns):
         speaker = turn.get("speaker")
         entry = labels.get(speaker) if isinstance(speaker, str) else None
         display = entry.get("display_label") if isinstance(entry, dict) else None
+        if isinstance(speaker, str) and speaker not in seen_speakers:
+            seen_speakers.add(speaker)
+            speakers_out.append({
+                "id": speaker,
+                "display": display if isinstance(display, str) and display.strip() else speaker,
+                "labelSource": entry.get("label_source") if isinstance(entry, dict) else None,
+                "personId": entry.get("person_id") if isinstance(entry, dict) else None,
+            })
         scores: dict[str, float] = {}
         heat = _num((per_turn[i] or {}).get("heat")) if i < len(per_turn) and isinstance(per_turn[i], dict) else None
         if heat is not None:
@@ -1021,6 +1096,12 @@ def dashboard_session(rec: dict, *, patient: str, shared: bool) -> dict:
         row = by_index.get(i) or {}
         out_turns.append({
             "speaker": display if isinstance(display, str) and display.strip() else speaker,
+            # People labeling: the raw diarized id + provenance so the client's
+            # "Who is this?" sheet can relabel THIS speaker (the display name
+            # above is what the row shows; it isn't a stable key).
+            "speakerId": speaker,
+            "labelSource": entry.get("label_source") if isinstance(entry, dict) else None,
+            "personId": entry.get("person_id") if isinstance(entry, dict) else None,
             "text": turn.get("text"),
             "toneScores": scores,
             "isSelf": bool(row.get("is_self")) if row else bool(turn.get("is_self")),
@@ -1042,6 +1123,14 @@ def dashboard_session(rec: dict, *, patient: str, shared: bool) -> dict:
         "source": (rec.get("source") or {}).get("type") if isinstance(rec.get("source"), dict) else None,
         "mode": rec.get("mode") or ((live or {}).get("mode") if live else None),
         "turns": out_turns,
+        # People labeling: every distinct speaker with its effective label +
+        # provenance (first-appearance order) — the dashboard's people line
+        # and the detail's speaker picker read this.
+        "speakers": speakers_out,
+        # Whether the server kept audio for this recording — the "Remember
+        # this voice" affordance is only offered when it did (a live session
+        # is media_type "none").
+        "hasAudio": rec.get("media_type") not in (None, "none"),
         "avgPleasantness": avg,
         "toneSummary": summary,
         "couldHaveSaid": (live or {}).get("could_have_said") if live else None,

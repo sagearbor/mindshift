@@ -38,6 +38,16 @@ Eight endpoints under ``/voice`` (included from main.py with one line):
 * ``DELETE /voice/people/{id}``— forget ONE named person's voiceprint for real
                                  (idempotent; ``self`` here is the same as
                                  ``DELETE /voice/voiceprint``).
+* ``PATCH /voice/people/{id}`` — rename an enrolled partner (``display_name``).
+* ``POST /voice/people/{id}/enroll-from-recording``
+                               — "Remember this voice": learn a person's voice
+                                 from ONE diarized speaker of a stored
+                                 recording (creates the person when new +
+                                 named). Refuses honestly when the speaker has
+                                 too little speech, when the recording kept no
+                                 audio (live sessions), or when the voice is
+                                 clearly someone ELSE already enrolled — see
+                                 ``enroll_person_from_recording``.
 * ``POST /voice/catch-up``     — bulk re-match every already-stored recording
                                  that predates enrollment (or predates any
                                  "This is me" tap) against the enrolled
@@ -263,6 +273,7 @@ def _profile_response(
                 speaker=s.get("speaker"),
                 at=s.get("at"),
                 note=s.get("note"),
+                seconds=s.get("seconds") if isinstance(s.get("seconds"), (int, float)) else None,
             )
             for s in profile.get("samples", [])
             if isinstance(s, dict) and s.get("id")
@@ -452,6 +463,9 @@ class VoiceSampleOut(BaseModel):
     speaker: str | None = None
     at: str | None = None
     note: str | None = None
+    # Seconds of pooled speech the sample was embedded from, when the
+    # enrollment path measured it (enroll-from-recording); null otherwise.
+    seconds: float | None = None
 
 
 class VoiceProfileResponse(BaseModel):
@@ -900,9 +914,11 @@ async def catch_up_voice(
         # that already has a confident "me" (no wasted re-matching).
         effective = main._effective_speaker_labels(
             analysis.get("speaker_labels"), manual, main._recording_speaker_ids(rec),
+            main._recording_manual_people(rec),
         )
         already_identified = any(
             entry.get("label_source") == main.LABEL_SOURCE_ENROLLED
+            or main._is_me_label(entry)
             for entry in effective.values()
         )
         if already_identified:
@@ -1074,3 +1090,242 @@ async def forget_voice_person(
     deleted = await store.delete_voiceprint(uid, person_id)
     logger.info("Voice forget person uid=%s person=%s deleted=%s", uid, person_id, deleted)
     return ForgetPersonResponse(deleted=deleted, person_id=person_id)
+
+
+# ---------------------------------------------------------------------------
+# People labeling — rename a person, learn a voice from a recording's speaker
+# ---------------------------------------------------------------------------
+
+class RenamePersonRequest(BaseModel):
+    display_name: str = Field(min_length=1, max_length=speaker_id.DISPLAY_NAME_MAX)
+
+
+@router.patch("/people/{person_id}", response_model=VoiceProfileResponse)
+async def rename_voice_person(
+    body: RenamePersonRequest,
+    request: Request,
+    person_id: str = Path(pattern=speaker_id.PERSON_ID_PATTERN),
+    uid: str = Depends(get_current_uid),
+) -> VoiceProfileResponse:
+    """Rename an enrolled partner ("alex" → "Alexander"). The owner is always
+    "You" and cannot be renamed (422). 404 when that person has no profile
+    (uid-scoped: another account's people never resolve here). The new name
+    applies to every FUTURE label the enrolled rung writes; labels already
+    stored on recordings keep the name they were written with (a stored
+    analysis is never rewritten by a rename — the People screen says so)."""
+    store = _require_store(request)
+    if person_id == speaker_id.SELF_PERSON_ID:
+        raise HTTPException(
+            status_code=422, detail="the account owner is always shown as \"You\"",
+        )
+    existing = await store.read_voiceprint(uid, person_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="No such enrolled person")
+    name = body.display_name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="display_name must not be blank")
+    renamed = speaker_id.as_person(existing, person_id=person_id, display_name=name)
+    renamed = {**renamed, "updated_at": datetime.now(timezone.utc).isoformat()}
+    await store.write_voiceprint(uid, renamed)
+    logger.info("Voice person renamed uid=%s person=%s", uid, person_id)
+    return _profile_response(renamed, available=speaker_id.is_available())
+
+
+class EnrollFromRecordingRequest(BaseModel):
+    recording_id: str = Field(pattern=UUID_PATTERN)
+    # The diarized speaker label the user tapped ("Speaker B").
+    speaker_label: str = Field(min_length=1, max_length=60)
+    # Required when ``person_id`` is new (422 otherwise); optional for an
+    # existing person (given → renames, like POST /voice/enroll).
+    display_name: str | None = Field(
+        default=None, min_length=1, max_length=speaker_id.DISPLAY_NAME_MAX,
+    )
+
+
+class EnrollFromRecordingResponse(BaseModel):
+    enrolled: bool
+    person_id: str
+    display_name: str | None = None
+    is_self: bool = False
+    created: bool
+    enroll_count: int
+    # Seconds of that speaker's pooled speech the new sample was embedded from.
+    seconds: float
+    dim: int
+    updated_at: str
+    # The recording's effective speaker labels after the relabel (empty when
+    # the recording has no stored analysis to relabel) — so the client can
+    # render the "enrolled" badge without a refetch.
+    speaker_labels: dict[str, dict] = {}
+    stored: str = "a numeric voice signature (192 numbers), not the audio"
+
+
+# The refusal reasons the client shows inline. Each detail starts with a
+# stable bracketed tag so the UI can pick its copy without parsing prose.
+REASON_NO_AUDIO = "no-audio"
+REASON_TOO_LITTLE_SPEECH = "too-little-speech"
+REASON_SOUNDS_LIKE = "sounds-like-someone-else"
+
+
+def _reason(tag: str, text: str) -> str:
+    return f"[{tag}] {text}"
+
+
+@router.post(
+    "/people/{person_id}/enroll-from-recording",
+    response_model=EnrollFromRecordingResponse,
+)
+async def enroll_person_from_recording(
+    body: EnrollFromRecordingRequest,
+    request: Request,
+    person_id: str = Path(pattern=speaker_id.PERSON_ID_PATTERN),
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+) -> EnrollFromRecordingResponse:
+    """"Remember this voice" — learn ``person_id``'s voice from ONE diarized
+    speaker of a stored recording, creating the person when it is new (a
+    ``display_name`` is then required).
+
+    Pools that speaker's turns from the stored ``audio.m4a`` (decoded to
+    16 kHz), embeds them once, and appends the result as a NEW SAMPLE on the
+    person's v2 profile (provenance: recording id + speaker label + seconds
+    of pooled speech), reblending over all samples. Then relabels THIS
+    recording's stored analysis so the speaker shows the person's name on the
+    enrolled rung immediately (same relabel ``POST /voice/enroll`` does).
+
+    Honest refusals — every one a 422 whose detail starts with a bracketed
+    reason tag the client keys its copy on:
+
+    * ``[no-audio]`` — a live session keeps no audio on the server
+      (``media_type: none``), or the derivative is missing: nothing to learn
+      from; record a 20-second sample on the People screen instead.
+    * ``[too-little-speech]`` — fewer than ``MIN_ENROLL_SECONDS`` (3 s) of
+      pooled speech under that speaker's turns. The MATCHING floor is 1 s,
+      but a print every future match depends on wants more than a matched
+      turn does (same rule as POST /voice/enroll).
+    * ``[sounds-like-someone-else]`` — the pooled voice clears
+      ``MATCH_THRESHOLD`` against a DIFFERENT enrolled person and is not
+      closer to this one by ``ENROLL_CONFLICT_MARGIN`` (see
+      ``speaker_id.enrollment_conflict``). The user most likely tapped the
+      wrong row; appending it would poison this print.
+
+    Other gates as for ``/voice/enroll``: deps absent / storage disabled →
+    503; recording missing or foreign → 404; speaker not in the recording →
+    422; a brand-new person with no name → 422."""
+    if not speaker_id.is_available():
+        raise HTTPException(status_code=503, detail=_VOICE_UNAVAILABLE)
+    store = _require_store(request)
+
+    rec = await store.get_recording(uid, body.recording_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="Recording not found")
+    turns = rec.get("turns") or []
+    speakers = {t.get("speaker") for t in turns}
+    if body.speaker_label not in speakers:
+        raise HTTPException(
+            status_code=422,
+            detail=f"speaker {body.speaker_label!r} is not in this recording",
+        )
+    # Who is being enrolled — resolved BEFORE the expensive decode+embed so a
+    # nameless new person is a cheap 422.
+    existing, resolved_pid, resolved_name = await _resolve_person(
+        store, uid, person_id, body.display_name,
+    )
+    if rec.get("media_type") == "none":
+        raise HTTPException(
+            status_code=422,
+            detail=_reason(
+                REASON_NO_AUDIO,
+                "this live session kept no audio on the server, so there is no "
+                "voice to learn from — record a 20-second sample from the People "
+                "screen instead",
+            ),
+        )
+    audio = await store.get_audio_bytes(uid, body.recording_id)
+    if not audio:
+        raise HTTPException(
+            status_code=422,
+            detail=_reason(
+                REASON_NO_AUDIO,
+                "this recording's audio is no longer stored, so there is no voice "
+                "to learn from",
+            ),
+        )
+
+    try:
+        pcm, sr = await asyncio.to_thread(decode_to_pcm_16k, audio, "audio.m4a")
+    except AudioDecodeError as exc:
+        raise HTTPException(
+            status_code=422, detail=f"could not decode the stored audio: {exc}",
+        )
+    pooled = speaker_id.pool_speaker_pcm(pcm, sr, turns, body.speaker_label)
+    seconds = pooled.size / float(sr) if sr > 0 else 0.0
+    if seconds < speaker_id.MIN_ENROLL_SECONDS:
+        raise HTTPException(
+            status_code=422,
+            detail=_reason(
+                REASON_TOO_LITTLE_SPEECH,
+                f"only {seconds:.1f}s of that speaker's voice is in this recording "
+                f"— at least {speaker_id.MIN_ENROLL_SECONDS:.0f}s is needed to "
+                "learn a voice trustworthily",
+            ),
+        )
+    try:
+        embedding = await asyncio.to_thread(speaker_id.embed_pcm, pooled, sr)
+    except speaker_id.SpeakerIdUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    # Would this voice be mistaken for someone ELSE already enrolled? Refuse
+    # rather than poison the print (see speaker_id.enrollment_conflict).
+    profiles = await store.list_voiceprints(uid)
+    conflict = speaker_id.enrollment_conflict(embedding, profiles, resolved_pid)
+    if conflict is not None:
+        own = conflict.get("own_score")
+        own_text = (
+            f" and only {own:.2f} to {resolved_name}" if isinstance(own, float) else ""
+        )
+        raise HTTPException(
+            status_code=422,
+            detail=_reason(
+                REASON_SOUNDS_LIKE,
+                f"that voice sounds like {conflict['display_name']} (similarity "
+                f"{conflict['score']:.2f}{own_text}; the match floor is "
+                f"{speaker_id.MATCH_THRESHOLD:.2f}). Not saved, so "
+                f"{resolved_name}'s voiceprint stays clean — if this really is "
+                f"{resolved_name}, label the speaker as {conflict['display_name']} "
+                "first or remove their conflicting sample under People",
+            ),
+        )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    profile = speaker_id.new_profile(
+        embedding, existing,
+        recording_id=body.recording_id, speaker=body.speaker_label, now_iso=now_iso,
+        person_id=resolved_pid, display_name=resolved_name, seconds=seconds,
+    )
+    await store.write_voiceprint(uid, profile)
+
+    persisted = await _label_enrolled_and_persist(
+        store, uid, body.recording_id, rec, body.speaker_label, now_iso,
+        person_id=resolved_pid, display_label=profile["display_name"],
+    )
+    labels = persisted.get("speaker_labels") if isinstance(persisted, dict) else None
+
+    logger.info(
+        "Voice learned from recording uid=%s recording=%s speaker=%s person=%s "
+        "seconds=%.1f count=%d created=%s",
+        uid, body.recording_id, body.speaker_label, resolved_pid, seconds,
+        profile["enroll_count"], existing is None,
+    )
+    return EnrollFromRecordingResponse(
+        enrolled=True,
+        person_id=resolved_pid,
+        display_name=profile["display_name"],
+        is_self=profile["is_self"],
+        created=existing is None,
+        enroll_count=profile["enroll_count"],
+        seconds=round(seconds, 1),
+        dim=profile["dim"],
+        updated_at=profile["updated_at"],
+        speaker_labels=labels if isinstance(labels, dict) else {},
+    )
