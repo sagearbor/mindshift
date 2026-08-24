@@ -1,0 +1,135 @@
+{
+  "fixture": "poker6",
+  "duration": 30.1226875,
+  "sliding_window_elapsed_s": 19.825825929641724,
+  "diarize_turns_elapsed_s": 32.4873411655426,
+  "total_elapsed_s": 52.313167095184326,
+  "n_candidate_turns": 7,
+  "boundaries": [
+    4.0,
+    10.0,
+    14.5,
+    19.0,
+    22.5,
+    24.5
+  ],
+  "result": {
+    "turns": [
+      {
+        "start_time": 0.0,
+        "end_time": 4.0,
+        "speaker": "Speaker A"
+      },
+      {
+        "start_time": 4.0,
+        "end_time": 10.0,
+        "speaker": "Speaker B"
+      },
+      {
+        "start_time": 10.0,
+        "end_time": 14.5,
+        "speaker": "Speaker C"
+      },
+      {
+        "start_time": 14.5,
+        "end_time": 19.0,
+        "speaker": "Speaker D"
+      },
+      {
+        "start_time": 19.0,
+        "end_time": 22.5,
+        "speaker": "Speaker E"
+      },
+      {
+        "start_time": 22.5,
+        "end_time": 24.5,
+        "speaker": "Speaker F"
+      },
+      {
+        "start_time": 24.5,
+        "end_time": 30.1227,
+        "speaker": "Speaker B"
+      }
+    ],
+    "num_speakers": 6,
+    "source": "local-ecapa",
+    "model": "speechbrain/spkrec-ecapa-voxceleb@0f99f2d0ebe89ac095bcc5903c4dd8f72b367286",
+    "segments_total": 7,
+    "segments_embedded": 7,
+    "split_utterances": 0,
+    "pooled_cosine": 0.291,
+    "k_evaluated": [
+      {
+        "k": 2,
+        "ok": true,
+        "max_pairwise_cosine": 0.158,
+        "min_cluster_seconds": 9.5
+      },
+      {
+        "k": 3,
+        "ok": true,
+        "max_pairwise_cosine": 0.181,
+        "min_cluster_seconds": 4.5,
+        "marginal_pair_cosine": 0.181,
+        "split_anchor_cosine": 0.117
+      },
+      {
+        "k": 4,
+        "ok": true,
+        "max_pairwise_cosine": 0.181,
+        "min_cluster_seconds": 3.5,
+        "marginal_pair_cosine": 0.111,
+        "split_anchor_cosine": 0.068
+      },
+      {
+        "k": 5,
+        "ok": true,
+        "max_pairwise_cosine": 0.202,
+        "min_cluster_seconds": 2.0,
+        "marginal_pair_cosine": 0.202,
+        "split_anchor_cosine": 0.113
+      },
+      {
+        "k": 6,
+        "ok": true,
+        "max_pairwise_cosine": 0.291,
+        "min_cluster_seconds": 2.0,
+        "marginal_pair_cosine": 0.291,
+        "split_anchor_cosine": 0.099
+      }
+    ],
+    "agreement_with_input": 0.047619047619047616
+  },
+  "scored": {
+    "per_turn_accuracy": 0.7142857142857143,
+    "per_turn_correct": 5,
+    "per_turn_total": 7,
+    "duration_weighted_accuracy": 0.7469449949705704,
+    "mapping": {
+      "Speaker A": "Player1",
+      "Speaker B": "Player2",
+      "Speaker C": "Player3",
+      "Speaker D": "Player4",
+      "Speaker E": "Player5",
+      "Speaker F": "Player6"
+    },
+    "truth": [
+      "Player1",
+      "Player2",
+      "Player3",
+      "Player4",
+      "Player5",
+      "Player5",
+      "Player6"
+    ],
+    "pred": [
+      "Speaker A",
+      "Speaker B",
+      "Speaker C",
+      "Speaker D",
+      "Speaker E",
+      "Speaker F",
+      "Speaker B"
+    ]
+  }
+}

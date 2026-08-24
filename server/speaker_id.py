@@ -224,6 +224,57 @@ def embed_pcm(pcm: np.ndarray, sr: int = TARGET_SR) -> np.ndarray:
     return l2_normalize(vec)
 
 
+def embed_pcm_batch(chunks: list[np.ndarray], sr: int = TARGET_SR) -> list[np.ndarray]:
+    """Embed MANY mono float32 PCM chunks in ONE forward pass (blocking).
+
+    NEW entry point, additive — :func:`embed_pcm` (single-chunk) is UNCHANGED
+    and still used by every existing caller (enrollment, per-turn/per-word
+    diarization embeds). This exists for callers that need many embeddings of
+    SHORT, roughly-fixed-length audio at once (e.g. a sliding-window scan) and
+    would otherwise pay the model's fixed per-call overhead once per chunk.
+
+    Measured on this machine (2026-08-22, CPU, isolated ``.ecapa_cache``): a
+    single ``embed_pcm`` call costs ~15-20s regardless of chunk length — model
+    call overhead dominates, not audio duration or batch size. Batching N
+    chunks into one ``encode_batch`` call amortizes that fixed overhead across
+    all of them: the speedup approaches N as batch size grows (see
+    ``server/tests/test_speaker_id_batch.py`` and
+    ``.superpowers/sdd/2026-08-22-poker6-v3-sliding-window-refine/report.md``
+    for real before/after wall-clock numbers).
+
+    Chunks may be DIFFERENT lengths (zero-padded to the batch's longest, with
+    ``wav_lens`` telling the model each chunk's real relative length so
+    padding never leaks into an embedding — this is exactly what
+    ``encode_batch``'s ``wav_lens`` parameter is for). Returns one
+    L2-normalized 192-d vector per input chunk, in the same order. An empty
+    ``chunks`` list returns ``[]`` without touching the model.
+    """
+    if sr != TARGET_SR:
+        raise SpeakerIdUnavailable(
+            f"speaker embedding expects {TARGET_SR} Hz audio, got {sr} Hz"
+        )
+    if not chunks:
+        return []
+    import torch
+
+    model = _load_model()
+    arrays = [np.ascontiguousarray(c, dtype=np.float32) for c in chunks]
+    max_len = max(a.size for a in arrays)
+    if max_len == 0:
+        raise SpeakerIdUnavailable("cannot embed a zero-length audio chunk")
+    batch = np.zeros((len(arrays), max_len), dtype=np.float32)
+    rel_lens = np.empty(len(arrays), dtype=np.float32)
+    for i, a in enumerate(arrays):
+        batch[i, : a.size] = a
+        rel_lens[i] = a.size / max_len
+    with torch.no_grad():
+        wavs = torch.from_numpy(batch)  # (batch, max_len)
+        wav_lens = torch.from_numpy(rel_lens)  # (batch,) relative lengths
+        embs = model.encode_batch(wavs, wav_lens=wav_lens)  # (batch, 1, 192)
+    vecs = embs.squeeze(1).detach().cpu().numpy().astype(np.float32)
+    return [l2_normalize(v) for v in vecs]
+
+
 # ---------------------------------------------------------------------------
 # Pure vector math — NO torch. Unit-tested directly.
 # ---------------------------------------------------------------------------
