@@ -131,6 +131,13 @@ frameworks); the Release app boots on the iPhone 17 Pro simulator. Run
    this number has NOT been measured on real hardware yet) and the session
    appears in Your Day / Growth with the "could have said" reflections.
 5. Apple Intelligence toggle on any iPhone 15 Pro+ you test with.
+6. **Play Store service account** (≈10 min, once): the 1.17.0 production
+   AAB is built on EAS but nobody can `eas submit` it until a Google Play
+   service-account key exists — see §9 for the exact clicks. Until then
+   Android installs stay "via link" (the `preview` APK).
+7. **Wear app upload key**: `~/.config/gauge/gauge-upload.jks` and
+   `apps/watch/keystore.properties` are not on this Mac (§9) — copy them
+   from wherever the Gauge upload key lives before any watch release.
 
 ## 7. Next steps, in order
 
@@ -237,3 +244,114 @@ takes up to ~48 h to activate). Then, from `apps/mobile`:
 3. Either way the iOS build will receive the same `preview` /
    `production` OTAs as Android (runtime 1.17.0 published for both
    platforms).
+
+## 9. Play Store track — why the phone still installs "via link" (2026-08-24, night)
+
+**Short answer:** the Play Store copy of MindShift is still 1.16.0
+(versionCode 31, EAS build `16087820`). Everything since (all of §2, the
+on-device modules) needs the 1.17.0 native runtime, and a 1.17.0 binary has
+only ever been shipped as the internal-distribution `preview` APK (§8) —
+i.e. "via link". Getting 1.17.0 onto Play is two commands, and the second
+one is blocked on a one-time, owner-only Google credential.
+
+### What was done
+- **Production AAB built on EAS** (Play-ready, `distribution: store`,
+  channel `production`, runtime 1.17.0, versionCode **33**, commit
+  `f9ecb2a`): build `7e08138d-86d3-4d53-8d44-7ed6e035f926` →
+  https://expo.dev/accounts/sagearbor/projects/mindshift/builds/7e08138d-86d3-4d53-8d44-7ed6e035f926
+  Status **FINISHED** (queued 23:20 UTC, built in 8 min 45 s). Artifact:
+  https://expo.dev/artifacts/eas/z2j11IIVrj4-8q7pMIIIa7EQnlCBCdHkDYo9HJ6x_kw.aab
+  (also downloadable from the build page; EAS keeps it 30 days, until
+  2026-09-23 — submit before then or rebuild).
+  `eas.json`'s `production` profile has `autoIncrement: true` with
+  `appVersionSource: local`, so the build bumped `android.versionCode`
+  32 → 33 **in app.json**; that bump is committed with this section
+  (otherwise the next build would produce a second versionCode 33 and Play
+  would reject it).
+- **Submit was NOT possible** — verified, not assumed: the EAS project's
+  Android credentials hold only the build keystore ("Build Credentials
+  EEdFzvqWfA"); `googleServiceAccountKeyForSubmissions` is `null` (queried
+  via the EAS GraphQL API, since `eas credentials` has no non-interactive
+  mode), and there is no service-account JSON anywhere on this Mac or in
+  the repo (`eas.json` has no `serviceAccountKeyPath`). The 1.16.0 build
+  was evidently uploaded to Play by hand. (An `eas submit --id 7e08138d…`
+  attempt from the agent session was additionally blocked by the Claude
+  Code permission classifier; with the key in place it is a plain command.)
+- **OTA plumbing checked:** EAS channel `production` → branch
+  `production` (last group `0a49071e…`, runtime 1.16.0). The new build
+  listens on channel `production`, so once it is on Play a plain
+  `./scripts/ota_publish.sh "msg"` (channel default `production`, runtime
+  1.17.0) reaches it — no script/EAS change needed. Until then, every
+  `production` OTA published from `main` is delivered to nobody (no
+  1.17.0 store build installed anywhere) and the 1.16.0 Play users stay
+  frozen on the 1.16.0 OTA of 2026-08-23. Do not try to "fix" that by
+  publishing 1.16.0 OTAs — ship the store build instead.
+- `.gitignore` now excludes `apps/mobile/play-service-account.json` and
+  `*service-account*.json`; AGENTS.md "Deploying" has the two-command
+  Play recipe.
+
+### Owner steps (once, ~10 minutes; everything else is scriptable after)
+Play Console access cannot be delegated to an agent — it needs your Google
+login. The Play app record already exists (1.16.0 is live there).
+
+1. **Google Cloud project + service account.** Play Console → *Setup → API
+   access*. Link a Google Cloud project (the Firebase/Cloud Run project
+   is fine; `gcloud config` on this Mac points at `arborfam-hub`). Under
+   *Service accounts* click *Learn how to create service accounts* → it
+   deep-links to Google Cloud IAM → *Create service account*, name it e.g.
+   `eas-play-submit`, no roles needed at the project level → *Done*. Then
+   on that account → *Keys → Add key → Create new key → JSON* — a
+   `<project>-<hash>.json` downloads.
+2. **Grant it Play access.** Back in Play Console *API access* → the new
+   account appears under *Service accounts* → *Manage Play Console
+   permissions* → *App permissions* tab → add **MindShift**
+   (`com.sagearbor.mindshift.app`) → *Account permissions*: tick
+   *Releases → Release to testing tracks* (and *Manage testing tracks and
+   edit tester lists*; not *Release to production* — promotion stays a
+   manual Play Console click) → *Invite user* / *Apply*. Google Play
+   sometimes needs ~24 h before a brand-new service account is accepted by
+   the publishing API ("The caller does not have permission") — just
+   retry later.
+3. **Hand the key to EAS (pick one):**
+   - *Recommended — stored on EAS, works from any machine/agent:*
+     `cd apps/mobile && eas credentials -p android` → *production* →
+     *Google Service Account* → *Set up a Google Service Account Key for
+     Play Store Submissions* → point it at the downloaded JSON. (Delete the
+     local JSON afterwards, or keep it at the gitignored
+     `apps/mobile/play-service-account.json`.)
+   - *Local file only:* save it as `apps/mobile/play-service-account.json`
+     (gitignored) and add `--key ./play-service-account.json` to the
+     submit command below.
+4. **Submit** (agent-runnable once step 3 is done):
+   `cd apps/mobile && eas submit -p android --profile production
+   --non-interactive --id 7e08138d-86d3-4d53-8d44-7ed6e035f926`
+   (`--latest` also works once this AAB is the newest finished production
+   build). `eas.json` `submit.production.android.track` is `internal`, so
+   this lands on **Internal testing**, never production.
+5. **Testers.** Play Console → *Testing → Internal testing* → *Testers*
+   tab → create an email list with your and your son's Google accounts →
+   *Save* → copy the *Join on Android* opt-in link and open it on each
+   phone → *Become a tester* → Play Store then shows MindShift 1.17.0
+   (install over the existing Play copy; it will NOT install over the
+   `preview` APK — different signing key, uninstall that first). Mom is on
+   iPhone: iOS is §8 (TestFlight), unaffected by any of this.
+6. **Promote to production** when you're happy: Internal testing release
+   → *Promote release → Production* (owner-only; agents never do this).
+
+### Wear OS app (`apps/watch`, `com.sagearbor.gauge.wear`) — status only
+Not buildable for Play on this Mac: `~/.config/gauge/` does not exist (no
+`gauge-upload.jks`) and `apps/watch/keystore.properties` is absent
+(gitignored, must be recreated by hand). `wearApp/build.gradle.kts` falls
+back to debug signing when the properties file is missing, so a
+`bundleRelease` here would produce an AAB Play rejects (wrong upload key).
+Nothing was built. To enable: copy `gauge-upload.jks` to
+`~/.config/gauge/` and write `apps/watch/keystore.properties`
+(`storeFile=/Users/<you>/.config/gauge/gauge-upload.jks`,
+`storePassword=…`, `keyAlias=…`, `keyPassword=…`), then
+`cd apps/watch && JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home ANDROID_HOME=$HOME/Library/Android/sdk ./gradlew :wearApp:bundleRelease`
+→ `apps/watch/wearApp/build/outputs/bundle/release/wearApp-release.aab`
+(currently versionCode 11 / 0.4.1; bump both in `build.gradle.kts` first).
+The same Play service account from the steps above can submit it if you
+add the wear app under *App permissions* — but there is no EAS project
+for the watch, so upload it in the Play Console UI (or a separate
+`gradle-play-publisher` setup) rather than `eas submit`.
