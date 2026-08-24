@@ -270,9 +270,12 @@ def _self_speaker_of(rec: dict) -> str | None:
         rec.get("manual_speaker_labels") or {},
         main._recording_speaker_ids(rec),
     )
+    # The enrolled rung's "You" specifically — an enrolled PARTNER is also
+    # label_source "enrolled" under multi-person voiceprints.
     me = [
         sp for sp, entry in effective.items()
         if entry.get("label_source") == main.LABEL_SOURCE_ENROLLED
+        and entry.get("display_label") == main.ENROLLED_DISPLAY_LABEL
     ]
     return me[0] if len(me) == 1 else None
 
@@ -365,11 +368,12 @@ async def _post_ingest(
                 )
                 for t in turns
             ]
+            # The live identity report is in the matcher's multi shape, so
+            # the batch pass's own label ladder labels "You" + matched
+            # partners itself; merge_full_analysis re-overlays them anyway.
             full = await main._run_analysis(
                 analyze_turns, context,
-                speaker_identity=(
-                    {"matched_speaker": self_label} if isinstance(self_label, str) else None
-                ),
+                speaker_identity=analysis.get("speaker_identity"),
             )
             merged = live_sessions.merge_full_analysis(
                 analysis, full.model_dump(), turns, gap_seconds=_EPISODE_GAP_SECONDS,
@@ -424,6 +428,18 @@ async def ingest_live_session(
     identities = [s.model_dump() for s in body.speaker_identities]
     title = (body.title or "").strip() or f"Live session · {body.mode}"
 
+    # Foundation B: the phone's speaker_person_id values are the account's
+    # voiceprint person ids — resolve their display names from the enrolled
+    # documents so "with Mom" works even when the phone sent no identity
+    # events. Best-effort: a store read failure just means raw labels.
+    known_people: list[dict] = []
+    list_people = getattr(store, "list_voiceprints", None)
+    if callable(list_people):
+        try:
+            known_people = list(await list_people(uid) or [])
+        except Exception:  # noqa: BLE001 — names are a nicety, never a blocker
+            logger.warning("Voiceprint listing failed for uid=%s", uid, exc_info=True)
+
     analysis = live_sessions.lite_analysis(
         session_id=body.session_id,
         mode=body.mode,
@@ -434,6 +450,7 @@ async def ingest_live_session(
         speaker_identities=identities,
         title=title,
         gap_seconds=_EPISODE_GAP_SECONDS,
+        known_people=known_people,
     )
     existed = await store.get_recording(uid, recording_id)
     now = _now_iso()

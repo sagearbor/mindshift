@@ -168,6 +168,12 @@ class FakeLiveStore:
     async def recording_exists(self, uid, recording_id):
         return recording_id in self._by_uid.get(uid, {})
 
+    # Foundation B — the account's enrolled people (person views).
+    voiceprints: dict = {}
+
+    async def list_voiceprints(self, uid):
+        return list(self.voiceprints.get(uid, []))
+
     # -- sharing (the therapist ← patient grant) --
     def grant(self, owner_uid, recording_id, recipient_uid, owner_email):
         self._shares.setdefault(recipient_uid, {})[recording_id] = {
@@ -331,6 +337,26 @@ class TestIngest:
         # Nothing scheduled, nothing billed.
         await _drain()
         assert mock_llm.complete.call_count == 0
+
+    async def test_person_names_resolve_from_enrolled_voiceprints(self, client, store, mock_llm):
+        """The phone sent only person ids (no identity events); the names
+        come from the account's Foundation B voiceprint documents."""
+        mock_llm.complete.side_effect = _llm_side_effect()
+        store.voiceprints["test-user"] = [
+            {"person_id": "self", "display_name": "You", "is_self": True},
+            {"person_id": "p-mom", "display_name": "Mum", "is_self": False},
+        ]
+        res = await client.post(
+            "/sessions/live", json=_body(speaker_identities=[], analyze=False, reflect=False),
+        )
+        detail = (await client.get(f"/recordings/{res.json()['episode_id']}")).json()
+        assert detail["speaker_labels"]["Speaker B"] == {
+            "display_label": "Mum", "label_source": "enrolled",
+        }
+        assert detail["episodes"][0]["participants"] == ["You", "Mum"]
+        growth = (await client.get("/growth")).json()
+        assert growth["points"][0]["partner_names"] == ["Mum"]
+        assert growth["people"][0]["display_name"] == "Mum"
 
     async def test_ids_are_per_user(self, client, store):
         a = (await client.post(

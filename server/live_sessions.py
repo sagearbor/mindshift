@@ -39,6 +39,7 @@ from datetime import datetime
 from typing import Iterable
 
 import episodes as episodes_mod
+import speaker_id  # pure constants/report readers only; no torch at import
 import word_metrics as word_metrics_mod
 
 # --- Audio tone (Foundation C) — guarded import. tone_id.py lands on main
@@ -112,14 +113,17 @@ ESCALATION_LABELS: frozenset[str] = frozenset({
 # with NO scores at all, which gets ``None`` (nothing to say).
 NEUTRAL_LABEL = "neutral"
 
-# Provenance strings written into the stored analysis so a reader can tell a
-# live session's derived labels from an upload's LLM ladder. Kept as plain
-# literals (not imports from main) — main imports the router that imports
-# this module; the shape matches main.SpeakerLabelOut exactly.
+# Label-ladder rungs written into the stored analysis. Kept as plain literals
+# (not imports from main) — main imports the router that imports this module;
+# the shape matches main.SpeakerLabelOut exactly. With Foundation B's
+# multi-person voiceprints, BOTH the user ("You") and a matched partner
+# ("Mom") are the "enrolled" rung — a voiceprint match is a voiceprint match;
+# "me" is the enrolled entry whose display label is "You" specifically (the
+# same rule main._growth_point applies).
 LABEL_SOURCE_ENROLLED = "enrolled"
-LABEL_SOURCE_NAME = "name"
 LABEL_SOURCE_GENERIC = "generic"
-ENROLLED_DISPLAY_LABEL = "You"
+ENROLLED_DISPLAY_LABEL = speaker_id.SELF_DISPLAY_NAME  # "You"
+SELF_PERSON_ID = speaker_id.SELF_PERSON_ID              # "self"
 
 # Values of the live block's ``analysis_status``: "lite" = derived-only (no
 # LLM pass yet / too short for one); "full" = the batch analysis merged in;
@@ -232,7 +236,12 @@ def self_speaker(turns: list[dict]) -> str | None:
     order: list[str] = []
     for turn in turns:
         speaker = turn.get("speaker")
-        if not isinstance(speaker, str) or turn.get("is_self") is not True:
+        if not isinstance(speaker, str):
+            continue
+        # is_self True, or the phone matched the reserved "self" voiceprint
+        # (Foundation B's person id for the account owner) — both are the
+        # phone saying "this is me".
+        if turn.get("is_self") is not True and turn.get("speaker_person_id") != SELF_PERSON_ID:
             continue
         if speaker not in counts:
             order.append(speaker)
@@ -246,15 +255,26 @@ def person_map(
     turns: list[dict],
     speaker_identities: Iterable[dict] | None,
     self_label: str | None,
+    known_people: Iterable[dict] | None = None,
 ) -> dict[str, dict]:
     """Per NON-self speaker label → ``{person_id, display_name}``.
 
     The server's ``SpeakerIdentityEvent`` verdicts win (they carry a
     display_name); a per-turn ``speaker_person_id`` from the phone fills in a
-    person_id for a label the server never ruled on. A speaker nobody
+    person_id for a label the server never ruled on, and its display name is
+    looked up in ``known_people`` — the account's enrolled voiceprint
+    documents (Foundation B: ``{person_id, display_name, is_self}``), which
+    share the SAME person ids the phone matches against. A speaker nobody
     identified still gets an entry (``person_id``/``display_name`` None) so
     the "with ___" rows can list them under their raw label rather than
     silently dropping the conversation partner."""
+    names: dict[str, str] = {}
+    for doc in known_people or ():
+        if not isinstance(doc, dict):
+            continue
+        pid, name = doc.get("person_id"), doc.get("display_name")
+        if isinstance(pid, str) and pid and isinstance(name, str) and name.strip():
+            names[pid] = name.strip()
     people: dict[str, dict] = {}
     for turn in turns:
         speaker = turn.get("speaker")
@@ -266,6 +286,8 @@ def person_map(
         pid = turn.get("speaker_person_id")
         if entry["person_id"] is None and isinstance(pid, str) and pid.strip():
             entry["person_id"] = pid.strip()
+            if pid.strip() in names:
+                entry["display_name"] = names[pid.strip()]
     for ident in speaker_identities or ():
         if not isinstance(ident, dict):
             continue
@@ -293,11 +315,11 @@ def build_speaker_labels(
 ) -> dict[str, dict]:
     """The label-ladder map for a live session, in first-appearance order.
 
-    ``enrolled`` ("You") for the self speaker — the phone's voiceprint
-    verdict IS the enrolled rung; ``name`` for a speaker the identity path
-    put a display name on (a REAL cross-session identity, so /growth may
-    group by it); ``generic`` (raw label) for everyone else. Same two-field
-    shape as main.SpeakerLabelOut."""
+    ``enrolled`` for the self speaker ("You") AND for a speaker the identity
+    path put a display name on (a voiceprint match to a named person — the
+    same rung Foundation B's matcher writes for an enrolled partner, so
+    /growth groups by it); ``generic`` (raw label) for everyone else. Same
+    two-field shape as main.SpeakerLabelOut."""
     labels: dict[str, dict] = {}
     for speaker in dict.fromkeys(
         t.get("speaker") for t in turns if isinstance(t.get("speaker"), str)
@@ -311,7 +333,7 @@ def build_speaker_labels(
         name = (people.get(speaker) or {}).get("display_name")
         if isinstance(name, str) and name.strip():
             labels[speaker] = {
-                "display_label": name.strip(), "label_source": LABEL_SOURCE_NAME,
+                "display_label": name.strip(), "label_source": LABEL_SOURCE_ENROLLED,
             }
         else:
             labels[speaker] = {
@@ -320,21 +342,54 @@ def build_speaker_labels(
     return labels
 
 
+def identity_report(self_label: str | None, people: dict[str, dict]) -> dict | None:
+    """A ``speaker_identity`` report in Foundation B's MULTI shape so every
+    existing ladder reader (``speaker_id.enrolled_display_labels`` — used by
+    main's resolver, episodes' participants and the voice router) labels a
+    live session's speakers without a special case: ``matched`` (speaker →
+    person_id) + ``people`` (person_id → display_name/is_self), plus the
+    legacy ``matched_speaker`` for pre-multi readers. ``source: "live"``
+    records that the verdicts came from the phone, not a server match. None
+    when nobody (not even the user) was identified."""
+    matched: dict[str, str] = {}
+    people_meta: dict[str, dict] = {}
+    if self_label is not None:
+        matched[self_label] = SELF_PERSON_ID
+        people_meta[SELF_PERSON_ID] = {
+            "display_name": ENROLLED_DISPLAY_LABEL, "is_self": True,
+        }
+    for speaker, info in people.items():
+        pid, name = info.get("person_id"), info.get("display_name")
+        if not (isinstance(pid, str) and pid) or pid == SELF_PERSON_ID:
+            continue
+        matched[speaker] = pid
+        people_meta[pid] = {"display_name": name, "is_self": False}
+    if not matched:
+        return None
+    return {
+        "matched_speaker": self_label,
+        "matched": matched,
+        "people": people_meta,
+        "speakers": {},
+        "source": "live",
+    }
+
+
 def overlay_identity_labels(
     base: dict | None, identity_labels: dict[str, dict],
 ) -> dict[str, dict]:
     """Merge live identity labels over the batch analysis's LLM ladder.
 
     The LLM's "name" rung is a guess from the words; the identity path's
-    name comes from a matched voiceprint — it wins. "You" (enrolled) always
-    wins. A generic identity label never overwrites an LLM-found name (the
-    LLM at least read the transcript)."""
+    name comes from a matched voiceprint (the enrolled rung) — it wins, as
+    does "You". A generic identity label never overwrites an LLM-found name
+    (the LLM at least read the transcript)."""
     merged = {
         sp: dict(entry) for sp, entry in (base or {}).items()
         if isinstance(entry, dict)
     }
     for sp, entry in identity_labels.items():
-        if entry.get("label_source") in (LABEL_SOURCE_ENROLLED, LABEL_SOURCE_NAME):
+        if entry.get("label_source") == LABEL_SOURCE_ENROLLED:
             merged[sp] = dict(entry)
         elif sp not in merged:
             merged[sp] = dict(entry)
@@ -625,6 +680,7 @@ def lite_analysis(
     title: str | None,
     gap_seconds: float,
     audio_allowed: bool | None = None,
+    known_people: list[dict] | None = None,
 ) -> dict:
     """The analysis.json written at INGEST — everything derivable without an
     LLM, in the same top-level shape as an upload's ``AnalyzeResponse`` dump
@@ -642,10 +698,10 @@ def lite_analysis(
     if audio_allowed is None:
         audio_allowed = audio_tone_allowed()
     self_label = self_speaker(turns)
-    people = person_map(turns, speaker_identities, self_label)
+    people = person_map(turns, speaker_identities, self_label, known_people)
     rows = turn_tone_rows(turns, self_label, people, tone_flags, audio_allowed=audio_allowed)
     labels = build_speaker_labels(turns, self_label, people)
-    identity = {"matched_speaker": self_label, "source": "live"} if self_label else None
+    identity = identity_report(self_label, people)
     eps = episodes_mod.segment_episodes(
         turns, per_turn=None, speaker_labels=labels, speaker_identity=identity,
         title=title, gap_seconds=gap_seconds,

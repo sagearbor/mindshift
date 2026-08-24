@@ -80,12 +80,24 @@ class TestIdentity:
         # name is invented.
         people = ls.person_map(SESSION_TURNS, None, "Speaker A")
         assert people == {"Speaker B": {"person_id": "p-mom", "display_name": None}}
+        # …unless the account's enrolled voiceprints know that person id.
+        people = ls.person_map(
+            SESSION_TURNS, None, "Speaker A",
+            known_people=[{"person_id": "p-mom", "display_name": "Mum", "is_self": False}],
+        )
+        assert people == {"Speaker B": {"person_id": "p-mom", "display_name": "Mum"}}
+
+    def test_self_via_reserved_person_id(self):
+        turns = [dict(t, is_self=None) for t in SESSION_TURNS]
+        turns[0]["speaker_person_id"] = "self"
+        assert ls.self_speaker(turns) == "Speaker A"
 
     def test_speaker_labels_ladder(self):
         people = ls.person_map(SESSION_TURNS, IDENTITIES, "Speaker A")
         labels = ls.build_speaker_labels(SESSION_TURNS, "Speaker A", people)
         assert labels["Speaker A"] == {"display_label": "You", "label_source": "enrolled"}
-        assert labels["Speaker B"] == {"display_label": "Mom", "label_source": "name"}
+        # A matched partner is the ENROLLED rung too (a voiceprint match).
+        assert labels["Speaker B"] == {"display_label": "Mom", "label_source": "enrolled"}
         unnamed = ls.build_speaker_labels(SESSION_TURNS, None, {})
         assert unnamed["Speaker A"]["label_source"] == "generic"
 
@@ -97,7 +109,7 @@ class TestIdentity:
         }
         identity = {
             "Speaker A": {"display_label": "You", "label_source": "enrolled"},
-            "Speaker B": {"display_label": "Mom", "label_source": "name"},
+            "Speaker B": {"display_label": "Mom", "label_source": "enrolled"},
             "Speaker C": {"display_label": "Speaker C", "label_source": "generic"},
         }
         merged = ls.overlay_identity_labels(base, identity)
@@ -195,7 +207,19 @@ class TestLiteAnalysisAndMerge:
     def test_lite_shape_is_honest(self):
         lite = self._lite()
         assert lite["per_turn"] == [] and lite["report_cards"] == {}
-        assert lite["speaker_identity"] == {"matched_speaker": "Speaker A", "source": "live"}
+        # Foundation B's multi-shape report: every ladder reader labels a
+        # live session the way it labels a server voiceprint match.
+        assert lite["speaker_identity"] == {
+            "matched_speaker": "Speaker A",
+            "matched": {"Speaker A": "self", "Speaker B": "p-mom"},
+            "people": {"self": {"display_name": "You", "is_self": True},
+                       "p-mom": {"display_name": "Mom", "is_self": False}},
+            "speakers": {}, "source": "live",
+        }
+        import speaker_id
+        assert speaker_id.enrolled_display_labels(lite["speaker_identity"]) == {
+            "Speaker A": "You", "Speaker B": "Mom",
+        }
         assert lite["speaker_labels"]["Speaker B"]["display_label"] == "Mom"
         [ep] = lite["episodes"]
         assert ep["participants"] == ["You", "Mom"]
