@@ -20,6 +20,7 @@
 import asyncio
 
 import numpy as np
+import speaker_id
 from fastapi.testclient import TestClient
 
 from server.tests.watch.test_vectors import pcm
@@ -73,7 +74,12 @@ def test_second_enroll_refines_the_same_profile():
     assert p.enroll_count == 2 and len(p.samples) == 2
 
 
-def test_enroll_without_embedder_still_200_and_no_profile():
+def test_enroll_without_embedder_still_200_and_no_profile(monkeypatch):
+    # `_client(None)` means "nothing injected" — the router then falls back to
+    # the REAL speaker_id.embed_pcm whenever torch/speechbrain import, so this
+    # test only exercised the no-embedder path on machines WITHOUT the voice
+    # deps (it failed in venv-voice). Pin the unavailable branch explicitly.
+    monkeypatch.setattr(speaker_id, "is_available", lambda: False)
     store, client = _client(None)          # honest degradation, not a 500
     assert client.post("/enroll", params=ACC, content=pcm(0.2, seconds=3.0)).status_code == 200
     assert asyncio.run(store.get_baseline("alice")) is not None
@@ -95,7 +101,8 @@ def test_too_short_clip_still_422_and_no_profile():
     assert asyncio.run(store.get_speaker_profile("alice")) is None
 
 
-def test_voice_status_unavailable_without_embedder():
+def test_voice_status_unavailable_without_embedder(monkeypatch):
+    monkeypatch.setattr(speaker_id, "is_available", lambda: False)  # see above
     _, client = _client(None)
     assert client.get("/enroll/voice", params=ACC).json() == {
         "available": False, "enrolled": False, "enroll_count": 0,
