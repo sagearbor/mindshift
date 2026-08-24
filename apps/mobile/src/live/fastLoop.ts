@@ -28,14 +28,22 @@
  * a suggestion that lands mid-utterance is HELD until the VAD goes quiet
  * (and dropped if that takes longer than `speakHoldMaxMs`, stale advice
  * being worse than none). `therapist` never speaks: on-screen only, both
- * partners enrolled, posted with mode "therapist".
+ * partners enrolled, posted with mode "therapist". The cloud's suggestions
+ * go through the same gate (`offerSpeech`), so nothing the phone voices —
+ * local or cloud — talks over a live utterance.
+ *
+ * Degradation inside a running session: a VAD that throws (a lost ORT
+ * session) is swapped for the energy VAD on the spot (`onDegrade`), and a
+ * recognizer that has died stops the loop from claiming turns it never
+ * heard — no `turn_local` goes out while STT is unavailable, so the
+ * server's own transcript for those spans is not suppressed.
  */
 import type { FrameVad } from "./vad";
-import { SILERO_SAMPLE_RATE } from "./vad";
+import { EnergyVad, SILERO_SAMPLE_RATE } from "./vad";
 import type { SegmenterConfig, Span } from "./segmenter";
 import { DEFAULT_SEGMENTER_CONFIG, StreamingSegmenter } from "./segmenter";
 import type { TurnProsody } from "./prosody";
-import { turnProsody } from "./prosody";
+import { LIVE_MAX_PITCH_SECONDS, turnProsodyAsync } from "./prosody";
 import type { Embedder, SpeakerLabeler, SpeakerVerdict } from "./speakerId";
 import type { SpeechRecognizer } from "./stt";
 import { TranscriptAligner } from "./stt";
@@ -45,6 +53,12 @@ import { LoudnessBaseline, phoneNudgePolicy, selfTurnVectorEvents } from "./nudg
 import type { TurnLocalEvent } from "./types";
 
 export type SuggestionKind = "response" | "nudge";
+
+/** Seconds of a turn handed to the voiceprint model, taken from the END of
+ *  the turn. Identity saturates in a few seconds (the server pools up to
+ *  60 s only for enrollment); an unbounded monologue would ship megabytes
+ *  of samples across the native bridge per turn. */
+export const MAX_EMBED_SECONDS = 10;
 
 export interface TurnLatency {
   turn: number;
@@ -97,6 +111,8 @@ export interface FastLoopDeps {
   onNudge?: (nudge: NudgeEvent) => void;
   /** Called when STT fails after start (so the UI can say so honestly). */
   onSttError?: (code: string, message: string) => void;
+  /** A stage fell back mid-session (today: the VAD to the energy rule). */
+  onDegrade?: (stage: "vad", reason: string) => void;
   haptics?: HapticSink | null;
   policy?: NudgePolicy;
   now?: () => number;
@@ -114,10 +130,15 @@ export interface FastLoopDeps {
   speakQuietMs?: number;
   /** With no voiceprint verdict, which unknown-cluster label is treated as
    *  the coached user for coaching purposes (the app's "you speak first"
-   *  convention). Null disables the convention. */
+   *  convention). Null disables the convention. Changeable mid-session via
+   *  `setSelfSpeakerFallback` (the screen's "You: Speaker A ⇄" chip). */
   selfSpeakerFallback?: string | null;
   /** Seconds of PCM kept for segment extraction. */
   historySeconds?: number;
+  /** Cap on the PCM handed to the embedder (see MAX_EMBED_SECONDS). */
+  maxEmbedSeconds?: number;
+  /** Cap on the pitch-analysis window (see prosody.LIVE_MAX_PITCH_SECONDS). */
+  maxPitchSeconds?: number;
 }
 
 export interface FastLoopSession {
@@ -136,6 +157,15 @@ const defaultNow = () =>
   typeof performance !== "undefined" ? performance.now() : Date.now();
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+interface HeldSpeech {
+  text: string;
+  expiresAtMs: number;
+  /** The local turn that produced it; null for a line offered from outside
+   *  (the cloud's suggestion). */
+  latency: TurnLatency | null;
+  turn: LocalTurn | null;
+}
+
 export class FastLoop {
   private readonly segmenter: StreamingSegmenter;
   private readonly aligner: TranscriptAligner;
@@ -149,6 +179,14 @@ export class FastLoop {
   private readonly speakHoldMaxMs: number;
   private readonly speakQuietMs: number;
   private readonly historySamples: number;
+  private readonly maxEmbedSamples: number;
+  private readonly maxPitchSeconds: number;
+
+  /** The detector in use — starts as deps.vad, swapped for the energy rule
+   *  if it ever throws. */
+  private vad: FrameVad;
+  private vadDegraded = false;
+  private selfSpeakerFallback: string | null;
 
   private session: FastLoopSession | null = null;
   private running = false;
@@ -159,7 +197,7 @@ export class FastLoop {
   private vadQueue: Promise<void> = Promise.resolve();
   private turnQueue: Promise<void> = Promise.resolve();
   private turns: LocalTurn[] = [];
-  private held: { text: string; expiresAtMs: number; latency: TurnLatency; turn: LocalTurn } | null = null;
+  private held: HeldSpeech | null = null;
   /** Audio seconds: end of the most recent speech frame / most recent
    *  frame — quiet is measured on the frame clock, like the segmenter. */
   private lastSpeechEnd = -Infinity;
@@ -182,6 +220,11 @@ export class FastLoop {
     this.speakHoldMaxMs = deps.speakHoldMaxMs ?? 3000;
     this.speakQuietMs = deps.speakQuietMs ?? 0;
     this.historySamples = Math.round((deps.historySeconds ?? 30) * SILERO_SAMPLE_RATE);
+    this.maxEmbedSamples = Math.round((deps.maxEmbedSeconds ?? MAX_EMBED_SECONDS) * SILERO_SAMPLE_RATE);
+    this.maxPitchSeconds = deps.maxPitchSeconds ?? LIVE_MAX_PITCH_SECONDS;
+    this.vad = deps.vad;
+    this.selfSpeakerFallback =
+      deps.selfSpeakerFallback === undefined ? "Speaker A" : deps.selfSpeakerFallback;
   }
 
   get isRunning() {
@@ -191,6 +234,16 @@ export class FastLoop {
   /** Session seconds by the audio clock (samples pushed so far). */
   get audioClock(): number {
     return this.samplesSeen / SILERO_SAMPLE_RATE;
+  }
+
+  /** Whether on-device STT is currently delivering words. */
+  get sttIsAvailable(): boolean {
+    return this.sttAvailable;
+  }
+
+  /** True once the VAD fell back to the energy rule this session. */
+  get isVadDegraded(): boolean {
+    return this.vadDegraded;
   }
 
   async start(session: FastLoopSession): Promise<void> {
@@ -207,8 +260,12 @@ export class FastLoop {
     this.latencyLog.length = 0;
     this.segmenter.reset();
     this.aligner.reset();
-    this.deps.vad.reset();
+    this.vad = this.deps.vad;
+    this.vadDegraded = false;
+    this.vad.reset();
     this.deps.labeler?.reset();
+    for (const u of this.unsubscribe) u();
+    this.unsubscribe = [];
 
     const rec = this.deps.recognizer;
     if (rec) {
@@ -217,14 +274,18 @@ export class FastLoop {
         // far): in production it tracks wall time to within a buffer, and
         // it keeps the segmenter and the aligner on one time base.
         rec.onResult((e) => this.aligner.push(e, this.audioClock)),
+        // The recognizer restarts itself after a transient end (Android
+        // tears the native session down on every error, "no-speech" after
+        // a pause included); only what it reports here is fatal.
         rec.onError((code, message) => {
-          // "no-speech"/"speech-timeout" are the recognizer being idle, not
-          // broken — it keeps running in continuous mode.
-          if (code === "no-speech" || code === "speech-timeout") return;
           this.sttAvailable = false;
           this.deps.onSttError?.(code, message);
         }),
       );
+      if (rec.onRestart) {
+        // A fresh native session: platform word timings restart at zero.
+        this.unsubscribe.push(rec.onRestart(() => this.aligner.markRecognizerStart(this.audioClock)));
+      }
       try {
         this.aligner.markRecognizerStart(this.audioClock);
         await rec.start();
@@ -242,6 +303,13 @@ export class FastLoop {
     if (this.session) this.session.empathy = level;
   }
 
+  /** Which unknown-cluster label counts as the coached user when there is
+   *  no voiceprint verdict (null = no convention). Takes effect from the
+   *  next finalized turn. */
+  setSelfSpeakerFallback(label: string | null) {
+    this.selfSpeakerFallback = label;
+  }
+
   /** Feed 16 kHz mono int16 samples (any length). Synchronous; VAD work is
    *  queued so frames are never dropped or reordered. */
   pushSamples(samples: Int16Array): void {
@@ -255,7 +323,7 @@ export class FastLoop {
     const joined = new Float32Array(this.pending.length + f32.length);
     joined.set(this.pending, 0);
     joined.set(f32, this.pending.length);
-    const frameN = this.deps.vad.frameSamples;
+    const frameN = this.vad.frameSamples;
     let offset = 0;
     // Session sample index of joined[0].
     const base = this.samplesSeen - joined.length;
@@ -276,6 +344,24 @@ export class FastLoop {
     await this.turnQueue;
   }
 
+  /**
+   * A line from outside the loop (the cloud's suggestion for a turn the
+   * local providers passed on) that wants to be spoken: same rule as a local
+   * one — never over live speech, never in therapist mode. Returns whether
+   * the loop took it (false = this mode never speaks; the caller shows it
+   * on screen only).
+   */
+  offerSpeech(text: string): boolean {
+    if (!this.session || this.session.mode === "therapist") return false;
+    if (!this.running) return false;
+    if (!this.quietEnoughToSpeak()) {
+      this.held = { text, expiresAtMs: this.now() + this.speakHoldMaxMs, latency: null, turn: null };
+    } else {
+      this.speakNow(text, null, null);
+    }
+    return true;
+  }
+
   /** Flush the open turn, wait for every queued stage, stop STT. */
   async stop(): Promise<FastLoopSummary> {
     this.running = false;
@@ -283,9 +369,9 @@ export class FastLoop {
     const tail = this.segmenter.flush();
     if (tail) this.enqueueTurn(tail);
     await this.turnQueue;
-    // Whatever was held for a quiet moment gets its chance now that the
-    // conversation is over — unless it already expired.
-    this.releaseHeld(true);
+    // The user ended the session: a line still waiting for a quiet moment
+    // is dropped, never spoken after Stop.
+    this.held = null;
     for (const u of this.unsubscribe) u();
     this.unsubscribe = [];
     try {
@@ -308,14 +394,28 @@ export class FastLoop {
   }
 
   private async runFrame(frame: Float32Array, startSample: number) {
-    const isSpeech = await this.deps.vad.isSpeech(frame);
+    let isSpeech: boolean;
+    try {
+      isSpeech = await this.vad.isSpeech(frame);
+    } catch (err) {
+      // A detector that throws is a detector that's gone (a lost native
+      // session, a shape the model rejects): without a verdict no turn
+      // would ever finalize and the screen would stay blank. The energy
+      // rule takes over for the rest of the session; the UI is told once.
+      if (!this.vadDegraded) {
+        this.vadDegraded = true;
+        this.vad = new EnergyVad();
+        this.deps.onDegrade?.("vad", err instanceof Error ? err.message : String(err));
+      }
+      isSpeech = await this.vad.isSpeech(frame);
+    }
     const tStart = startSample / SILERO_SAMPLE_RATE;
     const tEnd = (startSample + frame.length) / SILERO_SAMPLE_RATE;
     if (isSpeech) this.lastSpeechEnd = tEnd;
     this.lastFrameEnd = tEnd;
     const span = this.segmenter.push(isSpeech, tStart, tEnd);
     if (span) this.enqueueTurn(span);
-    if (this.quietEnoughToSpeak()) this.releaseHeld(false);
+    if (this.quietEnoughToSpeak()) this.releaseHeld();
   }
 
   /** Nobody is talking, and hasn't been for at least speakQuietMs. */
@@ -368,6 +468,9 @@ export class FastLoop {
     const index = this.turns.length;
     const pcm = this.sliceHistory(span);
     const duration = span.end - span.start;
+    // Whether the words of this span were the phone's to report: a dead
+    // recognizer means the server's transcript owns them (see send below).
+    const sttOwned = this.deps.recognizer !== null && this.sttAvailable;
 
     // Speaker-ID and STT are independent — run them together.
     const speakerPromise = (async (): Promise<{ verdict: SpeakerVerdict; ms: number }> => {
@@ -375,7 +478,9 @@ export class FastLoop {
       let verdict: SpeakerVerdict = { speaker: "Unknown", personId: null, displayName: null, isSelf: null, score: null };
       if (this.deps.embedder && this.deps.labeler) {
         try {
-          const emb = await this.deps.embedder.embed(pcm, SILERO_SAMPLE_RATE);
+          const embedPcm =
+            pcm.length > this.maxEmbedSamples ? pcm.subarray(pcm.length - this.maxEmbedSamples) : pcm;
+          const emb = await this.deps.embedder.embed(embedPcm, SILERO_SAMPLE_RATE);
           verdict = this.deps.labeler.label(emb, duration);
         } catch {
           // Unembeddable segment: no identity, never a guess.
@@ -387,12 +492,15 @@ export class FastLoop {
     const [{ verdict, ms: speakerMs }, aligned] = await Promise.all([speakerPromise, textPromise]);
 
     const tp0 = this.now();
-    const prosody = turnProsody(pcm, SILERO_SAMPLE_RATE, aligned.text, duration);
+    const prosody = await turnProsodyAsync(pcm, SILERO_SAMPLE_RATE, aligned.text, duration, {
+      maxPitchSeconds: this.maxPitchSeconds,
+      sleep: this.sleep,
+    });
     const prosodyMs = this.now() - tp0;
 
     // Coaching identity: the voiceprint verdict when there is one, else the
     // "you speak first" convention (Speaker A) — never sent as is_self.
-    const fallback = this.deps.selfSpeakerFallback === undefined ? "Speaker A" : this.deps.selfSpeakerFallback;
+    const fallback = this.selfSpeakerFallback;
     const coachedAsSelf =
       verdict.isSelf === true ||
       (verdict.isSelf === null && fallback !== null && verdict.speaker === fallback);
@@ -483,29 +591,35 @@ export class FastLoop {
       }
     }
 
-    this.deps.send({
-      type: "turn_local",
-      session_id: session.sessionId,
-      speaker: verdict.speaker,
-      speaker_person_id: verdict.personId,
-      speaker_match_score: verdict.score,
-      is_self: verdict.isSelf,
-      text: aligned.text,
-      start_time: span.start,
-      end_time: span.end,
-      transcript_source: "on-device",
-      prosody,
-      text_tone: textTone,
-      suggestion,
-      suggestion_source: suggestion ? "on-device" : null,
-      tts_source: "on-device",
-    });
+    // A turn_local tells the server "the phone handled these words": it
+    // suppresses the server's own transcript/suggestion for the span. Only
+    // claim that when on-device STT actually heard the span — with STT
+    // dead (or absent) the server's transcript is the only one there is.
+    if (sttOwned) {
+      this.deps.send({
+        type: "turn_local",
+        session_id: session.sessionId,
+        speaker: verdict.speaker,
+        speaker_person_id: verdict.personId,
+        speaker_match_score: verdict.score,
+        is_self: verdict.isSelf,
+        text: aligned.text,
+        start_time: span.start,
+        end_time: span.end,
+        transcript_source: "on-device",
+        prosody,
+        text_tone: textTone,
+        suggestion,
+        suggestion_source: suggestion ? "on-device" : null,
+        tts_source: "on-device",
+      });
+    }
     this.deps.onTurn(turn);
   }
 
-  private speakNow(text: string, latency: TurnLatency, turn: LocalTurn) {
-    latency.toSpeakMs = this.now() - this.startWallMs - latency.segmentEndMs;
-    turn.spoken = true;
+  private speakNow(text: string, latency: TurnLatency | null, turn: LocalTurn | null) {
+    if (latency) latency.toSpeakMs = this.now() - this.startWallMs - latency.segmentEndMs;
+    if (turn) turn.spoken = true;
     try {
       this.deps.speak(text);
     } catch {
@@ -513,12 +627,11 @@ export class FastLoop {
     }
   }
 
-  private releaseHeld(force: boolean) {
+  private releaseHeld() {
     const h = this.held;
     if (!h) return;
     this.held = null;
-    if (this.now() > h.expiresAtMs && !force) return;
-    if (this.now() > h.expiresAtMs) return; // stale even at stop
+    if (this.now() > h.expiresAtMs) return; // stale: dropped, never spoken
     this.speakNow(h.text, h.latency, h.turn);
   }
 }
