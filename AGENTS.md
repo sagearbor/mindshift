@@ -9,6 +9,14 @@ Guide AI agents contributing to MindShift (see [PRD.md](PRD.md) for the product 
 > before substantial work; it carries locked decisions and transplanted operational
 > knowledge (watch builds, Play uploads, telemetry debugging).
 
+> **FRESH CLONE / NEW MACHINE (2026-08-24):** if this is a newly-cloned checkout
+> (e.g. after a machine switch), read
+> [docs/plans/2026-08-24-mac-transition-and-poker6-status.md](docs/plans/2026-08-24-mac-transition-and-poker6-status.md)
+> first — it lists what `git clone` doesn't bring over (`.env`, Python venvs,
+> auth for `gcloud`/`gh`/`eas`) and the current status of the in-progress
+> poker6 6-speaker diarization investigation (what's shipped, what's research-only,
+> and the recommended next step).
+
 ## Layout
 - `apps/mobile/` — the active Expo (React Native + Web) app. UI in `src/components`,
   screens in `src/screens`, state in `src/store` (Zustand), API/WS clients in `src/api`
