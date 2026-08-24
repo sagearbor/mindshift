@@ -176,7 +176,11 @@ and can never be delivered to the 1.16.0 Play build. Consequences:
 - This APK is signed with the real upload keystore, unlike the
   debug-signed `~/Desktop/mindshift-release-cf7310a.apk` from §6 — the
   two will NOT install over each other (signature mismatch); uninstall
-  the other one first.
+  the other one first. Same for a Play-Store-installed MindShift: Play
+  App Signing re-signs with Google's key, so this upload-key-signed APK
+  reports "App not installed / signature mismatch" over it — uninstall
+  the Play copy first (recordings sync from the server; local-only
+  drafts are lost).
 
 ### OTA path from this Mac
 - `scripts/ota_publish.sh` gained `OTA_DRY_RUN=1` (auth + project id +
