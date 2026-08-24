@@ -17,13 +17,33 @@
 //    the on-device STT this feature depends on needs 13+ anyway) through the
 //    `android.minSdkVersion` gradle property Expo's autolinking settings
 //    plugin maps onto rootProject.ext.minSdkVersion.
+//
+// 3. (iOS) onnxruntime-react-native's own config plugin writes
+//    `pod 'onnxruntime-react-native', :path => '../node_modules/onnxruntime-react-native'`
+//    into the Podfile — a path relative to apps/mobile. This repo is an npm
+//    WORKSPACE, so the package is hoisted to the ROOT node_modules and that
+//    path doesn't exist ("No podspec found for `onnxruntime-react-native`",
+//    2026-08-24, first iOS prebuild on the new Mac). Rewrite the `:path` to
+//    wherever Node actually resolves the package, relative to ios/.
+const path = require("path");
 const {
   withGradleProperties,
+  withPodfile,
   withProjectBuildGradle,
 } = require("expo/config-plugins");
 const generateCode = require("@expo/config-plugins/build/utils/generateCode");
 
 const MIN_SDK = "26";
+
+const ORT_POD_LINE = /pod 'onnxruntime-react-native',\s*:path\s*=>\s*'[^']*'/;
+
+function ortPodPathRelativeToIos(projectRoot) {
+  const pkgJson = require.resolve("onnxruntime-react-native/package.json", {
+    paths: [projectRoot],
+  });
+  const rel = path.relative(path.join(projectRoot, "ios"), path.dirname(pkgJson));
+  return rel.startsWith(".") ? rel : `./${rel}`;
+}
 
 const SNIPPET = `allprojects {
   // onnxruntime-react-native 1.24.3 references the Gradle-8 auto-import
@@ -56,6 +76,15 @@ const withOrtGradle9 = (config) => {
       value: "ML Kit genai-prompt (expo-ai-kit / Gemini Nano) declares minSdk 26 — see plugins/withOrtGradle9.js",
     });
     mod.modResults.push({ type: "property", key: "android.minSdkVersion", value: MIN_SDK });
+    return mod;
+  });
+
+  config = withPodfile(config, (mod) => {
+    const rel = ortPodPathRelativeToIos(mod.modRequest.projectRoot);
+    mod.modResults.contents = mod.modResults.contents.replace(
+      ORT_POD_LINE,
+      `pod 'onnxruntime-react-native', :path => '${rel}' # workspace-hoisted; see plugins/withOrtGradle9.js`,
+    );
     return mod;
   });
 

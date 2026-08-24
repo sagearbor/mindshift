@@ -97,6 +97,14 @@
           "speech": false,
           "androidEmbeddings": false
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
+        }
       ]
     ],
     "extra": {
