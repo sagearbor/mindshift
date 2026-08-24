@@ -468,9 +468,14 @@ export class FastLoop {
     const index = this.turns.length;
     const pcm = this.sliceHistory(span);
     const duration = span.end - span.start;
-    // Whether the words of this span were the phone's to report: a dead
-    // recognizer means the server's transcript owns them (see send below).
-    const sttOwned = this.deps.recognizer !== null && this.sttAvailable;
+    // Whether the words of this span were the phone's to report. A
+    // recognizer that has DIED (failed to start, fatal error) means the
+    // server's transcript owns them (see send below). A loop deliberately
+    // built without one (the replay harness on a transcript-less scene; the
+    // production capability gate never starts the loop without STT) still
+    // reports its turns — there are no words to claim, and identity,
+    // prosody and the turn ranges are the point of the record.
+    const sttOwned = this.deps.recognizer === null || this.sttAvailable;
 
     // Speaker-ID and STT are independent — run them together.
     const speakerPromise = (async (): Promise<{ verdict: SpeakerVerdict; ms: number }> => {

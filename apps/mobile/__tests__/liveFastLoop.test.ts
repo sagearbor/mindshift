@@ -313,7 +313,7 @@ describe("FastLoop", () => {
     await loop.stop();
   });
 
-  it("with no recognizer: empty text, no LLM call, NO turn_local (the server owns the words); stop() flushes an open turn", async () => {
+  it("with no recognizer (a loop built without STT): empty text, no LLM call, turn_local still sent; stop() flushes an open turn", async () => {
     const calls: string[] = [];
     const h = harness({
       recognizer: null,
@@ -327,11 +327,28 @@ describe("FastLoop", () => {
     expect(summary.turns[0].text).toBe("");
     expect(summary.turns[0].suggestion).toBeNull();
     expect(calls).toEqual([]);
-    // An empty-text turn_local would make the server suppress its OWN
-    // transcript for the span (audio_pipeline._covered_by_local_range) —
-    // with nothing heard on-device, the phone must not claim the words.
-    expect(h.sent).toEqual([]);
+    // Deliberately no STT (the replay harness's transcript-less scenes):
+    // the turn record still flows. Contrast the two tests below, where a
+    // recognizer that DIED must not claim words it never heard.
+    expect(h.sent[0]).toMatchObject({ text: "", suggestion: null, suggestion_source: null });
     expect(h.spoken).toEqual([]);
+  });
+
+  it("a recognizer that fails to START sends no turn_local (an empty-text one would suppress the server's transcript)", async () => {
+    const rec = new FakeSpeechRecognizer();
+    rec.start = async () => { throw new Error("not available"); };
+    const h = harness({ recognizer: rec });
+    await h.loop.start({ sessionId: "s6b", mode: "earpiece", empathy: 50 });
+    push(h.loop, toneInt16(1.0, -20));
+    push(h.loop, silenceInt16(0.5));
+    await h.loop.settle();
+    expect(h.turns).toHaveLength(1);
+    expect(h.turns[0].text).toBe("");
+    // audio_pipeline._covered_by_local_range would drop the server's own
+    // Deepgram segment for this span — with nothing heard on-device the
+    // phone must not claim the words.
+    expect(h.sent).toEqual([]);
+    await h.loop.stop();
   });
 
   it("uses interim STT text at the grace deadline and flags it non-final; recognizer errors are surfaced once", async () => {

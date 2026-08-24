@@ -649,7 +649,8 @@ describe("useAudioStream live mode", () => {
     await act(() => ws.emitOpen());
     const turn = async (text: string) => {
       await act(async () => {
-        feed(toneInt16(1.0, -20));
+        // >= MIN_CLUSTER_SECONDS: long enough to found an unknown cluster.
+        feed(toneInt16(2.0, -20));
         fake.rec.emit({ text, isFinal: true });
         feed(silenceInt16(0.5));
         await fake.loop!.settle();
