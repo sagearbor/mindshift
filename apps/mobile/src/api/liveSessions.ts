@@ -6,11 +6,18 @@
  *   so an episode exists even when the cloud never heard the audio. A 404
  *   (endpoint not deployed yet) resolves to null rather than failing the
  *   session — the transcript is already on screen.
- * - `fetchVoiceprints` — Foundation B's enrolled-people list (person_id,
- *   display_name, is_self, 192-d embedding). Tolerant of absence: [] means
- *   "match nobody", never a guess.
- * - `ecapaModelUrl` / `authHeaders` — where the ECAPA ONNX export lives
- *   (`GET /models/ecapa.onnx`), downloaded by src/live/ortNative.ts.
+ * - `fetchVoiceprints` — Foundation B's enrolled-people list
+ *   (`GET /voice/people`: person_id, display_name, is_self). As merged
+ *   (#132) the server deliberately never serves the embedding ("the raw
+ *   signature never leaves the server"), so today this yields people with
+ *   NO voiceprint and on-device matching stays off — the phone's turns are
+ *   labelled by the server's `speaker_identity` events instead. The parser
+ *   already accepts an `embedding`/`voiceprint` field, so an opt-in export
+ *   endpoint lights up on-device speaker-ID with no client change.
+ *   Tolerant of absence: [] means "match nobody", never a guess.
+ * - `ecapaModelUrl` / `authHeaders` — where an ECAPA ONNX export would be
+ *   served (`GET /models/ecapa.onnx`; not on the server yet — a 404 disables
+ *   speaker-ID for the session), downloaded by src/live/ortNative.ts.
  *
  * Mirrors me.ts / client.ts: fresh Firebase ID token as Bearer auth when
  * signed in; absent otherwise so the server answers its own 401.

@@ -74,6 +74,10 @@ export interface SuggestionEntry {
   /** Which runtime produced it: the phone's fast loop or the server. Absent
    *  on the legacy path (every legacy suggestion is the server's). */
   source?: "on-device" | "cloud";
+  /** A streaming preview from the server (SuggestionEvent.partial): the
+   *  first suggestion string while the model is still writing. Never voiced;
+   *  replaced by the final event for the same turn. */
+  partial?: boolean;
 }
 
 type ConnectionStatus = "idle" | "connecting" | "live" | "disconnected";
@@ -524,10 +528,13 @@ export function useAudioStream(
         lastLocalHadSuggestionRef.current = false;
         sessionStartedAtRef.current = new Date().toISOString();
         setLiveStatus(`On-device: ${build.status}`);
-        // The phone speaks for itself now: tell the server to skip its TTS.
+        // The phone speaks for itself now: tell the server to skip its TTS
+        // (and to report its own latency at session end).
         const ws = wsRef.current;
         if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "config", tts: "on-device" }));
+          ws.send(
+            JSON.stringify({ type: "config", tts: "on-device", report_latency: true }),
+          );
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -801,8 +808,11 @@ export function useAudioStream(
             // Which diarized voice is the coached user's. Read from the ref so
             // a toggle made before the socket opened is still honoured here.
             self_speaker: selfSpeakerRef.current,
-            // On-device TTS: the server must not synthesize audio for us.
-            ...(liveActiveRef.current ? { tts: "on-device" } : {}),
+            // On-device TTS: the server must not synthesize audio for us;
+            // and report its per-stage latency with session_complete.
+            ...(liveActiveRef.current
+              ? { tts: "on-device", report_latency: true }
+              : {}),
             ...(idToken ? { id_token: idToken } : {}),
           }),
         );
@@ -892,6 +902,10 @@ export function useAudioStream(
               // kind may be absent on older servers → a normal "response".
               const kind: SuggestionKind =
                 data.kind === "nudge" ? "nudge" : "response";
+              // Streaming preview (local-first sessions only): shown dimmed,
+              // superseded by the final event — which drops every preview
+              // still in the feed, so a turn never shows twice.
+              const partial = data.partial === true;
               const id = (suggestionIdRef.current += 1);
               // Accumulate instead of replace: newest first, capped so the
               // feed never grows without bound. A glance a second late still
@@ -905,8 +919,10 @@ export function useAudioStream(
                   muted,
                   timestamp: Date.now(),
                   source,
+                  ...(partial ? { partial: true } : {}),
                 };
-                const next = [entry, ...prev];
+                const kept = partial ? prev : prev.filter((e) => !e.partial);
+                const next = [entry, ...kept];
                 return next.length > MAX_SUGGESTION_FEED
                   ? next.slice(0, MAX_SUGGESTION_FEED)
                   : next;
@@ -956,6 +972,11 @@ export function useAudioStream(
             setTranscriptionAvailable(false);
             setTranscriptionMessage(data.reason || "Transcription unavailable");
           } else if (data.type === "session_complete") {
+            // Local-first sessions asked for the server's own per-stage
+            // timings (config.report_latency); log them next to ours.
+            if (data.latency_summary !== undefined) {
+              console.log("[useAudioStream] server latency:", data.latency_summary);
+            }
             // Server has flushed everything after our `stop` — finish now
             // instead of waiting out the drain timer.
             if (drainingRef.current) {

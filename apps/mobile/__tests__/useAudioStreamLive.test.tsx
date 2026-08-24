@@ -276,6 +276,38 @@ describe("useAudioStream live mode", () => {
     expect(ws.sentJson().some((m) => m.type === "stop")).toBe(true);
   });
 
+  it("renders a streaming partial preview dimmed and replaces it with the final", async () => {
+    const fake = makeFakeFastLoop({ provider: "cloud" });
+    const hook = await renderHook(() =>
+      useAudioStream({ capability: { capable: true, reason: "ok" }, makeFastLoop: fake.make, postSession: async () => ({ status: "unsupported" as const }) }),
+    );
+    await act(() => hook.result.current.setSpeechEnabled(true));
+    await act(async () => {
+      await hook.result.current.startSession("live-p", 50);
+    });
+    const ws = FakeWebSocket.instances[0];
+    await act(() => ws.emitOpen());
+    // Local-first config asks the server for its latency report too.
+    expect(ws.sentJson().some((m) => m.type === "config" && m.report_latency === true)).toBe(true);
+    await act(() => {
+      ws.emitServer({ type: "suggestion", session_id: "live-p", speaker: "Speaker A", utterance_text: "hello", suggestions: ["Prev"], empathy_slider: 50, speak: false, partial: true });
+    });
+    expect(hook.result.current.suggestions).toHaveLength(1);
+    expect(hook.result.current.suggestions[0]).toMatchObject({ partial: true, muted: true, texts: ["Prev"] });
+    expect(speakMock).not.toHaveBeenCalled();
+    await act(() => {
+      ws.emitServer({ type: "suggestion", session_id: "live-p", speaker: "Speaker A", utterance_text: "hello", suggestions: ["Previewed final."], empathy_slider: 50 });
+    });
+    expect(hook.result.current.suggestions).toHaveLength(1);
+    expect(hook.result.current.suggestions[0]).toMatchObject({ texts: ["Previewed final."], muted: false });
+    expect(hook.result.current.suggestions[0].partial).toBeUndefined();
+    expect(speakMock).toHaveBeenCalledWith("Previewed final.", expect.anything());
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    await act(() => ws.emitServer({ type: "session_complete", latency_summary: { turns: 1 } }));
+  });
+
   it("voices the cloud suggestion when the phone's providers fell through", async () => {
     const fake = makeFakeFastLoop({ provider: "cloud" });
     const hook = await renderHook(() =>
