@@ -1,0 +1,128 @@
+{
+  "fixture": "family",
+  "duration": 29.568,
+  "sliding_window_elapsed_s": 843.8688201904297,
+  "diarize_turns_elapsed_s": 1329.5454559326172,
+  "total_elapsed_s": 2173.414276123047,
+  "n_candidate_turns": 7,
+  "boundaries": [
+    4.5,
+    9.5,
+    14.5,
+    19.5,
+    23.5,
+    25.5
+  ],
+  "result": {
+    "turns": [
+      {
+        "start_time": 0.0,
+        "end_time": 4.5,
+        "speaker": "Speaker A"
+      },
+      {
+        "start_time": 4.5,
+        "end_time": 9.5,
+        "speaker": "Speaker B"
+      },
+      {
+        "start_time": 9.5,
+        "end_time": 14.5,
+        "speaker": "Speaker A"
+      },
+      {
+        "start_time": 14.5,
+        "end_time": 19.5,
+        "speaker": "Speaker B"
+      },
+      {
+        "start_time": 19.5,
+        "end_time": 23.5,
+        "speaker": "Speaker A"
+      },
+      {
+        "start_time": 23.5,
+        "end_time": 25.5,
+        "speaker": "Speaker A"
+      },
+      {
+        "start_time": 25.5,
+        "end_time": 29.568,
+        "speaker": "Speaker B"
+      }
+    ],
+    "num_speakers": 2,
+    "source": "local-ecapa",
+    "model": "speechbrain/spkrec-ecapa-voxceleb@0f99f2d0ebe89ac095bcc5903c4dd8f72b367286",
+    "segments_total": 7,
+    "segments_embedded": 7,
+    "split_utterances": 0,
+    "pooled_cosine": 0.169,
+    "k_evaluated": [
+      {
+        "k": 2,
+        "ok": true,
+        "max_pairwise_cosine": 0.169,
+        "min_cluster_seconds": 14.07
+      },
+      {
+        "k": 3,
+        "ok": false,
+        "max_pairwise_cosine": 0.357,
+        "min_cluster_seconds": 4.07,
+        "marginal_pair_cosine": 0.357,
+        "reason": "marginal split pair too similar (cosine 0.357 > 0.30 \u2014 one voice in two registers, not a new voice)"
+      },
+      {
+        "k": 4,
+        "ok": false,
+        "max_pairwise_cosine": 0.473,
+        "min_cluster_seconds": 4.0,
+        "reason": "centroids not clearly distinct (worst pair cosine 0.473 > 0.45)"
+      },
+      {
+        "k": 5,
+        "ok": false,
+        "max_pairwise_cosine": 0.48,
+        "min_cluster_seconds": 2.0,
+        "reason": "centroids not clearly distinct (worst pair cosine 0.480 > 0.45)"
+      },
+      {
+        "k": 6,
+        "ok": false,
+        "max_pairwise_cosine": 0.533,
+        "min_cluster_seconds": 2.0,
+        "reason": "centroids not clearly distinct (worst pair cosine 0.533 > 0.45)"
+      }
+    ],
+    "agreement_with_input": 0.42857142857142855
+  },
+  "scored": {
+    "per_turn_accuracy": 1.0,
+    "per_turn_correct": 7,
+    "per_turn_total": 7,
+    "duration_weighted_accuracy": 1.0,
+    "mapping": {
+      "Speaker A": "Sage",
+      "Speaker B": "Asher"
+    },
+    "truth": [
+      "Sage",
+      "Asher",
+      "Sage",
+      "Asher",
+      "Sage",
+      "Sage",
+      "Asher"
+    ],
+    "pred": [
+      "Speaker A",
+      "Speaker B",
+      "Speaker A",
+      "Speaker B",
+      "Speaker A",
+      "Speaker A",
+      "Speaker B"
+    ]
+  }
+}

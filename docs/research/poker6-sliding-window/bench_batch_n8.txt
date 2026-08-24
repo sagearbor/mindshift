@@ -1,0 +1,9 @@
+ECAPA cache: /tmp/ecapa_cache_v3refine
+N=8 chunks of 1.5s each
+Fetching 10 files:   0%|          | 0/10 [00:00<?, ?it/s]Fetching 10 files:  10%|█         | 1/10 [00:00<00:05,  1.56it/s]Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Fetching 10 files:  20%|██        | 2/10 [00:04<00:21,  2.72s/it]Fetching 10 files:  30%|███       | 3/10 [00:05<00:11,  1.64s/it]Fetching 10 files:  40%|████      | 4/10 [00:06<00:09,  1.62s/it]Fetching 10 files:  50%|█████     | 5/10 [00:09<00:09,  1.91s/it]Fetching 10 files:  60%|██████    | 6/10 [00:11<00:07,  1.91s/it]Fetching 10 files:  70%|███████   | 7/10 [00:13<00:05,  1.94s/it]Fetching 10 files:  80%|████████  | 8/10 [00:14<00:03,  1.89s/it]Fetching 10 files:  90%|█████████ | 9/10 [00:15<00:01,  1.55s/it]Fetching 10 files: 100%|██████████| 10/10 [00:17<00:00,  1.75s/it]Fetching 10 files: 100%|██████████| 10/10 [00:17<00:00,  1.79s/it]
+model load + first call: 181.20s
+LOOP: 8 embed_pcm calls: 173.78s total, 21.72s/call
+BATCH: 1 embed_pcm_batch call for 8 chunks: 113.76s total, 14.22s/chunk
+SPEEDUP: 1.53x
+cosine(loop_emb, batch_emb) per chunk (should be ~1.0): min=1.000000 max=1.000000
