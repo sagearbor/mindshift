@@ -19,3 +19,12 @@
 torch>=2.2,<3
 torchaudio>=2.2,<3
 speechbrain>=1.0,<2
+# Audio tone (server/tone_id.py): SpeechBrain's wav2vec2 fine-tune on IEMOCAP
+# (speechbrain/emotion-recognition-wav2vec2-IEMOCAP, revision pinned in
+# tone_id.TONE_REVISION). Its recipe builds the wav2vec2 backbone through
+# speechbrain.integrations.huggingface, which imports `transformers` — the
+# ECAPA speaker model above does not need it, so this line is here ONLY for
+# tone. NOTE: transformers 4.x pins huggingface_hub<1.0, so installing this
+# downgrades a 1.x hub (pip resolves it; speaker_id's snapshot_download call is
+# unaffected either way).
+transformers>=4.40,<5
