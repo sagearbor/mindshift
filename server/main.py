@@ -956,6 +956,10 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    # The browser build revalidates the ECAPA model by ETag and reads the
+    # 503 reason header (src/live/modelDownload.ts); neither is CORS-safe-
+    # listed, so without this a cross-origin page sees null for both.
+    expose_headers=["ETag", "X-Model-Unavailable", "Content-Length"],
 )
 
 # Voice enrollment ("This is me" + "Forget my voice"). Its own file so the

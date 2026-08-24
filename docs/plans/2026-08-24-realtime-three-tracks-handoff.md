@@ -1,5 +1,7 @@
 # Realtime coaching build — three-track handoff (2026-08-24)
 
+> **Web / Safari on an iPhone (2026-08-24, later):** the fast loop now also runs in the browser build — see [2026-08-24-web-safari-fast-loop.md](2026-08-24-web-safari-fast-loop.md) for the web seams, `scripts/web_deploy.sh`, and the honest iOS-Safari limits list.
+
 > **Read this if you're a fresh Claude Code session (or Sage) picking up the
 > realtime work.** It supersedes the "poker6 diarization status" half of
 > [2026-08-24-mac-transition-and-poker6-status.md](2026-08-24-mac-transition-and-poker6-status.md)

@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   StyleSheet,
+  useWindowDimensions,
 } from "react-native";
 import { useDashboardStore, SavedSession } from "../store/dashboardStore";
 import ToneSparkline from "../components/ToneSparkline";
@@ -75,6 +76,10 @@ export default function TherapistDashboard({
       setPatients(null);
     }
   }, []);
+  // The sparkline must fit a phone-width Safari viewport (iPhone SE: 375 pt
+  // minus the page + card padding) — never wider than the card.
+  const { width: windowWidth } = useWindowDimensions();
+  const sparkWidth = Math.max(120, Math.min(200, windowWidth - 16 * 2 - 14 * 2));
 
   useEffect(() => {
     fetchSessions();
@@ -344,7 +349,7 @@ export default function TherapistDashboard({
               })()}
               <ToneSparkline
                 scores={scores}
-                width={200}
+                width={sparkWidth}
                 height={36}
                 color={getScoreColor(session.avgPleasantness)}
               />

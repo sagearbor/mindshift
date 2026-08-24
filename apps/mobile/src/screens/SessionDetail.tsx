@@ -5,8 +5,10 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
+  Platform,
   Share,
   StyleSheet,
+  useWindowDimensions,
 } from "react-native";
 import { useDashboardStore, ToneScores, type SavedSession } from "../store/dashboardStore";
 import ToneSparkline from "../components/ToneSparkline";
@@ -62,6 +64,10 @@ export default function SessionDetail({
 }: SessionDetailProps) {
   const { sessions, exportSession, setSessions } = useDashboardStore();
   const session = sessions.find((s) => s.id === sessionId);
+  // Fit the tone timeline to a phone-width browser viewport (the web build
+  // is used from Safari on an iPhone); 320 was wider than an iPhone SE.
+  const { width: windowWidth } = useWindowDimensions();
+  const timelineWidth = Math.max(160, Math.min(320, windowWidth - 16 * 2));
 
   // People labeling: "Who is this?" on a speaker row — only for the caller's
   // OWN sessions (a therapist can't relabel a patient's recording) whose
@@ -144,10 +150,27 @@ export default function SessionDetail({
   const modeText = modeLabel(session?.mode);
 
   const handleExport = async () => {
+    let text = "";
     try {
-      const text = await exportSession(sessionId);
+      text = await exportSession(sessionId);
       await Share.share({ message: text, title: "MindShift Session Export" });
     } catch {
+      if (Platform.OS === "web") {
+        // react-native-web's Share needs navigator.share (Safari has it, but
+        // only inside a gesture; desktop browsers mostly don't) and its
+        // Alert is a no-op — fall back to the clipboard and say so.
+        try {
+          if (text && typeof navigator !== "undefined" && navigator.clipboard) {
+            await navigator.clipboard.writeText(text);
+            if (typeof window !== "undefined") window.alert("Session export copied to the clipboard.");
+            return;
+          }
+        } catch {
+          // Clipboard blocked: fall through to the honest failure below.
+        }
+        if (typeof window !== "undefined") window.alert("Could not export session data.");
+        return;
+      }
       Alert.alert("Export Failed", "Could not export session data.");
     }
   };
@@ -211,7 +234,7 @@ export default function SessionDetail({
           <Text style={styles.sectionTitle}>Tone Timeline</Text>
           <ToneSparkline
             scores={pleasantnessSeries}
-            width={320}
+            width={timelineWidth}
             height={60}
             color="#4A90D9"
           />

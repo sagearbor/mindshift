@@ -263,3 +263,6 @@ apps/mobile/ios/
 
 # Replay harness output (apps/mobile/src/live/replay): turn_local dumps written by the Jest replays
 apps/mobile/.replay-out/
+
+# onnxruntime-web runtime copied from node_modules by scripts/web_copy_ort.mjs
+apps/mobile/public/ort/

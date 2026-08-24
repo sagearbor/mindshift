@@ -6,6 +6,7 @@ import {
   ScrollView,
   Switch,
   StyleSheet,
+  Platform,
 } from "react-native";
 import EmpathySlider from "../components/EmpathySlider";
 import InterjectSlider from "../components/InterjectSlider";
@@ -403,6 +404,14 @@ export default function LiveCoachScreen({
                 </Text>
               </>
             )}
+            {Platform.OS === "web" ? (
+              // The browser build (Safari on an iPhone): the mic only runs while
+              // this page is on screen — a locked screen or another app ends it.
+              <Text style={styles.explainerLine} testID="web-foreground-note">
+                In the browser, keep this page open and the screen on — locking
+                the phone or switching apps stops the microphone.
+              </Text>
+            ) : null}
           </View>
         </>
       ) : null}

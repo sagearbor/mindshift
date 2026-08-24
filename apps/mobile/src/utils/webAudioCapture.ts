@@ -154,6 +154,15 @@ interface WebAudioCaptureOptions {
   onBuffer: (buffer: WebCaptureBuffer) => void;
   /** Overridable for tests; production uses the real getUserMedia constraints. */
   constraints?: MediaStreamConstraints;
+  /**
+   * The browser took the microphone away mid-session — the track `ended`
+   * (iOS Safari does this when the page is backgrounded / the screen locks,
+   * or when another capture such as a phone call wins) or was `mute`d
+   * (a hardware/OS interruption). Frames stop arriving; the caller should
+   * say so instead of showing a silent "live" session. Best-effort: not
+   * every browser fires these.
+   */
+  onTrackEnded?: (reason: "ended" | "muted") => void;
 }
 
 /**
@@ -171,9 +180,12 @@ export class WebAudioCapture {
   private worklet: AudioWorkletNode | null = null;
   /** Set the instant stop() is called so late async steps in start() bail. */
   private stopped = false;
+  private readonly onTrackEnded?: (reason: "ended" | "muted") => void;
+  private visibilityListener: (() => void) | null = null;
 
   constructor(options: WebAudioCaptureOptions) {
     this.onBuffer = options.onBuffer;
+    this.onTrackEnded = options.onTrackEnded;
     this.constraints = options.constraints ?? {
       audio: {
         echoCancellation: true,
@@ -226,6 +238,8 @@ export class WebAudioCapture {
       return;
     }
     this.stream = stream;
+    this.watchTracks(stream);
+    this.watchVisibility(ctx);
 
     // 3. Load the worklet module (runtime Blob URL) and wire the graph.
     try {
@@ -276,6 +290,38 @@ export class WebAudioCapture {
     }
   }
 
+  /** Report a track the browser ended or muted under us (see onTrackEnded). */
+  private watchTracks(stream: MediaStream) {
+    if (!this.onTrackEnded) return;
+    for (const track of stream.getTracks()) {
+      try {
+        track.addEventListener?.("ended", () => {
+          if (!this.stopped) this.onTrackEnded?.("ended");
+        });
+        track.addEventListener?.("mute", () => {
+          if (!this.stopped) this.onTrackEnded?.("muted");
+        });
+      } catch {
+        // Tracks without events: nothing to watch.
+      }
+    }
+  }
+
+  /**
+   * iOS Safari suspends the AudioContext when the tab is hidden and does not
+   * always resume it when the page comes back. Resume on visibility change
+   * (best-effort — the mic itself may have been released; see onTrackEnded).
+   */
+  private watchVisibility(ctx: AudioContext) {
+    if (typeof document === "undefined" || typeof document.addEventListener !== "function") return;
+    const listener = () => {
+      if (this.stopped || document.visibilityState !== "visible") return;
+      if (ctx.state === "suspended") void ctx.resume().catch(() => {});
+    };
+    document.addEventListener("visibilitychange", listener);
+    this.visibilityListener = listener;
+  }
+
   /**
    * Stop capture and release the microphone. Idempotent. Tracks are stopped
    * synchronously (the mic indicator goes off immediately) before the async
@@ -284,6 +330,14 @@ export class WebAudioCapture {
    */
   async stop(): Promise<void> {
     this.stopped = true;
+    if (this.visibilityListener && typeof document !== "undefined") {
+      try {
+        document.removeEventListener("visibilitychange", this.visibilityListener);
+      } catch {
+        // No document any more.
+      }
+      this.visibilityListener = null;
+    }
     if (this.worklet) {
       try {
         this.worklet.port.onmessage = null;

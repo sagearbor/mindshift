@@ -8,6 +8,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
+    "build:web": "node ../../scripts/web_copy_ort.mjs && expo export --platform web --output-dir dist",
     "test": "jest"
   },
   "dependencies": {
@@ -37,6 +38,7 @@
     "expo-web-browser": "~57.0.0",
     "firebase": "^12.15.0",
     "onnxruntime-react-native": "1.24.3",
+    "onnxruntime-web": "1.24.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.0",
