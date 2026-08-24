@@ -281,6 +281,8 @@ LABEL_SOURCE_GENERIC = "generic"
 # enrolled voiceprint (speaker_identity.matched_speaker). Second person on
 # purpose: the recording belongs to the viewing uid, so the matched voice IS the
 # viewer — more honest and more useful than any inferred third-person name.
+# A PARTNER the user enrolled by name (multi-person voiceprints) renders on the
+# same "enrolled" rung under the name the user gave — see _enrolled_labels.
 ENROLLED_DISPLAY_LABEL = "You"
 
 # Only a name the LLM inferred with EXACTLY this confidence (from direct
@@ -510,14 +512,17 @@ class AnalyzeUploadResponse(AnalyzeResponse):
     stored: bool = False
     recording_id: Optional[str] = None
     storage_note: Optional[str] = None
-    # Enrollment-based speaker identity ("You" — top rung of the label ladder).
-    # None when the user hasn't enrolled, the voice deps aren't installed, or the
-    # audio couldn't be decoded — the feature is fully optional and never blocks
-    # analysis. When present it is speaker_id.identify_speakers()'s report:
-    # {matched_speaker, match_threshold, model, speakers:{<label>:{score,is_you}}}.
-    # The label-ladder consumer reads ``matched_speaker`` as the highest-precedence
-    # source (display_label="You", label_source="enrolled"); per-speaker cosine
-    # scores ride along for debugging.
+    # Enrollment-based speaker identity ("You" / a named partner — top rung of
+    # the label ladder). None when nobody is enrolled, the voice deps aren't
+    # installed, or the audio couldn't be decoded — the feature is fully optional
+    # and never blocks analysis. When present it is
+    # speaker_id.identify_speakers_multi()'s report: {matched_speaker (the self
+    # match), match_threshold, model, matched:{<label>:<person_id>},
+    # people:{<person_id>:{display_name,is_self}}, speakers:{<label>:{scores,
+    # matched_person_id, is_self, display_name, score, is_you}}}. The
+    # label-ladder consumer reads matched+people (legacy: matched_speaker) as
+    # the highest-precedence source (label_source="enrolled"); per-speaker
+    # cosine scores ride along for debugging.
     speaker_identity: Optional[dict] = None
     # Companion P1 — conversation episodes: the transcript split on silence gaps
     # (> EPISODE_GAP_SECONDS with no turns), each with timing, participants,
@@ -1859,20 +1864,36 @@ def _clean_speaker_names(value: object) -> dict[str, str]:
 
 
 def _enrolled_speaker(speaker_identity: object) -> str | None:
-    """The speaker id matched to the user's enrolled voiceprint, or ``None``.
+    """The speaker id matched to the user's OWN enrolled voiceprint, or ``None``.
 
     Defensive by design: the voice-enrollment pipeline (PR #56) stores
     ``speaker_identity`` as ``{matched_speaker, match_threshold, model,
     speakers: {label: {score, is_you}}}`` and deliberately does NOT set display
     labels itself — this ladder owns presentation. Anything other than a dict
     carrying a non-empty string ``matched_speaker`` (absent field, ``None``, a
-    malformed shape) means "no match" and the enrolled rung is skipped."""
+    malformed shape) means "no match" and the enrolled rung is skipped.
+
+    Multi-person reports (Foundation B) keep ``matched_speaker`` as the SELF
+    match, so this reader still answers "which speaker is me"; the full
+    speaker→label map incl. named partners is :func:`_enrolled_labels`."""
     if not isinstance(speaker_identity, dict):
         return None
     matched = speaker_identity.get("matched_speaker")
     if isinstance(matched, str) and matched.strip():
         return matched
     return None
+
+
+def _enrolled_labels(speaker_identity: object) -> dict[str, str]:
+    """Every speaker the enrolled rung labels → its display label: the user's
+    own voice as ENROLLED_DISPLAY_LABEL ("You"), an enrolled partner as the
+    name the user gave them ("Alex"). One reader for both report shapes (the
+    legacy single-print ``matched_speaker`` and the multi-person ``matched`` +
+    ``people`` map) — delegated to speaker_id, which owns the report shape, so
+    main / episodes / the voice router can never disagree about who matched.
+    Never invents a label: a match to a person with no display name is left
+    off the rung."""
+    return speaker_id.enrolled_display_labels(speaker_identity)
 
 
 def _resolve_speaker_labels(
@@ -1917,15 +1938,16 @@ def _resolve_speaker_labels(
             )
 
     # Top rung — enrolled: a voiceprint match to the viewing user's own enrolled
-    # voice wins over EVERYTHING (name/voice/generic). Applied last, and only to
-    # a speaker actually in this transcript. Other speakers keep their rungs —
-    # "You" + "Higher voice" stays coherent (higher than you).
-    enrolled = _enrolled_speaker(speaker_identity)
-    if enrolled is not None and enrolled in labels:
-        labels[enrolled] = SpeakerLabelOut(
-            display_label=ENROLLED_DISPLAY_LABEL,
-            label_source=LABEL_SOURCE_ENROLLED,
-        )
+    # voice ("You") OR to a partner they enrolled by name ("Alex") wins over
+    # EVERYTHING (name/voice/generic) — a voiceprint is a stronger identity
+    # claim than a transcript-inferred name. Applied last, and only to speakers
+    # actually in this transcript. Other speakers keep their rungs — "You" +
+    # "Higher voice" stays coherent (higher than you).
+    for enrolled, label in _enrolled_labels(speaker_identity).items():
+        if enrolled in labels:
+            labels[enrolled] = SpeakerLabelOut(
+                display_label=label, label_source=LABEL_SOURCE_ENROLLED,
+            )
     return labels
 
 
@@ -2290,36 +2312,48 @@ async def _identify_enrolled_speakers(
     sr: int | None,
     turns: "list[AnalyzeTurn]",
 ) -> dict | None:
-    """Match each diarized speaker against the user's enrolled voiceprint.
+    """Match each diarized speaker against EVERY voiceprint the user enrolled —
+    their own ("self" → "You") and any partner they named ("alex" → "Alex").
 
     The auto-label half of voice enrollment. Fully OPTIONAL and best-effort — it
     returns ``None`` (skip, no label) whenever any precondition is missing:
     the voice deps aren't installed, prosody decode failed (``pcm`` is None),
-    storage is disabled, or the user hasn't enrolled. Any unexpected failure is
+    storage is disabled, or nobody is enrolled. Any unexpected failure is
     logged and swallowed — enrollment matching must NEVER sink an analysis.
 
-    On success returns :func:`speaker_id.identify_speakers`'s report; the top rung
-    of the label ladder reads ``matched_speaker`` as "You" (label_source
-    "enrolled"), and the per-speaker cosine scores are retained for debugging."""
+    On success returns :func:`speaker_id.identify_speakers_multi`'s report; the
+    top rung of the label ladder reads its ``matched``/``people`` maps (and the
+    legacy ``matched_speaker`` = the self match) via :func:`_enrolled_labels`,
+    and the per-speaker cosine scores are retained for debugging."""
     if pcm is None or sr is None or not speaker_id.is_available():
         return None
     store_backend = get_recordings_store()
     if store_backend is None:
         return None
     try:
-        profile = await store_backend.read_voiceprint(uid)
+        profiles = await store_backend.list_voiceprints(uid)
     except Exception:  # noqa: BLE001 — a read failure must not sink analysis
         logger.warning("Voiceprint read failed for uid=%s", uid, exc_info=True)
         return None
-    if not profile or not isinstance(profile.get("embedding"), list):
-        return None
     import numpy as np
 
-    voiceprint = np.asarray(profile["embedding"], dtype=np.float32)
+    voiceprints: dict[str, "np.ndarray"] = {}
+    people: dict[str, dict] = {}
+    for profile in profiles or []:
+        if not isinstance(profile, dict) or not isinstance(profile.get("embedding"), list):
+            continue
+        pid = profile.get("person_id") or speaker_id.SELF_PERSON_ID
+        voiceprints[pid] = np.asarray(profile["embedding"], dtype=np.float32)
+        people[pid] = {
+            "display_name": profile.get("display_name"),
+            "is_self": bool(profile.get("is_self", pid == speaker_id.SELF_PERSON_ID)),
+        }
+    if not voiceprints:
+        return None
     try:
         return await asyncio.to_thread(
-            speaker_id.identify_speakers,
-            pcm, sr, [t.model_dump() for t in turns], voiceprint,
+            speaker_id.identify_speakers_multi,
+            pcm, sr, [t.model_dump() for t in turns], voiceprints, people=people,
         )
     except Exception:  # noqa: BLE001 — matching is optional; degrade to no label
         logger.warning("Speaker identification failed for uid=%s", uid, exc_info=True)
@@ -3072,8 +3106,11 @@ class GrowthResponse(BaseModel):
     identified_recordings: int
 
 
-# Label sources that name a partner ACROSS recordings (see GrowthPoint).
-_PARTNER_NAME_SOURCES = {LABEL_SOURCE_MANUAL, LABEL_SOURCE_NAME}
+# Label sources that name a partner ACROSS recordings (see GrowthPoint). An
+# enrolled partner ("Alex", matched by voiceprint — multi-person enrollment)
+# is the strongest cross-recording identity of all; the enrolled "You" is
+# excluded from partners by construction (it is "me", see _growth_point).
+_PARTNER_NAME_SOURCES = {LABEL_SOURCE_MANUAL, LABEL_SOURCE_NAME, LABEL_SOURCE_ENROLLED}
 
 
 def _growth_point(rec: dict) -> GrowthPoint | None:
@@ -3093,9 +3130,13 @@ def _growth_point(rec: dict) -> GrowthPoint | None:
         rec.get("manual_speaker_labels") or {},
         _recording_speaker_ids(rec),
     )
+    # "Me" is the enrolled rung's "You" specifically: with multi-person
+    # voiceprints an enrolled PARTNER ("Alex") is also label_source "enrolled",
+    # and must never be mistaken for the viewer.
     me = [
         sp for sp, entry in effective.items()
         if entry.get("label_source") == LABEL_SOURCE_ENROLLED
+        and entry.get("display_label") == ENROLLED_DISPLAY_LABEL
     ]
     if len(me) != 1:  # no confident "me" (or a malformed doc) — never guess
         return None
@@ -3203,14 +3244,14 @@ async def get_recording(
     if manual and isinstance(analysis, dict):
         # A manual label outranks everything — re-derive so episode participants
         # reflect the override (stored/precomputed episodes were resolved before
-        # it). Feed the effective labels; suppress the enrolled "You" for any
-        # speaker the human has manually relabeled so manual truly wins there too.
+        # it). Feed the effective labels; suppress the enrolled label ("You" or
+        # a named partner) for any speaker the human has manually relabeled so
+        # manual truly wins there too.
         speaker_identity = analysis.get("speaker_identity")
-        if (
-            isinstance(speaker_identity, dict)
-            and speaker_identity.get("matched_speaker") in manual
-        ):
-            speaker_identity = {**speaker_identity, "matched_speaker": None}
+        if isinstance(speaker_identity, dict):
+            speaker_identity = speaker_id.without_matches_for(
+                speaker_identity, set(manual),
+            )
         stored_episodes = episodes.segment_episodes(
             rec.get("turns", []),
             per_turn=analysis.get("per_turn"),

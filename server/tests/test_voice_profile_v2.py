@@ -200,14 +200,41 @@ class FakeVoiceStore:
         r = self._recordings.get((uid, recording_id))
         return None if r is None else r["audio"]
 
-    async def read_voiceprint(self, uid):
-        return self._voiceprints.get(uid)
+    # Multi-person voiceprints (Foundation B): the OWNER's profile stays at
+    # ``_voiceprints[uid]`` (the tests above inspect it there — it is also the
+    # legacy single-document shape the real store reads through as "self");
+    # named partners live under ``_partners[(uid, person_id)]``.
+    async def read_voiceprint(self, uid, person_id=None):
+        pid = person_id or speaker_id.SELF_PERSON_ID
+        if pid == speaker_id.SELF_PERSON_ID:
+            doc = self._voiceprints.get(uid)
+        else:
+            doc = getattr(self, "_partners", {}).get((uid, pid))
+        return speaker_id.as_person(doc, person_id=pid)
+
+    async def list_voiceprints(self, uid):
+        out = []
+        if uid in self._voiceprints:
+            out.append(speaker_id.as_person(self._voiceprints[uid]))
+        for (u, pid), doc in getattr(self, "_partners", {}).items():
+            if u == uid:
+                out.append(speaker_id.as_person(doc, person_id=pid))
+        return out
 
     async def write_voiceprint(self, uid, profile):
-        self._voiceprints[uid] = profile
+        doc = speaker_id.as_person(profile)
+        if doc["person_id"] == speaker_id.SELF_PERSON_ID:
+            self._voiceprints[uid] = doc
+        else:
+            if not hasattr(self, "_partners"):
+                self._partners = {}
+            self._partners[(uid, doc["person_id"])] = doc
 
-    async def delete_voiceprint(self, uid):
-        return self._voiceprints.pop(uid, None) is not None
+    async def delete_voiceprint(self, uid, person_id=None):
+        pid = person_id or speaker_id.SELF_PERSON_ID
+        if pid == speaker_id.SELF_PERSON_ID:
+            return self._voiceprints.pop(uid, None) is not None
+        return getattr(self, "_partners", {}).pop((uid, pid), None) is not None
 
 
 @pytest.fixture
