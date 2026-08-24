@@ -1156,6 +1156,13 @@ class SessionContext:
     # loaded; the stamp is time.monotonic() of the last successful load.
     voiceprints: list[dict] | None = None
     voiceprints_loaded_at: float | None = None
+    # Review 2026-08-24: Deepgram stamps segments relative to the start of
+    # ITS connection's audio stream. After a mid-session reconnect (P1-1)
+    # the replacement connection's clock restarts at 0 while the session
+    # timeline (ring buffer, turn_local ranges, the client's transcript)
+    # keeps counting — so every segment from a replacement transcriber is
+    # shifted by the session time at which that transcriber took over.
+    transcriber_offset_s: float = 0.0
 
 
 def _remember_utterance(ctx: SessionContext, utterance: Utterance) -> None:
@@ -1771,7 +1778,18 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
 
     async def enqueue_segments(result, frame_received: float | None = None) -> None:
         segment_finalized = ctx.latency.now()
-        for segment in _normalize_segments(result):
+        for raw_segment in _normalize_segments(result):
+            # Re-base onto the session timeline (see transcriber_offset_s).
+            # 0.0 for the original connection, so the legacy path is exact.
+            segment = raw_segment
+            if ctx.transcriber_offset_s:
+                segment = TranscriptSegment(
+                    text=raw_segment.text,
+                    start_time=raw_segment.start_time + ctx.transcriber_offset_s,
+                    end_time=raw_segment.end_time + ctx.transcriber_offset_s,
+                    speaker=raw_segment.speaker,
+                    confidence=raw_segment.confidence,
+                )
             if ctx.local_ranges and _covered_by_local_range(
                 ctx.local_ranges, segment.start_time, segment.end_time,
             ):
@@ -1994,6 +2012,11 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                         replacement = await reconnect_transcriber()
                         if replacement is not None:
                             transcriber = replacement
+                            # The replacement's clock starts at 0 with the
+                            # NEXT frame; the frame that hit the dead socket
+                            # was already ring-buffered, so "now" on the
+                            # session timeline is exactly the audio received.
+                            ctx.transcriber_offset_s = ctx.pcm.seconds_received
                             # The client may have disconnected during the multi-
                             # second reconnect; a send on a dead socket can raise
                             # a non-WebSocketDisconnect error — suppress so it

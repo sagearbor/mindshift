@@ -1001,6 +1001,63 @@ class TestTranscriberReconnect:
         assert second["type"] == "config_ack"
         assert len(factory_calls) == 1  # no retries for a config failure
 
+    def test_segments_after_reconnect_are_on_the_session_timeline(self, monkeypatch):
+        """Review 2026-08-24: Deepgram stamps `start` relative to ITS
+        connection, so a replacement connection's clock restarts at 0 while
+        the session (ring buffer, turn_local ranges, the client's transcript)
+        keeps counting. A segment the replacement reports at [0, 1] after
+        1.1 s of audio had already flowed must surface as [1.1, 2.1]."""
+        monkeypatch.setattr(
+            audio_pipeline, "TRANSCRIBER_RECONNECT_BACKOFFS_S", (0.0, 0.0, 0.0)
+        )
+
+        class DiesAfter:
+            """Accepts ``n`` frames silently, then dies like DyingTranscriber."""
+
+            def __init__(self, n: int) -> None:
+                self.n = n
+
+            async def connect(self) -> None:
+                pass
+
+            async def stream(self, audio_bytes: bytes):
+                if self.n > 0:
+                    self.n -= 1
+                    return []
+                raise TranscriberUnavailable("mid-stream death")
+
+            async def close(self) -> None:
+                pass
+
+        factory_calls: list[int] = []
+        healthy = RecordingSegmentTranscriber(
+            [TranscriptSegment("After the blip.", 0.0, 1.0, speaker=0)],
+        )
+
+        def factory():
+            factory_calls.append(1)
+            return DiesAfter(10) if len(factory_calls) == 1 else healthy
+
+        client = _inject(DiesAfter(10))
+        app.state.transcriber_factory = factory
+        try:
+            with open_ws(client, "/ws/session/a56b5f93-1eab-5de5-bd6a-934d454ca97d") as ws:
+                for _ in range(10):
+                    ws.send_bytes(FRAME_100MS)   # 1.0 s flows to the first connection
+                ws.send_bytes(FRAME_100MS)       # 1.1 s: hits the dead socket → reconnect
+                assert json.loads(ws.receive_text()) == {"type": "transcription_restored"}
+                ws.send_bytes(FRAME_100MS)       # first frame the replacement sees
+                transcript = json.loads(ws.receive_text())
+                suggestion = recv_skipping_transcripts(ws)
+        finally:
+            _clear_overrides()
+
+        assert transcript["type"] == "transcript"
+        assert transcript["text"] == "After the blip."
+        assert transcript["start_time"] == pytest.approx(1.1)
+        assert transcript["end_time"] == pytest.approx(2.1)
+        assert suggestion["utterance_text"] == "After the blip."
+
 
 # ---------------------------------------------------------------------------
 # Worker task lifecycle on immediate disconnect (P1-7)
