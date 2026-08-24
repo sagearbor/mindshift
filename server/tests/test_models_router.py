@@ -279,3 +279,68 @@ def test_openapi_documents_the_route():
     path = spec["paths"]["/models/ecapa.onnx"]
     assert "get" in path and "head" in path
     assert "503" in path["get"]["responses"] and "304" in path["get"]["responses"]
+
+
+# ---------------------------------------------------------------------------
+# review 2026-08-24: concurrent cold requests must not each occupy a worker
+# thread for the whole export
+# ---------------------------------------------------------------------------
+
+async def test_concurrent_cold_requests_use_one_thread_and_one_export(
+    client, cache_dir, monkeypatch,
+):
+    """Two phones hit a cold cache at once. The threading lock alone made
+    the SECOND request park a default-executor worker on it for the whole
+    export (tens of seconds in production) — and that executor is shared
+    with the realtime WS token verification and every LLM/model call in the
+    process. The handler now serializes on an event-loop lock first, so at
+    most ONE request is ever inside ``ensure_ecapa_onnx`` (i.e. holds a
+    thread); the other waits on the loop and then finds the file."""
+    import asyncio
+    import threading
+
+    monkeypatch.setattr(speaker_id, "is_available", lambda: True)
+    started = threading.Event()
+    release = threading.Event()
+    export_calls: list = []
+
+    def _slow_export(path: Path) -> Path:
+        export_calls.append(path)
+        started.set()
+        assert release.wait(timeout=5), "test never released the export"
+        Path(path).write_bytes(FAKE_MODEL)
+        return Path(path)
+
+    monkeypatch.setattr(models, "_export_onnx", _slow_export)
+
+    inflight = 0
+    max_inflight = 0
+    real_ensure = models.ensure_ecapa_onnx
+
+    def _counting_ensure():
+        nonlocal inflight, max_inflight
+        inflight += 1
+        max_inflight = max(max_inflight, inflight)
+        try:
+            return real_ensure()
+        finally:
+            inflight -= 1
+
+    monkeypatch.setattr(models, "ensure_ecapa_onnx", _counting_ensure)
+
+    async def _release_once_both_requests_are_in():
+        # Wait until the first request is inside the export, then give the
+        # second request time to reach the lock, then let the export finish.
+        await asyncio.to_thread(started.wait, 5)
+        await asyncio.sleep(0.05)
+        release.set()
+
+    first, second, _ = await asyncio.gather(
+        client.get("/models/ecapa.onnx", headers=H),
+        client.get("/models/ecapa.onnx", headers=H),
+        _release_once_both_requests_are_in(),
+    )
+    assert first.status_code == 200 and second.status_code == 200
+    assert first.content == FAKE_MODEL and second.content == FAKE_MODEL
+    assert len(export_calls) == 1
+    assert max_inflight == 1  # never two worker threads on the export

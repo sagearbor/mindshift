@@ -79,6 +79,25 @@ MIN_ONNX_BYTES = 1024
 # it off the loop; a threading lock is what actually holds there).
 _export_lock = threading.Lock()
 
+# Review 2026-08-24: the handler ALSO serializes on an event-loop lock before
+# it ever calls to_thread. The threading lock alone let every concurrent
+# cold request park a default-executor worker thread on it for the whole
+# tens-of-seconds export — on a 2-vCPU Cloud Run instance that executor has
+# ~6 workers, and they are shared with everything else the process runs off
+# the loop (Firebase token verification for the realtime WS handshake, LLM
+# calls, model passes). A handful of phones fetching the model at once could
+# stall the whole server. Waiting on an asyncio.Lock costs no thread.
+_export_async_lock: asyncio.Lock | None = None
+
+
+def _get_export_async_lock() -> asyncio.Lock:
+    # Created lazily on first use so it binds to the running loop (module
+    # import happens before uvicorn's loop exists).
+    global _export_async_lock
+    if _export_async_lock is None:
+        _export_async_lock = asyncio.Lock()
+    return _export_async_lock
+
 
 class ModelUnavailable(RuntimeError):
     """The model can't be served: absent AND not producible here. The router
@@ -209,7 +228,13 @@ async def get_ecapa_onnx(
     if if_none_match_matches(request.headers.get("if-none-match"), etag):
         return Response(status_code=304, headers=headers)
     try:
-        path = await asyncio.to_thread(ensure_ecapa_onnx)
+        path = ecapa_onnx.configured_onnx_path()
+        if not _usable(path):
+            # Cold cache: one request at a time may go to a worker thread
+            # for the export; the rest wait here, on the loop, thread-free,
+            # and find the file when it is their turn.
+            async with _get_export_async_lock():
+                path = await asyncio.to_thread(ensure_ecapa_onnx)
     except ModelUnavailable as exc:
         raise HTTPException(
             status_code=503, detail=str(exc), headers={"X-Model-Unavailable": str(exc)},
