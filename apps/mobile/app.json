@@ -2,7 +2,7 @@
   "expo": {
     "name": "MindShift",
     "slug": "mindshift",
-    "version": "1.16.0",
+    "version": "1.17.0",
     "scheme": "mindshift",
     "orientation": "portrait",
     "runtimeVersion": {
@@ -27,7 +27,7 @@
     },
     "android": {
       "package": "com.sagearbor.mindshift.app",
-      "versionCode": 31,
+      "versionCode": 32,
       "permissions": [
         "RECORD_AUDIO",
         "android.permission.RECORD_AUDIO",
@@ -45,7 +45,12 @@
     },
     "ios": {
       "bundleIdentifier": "com.sagearbor.mindshift.app",
-      "buildNumber": "1"
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "MindShift uses your microphone to transcribe the conversation and coach you with suggestions in real time.",
+        "NSSpeechRecognitionUsageDescription": "MindShift transcribes the conversation on your phone (no audio leaves the device for this step) to coach you in real time.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "plugins": [
       [

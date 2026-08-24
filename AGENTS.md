@@ -44,6 +44,13 @@ Guide AI agents contributing to MindShift (see [PRD.md](PRD.md) for the product 
   `eas update` — the raw command bundles JS without the production
   `EXPO_PUBLIC_*` env baked in, which shipped a broken build once (client
   fell back to `localhost:8000`). See the script's header comment.
+  `OTA_DRY_RUN=1` proves the plumbing without publishing; `OTA_CHANNEL=preview`
+  targets the internal-distribution (`eas build --profile preview`) builds.
+- Runtime version = `expo.version` (`runtimeVersion.policy: appVersion`).
+  Bump `expo.version` (and `android.versionCode`) whenever a native module
+  is added/removed, BEFORE the next OTA — otherwise the update can land JS
+  on a binary that lacks the native code. (1.17.0 = first runtime with the
+  on-device modules; the 1.16.0 Play build stays on its last 1.16.0 OTA.)
 
 ## Secrets in process listings
 - `scripts/deploy_cloudrun.sh` (and any `gcloud run deploy --set-env-vars`
