@@ -1,0 +1,685 @@
+{
+  "scene": "scene_family3",
+  "mode": "earpiece",
+  "generated_by": "apps/mobile/src/live/replay/sceneReplay.ts",
+  "options": {
+    "stt_final_latency_ms": 500,
+    "os_latency_ms": 400,
+    "enroll": "self",
+    "speaker_id": true
+  },
+  "events": [
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_family3-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": false,
+      "text": "Okay, dinner's in ten minutes. Who's setting",
+      "start_time": 0.096,
+      "end_time": 2.112,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -20.01,
+        "pitch_hz": 175.82,
+        "speech_rate": 3.472
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — Okay, dinner's in ten…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_family3-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.658026910138528,
+      "is_self": false,
+      "text": "Who's setting the table tonight?",
+      "start_time": 2.432,
+      "end_time": 4.736,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -19.25,
+        "pitch_hz": 177.78,
+        "speech_rate": 2.17
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — Who's setting the table…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_family3-earpiece",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "Not me, I did it yesterday. And",
+      "start_time": 5.248,
+      "end_time": 6.368,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -21.95,
+        "pitch_hz": 183.91,
+        "speech_rate": 6.25
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — Not me, I did…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_family3-earpiece",
+      "speaker": "Speaker B",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": false,
+      "text": "And the day before, actually. Then it's my turn. Grab the plates for me, would you?",
+      "start_time": 6.944,
+      "end_time": 14.464,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -20.5,
+        "pitch_hz": 140.35,
+        "speech_rate": 2.128
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — And the day before,…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_family3-earpiece",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "again. All afternoon.",
+      "start_time": 14.784,
+      "end_time": 15.808,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -16.9,
+        "pitch_hz": 154.59,
+        "speech_rate": 2.93
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — again. All afternoon.…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_family3-earpiece",
+      "speaker": "Speaker C",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": false,
+      "text": "Why do you always assume it's me? Maybe",
+      "start_time": 16.128,
+      "end_time": 18.496,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -23.93,
+        "pitch_hz": 190.48,
+        "speech_rate": 3.378
+      },
+      "text_tone": {
+        "warmth": 10,
+        "defensiveness": 60,
+        "sarcasm": 20,
+        "sadness": 10,
+        "frustration": 72,
+        "label": "angry"
+      },
+      "suggestion": "Try: \"I hear you — Why do you always…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_family3-earpiece",
+      "speaker": "Speaker B",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.6619956624588799,
+      "is_self": false,
+      "text": "Maybe ask Dad for once.",
+      "start_time": 19.136,
+      "end_time": 23.2,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -21.47,
+        "pitch_hz": 110.34,
+        "speech_rate": 1.23
+      },
+      "text_tone": {
+        "warmth": 10,
+        "defensiveness": 60,
+        "sarcasm": 20,
+        "sadness": 10,
+        "frustration": 72,
+        "label": "angry"
+      },
+      "suggestion": "Try: \"I hear you — Maybe ask Dad for…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_family3-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": "p-Speaker A",
+      "speaker_match_score": 0.6953944184469381,
+      "is_self": true,
+      "text": "It was probably me, honestly. I made coffee around",
+      "start_time": 23.776,
+      "end_time": 24.672,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -20.1,
+        "pitch_hz": 95.24,
+        "speech_rate": 10.045
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "keep going",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_family3-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.7090467026654377,
+      "is_self": false,
+      "text": "around two.",
+      "start_time": 24.992,
+      "end_time": 29.504,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -21,
+        "pitch_hz": 148.15,
+        "speech_rate": 0.443
+      },
+      "text_tone": {
+        "warmth": null,
+        "defensiveness": null,
+        "sarcasm": null,
+        "sadness": null,
+        "frustration": null,
+        "label": null
+      },
+      "suggestion": "Try: \"I hear you — around two.…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_family3-earpiece",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "OH MY GOD, IT'S",
+      "start_time": 29.856,
+      "end_time": 31.168,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -22.76,
+        "pitch_hz": 225.35,
+        "speech_rate": 3.049
+      },
+      "text_tone": {
+        "warmth": 10,
+        "defensiveness": 60,
+        "sarcasm": 20,
+        "sadness": 10,
+        "frustration": 72,
+        "label": "angry"
+      },
+      "suggestion": "Try: \"I hear you — OH MY GOD, IT'S…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_family3-earpiece",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "OH MY GOD, IT'S MILK! WHY IS EVERYTHING",
+      "start_time": 31.616,
+      "end_time": 32.448,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -24.08,
+        "pitch_hz": 242.42,
+        "speech_rate": 9.615
+      },
+      "text_tone": {
+        "warmth": 10,
+        "defensiveness": 60,
+        "sarcasm": 20,
+        "sadness": 10,
+        "frustration": 72,
+        "label": "angry"
+      },
+      "suggestion": "Try: \"I hear you — OH MY GOD, IT'S…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_family3-earpiece",
+      "speaker": "Speaker C",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.569019525716133,
+      "is_self": false,
+      "text": "IS EVERYTHING IN THIS HOUSE A CRISIS?",
+      "start_time": 32.96,
+      "end_time": 36.992,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -22.41,
+        "pitch_hz": 206.46,
+        "speech_rate": 1.736
+      },
+      "text_tone": {
+        "warmth": 10,
+        "defensiveness": 60,
+        "sarcasm": 20,
+        "sadness": 10,
+        "frustration": 72,
+        "label": "angry"
+      },
+      "suggestion": "Try: \"I hear you — IS EVERYTHING IN THIS…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_family3-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.5807000148234822,
+      "is_self": false,
+      "text": "Don't shout at me. I'm tired and I'm just asking",
+      "start_time": 37.408,
+      "end_time": 38.208,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -18.13,
+        "pitch_hz": 162.47,
+        "speech_rate": 12.5
+      },
+      "text_tone": {
+        "warmth": 35,
+        "defensiveness": 20,
+        "sarcasm": 5,
+        "sadness": 75,
+        "frustration": 20,
+        "label": "sad"
+      },
+      "suggestion": "Try: \"I hear you — Don't shout at me.…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_family3-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.6238123331384667,
+      "is_self": false,
+      "text": "I'm just asking for a little help.",
+      "start_time": 38.56,
+      "end_time": 40.416,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -18.47,
+        "pitch_hz": 154.59,
+        "speech_rate": 3.772
+      },
+      "text_tone": {
+        "warmth": 35,
+        "defensiveness": 20,
+        "sarcasm": 5,
+        "sadness": 75,
+        "frustration": 20,
+        "label": "sad"
+      },
+      "suggestion": "Try: \"I hear you — I'm just asking for…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_family3-earpiece",
+      "speaker": "Speaker D",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": false,
+      "text": "Hey! Don't talk to your mother like that, and don't",
+      "start_time": 41.6,
+      "end_time": 43.2,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -21.92,
+        "pitch_hz": 95.81,
+        "speech_rate": 6.25
+      },
+      "text_tone": {
+        "warmth": 10,
+        "defensiveness": 60,
+        "sarcasm": 20,
+        "sadness": 10,
+        "frustration": 72,
+        "label": "angry"
+      },
+      "suggestion": "Try: \"I hear you — Hey! Don't talk to…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_family3-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": "p-Speaker A",
+      "speaker_match_score": 0.7389379675155628,
+      "is_self": true,
+      "text": "and don't drag me into it either!",
+      "start_time": 43.584,
+      "end_time": 45.216,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -21.2,
+        "pitch_hz": 89.89,
+        "speech_rate": 4.289
+      },
+      "text_tone": {
+        "warmth": 10,
+        "defensiveness": 60,
+        "sarcasm": 20,
+        "sadness": 10,
+        "frustration": 72,
+        "label": "angry"
+      },
+      "suggestion": "ease up",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_family3-earpiece",
+      "speaker": "Speaker E",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": false,
+      "text": "sick of getting blamed for everything.",
+      "start_time": 47.392,
+      "end_time": 49.664,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -27.36,
+        "pitch_hz": 136.17,
+        "speech_rate": 2.641
+      },
+      "text_tone": {
+        "warmth": 35,
+        "defensiveness": 20,
+        "sarcasm": 5,
+        "sadness": 75,
+        "frustration": 20,
+        "label": "sad"
+      },
+      "suggestion": "Try: \"I hear you — sick of getting blamed…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_family3-earpiece",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "I know. I",
+      "start_time": 49.984,
+      "end_time": 50.592,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -23.07,
+        "pitch_hz": 93.02,
+        "speech_rate": 4.934
+      },
+      "text_tone": {
+        "warmth": null,
+        "defensiveness": null,
+        "sarcasm": null,
+        "sadness": null,
+        "frustration": null,
+        "label": null
+      },
+      "suggestion": "Try: \"I hear you — I know. I…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_family3-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": "p-Speaker A",
+      "speaker_match_score": 0.7019602143383891,
+      "is_self": true,
+      "text": "I know. I snapped too. Let's",
+      "start_time": 50.944,
+      "end_time": 51.904,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -25.42,
+        "pitch_hz": 93.02,
+        "speech_rate": 6.25
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "keep going",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_family3-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": "p-Speaker A",
+      "speaker_match_score": 0.7442603932054985,
+      "is_self": true,
+      "text": "Let's all just reset, okay?",
+      "start_time": 52.384,
+      "end_time": 54.112,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -21.71,
+        "pitch_hz": 95.81,
+        "speech_rate": 2.894
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "keep going",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_family3-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.5753312040402834,
+      "is_self": false,
+      "text": "Reset. Plates, forks,",
+      "start_time": 54.464,
+      "end_time": 55.072,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -20.8,
+        "pitch_hz": 170.23,
+        "speech_rate": 4.934
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — Reset. Plates, forks,…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_family3-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.7550248331017279,
+      "is_self": false,
+      "text": "forks, and somebody put the milk in the fridge.",
+      "start_time": 55.456,
+      "end_time": 59.392,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -20.47,
+        "pitch_hz": 179.78,
+        "speech_rate": 2.287
+      },
+      "text_tone": {
+        "warmth": 40,
+        "defensiveness": 15,
+        "sarcasm": 5,
+        "sadness": 10,
+        "frustration": 15,
+        "label": "neutral"
+      },
+      "suggestion": "Try: \"I hear you — forks, and somebody put…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_family3-earpiece",
+      "speaker": "Speaker B",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.6906074814965297,
+      "is_self": false,
+      "text": "And for the record, I'm making the garlic bread.",
+      "start_time": 59.776,
+      "end_time": 64.48,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -21.1,
+        "pitch_hz": 146.79,
+        "speech_rate": 1.913
+      },
+      "text_tone": {
+        "warmth": 85,
+        "defensiveness": 5,
+        "sarcasm": 5,
+        "sadness": 5,
+        "frustration": 5,
+        "label": "happy"
+      },
+      "suggestion": "Try: \"I hear you — And for the record,…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-scene_family3-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": "p-Speaker A",
+      "speaker_match_score": 0.6744347999128832,
+      "is_self": true,
+      "text": "part of the week, right here.",
+      "start_time": 65.152,
+      "end_time": 67.04,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -20.03,
+        "pitch_hz": 97.56,
+        "speech_rate": 3.178
+      },
+      "text_tone": {
+        "warmth": 85,
+        "defensiveness": 5,
+        "sarcasm": 5,
+        "sadness": 5,
+        "frustration": 5,
+        "label": "happy"
+      },
+      "suggestion": "keep going",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    }
+  ]
+}

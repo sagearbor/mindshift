@@ -1,0 +1,181 @@
+{
+  "scene": "family_real",
+  "mode": "earpiece",
+  "generated_by": "apps/mobile/src/live/replay/sceneReplay.ts",
+  "options": {
+    "stt_final_latency_ms": 500,
+    "os_latency_ms": 400,
+    "enroll": "self",
+    "speaker_id": true
+  },
+  "events": [
+    {
+      "type": "turn_local",
+      "session_id": "replay-family_real-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": false,
+      "text": "Okay. This is Sage talking or dad. I'm about to head off. A",
+      "start_time": 1.056,
+      "end_time": 8.704,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -23.55,
+        "pitch_hz": 173.91,
+        "speech_rate": 1.7
+      },
+      "text_tone": {
+        "warmth": null,
+        "defensiveness": null,
+        "sarcasm": null,
+        "sadness": null,
+        "frustration": null,
+        "label": null
+      },
+      "suggestion": "Try: \"I hear you — Okay. This is Sage…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-family_real-earpiece",
+      "speaker": "Speaker A",
+      "speaker_person_id": null,
+      "speaker_match_score": 0.5521729777851621,
+      "is_self": false,
+      "text": "Okay. And now we're on the way going to his bike camp.",
+      "start_time": 10.368,
+      "end_time": 14.944,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -19.02,
+        "pitch_hz": 149.53,
+        "speech_rate": 2.622
+      },
+      "text_tone": {
+        "warmth": null,
+        "defensiveness": null,
+        "sarcasm": null,
+        "sadness": null,
+        "frustration": null,
+        "label": null
+      },
+      "suggestion": "Try: \"I hear you — Okay. And now we're…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-family_real-earpiece",
+      "speaker": "Speaker B",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": false,
+      "text": "Wait. What? I don't wanna go to bike camp. What?",
+      "start_time": 16.48,
+      "end_time": 19.008,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -27.4,
+        "pitch_hz": 225.35,
+        "speech_rate": 3.956
+      },
+      "text_tone": {
+        "warmth": null,
+        "defensiveness": null,
+        "sarcasm": null,
+        "sadness": null,
+        "frustration": null,
+        "label": null
+      },
+      "suggestion": "Try: \"I hear you — Wait. What? I don't…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-family_real-earpiece",
+      "speaker": "Speaker C",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": false,
+      "text": "Oh, you're going to bike camp, and I'm arguing now. And we'",
+      "start_time": 20.608,
+      "end_time": 25.632,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -15.1,
+        "pitch_hz": 168.42,
+        "speech_rate": 2.389
+      },
+      "text_tone": {
+        "warmth": null,
+        "defensiveness": null,
+        "sarcasm": null,
+        "sadness": null,
+        "frustration": null,
+        "label": null
+      },
+      "suggestion": "Try: \"I hear you — Oh, you're going to…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-family_real-earpiece",
+      "speaker": "Speaker D",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": false,
+      "text": "Well, I don't wanna go to bike camp, dad.",
+      "start_time": 26.176,
+      "end_time": 27.904,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -20.75,
+        "pitch_hz": 262.3,
+        "speech_rate": 5.208
+      },
+      "text_tone": {
+        "warmth": null,
+        "defensiveness": null,
+        "sarcasm": null,
+        "sadness": null,
+        "frustration": null,
+        "label": null
+      },
+      "suggestion": "Try: \"I hear you — Well, I don't wanna…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    },
+    {
+      "type": "turn_local",
+      "session_id": "replay-family_real-earpiece",
+      "speaker": "Unknown",
+      "speaker_person_id": null,
+      "speaker_match_score": null,
+      "is_self": null,
+      "text": "camp, dad. Stop. Stop.",
+      "start_time": 28.224,
+      "end_time": 29.216,
+      "transcript_source": "on-device",
+      "prosody": {
+        "rms_dbfs": -18.33,
+        "pitch_hz": 228.57,
+        "speech_rate": 4.032
+      },
+      "text_tone": {
+        "warmth": null,
+        "defensiveness": null,
+        "sarcasm": null,
+        "sadness": null,
+        "frustration": null,
+        "label": null
+      },
+      "suggestion": "Try: \"I hear you — camp, dad. Stop. Stop.…\"",
+      "suggestion_source": "on-device",
+      "tts_source": "on-device"
+    }
+  ]
+}
