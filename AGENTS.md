@@ -12,6 +12,8 @@ Guide AI agents contributing to MindShift (see [PRD.md](PRD.md) for the product 
 > **FRESH CLONE / NEW MACHINE (2026-08-24):** if this is a newly-cloned checkout
 > (e.g. after a machine switch), read
 > [docs/plans/2026-08-24-mac-transition-and-poker6-status.md](docs/plans/2026-08-24-mac-transition-and-poker6-status.md)
+> and, for the realtime/on-device work that followed (poker6 is resolved there):
+> [docs/plans/2026-08-24-realtime-three-tracks-handoff.md](docs/plans/2026-08-24-realtime-three-tracks-handoff.md)
 > first — it lists what `git clone` doesn't bring over (`.env`, Python venvs,
 > auth for `gcloud`/`gh`/`eas`) and the current status of the in-progress
 > poker6 6-speaker diarization investigation (what's shipped, what's research-only,
