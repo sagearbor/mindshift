@@ -724,6 +724,78 @@ class RecordingsStore:
         )
         return meta
 
+    # -- live sessions (Track 2) -------------------------------------------
+    # A live coaching session has NO audio on the server (the phone did the
+    # listening) — so it is stored as meta + turns + analysis ONLY, under the
+    # same recordings/{uid}/{id}/ prefix as an upload. Every list/detail/
+    # growth/share/delete path then treats it exactly like a recording; the
+    # media endpoints 404 honestly (no audio.m4a object exists — see
+    # _open_media_stream_sync, which returns None for a missing derivative).
+    async def save_live_session(
+        self,
+        uid: str,
+        recording_id: str,
+        *,
+        meta: dict,
+        turns: list[dict],
+        analysis: dict,
+    ) -> dict:
+        """Write (or REWRITE — ingest is idempotent on the caller-derived id)
+        one live session's meta.json + turns.json + analysis.json.
+
+        The caller mints ``recording_id`` deterministically from the session
+        id so a re-POST of the same session lands on the same objects. When a
+        meta.json already exists, the human-owned fields it carries —
+        ``manual_speaker_labels`` (a correction), ``shares`` (grants) and
+        ``title`` when the new meta has none — are preserved: a phone
+        re-sending its turns must never wipe what the user did afterwards.
+        Returns the meta actually written."""
+        return await asyncio.to_thread(
+            self._save_live_session_sync, uid, recording_id, meta, turns, analysis,
+        )
+
+    def _save_live_session_sync(self, uid, recording_id, meta, turns, analysis) -> dict:
+        prefix = self._prefix(uid, recording_id)
+        meta_blob = self._bucket.blob(prefix + "meta.json")
+        written = dict(meta)
+        if meta_blob.exists():
+            existing = json.loads(meta_blob.download_as_bytes())
+            for key in ("manual_speaker_labels", "shares"):
+                if key in existing and key not in written:
+                    written[key] = existing[key]
+            if not written.get("title") and existing.get("title"):
+                written["title"] = existing["title"]
+        meta_blob.upload_from_string(
+            json.dumps(written), content_type="application/json",
+        )
+        self._bucket.blob(prefix + "turns.json").upload_from_string(
+            json.dumps(turns), content_type="application/json",
+        )
+        self._bucket.blob(prefix + "analysis.json").upload_from_string(
+            json.dumps(analysis), content_type="application/json",
+        )
+        return written
+
+    async def update_analysis(
+        self, uid: str, recording_id: str, analysis: dict,
+    ) -> bool:
+        """Replace analysis.json ONLY (turns + meta untouched, no
+        ``reanalyzed_at`` stamp — this is not a re-analysis of stored audio
+        but the post-ingest batch pass / a reflection landing on a live
+        session). False when the recording does not exist for this uid."""
+        return await asyncio.to_thread(
+            self._update_analysis_sync, uid, recording_id, analysis,
+        )
+
+    def _update_analysis_sync(self, uid, recording_id, analysis) -> bool:
+        prefix = self._prefix(uid, recording_id)
+        if not self._bucket.blob(prefix + "meta.json").exists():
+            return False
+        self._bucket.blob(prefix + "analysis.json").upload_from_string(
+            json.dumps(analysis), content_type="application/json",
+        )
+        return True
+
     # -- account-to-account sharing ---------------------------------------
     # A recording's OWNER can grant another account READ-ONLY access to it. The
     # grant is stored in TWO places so both directions are a cheap lookup:
