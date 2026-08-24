@@ -30,6 +30,8 @@ the caller — ``EPISODE_GAP_SECONDS`` env in main.py).
 
 from __future__ import annotations
 
+import speaker_id  # pure report reader (enrolled_display_labels); no torch at import
+
 # Default silence gap (seconds) that splits two turns into separate episodes.
 DEFAULT_GAP_SECONDS = 60.0
 
@@ -62,16 +64,18 @@ def _excerpt(text: object) -> str | None:
 def _display_label(
     speaker: str,
     speaker_labels: dict | None,
-    enrolled_speaker: str | None,
+    enrolled_labels: dict[str, str],
 ) -> str:
     """The display label for one canonical speaker id.
 
     Precedence mirrors the server's label ladder: an enrolled voiceprint match
-    renders as "You"; else the resolved ``speaker_labels`` display_label; else
-    the raw id. Read defensively — stored analyses vary by server version.
+    renders as "You" (the owner) or the enrolled partner's name; else the
+    resolved ``speaker_labels`` display_label; else the raw id. Read
+    defensively — stored analyses vary by server version.
     """
-    if enrolled_speaker is not None and speaker == enrolled_speaker:
-        return "You"
+    enrolled = enrolled_labels.get(speaker)
+    if enrolled:
+        return enrolled
     entry = (speaker_labels or {}).get(speaker)
     if isinstance(entry, dict):
         label = entry.get("display_label")
@@ -80,15 +84,12 @@ def _display_label(
     return speaker
 
 
-def _matched_speaker(speaker_identity: object) -> str | None:
-    """``speaker_identity.matched_speaker`` when present and non-empty, else
-    ``None`` — the same defensive read as main._enrolled_speaker."""
-    if not isinstance(speaker_identity, dict):
-        return None
-    matched = speaker_identity.get("matched_speaker")
-    if isinstance(matched, str) and matched.strip():
-        return matched
-    return None
+def _enrolled_labels(speaker_identity: object) -> dict[str, str]:
+    """``{speaker: display_label}`` for every enrolled-rung match in
+    ``speaker_identity`` — the same defensive reader main._enrolled_labels
+    uses (speaker_id owns the report shape, legacy and multi-person alike), so
+    an episode's participants can never disagree with the detail labels."""
+    return speaker_id.enrolled_display_labels(speaker_identity)
 
 
 def _turn_time(turn: dict, key: str) -> float | None:
@@ -161,7 +162,7 @@ def segment_episodes(
                 if isinstance(heat, (int, float)) and not isinstance(heat, bool):
                     heats[i] = int(heat)
 
-    enrolled = _matched_speaker(speaker_identity)
+    enrolled = _enrolled_labels(speaker_identity)
     starts = _boundaries(turns, gap_seconds)
     single_episode = len(starts) == 1
 

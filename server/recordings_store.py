@@ -41,6 +41,8 @@ import os
 import uuid
 from datetime import datetime, timezone
 
+import speaker_id  # pure profile-shape helpers (as_person) — no torch at import
+
 logger = logging.getLogger(__name__)
 
 # Streaming chunk size for the in-memory body iterator (the bytes are already
@@ -910,46 +912,139 @@ class RecordingsStore:
         return out
 
     # -- voiceprints -------------------------------------------------------
-    # A user's enrolled voice signature lives in its OWN namespace, deliberately
-    # NOT under ``recordings/`` — it must survive deleting the recording it was
-    # enrolled from, and it is biometric data whose deletion is a first-class
-    # user action (DELETE /voice/voiceprint), scoped per uid::
+    # Enrolled voice signatures live in their OWN namespace, deliberately NOT
+    # under ``recordings/`` — they must survive deleting the recording they were
+    # enrolled from, and they are biometric data whose deletion is a first-class
+    # user action (DELETE /voice/voiceprint, DELETE /voice/people/{id}), scoped
+    # per uid. An account holds N named PEOPLE (Foundation B), one document each::
     #
-    #     voiceprints/{uid}/profile.json   # {embedding, enroll_count, model, ...}
+    #     voiceprints/{uid}/{person_id}/profile.json   # {person_id, display_name,
+    #                                                  #  is_self, embedding, ...}
+    #
+    # ``person_id`` is the reserved ``speaker_id.SELF_PERSON_ID`` ("self") for
+    # the account owner's own voice and a client-chosen slug for anyone else
+    # (validated against ``speaker_id.PERSON_ID_PATTERN`` at the endpoint — it
+    # is a path segment, so it is never taken raw off the wire).
+    #
+    # LEGACY layout (before multi-person) was a single owner document::
+    #
+    #     voiceprints/{uid}/profile.json
+    #
+    # It keeps working through a READ-THROUGH SHIM rather than a migration:
+    # ``read_voiceprint(uid, "self")`` and ``list_voiceprints`` fall back to the
+    # legacy blob when no ``self/profile.json`` exists, viewing it as the self
+    # person via ``speaker_id.as_person`` (pure). Chosen over copy-on-first-read
+    # because (a) the house rule is that reads stay side-effect free (GET
+    # /voice/profile already serves v1 docs through the v2 view without
+    # rewriting them), (b) there is no migration state to track or get half
+    # done, and (c) the legacy blob is retired naturally: the first WRITE of the
+    # self person lands on the new path and then removes the legacy blob, so
+    # there is never a moment with two live sources of truth for "self".
     #
     # Only the numeric signature + metadata is stored — never the user's audio.
     @staticmethod
-    def _voiceprint_blob_name(uid: str) -> str:
+    def _voiceprint_blob_name(uid: str, person_id: str = "self") -> str:
+        return f"voiceprints/{uid}/{person_id}/profile.json"
+
+    @staticmethod
+    def _legacy_voiceprint_blob_name(uid: str) -> str:
         return f"voiceprints/{uid}/profile.json"
 
-    async def read_voiceprint(self, uid: str) -> dict | None:
-        """The user's stored voiceprint document, or ``None`` when unenrolled."""
-        return await asyncio.to_thread(self._read_voiceprint_sync, uid)
+    @staticmethod
+    def _voiceprints_prefix(uid: str) -> str:
+        return f"voiceprints/{uid}/"
 
-    def _read_voiceprint_sync(self, uid) -> dict | None:
-        blob = self._bucket.blob(self._voiceprint_blob_name(uid))
+    def _read_json_blob(self, name: str) -> dict | None:
+        blob = self._bucket.blob(name)
         if not blob.exists():
             return None
         return json.loads(blob.download_as_bytes())
 
+    async def read_voiceprint(self, uid: str, person_id: str | None = None) -> dict | None:
+        """One person's stored voiceprint document (the person view — always
+        carries ``person_id``/``display_name``/``is_self``), or ``None`` when
+        that person isn't enrolled. ``person_id`` defaults to the account
+        owner ("self"), which is the only person the legacy single-document
+        layout could hold — so it alone consults the legacy blob."""
+        return await asyncio.to_thread(self._read_voiceprint_sync, uid, person_id)
+
+    def _read_voiceprint_sync(self, uid, person_id=None) -> dict | None:
+        pid = person_id or speaker_id.SELF_PERSON_ID
+        doc = self._read_json_blob(self._voiceprint_blob_name(uid, pid))
+        if doc is None and pid == speaker_id.SELF_PERSON_ID:
+            doc = self._read_json_blob(self._legacy_voiceprint_blob_name(uid))
+        if doc is None:
+            return None
+        return speaker_id.as_person(doc, person_id=pid)
+
+    async def list_voiceprints(self, uid: str) -> list[dict]:
+        """Every enrolled person's voiceprint document for ``uid`` (person
+        views), the owner ("self") first, then partners by display name. The
+        legacy owner blob counts as "self" only when no new-layout self
+        document exists (the write path removes it, so both are never live)."""
+        return await asyncio.to_thread(self._list_voiceprints_sync, uid)
+
+    def _list_voiceprints_sync(self, uid) -> list[dict]:
+        prefix = self._voiceprints_prefix(uid)
+        legacy_name = self._legacy_voiceprint_blob_name(uid)
+        by_person: dict[str, dict] = {}
+        legacy_doc: dict | None = None
+        for blob in self._bucket.list_blobs(prefix=prefix):
+            if blob.name == legacy_name:
+                legacy_doc = json.loads(blob.download_as_bytes())
+                continue
+            rest = blob.name[len(prefix):]
+            parts = rest.split("/")
+            if len(parts) != 2 or parts[1] != "profile.json" or not parts[0]:
+                continue  # not a person document — ignore honestly
+            by_person[parts[0]] = speaker_id.as_person(
+                json.loads(blob.download_as_bytes()), person_id=parts[0],
+            )
+        if legacy_doc is not None and speaker_id.SELF_PERSON_ID not in by_person:
+            by_person[speaker_id.SELF_PERSON_ID] = speaker_id.as_person(
+                legacy_doc, person_id=speaker_id.SELF_PERSON_ID,
+            )
+        return sorted(
+            by_person.values(),
+            key=lambda p: (not p.get("is_self"), (p.get("display_name") or "").lower(), p["person_id"]),
+        )
+
     async def write_voiceprint(self, uid: str, profile: dict) -> None:
-        """Persist (overwrite) the user's voiceprint document."""
+        """Persist (overwrite) one person's voiceprint document, keyed by
+        ``profile["person_id"]`` (absent → the owner, "self" — every
+        pre-multi-person caller wrote the owner's print and still does).
+        Writing the owner's document retires the legacy single-document blob
+        (see the layout note above)."""
         await asyncio.to_thread(self._write_voiceprint_sync, uid, profile)
 
     def _write_voiceprint_sync(self, uid, profile) -> None:
-        self._bucket.blob(self._voiceprint_blob_name(uid)).upload_from_string(
-            json.dumps(profile), content_type="application/json",
+        doc = speaker_id.as_person(profile)
+        pid = doc["person_id"]
+        self._bucket.blob(self._voiceprint_blob_name(uid, pid)).upload_from_string(
+            json.dumps(doc), content_type="application/json",
         )
+        if pid == speaker_id.SELF_PERSON_ID:
+            legacy = self._bucket.blob(self._legacy_voiceprint_blob_name(uid))
+            if legacy.exists():
+                legacy.delete()
 
-    async def delete_voiceprint(self, uid: str) -> bool:
-        """Delete the user's voiceprint. ``True`` when one existed and was
-        removed, ``False`` when there was nothing to delete. Deletion is REAL —
-        the biometric signature is gone, not tombstoned."""
-        return await asyncio.to_thread(self._delete_voiceprint_sync, uid)
+    async def delete_voiceprint(self, uid: str, person_id: str | None = None) -> bool:
+        """Delete one person's voiceprint (default: the owner's). ``True`` when
+        one existed and was removed, ``False`` when there was nothing to
+        delete. Deletion is REAL — the biometric signature is gone, not
+        tombstoned. Deleting the owner also removes the legacy blob if it is
+        still the live copy."""
+        return await asyncio.to_thread(self._delete_voiceprint_sync, uid, person_id)
 
-    def _delete_voiceprint_sync(self, uid) -> bool:
-        blob = self._bucket.blob(self._voiceprint_blob_name(uid))
-        if not blob.exists():
-            return False
-        blob.delete()
-        return True
+    def _delete_voiceprint_sync(self, uid, person_id=None) -> bool:
+        pid = person_id or speaker_id.SELF_PERSON_ID
+        names = [self._voiceprint_blob_name(uid, pid)]
+        if pid == speaker_id.SELF_PERSON_ID:
+            names.append(self._legacy_voiceprint_blob_name(uid))
+        deleted = False
+        for name in names:
+            blob = self._bucket.blob(name)
+            if blob.exists():
+                blob.delete()
+                deleted = True
+        return deleted

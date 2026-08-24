@@ -13,15 +13,40 @@ export interface paths {
         };
         /**
          * Get Voice Profile
-         * @description Report voice-ID availability + this user's enrollment status.
+         * @description Report voice-ID availability + one person's enrollment status (the
+         *     account owner by default; ``?person_id=alex`` for an enrolled partner).
          *
          *     Never 503s on absent deps/storage — it is the very check the client uses to
          *     decide whether to OFFER enrollment, so it must always answer. No embedding
          *     vector is ever returned — the samples carry provenance metadata only. A v1
-         *     profile is served through the v2 view (one legacy-blend sample) WITHOUT
-         *     rewriting the stored doc: reads stay side-effect free.
+         *     / legacy-layout profile is served through the person view (one
+         *     legacy-blend sample) WITHOUT rewriting the stored doc: reads stay
+         *     side-effect free.
          */
         get: operations["get_voice_profile_voice_profile_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice/people": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Voice People
+         * @description Every person this account has enrolled a voice for (the owner first,
+         *     then partners by name). Same honesty rules as GET /voice/profile: never
+         *     an embedding, never a 503, a legacy single-document owner print is served
+         *     as "self" without being rewritten.
+         */
+        get: operations["list_voice_people_voice_people_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -69,19 +94,69 @@ export interface paths {
         put?: never;
         /**
          * Enroll Voice Direct
-         * @description Guided enrollment ("Train my voice") — enroll from an uploaded clip.
+         * @description Guided enrollment ("Train my voice" / "Train Alex's voice") — enroll
+         *     from an uploaded clip.
          *
          *     The client records a few prompted phrases in-app and uploads ONE short
-         *     audio file that it PROMISES contains only the enrolling user's voice, so
+         *     audio file that it PROMISES contains only the enrolling person's voice, so
          *     no diarization runs: the whole clip is embedded (capped like the pooled
          *     path) and appended as a v2 sample with note "guided enrollment". Nothing
          *     about the clip is persisted — only the numeric signature.
          *
          *     Honest failures: deps absent → 503; storage disabled → 503; upload over
          *     the cap → 413; undecodable → 422; less than MIN_ENROLL_SECONDS of ACTUAL
-         *     speech (a long silent clip does not count) → 422.
+         *     speech (a long silent clip does not count) → 422; a new partner with no
+         *     display_name → 422.
          */
         post: operations["enroll_voice_direct_voice_enroll_direct_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice/catch-up": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Catch Up Voice
+         * @description Bulk re-match already-stored recordings against the caller's ENROLLED
+         *     voiceprint — the "Catch up my past recordings" affordance on the empty
+         *     Growth screen, for recordings that predate enrollment entirely (the guided
+         *     "Train my voice" flow only ever writes the account-level voiceprint — it
+         *     never touches a single recording) or predate any "This is me" tap.
+         *
+         *     Deliberately NOT a full reanalyze: no re-transcription, just an audio
+         *     decode + embedding match against the ALREADY-computed turns (reusing
+         *     ``main._identify_enrolled_speakers`` — the exact function the initial
+         *     analysis pipeline and POST …/reanalyze use for this rung), so this endpoint
+         *     can cheaply process several stored recordings in one call where a full
+         *     reanalyze per recording would be needlessly expensive. Capped at
+         *     ``_CATCHUP_BATCH_LIMIT`` decode+match attempts per call (most-recent
+         *     candidates first — ``list_recordings`` is already newest-first) and rate
+         *     limited far more tightly than the rest of the API (``_catchup_rate_limit``)
+         *     — this is the single most expensive endpoint in the API.
+         *
+         *     Honest gates: deps absent / storage disabled → 503 (same as ``enroll_voice``);
+         *     no enrolled voiceprint yet → ``{"checked": 0, "newly_identified": 0,
+         *     "remaining": 0}``, never a 422 — "nothing to catch up against yet" is a
+         *     normal state the client already renders (the empty-state copy), not an
+         *     error. A candidate whose matched speaker was already given a MANUAL label
+         *     by the user is skipped entirely (no persist, no count) — a human's
+         *     explicit correction is never silently overwritten by an automatic match,
+         *     even though the manual overlay would already hide the effect at read time.
+         *
+         *     Per-recording best-effort (house rule, same as ``_identify_enrolled_speakers``
+         *     itself: "enrollment matching must NEVER sink an analysis"): one recording's
+         *     decode/match failure is logged and skipped, never aborting the batch.
+         */
+        post: operations["catch_up_voice_voice_catch_up_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -100,13 +175,15 @@ export interface paths {
         post?: never;
         /**
          * Delete Voice Sample
-         * @description Remove ONE enrollment sample and recompute the blended voiceprint.
+         * @description Remove ONE enrollment sample and recompute the blended voiceprint —
+         *     the owner's by default, ``?person_id=alex`` for a partner's.
          *
-         *     404 when the user has no profile or the sample id isn't in it (uid-scoped:
-         *     another user's sample ids never resolve here). Deleting the LAST sample
-         *     deletes the whole stored profile — exactly the "forget my voice" state, never
-         *     a hollow doc. A v1 profile is migrated on this write, so its legacy blend
-         *     sample is deletable whole. Storage disabled → 503.
+         *     404 when that person has no profile or the sample id isn't in it
+         *     (uid-scoped: another user's sample ids never resolve here). Deleting the
+         *     LAST sample deletes that person's whole stored profile — exactly the
+         *     "forget my voice" state, never a hollow doc. A v1 profile is migrated on
+         *     this write, so its legacy blend sample is deletable whole. Storage
+         *     disabled → 503.
          */
         delete: operations["delete_voice_sample_voice_samples__sample_id__delete"];
         options?: never;
@@ -126,13 +203,42 @@ export interface paths {
         post?: never;
         /**
          * Forget Voice
-         * @description "Forget my voice" — delete the stored biometric signature for real.
+         * @description "Forget my voice" — delete the OWNER's stored biometric signature for
+         *     real (partners are forgotten one at a time via DELETE /voice/people/{id}).
          *
          *     Idempotent: ``deleted`` is True when a print existed and was removed, False
          *     when there was nothing stored. Storage disabled → 503 (there is nothing this
          *     server could have stored to delete, reported honestly).
          */
         delete: operations["forget_voice_voice_voiceprint_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice/people/{person_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Forget Voice Person
+         * @description Forget ONE enrolled person's voiceprint for real — a named partner, or
+         *     the owner via ``self`` (identical to DELETE /voice/voiceprint).
+         *
+         *     Same contract as "forget my voice": idempotent (``deleted`` reports whether
+         *     a print existed), REAL deletion (the biometric signature is gone, not
+         *     tombstoned), uid-scoped (another account's people never resolve here),
+         *     storage disabled → 503. The person id is validated as a path segment
+         *     (422 on anything outside PERSON_ID_PATTERN) so it never reaches storage
+         *     raw.
+         */
+        delete: operations["forget_voice_person_voice_people__person_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -150,6 +256,54 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/watch-pairing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Disconnect Watch
+         * @description Unpair every watch currently bound to the caller's account —
+         *     clears ``DeviceToken`` records only (``pairing_store.
+         *     delete_device_tokens_for_account``, see its docstring). This is a
+         *     pure auth-revoke: it never touches recordings, growth, live
+         *     sessions, the speaker profile, or any other account data, all of
+         *     which live keyed by ``account_id`` directly, never by device token
+         *     or pairing (confirmed by reading ``DeviceToken``'s own docstring —
+         *     ``{token_hash, account_id, created_at, pairing_id}``, no data
+         *     reference at all). Re-pairing afterward (even a different watch)
+         *     immediately sees all the same cloud data again.
+         *
+         *     strict_auth_dep (not auth_dep) — same gate as ``DELETE
+         *     /live-sessions/{id}`` and ``POST /me/claim-legacy`` below: this is a
+         *     DESTRUCTIVE write, not a read like ``GET /me`` above, so the legacy
+         *     ``?account=<anything>`` bridge (unauthenticated by design, and ON BY
+         *     DEFAULT in production per ``MINDSHIFT_ALLOW_LEGACY_ACCOUNT``) must
+         *     never reach it — a caller with no real credential must not be able
+         *     to disconnect ANY guessed/known account's watch as a zero-cost,
+         *     repeatable denial-of-service primitive. Only a verified Firebase
+         *     bearer token identifies the caller here, exactly like ``DELETE
+         *     /voice/voiceprint`` (server/routers/voice.py's "Forget my voice",
+         *     via server/auth.py's ``get_current_uid`` with no legacy fallback at
+         *     all) — that route, not ``GET /me``'s read posture, is the correct
+         *     precedent for a destructive delete.
+         *
+         *     pairing_store is optional, mirroring ``me()``'s honest-degradation
+         *     default above: a caller that never wired one gets
+         *     ``{"disconnected": true, "count": 0}`` (nothing to disconnect
+         *     without a store) rather than a 500.
+         */
+        delete: operations["disconnect_watch_me_watch_pairing_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1618,6 +1772,13 @@ export interface components {
         Body_enroll_voice_direct_voice_enroll_direct_post: {
             /** File */
             file: string;
+            /**
+             * Person Id
+             * @default self
+             */
+            person_id: string;
+            /** Display Name */
+            display_name?: string | null;
         };
         /**
          * Capture
@@ -1675,6 +1836,15 @@ export interface components {
              * @default []
              */
             consents: components["schemas"]["ConsentRecord"][];
+        };
+        /** CatchUpResponse */
+        CatchUpResponse: {
+            /** Checked */
+            checked: number;
+            /** Newly Identified */
+            newly_identified: number;
+            /** Remaining */
+            remaining: number;
         };
         /** ClaimLegacyResponse */
         ClaimLegacyResponse: {
@@ -1842,6 +2012,18 @@ export interface components {
         DirectEnrollResponse: {
             /** Enrolled */
             enrolled: boolean;
+            /**
+             * Person Id
+             * @default self
+             */
+            person_id: string;
+            /** Display Name */
+            display_name?: string | null;
+            /**
+             * Is Self
+             * @default true
+             */
+            is_self: boolean;
             /** Enroll Count */
             enroll_count: number;
             /** Dim */
@@ -1853,6 +2035,21 @@ export interface components {
              * @default a numeric voice signature (192 numbers), not your audio
              */
             stored: string;
+        };
+        /**
+         * DisconnectWatchResponse
+         * @description ``DELETE /me/watch-pairing``'s response — honest count, not just a
+         *     boolean, matching this file's other idempotent-delete house style (see
+         *     server/routers/voice.py's ``DELETE /voice/voiceprint`` -> ``{"deleted":
+         *     bool}`` and ``DELETE /voice/samples/{id}``'s remaining-count response).
+         *     ``count == 0`` is a valid, non-error outcome (no watch was paired) —
+         *     this endpoint is idempotent, never a 404 for "nothing to disconnect".
+         */
+        DisconnectWatchResponse: {
+            /** Disconnected */
+            disconnected: boolean;
+            /** Count */
+            count: number;
         };
         /** DynamicsOut */
         DynamicsOut: {
@@ -1882,6 +2079,13 @@ export interface components {
             recording_id: string;
             /** Speaker */
             speaker: string;
+            /**
+             * Person Id
+             * @default self
+             */
+            person_id: string;
+            /** Display Name */
+            display_name?: string | null;
         };
         /** EnrollResponse */
         EnrollResponse: {
@@ -1889,6 +2093,18 @@ export interface components {
             enrolled: boolean;
             /** Speaker */
             speaker: string;
+            /**
+             * Person Id
+             * @default self
+             */
+            person_id: string;
+            /** Display Name */
+            display_name?: string | null;
+            /**
+             * Is Self
+             * @default true
+             */
+            is_self: boolean;
             /** Enroll Count */
             enroll_count: number;
             /** Dim */
@@ -1917,6 +2133,13 @@ export interface components {
          * @enum {string}
          */
         ExportFormat: "text" | "pdf";
+        /** ForgetPersonResponse */
+        ForgetPersonResponse: {
+            /** Deleted */
+            deleted: boolean;
+            /** Person Id */
+            person_id: string;
+        };
         /** ForgetResponse */
         ForgetResponse: {
             /** Deleted */
@@ -2125,6 +2348,32 @@ export interface components {
              */
             consents: components["schemas"]["ConsentRecord"][];
         };
+        /**
+         * MeResponse
+         * @description GET /me's actual response shape (Task P3-6): every ``Principal`` field
+         *     (account_id, email, legacy — unchanged wire contract, see
+         *     server/tests/watch/test_auth_routes.py's test_me_reports_legacy_flag) plus
+         *     ``has_paired_watch``, the one extra fact the mobile Settings screen needs
+         *     to show "Set up your watch" as live state instead of guessing. Backed by
+         *     ``PairingStore.has_device_tokens_for_account`` — see ``me()`` below for
+         *     the honest-degradation default when no pairing store is wired at all.
+         */
+        MeResponse: {
+            /** Account Id */
+            account_id: string;
+            /** Email */
+            email?: string | null;
+            /**
+             * Legacy
+             * @default false
+             */
+            legacy: boolean;
+            /**
+             * Has Paired Watch
+             * @default false
+             */
+            has_paired_watch: boolean;
+        };
         /** MemberStanding */
         MemberStanding: {
             /** Account Id */
@@ -2249,18 +2498,6 @@ export interface components {
             nudges: number;
             /** Escalations */
             escalations: number;
-        };
-        /** Principal */
-        Principal: {
-            /** Account Id */
-            account_id: string;
-            /** Email */
-            email?: string | null;
-            /**
-             * Legacy
-             * @default false
-             */
-            legacy: boolean;
         };
         /** RecordingShareRequest */
         RecordingShareRequest: {
@@ -2685,6 +2922,18 @@ export interface components {
             /** Rephrase */
             rephrase: string;
         };
+        /** VoicePeopleResponse */
+        VoicePeopleResponse: {
+            /** Available */
+            available: boolean;
+            /** Storage Enabled */
+            storage_enabled: boolean;
+            /**
+             * People
+             * @default []
+             */
+            people: components["schemas"]["VoiceProfileResponse"][];
+        };
         /** VoiceProfileIn */
         VoiceProfileIn: {
             /**
@@ -2712,6 +2961,21 @@ export interface components {
             storage_enabled: boolean;
             /** Enrolled */
             enrolled: boolean;
+            /**
+             * Person Id
+             * @default self
+             */
+            person_id: string;
+            /**
+             * Display Name
+             * @default You
+             */
+            display_name: string | null;
+            /**
+             * Is Self
+             * @default true
+             */
+            is_self: boolean;
             /** Enroll Count */
             enroll_count: number;
             /** Updated At */
@@ -2784,7 +3048,9 @@ export type $defs = Record<string, never>;
 export interface operations {
     get_voice_profile_voice_profile_get: {
         parameters: {
-            query?: never;
+            query?: {
+                person_id?: string;
+            };
             header?: {
                 authorization?: string;
             };
@@ -2800,6 +3066,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VoiceProfileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_voice_people_voice_people_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoicePeopleResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2883,9 +3180,42 @@ export interface operations {
             };
         };
     };
-    delete_voice_sample_voice_samples__sample_id__delete: {
+    catch_up_voice_voice_catch_up_post: {
         parameters: {
             query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatchUpResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_voice_sample_voice_samples__sample_id__delete: {
+        parameters: {
+            query?: {
+                person_id?: string;
+            };
             header?: {
                 authorization?: string;
             };
@@ -2947,6 +3277,39 @@ export interface operations {
             };
         };
     };
+    forget_voice_person_voice_people__person_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                person_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForgetPersonResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     me_me_get: {
         parameters: {
             query?: {
@@ -2964,7 +3327,38 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Principal"];
+                    "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    disconnect_watch_me_watch_pairing_delete: {
+        parameters: {
+            query?: {
+                account?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DisconnectWatchResponse"];
                 };
             };
             /** @description Validation Error */

@@ -1,22 +1,38 @@
-"""Voice-enrollment router — "This is me" + the enrolled voiceprint's lifecycle.
+"""Voice-enrollment router — "This is me" / "This is Alex" + the enrolled
+voiceprints' lifecycle.
 
-Six endpoints under ``/voice`` (included from main.py with one line):
+An account holds N named PEOPLE (multi-person voiceprints, Foundation B): the
+owner's own voice is the reserved person ``"self"`` (displayed "You") and any
+partner the user names ("alex" → "Alex") is another person with its own v2
+profile. Every endpoint below that took no person before defaults to
+``"self"``, so the original "This is me" contract is unchanged.
+
+Eight endpoints under ``/voice`` (included from main.py with one line):
 
 * ``GET  /voice/profile``      — status: is the feature available, is the user
                                  enrolled, and enrollment metadata incl. the v2
                                  per-sample provenance list (never an embedding —
                                  the raw signature never leaves the server).
-* ``POST /voice/enroll``       — "This is me": embed one diarized speaker from a
-                                 stored recording and store it as an individual
-                                 sample (the blend is recomputed over all samples),
-                                 AND relabel that same recording's stored analysis
-                                 so it counts as identified in Growth immediately
+                                 ``?person_id=`` reads another enrolled person.
+* ``GET  /voice/people``       — every enrolled person (self first) with the
+                                 same per-person metadata.
+* ``POST /voice/enroll``       — "This is me" (default) or "This is <name>"
+                                 (``person_id`` + ``display_name``): embed one
+                                 diarized speaker from a stored recording and
+                                 store it as an individual sample (the blend is
+                                 recomputed over all samples), AND relabel that
+                                 same recording's stored analysis so it counts
+                                 as identified in Growth immediately
                                  (see ``_label_enrolled_and_persist``).
 * ``POST /voice/enroll-direct``— guided "Train my voice": embed ONE uploaded
                                  clip of prompted phrases (single voice by
                                  client promise — no diarization, no stored
                                  recording) into a sample noted
-                                 "guided enrollment".
+                                 "guided enrollment". Same optional person
+                                 form fields as ``/voice/enroll``.
+* ``DELETE /voice/people/{id}``— forget ONE named person's voiceprint for real
+                                 (idempotent; ``self`` here is the same as
+                                 ``DELETE /voice/voiceprint``).
 * ``POST /voice/catch-up``     — bulk re-match every already-stored recording
                                  that predates enrollment (or predates any
                                  "This is me" tap) against the enrolled
@@ -53,7 +69,9 @@ import os
 import time
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import (
+    APIRouter, Depends, File, Form, HTTPException, Path, Query, Request, UploadFile,
+)
 from pydantic import BaseModel, Field
 
 import episodes
@@ -172,6 +190,64 @@ def _require_store(request: Request) -> "recordings_store.RecordingsStore":
     return store
 
 
+async def _resolve_person(
+    store: "recordings_store.RecordingsStore",
+    uid: str,
+    person_id: str,
+    display_name: str | None,
+) -> tuple[dict | None, str, str | None]:
+    """Who is being enrolled: ``(existing_profile, person_id, display_name)``.
+
+    The owner ("self") never needs a name — it is always "You". A PARTNER
+    needs a display name from SOMEWHERE: the request (a first enrollment, or
+    a rename), else the stored profile (re-enrolling "alex" without repeating
+    the name). A brand-new partner with no name at all is a 422 — we never
+    store a person we'd have to label with an invented placeholder."""
+    existing = await store.read_voiceprint(uid, person_id)
+    if person_id == speaker_id.SELF_PERSON_ID:
+        return existing, person_id, speaker_id.SELF_DISPLAY_NAME
+    name = (display_name or "").strip() or None
+    if name is None and existing is not None:
+        name = existing.get("display_name")
+    if not name:
+        raise HTTPException(
+            status_code=422,
+            detail=f"display_name is required to enroll a new person {person_id!r}",
+        )
+    return existing, person_id, name
+
+
+def _profile_response(
+    profile: dict, *, available: bool, storage_enabled: bool = True,
+) -> "VoiceProfileResponse":
+    """The per-person status view of one stored profile (person view) — the
+    metadata GET /voice/profile and GET /voice/people share, never an
+    embedding."""
+    return VoiceProfileResponse(
+        available=available,
+        storage_enabled=storage_enabled,
+        enrolled=True,
+        person_id=profile.get("person_id") or speaker_id.SELF_PERSON_ID,
+        display_name=profile.get("display_name"),
+        is_self=bool(profile.get("is_self", True)),
+        enroll_count=int(profile.get("enroll_count", 0) or 0),
+        updated_at=profile.get("updated_at"),
+        model=profile.get("model"),
+        dim=profile.get("dim"),
+        samples=[
+            VoiceSampleOut(
+                id=str(s.get("id")),
+                recording_id=s.get("recording_id"),
+                speaker=s.get("speaker"),
+                at=s.get("at"),
+                note=s.get("note"),
+            )
+            for s in profile.get("samples", [])
+            if isinstance(s, dict) and s.get("id")
+        ],
+    )
+
+
 # The label ladder's top rung, written directly (see main.py's
 # LABEL_SOURCE_ENROLLED / ENROLLED_DISPLAY_LABEL) — duplicated as plain string
 # literals here rather than importing main at module load time (main imports
@@ -190,7 +266,10 @@ async def _label_enrolled_and_persist(
     rec: dict,
     speaker: str,
     now_iso: str,
-) -> bool:
+    *,
+    person_id: str = speaker_id.SELF_PERSON_ID,
+    display_label: str = _ENROLLED_DISPLAY_LABEL,
+) -> dict | None:
     """Merge an "enrolled" display label for ``speaker`` into ``rec``'s stored
     analysis and persist it via ``store.overwrite_analysis`` — the "relabel one
     recording" logic shared by ``enroll_voice`` (Part A: relabel the recording
@@ -199,57 +278,83 @@ async def _label_enrolled_and_persist(
     carries ``label_source="manual"`` and is the human-correction rung, not this
     one (see main.py's label-ladder docstring).
 
-    At most ONE speaker may carry "enrolled" (``main._growth_point`` requires
-    EXACTLY one — two reads as "no confident me" and drops the recording out of
-    Growth entirely). Any OTHER speaker currently holding "enrolled" — a stale
-    auto-match from the original analysis, or an earlier "This is me" tap being
-    corrected — is demoted to a plain generic label first, so a correction
-    tap (SpeakerEnrollment offers "This is me" on every speaker, filtered on
-    nothing) can never leave two speakers both "enrolled".
+    ``person_id``/``display_label`` say WHO the speaker is: the owner (default —
+    "self"/"You") or an enrolled partner ("alex"/"Alex"). A PERSON may be at
+    most ONE speaker per recording (a person is one voice; and for the owner
+    specifically, ``main._growth_point`` requires EXACTLY one "You" — two reads
+    as "no confident me" and drops the recording out of Growth entirely). Any
+    OTHER speaker currently holding this same person's enrolled label — a
+    stale auto-match from the original analysis, or an earlier "This is me"
+    tap being corrected — is demoted to a plain generic label first, so a
+    correction tap (SpeakerEnrollment offers "This is me" on every speaker,
+    filtered on nothing) can never leave two speakers both "You". Other
+    people's enrolled labels on other speakers are left alone: "You" + "Alex"
+    in one recording is exactly the multi-person outcome.
 
-    Also keeps ``analysis["speaker_identity"].matched_speaker`` in agreement
-    (``episodes_from_analysis`` PREFERS it over ``speaker_labels`` when
-    present — a stale identity would keep showing a stale/wrong "You" in the
-    day-timeline even after this correctly relabels ``speaker_labels``), and
-    recomputes ``analysis["episodes"]`` when present so its ``participants``
-    reflect the new label immediately rather than waiting for a reanalysis.
+    Also keeps ``analysis["speaker_identity"]`` in agreement — its ``matched``
+    map (and the legacy ``matched_speaker`` for the owner), which
+    ``episodes_from_analysis`` PREFERS over ``speaker_labels`` when present (a
+    stale identity would keep showing a stale/wrong "You" in the day-timeline
+    even after this correctly relabels ``speaker_labels``) — and recomputes
+    ``analysis["episodes"]`` when present so its ``participants`` reflect the
+    new label immediately rather than waiting for a reanalysis.
 
     Best-effort by design (same "swallow and log" house style as
     ``main._identify_enrolled_speakers``): returns ``False`` — never raises —
     when ``rec`` has no analysis to update, or when the persist itself fails
     (a storage hiccup here must never sink the caller, which already did the
-    part that matters most: writing the voiceprint). Returns ``True`` only when
-    the recording was actually updated.
+    part that matters most: writing the voiceprint). Returns the UPDATED
+    analysis dict only when the recording was actually persisted (so a caller
+    labeling several people in one recording can build each on the last),
+    else ``None``.
     """
     analysis = rec.get("analysis")
     if not isinstance(analysis, dict):
-        return False  # nothing analyzed yet — nothing to relabel
+        return None  # nothing analyzed yet — nothing to relabel
     try:
         updated = dict(analysis)
         labels = dict(updated.get("speaker_labels") or {})
 
-        # Demote any OTHER "enrolled" speaker before writing the new one.
+        # Demote any OTHER speaker carrying THIS person's enrolled label
+        # before writing the new one.
         for other, entry in labels.items():
             if (
                 other != speaker
                 and isinstance(entry, dict)
                 and entry.get("label_source") == _ENROLLED_LABEL_SOURCE
+                and entry.get("display_label") == display_label
             ):
                 labels[other] = {
                     "display_label": other, "label_source": _GENERIC_LABEL_SOURCE,
                 }
 
         labels[speaker] = {
-            "display_label": _ENROLLED_DISPLAY_LABEL,
+            "display_label": display_label,
             "label_source": _ENROLLED_LABEL_SOURCE,
         }
         updated["speaker_labels"] = labels
 
         # Keep speaker_identity in agreement — episodes_from_analysis prefers
-        # its matched_speaker over speaker_labels when both are present.
+        # it over speaker_labels when both are present. The multi-person
+        # ``matched``/``people`` maps are the source of truth; the legacy
+        # ``matched_speaker`` mirrors the owner's match for older readers.
         existing_identity = updated.get("speaker_identity")
         identity = dict(existing_identity) if isinstance(existing_identity, dict) else {}
-        identity["matched_speaker"] = speaker
+        matched = dict(identity.get("matched") or {})
+        if not matched and isinstance(identity.get("matched_speaker"), str):
+            matched[identity["matched_speaker"]] = speaker_id.SELF_PERSON_ID
+        matched = {sp: pid for sp, pid in matched.items() if pid != person_id and sp != speaker}
+        matched[speaker] = person_id
+        people = dict(identity.get("people") or {})
+        people[person_id] = {
+            "display_name": display_label,
+            "is_self": person_id == speaker_id.SELF_PERSON_ID,
+        }
+        identity["matched"] = matched
+        identity["people"] = people
+        identity["matched_speaker"] = next(
+            (sp for sp, pid in matched.items() if pid == speaker_id.SELF_PERSON_ID), None,
+        )
         updated["speaker_identity"] = identity
 
         # Recompute stored episodes (participants) so the day timeline agrees
@@ -271,24 +376,39 @@ async def _label_enrolled_and_persist(
             analysis=updated,
             reanalyzed_at=now_iso,
         )
-        return result is not None
+        return updated if result is not None else None
     except Exception:  # noqa: BLE001 — best-effort, must never sink the caller
         logger.warning(
             "Failed to persist enrolled label uid=%s recording=%s speaker=%s",
             uid, recording_id, speaker, exc_info=True,
         )
-        return False
+        return None
 
 
 class EnrollRequest(BaseModel):
     recording_id: str = Field(pattern=UUID_PATTERN)
-    # The diarized speaker label the user tapped as "me" (e.g. "Speaker A").
+    # The diarized speaker label the user tapped as "me" / "Alex" (e.g. "Speaker A").
     speaker: str = Field(min_length=1, max_length=60)
+    # WHO this voice is. Default: the account owner ("self" → "You"). Any other
+    # id is a partner the user is naming; it doubles as a storage path segment,
+    # hence the strict slug pattern (validated here, never taken raw).
+    person_id: str = Field(
+        default=speaker_id.SELF_PERSON_ID, pattern=speaker_id.PERSON_ID_PATTERN,
+    )
+    # The partner's display label ("Alex"). Required for a NEW partner (422
+    # otherwise); optional when re-enrolling an existing one (keeps the stored
+    # name unless given — giving it renames). Ignored for self (always "You").
+    display_name: str | None = Field(
+        default=None, min_length=1, max_length=speaker_id.DISPLAY_NAME_MAX,
+    )
 
 
 class EnrollResponse(BaseModel):
     enrolled: bool
     speaker: str
+    person_id: str = speaker_id.SELF_PERSON_ID
+    display_name: str | None = None
+    is_self: bool = True
     # How many enrollments the stored print now averages (>=1). More refines it.
     enroll_count: int
     dim: int
@@ -319,6 +439,13 @@ class VoiceProfileResponse(BaseModel):
     # Whether recording storage (where the print lives) is enabled server-side.
     storage_enabled: bool
     enrolled: bool
+    # WHOSE profile this is (multi-person voiceprints): the owner is "self" /
+    # "You" / is_self; a partner carries the name the user gave. Defaults
+    # describe the owner so the pre-existing GET /voice/profile shape (always
+    # the owner) is unchanged for older clients.
+    person_id: str = speaker_id.SELF_PERSON_ID
+    display_name: str | None = speaker_id.SELF_DISPLAY_NAME
+    is_self: bool = True
     enroll_count: int
     updated_at: str | None = None
     model: str | None = None
@@ -344,45 +471,70 @@ class ForgetResponse(BaseModel):
 async def get_voice_profile(
     request: Request,
     uid: str = Depends(get_current_uid),
+    person_id: str = Query(
+        default=speaker_id.SELF_PERSON_ID, pattern=speaker_id.PERSON_ID_PATTERN,
+    ),
 ) -> VoiceProfileResponse:
-    """Report voice-ID availability + this user's enrollment status.
+    """Report voice-ID availability + one person's enrollment status (the
+    account owner by default; ``?person_id=alex`` for an enrolled partner).
 
     Never 503s on absent deps/storage — it is the very check the client uses to
     decide whether to OFFER enrollment, so it must always answer. No embedding
     vector is ever returned — the samples carry provenance metadata only. A v1
-    profile is served through the v2 view (one legacy-blend sample) WITHOUT
-    rewriting the stored doc: reads stay side-effect free."""
+    / legacy-layout profile is served through the person view (one
+    legacy-blend sample) WITHOUT rewriting the stored doc: reads stay
+    side-effect free."""
     available = speaker_id.is_available()
     store = _get_store(request)
     if store is None:
         return VoiceProfileResponse(
             available=available, storage_enabled=False,
-            enrolled=False, enroll_count=0,
+            enrolled=False, enroll_count=0, person_id=person_id,
+            display_name=None if person_id != speaker_id.SELF_PERSON_ID else speaker_id.SELF_DISPLAY_NAME,
+            is_self=person_id == speaker_id.SELF_PERSON_ID,
         )
-    profile = speaker_id.as_v2(await store.read_voiceprint(uid))
+    profile = speaker_id.as_person(await store.read_voiceprint(uid, person_id), person_id=person_id)
     if profile is None:
         return VoiceProfileResponse(
             available=available, storage_enabled=True,
-            enrolled=False, enroll_count=0,
+            enrolled=False, enroll_count=0, person_id=person_id,
+            display_name=None if person_id != speaker_id.SELF_PERSON_ID else speaker_id.SELF_DISPLAY_NAME,
+            is_self=person_id == speaker_id.SELF_PERSON_ID,
         )
-    return VoiceProfileResponse(
+    return _profile_response(profile, available=available)
+
+
+class VoicePeopleResponse(BaseModel):
+    available: bool
+    storage_enabled: bool
+    # Every enrolled person, the owner ("self") first — each in the same
+    # per-person shape GET /voice/profile serves. Empty when nobody is
+    # enrolled or storage is disabled (never a 503: like /profile, this is
+    # what the client consults to decide what to offer).
+    people: list[VoiceProfileResponse] = []
+
+
+@router.get("/people", response_model=VoicePeopleResponse)
+async def list_voice_people(
+    request: Request,
+    uid: str = Depends(get_current_uid),
+) -> VoicePeopleResponse:
+    """Every person this account has enrolled a voice for (the owner first,
+    then partners by name). Same honesty rules as GET /voice/profile: never
+    an embedding, never a 503, a legacy single-document owner print is served
+    as "self" without being rewritten."""
+    available = speaker_id.is_available()
+    store = _get_store(request)
+    if store is None:
+        return VoicePeopleResponse(available=available, storage_enabled=False)
+    profiles = await store.list_voiceprints(uid)
+    return VoicePeopleResponse(
         available=available,
         storage_enabled=True,
-        enrolled=True,
-        enroll_count=int(profile.get("enroll_count", 0) or 0),
-        updated_at=profile.get("updated_at"),
-        model=profile.get("model"),
-        dim=profile.get("dim"),
-        samples=[
-            VoiceSampleOut(
-                id=str(s.get("id")),
-                recording_id=s.get("recording_id"),
-                speaker=s.get("speaker"),
-                at=s.get("at"),
-                note=s.get("note"),
-            )
-            for s in profile.get("samples", [])
-            if isinstance(s, dict) and s.get("id")
+        people=[
+            _profile_response(speaker_id.as_person(p), available=available)
+            for p in profiles
+            if isinstance(p, dict)
         ],
     )
 
@@ -449,10 +601,13 @@ async def enroll_voice(
         )
 
     now_iso = datetime.now(timezone.utc).isoformat()
-    existing = await store.read_voiceprint(uid)
+    existing, person_id, display_name = await _resolve_person(
+        store, uid, body.person_id, body.display_name,
+    )
     profile = speaker_id.new_profile(
         embedding, existing,
         recording_id=body.recording_id, speaker=body.speaker, now_iso=now_iso,
+        person_id=person_id, display_name=display_name,
     )
     await store.write_voiceprint(uid, profile)
 
@@ -463,15 +618,19 @@ async def enroll_voice(
     # already carries the part that matters most (the voiceprint write above).
     await _label_enrolled_and_persist(
         store, uid, body.recording_id, rec, body.speaker, now_iso,
+        person_id=person_id, display_label=profile["display_name"],
     )
 
     logger.info(
-        "Voice enrolled uid=%s recording=%s speaker=%s count=%d",
-        uid, body.recording_id, body.speaker, profile["enroll_count"],
+        "Voice enrolled uid=%s recording=%s speaker=%s person=%s count=%d",
+        uid, body.recording_id, body.speaker, person_id, profile["enroll_count"],
     )
     return EnrollResponse(
         enrolled=True,
         speaker=body.speaker,
+        person_id=person_id,
+        display_name=profile["display_name"],
+        is_self=profile["is_self"],
         enroll_count=profile["enroll_count"],
         dim=profile["dim"],
         updated_at=profile["updated_at"],
@@ -480,6 +639,9 @@ async def enroll_voice(
 
 class DirectEnrollResponse(BaseModel):
     enrolled: bool
+    person_id: str = speaker_id.SELF_PERSON_ID
+    display_name: str | None = None
+    is_self: bool = True
     # How many samples the stored print now blends (>=1). More refines it.
     enroll_count: int
     dim: int
@@ -494,20 +656,31 @@ class DirectEnrollResponse(BaseModel):
 async def enroll_voice_direct(
     request: Request,
     file: UploadFile = File(...),
+    # Multipart form fields (this endpoint is a file upload, so the person
+    # goes in the form, not a JSON body). Same defaults/validation as
+    # EnrollRequest: owner ("self") unless a partner slug + name is given.
+    person_id: str = Form(
+        default=speaker_id.SELF_PERSON_ID, pattern=speaker_id.PERSON_ID_PATTERN,
+    ),
+    display_name: str | None = Form(
+        default=None, min_length=1, max_length=speaker_id.DISPLAY_NAME_MAX,
+    ),
     uid: str = Depends(get_current_uid),
     _rl: None = Depends(_rate_limit),
 ) -> DirectEnrollResponse:
-    """Guided enrollment ("Train my voice") — enroll from an uploaded clip.
+    """Guided enrollment ("Train my voice" / "Train Alex's voice") — enroll
+    from an uploaded clip.
 
     The client records a few prompted phrases in-app and uploads ONE short
-    audio file that it PROMISES contains only the enrolling user's voice, so
+    audio file that it PROMISES contains only the enrolling person's voice, so
     no diarization runs: the whole clip is embedded (capped like the pooled
     path) and appended as a v2 sample with note "guided enrollment". Nothing
     about the clip is persisted — only the numeric signature.
 
     Honest failures: deps absent → 503; storage disabled → 503; upload over
     the cap → 413; undecodable → 422; less than MIN_ENROLL_SECONDS of ACTUAL
-    speech (a long silent clip does not count) → 422."""
+    speech (a long silent clip does not count) → 422; a new partner with no
+    display_name → 422."""
     if not speaker_id.is_available():
         raise HTTPException(status_code=503, detail=_VOICE_UNAVAILABLE)
     store = _require_store(request)
@@ -560,18 +733,24 @@ async def enroll_voice_direct(
         raise HTTPException(status_code=503, detail=str(exc))
 
     now_iso = datetime.now(timezone.utc).isoformat()
-    existing = await store.read_voiceprint(uid)
+    existing, resolved_pid, resolved_name = await _resolve_person(
+        store, uid, person_id, display_name,
+    )
     profile = speaker_id.new_profile(
         embedding, existing,
         recording_id=None, speaker=None, now_iso=now_iso, note=GUIDED_NOTE,
+        person_id=resolved_pid, display_name=resolved_name,
     )
     await store.write_voiceprint(uid, profile)
     logger.info(
-        "Voice enrolled (guided) uid=%s speech=%.1fs count=%d",
-        uid, voiced, profile["enroll_count"],
+        "Voice enrolled (guided) uid=%s person=%s speech=%.1fs count=%d",
+        uid, resolved_pid, voiced, profile["enroll_count"],
     )
     return DirectEnrollResponse(
         enrolled=True,
+        person_id=resolved_pid,
+        display_name=profile["display_name"],
+        is_self=profile["is_self"],
         enroll_count=profile["enroll_count"],
         dim=profile["dim"],
         updated_at=profile["updated_at"],
@@ -634,8 +813,10 @@ async def catch_up_voice(
         raise HTTPException(status_code=503, detail=_VOICE_UNAVAILABLE)
     store = _require_store(request)
 
-    voiceprint = await store.read_voiceprint(uid)
-    if not voiceprint:
+    # Anyone enrolled at all? (The owner OR a named partner — a partner-only
+    # account still benefits: its recordings get "Alex" labels. Growth's
+    # newly_identified count below is still about the owner specifically.)
+    if not await store.list_voiceprints(uid):
         return CatchUpResponse(checked=0, newly_identified=0, remaining=0)
 
     import main  # lazy — see _rate_limit's note on the circular import
@@ -696,39 +877,54 @@ async def catch_up_voice(
             )
             continue
 
-        matched = report.get("matched_speaker") if report else None
-        if not matched:
+        # Every enrolled person the match found in this recording — the owner
+        # ("You") and any named partner ("Alex"). The report's own reader
+        # (speaker_id.enrolled_display_labels) decides who gets a label, so
+        # this loop can never invent one.
+        enrolled_labels = speaker_id.enrolled_display_labels(report) if report else {}
+        if not enrolled_labels:
             continue  # honest no-match — never guess
+        matched_people = (report.get("matched") if isinstance(report, dict) else None) or {}
 
-        # A human already named this speaker — never silently overwritten by
-        # an automatic match, even though the manual overlay already hides
-        # the effect right now (clearing that manual label later would
-        # otherwise wrongly reveal "You").
-        manual_name = manual.get(matched)
-        if isinstance(manual_name, str) and manual_name.strip():
-            continue
+        for matched, display_label in enrolled_labels.items():
+            # A human already named this speaker — never silently overwritten
+            # by an automatic match, even though the manual overlay already
+            # hides the effect right now (clearing that manual label later
+            # would otherwise wrongly reveal "You").
+            manual_name = manual.get(matched)
+            if isinstance(manual_name, str) and manual_name.strip():
+                continue
 
-        now_iso = datetime.now(timezone.utc).isoformat()
-        if not await _label_enrolled_and_persist(
-            store, uid, recording_id, rec, matched, now_iso,
-        ):
-            continue
+            person_id = matched_people.get(matched) or speaker_id.SELF_PERSON_ID
+            now_iso = datetime.now(timezone.utc).isoformat()
+            persisted = await _label_enrolled_and_persist(
+                store, uid, recording_id, rec, matched, now_iso,
+                person_id=person_id, display_label=display_label,
+            )
+            if persisted is None:
+                continue
+            # Later people in this same recording must build on the analysis
+            # the previous persist just wrote, not the pre-loop snapshot.
+            rec = {**rec, "analysis": persisted}
 
-        # Confirm the recording is now EFFECTIVELY identified — mirrors
-        # exactly what GET /growth computes — rather than trusting
-        # persist-success alone (a manual label makes the write invisible;
-        # after the guard above that can't happen for `matched` itself, but
-        # this keeps the count honest against any future overlay subtlety).
-        after_labels = dict(analysis.get("speaker_labels") or {})
-        after_labels[matched] = {
-            "display_label": _ENROLLED_DISPLAY_LABEL,
-            "label_source": _ENROLLED_LABEL_SOURCE,
-        }
-        after_effective = main._effective_speaker_labels(
-            after_labels, manual, main._recording_speaker_ids(rec),
-        )
-        if after_effective.get(matched, {}).get("label_source") == main.LABEL_SOURCE_ENROLLED:
-            newly_identified += 1
+            if display_label != _ENROLLED_DISPLAY_LABEL:
+                continue  # a partner label — real, but not "me" for Growth
+
+            # Confirm the recording is now EFFECTIVELY identified — mirrors
+            # exactly what GET /growth computes — rather than trusting
+            # persist-success alone (a manual label makes the write invisible;
+            # after the guard above that can't happen for `matched` itself, but
+            # this keeps the count honest against any future overlay subtlety).
+            after_labels = dict(analysis.get("speaker_labels") or {})
+            after_labels[matched] = {
+                "display_label": _ENROLLED_DISPLAY_LABEL,
+                "label_source": _ENROLLED_LABEL_SOURCE,
+            }
+            after_effective = main._effective_speaker_labels(
+                after_labels, manual, main._recording_speaker_ids(rec),
+            )
+            if after_effective.get(matched, {}).get("label_source") == main.LABEL_SOURCE_ENROLLED:
+                newly_identified += 1
 
     logger.info(
         "Voice catch-up uid=%s checked=%d newly_identified=%d remaining=%d",
@@ -744,16 +940,21 @@ async def delete_voice_sample(
     sample_id: str,
     request: Request,
     uid: str = Depends(get_current_uid),
+    person_id: str = Query(
+        default=speaker_id.SELF_PERSON_ID, pattern=speaker_id.PERSON_ID_PATTERN,
+    ),
 ) -> DeleteSampleResponse:
-    """Remove ONE enrollment sample and recompute the blended voiceprint.
+    """Remove ONE enrollment sample and recompute the blended voiceprint —
+    the owner's by default, ``?person_id=alex`` for a partner's.
 
-    404 when the user has no profile or the sample id isn't in it (uid-scoped:
-    another user's sample ids never resolve here). Deleting the LAST sample
-    deletes the whole stored profile — exactly the "forget my voice" state, never
-    a hollow doc. A v1 profile is migrated on this write, so its legacy blend
-    sample is deletable whole. Storage disabled → 503."""
+    404 when that person has no profile or the sample id isn't in it
+    (uid-scoped: another user's sample ids never resolve here). Deleting the
+    LAST sample deletes that person's whole stored profile — exactly the
+    "forget my voice" state, never a hollow doc. A v1 profile is migrated on
+    this write, so its legacy blend sample is deletable whole. Storage
+    disabled → 503."""
     store = _require_store(request)
-    profile = await store.read_voiceprint(uid)
+    profile = await store.read_voiceprint(uid, person_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="No voice profile to edit")
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -764,13 +965,13 @@ async def delete_voice_sample(
             status_code=404, detail="That sample is not in your voice profile",
         )
     if remaining is None:
-        await store.delete_voiceprint(uid)
+        await store.delete_voiceprint(uid, person_id)
         logger.info(
-            "Voice sample deleted (last) uid=%s sample=%s — profile removed",
-            uid, sample_id,
+            "Voice sample deleted (last) uid=%s person=%s sample=%s — profile removed",
+            uid, person_id, sample_id,
         )
         return DeleteSampleResponse(deleted=True, enrolled=False, enroll_count=0)
-    await store.write_voiceprint(uid, remaining)
+    await store.write_voiceprint(uid, speaker_id.as_person(remaining, person_id=person_id))
     logger.info(
         "Voice sample deleted uid=%s sample=%s remaining=%d",
         uid, sample_id, remaining["enroll_count"],
@@ -785,7 +986,8 @@ async def forget_voice(
     request: Request,
     uid: str = Depends(get_current_uid),
 ) -> ForgetResponse:
-    """"Forget my voice" — delete the stored biometric signature for real.
+    """"Forget my voice" — delete the OWNER's stored biometric signature for
+    real (partners are forgotten one at a time via DELETE /voice/people/{id}).
 
     Idempotent: ``deleted`` is True when a print existed and was removed, False
     when there was nothing stored. Storage disabled → 503 (there is nothing this
@@ -794,3 +996,29 @@ async def forget_voice(
     deleted = await store.delete_voiceprint(uid)
     logger.info("Voice forget uid=%s deleted=%s", uid, deleted)
     return ForgetResponse(deleted=deleted)
+
+
+class ForgetPersonResponse(BaseModel):
+    deleted: bool
+    person_id: str
+
+
+@router.delete("/people/{person_id}", response_model=ForgetPersonResponse)
+async def forget_voice_person(
+    request: Request,
+    person_id: str = Path(pattern=speaker_id.PERSON_ID_PATTERN),
+    uid: str = Depends(get_current_uid),
+) -> ForgetPersonResponse:
+    """Forget ONE enrolled person's voiceprint for real — a named partner, or
+    the owner via ``self`` (identical to DELETE /voice/voiceprint).
+
+    Same contract as "forget my voice": idempotent (``deleted`` reports whether
+    a print existed), REAL deletion (the biometric signature is gone, not
+    tombstoned), uid-scoped (another account's people never resolve here),
+    storage disabled → 503. The person id is validated as a path segment
+    (422 on anything outside PERSON_ID_PATTERN) so it never reaches storage
+    raw."""
+    store = _require_store(request)
+    deleted = await store.delete_voiceprint(uid, person_id)
+    logger.info("Voice forget person uid=%s person=%s deleted=%s", uid, person_id, deleted)
+    return ForgetPersonResponse(deleted=deleted, person_id=person_id)

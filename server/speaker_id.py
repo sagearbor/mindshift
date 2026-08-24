@@ -8,10 +8,14 @@ recording*; this module gives those anonymous "Speaker A/B/…" clusters a
 * **Enrollment** ("This is me"): pool one diarized speaker's turns from a stored
   recording, embed them into a single 192-d voiceprint, and average it into the
   user's stored profile. Multiple enrollments refine the print (a running mean).
-* **Auto-labeling** ("You"): during analysis, embed each diarized speaker's
-  pooled turns and cosine-match against the user's voiceprint. The best speaker
-  above :data:`MATCH_THRESHOLD` is labeled "You" (``label_source="enrolled"`` —
-  the TOP rung of the display-label ladder). Below threshold → NO label, ever.
+* **Auto-labeling** ("You" / a named person): during analysis, embed each
+  diarized speaker's pooled turns and cosine-match against EVERY voiceprint the
+  account holds — the owner's own ("self" → "You") plus any partners the user
+  named ("alex" → "Alex"). Greedy one-to-one assignment, best score first; a
+  pair is labeled only above :data:`MATCH_THRESHOLD` (``label_source="enrolled"``
+  — the TOP rung of the display-label ladder). Below threshold → NO label, ever.
+  See :func:`identify_speakers_multi`; :func:`identify_speakers` is the
+  original single-print entry point, kept as a thin wrapper.
 
 Honesty / availability notes (house rule: report unavailable, never fabricate):
 
@@ -113,6 +117,22 @@ LEGACY_SAMPLE_ID = "legacy-blend"
 # "enrolled" is designed as the HIGHEST-precedence source.
 YOU_LABEL = "You"
 LABEL_SOURCE = "enrolled"
+
+# Multi-person voiceprints (Foundation B). An account holds N named people,
+# each with its own v2 profile document; EXACTLY ONE of them is the account
+# owner ("this is me"), identified by the reserved ``person_id`` below and
+# displayed as :data:`YOU_LABEL` (second person, see main.ENROLLED_DISPLAY_LABEL).
+# The invariant "one self per account" is enforced STRUCTURALLY rather than by
+# a flag scan: ``is_self`` is true if and only if ``person_id == SELF_PERSON_ID``
+# (see :func:`as_person`), so two documents can never both claim to be the
+# owner — there is only one "self" key. Every other person is a partner the
+# user named ("Alex", "Mom") whose display label IS that name; we never invent
+# one. ``person_id`` doubles as a storage path segment, hence the tight
+# pattern (client-chosen slugs, lowercase, no separators GCS could mis-parse).
+SELF_PERSON_ID = "self"
+SELF_DISPLAY_NAME = YOU_LABEL
+PERSON_ID_PATTERN = r"^[a-z0-9][a-z0-9_-]{0,39}$"
+DISPLAY_NAME_MAX = 60
 
 # Process-wide model cache (see module docstring). A threading.Lock (not asyncio)
 # because loads happen inside asyncio.to_thread worker threads.
@@ -410,6 +430,135 @@ def embed_speaker(
     return embed_pcm(pooled, sr)
 
 
+def _person_meta(person_id: str, people: dict[str, dict] | None) -> dict:
+    """``{display_name, is_self}`` for one voiceprint's person, from the
+    caller-supplied ``people`` metadata when present, else derived from the
+    reserved self id. A non-self person with no known display name gets
+    ``None`` — the ladder then skips labeling that speaker rather than
+    inventing a name (the report still carries the match for debugging)."""
+    meta = (people or {}).get(person_id) or {}
+    is_self = bool(meta.get("is_self", person_id == SELF_PERSON_ID))
+    name = meta.get("display_name")
+    if is_self:
+        name = SELF_DISPLAY_NAME
+    elif not (isinstance(name, str) and name.strip()):
+        name = None
+    else:
+        name = name.strip()
+    return {"display_name": name, "is_self": is_self}
+
+
+def identify_speakers_multi(
+    pcm: np.ndarray,
+    sr: int,
+    turns: list[dict],
+    voiceprints: dict[str, np.ndarray],
+    *,
+    threshold: float = MATCH_THRESHOLD,
+    people: dict[str, dict] | None = None,
+) -> dict:
+    """Match every diarized speaker against EVERY enrolled person (blocking).
+
+    ``voiceprints`` maps ``person_id`` -> blended embedding (the account owner
+    is :data:`SELF_PERSON_ID`); ``people`` optionally carries each person's
+    ``{display_name, is_self}`` so the report is self-describing for the label
+    ladder. Each speaker is embedded ONCE (pooled turns, the expensive step)
+    and scored against all prints.
+
+    Assignment is a greedy one-to-one matching, highest score first: a
+    (speaker, person) pair is accepted only if its cosine clears ``threshold``
+    AND neither side is already taken. So each speaker gets at most one person
+    (a voice is one person), each person wins at most one speaker (a person is
+    one voice — two diarized clusters can't both be "Alex"; if the diarizer
+    split one voice in two, only the stronger half is labeled and the other
+    stays generic, honestly). Ties break deterministically (speaker id, then
+    person id). Below threshold → no label, ever; the scores are always kept
+    so a near-miss is inspectable::
+
+        {
+          "matched_speaker": "Speaker A" | None,      # the SELF match (legacy key)
+          "match_threshold": 0.65,
+          "model": "speechbrain/spkrec-ecapa-voxceleb@<rev>",
+          "matched": {"Speaker A": "self", "Speaker B": "alex"},
+          "people": {"self": {"display_name": "You", "is_self": true},
+                     "alex": {"display_name": "Alex", "is_self": false}},
+          "speakers": {
+            "Speaker A": {"scores": {"self": 0.71, "alex": 0.12},
+                          "matched_person_id": "self", "is_self": true,
+                          "display_name": "You",
+                          "score": 0.71, "is_you": true},   # legacy self keys
+            "Speaker B": {"scores": {"self": 0.09, "alex": 0.80},
+                          "matched_person_id": "alex", "is_self": false,
+                          "display_name": "Alex",
+                          "score": 0.09, "is_you": false},
+          },
+        }
+
+    ``matched_speaker`` / per-speaker ``score`` + ``is_you`` are kept so every
+    pre-existing reader of the single-voiceprint report (stored analyses,
+    Growth, the catch-up endpoint) keeps working unchanged; they describe the
+    SELF person only and are omitted/None when no self print was supplied.
+    """
+    prints = {pid: l2_normalize(vec) for pid, vec in voiceprints.items()}
+    meta = {pid: _person_meta(pid, people) for pid in prints}
+    has_self = SELF_PERSON_ID in prints
+
+    speakers: list[str] = []
+    for t in turns:
+        s = t.get("speaker")
+        if s is not None and s not in speakers:
+            speakers.append(s)
+
+    scored: dict[str, dict] = {}
+    candidates: list[tuple[float, str, str]] = []
+    for speaker in speakers:
+        emb = embed_speaker(pcm, sr, turns, speaker)
+        if emb is None:
+            continue  # too little audio — no score, honestly omitted
+        scores = {pid: round(cosine(emb, vec), 4) for pid, vec in prints.items()}
+        entry: dict = {
+            "scores": scores,
+            "matched_person_id": None,
+            "is_self": False,
+            "display_name": None,
+        }
+        if has_self:
+            entry["score"] = scores[SELF_PERSON_ID]
+            entry["is_you"] = False
+        scored[speaker] = entry
+        for pid, score in scores.items():
+            if score >= threshold:
+                candidates.append((score, speaker, pid))
+
+    # Greedy one-to-one: best pair first; a taken speaker or person is skipped.
+    candidates.sort(key=lambda c: (-c[0], c[1], c[2]))
+    matched: dict[str, str] = {}
+    taken_people: set[str] = set()
+    for _score, speaker, pid in candidates:
+        if speaker in matched or pid in taken_people:
+            continue
+        matched[speaker] = pid
+        taken_people.add(pid)
+        entry = scored[speaker]
+        entry["matched_person_id"] = pid
+        entry["is_self"] = meta[pid]["is_self"]
+        entry["display_name"] = meta[pid]["display_name"]
+        if has_self:
+            entry["is_you"] = pid == SELF_PERSON_ID
+
+    self_speaker = next(
+        (sp for sp, pid in matched.items() if pid == SELF_PERSON_ID), None,
+    )
+    return {
+        "matched_speaker": self_speaker,
+        "match_threshold": threshold,
+        "model": f"{ECAPA_SOURCE}@{ECAPA_REVISION}",
+        "matched": matched,
+        "people": meta,
+        "speakers": scored,
+    }
+
+
 def identify_speakers(
     pcm: np.ndarray,
     sr: int,
@@ -418,12 +567,11 @@ def identify_speakers(
     *,
     threshold: float = MATCH_THRESHOLD,
 ) -> dict:
-    """Match every diarized speaker against the user's voiceprint (blocking).
+    """Match every diarized speaker against ONE voiceprint — the user's own.
 
-    Returns a debuggable identity report; the single best speaker whose cosine
-    clears ``threshold`` is the user ("You"). At most ONE speaker is "You" (a
-    person is one voice); everyone else keeps their generic label. The per-speaker
-    cosine scores are ALWAYS included so a near-miss is inspectable::
+    A thin wrapper over :func:`identify_speakers_multi` with the self print
+    only, returning the ORIGINAL single-voiceprint report shape (nothing that
+    consumed it can regress)::
 
         {
           "matched_speaker": "Speaker A" | None,
@@ -435,40 +583,78 @@ def identify_speakers(
           },
         }
 
-    The label ladder consumes ``matched_speaker`` as its top rung: that speaker's
-    ``display_label`` becomes "You" / ``label_source`` "enrolled". No label is
-    forced below threshold — an honest "unknown" stays unknown.
+    The single best speaker whose cosine clears ``threshold`` is the user
+    ("You"); at most ONE speaker is "You" (a person is one voice); everyone else
+    keeps their generic label. No label is forced below threshold.
     """
-    voiceprint = l2_normalize(voiceprint)
-    speakers = []
-    for t in turns:
-        s = t.get("speaker")
-        if s is not None and s not in speakers:
-            speakers.append(s)
-
-    scored: dict[str, dict] = {}
-    best_speaker: str | None = None
-    best_score = -1.0
-    for speaker in speakers:
-        emb = embed_speaker(pcm, sr, turns, speaker)
-        if emb is None:
-            continue  # too little audio — no score, honestly omitted
-        score = cosine(emb, voiceprint)
-        scored[speaker] = {"score": round(score, 4), "is_you": False}
-        if score > best_score:
-            best_score = score
-            best_speaker = speaker
-
-    matched = best_speaker if best_score >= threshold else None
-    if matched is not None:
-        scored[matched]["is_you"] = True
-
+    report = identify_speakers_multi(
+        pcm, sr, turns, {SELF_PERSON_ID: voiceprint}, threshold=threshold,
+    )
     return {
-        "matched_speaker": matched,
-        "match_threshold": threshold,
-        "model": f"{ECAPA_SOURCE}@{ECAPA_REVISION}",
-        "speakers": scored,
+        "matched_speaker": report["matched_speaker"],
+        "match_threshold": report["match_threshold"],
+        "model": report["model"],
+        "speakers": {
+            speaker: {"score": entry["score"], "is_you": entry["is_you"]}
+            for speaker, entry in report["speakers"].items()
+        },
     }
+
+
+def enrolled_display_labels(speaker_identity: object) -> dict[str, str]:
+    """Pure reader of an identity report (either shape) → ``{speaker:
+    display_label}`` for every speaker the enrolled rung should label.
+
+    The ONE place the ladder's consumers (main's resolver, episodes'
+    participants, the voice router's relabel) learn who matched whom, so the
+    two report shapes are handled once:
+
+    * multi report — ``matched`` (speaker → person_id) joined with ``people``
+      (person_id → display_name/is_self): self renders as :data:`YOU_LABEL`,
+      a named partner as their name. A match to a person with NO usable
+      display name is skipped (never an invented label; the score stays in
+      the report for debugging).
+    * legacy single-print report (stored analyses from before multi-person)
+      — ``matched_speaker`` alone → "You".
+
+    Defensive throughout: anything that isn't a dict of the expected shape
+    contributes nothing (the enrolled rung is simply skipped)."""
+    if not isinstance(speaker_identity, dict):
+        return {}
+    out: dict[str, str] = {}
+    matched = speaker_identity.get("matched")
+    if isinstance(matched, dict):
+        people = speaker_identity.get("people")
+        people = people if isinstance(people, dict) else {}
+        for speaker, pid in matched.items():
+            if not (isinstance(speaker, str) and speaker.strip()):
+                continue
+            if not isinstance(pid, str):
+                continue
+            meta = _person_meta(pid, people)
+            if meta["display_name"]:
+                out[speaker] = meta["display_name"]
+        return out
+    # Legacy shape: the self match only.
+    legacy = speaker_identity.get("matched_speaker")
+    if isinstance(legacy, str) and legacy.strip():
+        out[legacy] = SELF_DISPLAY_NAME
+    return out
+
+
+def without_matches_for(speaker_identity: dict, speakers) -> dict:
+    """A copy of an identity report with every match for ``speakers`` removed
+    (both the multi ``matched`` map and the legacy ``matched_speaker``) — used
+    to suppress the enrolled rung for speakers a human has manually relabeled,
+    so manual truly wins. Pure; never mutates the stored report."""
+    drop = set(speakers)
+    out = dict(speaker_identity)
+    matched = out.get("matched")
+    if isinstance(matched, dict):
+        out["matched"] = {sp: pid for sp, pid in matched.items() if sp not in drop}
+    if out.get("matched_speaker") in drop:
+        out["matched_speaker"] = None
+    return out
 
 
 def blend_samples(samples: list[dict]) -> np.ndarray:
@@ -520,6 +706,53 @@ def as_v2(profile: dict | None) -> dict | None:
     }
 
 
+def as_person(
+    profile: dict | None,
+    *,
+    person_id: str | None = None,
+    display_name: str | None = None,
+) -> dict | None:
+    """A PERSON view of any stored profile document (pure — never persists).
+
+    Fills in the multi-person fields for a document that predates them (or
+    that a caller built without them), on top of the v2 sample view:
+
+    * ``person_id`` — the explicit argument, else the document's own, else
+      :data:`SELF_PERSON_ID` (a pre-multi-person document can only ever have
+      been the account owner's own voice — the legacy layout stored nothing
+      else).
+    * ``display_name`` — the explicit argument (stripped) when given, else the
+      document's own, else :data:`SELF_DISPLAY_NAME` for self. A non-self
+      person with no name stays ``None`` (the ladder then never labels that
+      speaker — an honest gap, not an invented name).
+    * ``is_self`` — DERIVED, never trusted from the document: true iff
+      ``person_id == SELF_PERSON_ID``. That is what makes "exactly one self per
+      account" structural (one reserved key) rather than a scan for flags.
+
+    ``None`` (unenrolled) passes through. A v2 doc that already carries all
+    three fields consistently is returned as the same object.
+    """
+    v2 = as_v2(profile)
+    if v2 is None:
+        return None
+    pid = person_id or v2.get("person_id") or SELF_PERSON_ID
+    is_self = pid == SELF_PERSON_ID
+    if isinstance(display_name, str) and display_name.strip():
+        name: str | None = display_name.strip()
+    else:
+        stored = v2.get("display_name")
+        name = stored.strip() if isinstance(stored, str) and stored.strip() else None
+    if is_self:
+        name = SELF_DISPLAY_NAME
+    if (
+        v2.get("person_id") == pid
+        and v2.get("display_name") == name
+        and v2.get("is_self") is is_self
+    ):
+        return v2
+    return {**v2, "person_id": pid, "display_name": name, "is_self": is_self}
+
+
 def new_profile(
     embedding: np.ndarray,
     existing: dict | None,
@@ -529,6 +762,8 @@ def new_profile(
     now_iso: str,
     sample_id: str | None = None,
     note: str | None = None,
+    person_id: str | None = None,
+    display_name: str | None = None,
 ) -> dict:
     """Build the stored v2 voiceprint document: append this enrollment as an
     individual sample and recompute the blend over ALL samples. Pure (no I/O) so
@@ -539,8 +774,17 @@ def new_profile(
     ``recording_id``/``speaker`` are None for a sample with no stored source
     recording (guided direct enrollment); ``note`` then carries the honest
     provenance the client shows (e.g. "guided enrollment").
+
+    ``person_id``/``display_name`` name WHOSE voice this is (multi-person
+    voiceprints, see :func:`as_person`); both default to what ``existing``
+    already says, and ultimately to the account owner ("self"/"You"), so every
+    pre-existing caller keeps building the owner's own print unchanged.
     """
-    existing_v2 = as_v2(existing)
+    existing_v2 = as_person(existing, person_id=person_id, display_name=display_name)
+    person = as_person(
+        existing_v2 or {"version": PROFILE_VERSION, "samples": []},
+        person_id=person_id, display_name=display_name,
+    )
     samples = list((existing_v2 or {}).get("samples", []))
     new_vec = l2_normalize(embedding)
     sample = {
@@ -557,6 +801,9 @@ def new_profile(
     created_at = (existing_v2 or {}).get("created_at") or now_iso
     return {
         "version": PROFILE_VERSION,
+        "person_id": person["person_id"],
+        "display_name": person["display_name"],
+        "is_self": person["is_self"],
         "embedding": [float(x) for x in blended.tolist()],
         "dim": int(blended.size),
         "enroll_count": len(samples),
