@@ -37,7 +37,16 @@ export interface SpeechRecognizer {
   /** Stop and release. Must never throw. */
   stop(): void;
   onResult(cb: (e: SttResultEvent) => void): () => void;
+  /** A FATAL failure: the recognizer is gone for the rest of the session.
+   *  Transient ends (Android tears the session down on every error, even
+   *  "no-speech" after a pause) are handled inside the recognizer by
+   *  restarting — see `onRestart`. */
   onError(cb: (code: string, message: string) => void): () => void;
+  /** Fires after the recognizer brought itself back (a new native session).
+   *  Platform word timings restart from zero at that moment, so the aligner
+   *  must re-mark its clock. Optional for implementations that never
+   *  restart. */
+  onRestart?(cb: () => void): () => void;
 }
 
 /** Test double: tests push results directly. */
@@ -46,6 +55,7 @@ export class FakeSpeechRecognizer implements SpeechRecognizer {
   stopped = false;
   private resultCbs: ((e: SttResultEvent) => void)[] = [];
   private errorCbs: ((code: string, message: string) => void)[] = [];
+  private restartCbs: (() => void)[] = [];
   async start() {
     this.started = true;
   }
@@ -64,11 +74,21 @@ export class FakeSpeechRecognizer implements SpeechRecognizer {
       this.errorCbs = this.errorCbs.filter((c) => c !== cb);
     };
   }
+  onRestart(cb: () => void) {
+    this.restartCbs.push(cb);
+    return () => {
+      this.restartCbs = this.restartCbs.filter((c) => c !== cb);
+    };
+  }
   emit(e: SttResultEvent) {
     for (const cb of this.resultCbs) cb(e);
   }
   emitError(code: string, message = "") {
     for (const cb of this.errorCbs) cb(code, message);
+  }
+  /** Simulate the recognizer restarting itself (Android after "no-speech"). */
+  emitRestart() {
+    for (const cb of this.restartCbs) cb();
   }
 }
 
