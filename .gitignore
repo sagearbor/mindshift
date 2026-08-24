@@ -250,6 +250,13 @@ apps/watch/**/build/
 apps/watch/local.properties
 apps/watch/keystore.properties
 
+# Google Play service-account key for `eas submit` (never commit; see
+# docs/plans/2026-08-24-realtime-three-tracks-handoff.md §9). Drop the JSON
+# downloaded from Google Cloud IAM at apps/mobile/play-service-account.json
+# or upload it to EAS with `eas credentials -p android`.
+apps/mobile/play-service-account.json
+*service-account*.json
+
 # apps/mobile native prebuild output (expo prebuild) — regenerated, never committed
 apps/mobile/android/
 apps/mobile/ios/

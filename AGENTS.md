@@ -51,6 +51,16 @@ Guide AI agents contributing to MindShift (see [PRD.md](PRD.md) for the product 
   is added/removed, BEFORE the next OTA — otherwise the update can land JS
   on a binary that lacks the native code. (1.17.0 = first runtime with the
   on-device modules; the 1.16.0 Play build stays on its last 1.16.0 OTA.)
+- Play Store (Android): `cd apps/mobile && eas build -p android --profile
+  production --non-interactive` (AAB, `autoIncrement` bumps
+  `android.versionCode` in app.json — COMMIT that bump or the next build
+  reuses the number and Play rejects it), then `eas submit -p android
+  --profile production --non-interactive` (internal-testing track; promote
+  to production only in the Play Console, owner-only). Submit needs a
+  Google Play service-account key stored on EAS (`eas credentials -p
+  android` → "Google Service Account Key for Play Store Submissions") or a
+  gitignored `apps/mobile/play-service-account.json` passed with `--key`.
+  Owner setup steps: handoff doc §9.
 
 ## Secrets in process listings
 - `scripts/deploy_cloudrun.sh` (and any `gcloud run deploy --set-env-vars`
