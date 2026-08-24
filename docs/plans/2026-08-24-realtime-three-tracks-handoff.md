@@ -148,3 +148,86 @@ frameworks); the Release app boots on the iPhone 17 Pro simulator. Run
    report; flip `MINDSHIFT_TONE_AUDIO=on` only when it beats text-tone on
    the scene pack.
 5. Apple Watch: accepted gap (~6 months).
+
+## 8. Installable builds via EAS + OTA path from the new Mac (2026-08-24, evening)
+
+### Runtime isolation (read before any OTA)
+`app.json` uses `runtimeVersion: {policy: "appVersion"}`, so the runtime
+version **is** `expo.version`. The Play build (1.16.0 / versionCode 31,
+EAS build `16087820`, channel `production`) predates every new native
+module (onnxruntime-react-native, expo-ai-kit, expo-speech-recognition,
+expo-build-properties). `expo.version` is therefore bumped to **1.17.0**
+(versionCode 32): an OTA published from `main` now carries runtime 1.17.0
+and can never be delivered to the 1.16.0 Play build. Consequences:
+- The 1.16.0 Play users stay frozen on the last 1.16.0 OTA
+  (`0a49071e…`, 2026-08-23) until a 1.17.0 production build ships to Play
+  (`eas build -p android --profile production` + `eas submit`). To hot-fix
+  1.16.0 you would have to publish from a checkout with `version: 1.16.0`
+  and no new-native imports — don't; ship the store build instead.
+- Bump `expo.version` again any time a native module is added/removed.
+
+### Android — Pixel 10 (no USB needed)
+- `eas build -p android --profile preview` (APK, internal distribution,
+  channel `preview`, prod Cloud Run URL baked from `eas.json`). Android
+  keystore is on EAS servers ("Build Credentials EEdFzvqWfA") — nothing
+  to migrate from the old Mac.
+- Build `555b04e3-9a28-4efb-8bbf-e9a63e2dcac7` → install page **https://expo.dev/accounts/sagearbor/projects/mindshift/builds/555b04e3-9a28-4efb-8bbf-e9a63e2dcac7**
+  (APK `https://expo.dev/artifacts/eas/mgVE7KfXfo5864WpZkKOzxNbCCmglFqxBYqVbxXRDnU.apk`, 292 MB, ~13 min cloud build, first attempt succeeded).
+- This APK is signed with the real upload keystore, unlike the
+  debug-signed `~/Desktop/mindshift-release-cf7310a.apk` from §6 — the
+  two will NOT install over each other (signature mismatch); uninstall
+  the other one first.
+
+### OTA path from this Mac
+- `scripts/ota_publish.sh` gained `OTA_DRY_RUN=1` (auth + project id +
+  channel check, local `expo export`, greps the compiled .hbc for the
+  baked `EXPO_PUBLIC_API_URL`) and `OTA_CHANNEL=<name>` (default
+  `production`). Dry run passes on this Mac.
+- Published once to the `preview` channel (runtime 1.17.0 — only the
+  APK above can receive it): update group
+  `f453712b-331c-448b-ab99-4de6807ba433`
+  (android `01a035f1-4918-7dd4-a93d-81e3a9bba496`,
+  ios `01a035f1-4918-70cf-825b-2596571c3463`), commit `e1d6c7d`.
+- Day-to-day: `OTA_CHANNEL=preview ./scripts/ota_publish.sh "msg"` for the
+  Pixel/Mom builds; plain `./scripts/ota_publish.sh "msg"` for Play once a
+  1.17.0 production build exists there.
+
+### iOS — Mom's iPhone (owner-only; nothing else blocks on it)
+State: the EAS account `sagearbor` has **no Apple team linked**
+(`eas device:list` → "No Apple teams found"), no iOS build has ever run,
+so there is no distribution cert / provisioning profile. Creating them
+needs an Apple ID + 2FA, so it was not attempted. The repo is prepared:
+`ios.bundleIdentifier` `com.sagearbor.mindshift.app`, `buildNumber` "1"
+(auto-incremented by the `production` profile's `autoIncrement`),
+explicit `NSMicrophoneUsageDescription` /
+`NSSpeechRecognitionUsageDescription` (App Store review rejects
+expo-speech-recognition apps without them) and
+`ITSAppUsesNonExemptEncryption: false` (skips the TestFlight export-
+compliance question); `eas.json` `submit.production.ios` has
+`appleId` / `ascAppId` / `appleTeamId` placeholders.
+
+Prerequisite: Apple Developer Program membership (~$99/yr, developer.apple.com,
+takes up to ~48 h to activate). Then, from `apps/mobile`:
+
+1. `eas credentials -p ios` → pick `preview` (or `production`) → "Log in
+   to your Apple Developer account" → Apple ID + 2FA code. Let EAS
+   create the distribution certificate and provisioning profile.
+2. Pick ONE of:
+   - **TestFlight (recommended for Mom — she installs the free TestFlight
+     app and taps a link; up to 90 days per build, no device registration):**
+     `eas build -p ios --profile production` then `eas submit -p ios
+     --profile production` (fill the three placeholders in `eas.json`
+     first — `ascAppId` is the numeric App Store Connect app id after you
+     create the app record at appstoreconnect.apple.com; or just run
+     `eas submit` interactively and it will create the record). Add Mom
+     as an internal or external tester in App Store Connect → TestFlight.
+   - **Ad-hoc (internal distribution; no App Store Connect record, but
+     Mom's UDID must be registered first):** `eas device:create` (choose
+     "Website" → EAS prints a link/QR; Mom opens it on her iPhone, taps
+     "Register", installs the profile), then `eas build -p ios --profile
+     preview`; send her the build page's install link (Safari only).
+     Ad-hoc profiles are capped at 100 devices/yr and each new device
+     needs a rebuild.
+3. Either way the iOS build will receive the same `preview` /
+   `production` OTAs as Android (runtime 1.17.0 published for both
+   platforms).
