@@ -239,6 +239,10 @@ class SentinelController(
             // `lock` acquisition as the rest of this block, same contract as every other field
             // touched here.
             channelLevels.clear()
+            // Track 1: a disarmed watch stops repeating the last episode's cue (PRD §6 reminders
+            // are for a conversation that's still happening). Under `lock` like every other
+            // HapticDirector call in this class.
+            haptics.clearReminder()
         }
         // C1: `meter`/`activePulse` are core-thread-only fields (same contract as the rest of
         // this section's KDoc — written by tick()/processWindow(), read by the `state` getter,
@@ -328,6 +332,11 @@ class SentinelController(
         lastWindowVoiced = obs.voiced
         val voicedLoud = obs.voiced && obs.dbOverBaseline >= mode.params().triggerDbOverBaseline
         windowIndex++
+        // Track 1 / PRD §6: re-fire the current channel-A cue on its schedule. Once per window is
+        // the right cadence — the shortest interval (level 3) is 10 s, so a 1 s tick lands within
+        // one window of due, and this is the same thread that already owns every other haptic
+        // decision in this class.
+        replayDueReminder()
         // P4-3: reset every tick; only overwritten below when streamWindow() is actually reached
         // this tick (see emitPulseIfDue()) — any tick that doesn't (ARMED-only, the ARMED->
         // STREAMING transition tick itself, or COOLDOWN) reports no active pulse.
@@ -544,6 +553,9 @@ class SentinelController(
         synchronized(lock) {
             reconnectPolicy.reset()
             channelLevels.clear()
+            // Track 1: same "fresh episode, clean slate" rule for the PRD §6 reminder — episode
+            // N+1 must not inherit episode N's repeat cadence any more than its level.
+            haptics.clearReminder()
         }
         // Fail-soft (Task 7): factory.create()/open()/the preamble send are all real I/O (or, on a
         // fresh install missing INTERNET/RECORD_AUDIO wiring, a SecurityException) that must never
@@ -808,6 +820,29 @@ class SentinelController(
     }
 
     /**
+     * Track 1 / PRD §6 ("single soft pulse every 2 min" / "double pulse every 1 min" /
+     * "continuous escalating"): asks [HapticDirector.dueReminder] whether the wearer's current
+     * channel-A level is due a repeat and, if so, plays it — under the SAME pulse-train
+     * suppression rule as a fresh nudge ([playChannelHapticIfApplicable]): while the local pulse
+     * train is actively covering channel A, the wearer is already feeling proportional taps, and
+     * a reminder on top would just be noise. A suppressed reminder stays due and fires on the
+     * first window after the train goes quiet. Holds [lock] around the director call (its
+     * reminder/dedupe state isn't synchronized — class KDoc). Fail-soft like every other haptic
+     * path: a throwing vibrator must never take down the tick.
+     */
+    private fun replayDueReminder() {
+        try {
+            synchronized(lock) {
+                val due = haptics.dueReminder() ?: return
+                if (pulseIntervalMs() != null && pulseTrainActivelyCovering()) return
+                haptics.replayReminder(due)
+            }
+        } catch (t: Throwable) {
+            diag.log("error", "SentinelController", "reminder replay failed: $t")
+        }
+    }
+
+    /**
      * I2: true only when [pulseEngine] emitted a pulse recently enough that it's still plausibly
      * audible/covering channel A right now — "recently enough" being within `2 ×` the
      * [PulseEngine.lastEffectiveIntervalMs] that governed that last pulse (double its own cadence,
@@ -824,6 +859,10 @@ class SentinelController(
     }
 
     private fun endEpisodeStream() {
+        // Track 1: the episode is over, so its level is over — the server sends no de-escalation
+        // frames once the socket closes, and without this a level-3 wearer would keep getting the
+        // "you're in the red" ramp every 10 s through COOLDOWN and back into ARMED.
+        synchronized(lock) { haptics.clearReminder() }
         val client = synchronized(lock) { ws }
         if (client != null && !wsEndSent) {
             try {

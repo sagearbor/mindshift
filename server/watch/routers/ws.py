@@ -59,6 +59,7 @@ from watch.models import (
 )
 from watch.nudge_policy import NudgePolicy
 from watch.post_session import analyze_live_session
+from watch.relay import LiveWatchSession, register_live_session, unregister_live_session
 from watch.store import LiveSessionStore
 from watch.vectors import VectorEngine
 
@@ -214,6 +215,22 @@ def make_ws_router(
             for n in nudges:
                 await websocket.send_json({"type": "nudge", **n.model_dump()})
 
+        # Track 1 (2026-08-24): expose THIS connection's engine + emit to the
+        # phone->watch relay (watch/relay.py) for as long as the socket is
+        # open, so a hostile-tone self turn the PHONE heard can escalate the
+        # same NudgePolicy the watch mic feeds. Registered here — after the
+        # engine/policy exist and before the first frame — and unregistered
+        # in the `finally` below, so the relay can never hold a socket that
+        # has already gone away. The PCM/HR paths above/below are untouched.
+        relay_session = LiveWatchSession(
+            account_id=account,
+            live_session_id=live_session_id,
+            engine=engine,
+            emit=emit,
+            loop=asyncio.get_running_loop(),
+        )
+        register_live_session(relay_session)
+
         def build_live_session(status: str) -> LiveSession:
             return LiveSession(
                 id=live_session_id,
@@ -327,6 +344,10 @@ def make_ws_router(
         except WebSocketDisconnect:
             pass
         finally:
+            # Track 1: first thing on the way out, before any store write —
+            # a phone turn arriving during the save below must find no
+            # session rather than a half-torn-down one.
+            unregister_live_session(relay_session)
             if not captured:
                 # Abrupt disconnect before a clean "end": persist what we
                 # captured so far so data isn't lost, but never mislabel it

@@ -1,5 +1,6 @@
 package app.gauge.wear.haptics
 
+import app.gauge.shared.NudgeHapticSchedule
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -15,13 +16,33 @@ class HapticPatternsTest {
     }
 
     @Test
-    fun channelALevel2IsAPredefinedHeavyClick() {
-        assertEquals(HapticCue.Predefined(PredefinedEffect.HEAVY_CLICK), HapticPatterns.cue("A", 2))
+    fun channelALevel2IsADoubleClickPerPrdSection6() {
+        // Track 1: was a single HEAVY_CLICK; PRD §6 says "double pulse" and a count is what a
+        // wrist can actually tell apart from a single tap.
+        assertEquals(HapticCue.ComposedClicks(count = 2, gapMs = 170L), HapticPatterns.cue("A", 2))
     }
 
     @Test
     fun channelALevel3IsThreeComposedClicksAtTheSilenceFloorGap() {
         assertEquals(HapticCue.ComposedClicks(count = 3, gapMs = 170L), HapticPatterns.cue("A", 3))
+    }
+
+    @Test
+    fun channelATapCountsMatchTheSharedScheduleAtEveryLevel() {
+        // The one-source-of-truth guard: HapticPatterns must render exactly the pulse count
+        // NudgeHapticSchedule (PRD §6) prescribes, on both the device-tuned and fallback paths.
+        for (level in 1..3) {
+            val plan = NudgeHapticSchedule.planFor(level)
+            val tuned = when (val cue = HapticPatterns.cue("A", level)) {
+                is HapticCue.Predefined -> 1
+                is HapticCue.ComposedClicks -> cue.count
+                is HapticCue.Waveform -> cue.amplitudes.count { it > 0 }
+                null -> -1
+            }
+            assertEquals(plan.pulses, tuned, "A/$level tuned cue pulse count")
+            val fallback = HapticPatterns.waveformFallback("A", level)!!
+            assertEquals(plan.pulses, fallback.amplitudes.count { it > 0 }, "A/$level fallback pulse count")
+        }
     }
 
     // --- channel B: long smooth buzzes, waveform-only (channel identity) -----------------------
@@ -64,8 +85,10 @@ class HapticPatternsTest {
             HapticCue.Waveform(listOf(0L, 75L, 170L, 75L), listOf(0, 255, 0, 255)),
             HapticPatterns.waveformFallback("A", 2),
         )
+        // Track 1: level 3's fallback RAMPS (PRD §6 "escalating") — 200 -> 230 -> 255, from
+        // NudgeHapticSchedule.ESCALATING_RAMP, still full-scale by the last tap.
         assertEquals(
-            HapticCue.Waveform(listOf(0L, 100L, 170L, 100L, 170L, 100L), listOf(0, 255, 0, 255, 0, 255)),
+            HapticCue.Waveform(listOf(0L, 100L, 170L, 100L, 170L, 100L), listOf(0, 200, 0, 230, 0, 255)),
             HapticPatterns.waveformFallback("A", 3),
         )
     }

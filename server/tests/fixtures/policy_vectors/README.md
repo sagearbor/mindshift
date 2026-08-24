@@ -11,6 +11,12 @@ without reading the Python driver.
 | --- | --- | --- |
 | `nudge_policy.json` | `server/nudge_policy.py` `NudgePolicy` (mirror: `apps/watch/shared/.../NudgeStateMachine.kt`) | `server/tests/test_nudge_policy_vectors.py` |
 | `vad_segments.json` | `server/watch/diarize.py` `speech_segments` (energy VAD + merge/drop) | `server/tests/test_vad_vectors.py` |
+| `tone_escalation.json` | `server/watch/relay.py` phone turn -> `VectorEvent`s -> `NudgePolicy` (tone + loudness, max-combined) | `server/tests/watch/test_tone_escalation_vectors.py` |
+
+The Kotlin watch consumes `nudge_policy.json` too: `apps/watch/shared/build.gradle.kts`'s
+`syncPolicyVectors` task copies this directory into the `:shared` JVM test
+resources at build time (never a hand-maintained copy), and
+`NudgeStateMachineVectorsTest.kt` replays every case tagged `watch`.
 
 ## Conventions (all files)
 
@@ -40,6 +46,22 @@ without reading the Python driver.
 - Cooldown is **strictly** `elapsed > cooldown_s` — `cooldown_is_strictly_greater_than`
   pins the tie. Rounding of `level * sensitivity` is **half-up**, not
   banker's — `sensitivity_scales_with_half_up_rounding` pins 0.5 -> 1.
+
+## `tone_escalation.json` specifics
+
+- Kept separate from `nudge_policy.json` on purpose: that file's inputs are
+  already-levelled vector observations, these are raw phone turns
+  (`is_self`, `rms_dbfs`, `text_tone`, optional `tone_flag`) that
+  `relay.turn_local_to_vector_events` must first convert. Adding a `tone`
+  variant to the other file would have changed its schema under the Kotlin
+  consumer.
+- Tone rungs are `max(frustration, defensiveness)` -> `>=85/70/55 -> 3/2/1`;
+  the loudness lane reuses the `+6/+10/+14` ladder verbatim, and the two
+  combine as the policy's per-channel max. `config.baseline_rms_db: null`
+  means "cannot measure loudness" (never "baseline 0").
+- An empty conversion (`events: []`) does NOT call the policy — the watch's
+  own 1 s windows own cooldown de-escalation, so `levels` must hold across
+  such a step even when `t` has moved past `cooldown_s`.
 
 ## `vad_segments.json` specifics
 

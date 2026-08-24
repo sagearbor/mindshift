@@ -1,0 +1,273 @@
+{
+  "_schema": {
+    "version": 1,
+    "subject": "server/watch/relay.py turn_local_to_vector_events + NudgePolicy (phone turn -> watch nudge)",
+    "description": "Golden test vectors for the phone->watch tone-escalation relay (Track 1, 2026-08-24). Each case constructs one fresh NudgePolicy from `config`, then feeds `inputs` in order — one relay call per step — and asserts `expected[i]` after step i. This file is deliberately SEPARATE from nudge_policy.json: that file's `inputs.events` are already-levelled vector observations, while these inputs are raw phone turns (tone scores + loudness) that the relay must first turn into events. Same conventions otherwise (README.md): plain field names, seconds as floats, fresh instance per case.",
+    "config": {
+      "cooldown_s": "float — passed straight to NudgePolicy (see nudge_policy.json)",
+      "channels": "list of channel labels, as nudge_policy.json",
+      "subscriptions": "list of {vector, sensitivity, haptics, channel}, as nudge_policy.json — cases use the account defaults (yelling + aggressive_tone on A, sensitivity 1.0, haptics on)",
+      "baseline_rms_db": "float or null — the wearer's ENROLLMENT loudness baseline in dBFS (EnrollmentBaseline.rms_db). null means 'not enrolled and no prior phone turns yet', i.e. loudness can't be measured and never yells (the relay's live running-median fallback is NOT exercised by this file; it's covered by test_relay.py)"
+    },
+    "inputs": {
+      "t": "float seconds — the watch session's stream clock at relay time (relay uses engine.t, never the phone's turn timestamps)",
+      "turn": {
+        "is_self": "true | false | null — the phone's voiceprint verdict (TurnLocalEvent.is_self). ONLY true produces events; false (another speaker) and null (unknown) are ignored outright",
+        "rms_dbfs": "float or null — TurnLocalEvent.prosody.rms_dbfs; null = not measured (never 0). Loudness level = YELLING_LEVELS over `rms_dbfs - baseline_rms_db` (>=14 -> 3, >=10 -> 2, >=6 -> 1), and anything <= -45 dBFS (SILENCE_FLOOR_DBFS) is noise floor, not loudness",
+        "text_tone": "{frustration, defensiveness} (0-100 ints, either may be null/absent) or null — TurnLocalEvent.text_tone",
+        "tone_flag": "{scores: {frustration?, defensiveness?} (0-100 floats), confidence: 0..1} or null — an optional ToneFlagEvent relayed alongside; ignored below TONE_FLAG_MIN_CONFIDENCE (0.5)"
+      }
+    },
+    "tone_levels": "max(frustration, defensiveness) over BOTH tone sources -> level: >=85 -> 3, >=70 -> 2, >=55 -> 1, else 0 (relay.py TONE_LEVELS). Rides the `aggressive_tone` vector",
+    "expected": {
+      "events": "list of {vector, level} the relay converted this turn into, in emission order (yelling first, then aggressive_tone); [] when nothing cleared a first rung — and an empty relay does NOT tick the policy (no cooldown de-escalation from phone cadence)",
+      "nudges": "list of {channel, level, vectors} emitted by the policy for this step, as nudge_policy.json",
+      "levels": "map channel -> current level after this step, as nudge_policy.json"
+    },
+    "applies_to": {
+      "server": "the Python relay (server/watch/relay.py) — every case. No watch/phone port exists yet: the watch never sees tone, and the phone's own coaching path has no wrist to nudge"
+    }
+  },
+  "cases": [
+    {
+      "name": "calm_volume_hostile_tone_escalates",
+      "description": "The case the relay exists for: a self turn at exactly baseline loudness (0 dB over -> no yelling) but with frustration 78 (>= 70 -> level 2) raises channel A to 2 on the tone lane alone.",
+      "applies_to": ["server"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A"],
+        "baseline_rms_db": -30.0,
+        "subscriptions": [
+          {"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"},
+          {"vector": "aggressive_tone", "sensitivity": 1.0, "haptics": true, "channel": "A"}
+        ]
+      },
+      "inputs": [
+        {"t": 5.0, "turn": {"is_self": true, "rms_dbfs": -30.0, "text_tone": {"frustration": 78, "defensiveness": 20}, "tone_flag": null}}
+      ],
+      "expected": [
+        {"events": [{"vector": "aggressive_tone", "level": 2}], "nudges": [{"channel": "A", "level": 2, "vectors": ["aggressive_tone"]}], "levels": {"A": 2}}
+      ]
+    },
+    {
+      "name": "other_speaker_hostile_turn_is_ignored",
+      "description": "Bias guard: the OTHER party's furious turn (is_self false, frustration 95, 20 dB over) produces nothing — the watch measures its wearer, never the person they're talking to.",
+      "applies_to": ["server"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A"],
+        "baseline_rms_db": -30.0,
+        "subscriptions": [
+          {"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"},
+          {"vector": "aggressive_tone", "sensitivity": 1.0, "haptics": true, "channel": "A"}
+        ]
+      },
+      "inputs": [
+        {"t": 5.0, "turn": {"is_self": false, "rms_dbfs": -10.0, "text_tone": {"frustration": 95, "defensiveness": 90}, "tone_flag": null}}
+      ],
+      "expected": [
+        {"events": [], "nudges": [], "levels": {"A": 0}}
+      ]
+    },
+    {
+      "name": "unknown_speaker_is_ignored",
+      "description": "is_self null (no enrolled voiceprint to match against) is not evidence about the wearer: identical hostile content, still nothing.",
+      "applies_to": ["server"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A"],
+        "baseline_rms_db": -30.0,
+        "subscriptions": [
+          {"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"},
+          {"vector": "aggressive_tone", "sensitivity": 1.0, "haptics": true, "channel": "A"}
+        ]
+      },
+      "inputs": [
+        {"t": 5.0, "turn": {"is_self": null, "rms_dbfs": -10.0, "text_tone": {"frustration": 95, "defensiveness": 90}, "tone_flag": null}}
+      ],
+      "expected": [
+        {"events": [], "nudges": [], "levels": {"A": 0}}
+      ]
+    },
+    {
+      "name": "tone_threshold_rungs",
+      "description": "Pins every TONE_LEVELS rung: 54 is under the first bar (nothing — and no policy tick), 55 -> 1, 70 -> 2, 85 -> 3, each a fresh escalation that emits. Loudness is at baseline throughout so only the tone lane moves. Uses defensiveness for the middle rung to pin that both keys count.",
+      "applies_to": ["server"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A"],
+        "baseline_rms_db": -30.0,
+        "subscriptions": [
+          {"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"},
+          {"vector": "aggressive_tone", "sensitivity": 1.0, "haptics": true, "channel": "A"}
+        ]
+      },
+      "inputs": [
+        {"t": 1.0, "turn": {"is_self": true, "rms_dbfs": -30.0, "text_tone": {"frustration": 54, "defensiveness": 0}, "tone_flag": null}},
+        {"t": 2.0, "turn": {"is_self": true, "rms_dbfs": -30.0, "text_tone": {"frustration": 55, "defensiveness": 0}, "tone_flag": null}},
+        {"t": 3.0, "turn": {"is_self": true, "rms_dbfs": -30.0, "text_tone": {"frustration": 0, "defensiveness": 70}, "tone_flag": null}},
+        {"t": 4.0, "turn": {"is_self": true, "rms_dbfs": -30.0, "text_tone": {"frustration": 85, "defensiveness": null}, "tone_flag": null}}
+      ],
+      "expected": [
+        {"events": [], "nudges": [], "levels": {"A": 0}},
+        {"events": [{"vector": "aggressive_tone", "level": 1}], "nudges": [{"channel": "A", "level": 1, "vectors": ["aggressive_tone"]}], "levels": {"A": 1}},
+        {"events": [{"vector": "aggressive_tone", "level": 2}], "nudges": [{"channel": "A", "level": 2, "vectors": ["aggressive_tone"]}], "levels": {"A": 2}},
+        {"events": [{"vector": "aggressive_tone", "level": 3}], "nudges": [{"channel": "A", "level": 3, "vectors": ["aggressive_tone"]}], "levels": {"A": 3}}
+      ]
+    },
+    {
+      "name": "db_and_tone_combine_as_max",
+      "description": "Both lanes fire on one turn: 16 dB over (yelling 3) with frustration 60 (tone 1) -> the channel takes the max, 3, and `vectors` names only the winner. The next turn is calm-volume but defensiveness 90 (tone 3) — equal to the current level, so it sustains (refreshes the clock) without re-emitting. A third, genuinely calm turn produces no events and therefore no policy tick: the level holds at 3 even though 30 s > cooldown have passed on the relay's clock (the watch's own windows own de-escalation).",
+      "applies_to": ["server"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A"],
+        "baseline_rms_db": -30.0,
+        "subscriptions": [
+          {"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"},
+          {"vector": "aggressive_tone", "sensitivity": 1.0, "haptics": true, "channel": "A"}
+        ]
+      },
+      "inputs": [
+        {"t": 1.0, "turn": {"is_self": true, "rms_dbfs": -14.0, "text_tone": {"frustration": 60, "defensiveness": 10}, "tone_flag": null}},
+        {"t": 2.0, "turn": {"is_self": true, "rms_dbfs": -30.0, "text_tone": {"frustration": 10, "defensiveness": 90}, "tone_flag": null}},
+        {"t": 40.0, "turn": {"is_self": true, "rms_dbfs": -30.0, "text_tone": {"frustration": 10, "defensiveness": 10}, "tone_flag": null}}
+      ],
+      "expected": [
+        {"events": [{"vector": "yelling", "level": 3}, {"vector": "aggressive_tone", "level": 1}], "nudges": [{"channel": "A", "level": 3, "vectors": ["yelling"]}], "levels": {"A": 3}},
+        {"events": [{"vector": "aggressive_tone", "level": 3}], "nudges": [], "levels": {"A": 3}},
+        {"events": [], "nudges": [], "levels": {"A": 3}}
+      ]
+    },
+    {
+      "name": "db_lane_alone_matches_watch_ladder",
+      "description": "With no tone data at all, the phone's loudness walks the SAME +6/+10/+14 ladder the watch mic uses: -23.9 (6.1 over) -> 1, -20 (10 over) -> 2, -16 (14 over) -> 3.",
+      "applies_to": ["server"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A"],
+        "baseline_rms_db": -30.0,
+        "subscriptions": [
+          {"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"},
+          {"vector": "aggressive_tone", "sensitivity": 1.0, "haptics": true, "channel": "A"}
+        ]
+      },
+      "inputs": [
+        {"t": 1.0, "turn": {"is_self": true, "rms_dbfs": -23.9, "text_tone": null, "tone_flag": null}},
+        {"t": 2.0, "turn": {"is_self": true, "rms_dbfs": -20.0, "text_tone": null, "tone_flag": null}},
+        {"t": 3.0, "turn": {"is_self": true, "rms_dbfs": -16.0, "text_tone": null, "tone_flag": null}}
+      ],
+      "expected": [
+        {"events": [{"vector": "yelling", "level": 1}], "nudges": [{"channel": "A", "level": 1, "vectors": ["yelling"]}], "levels": {"A": 1}},
+        {"events": [{"vector": "yelling", "level": 2}], "nudges": [{"channel": "A", "level": 2, "vectors": ["yelling"]}], "levels": {"A": 2}},
+        {"events": [{"vector": "yelling", "level": 3}], "nudges": [{"channel": "A", "level": 3, "vectors": ["yelling"]}], "levels": {"A": 3}}
+      ]
+    },
+    {
+      "name": "tone_flag_counts_only_when_confident",
+      "description": "A server ToneFlagEvent (audio tone) with frustration 90 at confidence 0.9 raises level 3 with no text tone at all; the same scores at confidence 0.3 are an observation, not a verdict, and produce nothing.",
+      "applies_to": ["server"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A"],
+        "baseline_rms_db": -30.0,
+        "subscriptions": [
+          {"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"},
+          {"vector": "aggressive_tone", "sensitivity": 1.0, "haptics": true, "channel": "A"}
+        ]
+      },
+      "inputs": [
+        {"t": 1.0, "turn": {"is_self": true, "rms_dbfs": -30.0, "text_tone": null, "tone_flag": {"scores": {"frustration": 90.0}, "confidence": 0.3}}},
+        {"t": 2.0, "turn": {"is_self": true, "rms_dbfs": -30.0, "text_tone": null, "tone_flag": {"scores": {"frustration": 90.0}, "confidence": 0.9}}}
+      ],
+      "expected": [
+        {"events": [], "nudges": [], "levels": {"A": 0}},
+        {"events": [{"vector": "aggressive_tone", "level": 3}], "nudges": [{"channel": "A", "level": 3, "vectors": ["aggressive_tone"]}], "levels": {"A": 3}}
+      ]
+    },
+    {
+      "name": "two_tone_sources_take_the_max",
+      "description": "Text tone says 60 (level 1), the audio ToneFlagEvent says defensiveness 72 (level 2) at confidence 0.8 -> the louder source wins: level 2.",
+      "applies_to": ["server"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A"],
+        "baseline_rms_db": -30.0,
+        "subscriptions": [
+          {"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"},
+          {"vector": "aggressive_tone", "sensitivity": 1.0, "haptics": true, "channel": "A"}
+        ]
+      },
+      "inputs": [
+        {"t": 1.0, "turn": {"is_self": true, "rms_dbfs": -30.0, "text_tone": {"frustration": 60, "defensiveness": 0}, "tone_flag": {"scores": {"defensiveness": 72.0}, "confidence": 0.8}}}
+      ],
+      "expected": [
+        {"events": [{"vector": "aggressive_tone", "level": 2}], "nudges": [{"channel": "A", "level": 2, "vectors": ["aggressive_tone"]}], "levels": {"A": 2}}
+      ]
+    },
+    {
+      "name": "missing_measurements_are_not_zero",
+      "description": "Honest degradation: no prosody, no tone, no flag -> nothing to say. And a turn at the silence floor (-50 dBFS, 20 dB UNDER baseline) with no tone is noise floor, not loudness. Neither step ticks the policy.",
+      "applies_to": ["server"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A"],
+        "baseline_rms_db": -30.0,
+        "subscriptions": [
+          {"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"},
+          {"vector": "aggressive_tone", "sensitivity": 1.0, "haptics": true, "channel": "A"}
+        ]
+      },
+      "inputs": [
+        {"t": 1.0, "turn": {"is_self": true, "rms_dbfs": null, "text_tone": null, "tone_flag": null}},
+        {"t": 2.0, "turn": {"is_self": true, "rms_dbfs": -50.0, "text_tone": {"frustration": 0, "defensiveness": 0}, "tone_flag": null}}
+      ],
+      "expected": [
+        {"events": [], "nudges": [], "levels": {"A": 0}},
+        {"events": [], "nudges": [], "levels": {"A": 0}}
+      ]
+    },
+    {
+      "name": "no_baseline_means_loudness_cannot_be_measured",
+      "description": "baseline_rms_db null (not enrolled, no prior phone turns): a -10 dBFS turn is loud in absolute terms but there is nothing to compare it to, so it never yells — the tone lane still works (frustration 70 -> 2). Absolute thresholds are exactly what the bias guard forbids.",
+      "applies_to": ["server"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A"],
+        "baseline_rms_db": null,
+        "subscriptions": [
+          {"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"},
+          {"vector": "aggressive_tone", "sensitivity": 1.0, "haptics": true, "channel": "A"}
+        ]
+      },
+      "inputs": [
+        {"t": 1.0, "turn": {"is_self": true, "rms_dbfs": -10.0, "text_tone": {"frustration": 70, "defensiveness": 0}, "tone_flag": null}}
+      ],
+      "expected": [
+        {"events": [{"vector": "aggressive_tone", "level": 2}], "nudges": [{"channel": "A", "level": 2, "vectors": ["aggressive_tone"]}], "levels": {"A": 2}}
+      ]
+    },
+    {
+      "name": "tone_lane_respects_haptics_off_subscription",
+      "description": "The tone lane is an ordinary aggressive_tone subscription: a wearer who switched that vector's haptics off gets no tone nudge (frustration 95) while a loud turn (16 dB over) still nudges on yelling. Settings, not the relay, own the final say.",
+      "applies_to": ["server"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A"],
+        "baseline_rms_db": -30.0,
+        "subscriptions": [
+          {"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"},
+          {"vector": "aggressive_tone", "sensitivity": 1.0, "haptics": false, "channel": "A"}
+        ]
+      },
+      "inputs": [
+        {"t": 1.0, "turn": {"is_self": true, "rms_dbfs": -30.0, "text_tone": {"frustration": 95, "defensiveness": 0}, "tone_flag": null}},
+        {"t": 2.0, "turn": {"is_self": true, "rms_dbfs": -14.0, "text_tone": {"frustration": 95, "defensiveness": 0}, "tone_flag": null}}
+      ],
+      "expected": [
+        {"events": [{"vector": "aggressive_tone", "level": 3}], "nudges": [], "levels": {"A": 0}},
+        {"events": [{"vector": "yelling", "level": 3}, {"vector": "aggressive_tone", "level": 3}], "nudges": [{"channel": "A", "level": 3, "vectors": ["yelling"]}], "levels": {"A": 3}}
+      ]
+    }
+  ]
+}

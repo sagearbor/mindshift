@@ -654,6 +654,48 @@ class SentinelControllerTest {
     }
 
     @Test
+    fun channelANudgeRepeatsOnThePrdSection6ScheduleWhileStreaming() {
+        // Track 1 / PRD §6: a level-2 nudge ("double pulse every 1 min") is felt once on arrival
+        // and then again every minute the level holds, driven by the controller's own window tick
+        // — no server re-send involved. Pulses "Off" so the pulse-train suppression rule can't
+        // interfere; the director shares the controller's clock so reminders can actually come due.
+        val mic = ScriptedMic(quietThenTriggerWindows())
+        val wsFactory = FakeWsFactory()
+        val vibrator = FakeVibratorPort()
+        var clock = 0L
+        val haptics = HapticDirector(vibrator, nowMs = { clock })
+        val controller = SentinelController(
+            mode = Mode.STANDARD, mic = mic, wsFactory = wsFactory, haptics = haptics,
+            ids = FakeEpisodeIdFactory(), pulseIntervalMs = { null }, nowMs = { clock },
+        )
+
+        controller.arm()
+        repeat(8) { controller.tick() } // STREAMING, WS open
+        val listener = requireNotNull(wsFactory.created.single().listener)
+        listener.onNudge(NudgeEvent(channel = "A", level = 2, t = 9.0, vectors = listOf("yelling")))
+        assertEquals(1, vibrator.calls.size, "felt once on arrival")
+
+        clock = 59_000
+        controller.tick()
+        assertEquals(1, vibrator.calls.size, "not yet due")
+
+        clock = 60_000
+        controller.tick()
+        assertEquals(2, vibrator.calls.size, "repeated at the 1 min cadence by the window tick")
+
+        clock = 120_000
+        controller.tick()
+        assertEquals(3, vibrator.calls.size)
+
+        // Disarm ends the conversation: no more reminders, however long we wait.
+        controller.disarm()
+        clock = 10_000_000
+        controller.arm()
+        controller.tick()
+        assertEquals(3, vibrator.calls.size, "a disarmed/re-armed sentinel forgets the old level")
+    }
+
+    @Test
     fun nudgeFromServerChannelBStillVibrates() {
         val mic = ScriptedMic(quietThenTriggerWindows())
         val wsFactory = FakeWsFactory()

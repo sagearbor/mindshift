@@ -5,6 +5,7 @@ import app.gauge.wear.control.DiagLog
 import app.gauge.wear.control.VibratorPort
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class FakeVibratorPort : VibratorPort {
@@ -77,11 +78,13 @@ class HapticDirectorTest {
     }
 
     @Test
-    fun channelALevel2PlaysTheHeavyClickWhenSupported() {
+    fun channelALevel2PlaysTwoComposedClicksWhenSupported() {
+        // Track 1 / PRD §6: level 2 is a DOUBLE pulse (was one HEAVY_CLICK).
         setup()
-        fakeVibrator.supportsPredefined = true
+        fakeVibrator.supportsComposition = true
         director.onNudge(NudgeEvent(channel = "A", level = 2, t = 0.0))
-        assertEquals(listOf(PredefinedEffect.HEAVY_CLICK), fakeVibrator.predefinedPlayed)
+        assertEquals(listOf(2 to 170L), fakeVibrator.composedPlayed)
+        assertEquals(0, fakeVibrator.predefinedPlayed.size)
     }
 
     @Test
@@ -165,10 +168,13 @@ class HapticDirectorTest {
     fun levelChangeAlwaysPlays() {
         setup()
         fakeVibrator.supportsPredefined = true
+        fakeVibrator.supportsComposition = true
         director.onNudge(NudgeEvent(channel = "A", level = 1, t = 0.0))
         timeMs = 100
         director.onNudge(NudgeEvent(channel = "A", level = 2, t = 1.0))
-        assertEquals(listOf(PredefinedEffect.CLICK, PredefinedEffect.HEAVY_CLICK), fakeVibrator.predefinedPlayed)
+        // Track 1: L1 is still the predefined click; L2 is now the PRD §6 double (composed).
+        assertEquals(listOf(PredefinedEffect.CLICK), fakeVibrator.predefinedPlayed)
+        assertEquals(listOf(2 to 170L), fakeVibrator.composedPlayed)
     }
 
     @Test
@@ -206,6 +212,108 @@ class HapticDirectorTest {
         director.demo("A", 0)
         director.demo("C", 2)
         assertEquals(0, fakeVibrator.calls.size)
+    }
+
+    // --- PRD §6 repeat schedule (Track 1) -------------------------------------------------------
+
+    @Test
+    fun reminderIsNotDueUntilTheLevelsIntervalElapses() {
+        setup()
+        director.onNudge(NudgeEvent(channel = "A", level = 2, t = 0.0)) // double pulse, every 1 min
+        assertEquals(2, director.reminderLevel())
+        timeMs = 59_999
+        assertNull(director.dueReminder())
+        timeMs = 60_000
+        val due = director.dueReminder()
+        assertEquals(NudgeEvent(channel = "A", level = 2, t = 60.0, vectors = emptyList()), due)
+    }
+
+    @Test
+    fun replayReminderPlaysTheSameCueAndRebasesTheClock() {
+        setup()
+        director.onNudge(NudgeEvent(channel = "A", level = 1, t = 0.0)) // single soft, every 2 min
+        assertEquals(1, fakeVibrator.calls.size)
+        timeMs = 120_000
+        director.replayReminder(director.dueReminder()!!)
+        assertEquals(2, fakeVibrator.calls.size)
+        assertWaveformPlayed(fakeVibrator.calls[1], HapticPatterns.waveformFallback("A", 1)!!)
+        // Rebased: not due again until another full interval.
+        timeMs = 239_999
+        assertNull(director.dueReminder())
+        timeMs = 240_000
+        assertEquals(1, director.dueReminder()!!.level)
+    }
+
+    @Test
+    fun level3RepeatsEvery10SecondsAsTheContinuousPattern() {
+        setup()
+        director.onNudge(NudgeEvent(channel = "A", level = 3, t = 0.0))
+        timeMs = 10_000
+        assertEquals(3, director.dueReminder()!!.level)
+    }
+
+    @Test
+    fun level0DeescalationOnChannelAStopsReminders() {
+        setup()
+        director.onNudge(NudgeEvent(channel = "A", level = 3, t = 0.0))
+        director.onNudge(NudgeEvent(channel = "A", level = 0, t = 1.0)) // silent, but must clear
+        assertEquals(0, director.reminderLevel())
+        timeMs = 1_000_000
+        assertNull(director.dueReminder())
+    }
+
+    @Test
+    fun levelChangeRetargetsTheReminderToTheNewLevel() {
+        setup()
+        director.onNudge(NudgeEvent(channel = "A", level = 1, t = 0.0))
+        timeMs = 30_000
+        director.onNudge(NudgeEvent(channel = "A", level = 3, t = 30.0))
+        timeMs = 39_999
+        assertNull(director.dueReminder()) // 10 s from the LEVEL-3 play, not from the level-1 one
+        timeMs = 40_000
+        assertEquals(3, director.dueReminder()!!.level)
+    }
+
+    @Test
+    fun channelBNeverSchedulesReminders() {
+        setup()
+        director.onNudge(NudgeEvent(channel = "B", level = 3, t = 0.0))
+        assertEquals(0, director.reminderLevel())
+        timeMs = 1_000_000
+        assertNull(director.dueReminder())
+    }
+
+    @Test
+    fun dedupedDuplicateDoesNotRebaseTheReminderClock() {
+        setup()
+        director.onNudge(NudgeEvent(channel = "A", level = 2, t = 0.0))
+        timeMs = 3_000
+        director.onNudge(NudgeEvent(channel = "A", level = 2, t = 3.0)) // swallowed by the 5 s dedupe
+        assertEquals(1, fakeVibrator.calls.size)
+        timeMs = 60_000 // 60 s from the play that actually happened
+        assertEquals(2, director.dueReminder()!!.level)
+    }
+
+    @Test
+    fun replayReminderIsANoOpIfTheLevelWasClearedMeanwhile() {
+        setup()
+        director.onNudge(NudgeEvent(channel = "A", level = 2, t = 0.0))
+        timeMs = 60_000
+        val due = director.dueReminder()!!
+        director.clearReminder()
+        director.replayReminder(due)
+        assertEquals(1, fakeVibrator.calls.size)
+    }
+
+    @Test
+    fun replayReminderRefreshesTheDedupeSoAServerResendIsSwallowed() {
+        setup()
+        director.onNudge(NudgeEvent(channel = "A", level = 2, t = 0.0))
+        timeMs = 60_000
+        director.replayReminder(director.dueReminder()!!)
+        timeMs = 61_000
+        director.onNudge(NudgeEvent(channel = "A", level = 2, t = 61.0)) // same level, 1 s after the reminder
+        assertEquals(2, fakeVibrator.calls.size)
     }
 
     // --- playPulse (unchanged contract, raised band values live in HapticPatternsTest) ----------
