@@ -2273,9 +2273,13 @@ class TestDeepgramOverlapSuppression:
         assert len(ranges) == LOCAL_RANGES_MAX
         assert ranges[-1] == (float(LOCAL_RANGES_MAX + 9), float(LOCAL_RANGES_MAX + 9) + 0.5)
 
-    def test_deepgram_segment_inside_local_turn_is_dropped_uncovered_passes(
-        self, local_first_env,
-    ):
+    def test_no_deepgram_segments_at_all_once_local_first(self, local_first_env):
+        """Superseded the old "covered dropped / uncovered passes" contract:
+        production e2e (2026-08-24) showed Deepgram finalizing on pauses
+        BEFORE the phone's turn_local arrived, so midpoint suppression let
+        every turn be coached twice. Once local_first, audio is buffered for
+        enrichment only — the transcriber never sees it, so neither the
+        duplicate NOR the "phone missed this" span produces a transcript."""
         t = SequentialSegmentTranscriber([
             TranscriptSegment("Duplicate of the phone's turn.", 1.0, 3.0, speaker=0),
             TranscriptSegment("The phone missed this.", 5.0, 6.0, speaker=1),
@@ -2286,22 +2290,50 @@ class TestDeepgramOverlapSuppression:
                 text="You never listen.", start_time=0.9, end_time=3.1,
             )))
             first = json.loads(ws.receive_text())
-            ws.send_bytes(FRAME_100MS)  # → the covered segment: suppressed, silence
-            ws.send_bytes(FRAME_100MS)  # → the uncovered span: transcript + suggestion
-            second = json.loads(ws.receive_text())
-            third = json.loads(ws.receive_text())
+            ws.send_bytes(FRAME_100MS)  # would have been the covered segment
+            ws.send_bytes(FRAME_100MS)  # would have been the uncovered span
+            ws.send_text(json.dumps({"type": "stop"}))
+            tail = []
+            while True:
+                ev = json.loads(ws.receive_text())
+                tail.append(ev)
+                if ev["type"] == "session_complete":
+                    break
 
         assert first["type"] == "suggestion"
         assert first["utterance_text"] == "You never listen."
-        assert second["type"] == "transcript"
-        assert second["text"] == "The phone missed this."
-        assert third["type"] == "suggestion"
-        assert third["utterance_text"] == "The phone missed this."
+        assert [e["type"] for e in tail if e["type"] == "transcript"] == []
+        assert all(e.get("utterance_text") != "The phone missed this." for e in tail)
 
 
 # --- Server TTS ownership in a local-first session --------------------------
 
 class TestLocalFirstTTS:
+    def test_audio_stops_reaching_transcriber_once_local_first(self, local_first_env):
+        """Production e2e (2026-08-24) showed Deepgram and the phone's on-device
+        STT both coaching every turn: Deepgram finalizes on pauses BEFORE the
+        phone's turn_local lands, so overlap suppression can't catch it. Once
+        a session is local_first, audio frames are ring-buffered for
+        enrichment but no longer forwarded to the transcriber at all."""
+        class CountingTranscriber(StoppableTranscriber):
+            def __init__(self):
+                super().__init__()
+                self.stream_calls = 0
+
+            async def stream(self, audio_bytes):
+                self.stream_calls += 1
+                return await super().stream(audio_bytes)
+
+        transcriber = CountingTranscriber()
+        client = _inject(transcriber)
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_bytes(b"\x00\x01" * 800)          # legacy frame: forwarded
+            ws.send_text(json.dumps(_turn_local()))    # session becomes local_first
+            assert json.loads(ws.receive_text())["type"] == "suggestion"
+            ws.send_bytes(b"\x00\x01" * 800)          # local_first frame: buffered only
+            ws.send_bytes(b"\x00\x01" * 800)
+        assert transcriber.stream_calls == 1
+
     def test_server_tts_skipped_once_local_first(self, local_first_env):
         """FakeTTS always returns audio when called — a None audio_b64 proves
         synthesize() was genuinely skipped. `speak` stays True: the phone
