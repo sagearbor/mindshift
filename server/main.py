@@ -50,6 +50,7 @@ import link_fetch
 import live_sessions
 import prosody
 import recordings_store
+import therapist_links
 import speaker_id
 import word_metrics as word_metrics_mod
 from audio_ingest import (
@@ -979,6 +980,14 @@ app.include_router(_models_router.router)
 from routers import sessions as _sessions_router  # noqa: E402
 
 app.include_router(_sessions_router.router)
+
+# Therapist link (the two-sided patient + therapist setup): PUT/GET/PATCH/
+# DELETE /therapist/link, GET /therapist/patients (+ accept/decline), and
+# viewer-private /therapist/notes. Consumes the existing per-episode share
+# grant — it adds no second sharing system (server/therapist_links.py).
+from routers import therapist as _therapist_router  # noqa: E402
+
+app.include_router(_therapist_router.router)
 
 # Watch domain (ported from Gauge — docs/plans/2026-08-15-unification-*.md):
 from watch.app import build_watch_routers  # noqa: E402
@@ -2820,6 +2829,14 @@ async def _analyze_recording_bytes(
                 response.recording_id = None
                 # Preserve a video note if there was one; otherwise report the save failure.
                 response.storage_note = f"storage failed: {type(exc).__name__}"
+            if response.recording_id:
+                # Two-sided therapist setup: a stored recording is granted to
+                # the owner's linked therapist when their link says so (the
+                # same per-episode grant "Share with…" makes). Best-effort —
+                # never raises, never un-stores the recording.
+                await therapist_links.auto_share_recording(
+                    store_backend, uid, response.recording_id,
+                )
 
     return response
 

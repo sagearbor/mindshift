@@ -13,6 +13,7 @@ import ToneSparkline from "../components/ToneSparkline";
 import ToneSummaryCard from "../components/ToneSummaryCard";
 import CouldHaveSaidList from "../components/CouldHaveSaidList";
 import WhoIsThisSheet from "../components/WhoIsThisSheet";
+import TherapistSessionPanel from "../components/TherapistSessionPanel";
 import * as apiClient from "../api/client";
 import type { PatchSpeakerLabelsResult, VoicePerson } from "../api/client";
 import { isEnrolledPersonLabel } from "../utils/people";
@@ -228,6 +229,10 @@ export default function SessionDetail({
           />
         </View>
       )}
+
+      {/* Therapist view of a patient's shared session: escalation markers,
+          named people, private notes. Own sessions render as before. */}
+      {session.shared ? <TherapistSessionPanel session={session} /> : null}
 
       {/* Aggregate stats */}
       {aggregateStats && (

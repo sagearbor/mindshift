@@ -21,8 +21,15 @@ import {
 import { getCachedToken } from "../auth/authToken";
 import type { FastLoop } from "../live/fastLoop";
 import { formatLatencyLog } from "../live/fastLoop";
-import type { FastLoopBuild, FastLoopHandlers } from "../live/defaultDeps";
-import { createDefaultFastLoop } from "../live/defaultDeps";
+import type {
+  FastLoopBuild,
+  FastLoopCapabilities,
+  FastLoopHandlers,
+} from "../live/defaultDeps";
+import { createDefaultFastLoop, probeFastLoopCapabilities } from "../live/defaultDeps";
+import type { TurnLatency } from "../live/fastLoop";
+import { summarizeSession, type SessionSummary } from "../live/sessionSummary";
+import { useLiveEpisodeStore } from "../store/liveEpisodeStore";
 import { detectLiveCapability, type LiveCapability } from "../live/capability";
 import type { LiveMode } from "../live/localLlm";
 import type { NudgeEvent } from "../live/nudgePolicy";
@@ -94,6 +101,24 @@ export interface UseAudioStreamOptions {
   makeFastLoop?: (handlers: FastLoopHandlers, mode: LiveMode) => Promise<FastLoopBuild>;
   /** POST the finished session (Track 2's /sessions/live). */
   postSession?: (body: LiveSessionBody) => Promise<PostLiveSessionResult>;
+  /** Pre-flight capability probe (what the loop would load right now). */
+  probeCapabilities?: () => Promise<FastLoopCapabilities>;
+}
+
+/** The pre-session capability check, as the screen shows it. */
+export type PreflightState =
+  | { status: "probing" }
+  | { status: "ready"; capabilities: FastLoopCapabilities }
+  | { status: "failed"; reason: string };
+
+/** The server's record of the session that just ended (Track 2 ingest). */
+export interface LastEpisode {
+  episodeId: string | null;
+  /** "created" = stored; "unsupported" = server predates /sessions/live;
+   *  "failed" = the POST failed (the transcript is still on screen). */
+  postStatus: "created" | "unsupported" | "failed";
+  /** Therapist emails the server auto-shared it with at ingest. */
+  sharedWith: string[];
 }
 
 interface UseAudioStreamReturn {
@@ -155,6 +180,18 @@ interface UseAudioStreamReturn {
   latencySummary: string;
   /** Server tone flags (newest first), rendered additively in live mode. */
   toneFlags: ToneFlagEvent[];
+  /** Pre-session capability check; null until `runPreflight` is called. */
+  preflight: PreflightState | null;
+  /** Probe what the on-device loop would load (no session started). No-op
+   *  on a device that can't run the loop at all. */
+  runPreflight: () => Promise<void>;
+  /** Nudges (level ≥ 1) raised on the user's own delivery this session. */
+  escalationCount: number;
+  /** Numbers for the end-of-session card; null until a session has ended. */
+  sessionSummary: SessionSummary | null;
+  /** The server's record of the last finished session (null until then, and
+   *  null on the legacy path where nothing is POSTed). */
+  lastEpisode: LastEpisode | null;
 }
 
 const RECONNECT_DELAY_MS = 2000;
@@ -234,6 +271,8 @@ function stopSpeechSafely() {
 /** Production fast-loop factory (native stack). */
 const defaultMakeFastLoop = (handlers: FastLoopHandlers) =>
   createDefaultFastLoop(handlers);
+/** Production pre-flight probe (same builders, no loop). */
+const defaultProbeCapabilities = () => probeFastLoopCapabilities();
 
 export function useAudioStream(
   options: UseAudioStreamOptions = {},
@@ -271,6 +310,16 @@ export function useAudioStream(
   const [nudgeFlash, setNudgeFlash] = useState<NudgeEvent | null>(null);
   const [latencySummary, setLatencySummary] = useState("");
   const [toneFlags, setToneFlags] = useState<ToneFlagEvent[]>([]);
+  const [preflight, setPreflight] = useState<PreflightState | null>(null);
+  const [escalationCount, setEscalationCount] = useState(0);
+  const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(null);
+  const [lastEpisode, setLastEpisode] = useState<LastEpisode | null>(null);
+  /** Session-end inputs kept outside React state so finishDrain (which runs
+   *  from timers / socket callbacks) reads the final values. */
+  const transcriptRef = useRef<TranscriptEntry[]>([]);
+  const latencyLogRef = useRef<TurnLatency[]>([]);
+  const escalationRef = useRef(0);
+  const preflightInFlightRef = useRef(false);
   const liveModeRef = useRef(liveCapability.capable);
   const sessionModeRef = useRef<LiveMode>("earpiece");
   /** The running loop for this session (null on the legacy path). */
@@ -293,6 +342,12 @@ export function useAudioStream(
   makeFastLoopRef.current = options.makeFastLoop ?? defaultMakeFastLoop;
   const postSessionRef = useRef(options.postSession ?? postLiveSession);
   postSessionRef.current = options.postSession ?? postLiveSession;
+  const probeRef = useRef(options.probeCapabilities ?? defaultProbeCapabilities);
+  probeRef.current = options.probeCapabilities ?? defaultProbeCapabilities;
+
+  useEffect(() => {
+    transcriptRef.current = transcript;
+  }, [transcript]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string>("");
@@ -424,6 +479,7 @@ export function useAudioStream(
       const report = formatLatencyLog(summary.latencyLog);
       console.log(report);
       setLatencySummary(report.split("\n")[0]);
+      latencyLogRef.current = summary.latencyLog;
     }
     const body: LiveSessionBody = {
       session_id: sessionIdRef.current,
@@ -439,9 +495,31 @@ export function useAudioStream(
     identitiesRef.current = [];
     // 404 (endpoint not deployed yet) is "unsupported", not a failure — the
     // transcript is already on screen; the record is a bonus.
+    const turnCount = body.turns.length;
     const result = await postSessionRef.current(body);
     if (result.status === "failed") {
       console.warn("[useAudioStream] POST /sessions/live failed:", result.error);
+      setLastEpisode({ episodeId: null, postStatus: "failed", sharedWith: [] });
+    } else if (result.status === "unsupported") {
+      setLastEpisode({ episodeId: null, postStatus: "unsupported", sharedWith: [] });
+    } else {
+      setLastEpisode({
+        episodeId: result.episodeId || null,
+        postStatus: "created",
+        sharedWith: result.sharedWith ?? [],
+      });
+      if (result.episodeId) {
+        // Confirmed by the server: Your Day can show it right away.
+        useLiveEpisodeStore.getState().remember({
+          episodeId: result.episodeId,
+          sessionId: body.session_id,
+          startedAt: body.started_at,
+          mode: body.mode,
+          title: `Live session · ${body.mode}`,
+          turnCount,
+          sharedWith: result.sharedWith ?? [],
+        });
+      }
     }
   }, []);
 
@@ -501,7 +579,11 @@ export function useAudioStream(
           }
         },
         onNudge: (nudge) => {
-          if (nudge.level > 0) setNudgeFlash(nudge);
+          if (nudge.level > 0) {
+            setNudgeFlash(nudge);
+            escalationRef.current += 1;
+            setEscalationCount(escalationRef.current);
+          }
         },
         onSttError: (code, message) => {
           liveSttFailedRef.current = true;
@@ -672,6 +754,16 @@ export function useAudioStream(
     // Normally already stopped by stopSession; this covers a session that
     // ends from the server side while the loop is still up.
     void stopFastLoop();
+    if (sessionStartedAtRef.current) {
+      setSessionSummary(
+        summarizeSession({
+          startedAt: sessionStartedAtRef.current,
+          transcript: transcriptRef.current,
+          latencyLog: latencyLogRef.current,
+          escalations: escalationRef.current,
+        }),
+      );
+    }
     teardownWebSocket();
     // The session is over: put the audio session back into a playback config so
     // a subsequent replay is audible (the record-oriented mode we set on start
@@ -902,6 +994,12 @@ export function useAudioStream(
               // kind may be absent on older servers → a normal "response".
               const kind: SuggestionKind =
                 data.kind === "nudge" ? "nudge" : "response";
+              if (kind === "nudge" && data.speak !== false && !liveActiveRef.current) {
+                // Legacy path: the server's delivery nudge is the only
+                // escalation signal (the fast loop counts its own).
+                escalationRef.current += 1;
+                setEscalationCount(escalationRef.current);
+              }
               // Streaming preview (local-first sessions only): shown dimmed,
               // superseded by the final event — which drops every preview
               // still in the feed, so a turn never shows twice.
@@ -1143,6 +1241,14 @@ export function useAudioStream(
       setLatencySummary("");
       setToneFlags([]);
       setNudgeFlash(null);
+      setSessionSummary(null);
+      setLastEpisode(null);
+      setEscalationCount(0);
+      escalationRef.current = 0;
+      latencyLogRef.current = [];
+      // The legacy path never starts the fast loop, so stamp the start here
+      // too (startFastLoop re-stamps when the loop actually comes up).
+      sessionStartedAtRef.current = new Date().toISOString();
       localTurnsRef.current = [];
       toneFlagsRef.current = [];
       identitiesRef.current = [];
@@ -1301,6 +1407,23 @@ export function useAudioStream(
 
   const clearNudgeFlash = useCallback(() => setNudgeFlash(null), []);
 
+  const runPreflight = useCallback(async () => {
+    if (!liveCapability.capable || preflightInFlightRef.current) return;
+    preflightInFlightRef.current = true;
+    setPreflight({ status: "probing" });
+    try {
+      const capabilities = await probeRef.current();
+      setPreflight({ status: "ready", capabilities });
+    } catch (err) {
+      setPreflight({
+        status: "failed",
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      preflightInFlightRef.current = false;
+    }
+  }, [liveCapability.capable]);
+
   return {
     isRecording,
     sessionActive,
@@ -1331,5 +1454,10 @@ export function useAudioStream(
     clearNudgeFlash,
     latencySummary,
     toneFlags,
+    preflight,
+    runPreflight,
+    escalationCount,
+    sessionSummary,
+    lastEpisode,
   };
 }

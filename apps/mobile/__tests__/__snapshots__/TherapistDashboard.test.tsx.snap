@@ -16,6 +16,11 @@ exports[`TherapistDashboard renders empty state 1`] = `
   }
   testID="therapist-dashboard"
 >
+  <View
+    onRefresh={[Function]}
+    refreshing={false}
+    testID="dashboard-refresh"
+  />
   <View>
     <Text
       style={
@@ -29,6 +34,20 @@ exports[`TherapistDashboard renders empty state 1`] = `
       }
     >
       Therapist Dashboard
+    </Text>
+    <Text
+      style={
+        {
+          "color": "#6B7280",
+          "fontSize": 13,
+          "fontWeight": "700",
+          "letterSpacing": 0.4,
+          "marginBottom": 8,
+          "textTransform": "uppercase",
+        }
+      }
+    >
+      Patients
     </Text>
     <View
       style={
@@ -129,6 +148,11 @@ exports[`TherapistDashboard renders filtered by role 1`] = `
   }
   testID="therapist-dashboard"
 >
+  <View
+    onRefresh={[Function]}
+    refreshing={false}
+    testID="dashboard-refresh"
+  />
   <View>
     <Text
       style={
@@ -142,6 +166,20 @@ exports[`TherapistDashboard renders filtered by role 1`] = `
       }
     >
       Therapist Dashboard
+    </Text>
+    <Text
+      style={
+        {
+          "color": "#6B7280",
+          "fontSize": 13,
+          "fontWeight": "700",
+          "letterSpacing": 0.4,
+          "marginBottom": 8,
+          "textTransform": "uppercase",
+        }
+      }
+    >
+      Patients
     </Text>
     <View
       style={
@@ -264,6 +302,7 @@ exports[`TherapistDashboard renders filtered by role 1`] = `
           }
         >
           Husband / Wife
+           · 1
         </Text>
       </View>
       <View
@@ -319,6 +358,7 @@ exports[`TherapistDashboard renders filtered by role 1`] = `
           }
         >
           Parent / Child
+           · 1
         </Text>
       </View>
     </View>
@@ -513,6 +553,11 @@ exports[`TherapistDashboard renders loading state 1`] = `
   }
   testID="therapist-dashboard"
 >
+  <View
+    onRefresh={[Function]}
+    refreshing={false}
+    testID="dashboard-refresh"
+  />
   <View>
     <Text
       style={
@@ -526,6 +571,20 @@ exports[`TherapistDashboard renders loading state 1`] = `
       }
     >
       Therapist Dashboard
+    </Text>
+    <Text
+      style={
+        {
+          "color": "#6B7280",
+          "fontSize": 13,
+          "fontWeight": "700",
+          "letterSpacing": 0.4,
+          "marginBottom": 8,
+          "textTransform": "uppercase",
+        }
+      }
+    >
+      Patients
     </Text>
     <View
       style={
@@ -626,6 +685,11 @@ exports[`TherapistDashboard renders with sessions 1`] = `
   }
   testID="therapist-dashboard"
 >
+  <View
+    onRefresh={[Function]}
+    refreshing={false}
+    testID="dashboard-refresh"
+  />
   <View>
     <Text
       style={
@@ -639,6 +703,20 @@ exports[`TherapistDashboard renders with sessions 1`] = `
       }
     >
       Therapist Dashboard
+    </Text>
+    <Text
+      style={
+        {
+          "color": "#6B7280",
+          "fontSize": 13,
+          "fontWeight": "700",
+          "letterSpacing": 0.4,
+          "marginBottom": 8,
+          "textTransform": "uppercase",
+        }
+      }
+    >
+      Patients
     </Text>
     <View
       style={
@@ -761,6 +839,7 @@ exports[`TherapistDashboard renders with sessions 1`] = `
           }
         >
           Husband / Wife
+           · 1
         </Text>
       </View>
       <View
@@ -816,6 +895,7 @@ exports[`TherapistDashboard renders with sessions 1`] = `
           }
         >
           Parent / Child
+           · 1
         </Text>
       </View>
     </View>

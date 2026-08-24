@@ -503,3 +503,69 @@ jest.mock("expo-asset", () => ({
     fromModule: jest.fn(() => ({ localUri: null, downloadAsync: jest.fn().mockResolvedValue(undefined) })),
   },
 }));
+
+// Pull-to-refresh (YourDay / Growth / Therapist dashboard). React Native's own
+// jest ScrollView mock spreads EVERY prop onto the host RCTScrollView —
+// including the `refreshControl` React element — which puts a React element
+// (with its circular `_owner` fiber) into `toJSON()` output and breaks both
+// snapshots and the `JSON.stringify(tree)` idiom the screen tests use. This
+// re-mock is RN's mock minus that one spread: the RefreshControl still renders
+// as a child (as a plain View carrying testID/refreshing/onRefresh so tests
+// can find it and fire onRefresh), and every other prop is untouched.
+function mockViewComponent() {
+  const mod = require("react-native/Libraries/Components/View/View");
+  return mod.default ?? mod;
+}
+jest.mock("react-native/Libraries/Components/RefreshControl/RefreshControl", () => {
+  const React = require("react");
+  const View = mockViewComponent();
+  const RefreshControl = (props: Record<string, unknown>) =>
+    React.createElement(View, {
+      testID: props.testID ?? "refresh-control",
+      refreshing: props.refreshing,
+      onRefresh: props.onRefresh,
+    });
+  return { __esModule: true, default: RefreshControl };
+});
+jest.mock("react-native/Libraries/Components/ScrollView/ScrollView", () => {
+  const React = require("react");
+  const mockComponent = jest.requireActual(
+    "@react-native/jest-preset/jest/mockComponent",
+  ).default;
+  const MockNativeMethods = jest.requireActual(
+    "@react-native/jest-preset/jest/MockNativeMethods",
+  ).default;
+  const View = mockViewComponent();
+  const requireNativeComponent =
+    require("react-native/Libraries/ReactNative/requireNativeComponent").default;
+  const RCTScrollView = requireNativeComponent("RCTScrollView");
+  const Base = mockComponent(
+    "react-native/Libraries/Components/ScrollView/ScrollView",
+    {
+      ...MockNativeMethods,
+      getScrollResponder: jest.fn(),
+      getScrollableNode: jest.fn(),
+      getInnerViewNode: jest.fn(),
+      getInnerViewRef: jest.fn(),
+      getNativeScrollRef: jest.fn(),
+      scrollTo: jest.fn(),
+      scrollToEnd: jest.fn(),
+      flashScrollIndicators: jest.fn(),
+      scrollResponderZoomTo: jest.fn(),
+      scrollResponderScrollNativeHandleToKeyboard: jest.fn(),
+    },
+    true,
+  );
+  class ScrollViewMock extends Base {
+    render() {
+      const { refreshControl, children, ...rest } = this.props as Record<string, unknown>;
+      return React.createElement(
+        RCTScrollView,
+        rest,
+        refreshControl as React.ReactNode,
+        React.createElement(View, null, children as React.ReactNode),
+      );
+    }
+  }
+  return { __esModule: true, default: ScrollViewMock };
+});

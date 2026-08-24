@@ -15,6 +15,16 @@ jest.mock("../src/api/client", () => ({
 }));
 const mockListSessions = listDashboardSessions as jest.Mock;
 
+// Therapist-side reads (patient list, private notes) — deterministic here;
+// TherapistDashboardPatients / SessionDetailTherapist cover them.
+jest.mock("../src/api/therapist", () => ({
+  listPatients: jest.fn(() => Promise.resolve([])),
+  acceptPatient: jest.fn(),
+  declinePatient: jest.fn(),
+  getSessionNote: jest.fn(() => Promise.resolve({ episode_id: "e1", text: "", updated_at: null })),
+  putSessionNote: jest.fn(),
+}));
+
 /** HOST nodes only (a component that renders null still has a fiber with
  *  its testID prop — matching it would make "renders nothing" untestable). */
 function queryId(comp: renderer.ReactTestRenderer, id: string): ReactTestInstance | null {

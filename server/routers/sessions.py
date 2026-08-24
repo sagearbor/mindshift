@@ -60,6 +60,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 import live_sessions
 import recordings_store
+import therapist_links
 from audio_pipeline import UUID_PATTERN
 from auth import get_current_uid
 from models.audio import SpeakerIdentityEvent, ToneFlagEvent, TurnLocalEvent
@@ -192,6 +193,10 @@ class LiveSessionOut(BaseModel):
     analysis_status: str
     analysis_scheduled: bool
     reflect_scheduled: bool
+    # Therapist emails this episode was auto-shared with at ingest (the
+    # patient's linked therapist, when their link has auto-share on). Empty
+    # when nobody was granted — the phone then offers a manual share.
+    shared_with: list[str] = []
 
 
 class ReflectionOut(BaseModel):
@@ -535,6 +540,11 @@ async def ingest_live_session(
 
     import main
 
+    # Two-sided therapist setup: grant the linked therapist (best-effort,
+    # never fails ingest) — the same per-episode grant Replay's "Share
+    # with…" makes, so revoke/list keep working unchanged.
+    shared_with = await therapist_links.auto_share_recording(store, uid, recording_id)
+
     self_label = analysis["live"]["self_speaker"]
     # Nothing is scheduled that the carried-over analysis already holds.
     analysis_scheduled = bool(
@@ -563,6 +573,7 @@ async def ingest_live_session(
         analysis_status=analysis["live"]["analysis_status"],
         analysis_scheduled=analysis_scheduled,
         reflect_scheduled=reflect_scheduled,
+        shared_with=shared_with,
     )
 
 

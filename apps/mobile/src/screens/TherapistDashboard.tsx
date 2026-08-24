@@ -1,15 +1,51 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
+  RefreshControl,
   StyleSheet,
 } from "react-native";
 import { useDashboardStore, SavedSession } from "../store/dashboardStore";
 import ToneSparkline from "../components/ToneSparkline";
 import { describeBucket, modeLabel } from "./toneTrends";
+import {
+  acceptPatient,
+  declinePatient,
+  listPatients,
+  type PatientLink,
+} from "../api/therapist";
+
+/** The patient list: every account that named this one as therapist
+ *  (accepted — pending ones are requests, shown separately) plus every
+ *  patient label present in the session list, so a patient who shared by
+ *  hand without linking still appears. "You" (own sessions) stays first. */
+export function patientRows(
+  sessions: SavedSession[],
+  patients: PatientLink[],
+): { label: string; sessions: number; linked: boolean }[] {
+  const counts = new Map<string, number>();
+  for (const s of sessions) counts.set(s.role, (counts.get(s.role) ?? 0) + 1);
+  const linked = new Set(
+    patients
+      .filter((p) => p.status === "accepted" && p.patient_email)
+      .map((p) => p.patient_email as string),
+  );
+  const labels = new Set<string>([...counts.keys(), ...linked]);
+  const rows = [...labels].map((label) => ({
+    label,
+    sessions: counts.get(label) ?? 0,
+    linked: linked.has(label),
+  }));
+  rows.sort((a, b) => {
+    if (a.label === "You") return -1;
+    if (b.label === "You") return 1;
+    return a.label.localeCompare(b.label);
+  });
+  return rows;
+}
 
 interface TherapistDashboardProps {
   onSelectSession: (id: string) => void;
@@ -24,15 +60,76 @@ export default function TherapistDashboard({
 }: TherapistDashboardProps) {
   const { sessions, roleFilter, loading, fetchSessions, setRoleFilter } =
     useDashboardStore();
+  // Linked patients (two-sided setup): pending requests to accept/decline
+  // and accepted patients for the list. null = not loaded / unavailable
+  // (older server, offline) — the dashboard then shows sessions only.
+  const [patients, setPatients] = useState<PatientLink[] | null>(null);
+  const [patientBusy, setPatientBusy] = useState<string | null>(null);
+  const [patientError, setPatientError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadPatients = useCallback(async () => {
+    try {
+      setPatients(await listPatients());
+    } catch {
+      setPatients(null);
+    }
+  }, []);
 
   useEffect(() => {
     fetchSessions();
-  }, [fetchSessions]);
+    void loadPatients();
+  }, [fetchSessions, loadPatients]);
 
-  const roles = useMemo(() => {
-    const set = new Set(sessions.map((s) => s.role));
-    return Array.from(set).sort();
-  }, [sessions]);
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([fetchSessions(), loadPatients()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchSessions, loadPatients]);
+
+  const handleAccept = useCallback(
+    async (p: PatientLink) => {
+      setPatientBusy(p.patient_uid);
+      setPatientError(null);
+      try {
+        const updated = await acceptPatient(p.patient_uid);
+        setPatients((prev) =>
+          (prev ?? []).map((x) => (x.patient_uid === p.patient_uid ? updated : x)),
+        );
+      } catch {
+        setPatientError("Couldn’t accept right now — please try again.");
+      } finally {
+        setPatientBusy(null);
+      }
+    },
+    [],
+  );
+
+  const handleDecline = useCallback(
+    async (p: PatientLink) => {
+      setPatientBusy(p.patient_uid);
+      setPatientError(null);
+      try {
+        await declinePatient(p.patient_uid);
+        setPatients((prev) => (prev ?? []).filter((x) => x.patient_uid !== p.patient_uid));
+      } catch {
+        setPatientError("Couldn’t decline right now — please try again.");
+      } finally {
+        setPatientBusy(null);
+      }
+    },
+    [],
+  );
+
+  const pending = useMemo(
+    () => (patients ?? []).filter((p) => p.status === "pending"),
+    [patients],
+  );
+  const rows = useMemo(() => patientRows(sessions, patients ?? []), [sessions, patients]);
+  const roles = useMemo(() => rows.map((r) => r.label), [rows]);
 
   const filteredSessions = useMemo(() => {
     if (!roleFilter) return sessions;
@@ -54,6 +151,13 @@ export default function TherapistDashboard({
       style={styles.flex}
       contentContainerStyle={styles.content}
       testID="therapist-dashboard"
+      refreshControl={
+        <RefreshControl
+          testID="dashboard-refresh"
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+        />
+      }
     >
       {onBack && (
         <TouchableOpacity
@@ -67,7 +171,49 @@ export default function TherapistDashboard({
       )}
       <Text style={styles.heading}>Therapist Dashboard</Text>
 
-      {/* Role filter chips */}
+      {/* Patients who named this account as their therapist and are waiting
+          for an acknowledgement. Their sessions are already shared (the
+          patient chose to); Accept lists them as a patient, Decline removes
+          the link so nothing further is shared. */}
+      {pending.length > 0 ? (
+        <View style={styles.pendingCard} testID="pending-patients">
+          <Text style={styles.pendingTitle}>Wants to share sessions with you</Text>
+          {pending.map((p) => (
+            <View key={p.patient_uid} style={styles.pendingRow} testID={`pending-${p.patient_uid}`}>
+              <Text style={styles.pendingEmail} numberOfLines={1}>
+                {p.patient_email ?? p.patient_uid}
+              </Text>
+              <TouchableOpacity
+                testID={`accept-${p.patient_uid}`}
+                accessibilityRole="button"
+                style={styles.acceptButton}
+                disabled={patientBusy === p.patient_uid}
+                onPress={() => handleAccept(p)}
+              >
+                <Text style={styles.acceptText}>Accept</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                testID={`decline-${p.patient_uid}`}
+                accessibilityRole="button"
+                style={styles.declineButton}
+                disabled={patientBusy === p.patient_uid}
+                onPress={() => handleDecline(p)}
+              >
+                <Text style={styles.declineText}>Decline</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+          {patientError ? (
+            <Text style={styles.patientError} testID="patient-error">
+              {patientError}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+
+      {/* Patient list — "You" first, then every linked or sharing patient;
+          tapping one filters the sessions below (the existing role filter). */}
+      <Text style={styles.patientsTitle}>Patients</Text>
       <View style={styles.filterRow}>
         <TouchableOpacity
           testID="filter-all"
@@ -83,27 +229,35 @@ export default function TherapistDashboard({
             All
           </Text>
         </TouchableOpacity>
-        {roles.map((role) => (
+        {rows.map((row) => (
           <TouchableOpacity
-            key={role}
-            testID={`filter-${role}`}
+            key={row.label}
+            testID={`filter-${row.label}`}
             style={[
               styles.filterChip,
-              roleFilter === role && styles.filterChipActive,
+              roleFilter === row.label && styles.filterChipActive,
             ]}
-            onPress={() => setRoleFilter(roleFilter === role ? null : role)}
+            onPress={() => setRoleFilter(roleFilter === row.label ? null : row.label)}
           >
             <Text
               style={[
                 styles.filterChipText,
-                roleFilter === role && styles.filterChipTextActive,
+                roleFilter === row.label && styles.filterChipTextActive,
               ]}
             >
-              {role}
+              {row.label}
+              {row.linked ? " ✓" : ""}
+              {` · ${row.sessions}`}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
+      {roles.length === 0 && !loading ? (
+        <Text style={styles.patientsHint} testID="patients-empty">
+          No patients yet. A patient links you from their Settings → My
+          therapist; their sessions then appear here.
+        </Text>
+      ) : null}
 
       {loading && (
         <ActivityIndicator
@@ -115,7 +269,11 @@ export default function TherapistDashboard({
       )}
 
       {!loading && filteredSessions.length === 0 && (
-        <Text style={styles.emptyText}>No sessions found.</Text>
+        <Text style={styles.emptyText}>
+          {roleFilter && rows.some((r) => r.label === roleFilter && r.linked)
+            ? "No sessions from this patient yet — their next live session or recording will appear here."
+            : "No sessions found."}
+        </Text>
       )}
 
       {/* Session list grouped by role */}
@@ -325,5 +483,73 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#4A90D9",
     marginBottom: 2,
+  },
+  pendingCard: {
+    backgroundColor: "#FFFBEB",
+    borderWidth: 1,
+    borderColor: "#FCD34D",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 14,
+    gap: 8,
+  },
+  pendingTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#92400E",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  pendingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  pendingEmail: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#1F2937",
+  },
+  acceptButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: "#4A90D9",
+  },
+  acceptText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  declineButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+  },
+  declineText: {
+    color: "#6B7280",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  patientError: {
+    fontSize: 12.5,
+    color: "#DC2626",
+  },
+  patientsTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#6B7280",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    marginBottom: 8,
+  },
+  patientsHint: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: "#6B7280",
+    marginBottom: 12,
   },
 });

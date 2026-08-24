@@ -13,6 +13,15 @@ jest.mock("../src/api/client", () => ({
 }));
 const mockListSessions = listDashboardSessions as jest.Mock;
 
+// Linked patients (two-sided setup) load alongside the sessions; none here so
+// the snapshots stay a pure render of the seeded store state
+// (TherapistDashboardPatients.test.tsx covers the requests + patient list).
+jest.mock("../src/api/therapist", () => ({
+  listPatients: jest.fn(() => Promise.resolve([])),
+  acceptPatient: jest.fn(),
+  declinePatient: jest.fn(),
+}));
+
 const mockSessions = [
   {
     id: "s1",

@@ -85,6 +85,10 @@ function reanalyzeStageLabel(status: JobStatus | undefined): string {
 }
 
 // House colors.
+/** Live-session reflection poll: every 5 s, at most ~1 min. */
+const REFLECTION_POLL_MS = 5000;
+const REFLECTION_POLL_MAX_ATTEMPTS = 12;
+
 const PRIMARY = "#4A90D9";
 const INK = "#1F2937";
 const MUTED = "#6B7280";
@@ -385,6 +389,38 @@ export default function ReplayScreen({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // A live session's batch analysis + "what you could have said" land a few
+  // seconds after ingest (server/routers/sessions.py runs them in the
+  // background). While the stored analysis is still "lite" — or the
+  // reflection hasn't been written yet for a session with an identified
+  // self voice — re-read the recording every few seconds, bounded, so the
+  // reflection appears without a manual refresh. Silent on failure.
+  useEffect(() => {
+    const live = detail?.analysis?.live;
+    if (!detail || detail.media_type !== "none" || !live) return;
+    const pending =
+      live.analysis_status === "lite" ||
+      (live.could_have_said == null && Boolean(live.self_speaker) && !live.reflection);
+    if (!pending) return;
+    let attempts = 0;
+    const timer = setInterval(async () => {
+      attempts += 1;
+      if (attempts > REFLECTION_POLL_MAX_ATTEMPTS) {
+        clearInterval(timer);
+        return;
+      }
+      try {
+        const fresh = await getRecording(recordingId);
+        if (!mountedRef.current) return;
+        setDetail(fresh);
+        setReflections(fresh.analysis?.live?.could_have_said ?? null);
+      } catch {
+        // Keep polling until the cap; the manual Reflect button still works.
+      }
+    }, REFLECTION_POLL_MS);
+    return () => clearInterval(timer);
+  }, [detail, recordingId]);
 
   // The player errored on the remote HD stream (expired/blocked/unseekable) —
   // fall back to the stored derivative once. Ignored when we're already on the
