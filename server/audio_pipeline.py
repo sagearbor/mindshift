@@ -1918,6 +1918,20 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 # the wire behaviour below stays exactly as it was.
                 if len(audio_bytes) <= MAX_AUDIO_FRAME_BYTES:
                     ctx.pcm.append(audio_bytes)
+                # Local-first sessions transcribe on the phone: once the first
+                # turn_local has arrived, STOP feeding Deepgram. Measured on
+                # production (scripts/live_e2e.py, 2026-08-24): with both
+                # running, Deepgram finalizes on pauses BEFORE the phone's
+                # turn_local lands, so 37 spans of a 13-turn scene were
+                # transcribed and coached twice — the midpoint-overlap
+                # suppression below only catches segments that arrive AFTER
+                # the phone's turn, and a real phone's STT lags more than the
+                # e2e client. Audio is still ring-buffered above for tone /
+                # identity enrichment; the Deepgram socket stays open on its
+                # keepalive so a client that stops sending turn_local (its STT
+                # died) doesn't need a reconnect — see the turn_local docstring.
+                if ctx.local_first:
+                    continue
                 if not transcription_available:
                     continue
                 if len(audio_bytes) > MAX_AUDIO_FRAME_BYTES:
