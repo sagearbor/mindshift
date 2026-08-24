@@ -145,6 +145,43 @@ describe("ProviderChain", () => {
     expect(r.attempts[0].outcome).toBe("refused");
     expect(r.provider).toBe("cloud");
   });
+
+  it("a provider that hangs in suggest() times out and the chain falls through to the cloud", async () => {
+    const never = new Promise<never>(() => {});
+    const t0 = Date.now();
+    const r = await new ProviderChain(
+      [provider("os", { suggest: () => never }), cloudProvider()],
+      ["os", "cloud"],
+      undefined,
+      { suggestMs: 30 },
+    ).suggest(input);
+    expect(Date.now() - t0).toBeLessThan(1000);
+    expect(r.provider).toBe("cloud");
+    expect(r.attempts.map((a) => `${a.provider}:${a.outcome}`)).toEqual(["os:timeout", "cloud:cloud"]);
+    expect(r.attempts[0].detail).toMatch(/suggest timed out after 30 ms/);
+  });
+
+  it("a provider that hangs in isAvailable() (first-use model download) times out as well", async () => {
+    const never = new Promise<never>(() => {});
+    const r = await new ProviderChain(
+      [provider("os", { isAvailable: () => never }), provider("bundled", {}), cloudProvider()],
+      ["os", "bundled", "cloud"],
+      undefined,
+      { availabilityMs: 20 },
+    ).suggest(input);
+    expect(r.provider).toBe("bundled");
+    expect(r.attempts.map((a) => `${a.provider}:${a.outcome}`)).toEqual(["os:timeout", "bundled:ok"]);
+  });
+
+  it("a provider that answers within its budget is unaffected by the deadline", async () => {
+    const r = await new ProviderChain(
+      [provider("os", { suggest: async () => { await new Promise((res) => setTimeout(res, 5)); return parseSuggestionJson(GOOD); } }), cloudProvider()],
+      ["os", "cloud"],
+      undefined,
+      { suggestMs: 500, availabilityMs: 500 },
+    ).suggest(input);
+    expect(r.provider).toBe("os");
+  });
 });
 
 type FakeAi = ExpoAiKitLike & { calls: string[]; active: string };

@@ -274,6 +274,39 @@ const defaultMakeFastLoop = (handlers: FastLoopHandlers) =>
 /** Production pre-flight probe (same builders, no loop). */
 const defaultProbeCapabilities = () => probeFastLoopCapabilities();
 
+/**
+ * While the on-device loop runs, should a CLOUD suggestion be voiced?
+ * `recent` is the phone's own turns (oldest first) with whether the phone
+ * answered each itself; `utteranceText` is the words the server coached
+ * (it echoes the phone's text back verbatim for a turn_local). Exported for
+ * tests.
+ *
+ * - answers the LATEST local turn: only if the phone had nothing to say
+ *   for it (its providers fell through) — never two answers to one moment;
+ * - answers an EARLIER local turn: never — that moment has passed;
+ * - answers words the phone never reported (its VAD missed the span and
+ *   the server's transcriber caught it), or carries no text: the cloud is
+ *   the only voice there is, unless the latest local turn was already
+ *   answered.
+ */
+export function cloudAnswersOpenMoment(
+  recent: readonly { text: string; hadSuggestion: boolean }[],
+  utteranceText: string | null,
+): boolean {
+  const latest = recent.length > 0 ? recent[recent.length - 1] : null;
+  if (utteranceText === null) return latest ? !latest.hadSuggestion : true;
+  let idx = -1;
+  for (let i = recent.length - 1; i >= 0; i--) {
+    if (recent[i].text === utteranceText) {
+      idx = i;
+      break;
+    }
+  }
+  if (idx === -1) return latest ? !latest.hadSuggestion : true;
+  if (idx === recent.length - 1) return !recent[idx].hadSuggestion;
+  return false;
+}
+
 export function useAudioStream(
   options: UseAudioStreamOptions = {},
 ): UseAudioStreamReturn {
@@ -329,9 +362,15 @@ export function useAudioStream(
   const liveActiveRef = useRef(false);
   /** On-device STT died mid-session: accept the server's transcript again. */
   const liveSttFailedRef = useRef(false);
-  /** Whether the most recent local turn produced its own suggestion — a
-   *  cloud suggestion is only VOICED when it didn't (it always renders). */
-  const lastLocalHadSuggestionRef = useRef(false);
+  /** The recent local turns' words and whether the phone answered them
+   *  itself (oldest first, capped). A cloud suggestion always renders, but
+   *  is only VOICED when it is the answer to the LATEST turn (the server
+   *  echoes the phone's own text back as `utterance_text`) and the phone had
+   *  nothing to say for it — a late cloud answer to an earlier, already
+   *  coached turn must not be spoken; a suggestion for words the phone never
+   *  reported (a span its VAD missed, caught by the server) is the only
+   *  voice there is and is spoken. */
+  const recentLocalTurnsRef = useRef<{ text: string; hadSuggestion: boolean }[]>([]);
   /** Everything the phone told the server this session, for POST /sessions/live. */
   const localTurnsRef = useRef<TurnLocalEvent[]>([]);
   const toneFlagsRef = useRef<ToneFlagEvent[]>([]);
@@ -530,6 +569,10 @@ export function useAudioStream(
    */
   const startFastLoop = useCallback(
     async (sessionId: string, empathy: number) => {
+      // Set by onSttError during loop.start() (a recognizer that fails to
+      // start) so the status line below can say so instead of claiming a
+      // working loop.
+      let sttFailure: string | null = null;
       const handlers: FastLoopHandlers = {
         speak: (text) => speakSuggestion(text),
         send: (event) => {
@@ -557,7 +600,9 @@ export function useAudioStream(
               },
             ]);
           }
-          lastLocalHadSuggestionRef.current = turn.suggestion !== null;
+          const recent = recentLocalTurnsRef.current;
+          recent.push({ text: turn.text, hadSuggestion: turn.suggestion !== null });
+          if (recent.length > MAX_SUGGESTION_FEED) recent.splice(0, recent.length - MAX_SUGGESTION_FEED);
           if (turn.suggestion) {
             const id = (suggestionIdRef.current += 1);
             const text = turn.suggestion;
@@ -587,9 +632,17 @@ export function useAudioStream(
         },
         onSttError: (code, message) => {
           liveSttFailedRef.current = true;
-          setLiveStatus(
-            `On-device speech recognition failed (${code}${message ? `: ${message}` : ""}) — transcript continues from the server.`,
-          );
+          sttFailure = `speech recognition failed (${code}${message ? `: ${message}` : ""}) — transcript from the server`;
+          setLiveStatus(`On-device ${sttFailure}.`);
+        },
+        onDegrade: (stage, reason) => {
+          // Say what is actually running now, not what loaded at start.
+          if (stage === "vad") {
+            setLiveStatus((s) =>
+              s.replace(/^On-device: [^·]*VAD/, "On-device: energy VAD (Silero failed)") +
+              ` — ${reason}`,
+            );
+          }
         },
       };
       try {
@@ -599,6 +652,11 @@ export function useAudioStream(
           void build.loop.stop().catch(() => {});
           return;
         }
+        // Reset BEFORE start: onSttError may fire inside start() and must
+        // not be undone afterwards.
+        liveSttFailedRef.current = false;
+        recentLocalTurnsRef.current = [];
+        build.loop.setSelfSpeakerFallback(selfSpeakerRef.current);
         await build.loop.start({
           sessionId,
           mode: sessionModeRef.current,
@@ -606,10 +664,12 @@ export function useAudioStream(
         });
         fastLoopRef.current = build.loop;
         liveActiveRef.current = true;
-        liveSttFailedRef.current = false;
-        lastLocalHadSuggestionRef.current = false;
         sessionStartedAtRef.current = new Date().toISOString();
-        setLiveStatus(`On-device: ${build.status}`);
+        setLiveStatus(
+          sttFailure
+            ? `On-device: ${build.status} · ${sttFailure}.`
+            : `On-device: ${build.status}`,
+        );
         // The phone speaks for itself now: tell the server to skip its TTS
         // (and to report its own latency at session end).
         const ws = wsRef.current;
@@ -1026,20 +1086,36 @@ export function useAudioStream(
                   : next;
               });
               // While the on-device loop runs, a cloud suggestion AUGMENTS
-              // the local one on screen but is only voiced when the phone
-              // had nothing to say for the latest turn (its providers fell
-              // through to "cloud") — otherwise the user would hear two
-              // answers to one moment.
+              // the local one on screen but is only voiced when it answers
+              // the LATEST local turn (the server echoes the phone's text
+              // back as utterance_text) and the phone had nothing to say
+              // for it (its providers fell through to "cloud") — otherwise
+              // the user would hear two answers to one moment, or a late
+              // answer to a moment that has passed. With on-device STT
+              // dead the server's transcript is the only one, so its
+              // suggestions are voiced exactly as on the legacy path.
+              const loop = fastLoopRef.current;
               const voiceIt =
                 !muted &&
                 (!liveActiveRef.current ||
-                  (source === "cloud" && !lastLocalHadSuggestionRef.current));
+                  liveSttFailedRef.current ||
+                  (source === "cloud" &&
+                    cloudAnswersOpenMoment(
+                      recentLocalTurnsRef.current,
+                      typeof data.utterance_text === "string" ? data.utterance_text : null,
+                    )));
               if (voiceIt) {
                 // Earpiece mode: speak the newest TOP suggestion with free
                 // on-device TTS — nudges too, they're short. (The event also
                 // carries data.audio_b64 — Deepgram Aura mp3, paid key
                 // required — deliberately ignored; a future premium option.)
-                speakSuggestion(items[0]);
+                // While the loop runs it applies its own rules first: never
+                // over live speech, never in therapist mode.
+                if (!loop || !liveActiveRef.current) {
+                  speakSuggestion(items[0]);
+                } else {
+                  loop.offerSpeech(items[0]);
+                }
               }
             }
           } else if (data.type === "tone_flag") {
@@ -1388,6 +1464,9 @@ export function useAudioStream(
   const setSelfSpeaker = useCallback((label: string) => {
     selfSpeakerRef.current = label;
     setSelfSpeakerState(label);
+    // The on-device loop applies the same convention to its own unknown
+    // clusters (nudge vs response, haptics on self turns only).
+    fastLoopRef.current?.setSelfSpeakerFallback(label);
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(
         JSON.stringify({ type: "config", self_speaker: label }),

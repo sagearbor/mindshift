@@ -42,7 +42,10 @@ import {
 import type { HapticSink } from "./nudgePolicy";
 
 /** The callbacks the hook supplies; everything else is wired here. */
-export type FastLoopHandlers = Pick<FastLoopDeps, "speak" | "send" | "onTurn" | "onNudge" | "onSttError">;
+export type FastLoopHandlers = Pick<
+  FastLoopDeps,
+  "speak" | "send" | "onTurn" | "onNudge" | "onSttError" | "onDegrade"
+>;
 
 export interface DefaultFastLoopOptions {
   providerOrder?: ProviderName[];

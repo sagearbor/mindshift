@@ -30,14 +30,15 @@ jest.mock("expo-audio", () => ({
 }));
 
 import * as Speech from "expo-speech";
-import { useAudioStream } from "../src/hooks/useAudioStream";
+import { cloudAnswersOpenMoment, useAudioStream } from "../src/hooks/useAudioStream";
 import { FastLoop } from "../src/live/fastLoop";
 import { EnergyVad } from "../src/live/vad";
 import { FakeSpeechRecognizer } from "../src/live/stt";
 import { cloudProvider, ProviderChain, parseSuggestionJson } from "../src/live/localLlm";
+import { SpeakerLabeler } from "../src/live/speakerId";
 import type { FastLoopHandlers } from "../src/live/defaultDeps";
 import type { LiveSessionBody } from "../src/api/liveSessions";
-import { silenceInt16, toneInt16 } from "../src/live/testing/synth";
+import { silenceInt16, toneInt16, unitVector } from "../src/live/testing/synth";
 
 const speakMock = Speech.speak as jest.Mock;
 
@@ -145,6 +146,25 @@ beforeEach(() => {
 
 afterEach(() => {
   logSpy.mockRestore();
+});
+
+describe("cloudAnswersOpenMoment", () => {
+  const answered = { text: "you never call me", hadSuggestion: true };
+  const open = { text: "well I am busy", hadSuggestion: false };
+  it("voices only the answer to the latest, still-open turn", () => {
+    expect(cloudAnswersOpenMoment([answered, open], "well I am busy")).toBe(true);
+    expect(cloudAnswersOpenMoment([answered, open], "you never call me")).toBe(false); // earlier turn
+    expect(cloudAnswersOpenMoment([open, answered], "well I am busy")).toBe(false); // earlier turn
+    expect(cloudAnswersOpenMoment([answered], "you never call me")).toBe(false); // already answered locally
+  });
+  it("treats words the phone never reported (or no text) as the only voice there is", () => {
+    expect(cloudAnswersOpenMoment([], "anything")).toBe(true);
+    expect(cloudAnswersOpenMoment([], null)).toBe(true);
+    expect(cloudAnswersOpenMoment([answered, open], "something the VAD missed")).toBe(true);
+    expect(cloudAnswersOpenMoment([open, answered], "something the VAD missed")).toBe(false);
+    expect(cloudAnswersOpenMoment([open], null)).toBe(true);
+    expect(cloudAnswersOpenMoment([answered], null)).toBe(false);
+  });
 });
 
 describe("useAudioStream live mode", () => {
@@ -416,6 +436,234 @@ describe("useAudioStream live mode", () => {
     expect(hook.result.current.transcript[0].text).toBe("server fallback");
     await act(() => hook.result.current.clearNudgeFlash());
     expect(hook.result.current.nudgeFlash).toBeNull();
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    await act(() => FakeWebSocket.instances[0].emitServer({ type: "session_complete" }));
+  });
+
+  it("a recognizer that fails to START is reported in the status line and the server transcript is accepted", async () => {
+    const fake = makeFakeFastLoop();
+    fake.rec.start = async () => {
+      throw new Error("speech recognition permission denied");
+    };
+    const hook = await renderHook(() =>
+      useAudioStream({ capability: { capable: true, reason: "ok" }, makeFastLoop: fake.make, postSession: async () => ({ status: "unsupported" as const }) }),
+    );
+    await act(async () => {
+      await hook.result.current.startSession("live-7", 50);
+    });
+    await act(async () => {
+      await flush();
+    });
+    // Not "On-device: energy VAD · …" as if everything worked.
+    expect(hook.result.current.liveStatus).toMatch(/^On-device: energy VAD/);
+    expect(hook.result.current.liveStatus).toMatch(/speech recognition failed \(start-failed: speech recognition permission denied\) — transcript from the server/);
+    const ws = FakeWebSocket.instances[0];
+    await act(() => ws.emitOpen());
+    await act(() => {
+      ws.emitServer({ type: "transcript", speaker: "Speaker A", text: "server words", start_time: 0, end_time: 1 });
+    });
+    expect(hook.result.current.transcript[0].text).toBe("server words");
+    // A VAD turn with no words claims nothing from the server.
+    await act(async () => {
+      feed(toneInt16(1.0, -20));
+      feed(silenceInt16(0.5));
+      await fake.loop!.settle();
+      await flush();
+    });
+    expect(ws.sentJson().filter((m) => m.type === "turn_local")).toHaveLength(0);
+    // …and the server's suggestion for those words is voiced as on the legacy path.
+    await act(() => hook.result.current.setSpeechEnabled(true));
+    await act(() => {
+      ws.emitServer({ type: "suggestion", session_id: "live-7", speaker: "Speaker A", utterance_text: "server words", suggestions: ["Cloud only."], empathy_slider: 50 });
+    });
+    expect(speakMock).toHaveBeenCalledWith("Cloud only.", expect.anything());
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    await act(() => FakeWebSocket.instances[0].emitServer({ type: "session_complete" }));
+  });
+
+  it("a late cloud answer to an already-coached earlier turn is shown but not voiced; the answer to the latest unanswered turn is", async () => {
+    // The local provider answers only turns that mention "call".
+    const fake = makeFakeFastLoop();
+    const originalMake = fake.make;
+    fake.make = async (handlers: FastLoopHandlers) => {
+      const build = await originalMake(handlers);
+      const selective = {
+        name: "os",
+        isAvailable: async () => true,
+        suggest: async (input: { text: string }) => (input.text.includes("call") ? parseSuggestionJson(GOOD) : null),
+      };
+      fake.loop = new FastLoop({
+        ...handlers,
+        vad: new EnergyVad(-45, 0.032),
+        embedder: null,
+        labeler: null,
+        recognizer: fake.rec,
+        llm: new ProviderChain([selective]),
+        sttGraceMs: 100,
+        pollMs: 5,
+      });
+      return { ...build, loop: fake.loop };
+    };
+    const hook = await renderHook(() =>
+      useAudioStream({ capability: { capable: true, reason: "ok" }, makeFastLoop: fake.make, postSession: async () => ({ status: "unsupported" as const }) }),
+    );
+    await act(() => hook.result.current.setSpeechEnabled(true));
+    await act(async () => {
+      await hook.result.current.startSession("live-8", 50);
+    });
+    const ws = FakeWebSocket.instances[0];
+    await act(() => ws.emitOpen());
+    const turn = async (text: string) => {
+      await act(async () => {
+        feed(toneInt16(1.0, -20));
+        fake.rec.emit({ text, isFinal: true });
+        feed(silenceInt16(0.5));
+        await fake.loop!.settle();
+        await flush();
+      });
+    };
+    await turn("you never call me"); // answered locally (spoken)
+    expect(speakMock).toHaveBeenCalledTimes(1);
+    await turn("well I am busy"); // local providers passed: waiting on the cloud
+    speakMock.mockClear();
+    // The cloud's (slow) answer to turn 1 arrives now — turn 1 was already coached.
+    await act(() => {
+      ws.emitServer({ type: "suggestion", session_id: "live-8", speaker: "Unknown", utterance_text: "you never call me", suggestions: ["Cloud: late answer to turn 1."], empathy_slider: 50 });
+    });
+    expect(hook.result.current.suggestions[0].texts).toEqual(["Cloud: late answer to turn 1."]);
+    expect(speakMock).not.toHaveBeenCalled();
+    // The cloud's answer to turn 2 — the latest, unanswered turn — is voiced.
+    await act(() => {
+      ws.emitServer({ type: "suggestion", session_id: "live-8", speaker: "Unknown", utterance_text: "well I am busy", suggestions: ["Cloud: answer to turn 2."], empathy_slider: 50 });
+    });
+    expect(speakMock).toHaveBeenCalledWith("Cloud: answer to turn 2.", expect.anything());
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    await act(() => FakeWebSocket.instances[0].emitServer({ type: "session_complete" }));
+  });
+
+  it("therapist mode never voices a cloud suggestion either (on-screen only)", async () => {
+    const fake = makeFakeFastLoop({ provider: "cloud" });
+    const hook = await renderHook(() =>
+      useAudioStream({ capability: { capable: true, reason: "ok" }, makeFastLoop: fake.make, postSession: async () => ({ status: "unsupported" as const }) }),
+    );
+    await act(() => {
+      hook.result.current.setSpeechEnabled(true);
+      hook.result.current.setSessionMode("therapist");
+    });
+    await act(async () => {
+      await hook.result.current.startSession("live-9", 50);
+    });
+    const ws = FakeWebSocket.instances[0];
+    await act(() => ws.emitOpen());
+    await act(async () => {
+      feed(toneInt16(1.0, -20));
+      fake.rec.emit({ text: "hello", isFinal: true });
+      feed(silenceInt16(0.5));
+      await fake.loop!.settle();
+      await flush();
+    });
+    await act(() => {
+      ws.emitServer({ type: "suggestion", session_id: "live-9", speaker: "Speaker A", utterance_text: "hello", suggestions: ["Cloud answer."], empathy_slider: 50 });
+    });
+    expect(hook.result.current.suggestions[0]).toMatchObject({ source: "cloud", texts: ["Cloud answer."] });
+    expect(speakMock).not.toHaveBeenCalled();
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    await act(() => FakeWebSocket.instances[0].emitServer({ type: "session_complete" }));
+  });
+
+  it("a cloud suggestion arriving mid-speech is held until the VAD goes quiet (never over live speech)", async () => {
+    const fake = makeFakeFastLoop({ provider: "cloud" });
+    const hook = await renderHook(() =>
+      useAudioStream({ capability: { capable: true, reason: "ok" }, makeFastLoop: fake.make, postSession: async () => ({ status: "unsupported" as const }) }),
+    );
+    await act(() => {
+      hook.result.current.setSpeechEnabled(true);
+      hook.result.current.setSessionMode("speaker");
+    });
+    await act(async () => {
+      await hook.result.current.startSession("live-10", 50);
+    });
+    const ws = FakeWebSocket.instances[0];
+    await act(() => ws.emitOpen());
+    await act(async () => {
+      feed(toneInt16(1.0, -20));
+      fake.rec.emit({ text: "hello", isFinal: true });
+      feed(silenceInt16(0.5));
+      await fake.loop!.settle();
+      await flush();
+    });
+    // The other person starts talking again, THEN the cloud answers.
+    await act(async () => {
+      feed(toneInt16(0.6, -20));
+      await fake.loop!.settle();
+    });
+    await act(() => {
+      ws.emitServer({ type: "suggestion", session_id: "live-10", speaker: "Speaker A", utterance_text: "hello", suggestions: ["Cloud answer."], empathy_slider: 50 });
+    });
+    expect(speakMock).not.toHaveBeenCalled();
+    await act(async () => {
+      feed(silenceInt16(0.5));
+      await fake.loop!.settle();
+    });
+    expect(speakMock).toHaveBeenCalledWith("Cloud answer.", expect.anything());
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    await act(() => FakeWebSocket.instances[0].emitServer({ type: "session_complete" }));
+  });
+
+  it("the You: A ⇄ B chip reaches the on-device loop (nudge vs response flips)", async () => {
+    const fake = makeFakeFastLoop();
+    const originalMake = fake.make;
+    fake.make = async (handlers: FastLoopHandlers) => {
+      const build = await originalMake(handlers);
+      const D = 192;
+      const queue = [unitVector(D, 0), unitVector(D, 5, 0.05, 3)];
+      fake.loop = new FastLoop({
+        ...handlers,
+        vad: new EnergyVad(-45, 0.032),
+        embedder: { embed: async () => queue.shift() ?? unitVector(D, 9) },
+        labeler: new SpeakerLabeler([]),
+        recognizer: fake.rec,
+        llm: new ProviderChain([{ name: "os", isAvailable: async () => true, suggest: async () => parseSuggestionJson(GOOD) }]),
+        sttGraceMs: 100,
+        pollMs: 5,
+      });
+      return { ...build, loop: fake.loop };
+    };
+    const hook = await renderHook(() =>
+      useAudioStream({ capability: { capable: true, reason: "ok" }, makeFastLoop: fake.make, postSession: async () => ({ status: "unsupported" as const }) }),
+    );
+    await act(async () => {
+      await hook.result.current.startSession("live-11", 50);
+    });
+    const ws = FakeWebSocket.instances[0];
+    await act(() => ws.emitOpen());
+    const turn = async (text: string) => {
+      await act(async () => {
+        // >= MIN_CLUSTER_SECONDS: long enough to found an unknown cluster.
+        feed(toneInt16(2.0, -20));
+        fake.rec.emit({ text, isFinal: true });
+        feed(silenceInt16(0.5));
+        await fake.loop!.settle();
+        await flush();
+      });
+    };
+    await turn("first voice"); // Speaker A = you by convention -> nudge
+    expect(hook.result.current.suggestions[0].kind).toBe("nudge");
+    await act(() => hook.result.current.setSelfSpeaker("Speaker B"));
+    expect(ws.sentJson().some((m) => m.type === "config" && m.self_speaker === "Speaker B")).toBe(true);
+    await turn("second voice"); // Speaker B is now you -> nudge (not a response)
+    expect(hook.result.current.transcript[1].speaker).toBe("Speaker B");
+    expect(hook.result.current.suggestions[0].kind).toBe("nudge");
     await act(async () => {
       await hook.result.current.stopSession();
     });

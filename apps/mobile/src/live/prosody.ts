@@ -94,6 +94,17 @@ function median(values: number[]): number {
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
 
+function pitchFromF0s(f0s: number[], nFrames: number): PitchEstimate {
+  if (nFrames === 0) return { f0Median: null, f0Std: null, voicedFraction: 0 };
+  const voicedFraction = f0s.length / nFrames;
+  if (voicedFraction < MIN_VOICED_FRACTION || f0s.length === 0) {
+    return { f0Median: null, f0Std: null, voicedFraction };
+  }
+  const mean = f0s.reduce((a, b) => a + b, 0) / f0s.length;
+  const variance = f0s.reduce((a, b) => a + (b - mean) * (b - mean), 0) / f0s.length;
+  return { f0Median: median(f0s), f0Std: Math.sqrt(variance), voicedFraction };
+}
+
 /** Port of server/prosody.py::estimate_pitch. */
 export function estimatePitch(samples: Float32Array, sr: number): PitchEstimate {
   if (sr <= 0 || samples.length === 0) {
@@ -111,14 +122,54 @@ export function estimatePitch(samples: Float32Array, sr: number): PitchEstimate 
     const f0 = frameF0(samples.subarray(start, start + frameLen), sr);
     if (f0 !== null) f0s.push(f0);
   }
-  if (nFrames === 0) return { f0Median: null, f0Std: null, voicedFraction: 0 };
-  const voicedFraction = f0s.length / nFrames;
-  if (voicedFraction < MIN_VOICED_FRACTION || f0s.length === 0) {
-    return { f0Median: null, f0Std: null, voicedFraction };
+  return pitchFromF0s(f0s, nFrames);
+}
+
+/** Frames of pitch analysis between yields to the event loop in
+ *  `estimatePitchAsync` (~0.5 s of audio; a few ms of work on a JIT, tens
+ *  on Hermes). */
+export const PITCH_YIELD_EVERY_FRAMES = 50;
+
+export interface AsyncPitchOptions {
+  /** Yield after this many frames (default PITCH_YIELD_EVERY_FRAMES). */
+  yieldEvery?: number;
+  /** How to yield (default: a 0 ms timer, i.e. a macrotask boundary). */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * `estimatePitch`, numerically identical, but cooperative: the per-frame
+ * autocorrelation is the one O(n·lags) loop in the live path, and on the
+ * phone it shares the JS thread with the mic callbacks, the WebSocket and
+ * the UI. Yielding every few dozen frames keeps audio flowing while a long
+ * turn is measured.
+ */
+export async function estimatePitchAsync(
+  samples: Float32Array,
+  sr: number,
+  opts: AsyncPitchOptions = {},
+): Promise<PitchEstimate> {
+  if (sr <= 0 || samples.length === 0) {
+    return { f0Median: null, f0Std: null, voicedFraction: 0 };
   }
-  const mean = f0s.reduce((a, b) => a + b, 0) / f0s.length;
-  const variance = f0s.reduce((a, b) => a + (b - mean) * (b - mean), 0) / f0s.length;
-  return { f0Median: median(f0s), f0Std: Math.sqrt(variance), voicedFraction };
+  const frameLen = Math.max(1, Math.floor((sr * FRAME_MS) / 1000));
+  const hop = Math.max(1, Math.floor((sr * HOP_MS) / 1000));
+  if (samples.length < frameLen) {
+    return { f0Median: null, f0Std: null, voicedFraction: 0 };
+  }
+  const yieldEvery = Math.max(1, opts.yieldEvery ?? PITCH_YIELD_EVERY_FRAMES);
+  const sleep = opts.sleep ?? defaultSleep;
+  const f0s: number[] = [];
+  let nFrames = 0;
+  for (let start = 0; start + frameLen <= samples.length; start += hop) {
+    nFrames += 1;
+    const f0 = frameF0(samples.subarray(start, start + frameLen), sr);
+    if (f0 !== null) f0s.push(f0);
+    if (nFrames % yieldEvery === 0) await sleep(0);
+  }
+  return pitchFromF0s(f0s, nFrames);
 }
 
 /** The numbers `TurnLocalEvent.prosody` carries (server/models/audio.py
@@ -143,6 +194,15 @@ export function turnProsody(
 ): TurnProsody {
   const dbfs = rmsDbfs(samples);
   const { f0Median } = estimatePitch(samples, sr);
+  return assembleProsody(dbfs, f0Median, text, durationSeconds);
+}
+
+function assembleProsody(
+  dbfs: number,
+  f0Median: number | null,
+  text: string,
+  durationSeconds: number,
+): TurnProsody {
   const words = text.trim() === "" ? 0 : text.trim().split(/\s+/).length;
   const speechRate =
     words > 0 && durationSeconds > 0 ? words / durationSeconds : null;
@@ -151,4 +211,35 @@ export function turnProsody(
     pitch_hz: f0Median === null ? null : Math.round(f0Median * 100) / 100,
     speech_rate: speechRate === null ? null : Math.round(speechRate * 1000) / 1000,
   };
+}
+
+/** Pitch is measured over at most the LAST this-many seconds of a turn in
+ *  the live path: the per-frame autocorrelation costs ~100k multiply-adds a
+ *  frame (100 frames/s), so an unbounded monologue would stall the JS
+ *  thread for seconds; the median F0 of the last few seconds is the same
+ *  delivery signal. Loudness is still over the whole turn (O(n)). */
+export const LIVE_MAX_PITCH_SECONDS = 6;
+
+export interface AsyncProsodyOptions extends AsyncPitchOptions {
+  /** Cap on the pitch window (seconds from the END of the turn);
+   *  undefined/Infinity = whole turn. */
+  maxPitchSeconds?: number;
+}
+
+/** `turnProsody` for the live loop: same numbers, cooperative and bounded. */
+export async function turnProsodyAsync(
+  samples: Float32Array,
+  sr: number,
+  text: string,
+  durationSeconds: number,
+  opts: AsyncProsodyOptions = {},
+): Promise<TurnProsody> {
+  const dbfs = rmsDbfs(samples);
+  const cap = opts.maxPitchSeconds;
+  const window =
+    cap !== undefined && Number.isFinite(cap) && cap > 0 && samples.length > cap * sr
+      ? samples.subarray(samples.length - Math.round(cap * sr))
+      : samples;
+  const { f0Median } = await estimatePitchAsync(window, sr, opts);
+  return assembleProsody(dbfs, f0Median, text, durationSeconds);
 }
