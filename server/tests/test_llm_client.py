@@ -313,3 +313,39 @@ class TestCompleteMistral:
         call_kwargs = mock_sdk.chat.complete.call_args.kwargs
         assert call_kwargs["model"] == "mistral-large"
         assert "temperature" in call_kwargs
+
+
+# ---------------------------------------------------------------------------
+# stream_complete — token streaming on Anthropic, one-chunk fallback elsewhere
+# ---------------------------------------------------------------------------
+
+class TestStreamComplete:
+    def _make_client(self, model: str, underlying) -> LLMClient:
+        client = LLMClient.__new__(LLMClient)
+        client.model = model
+        client._provider = LLMClient._detect_provider(model)
+        client._api_key = None
+        client._client = underlying
+        return client
+
+    def test_anthropic_yields_text_deltas_from_the_stream_helper(self):
+        underlying = MagicMock()
+        stream = underlying.messages.stream.return_value.__enter__.return_value
+        stream.text_stream = iter(['{"sugg', 'estions": ["Hi."]}'])
+        c = self._make_client("claude-3-haiku-20240307", underlying)
+
+        deltas = list(c.stream_complete(system="sys", user="usr"))
+
+        assert deltas == ['{"sugg', 'estions": ["Hi."]}']
+        kwargs = underlying.messages.stream.call_args.kwargs
+        assert kwargs["system"] == "sys"
+        assert kwargs["messages"] == [{"role": "user", "content": "usr"}]
+        assert kwargs["temperature"] == 0.7 and kwargs["max_tokens"] == 512
+        # The context manager is exited so the SSE connection is released.
+        underlying.messages.stream.return_value.__exit__.assert_called_once()
+
+    def test_non_anthropic_falls_back_to_one_chunk_of_complete(self):
+        underlying = MagicMock()
+        underlying.chat.completions.create.return_value.choices[0].message.content = "whole"
+        c = self._make_client("gpt-4o-mini", underlying)
+        assert list(c.stream_complete(system="sys", user="usr")) == ["whole"]
