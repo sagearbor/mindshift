@@ -77,6 +77,25 @@
         {
           "iosUrlScheme": "com.googleusercontent.apps.REPLACE_WITH_IOS_CLIENT_ID"
         }
+      ],
+      "onnxruntime-react-native",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "MindShift uses your microphone to transcribe the conversation on your phone and coach you in real time.",
+          "speechRecognitionPermission": "MindShift transcribes the conversation on your phone (no audio leaves the device for this step) to coach you in real time.",
+          "androidSpeechServicePackages": [
+            "com.google.android.as",
+            "com.google.android.googlequicksearchbox"
+          ]
+        }
+      ],
+      [
+        "expo-ai-kit",
+        {
+          "speech": false,
+          "androidEmbeddings": false
+        }
       ]
     ],
     "extra": {

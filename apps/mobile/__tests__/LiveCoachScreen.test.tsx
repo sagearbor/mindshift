@@ -421,4 +421,100 @@ describe("LiveCoachScreen", () => {
     ).toHaveLength(0);
     expect(JSON.stringify(root!.toJSON())).toContain("ease up");
   });
+  it("hides the on-device controls when the device can't run the fast loop", () => {
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    expect(root!.root.findAllByProps({ testID: "live-mode-row" })).toHaveLength(0);
+    expect(root!.root.findAllByProps({ testID: "session-mode-row" })).toHaveLength(0);
+  });
+
+  it("offers the on-device switch and session shapes when capable, locked while live", () => {
+    const setLiveMode = jest.fn();
+    const setSessionMode = jest.fn();
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      liveCapable: true,
+      liveMode: true,
+      setLiveMode,
+      sessionMode: "earpiece",
+      setSessionMode,
+      liveStatus: "",
+      nudgeFlash: null,
+      clearNudgeFlash: jest.fn(),
+      latencySummary: "",
+      toneFlags: [],
+    });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    const sw = root!.root.findByProps({ testID: "live-mode-switch" });
+    expect(sw.props.value).toBe(true);
+    expect(sw.props.disabled).toBe(false);
+    act(() => {
+      root!.root.findByProps({ testID: "session-mode-speaker" }).props.onPress();
+    });
+    expect(setSessionMode).toHaveBeenCalledWith("speaker");
+    act(() => {
+      root!.root.findByProps({ testID: "session-mode-therapist" }).props.onPress();
+    });
+    expect(setSessionMode).toHaveBeenCalledWith("therapist");
+
+    // Live: the shape is read at session start, so it locks.
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      sessionActive: true,
+      liveCapable: true,
+      liveMode: true,
+      setLiveMode,
+      sessionMode: "speaker",
+      setSessionMode,
+      liveStatus: "On-device: Silero VAD · speaker-ID on (2 enrolled) · LLM os → bundled → cloud",
+      nudgeFlash: null,
+      clearNudgeFlash: jest.fn(),
+      latencySummary: "",
+      toneFlags: [{ type: "tone_flag", session_id: "s", speaker: "Mom", start_time: 0, end_time: 1, source: "text", scores: {}, label: "hurt", confidence: 0.7 }],
+    });
+    act(() => {
+      root!.update(<LiveCoachScreen />);
+    });
+    expect(root!.root.findByProps({ testID: "live-mode-switch" }).props.disabled).toBe(true);
+    expect(root!.root.findByProps({ testID: "session-mode-speaker" }).props.disabled).toBe(true);
+    const rendered = JSON.stringify(root!.toJSON());
+    expect(rendered).toContain("On-device: Silero VAD");
+    expect(rendered).toContain("Mom: hurt (text tone)");
+  });
+
+  it("flashes a nudge and clears it after a moment; shows the latency headline after a session", () => {
+    jest.useFakeTimers();
+    const clearNudgeFlash = jest.fn();
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      liveCapable: true,
+      liveMode: true,
+      setLiveMode: jest.fn(),
+      sessionMode: "earpiece",
+      setSessionMode: jest.fn(),
+      liveStatus: "",
+      nudgeFlash: { channel: "A", level: 2, t: 3, vectors: ["aggressive_tone", "yelling"] },
+      clearNudgeFlash,
+      latencySummary: "[fastLoop] 3 turns, median segment-end→speak 640 ms",
+      toneFlags: [],
+    });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    const rendered = JSON.stringify(root!.toJSON());
+    expect(root!.root.findByProps({ testID: "nudge-flash" })).toBeTruthy();
+    expect(rendered).toContain("Easy — level 2 (aggressive tone, yelling)");
+    expect(rendered).toContain("median segment-end");
+    act(() => {
+      jest.advanceTimersByTime(1500);
+    });
+    expect(clearNudgeFlash).toHaveBeenCalled();
+    jest.useRealTimers();
+  });
 });

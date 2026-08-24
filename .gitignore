@@ -249,3 +249,7 @@ apps/watch/.gradle/
 apps/watch/**/build/
 apps/watch/local.properties
 apps/watch/keystore.properties
+
+# apps/mobile native prebuild output (expo prebuild) — regenerated, never committed
+apps/mobile/android/
+apps/mobile/ios/

@@ -59,9 +59,27 @@ export default function LiveCoachScreen({
     stopSession,
     sendEmpathyUpdate,
     sendInterjectUpdate,
+    liveCapable,
+    liveMode,
+    setLiveMode,
+    sessionMode,
+    setSessionMode,
+    liveStatus,
+    nudgeFlash,
+    clearNudgeFlash,
+    latencySummary,
+    toneFlags,
   } = useAudioStream();
 
   const [empathyLevel, setEmpathyLevel] = useState(50);
+
+  // A haptic nudge on the user's own delivery also flashes on screen for a
+  // moment (the phone may be face-down on the table; the buzz is primary).
+  useEffect(() => {
+    if (!nudgeFlash) return;
+    const timer = setTimeout(() => clearNudgeFlash?.(), 1500);
+    return () => clearTimeout(timer);
+  }, [nudgeFlash, clearNudgeFlash]);
   const [interjectLevel, setInterjectLevel] = useState(0);
   const [coachMode, setCoachMode] = useState<"earpiece" | "visual">(
     "visual",
@@ -236,6 +254,83 @@ export default function LiveCoachScreen({
         </TouchableOpacity>
       </View>
 
+      {/* On-device fast loop (Track 3): only offered when the device can run
+          it (on-device STT present). Off = the legacy server path. The
+          session shape picks who is on the mic and whether the coach speaks:
+          earpiece (private, spoken), speaker-phone (both voices on one mic;
+          spoken only in silences), therapist (both partners enrolled; on-screen
+          only). Locked while a session runs — the loop reads it at start. */}
+      {liveCapable ? (
+        <View style={styles.modeRow} testID="live-mode-row">
+          <Text style={styles.modeLabel}>On-device:</Text>
+          <Switch
+            testID="live-mode-switch"
+            value={Boolean(liveMode)}
+            onValueChange={setLiveMode}
+            disabled={sessionActive}
+          />
+          {liveMode ? (
+            <View style={styles.sessionModeGroup} testID="session-mode-row">
+              {(
+                [
+                  ["earpiece", "Earpiece"],
+                  ["speaker", "Speaker-phone"],
+                  ["therapist", "Therapist"],
+                ] as const
+              ).map(([mode, label]) => (
+                <TouchableOpacity
+                  key={mode}
+                  testID={`session-mode-${mode}`}
+                  style={[
+                    styles.modeButton,
+                    sessionMode === mode && styles.modeButtonActive,
+                  ]}
+                  disabled={sessionActive}
+                  onPress={() => setSessionMode(mode)}
+                >
+                  <Text
+                    style={[
+                      styles.modeButtonText,
+                      sessionMode === mode && styles.modeButtonTextActive,
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
+      {/* What the loop actually loaded (or why it isn't running). */}
+      {liveStatus ? (
+        <Text style={styles.speechUnavailableText} testID="live-status">
+          {liveStatus}
+        </Text>
+      ) : null}
+
+      {/* Haptic nudge mirror: "you're getting loud/heated" on the user's own
+          turn. Level 1–3 from the shared nudge policy. */}
+      {nudgeFlash ? (
+        <View style={styles.nudgeFlash} testID="nudge-flash">
+          <Text style={styles.nudgeFlashText}>
+            {`Easy — level ${nudgeFlash.level}${
+              nudgeFlash.vectors.length > 0
+                ? ` (${nudgeFlash.vectors.join(", ").replace(/_/g, " ")})`
+                : ""
+            }`}
+          </Text>
+        </View>
+      ) : null}
+
+      {/* Server tone flag (additive to on-device coaching). */}
+      {toneFlags && toneFlags.length > 0 ? (
+        <Text style={styles.toneFlagText} testID="tone-flag">
+          {`⚠ ${toneFlags[0].speaker}: ${toneFlags[0].label} (${toneFlags[0].source} tone)`}
+        </Text>
+      ) : null}
+
       {/* Honest state: earpiece selected but this platform has no TTS —
           suggestions stay visual-only instead of silently pretending. */}
       {coachMode === "earpiece" && !speechAvailable ? (
@@ -330,6 +425,14 @@ export default function LiveCoachScreen({
           })}
         </ScrollView>
       )}
+
+      {/* Latency report from the on-device loop (printed in full to the
+          console at session end; the headline lands here). */}
+      {!sessionActive && latencySummary ? (
+        <Text style={styles.speechUnavailableText} testID="latency-summary">
+          {latencySummary}
+        </Text>
+      ) : null}
 
       {/* Post-session review handoff: after a session ends with something to
           review, offer a prominent jump to the async-review Session screen. */}
@@ -523,6 +626,33 @@ const styles = StyleSheet.create({
   speechUnavailableText: {
     fontSize: 12,
     color: "#6B7280",
+    paddingHorizontal: 16,
+    paddingBottom: 4,
+  },
+  sessionModeGroup: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    flexShrink: 1,
+  },
+  nudgeFlash: {
+    backgroundColor: "#FEE2E2",
+    borderLeftWidth: 4,
+    borderLeftColor: "#EF4444",
+    marginHorizontal: 16,
+    marginBottom: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  nudgeFlashText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#991B1B",
+  },
+  toneFlagText: {
+    fontSize: 12,
+    color: "#92400E",
     paddingHorizontal: 16,
     paddingBottom: 4,
   },

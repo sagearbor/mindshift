@@ -127,7 +127,7 @@ describe("ProviderChain", () => {
   });
 
   it("providers not named in the order still run, after the named ones", async () => {
-    const chain = new ProviderChain([provider("extra"), provider("os", { isAvailable: async () => false })], ["os"]);
+    const chain = new ProviderChain([provider("extra", {}), provider("os", { isAvailable: async () => false })], ["os"]);
     expect(chain.providerNames).toEqual(["os", "extra"]);
     expect((await chain.suggest(input)).provider).toBe("extra");
   });

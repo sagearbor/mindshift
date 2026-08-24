@@ -19,6 +19,23 @@ import {
   isWebAudioCaptureSupported,
 } from "../utils/webAudioCapture";
 import { getCachedToken } from "../auth/authToken";
+import type { FastLoop } from "../live/fastLoop";
+import { formatLatencyLog } from "../live/fastLoop";
+import type { FastLoopBuild, FastLoopHandlers } from "../live/defaultDeps";
+import { createDefaultFastLoop } from "../live/defaultDeps";
+import { detectLiveCapability, type LiveCapability } from "../live/capability";
+import type { LiveMode } from "../live/localLlm";
+import type { NudgeEvent } from "../live/nudgePolicy";
+import type {
+  SpeakerIdentityEvent,
+  ToneFlagEvent,
+  TurnLocalEvent,
+} from "../live/types";
+import {
+  postLiveSession,
+  type LiveSessionBody,
+  type PostLiveSessionResult,
+} from "../api/liveSessions";
 
 const API_URL =
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:8000";
@@ -54,9 +71,26 @@ export interface SuggestionEntry {
    *  Rendered dimmed in the UI and never passed to speakSuggestion. */
   muted: boolean;
   timestamp: number;
+  /** Which runtime produced it: the phone's fast loop or the server. Absent
+   *  on the legacy path (every legacy suggestion is the server's). */
+  source?: "on-device" | "cloud";
 }
 
 type ConnectionStatus = "idle" | "connecting" | "live" | "disconnected";
+
+/**
+ * Seams for the on-device fast loop (Track 3). Production wires the native
+ * stack (src/live/defaultDeps.ts); tests inject fakes here and drive the
+ * real orchestrator with synthetic PCM.
+ */
+export interface UseAudioStreamOptions {
+  /** Override the device capability probe. */
+  capability?: LiveCapability;
+  /** Build the fast loop for a session. */
+  makeFastLoop?: (handlers: FastLoopHandlers, mode: LiveMode) => Promise<FastLoopBuild>;
+  /** POST the finished session (Track 2's /sessions/live). */
+  postSession?: (body: LiveSessionBody) => Promise<PostLiveSessionResult>;
+}
 
 interface UseAudioStreamReturn {
   isRecording: boolean;
@@ -95,6 +129,28 @@ interface UseAudioStreamReturn {
   stopSession: () => Promise<void>;
   sendEmpathyUpdate: (level: number) => void;
   sendInterjectUpdate: (value: number) => void;
+  /** On-device fast loop: can this device run it (on-device STT present)? */
+  liveCapable: boolean;
+  liveCapabilityReason: string;
+  /** Whether the next session runs the fast loop (default: on when capable).
+   *  Off = the legacy server path, unchanged. */
+  liveMode: boolean;
+  setLiveMode: (on: boolean) => void;
+  /** Session shape for the fast loop: earpiece (speak), speaker-phone (both
+   *  voices on one mic; speak only in silences), therapist (on-screen only). */
+  sessionMode: LiveMode;
+  setSessionMode: (mode: LiveMode) => void;
+  /** What the fast loop actually loaded, or why it isn't running. Empty on
+   *  the legacy path. */
+  liveStatus: string;
+  /** Latest haptic nudge on the user's own delivery (level 1–3); the screen
+   *  shows it briefly and clears it. */
+  nudgeFlash: NudgeEvent | null;
+  clearNudgeFlash: () => void;
+  /** One-line latency report after a live session ends. */
+  latencySummary: string;
+  /** Server tone flags (newest first), rendered additively in live mode. */
+  toneFlags: ToneFlagEvent[];
 }
 
 const RECONNECT_DELAY_MS = 2000;
@@ -171,7 +227,13 @@ function stopSpeechSafely() {
   }
 }
 
-export function useAudioStream(): UseAudioStreamReturn {
+/** Production fast-loop factory (native stack). */
+const defaultMakeFastLoop = (handlers: FastLoopHandlers) =>
+  createDefaultFastLoop(handlers);
+
+export function useAudioStream(
+  options: UseAudioStreamOptions = {},
+): UseAudioStreamReturn {
   const [isRecording, setIsRecording] = useState(false);
   const [sessionActive, setSessionActive] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
@@ -191,6 +253,42 @@ export function useAudioStream(): UseAudioStreamReturn {
   const [micError, setMicError] = useState("");
   const [speechAvailable, setSpeechAvailable] = useState(detectSpeechSupport);
   const [speechEnabled, setSpeechEnabledState] = useState(false);
+
+  // --- On-device fast loop (Track 3) ---------------------------------------
+  // Capability is probed once (synchronously — it's a native module query,
+  // no I/O). Live mode defaults to ON when the device can do it; the user can
+  // switch it off to get the legacy server path exactly as before.
+  const [liveCapability] = useState<LiveCapability>(
+    () => options.capability ?? detectLiveCapability(),
+  );
+  const [liveMode, setLiveModeState] = useState(liveCapability.capable);
+  const [sessionMode, setSessionModeState] = useState<LiveMode>("earpiece");
+  const [liveStatus, setLiveStatus] = useState("");
+  const [nudgeFlash, setNudgeFlash] = useState<NudgeEvent | null>(null);
+  const [latencySummary, setLatencySummary] = useState("");
+  const [toneFlags, setToneFlags] = useState<ToneFlagEvent[]>([]);
+  const liveModeRef = useRef(liveCapability.capable);
+  const sessionModeRef = useRef<LiveMode>("earpiece");
+  /** The running loop for this session (null on the legacy path). */
+  const fastLoopRef = useRef<FastLoop | null>(null);
+  /** True from the loop's start until it has stopped — gates which server
+   *  events are rendered (the phone owns the transcript while it runs). */
+  const liveActiveRef = useRef(false);
+  /** On-device STT died mid-session: accept the server's transcript again. */
+  const liveSttFailedRef = useRef(false);
+  /** Whether the most recent local turn produced its own suggestion — a
+   *  cloud suggestion is only VOICED when it didn't (it always renders). */
+  const lastLocalHadSuggestionRef = useRef(false);
+  /** Everything the phone told the server this session, for POST /sessions/live. */
+  const localTurnsRef = useRef<TurnLocalEvent[]>([]);
+  const toneFlagsRef = useRef<ToneFlagEvent[]>([]);
+  const identitiesRef = useRef<SpeakerIdentityEvent[]>([]);
+  const sessionStartedAtRef = useRef("");
+  /** Seams read at call time so a re-render with new options is honoured. */
+  const makeFastLoopRef = useRef(options.makeFastLoop ?? defaultMakeFastLoop);
+  makeFastLoopRef.current = options.makeFastLoop ?? defaultMakeFastLoop;
+  const postSessionRef = useRef(options.postSession ?? postLiveSession);
+  postSessionRef.current = options.postSession ?? postLiveSession;
 
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string>("");
@@ -301,6 +399,145 @@ export function useAudioStream(): UseAudioStreamReturn {
   );
 
   /**
+   * Stop the fast loop (if one is running), print its latency log, and hand
+   * the session record to the server. Idempotent; never throws. Awaiting
+   * loop.stop() lets an in-flight final turn finish so its turn_local goes
+   * out while the socket is still open — callers that can't wait (unmount,
+   * reconnect exhaustion) fire-and-forget it.
+   */
+  const stopFastLoop = useCallback(async () => {
+    const loop = fastLoopRef.current;
+    if (!loop) return;
+    fastLoopRef.current = null;
+    liveActiveRef.current = false;
+    let summary: Awaited<ReturnType<FastLoop["stop"]>> | null = null;
+    try {
+      summary = await loop.stop();
+    } catch (err) {
+      console.warn("[useAudioStream] fast loop stop failed:", err);
+    }
+    if (summary) {
+      const report = formatLatencyLog(summary.latencyLog);
+      console.log(report);
+      setLatencySummary(report.split("\n")[0]);
+    }
+    const body: LiveSessionBody = {
+      session_id: sessionIdRef.current,
+      started_at: sessionStartedAtRef.current,
+      ended_at: new Date().toISOString(),
+      mode: sessionModeRef.current,
+      turns: localTurnsRef.current,
+      tone_flags: toneFlagsRef.current,
+      speaker_identities: identitiesRef.current,
+    };
+    localTurnsRef.current = [];
+    toneFlagsRef.current = [];
+    identitiesRef.current = [];
+    // 404 (endpoint not deployed yet) is "unsupported", not a failure — the
+    // transcript is already on screen; the record is a bonus.
+    const result = await postSessionRef.current(body);
+    if (result.status === "failed") {
+      console.warn("[useAudioStream] POST /sessions/live failed:", result.error);
+    }
+  }, []);
+
+  /**
+   * Start the fast loop for this session. Any failure (native module absent,
+   * model download failed, STT permission denied) leaves the legacy server
+   * path running and says so in liveStatus — never a broken session.
+   */
+  const startFastLoop = useCallback(
+    async (sessionId: string, empathy: number) => {
+      const handlers: FastLoopHandlers = {
+        speak: (text) => speakSuggestion(text),
+        send: (event) => {
+          localTurnsRef.current.push(event);
+          const ws = wsRef.current;
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            try {
+              ws.send(JSON.stringify(event));
+            } catch {
+              // Socket mid-close: the session record still has the turn.
+            }
+          }
+        },
+        onTurn: (turn) => {
+          setSpeakerLabel(turn.speaker);
+          if (turn.text) {
+            setTranscript((prev) => [
+              ...prev,
+              {
+                speaker: turn.speaker,
+                text: turn.text,
+                timestamp: Date.now(),
+                startTime: turn.startTime,
+                endTime: turn.endTime,
+              },
+            ]);
+          }
+          lastLocalHadSuggestionRef.current = turn.suggestion !== null;
+          if (turn.suggestion) {
+            const id = (suggestionIdRef.current += 1);
+            const text = turn.suggestion;
+            setSuggestions((prev) => {
+              const entry: SuggestionEntry = {
+                id,
+                kind: turn.suggestionKind ?? "response",
+                texts: [text],
+                tone: empathyTone(empathyRef.current),
+                muted: false,
+                timestamp: Date.now(),
+                source: "on-device",
+              };
+              const next = [entry, ...prev];
+              return next.length > MAX_SUGGESTION_FEED
+                ? next.slice(0, MAX_SUGGESTION_FEED)
+                : next;
+            });
+          }
+        },
+        onNudge: (nudge) => {
+          if (nudge.level > 0) setNudgeFlash(nudge);
+        },
+        onSttError: (code, message) => {
+          liveSttFailedRef.current = true;
+          setLiveStatus(
+            `On-device speech recognition failed (${code}${message ? `: ${message}` : ""}) — transcript continues from the server.`,
+          );
+        },
+      };
+      try {
+        const build = await makeFastLoopRef.current(handlers, sessionModeRef.current);
+        if (!sessionActiveRef.current || drainingRef.current) {
+          // The user stopped while models were loading: don't start now.
+          void build.loop.stop().catch(() => {});
+          return;
+        }
+        await build.loop.start({
+          sessionId,
+          mode: sessionModeRef.current,
+          empathy,
+        });
+        fastLoopRef.current = build.loop;
+        liveActiveRef.current = true;
+        liveSttFailedRef.current = false;
+        lastLocalHadSuggestionRef.current = false;
+        sessionStartedAtRef.current = new Date().toISOString();
+        setLiveStatus(`On-device: ${build.status}`);
+        // The phone speaks for itself now: tell the server to skip its TTS.
+        const ws = wsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "config", tts: "on-device" }));
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setLiveStatus(`On-device coaching unavailable (${msg}) — using the server.`);
+      }
+    },
+    [speakSuggestion],
+  );
+
+  /**
    * Send accumulated audio as ~100 ms binary frames. Reads wsRef.current at
    * call time so after a reconnect frames go to the NEW socket, never a stale
    * one captured in a closure.
@@ -348,10 +585,11 @@ export function useAudioStream(): UseAudioStreamReturn {
         }
         samples = resampler.process(samples);
       }
-      pendingRef.current = concatInt16(
-        pendingRef.current,
-        float32ToInt16(samples),
-      );
+      const int16 = float32ToInt16(samples);
+      // The on-device fast loop (when running) hears exactly what the server
+      // hears — one 16 kHz mono int16 conversion, two consumers.
+      fastLoopRef.current?.pushSamples(int16);
+      pendingRef.current = concatInt16(pendingRef.current, int16);
       flushAudioFrames();
     },
     [flushAudioFrames],
@@ -424,6 +662,9 @@ export function useAudioStream(): UseAudioStreamReturn {
     }
     drainingRef.current = false;
     sessionActiveRef.current = false;
+    // Normally already stopped by stopSession; this covers a session that
+    // ends from the server side while the loop is still up.
+    void stopFastLoop();
     teardownWebSocket();
     // The session is over: put the audio session back into a playback config so
     // a subsequent replay is audible (the record-oriented mode we set on start
@@ -432,7 +673,7 @@ export function useAudioStream(): UseAudioStreamReturn {
     setIsRecording(false);
     setSessionActive(false);
     setConnectionStatus("idle");
-  }, [teardownWebSocket]);
+  }, [teardownWebSocket, stopFastLoop]);
 
   /**
    * (Re)arm the drain inactivity timer: STOP_DRAIN_TIMEOUT_MS of server
@@ -466,6 +707,9 @@ export function useAudioStream(): UseAudioStreamReturn {
     releaseCapture();
     const resampler = resamplerRef.current;
     resamplerRef.current = null;
+    // Let the fast loop finish its last turn (its turn_local rides the
+    // still-open socket) before the stop handshake below.
+    await stopFastLoop();
 
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -501,7 +745,7 @@ export function useAudioStream(): UseAudioStreamReturn {
     // clean up immediately, exactly as before.
     pendingRef.current = new Int16Array(0);
     finishDrain();
-  }, [finishDrain, armDrainTimer, releaseCapture]);
+  }, [finishDrain, armDrainTimer, releaseCapture, stopFastLoop]);
 
   useEffect(() => {
     return () => {
@@ -517,12 +761,13 @@ export function useAudioStream(): UseAudioStreamReturn {
       streamingRef.current = false;
       releaseCapture();
       stopSpeechSafely(); // Never keep talking after the screen is gone.
+      void stopFastLoop();
       teardownWebSocket();
       // Leaving the live screen: hand the audio session back to playback so a
       // replay elsewhere in the app isn't left silent by our record mode.
       void setPlaybackMode().catch(() => {});
     };
-  }, [teardownWebSocket, releaseCapture]);
+  }, [teardownWebSocket, releaseCapture, stopFastLoop]);
 
   const connectWebSocket = useCallback(
     (sessionId: string) => {
@@ -556,6 +801,8 @@ export function useAudioStream(): UseAudioStreamReturn {
             // Which diarized voice is the coached user's. Read from the ref so
             // a toggle made before the socket opened is still honoured here.
             self_speaker: selfSpeakerRef.current,
+            // On-device TTS: the server must not synthesize audio for us.
+            ...(liveActiveRef.current ? { tts: "on-device" } : {}),
             ...(idToken ? { id_token: idToken } : {}),
           }),
         );
@@ -573,10 +820,16 @@ export function useAudioStream(): UseAudioStreamReturn {
         try {
           const data = JSON.parse(event.data);
 
-          if (data.type === "transcript") {
+          if (
+            data.type === "transcript" &&
+            (!liveActiveRef.current || liveSttFailedRef.current)
+          ) {
             // New protocol: the finalized utterance arrives on its own,
             // ahead of the suggestion event for the same turn. From the
             // first one, the transcript belongs to these events alone.
+            // (While the on-device loop runs, the phone's turn_local turns
+            // ARE the transcript; the server's copy is only used again if
+            // on-device STT died mid-session.)
             sawTranscriptEventRef.current = true;
             const speaker = data.speaker || "Unknown";
             setSpeakerLabel(speaker);
@@ -603,7 +856,15 @@ export function useAudioStream(): UseAudioStreamReturn {
             // suggestions in one event (see server SuggestionEvent).
             const speaker = data.speaker || "Unknown";
             setSpeakerLabel(speaker);
-            if (data.utterance_text && !sawTranscriptEventRef.current) {
+            // Where it came from: the server's own LLM ("cloud", the default
+            // on every legacy event) or our own turn echoed back.
+            const source: "on-device" | "cloud" =
+              data.suggestion_source === "on-device" ? "on-device" : "cloud";
+            if (
+              data.utterance_text &&
+              !sawTranscriptEventRef.current &&
+              !liveActiveRef.current
+            ) {
               // Legacy fallback ONLY: an old server never sends "transcript"
               // events, so its suggestion event is the sole transcript
               // source. On a new server this append must never run — its
@@ -643,19 +904,52 @@ export function useAudioStream(): UseAudioStreamReturn {
                   tone,
                   muted,
                   timestamp: Date.now(),
+                  source,
                 };
                 const next = [entry, ...prev];
                 return next.length > MAX_SUGGESTION_FEED
                   ? next.slice(0, MAX_SUGGESTION_FEED)
                   : next;
               });
-              if (!muted) {
+              // While the on-device loop runs, a cloud suggestion AUGMENTS
+              // the local one on screen but is only voiced when the phone
+              // had nothing to say for the latest turn (its providers fell
+              // through to "cloud") — otherwise the user would hear two
+              // answers to one moment.
+              const voiceIt =
+                !muted &&
+                (!liveActiveRef.current ||
+                  (source === "cloud" && !lastLocalHadSuggestionRef.current));
+              if (voiceIt) {
                 // Earpiece mode: speak the newest TOP suggestion with free
                 // on-device TTS — nudges too, they're short. (The event also
                 // carries data.audio_b64 — Deepgram Aura mp3, paid key
                 // required — deliberately ignored; a future premium option.)
                 speakSuggestion(items[0]);
               }
+            }
+          } else if (data.type === "tone_flag") {
+            // Server-side tone analysis over a turn: rendered additively.
+            const flag = data as ToneFlagEvent;
+            toneFlagsRef.current.push(flag);
+            setToneFlags((prev) => [flag, ...prev].slice(0, MAX_SUGGESTION_FEED));
+          } else if (data.type === "speaker_identity") {
+            // The server's (possibly revised) identity for a label: relabel
+            // every transcript line that carries it. A null display_name is
+            // "unknown" and changes nothing.
+            const identity = data as SpeakerIdentityEvent;
+            identitiesRef.current.push(identity);
+            if (
+              typeof identity.speaker === "string" &&
+              typeof identity.display_name === "string" &&
+              identity.display_name
+            ) {
+              const from = identity.speaker;
+              const to = identity.display_name;
+              setTranscript((prev) =>
+                prev.map((t) => (t.speaker === from ? { ...t, speaker: to } : t)),
+              );
+              setSpeakerLabel((current) => (current === from ? to : current));
             }
           } else if (data.type === "transcription_unavailable") {
             // Be explicit instead of silently showing an empty live screen.
@@ -711,6 +1005,7 @@ export function useAudioStream(): UseAudioStreamReturn {
           pendingRef.current = new Int16Array(0);
           resamplerRef.current = null;
           stopSpeechSafely(); // Session is dead — stop coaching aloud too.
+          void stopFastLoop();
           // Restore a playback audio session so later replay is audible.
           void setPlaybackMode().catch(() => {});
           setIsRecording(false);
@@ -718,7 +1013,14 @@ export function useAudioStream(): UseAudioStreamReturn {
         }
       };
     },
-    [teardownWebSocket, finishDrain, armDrainTimer, speakSuggestion, releaseCapture],
+    [
+      teardownWebSocket,
+      finishDrain,
+      armDrainTimer,
+      speakSuggestion,
+      releaseCapture,
+      stopFastLoop,
+    ],
   );
 
   /**
@@ -816,6 +1118,14 @@ export function useAudioStream(): UseAudioStreamReturn {
       setTranscriptionAvailable(true);
       setTranscriptionMessage("");
       setMicError("");
+      setLiveStatus("");
+      setLatencySummary("");
+      setToneFlags([]);
+      setNudgeFlash(null);
+      localTurnsRef.current = [];
+      toneFlagsRef.current = [];
+      identitiesRef.current = [];
+      liveSttFailedRef.current = false;
       pendingRef.current = new Int16Array(0);
       resamplerRef.current = null;
       // Fresh session, fresh protocol detection: don't let the previous
@@ -899,12 +1209,27 @@ export function useAudioStream(): UseAudioStreamReturn {
 
       streamingRef.current = true;
       setIsRecording(true);
+
+      if (liveModeRef.current && liveCapability.capable) {
+        // Native mic is flowing: bring up the on-device loop alongside the
+        // server stream. Failure degrades to the server path (see
+        // startFastLoop) — the session is already live either way.
+        await startFastLoop(sessionId, empathyLevel);
+      }
     },
-    [connectWebSocket, teardownWebSocket, finishDrain, startWebSession],
+    [
+      connectWebSocket,
+      teardownWebSocket,
+      finishDrain,
+      startWebSession,
+      startFastLoop,
+      liveCapability.capable,
+    ],
   );
 
   const sendEmpathyUpdate = useCallback((level: number) => {
     empathyRef.current = level;
+    fastLoopRef.current?.setEmpathy(level);
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       // Empathy changes go through the same `config` channel the server
       // understands (it rejects unknown message types).
@@ -943,6 +1268,18 @@ export function useAudioStream(): UseAudioStreamReturn {
     }
   }, []);
 
+  const setLiveMode = useCallback((on: boolean) => {
+    liveModeRef.current = on;
+    setLiveModeState(on);
+  }, []);
+
+  const setSessionMode = useCallback((mode: LiveMode) => {
+    sessionModeRef.current = mode;
+    setSessionModeState(mode);
+  }, []);
+
+  const clearNudgeFlash = useCallback(() => setNudgeFlash(null), []);
+
   return {
     isRecording,
     sessionActive,
@@ -962,5 +1299,16 @@ export function useAudioStream(): UseAudioStreamReturn {
     stopSession,
     sendEmpathyUpdate,
     sendInterjectUpdate,
+    liveCapable: liveCapability.capable,
+    liveCapabilityReason: liveCapability.reason,
+    liveMode,
+    setLiveMode,
+    sessionMode,
+    setSessionMode,
+    liveStatus,
+    nudgeFlash,
+    clearNudgeFlash,
+    latencySummary,
+    toneFlags,
   };
 }

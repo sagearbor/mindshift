@@ -63,6 +63,9 @@
     ],
     "setupFiles": [
       "./jest-setup.ts"
-    ]
+    ],
+    "moduleNameMapper": {
+      "\\.onnx$": "<rootDir>/jest-asset-stub.js"
+    }
   }
 }

@@ -444,3 +444,62 @@ jest.mock("expo-constants", () => ({
 
 // Mock fetch globally
 global.fetch = jest.fn();
+
+// --- On-device fast loop (src/live) native seams ---
+// Default: NO on-device capability, so every existing hook/screen test runs
+// the legacy server path unchanged. Live-mode tests inject their own fakes
+// through useAudioStream's `makeFastLoop` option instead of these modules.
+jest.mock("expo-speech-recognition", () => {
+  const listeners: Record<string, ((e: unknown) => void)[]> = {};
+  const mod = {
+    isRecognitionAvailable: jest.fn(() => false),
+    supportsOnDeviceRecognition: jest.fn(() => false),
+    supportsRecording: jest.fn(() => false),
+    getSpeechRecognitionServices: jest.fn(() => []),
+    requestPermissionsAsync: jest.fn().mockResolvedValue({ granted: false, status: "denied" }),
+    androidTriggerOfflineModelDownload: jest.fn().mockResolvedValue({ status: "opened_dialog", message: "" }),
+    start: jest.fn(),
+    stop: jest.fn(),
+    abort: jest.fn(),
+    addListener: jest.fn((name: string, cb: (e: unknown) => void) => {
+      (listeners[name] ??= []).push(cb);
+      return { remove: () => { listeners[name] = listeners[name].filter((c) => c !== cb); } };
+    }),
+    __emit: (name: string, e: unknown) => (listeners[name] ?? []).forEach((cb) => cb(e)),
+  };
+  (globalThis as Record<string, unknown>).__expoSpeechRecognitionMock = mod;
+  return { __esModule: true, ExpoSpeechRecognitionModule: mod };
+});
+
+jest.mock("expo-ai-kit", () => ({
+  __esModule: true,
+  isAvailable: jest.fn().mockResolvedValue(false),
+  prepareBuiltInModel: jest.fn().mockResolvedValue(undefined),
+  sendMessage: jest.fn().mockRejectedValue(new Error("no on-device model in tests")),
+  setModel: jest.fn().mockResolvedValue(undefined),
+  getActiveModel: jest.fn(() => ""),
+  getRecommendedModel: jest.fn().mockResolvedValue(null),
+  getDownloadedModels: jest.fn().mockResolvedValue([]),
+}));
+
+jest.mock("onnxruntime-react-native", () => ({
+  __esModule: true,
+  InferenceSession: { create: jest.fn().mockRejectedValue(new Error("no native ORT in tests")) },
+  Tensor: jest.fn(),
+}));
+
+jest.mock("expo-haptics", () => ({
+  __esModule: true,
+  impactAsync: jest.fn().mockResolvedValue(undefined),
+  notificationAsync: jest.fn().mockResolvedValue(undefined),
+  selectionAsync: jest.fn().mockResolvedValue(undefined),
+  ImpactFeedbackStyle: { Light: "light", Medium: "medium", Heavy: "heavy" },
+  NotificationFeedbackType: { Success: "success", Warning: "warning", Error: "error" },
+}));
+
+jest.mock("expo-asset", () => ({
+  __esModule: true,
+  Asset: {
+    fromModule: jest.fn(() => ({ localUri: null, downloadAsync: jest.fn().mockResolvedValue(undefined) })),
+  },
+}));
