@@ -169,9 +169,51 @@ export function isRefusal(text: string): boolean {
 
 export interface ChainAttempt {
   provider: string;
-  outcome: "ok" | "unavailable" | "refused" | "unparseable" | "error" | "cloud";
+  outcome: "ok" | "unavailable" | "refused" | "unparseable" | "error" | "cloud" | "timeout";
   ms: number;
   detail?: string;
+}
+
+/**
+ * Per-provider deadlines. The chain runs on the fast loop's serial turn
+ * queue: a provider that hangs (Gemini Nano's first-use AICore download
+ * inside `prepareBuiltInModel`, a stalled inference) would otherwise block
+ * every later turn's transcript line and turn_local, and the UI would sit
+ * waiting for a local suggestion that never comes. Past the deadline the
+ * attempt is logged as "timeout" and the next rung runs — the memoized
+ * preparation keeps going in the background for the next turn.
+ */
+export interface ChainTimeouts {
+  /** Budget for `isAvailable()` (includes model preparation). */
+  availabilityMs: number;
+  /** Budget for `suggest()`. Stale advice is worse than none. */
+  suggestMs: number;
+}
+
+export const DEFAULT_CHAIN_TIMEOUTS: ChainTimeouts = {
+  availabilityMs: 1500,
+  suggestMs: 4000,
+};
+
+class ChainTimeoutError extends Error {
+  constructor(readonly stage: "availability" | "suggest", ms: number) {
+    super(`${stage} timed out after ${ms} ms`);
+  }
+}
+
+function withTimeout<T>(
+  work: Promise<T>,
+  ms: number,
+  stage: "availability" | "suggest",
+): Promise<T> {
+  if (!Number.isFinite(ms) || ms <= 0) return work;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new ChainTimeoutError(stage, ms)), ms);
+  });
+  return Promise.race([work, deadline]).finally(() => {
+    if (timer !== null) clearTimeout(timer);
+  });
 }
 
 export interface ChainResult {
@@ -186,13 +228,16 @@ export const DEFAULT_PROVIDER_ORDER: ProviderName[] = ["os", "bundled", "cloud"]
 
 export class ProviderChain {
   private readonly ordered: SuggestionProvider[];
+  private readonly timeouts: ChainTimeouts;
 
   constructor(
     providers: SuggestionProvider[],
     order: string[] = DEFAULT_PROVIDER_ORDER,
     private readonly now: () => number = () =>
       typeof performance !== "undefined" ? performance.now() : Date.now(),
+    timeouts: Partial<ChainTimeouts> = {},
   ) {
+    this.timeouts = { ...DEFAULT_CHAIN_TIMEOUTS, ...timeouts };
     const byName = new Map(providers.map((p) => [p.name, p]));
     this.ordered = order
       .map((n) => byName.get(n))
@@ -211,8 +256,12 @@ export class ProviderChain {
       const t0 = this.now();
       let available = false;
       try {
-        available = await p.isAvailable();
-      } catch {
+        available = await withTimeout(p.isAvailable(), this.timeouts.availabilityMs, "availability");
+      } catch (err) {
+        if (err instanceof ChainTimeoutError) {
+          attempts.push({ provider: p.name, outcome: "timeout", ms: this.now() - t0, detail: err.message });
+          continue;
+        }
         available = false;
       }
       if (!available) {
@@ -220,7 +269,7 @@ export class ProviderChain {
         continue;
       }
       try {
-        const out = await p.suggest(input);
+        const out = await withTimeout(p.suggest(input), this.timeouts.suggestMs, "suggest");
         const ms = this.now() - t0;
         if (out === null) {
           attempts.push({ provider: p.name, outcome: "cloud", ms });
@@ -236,7 +285,14 @@ export class ProviderChain {
         const msg = err instanceof Error ? err.message : String(err);
         attempts.push({
           provider: p.name,
-          outcome: isRefusal(msg) ? "refused" : msg.startsWith("unparseable") ? "unparseable" : "error",
+          outcome:
+            err instanceof ChainTimeoutError
+              ? "timeout"
+              : isRefusal(msg)
+                ? "refused"
+                : msg.startsWith("unparseable")
+                  ? "unparseable"
+                  : "error",
           ms: this.now() - t0,
           detail: msg,
         });
