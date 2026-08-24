@@ -166,6 +166,33 @@ def test_growth_point_counts_manual_self_as_me():
     assert point.partner_names == ["Mom"]
 
 
+def test_growth_point_manual_self_beats_stale_enrolled_you():
+    """Review 2026-08-24: the matcher called Speaker A "You"; the user taps
+    "that's me" on Speaker B. Two me-labels used to read as "no confident
+    me" and the recording silently vanished from Growth — the human's
+    assertion must win instead."""
+    rec = {
+        "id": "r1", "created_at": "2026-08-01T00:00:00+00:00",
+        "turns": [{"speaker": "Speaker A", "text": "hi"}, {"speaker": "Speaker B", "text": "yo"}],
+        "analysis": {"speaker_labels": {
+            "Speaker A": {"display_label": "You", "label_source": "enrolled"},
+            "Speaker B": {"display_label": "Speaker B", "label_source": "generic"},
+        }, "report_cards": {"Speaker A": {"score": 77}, "Speaker B": {"score": 42}}},
+        "manual_speaker_labels": {"Speaker B": "You"},
+        "manual_speaker_people": {"Speaker B": "self"},
+    }
+    point = main._growth_point(rec)
+    assert point is not None and point.my_score == 42
+    assert main._me_speaker(main._effective_speaker_labels(
+        rec["analysis"]["speaker_labels"], rec["manual_speaker_labels"],
+        {"Speaker A", "Speaker B"}, rec["manual_speaker_people"],
+    )) == "Speaker B"
+    # Two contradictory manual-self labels are still "no me" — never guess.
+    rec["manual_speaker_labels"] = {"Speaker A": "You", "Speaker B": "You"}
+    rec["manual_speaker_people"] = {"Speaker A": "self", "Speaker B": "self"}
+    assert main._growth_point(rec) is None
+
+
 def test_episodes_manual_label_beats_stale_enrolled_match():
     turns = [
         {"speaker": "Speaker A", "text": "hello there", "start_time": 0.0, "end_time": 2.0},
@@ -325,6 +352,7 @@ async def client():
 def store():
     fake = FakeStore()
     app.state.recordings_store = fake
+    main._rate_limiter.reset()  # process-wide per-IP budget; see test_sessions_live
     yield fake
     del app.state.recordings_store
 
