@@ -161,6 +161,47 @@ class TestTurnLocalEvent:
         with pytest.raises(ValidationError):
             TurnLocalEvent.model_validate(_turn_local(start_time=-0.1))
 
+    # -- input bounds (review 2026-08-24) -----------------------------------
+    # A turn_local is client-authored: the only thing bounding its strings
+    # was the WebSocket frame cap (16 MiB under uvicorn). Each one is kept in
+    # the per-session utterance buffer, rendered into the cloud LLM prompt
+    # and stored by POST /sessions/live, so an unbounded text was both a
+    # memory and a token-spend hole. Numbers must be finite: they address
+    # the PCM ring buffer.
+
+    def test_text_is_bounded(self):
+        from models.audio import TURN_TEXT_MAX
+
+        TurnLocalEvent.model_validate(_turn_local(text="x" * TURN_TEXT_MAX))
+        with pytest.raises(ValidationError):
+            TurnLocalEvent.model_validate(_turn_local(text="x" * (TURN_TEXT_MAX + 1)))
+        with pytest.raises(ValidationError):
+            TurnLocalEvent.model_validate(_turn_local(suggestion="x" * (TURN_TEXT_MAX + 1)))
+
+    @pytest.mark.parametrize("field,value", [
+        ("speaker", "S" * 65),
+        ("session_id", "s" * 129),
+        ("speaker_person_id", "p" * 201),
+    ])
+    def test_identifier_fields_are_bounded(self, field, value):
+        with pytest.raises(ValidationError):
+            TurnLocalEvent.model_validate(_turn_local(**{field: value}))
+
+    def test_text_tone_label_is_bounded(self):
+        with pytest.raises(ValidationError):
+            TurnLocalEvent.model_validate(_turn_local(text_tone={"label": "l" * 65}))
+
+    @pytest.mark.parametrize("field", ["start_time", "end_time", "speaker_match_score"])
+    @pytest.mark.parametrize("value", [float("inf"), float("nan")])
+    def test_non_finite_numbers_rejected(self, field, value):
+        with pytest.raises(ValidationError):
+            TurnLocalEvent.model_validate(_turn_local(**{field: value}))
+
+    @pytest.mark.parametrize("field", ["rms_dbfs", "pitch_hz", "speech_rate"])
+    def test_non_finite_prosody_rejected(self, field):
+        with pytest.raises(ValidationError):
+            TurnLocalEvent.model_validate(_turn_local(prosody={field: float("inf")}))
+
 
 class TestToneFlagEvent:
     def test_round_trip_and_discriminator(self):

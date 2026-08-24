@@ -48,6 +48,7 @@ stays honestly "lite" with the error recorded.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import uuid
@@ -101,7 +102,27 @@ BACKGROUND_TASKS: set[asyncio.Task] = set()
 
 # One lock per (uid, episode) so two concurrent reflect requests for the
 # same episode spend ONE LLM call: the second waits, then finds the cache.
+# Review 2026-08-24: entries are reference-counted and dropped once no
+# request holds or waits on them — the map used to grow by one Lock per
+# (uid, episode) ever reflected, for the life of the process.
 _REFLECT_LOCKS: dict[tuple[str, str], asyncio.Lock] = {}
+_REFLECT_LOCK_USERS: dict[tuple[str, str], int] = {}
+
+
+@contextlib.asynccontextmanager
+async def _reflect_lock(key: tuple[str, str]):
+    _REFLECT_LOCK_USERS[key] = _REFLECT_LOCK_USERS.get(key, 0) + 1
+    lock = _REFLECT_LOCKS.setdefault(key, asyncio.Lock())
+    try:
+        async with lock:
+            yield
+    finally:
+        remaining = _REFLECT_LOCK_USERS[key] - 1
+        if remaining <= 0:
+            _REFLECT_LOCK_USERS.pop(key, None)
+            _REFLECT_LOCKS.pop(key, None)
+        else:
+            _REFLECT_LOCK_USERS[key] = remaining
 
 
 def live_recording_id(uid: str, session_id: str) -> str:
@@ -251,31 +272,48 @@ async def _complete_json(system: str, user: str, max_tokens: int) -> dict:
             raise ValueError("LLM returned invalid JSON") from exc
 
 
-def _self_speaker_of(rec: dict) -> str | None:
-    """The speaker that is the viewing user in a stored recording: the live
-    block's verdict for a live session, else the speaker whose EFFECTIVE
-    label (manual overlay applied) is the enrolled "You" — the same "me"
-    rule /growth uses, so an upload the user enrolled from can be reflected
-    on too."""
+def _effective_labels_of(rec: dict) -> dict[str, dict]:
+    """The recording's speaker labels as the detail endpoint serves them:
+    the stored ladder with the human's manual (name / person) overlay."""
     import main
 
-    analysis = rec.get("analysis")
-    if not isinstance(analysis, dict):
-        return None
-    live = analysis.get("live")
-    if isinstance(live, dict) and isinstance(live.get("self_speaker"), str):
-        return live["self_speaker"]
-    effective = main._effective_speaker_labels(
+    analysis = rec.get("analysis") if isinstance(rec.get("analysis"), dict) else {}
+    return main._effective_speaker_labels(
         analysis.get("speaker_labels"),
         rec.get("manual_speaker_labels") or {},
         main._recording_speaker_ids(rec),
         main._recording_manual_people(rec),
     )
-    # The enrolled rung's "You" specifically (an enrolled PARTNER is also
-    # label_source "enrolled" under multi-person voiceprints) — or a
-    # manual-person label the user pointed at "self" (people labeling).
-    me = [sp for sp, entry in effective.items() if main._is_me_label(entry)]
-    return me[0] if len(me) == 1 else None
+
+
+def _self_speaker_of(rec: dict) -> str | None:
+    """The speaker that is the viewing user in a stored recording — the same
+    "me" rule /growth uses (``main._me_speaker`` over the EFFECTIVE labels,
+    manual overlay applied), so an upload the user enrolled from can be
+    reflected on too, and so a human correction ("that's me" on another
+    speaker, or renaming the machine's "You") is honored here as well.
+
+    Review 2026-08-24: the live block's ``self_speaker`` (the phone's
+    verdict) used to be returned FIRST, before any manual label was
+    consulted — so after the user corrected a wrong on-device identity,
+    reflect still coached the wrong person's turns. It is now only the
+    fallback for a live session whose self speaker the user never touched
+    (a lite analysis always labels that speaker as the enrolled "You", so
+    in practice the effective ladder already resolves it)."""
+    import main
+
+    analysis = rec.get("analysis")
+    if not isinstance(analysis, dict):
+        return None
+    me = main._me_speaker(_effective_labels_of(rec))
+    if me is not None:
+        return me
+    live = analysis.get("live")
+    if isinstance(live, dict) and isinstance(live.get("self_speaker"), str):
+        manual = rec.get("manual_speaker_labels") or {}
+        if live["self_speaker"] not in manual:
+            return live["self_speaker"]
+    return None
 
 
 async def _run_reflection(
@@ -301,8 +339,11 @@ async def _run_reflection(
         raise ValueError("no turn in this episode is identified as yours")
     analysis = rec.get("analysis") if isinstance(rec.get("analysis"), dict) else {}
     live = analysis.get("live") if isinstance(analysis.get("live"), dict) else {}
+    # EFFECTIVE labels (manual overlay applied) so the prompt names people
+    # the way the user does — and never tags a speaker the user has
+    # relabeled with the machine's stale "You" next to the real (YOU).
     user, self_indexes = live_sessions.build_reflect_prompt(
-        turns, self_label, analysis.get("speaker_labels"),
+        turns, self_label, _effective_labels_of(rec),
         mode=live.get("mode"), context=context,
     )
     if not self_indexes:
@@ -451,6 +492,12 @@ async def ingest_live_session(
         known_people=known_people,
     )
     existed = await store.get_recording(uid, recording_id)
+    # Idempotent re-POST: keep what the previous ingest of the SAME words
+    # already paid for (batch analysis, reflection) — see carry_over_previous.
+    analysis = live_sessions.carry_over_previous(
+        analysis, (existed or {}).get("analysis"), turns,
+        gap_seconds=_EPISODE_GAP_SECONDS,
+    )
     now = _now_iso()
     meta = {
         "id": recording_id,
@@ -489,8 +536,17 @@ async def ingest_live_session(
     import main
 
     self_label = analysis["live"]["self_speaker"]
-    analysis_scheduled = bool(body.analyze and len(turns) >= main.ANALYZE_MIN_TURNS)
-    reflect_scheduled = bool(body.reflect and self_label is not None)
+    # Nothing is scheduled that the carried-over analysis already holds.
+    analysis_scheduled = bool(
+        body.analyze
+        and len(turns) >= main.ANALYZE_MIN_TURNS
+        and analysis["live"]["analysis_status"] != live_sessions.ANALYSIS_FULL
+    )
+    reflect_scheduled = bool(
+        body.reflect
+        and self_label is not None
+        and analysis["live"].get("could_have_said") is None
+    )
     if analysis_scheduled or reflect_scheduled:
         _schedule(_post_ingest(
             store, uid, recording_id,
@@ -547,8 +603,7 @@ async def reflect_episode(
         live["reflection"] = None
         await store.update_analysis(uid, episode_id, {**analysis, "live": live})
 
-    lock = _REFLECT_LOCKS.setdefault((uid, episode_id), asyncio.Lock())
-    async with lock:
+    async with _reflect_lock((uid, episode_id)):
         try:
             reflections, cached = await _run_reflection(store, uid, episode_id)
         except LookupError:

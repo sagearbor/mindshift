@@ -2102,6 +2102,29 @@ def _is_me_label(entry: dict) -> bool:
     return False
 
 
+def _me_speaker(effective: dict[str, dict]) -> str | None:
+    """The ONE speaker in an effective label map that is the viewer, or
+    ``None`` when there is no confident "me".
+
+    Review 2026-08-24: a manual-person ``self`` label (the user tapped "that's
+    me" on a speaker) OUTRANKS the machine's enrolled "You". Without that
+    precedence, correcting a wrong voiceprint match ("Speaker A is You" from
+    the phone/matcher, when it was really Speaker B) left TWO me-labels —
+    the stale enrolled one on A and the human's on B — which read as "no
+    confident me": the recording silently dropped out of Growth and reflect
+    coached the wrong person's turns. The human assertion wins; two
+    contradictory manual-self labels are still "no me" (never guess)."""
+    manual_self = [
+        sp for sp, entry in effective.items()
+        if entry.get("label_source") == LABEL_SOURCE_MANUAL_PERSON
+        and entry.get("person_id") == speaker_id.SELF_PERSON_ID
+    ]
+    if manual_self:
+        return manual_self[0] if len(manual_self) == 1 else None
+    me = [sp for sp, entry in effective.items() if _is_me_label(entry)]
+    return me[0] if len(me) == 1 else None
+
+
 async def _run_analysis(
     turns: list[AnalyzeTurn],
     context: str,
@@ -3232,11 +3255,13 @@ def _growth_point(rec: dict) -> GrowthPoint | None:
     )
     # "Me" is the enrolled rung's "You" specifically (with multi-person
     # voiceprints an enrolled PARTNER ("Alex") is also label_source
-    # "enrolled", and must never be mistaken for the viewer) — or a
-    # manual-person label the user pointed at "self" (people labeling).
-    me = [sp for sp, entry in effective.items() if _is_me_label(entry)]
-    if len(me) != 1:  # no confident "me" (or a malformed doc) — never guess
+    # "enrolled", and must never be mistaken for the viewer) — or, winning
+    # over it, a manual-person label the user pointed at "self" (people
+    # labeling). See _me_speaker.
+    me_speaker = _me_speaker(effective)
+    if me_speaker is None:  # no confident "me" (or a malformed doc) — never guess
         return None
+    me = [me_speaker]
 
     cards = analysis.get("report_cards")
     card = cards.get(me[0]) if isinstance(cards, dict) else None

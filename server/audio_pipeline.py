@@ -195,6 +195,23 @@ LOCAL_RANGES_MAX = 500
 # sending session_complete without them. Short — enrichment is best-effort.
 ENRICHMENT_DRAIN_TIMEOUT_S = 5.0
 
+# Review 2026-08-24: enrichment is spawned per turn_local BEFORE (and
+# independent of) the utterance budget, and each task is a voiceprint read
+# plus one or two CPU model passes. Unbounded, a client sending turn_local
+# frames as fast as the socket carries them could pile up thousands of
+# tasks (and store reads) per session. Beyond this many IN-FLIGHT tasks,
+# further turns are simply not enriched (the cloud suggestion is unaffected;
+# it has its own budget + latest-wins). Real phones report one turn every
+# few seconds and a task finishes in well under that, so 4 is never reached
+# in honest use.
+MAX_ENRICHMENT_INFLIGHT = int(os.getenv("MAX_ENRICHMENT_INFLIGHT", "4"))
+
+# Review 2026-08-24: the account's enrolled voiceprint documents are read
+# ONCE per session (then refreshed at most this often) instead of on every
+# turn — a list_blobs + N downloads against GCS per turn was pure cost, and
+# an enrollment made mid-conversation is still picked up within a minute.
+VOICEPRINT_CACHE_TTL_S = float(os.getenv("VOICEPRINT_CACHE_TTL_S", "60"))
+
 # P2-7: server-generated session/relationship ids are UUIDs. Path params that
 # reach routing and (for session_id) the export ``Content-Disposition``
 # filename header must be validated — a CR/LF/quote in a free-form id could
@@ -1134,6 +1151,18 @@ class SessionContext:
     report_latency: bool = False
     latency: LatencyRecorder = field(default_factory=LatencyRecorder)
     pcm: PcmRingBuffer = field(default_factory=PcmRingBuffer)
+    # Per-session cache of the uid's enrolled voiceprint documents for the
+    # identity enrichment (see VOICEPRINT_CACHE_TTL_S). ``None`` = never
+    # loaded; the stamp is time.monotonic() of the last successful load.
+    voiceprints: list[dict] | None = None
+    voiceprints_loaded_at: float | None = None
+    # Review 2026-08-24: Deepgram stamps segments relative to the start of
+    # ITS connection's audio stream. After a mid-session reconnect (P1-1)
+    # the replacement connection's clock restarts at 0 while the session
+    # timeline (ring buffer, turn_local ranges, the client's transcript)
+    # keeps counting — so every segment from a replacement transcriber is
+    # shifted by the session time at which that transcriber took over.
+    transcriber_offset_s: float = 0.0
 
 
 def _remember_utterance(ctx: SessionContext, utterance: Utterance) -> None:
@@ -1513,7 +1542,12 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
     # "superseded" counts stale turns dropped by the latest-wins policy below;
     # "suppressed" counts Deepgram segments dropped as duplicates of turns the
     # phone already handled (Track 3-server).
-    queue_stats = {"enqueued": 0, "finished": 0, "superseded": 0, "suppressed": 0}
+    queue_stats = {
+        "enqueued": 0, "finished": 0, "superseded": 0, "suppressed": 0,
+        # turn_local frames whose enrichment was skipped because
+        # MAX_ENRICHMENT_INFLIGHT tasks were already running.
+        "enrichment_skipped": 0,
+    }
 
     # Track 3-server: best-effort background enrichment (audio tone / voice
     # identity / watch relay) spawned per turn_local. Tracked so a graceful
@@ -1744,7 +1778,18 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
 
     async def enqueue_segments(result, frame_received: float | None = None) -> None:
         segment_finalized = ctx.latency.now()
-        for segment in _normalize_segments(result):
+        for raw_segment in _normalize_segments(result):
+            # Re-base onto the session timeline (see transcriber_offset_s).
+            # 0.0 for the original connection, so the legacy path is exact.
+            segment = raw_segment
+            if ctx.transcriber_offset_s:
+                segment = TranscriptSegment(
+                    text=raw_segment.text,
+                    start_time=raw_segment.start_time + ctx.transcriber_offset_s,
+                    end_time=raw_segment.end_time + ctx.transcriber_offset_s,
+                    speaker=raw_segment.speaker,
+                    confidence=raw_segment.confidence,
+                )
             if ctx.local_ranges and _covered_by_local_range(
                 ctx.local_ranges, segment.start_time, segment.end_time,
             ):
@@ -1819,11 +1864,22 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         # Enrichment BEFORE the suggestion budget check on purpose: it is not
         # an LLM/TTS spend, and identity/tone on a turn are worth having even
         # once coaching has stopped. Fire-and-forget; see enrichment_tasks.
-        task = asyncio.create_task(
-            _enrich_turn_local(ctx, event, send_json, recordings_store)
-        )
-        enrichment_tasks.add(task)
-        task.add_done_callback(enrichment_tasks.discard)
+        # Bounded by MAX_ENRICHMENT_INFLIGHT: a flood of turn_local frames
+        # must not become a flood of model passes + store reads.
+        if len(enrichment_tasks) >= MAX_ENRICHMENT_INFLIGHT:
+            queue_stats["enrichment_skipped"] += 1
+            if queue_stats["enrichment_skipped"] == 1:
+                logger.warning(
+                    "Session %s: %d enrichment tasks already in flight — "
+                    "skipping enrichment for further turns until they drain",
+                    session_id, len(enrichment_tasks),
+                )
+        else:
+            task = asyncio.create_task(
+                _enrich_turn_local(ctx, event, send_json, recordings_store)
+            )
+            enrichment_tasks.add(task)
+            task.add_done_callback(enrichment_tasks.discard)
 
         if not event.text.strip():
             return  # nothing to coach; the range is still remembered above
@@ -1956,6 +2012,11 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                         replacement = await reconnect_transcriber()
                         if replacement is not None:
                             transcriber = replacement
+                            # The replacement's clock starts at 0 with the
+                            # NEXT frame; the frame that hit the dead socket
+                            # was already ring-buffered, so "now" on the
+                            # session timeline is exactly the audio received.
+                            ctx.transcriber_offset_s = ctx.pcm.seconds_received
                             # The client may have disconnected during the multi-
                             # second reconnect; a send on a dead socket can raise
                             # a non-WebSocketDisconnect error — suppress so it
@@ -2280,6 +2341,24 @@ def _identify_turn_person(
     return (report.get("speakers") or {}).get(speaker)
 
 
+async def _session_voiceprints(ctx: SessionContext, store) -> list[dict]:
+    """The uid's enrolled voiceprint documents, read from the store at most
+    once per VOICEPRINT_CACHE_TTL_S per session (see the constant). A read
+    failure propagates (the caller's guard logs it) and leaves any earlier
+    cached copy in place for the next turn."""
+    now = time.monotonic()
+    if (
+        ctx.voiceprints is not None
+        and ctx.voiceprints_loaded_at is not None
+        and now - ctx.voiceprints_loaded_at < VOICEPRINT_CACHE_TTL_S
+    ):
+        return ctx.voiceprints
+    docs = list(await store.list_voiceprints(ctx.uid) or [])
+    ctx.voiceprints = docs
+    ctx.voiceprints_loaded_at = now
+    return docs
+
+
 async def _enrich_identity(
     ctx: SessionContext, event: TurnLocalEvent, pcm_bytes: bytes, send_json, store,
 ) -> SpeakerIdentityEvent | None:
@@ -2292,7 +2371,7 @@ async def _enrich_identity(
         return None
     if not await asyncio.to_thread(speaker_id.is_available):
         return None
-    docs = await store.list_voiceprints(ctx.uid)
+    docs = await _session_voiceprints(ctx, store)
     if not docs:
         return None
     sr = ctx.pcm.sample_rate

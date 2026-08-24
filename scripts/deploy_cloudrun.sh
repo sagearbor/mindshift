@@ -131,6 +131,13 @@ MINDSHIFT_ALLOW_LEGACY_ACCOUNT="${MINDSHIFT_ALLOW_LEGACY_ACCOUNT:-$(read_env MIN
 MINDSHIFT_ALLOW_LEGACY_ACCOUNT="${MINDSHIFT_ALLOW_LEGACY_ACCOUNT:-true}"
 MINDSHIFT_WATCH_STT="${MINDSHIFT_WATCH_STT:-$(read_env MINDSHIFT_WATCH_STT)}"
 MINDSHIFT_WATCH_STT="${MINDSHIFT_WATCH_STT:-whisper}"
+# Server-side audio tone (server/tone_id.py) — the CODE default is "dark"
+# (compute + log, never surface), which on the first live turn still pulls
+# the ~750MB wav2vec2 checkpoint into a 2Gi instance that already holds
+# whisper + ECAPA. Deploy defaults it to "off" unless .env / the shell says
+# otherwise (see the MINDSHIFT_TONE_AUDIO note below). Review 2026-08-24.
+MINDSHIFT_TONE_AUDIO="${MINDSHIFT_TONE_AUDIO:-$(read_env MINDSHIFT_TONE_AUDIO)}"
+MINDSHIFT_TONE_AUDIO="${MINDSHIFT_TONE_AUDIO:-off}"
 
 # Optional config: forwarded to Cloud Run only when present (in .env or a real
 # env var). This is what makes MINDSHIFT_MODEL, STT_PROVIDER, etc. genuinely

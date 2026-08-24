@@ -16,6 +16,20 @@ TranscriptSource = Literal["on-device", "cloud"]
 SuggestionSource = Literal["on-device", "cloud"]
 TtsSource = Literal["on-device", "server"]
 
+# Bounds on the CLIENT-supplied strings of a TurnLocalEvent. Unlike a Deepgram
+# segment (bounded by how fast a human can talk), a turn_local's text is
+# whatever bytes the socket delivers — uvicorn's default WS frame cap is
+# 16 MiB — and it is (a) kept in the per-session utterance buffer (500 of
+# them), (b) rendered into the cloud LLM prompt (token spend), (c) stored on
+# the episode by POST /sessions/live. A hostile or buggy client must not be
+# able to turn one frame into megabytes of memory or prompt. 8 000 chars is
+# ~10 minutes of uninterrupted speech — far past any real turn, and well
+# inside the 60 000-char per-session cap the ingest endpoint enforces.
+TURN_TEXT_MAX = 8_000
+TURN_SPEAKER_MAX = 64
+TURN_LABEL_MAX = 64
+TURN_PERSON_ID_MAX = 200
+
 
 class AudioChunk(BaseModel):
     """A single chunk of streaming audio data sent over WebSocket."""
@@ -112,9 +126,12 @@ class TurnProsody(BaseModel):
     server/prosody.py's honesty rule) sends ``pitch_hz: null`` rather than a
     guess, and the server must never treat a missing value as 0.
     """
-    rms_dbfs: float | None = Field(default=None, description="Loudness of the turn, dB relative to full scale")
-    pitch_hz: float | None = Field(default=None, ge=0, description="Median F0 in Hz; null when unvoiced")
-    speech_rate: float | None = Field(default=None, ge=0, description="Syllables (or words) per second")
+    # allow_inf_nan=False on every measurement: an ``Infinity`` here would ride
+    # straight into the watch relay's dB arithmetic and out as a non-JSON
+    # ``Infinity`` literal on the watch socket.
+    rms_dbfs: float | None = Field(default=None, allow_inf_nan=False, description="Loudness of the turn, dB relative to full scale")
+    pitch_hz: float | None = Field(default=None, ge=0, allow_inf_nan=False, description="Median F0 in Hz; null when unvoiced")
+    speech_rate: float | None = Field(default=None, ge=0, allow_inf_nan=False, description="Syllables (or words) per second")
 
 
 class TurnTextTone(BaseModel):
@@ -129,7 +146,10 @@ class TurnTextTone(BaseModel):
     sarcasm: int | None = Field(default=None, ge=0, le=100)
     sadness: int | None = Field(default=None, ge=0, le=100)
     frustration: int | None = Field(default=None, ge=0, le=100)
-    label: str | None = Field(default=None, description="Free-text tone label from the on-device classifier")
+    label: str | None = Field(
+        default=None, max_length=TURN_LABEL_MAX,
+        description="Free-text tone label from the on-device classifier",
+    )
 
 
 class TurnLocalEvent(BaseModel):
@@ -145,14 +165,18 @@ class TurnLocalEvent(BaseModel):
     "self" without one, mirroring server/watch/diarize.py's rule).
     """
     type: str = Field(default="turn_local", description="Event type discriminator")
-    session_id: str
-    speaker: str = Field(description="Speaker label as the phone assigned it, e.g. 'Speaker A'")
-    speaker_person_id: str | None = Field(default=None, description="Matched person/profile id, if any")
-    speaker_match_score: float | None = Field(default=None, description="Voiceprint similarity that produced the match")
+    session_id: str = Field(max_length=128)
+    speaker: str = Field(max_length=TURN_SPEAKER_MAX, description="Speaker label as the phone assigned it, e.g. 'Speaker A'")
+    speaker_person_id: str | None = Field(default=None, max_length=TURN_PERSON_ID_MAX, description="Matched person/profile id, if any")
+    speaker_match_score: float | None = Field(default=None, allow_inf_nan=False, description="Voiceprint similarity that produced the match")
     is_self: bool | None = Field(default=None, description="True/False when the phone could decide; null when it couldn't")
-    text: str
-    start_time: float = Field(ge=0, description="Turn start in seconds")
-    end_time: float = Field(ge=0, description="Turn end in seconds")
+    text: str = Field(max_length=TURN_TEXT_MAX)
+    # allow_inf_nan=False: these address the server's PCM ring buffer by
+    # session time (int(start * sample_rate)); an inf/NaN would only surface as
+    # an OverflowError/ValueError deep inside the enrichment task. Reject at
+    # the door like every other malformed field.
+    start_time: float = Field(ge=0, allow_inf_nan=False, description="Turn start in seconds")
+    end_time: float = Field(ge=0, allow_inf_nan=False, description="Turn end in seconds")
     transcript_source: TranscriptSource
     prosody: TurnProsody | None = None
     text_tone: TurnTextTone | None = None
@@ -160,7 +184,7 @@ class TurnLocalEvent(BaseModel):
     # A null `suggestion` with a non-null `suggestion_source` is meaningless,
     # but not rejected here — the pipeline decides what to do with partial
     # reports when it's wired up.
-    suggestion: str | None = None
+    suggestion: str | None = Field(default=None, max_length=TURN_TEXT_MAX)
     suggestion_source: SuggestionSource | None = None
     tts_source: TtsSource | None = None
 

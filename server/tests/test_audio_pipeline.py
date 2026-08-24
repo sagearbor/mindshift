@@ -1001,6 +1001,63 @@ class TestTranscriberReconnect:
         assert second["type"] == "config_ack"
         assert len(factory_calls) == 1  # no retries for a config failure
 
+    def test_segments_after_reconnect_are_on_the_session_timeline(self, monkeypatch):
+        """Review 2026-08-24: Deepgram stamps `start` relative to ITS
+        connection, so a replacement connection's clock restarts at 0 while
+        the session (ring buffer, turn_local ranges, the client's transcript)
+        keeps counting. A segment the replacement reports at [0, 1] after
+        1.1 s of audio had already flowed must surface as [1.1, 2.1]."""
+        monkeypatch.setattr(
+            audio_pipeline, "TRANSCRIBER_RECONNECT_BACKOFFS_S", (0.0, 0.0, 0.0)
+        )
+
+        class DiesAfter:
+            """Accepts ``n`` frames silently, then dies like DyingTranscriber."""
+
+            def __init__(self, n: int) -> None:
+                self.n = n
+
+            async def connect(self) -> None:
+                pass
+
+            async def stream(self, audio_bytes: bytes):
+                if self.n > 0:
+                    self.n -= 1
+                    return []
+                raise TranscriberUnavailable("mid-stream death")
+
+            async def close(self) -> None:
+                pass
+
+        factory_calls: list[int] = []
+        healthy = RecordingSegmentTranscriber(
+            [TranscriptSegment("After the blip.", 0.0, 1.0, speaker=0)],
+        )
+
+        def factory():
+            factory_calls.append(1)
+            return DiesAfter(10) if len(factory_calls) == 1 else healthy
+
+        client = _inject(DiesAfter(10))
+        app.state.transcriber_factory = factory
+        try:
+            with open_ws(client, "/ws/session/a56b5f93-1eab-5de5-bd6a-934d454ca97d") as ws:
+                for _ in range(10):
+                    ws.send_bytes(FRAME_100MS)   # 1.0 s flows to the first connection
+                ws.send_bytes(FRAME_100MS)       # 1.1 s: hits the dead socket → reconnect
+                assert json.loads(ws.receive_text()) == {"type": "transcription_restored"}
+                ws.send_bytes(FRAME_100MS)       # first frame the replacement sees
+                transcript = json.loads(ws.receive_text())
+                suggestion = recv_skipping_transcripts(ws)
+        finally:
+            _clear_overrides()
+
+        assert transcript["type"] == "transcript"
+        assert transcript["text"] == "After the blip."
+        assert transcript["start_time"] == pytest.approx(1.1)
+        assert transcript["end_time"] == pytest.approx(2.1)
+        assert suggestion["utterance_text"] == "After the blip."
+
 
 # ---------------------------------------------------------------------------
 # Worker task lifecycle on immediate disconnect (P1-7)
@@ -2630,6 +2687,85 @@ class TestTurnLocalEnrichment:
             assert json.loads(ws.receive_text())["type"] == "suggestion"
             ws.send_text(json.dumps({"type": "stop"}))
             assert json.loads(ws.receive_text())["type"] == "session_complete"
+
+    # -- review 2026-08-24: enrichment is bounded per session -----------------
+
+    def test_inflight_enrichment_is_capped(self, local_first_env, monkeypatch, caplog):
+        """turn_local frames arriving faster than enrichment finishes must
+        NOT pile up unbounded model passes + store reads: beyond
+        MAX_ENRICHMENT_INFLIGHT in-flight tasks, further turns are simply not
+        enriched (the cloud suggestion path is unaffected — it has its own
+        budget). Here the identity model blocks until released, so every
+        task started stays in flight while a burst of turns lands."""
+        monkeypatch.setattr(audio_pipeline, "MAX_ENRICHMENT_INFLIGHT", 2)
+        release = threading.Event()
+
+        class BlockingSpeakerId(FakeSpeakerId):
+            def identify_speakers_multi(self, *args, **kwargs):
+                assert release.wait(timeout=10), "test never released the model"
+                return super().identify_speakers_multi(*args, **kwargs)
+
+        spk = BlockingSpeakerId()
+        monkeypatch.setattr(audio_pipeline, "speaker_id", spk)
+        client = _inject(StoppableTranscriber())
+        app.state.recordings_store = FakeVoiceprintStore(docs=[SELF_DOC])
+        burst = 6
+        with caplog.at_level(logging.WARNING, logger="audio_pipeline"):
+            with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+                _stream_one_second(ws)
+                for i in range(burst):
+                    ws.send_text(json.dumps(_turn_local(
+                        start_time=0.0, end_time=1.0, text=f"turn {i}",
+                    )))
+                # Every turn still gets its cloud suggestion (or is superseded
+                # by latest-wins) — wait for the LAST one so we know the
+                # receive loop has processed the whole burst before releasing.
+                recv_until(
+                    ws, lambda m: m["type"] == "suggestion"
+                    and m["utterance_text"] == f"turn {burst - 1}", limit=40,
+                )
+                release.set()
+                ws.send_text(json.dumps({"type": "stop"}))
+                recv_until(ws, lambda m: m["type"] == "session_complete", limit=40)
+        # Only the capped number of model passes ever ran.
+        assert len(spk.calls) == 2
+        assert "enrichment tasks already in flight" in caplog.text
+
+    def test_voiceprints_are_read_once_per_session(self, local_first_env, monkeypatch):
+        """The account's voiceprint documents are a store read (GCS list +
+        downloads); they are cached per session, not fetched on every turn."""
+        spk = FakeSpeakerId()
+        monkeypatch.setattr(audio_pipeline, "speaker_id", spk)
+        client = _inject(StoppableTranscriber())
+        store = FakeVoiceprintStore(docs=[SELF_DOC])
+        app.state.recordings_store = store
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            _stream_one_second(ws)
+            for i in range(3):
+                ws.send_text(json.dumps(_turn_local(text=f"turn {i}")))
+                recv_until(ws, lambda m: m["type"] == "speaker_identity")
+            ws.send_text(json.dumps({"type": "stop"}))
+            recv_until(ws, lambda m: m["type"] == "session_complete", limit=20)
+        assert len(spk.calls) == 3          # every turn WAS identified…
+        assert store.reads == ["test-user"]  # …from ONE read of the prints
+
+    def test_voiceprint_cache_refreshes_after_ttl(self, local_first_env, monkeypatch):
+        """An enrollment made mid-conversation is still picked up: the cache
+        expires after VOICEPRINT_CACHE_TTL_S."""
+        monkeypatch.setattr(audio_pipeline, "VOICEPRINT_CACHE_TTL_S", 0.0)
+        spk = FakeSpeakerId()
+        monkeypatch.setattr(audio_pipeline, "speaker_id", spk)
+        client = _inject(StoppableTranscriber())
+        store = FakeVoiceprintStore(docs=[SELF_DOC])
+        app.state.recordings_store = store
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            _stream_one_second(ws)
+            for i in range(2):
+                ws.send_text(json.dumps(_turn_local(text=f"turn {i}")))
+                recv_until(ws, lambda m: m["type"] == "speaker_identity")
+            ws.send_text(json.dumps({"type": "stop"}))
+            recv_until(ws, lambda m: m["type"] == "session_complete", limit=20)
+        assert store.reads == ["test-user", "test-user"]
 
 
 # --- Streaming cloud LLM: partial preview then final -------------------------

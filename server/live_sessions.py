@@ -775,6 +775,46 @@ def merge_full_analysis(
     }
 
 
+def carry_over_previous(
+    lite: dict, previous: dict | None, turns: list[dict], *, gap_seconds: float,
+) -> dict:
+    """Make a re-POST of the SAME session genuinely idempotent (review
+    2026-08-24): fold whatever the previous stored analysis already paid for
+    into the fresh lite analysis, keyed on the transcript hash.
+
+    * A cached reflection whose ``turns_hash`` matches these turns is kept
+      (``could_have_said`` + ``reflection``) — the cache was designed to
+      survive a re-POST, but the ingest rewrite of analysis.json dropped it
+      before the reflection pass could ever find it, so every phone retry
+      re-billed the LLM.
+    * A completed batch analysis (``analysis_status: "full"``) for the same
+      hash is folded back in through :func:`merge_full_analysis` (heats,
+      report cards, narrative, LLM labels), so the episode never regresses
+      to "lite" and no second batch pass is scheduled.
+
+    Different words → nothing carried (``lite`` returned as-is), exactly as
+    before. Pure; ``previous`` is never mutated."""
+    if not isinstance(previous, dict):
+        return lite
+    prev_live = previous.get("live")
+    if not isinstance(prev_live, dict):
+        return lite
+    out = lite
+    if prev_live.get("turns_hash") != lite["live"]["turns_hash"]:
+        return out
+    if prev_live.get("analysis_status") == ANALYSIS_FULL and isinstance(
+        previous.get("per_turn"), list,
+    ):
+        out = merge_full_analysis(lite, previous, turns, gap_seconds=gap_seconds)
+    cached = cached_reflection(previous, turns)
+    if cached is not None:
+        live = dict(out["live"])
+        live["could_have_said"] = cached
+        live["reflection"] = dict(prev_live.get("reflection") or {})
+        out = {**out, "live": live}
+    return out
+
+
 # ---------------------------------------------------------------------------
 # "What you could have said" — prompt + parsing (the LLM call is the router's)
 # ---------------------------------------------------------------------------

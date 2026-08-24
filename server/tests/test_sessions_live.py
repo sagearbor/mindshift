@@ -162,6 +162,16 @@ class FakeLiveStore:
         r["meta"]["manual_speaker_labels"] = labels
         return r["meta"]
 
+    async def update_manual_speaker_people(self, uid, recording_id, people):
+        r = self._by_uid.get(uid, {}).get(recording_id)
+        if r is None:
+            return None
+        if people:
+            r["meta"]["manual_speaker_people"] = people
+        else:
+            r["meta"].pop("manual_speaker_people", None)
+        return r["meta"]
+
     async def open_media_stream(self, uid, recording_id, range_header):
         return None
 
@@ -211,6 +221,10 @@ def store():
     fake = FakeLiveStore()
     app.state.recordings_store = fake
     sessions_router._REFLECT_LOCKS.clear()
+    sessions_router._REFLECT_LOCK_USERS.clear()
+    # The per-IP limiter is process-wide; a run that chains several request-
+    # heavy modules would otherwise trip its 60/min budget mid-test.
+    main._rate_limiter.reset()
     yield fake
     del app.state.recordings_store
 
@@ -337,6 +351,43 @@ class TestIngest:
         # Nothing scheduled, nothing billed.
         await _drain()
         assert mock_llm.complete.call_count == 0
+
+    async def test_repost_with_unchanged_turns_reuses_analysis_and_reflection(
+        self, client, store, mock_llm,
+    ):
+        """Review 2026-08-24: a phone retry of the SAME session (same words)
+        must not re-bill the batch analysis and the reflection, nor regress
+        the stored episode to "lite" while a second batch pass runs."""
+        mock_llm.complete.side_effect = _llm_side_effect()
+        first = (await client.post("/sessions/live", json=_body())).json()
+        rid = first["episode_id"]
+        await _drain()
+        assert mock_llm.complete.call_count == 2  # analysis + reflection, once
+        before = (await client.get(f"/recordings/{rid}")).json()["analysis"]
+        assert before["live"]["analysis_status"] == "full"
+        assert [r["turn_index"] for r in before["live"]["could_have_said"]] == [0, 2, 4]
+
+        second = (await client.post("/sessions/live", json=_body())).json()
+        assert second["created"] is False
+        assert second["analysis_status"] == "full"
+        assert second["analysis_scheduled"] is False
+        assert second["reflect_scheduled"] is False
+        await _drain()
+        assert mock_llm.complete.call_count == 2  # nothing re-billed
+        after = (await client.get(f"/recordings/{rid}")).json()["analysis"]
+        assert after["live"]["analysis_status"] == "full"
+        assert after["per_turn"] == before["per_turn"]
+        assert after["report_cards"] == before["report_cards"]
+        assert after["live"]["could_have_said"] == before["live"]["could_have_said"]
+        assert after["live"]["reflection"]["turns_hash"] == before["live"]["reflection"]["turns_hash"]
+
+        # Different words → a fresh analysis + reflection are scheduled again.
+        edited = [dict(t, text=t["text"] + " (edited)") for t in TURNS]
+        third = (await client.post("/sessions/live", json=_body(turns=edited))).json()
+        assert third["analysis_status"] == "lite"
+        assert third["analysis_scheduled"] is True and third["reflect_scheduled"] is True
+        await _drain()
+        assert mock_llm.complete.call_count == 4
 
     async def test_person_names_resolve_from_enrolled_voiceprints(self, client, store, mock_llm):
         """The phone sent only person ids (no identity events); the names
@@ -496,6 +547,40 @@ class TestReflect:
         assert {r.status_code for r in results} == {200}
         assert mock_llm.complete.call_count == 1
         assert sorted(r.json()["cached"] for r in results) == [False, True]
+        # Review 2026-08-24: the per-episode lock is released AND dropped —
+        # the map no longer grows by one Lock per episode ever reflected.
+        assert sessions_router._REFLECT_LOCKS == {}
+        assert sessions_router._REFLECT_LOCK_USERS == {}
+
+    async def test_manual_self_correction_wins_over_phone_verdict(self, client, store, mock_llm):
+        """Review 2026-08-24: the phone said Speaker A is the user; the user
+        then says "that's me" on Speaker B (people labeling) and names A
+        "Mom". Reflect must coach B's turns — the human correction outranks
+        the on-device identity verdict — and the prompt must show A under the
+        user's name, not the machine's stale "You"."""
+        rid = await self._ingest(client, mock_llm)
+        res = await client.patch(
+            f"/recordings/{rid}/speaker-labels",
+            json={"labels": {"Speaker A": "Mom"}, "people": {"Speaker B": "self"}},
+        )
+        assert res.status_code == 200, res.text
+        mock_llm.complete.side_effect = _llm_side_effect(reflect_payload=json.dumps({
+            "reflections": [
+                {"turn_index": 1, "could_have_said": "I miss hearing from you.",
+                 "why": "Names the wish.", "tone_read": "hurt"},
+            ],
+        }))
+        res = await client.post(f"/episodes/{rid}/reflect")
+        assert res.status_code == 200, res.text
+        body = res.json()
+        assert body["self_speaker"] == "Speaker B"
+        assert [r["turn_index"] for r in body["could_have_said"]] == [1]
+        _, kwargs = mock_llm.complete.call_args
+        prompt = kwargs["user"]
+        assert "1. (YOU) You never call back." in prompt
+        assert "0. (Mom) Hey Mom" in prompt
+        assert "(You)" not in prompt  # the stale machine label never leaks
+        assert "Reflect on (YOU) turn indexes: 1, 3, 5" in prompt
 
     async def test_changed_transcript_invalidates_cache(self, client, store, mock_llm):
         rid = await self._ingest(client, mock_llm)
