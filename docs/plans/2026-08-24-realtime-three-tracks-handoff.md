@@ -46,9 +46,9 @@ over-segments 2-speaker audio in auto mode.
 | #137 Track 2 | `POST /sessions/live` (idempotent, episodes = recordings with `media_type: none`), `POST /episodes/{id}/reflect` (cached "could have said"), `GET /sessions` for the therapist dashboard, tone + per-person dimensions in `/growth` and the screens | scene-pack ingest test: escalation turns == `expected_nudges`, no non-self leakage |
 | #138 Track 3-mobile | `apps/mobile/src/live/`: `prosody.ts`, `ort.ts` (+node impl for Jest), `vad.ts`/`segmenter.ts` (Silero v6 committed, 2.3 MB), `speakerId.ts`, `stt.ts` (expo-speech-recognition), `localLlm.ts` (expo-ai-kit: Gemini Nano → Apple FM → LiteRT-LM bundled → cloud, refusal falls through), `nudgePolicy.ts`, `fastLoop.ts` (earpiece / speaker / therapist modes), wired into `useAudioStream`/`LiveCoachScreen` behind an STT capability gate; `plugins/withOrtGradle9.js` | Silero **0.26 ms/chunk**; all vectors replay; Android debug APK **builds and boots** on `pixel10_api35`, 0 crashes |
 
-Suites on `main` after #138: pytest **1494 passed** (1 known live-Deepgram
-network test deselected — pre-existing vendor issue), Jest **105 suites /
-1344 tests**, `tsc` clean, Gradle `:shared:allTests` + `:wearApp` unit green.
+Suites on `main` after #139: pytest **1514 passed** (1 known live-Deepgram
+network test deselected — pre-existing vendor issue), Jest **108 suites /
+1366 tests**, `tsc` clean, Gradle `:shared:allTests` + `:wearApp` unit green.
 
 ## 3. What shipped DARK (built, measured, silenced — not forgotten)
 
@@ -59,9 +59,14 @@ network test deselected — pre-existing vendor issue), Jest **105 suites /
   bet: a naturalistic dimensional arousal/valence model. **Ops note:** with
   voice deps installed the first ≥1 s `turn_local` triggers a one-time
   ~750 MB model fetch in a thread.
-- **On-device speaker-ID**: fully implemented in the app; was inert at #138
-  because the server served neither the ONNX model nor embeddings — closed
-  by the follow-up PR listed in §7 (see there for the measured numbers).
+- **On-device speaker-ID**: implemented in #138, made live by **#139**
+  (`GET /models/ecapa.onnx` with ETag/304 + one-time server-side export,
+  `GET /voice/people?include_embeddings=true`, client download-once).
+  Jest parity against the torch reference on real fixtures: cosine
+  **1.000000**, **~20 ms per 1.5 s slice** (onnxruntime-node); server side
+  15.7 ms. LiveCoachScreen's "On-device: …" line now says `speaker-ID on
+  (N enrolled, model cached)` or the reason it's off. Still unmeasured on
+  a real phone (§6).
 - **Bundled LLM tier**: uses expo-ai-kit's `getRecommendedModel()`; Gemma 3
   1B was rejected because its HF download is gated (401) for end users.
 
@@ -118,9 +123,12 @@ sudo). Claude Code's sandbox shell does not source `~/.zprofile` — prefix
 
 ## 7. Next steps, in order
 
-1. Follow-up PR "speaker-ID seam" (`GET /models/ecapa.onnx`,
-   `GET /voice/people?include_embeddings=true`, client download/ETag) —
-   see the PR for measured ONNX parity/latency under onnxruntime-node.
+1. **Deploy note (Cloud Run):** each instance exports the 80 MB ONNX on
+   first `/models/ecapa.onnx` request (tens of seconds, ephemeral FS).
+   Pre-export into the image (`python -m server.ecapa_onnx` / the
+   `scripts/export_ecapa_onnx.py` CLI) or set `MINDSHIFT_ECAPA_ONNX_PATH`;
+   a torch-less image that ships the file is supported. Nothing
+   diarization/realtime-related has been deployed to production yet.
 2. Real-hardware pass on the Pixel 10: Gemini Nano Prompt API refusal
    behaviour on coaching prompts (unknown until tried), on-device STT
    quality, per-stage latency, whether speaker-ID separates self/Mom
