@@ -45,11 +45,12 @@ export interface FastLoopBuild {
 // Native packages are resolved lazily inside the builders: expo-ai-kit (and
 // friends) call requireNativeModule at import time, which would throw on
 // web or in a dev client built before these modules were added. A missing
-// package is just another rung down the degradation ladder.
-function tryRequire<T>(name: string): T | null {
+// package is just another rung down the degradation ladder. The require
+// calls stay literal strings inside the thunks — Metro only accepts static
+// `require("...")` (a `require(name)` variable form fails the bundle).
+function tryRequire<T>(load: () => T): T | null {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require(name) as T;
+    return load();
   } catch {
     return null;
   }
@@ -58,7 +59,10 @@ function tryRequire<T>(name: string): T | null {
 const expoHaptics: HapticSink = {
   async nudge(level) {
     try {
-      const Haptics = tryRequire<typeof import("expo-haptics")>("expo-haptics");
+      const Haptics = tryRequire(
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        () => require("expo-haptics") as typeof import("expo-haptics"),
+      );
       if (!Haptics) return;
       const style =
         level >= 3
@@ -74,7 +78,8 @@ const expoHaptics: HapticSink = {
 };
 
 function ortNative(): typeof import("./ortNative") | null {
-  return tryRequire<typeof import("./ortNative")>("./ortNative");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return tryRequire(() => require("./ortNative") as typeof import("./ortNative"));
 }
 
 async function buildVad(): Promise<{ vad: FrameVad; name: string }> {
@@ -100,7 +105,8 @@ async function buildSpeakerId(): Promise<{ embedder: Embedder | null; labeler: S
 }
 
 function buildLlm(order?: ProviderName[]): ProviderChain {
-  const kit = tryRequire<ExpoAiKitLike>("expo-ai-kit");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const kit = tryRequire(() => require("expo-ai-kit") as ExpoAiKitLike);
   if (!kit) return new ProviderChain([cloudProvider()], order);
   const builtIn = Platform.OS === "ios" ? "apple-fm" : "mlkit";
   return new ProviderChain(

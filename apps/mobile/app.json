@@ -79,6 +79,7 @@
         }
       ],
       "onnxruntime-react-native",
+      "./plugins/withOrtGradle9.js",
       [
         "expo-speech-recognition",
         {
