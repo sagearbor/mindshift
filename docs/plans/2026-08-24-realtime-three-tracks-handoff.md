@@ -355,3 +355,37 @@ The same Play service account from the steps above can submit it if you
 add the wear app under *App permissions* — but there is no EAS project
 for the watch, so upload it in the Play Console UI (or a separate
 `gradle-play-publisher` setup) rather than `eas submit`.
+
+## 10. Two-sided "Sage + his therapist Mom" (branch `feat/therapist-two-sided`)
+
+What it adds, on top of the tracks above (decisions are in the PR body):
+
+- **Live Coach**: one explicit mode picker (Earpiece / Speaker-phone /
+  Therapist) with a one-line hint each, remembered PER ACCOUNT
+  (`src/live/modePrefs.ts`); an honest pre-flight card (on-device STT,
+  speaker-ID + the reason it's off, local LLM provider or "cloud", VAD) via
+  `probeFastLoopCapabilities()` + a "who's here" strip from `GET /voice/people`
+  (read-only); "on-device"/"cloud" tags on every suggestion; an escalation
+  counter in the session strip; therapist mode renders a two-column
+  transcript (`TherapistTranscript`) and never speaks; session end shows a
+  summary card (duration, turns per person, escalations, first-words
+  median/best from `latencyLog`) with "Share with my therapist" when linked
+  and not auto-shared.
+- **Therapist link** (`server/therapist_links.py`, `routers/therapist.py`,
+  Settings → "My therapist"): the patient names ONE therapist by account
+  email; `auto_share` defaults on; ingest (live session or stored upload)
+  grants the therapist with the EXISTING per-episode share (`add_share`) —
+  no second sharing system. The therapist accepts/declines from the
+  dashboard; pending links still auto-share (the patient chose the
+  recipient, exactly like a manual share); decline deletes the link.
+  Earlier episodes are never back-shared.
+- **Therapist dashboard**: pending requests, patient list ("You" first,
+  linked ✓ + counts), pull-to-refresh; a shared session's detail shows
+  escalation markers, named people, and a viewer-private note
+  (`/therapist/notes/{episode}`).
+- **Patient after the session**: `POST /sessions/live` result → optimistic
+  row in Your Day (`liveEpisodeStore`, server row wins), pull-to-refresh on
+  Your Day / Growth / Dashboard, and Replay polls a still-"lite" live session
+  (5 s × 12) until the reflection lands.
+- Jest note: `jest-setup.ts` re-mocks RN's ScrollView so a `refreshControl`
+  element never lands in host props (it broke snapshots + `JSON.stringify`).

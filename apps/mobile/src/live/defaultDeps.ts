@@ -199,3 +199,34 @@ export async function createDefaultFastLoop(
     capabilities,
   };
 }
+
+/**
+ * Pre-flight: what the fast loop WOULD load right now, without starting a
+ * session — the honest capability check the Live Coach screen shows before
+ * "Start" (on-device STT is gated upstream by `detectLiveCapability`).
+ * Runs the same builders a session start runs (so the ECAPA model +
+ * voiceprints are warm afterwards and the real start is fast); every
+ * failure is a reason line, never a throw.
+ */
+export async function probeFastLoopCapabilities(
+  options: DefaultFastLoopOptions = {},
+): Promise<FastLoopCapabilities> {
+  const [{ vad }, speaker] = await Promise.all([
+    buildVad().catch(() => ({ vad: new EnergyVad(), name: "energy VAD" })),
+    options.speakerId === false
+      ? Promise.resolve<SpeakerIdBuild>({
+          embedder: null,
+          labeler: null,
+          capability: inactiveCapability("disabled for this session"),
+        })
+      : buildSpeakerId().catch((err: unknown) =>
+          speakerIdOff(err instanceof Error ? err.message : String(err)),
+        ),
+  ]);
+  const llm = buildLlm(options.providerOrder);
+  return {
+    vad: vad instanceof SileroVad ? "silero" : "energy",
+    speakerId: speaker.capability,
+    llm: llm.providerNames,
+  };
+}

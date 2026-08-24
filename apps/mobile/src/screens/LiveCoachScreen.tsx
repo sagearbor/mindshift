@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -11,7 +11,16 @@ import EmpathySlider from "../components/EmpathySlider";
 import InterjectSlider from "../components/InterjectSlider";
 import SuggestionCard from "../components/SuggestionCard";
 import LiveTranscript from "../components/LiveTranscript";
+import TherapistTranscript from "../components/TherapistTranscript";
+import LiveModePicker, { LIVE_MODE_OPTIONS } from "../components/LiveModePicker";
+import LivePreflightPanel from "../components/LivePreflightPanel";
+import SessionSummaryCard from "../components/SessionSummaryCard";
 import { useAudioStream } from "../hooks/useAudioStream";
+import { useAuthStore } from "../store/authStore";
+import { loadLiveMode, saveLiveMode } from "../live/modePrefs";
+import type { LiveMode } from "../live/localLlm";
+import { listVoicePeople, type VoicePerson } from "../api/liveSessions";
+import { getTherapistLink, type TherapistLink } from "../api/therapist";
 
 const STATUS_COLORS: Record<string, string> = {
   idle: "#9CA3AF",
@@ -60,6 +69,7 @@ export default function LiveCoachScreen({
     sendEmpathyUpdate,
     sendInterjectUpdate,
     liveCapable,
+    liveCapabilityReason,
     liveMode,
     setLiveMode,
     sessionMode,
@@ -69,9 +79,22 @@ export default function LiveCoachScreen({
     clearNudgeFlash,
     latencySummary,
     toneFlags,
+    preflight,
+    runPreflight,
+    escalationCount,
+    sessionSummary,
+    lastEpisode,
   } = useAudioStream();
 
+  const userId = useAuthStore((s) => s.user?.uid ?? null);
   const [empathyLevel, setEmpathyLevel] = useState(50);
+  const [interjectLevel, setInterjectLevel] = useState(0);
+  // "Who's here" (enrolled people, read-only) and the therapist link (for the
+  // end-of-session share affordance). null = still loading / unavailable.
+  const [people, setPeople] = useState<VoicePerson[] | null>(null);
+  const [peopleError, setPeopleError] = useState<string | null>(null);
+  const [therapist, setTherapist] = useState<TherapistLink | null>(null);
+  const modeLoadedRef = useRef(false);
 
   // A haptic nudge on the user's own delivery also flashes on screen for a
   // moment (the phone may be face-down on the table; the buzz is primary).
@@ -80,17 +103,62 @@ export default function LiveCoachScreen({
     const timer = setTimeout(() => clearNudgeFlash?.(), 1500);
     return () => clearTimeout(timer);
   }, [nudgeFlash, clearNudgeFlash]);
-  const [interjectLevel, setInterjectLevel] = useState(0);
-  const [coachMode, setCoachMode] = useState<"earpiece" | "visual">(
-    "visual",
+
+  // The mode decides whether the coach speaks: earpiece and speaker-phone do
+  // (free on-device TTS; the fast loop additionally holds speech until the
+  // room is quiet), therapist mode never does. The hook stops any in-flight
+  // utterance when this flips to false.
+  useEffect(() => {
+    setSpeechEnabled(sessionMode !== "therapist");
+  }, [sessionMode, setSpeechEnabled]);
+
+  // Remember the mode per account (Sage's phone opens on speaker-phone,
+  // Mom's on therapist) — loaded once, saved on every explicit change.
+  useEffect(() => {
+    let cancelled = false;
+    void loadLiveMode(userId).then((mode) => {
+      if (cancelled || modeLoadedRef.current) return;
+      modeLoadedRef.current = true;
+      setSessionMode?.(mode);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  const handleModeChange = useCallback(
+    (mode: LiveMode) => {
+      setSessionMode?.(mode);
+      void saveLiveMode(userId, mode);
+    },
+    [setSessionMode, userId],
   );
 
-  // Earpiece mode speaks the top suggestion aloud (free on-device TTS);
-  // visual mode stays silent. The hook stops any in-flight utterance when
-  // this flips to false.
+  // Pre-flight: probe what the on-device loop would load, once per mount
+  // (and again if the on-device switch is flipped back on).
   useEffect(() => {
-    setSpeechEnabled(coachMode === "earpiece");
-  }, [coachMode, setSpeechEnabled]);
+    if (liveCapable && liveMode) void runPreflight?.();
+  }, [liveCapable, liveMode, runPreflight]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void listVoicePeople().then((res) => {
+      if (cancelled) return;
+      setPeople(res.people);
+      setPeopleError(res.error);
+    });
+    getTherapistLink()
+      .then((l) => {
+        if (!cancelled) setTherapist(l);
+      })
+      .catch(() => {
+        if (!cancelled) setTherapist(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleToggle = useCallback(async () => {
     // Toggle on sessionActive, not isRecording: a session can be live with
@@ -143,6 +211,10 @@ export default function LiveCoachScreen({
   );
 
   const statusColor = STATUS_COLORS[connectionStatus] || STATUS_COLORS.idle;
+  const mode: LiveMode = sessionMode ?? "earpiece";
+  const isTherapist = mode === "therapist";
+  const modeLabel = LIVE_MODE_OPTIONS.find((o) => o.mode === mode)?.label ?? mode;
+  const idle = connectionStatus === "idle" && transcript.length === 0 && !sessionActive;
 
   return (
     <View style={styles.container}>
@@ -181,8 +253,9 @@ export default function LiveCoachScreen({
       {/* Identity chip: which diarized voice is the user's. Shown once there's
           a session or a first transcript line — before that the toggle would
           be meaningless. Tapping flips A↔B; the hint reminds the "you speak
-          first" convention while idle. */}
-      {(sessionActive || transcript.length > 0) && (
+          first" convention while idle. Therapist mode has no "you" on the
+          mic, so the chip is hidden there. */}
+      {!isTherapist && (sessionActive || transcript.length > 0) && (
         <View style={styles.identityRow}>
           <TouchableOpacity
             testID="self-speaker-chip"
@@ -215,91 +288,25 @@ export default function LiveCoachScreen({
         </View>
       ) : null}
 
-      {/* Coach mode toggle */}
-      <View style={styles.modeRow}>
-        <Text style={styles.modeLabel}>Coach mode:</Text>
-        <TouchableOpacity
-          testID="mode-earpiece"
-          style={[
-            styles.modeButton,
-            coachMode === "earpiece" && styles.modeButtonActive,
-          ]}
-          onPress={() => setCoachMode("earpiece")}
-        >
-          <Text
-            style={[
-              styles.modeButtonText,
-              coachMode === "earpiece" && styles.modeButtonTextActive,
-            ]}
-          >
-            Earpiece
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          testID="mode-visual"
-          style={[
-            styles.modeButton,
-            coachMode === "visual" && styles.modeButtonActive,
-          ]}
-          onPress={() => setCoachMode("visual")}
-        >
-          <Text
-            style={[
-              styles.modeButtonText,
-              coachMode === "visual" && styles.modeButtonTextActive,
-            ]}
-          >
-            Visual
-          </Text>
-        </TouchableOpacity>
-      </View>
+      {/* The one choice that shapes the session: who's on the mic and whether
+          the coach speaks. Locked while a session runs (the loop reads it at
+          start). Persisted per account. */}
+      <LiveModePicker value={mode} onChange={handleModeChange} disabled={sessionActive} />
 
       {/* On-device fast loop (Track 3): only offered when the device can run
-          it (on-device STT present). Off = the legacy server path. The
-          session shape picks who is on the mic and whether the coach speaks:
-          earpiece (private, spoken), speaker-phone (both voices on one mic;
-          spoken only in silences), therapist (both partners enrolled; on-screen
-          only). Locked while a session runs — the loop reads it at start. */}
+          it (on-device STT present). Off = the legacy server path. */}
       {liveCapable ? (
         <View style={styles.modeRow} testID="live-mode-row">
-          <Text style={styles.modeLabel}>On-device:</Text>
+          <Text style={styles.modeLabel}>On-device coaching</Text>
           <Switch
             testID="live-mode-switch"
             value={Boolean(liveMode)}
             onValueChange={setLiveMode}
             disabled={sessionActive}
           />
-          {liveMode ? (
-            <View style={styles.sessionModeGroup} testID="session-mode-row">
-              {(
-                [
-                  ["earpiece", "Earpiece"],
-                  ["speaker", "Speaker-phone"],
-                  ["therapist", "Therapist"],
-                ] as const
-              ).map(([mode, label]) => (
-                <TouchableOpacity
-                  key={mode}
-                  testID={`session-mode-${mode}`}
-                  style={[
-                    styles.modeButton,
-                    sessionMode === mode && styles.modeButtonActive,
-                  ]}
-                  disabled={sessionActive}
-                  onPress={() => setSessionMode(mode)}
-                >
-                  <Text
-                    style={[
-                      styles.modeButtonText,
-                      sessionMode === mode && styles.modeButtonTextActive,
-                    ]}
-                  >
-                    {label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          ) : null}
+          <Text style={styles.modeHint} numberOfLines={1}>
+            {liveMode ? "phone does the work" : "server does the work"}
+          </Text>
         </View>
       ) : null}
 
@@ -308,6 +315,19 @@ export default function LiveCoachScreen({
         <Text style={styles.speechUnavailableText} testID="live-status">
           {liveStatus}
         </Text>
+      ) : null}
+
+      {/* Session strip: mode + escalation count while live. */}
+      {sessionActive ? (
+        <View style={styles.sessionStrip} testID="session-strip">
+          <Text style={styles.sessionStripText}>{modeLabel}</Text>
+          <Text
+            style={[styles.sessionStripText, escalationCount > 0 && styles.sessionStripWarn]}
+            testID="escalation-count"
+          >
+            {isTherapist ? "observing" : `escalations: ${escalationCount ?? 0}`}
+          </Text>
+        </View>
       ) : null}
 
       {/* Haptic nudge mirror: "you're getting loud/heated" on the user's own
@@ -331,9 +351,9 @@ export default function LiveCoachScreen({
         </Text>
       ) : null}
 
-      {/* Honest state: earpiece selected but this platform has no TTS —
+      {/* Honest state: a spoken mode selected but this platform has no TTS —
           suggestions stay visual-only instead of silently pretending. */}
-      {coachMode === "earpiece" && !speechAvailable ? (
+      {!isTherapist && !speechAvailable ? (
         <Text style={styles.speechUnavailableText} testID="speech-unavailable-note">
           Spoken suggestions aren&apos;t available on this platform — showing
           them on screen only.
@@ -352,31 +372,53 @@ export default function LiveCoachScreen({
         onValueChange={handleInterjectChange}
       />
 
-      {/* Idle explainer: before the first session, spell out how the flow
-          works. Disappears the moment a session starts or any transcript
-          arrives — no persistence needed. */}
-      {connectionStatus === "idle" &&
-      transcript.length === 0 &&
-      !sessionActive ? (
-        <View style={styles.explainerCard} testID="idle-explainer">
-          <Text style={styles.explainerLine}>
-            Place the phone between you.
-          </Text>
-          <Text style={styles.explainerLine}>
-            Tap Start, then speak first — the coach learns which voice is yours.
-          </Text>
-          <Text style={styles.explainerLine}>
-            Earpiece = private coaching in your ear; Visual = on-screen only.
-          </Text>
-        </View>
+      {/* Idle: the honest pre-flight (what will run on this phone, who the
+          loop expects to hear) and the short how-to. Disappears the moment a
+          session starts or any transcript arrives. */}
+      {idle ? (
+        <>
+          <LivePreflightPanel
+            liveCapable={liveCapable}
+            liveCapabilityReason={liveCapabilityReason ?? ""}
+            liveMode={Boolean(liveMode)}
+            preflight={preflight ?? null}
+            people={people}
+            peopleError={peopleError}
+          />
+          <View style={styles.explainerCard} testID="idle-explainer">
+            {isTherapist ? (
+              <Text style={styles.explainerLine}>
+                Place the phone between the two of them and tap Start — you&apos;ll
+                see both sides labelled; nothing is spoken aloud.
+              </Text>
+            ) : (
+              <>
+                <Text style={styles.explainerLine}>
+                  {mode === "speaker"
+                    ? "Put the call on speaker, place the phone between you."
+                    : "Hold the phone to your ear as you normally would."}
+                </Text>
+                <Text style={styles.explainerLine}>
+                  Tap Start, then speak first — the coach learns which voice is yours.
+                </Text>
+              </>
+            )}
+          </View>
+        </>
       ) : null}
 
-      {/* Live transcript */}
-      <LiveTranscript entries={transcript} />
+      {/* Live transcript: two labelled columns in therapist mode. */}
+      {isTherapist ? (
+        <TherapistTranscript entries={transcript} />
+      ) : (
+        <LiveTranscript entries={transcript} />
+      )}
 
       {/* Suggestion feed: newest first, older entries faded so the eye lands
           on the latest. Nudges (about the user's OWN turn) render as a compact
-          banner; responses render the usual SuggestionCard stack. */}
+          banner; responses render the usual SuggestionCard stack. Each entry
+          says where it came from (the phone's fast loop or the cloud) — the
+          local one lands first, the cloud one augments it. */}
       {suggestions.length > 0 && (
         <ScrollView
           style={styles.suggestionsContainer}
@@ -390,6 +432,18 @@ export default function LiveCoachScreen({
             // banner style) on top of this.
             const ageStyle =
               i === 0 ? styles.feedEntryNewest : styles.feedEntryOlder;
+            const sourceTag = entry.source ? (
+              <Text
+                style={[
+                  styles.sourceTag,
+                  entry.source === "on-device" ? styles.sourceTagLocal : styles.sourceTagCloud,
+                ]}
+                testID={`suggestion-source-${entry.id}`}
+              >
+                {entry.source === "on-device" ? "on-device" : "cloud"}
+                {entry.partial ? " · writing…" : ""}
+              </Text>
+            ) : null;
             if (entry.kind === "nudge") {
               return (
                 <View
@@ -407,11 +461,13 @@ export default function LiveCoachScreen({
                   <Text style={styles.nudgeText} numberOfLines={1}>
                     {entry.texts[0]}
                   </Text>
+                  {sourceTag}
                 </View>
               );
             }
             return (
               <View key={entry.id} style={ageStyle}>
+                {sourceTag ? <View style={styles.sourceRow}>{sourceTag}</View> : null}
                 {entry.texts.map((text, j) => (
                   <SuggestionCard
                     key={j}
@@ -425,6 +481,16 @@ export default function LiveCoachScreen({
           })}
         </ScrollView>
       )}
+
+      {/* Session end: the summary card (duration, turns, escalations,
+          first-words latency) with "Share with my therapist" when linked. */}
+      {!sessionActive && sessionSummary ? (
+        <SessionSummaryCard
+          summary={sessionSummary}
+          episode={lastEpisode ?? null}
+          therapist={therapist}
+        />
+      ) : null}
 
       {/* Latency report from the on-device loop (printed in full to the
           console at session end; the headline lands here). */}
@@ -553,7 +619,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E5E7EB",
     marginHorizontal: 16,
-    marginVertical: 8,
+    marginVertical: 6,
     padding: 14,
     gap: 6,
   },
@@ -594,7 +660,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 6,
     gap: 8,
   },
   modeLabel: {
@@ -603,37 +669,30 @@ const styles = StyleSheet.create({
     color: "#374151",
     marginRight: 4,
   },
-  modeButton: {
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    backgroundColor: "#FFFFFF",
-  },
-  modeButtonActive: {
-    backgroundColor: "#4A90D9",
-    borderColor: "#4A90D9",
-  },
-  modeButtonText: {
-    fontSize: 13,
-    fontWeight: "500",
+  modeHint: {
+    flex: 1,
+    fontSize: 12,
     color: "#6B7280",
   },
-  modeButtonTextActive: {
-    color: "#FFFFFF",
+  sessionStrip: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingBottom: 4,
+  },
+  sessionStripText: {
+    fontSize: 12.5,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+  sessionStripWarn: {
+    color: "#B45309",
   },
   speechUnavailableText: {
     fontSize: 12,
     color: "#6B7280",
     paddingHorizontal: 16,
     paddingBottom: 4,
-  },
-  sessionModeGroup: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-    flexShrink: 1,
   },
   nudgeFlash: {
     backgroundColor: "#FEE2E2",
@@ -674,6 +733,29 @@ const styles = StyleSheet.create({
   feedEntryOlder: {
     // Faded so the eye lands on the newest advice, but still legible.
     opacity: 0.75,
+  },
+  sourceRow: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    marginTop: 4,
+  },
+  sourceTag: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    paddingVertical: 2,
+    paddingHorizontal: 7,
+    borderRadius: 6,
+    overflow: "hidden",
+  },
+  sourceTagLocal: {
+    color: "#15803D",
+    backgroundColor: "#DCFCE7",
+  },
+  sourceTagCloud: {
+    color: "#1D4ED8",
+    backgroundColor: "#DBEAFE",
   },
   nudgeBanner: {
     flexDirection: "row",

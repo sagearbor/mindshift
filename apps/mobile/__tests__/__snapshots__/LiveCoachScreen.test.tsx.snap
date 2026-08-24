@@ -85,13 +85,12 @@ exports[`LiveCoachScreen renders disconnected state 1`] = `
   <View
     style={
       {
-        "alignItems": "center",
-        "flexDirection": "row",
-        "gap": 8,
+        "gap": 6,
         "paddingHorizontal": 16,
-        "paddingVertical": 8,
+        "paddingVertical": 6,
       }
     }
+    testID="live-mode-picker"
   >
     <Text
       style={
@@ -99,126 +98,206 @@ exports[`LiveCoachScreen renders disconnected state 1`] = `
           "color": "#374151",
           "fontSize": 14,
           "fontWeight": "600",
-          "marginRight": 4,
         }
       }
     >
-      Coach mode:
+      Session mode
     </Text>
     <View
-      accessibilityState={
-        {
-          "busy": undefined,
-          "checked": undefined,
-          "disabled": undefined,
-          "expanded": undefined,
-          "selected": undefined,
-        }
-      }
-      accessibilityValue={
-        {
-          "max": undefined,
-          "min": undefined,
-          "now": undefined,
-          "text": undefined,
-        }
-      }
-      accessible={true}
-      collapsable={false}
-      focusable={true}
-      onClick={[Function]}
-      onResponderGrant={[Function]}
-      onResponderMove={[Function]}
-      onResponderRelease={[Function]}
-      onResponderTerminate={[Function]}
-      onResponderTerminationRequest={[Function]}
-      onStartShouldSetResponder={[Function]}
       style={
         {
-          "backgroundColor": "#FFFFFF",
-          "borderColor": "#D1D5DB",
-          "borderRadius": 16,
-          "borderWidth": 1,
-          "opacity": 1,
-          "paddingHorizontal": 14,
-          "paddingVertical": 6,
+          "flexDirection": "row",
+          "flexWrap": "wrap",
+          "gap": 6,
         }
       }
-      testID="mode-earpiece"
     >
-      <Text
+      <View
+        accessibilityRole="button"
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": false,
+            "expanded": undefined,
+            "selected": true,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={true}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
         style={
-          [
-            {
-              "color": "#6B7280",
-              "fontSize": 13,
-              "fontWeight": "500",
-            },
-            false,
-          ]
+          {
+            "backgroundColor": "#4A90D9",
+            "borderColor": "#4A90D9",
+            "borderRadius": 16,
+            "borderWidth": 1,
+            "opacity": 1,
+            "paddingHorizontal": 14,
+            "paddingVertical": 6,
+          }
         }
+        testID="session-mode-earpiece"
       >
-        Earpiece
-      </Text>
+        <Text
+          style={
+            [
+              {
+                "color": "#6B7280",
+                "fontSize": 13,
+                "fontWeight": "500",
+              },
+              {
+                "color": "#FFFFFF",
+              },
+            ]
+          }
+        >
+          Earpiece
+        </Text>
+      </View>
+      <View
+        accessibilityRole="button"
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": false,
+            "expanded": undefined,
+            "selected": false,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={true}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
+        style={
+          {
+            "backgroundColor": "#FFFFFF",
+            "borderColor": "#D1D5DB",
+            "borderRadius": 16,
+            "borderWidth": 1,
+            "opacity": 1,
+            "paddingHorizontal": 14,
+            "paddingVertical": 6,
+          }
+        }
+        testID="session-mode-speaker"
+      >
+        <Text
+          style={
+            [
+              {
+                "color": "#6B7280",
+                "fontSize": 13,
+                "fontWeight": "500",
+              },
+              false,
+            ]
+          }
+        >
+          Speaker-phone
+        </Text>
+      </View>
+      <View
+        accessibilityRole="button"
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": false,
+            "expanded": undefined,
+            "selected": false,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={true}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
+        style={
+          {
+            "backgroundColor": "#FFFFFF",
+            "borderColor": "#D1D5DB",
+            "borderRadius": 16,
+            "borderWidth": 1,
+            "opacity": 1,
+            "paddingHorizontal": 14,
+            "paddingVertical": 6,
+          }
+        }
+        testID="session-mode-therapist"
+      >
+        <Text
+          style={
+            [
+              {
+                "color": "#6B7280",
+                "fontSize": 13,
+                "fontWeight": "500",
+              },
+              false,
+            ]
+          }
+        >
+          Therapist
+        </Text>
+      </View>
     </View>
-    <View
-      accessibilityState={
-        {
-          "busy": undefined,
-          "checked": undefined,
-          "disabled": undefined,
-          "expanded": undefined,
-          "selected": undefined,
-        }
-      }
-      accessibilityValue={
-        {
-          "max": undefined,
-          "min": undefined,
-          "now": undefined,
-          "text": undefined,
-        }
-      }
-      accessible={true}
-      collapsable={false}
-      focusable={true}
-      onClick={[Function]}
-      onResponderGrant={[Function]}
-      onResponderMove={[Function]}
-      onResponderRelease={[Function]}
-      onResponderTerminate={[Function]}
-      onResponderTerminationRequest={[Function]}
-      onStartShouldSetResponder={[Function]}
+    <Text
       style={
         {
-          "backgroundColor": "#4A90D9",
-          "borderColor": "#4A90D9",
-          "borderRadius": 16,
-          "borderWidth": 1,
-          "opacity": 1,
-          "paddingHorizontal": 14,
-          "paddingVertical": 6,
+          "color": "#6B7280",
+          "fontSize": 12.5,
+          "lineHeight": 17,
         }
       }
-      testID="mode-visual"
+      testID="session-mode-hint"
     >
-      <Text
-        style={
-          [
-            {
-              "color": "#6B7280",
-              "fontSize": 13,
-              "fontWeight": "500",
-            },
-            {
-              "color": "#FFFFFF",
-            },
-          ]
-        }
-      >
-        Visual
-      </Text>
-    </View>
+      Phone to your ear or on a call — the coach whispers to you privately.
+    </Text>
   </View>
   <View
     style={
@@ -496,13 +575,12 @@ exports[`LiveCoachScreen renders initial idle state 1`] = `
   <View
     style={
       {
-        "alignItems": "center",
-        "flexDirection": "row",
-        "gap": 8,
+        "gap": 6,
         "paddingHorizontal": 16,
-        "paddingVertical": 8,
+        "paddingVertical": 6,
       }
     }
+    testID="live-mode-picker"
   >
     <Text
       style={
@@ -510,126 +588,206 @@ exports[`LiveCoachScreen renders initial idle state 1`] = `
           "color": "#374151",
           "fontSize": 14,
           "fontWeight": "600",
-          "marginRight": 4,
         }
       }
     >
-      Coach mode:
+      Session mode
     </Text>
     <View
-      accessibilityState={
-        {
-          "busy": undefined,
-          "checked": undefined,
-          "disabled": undefined,
-          "expanded": undefined,
-          "selected": undefined,
-        }
-      }
-      accessibilityValue={
-        {
-          "max": undefined,
-          "min": undefined,
-          "now": undefined,
-          "text": undefined,
-        }
-      }
-      accessible={true}
-      collapsable={false}
-      focusable={true}
-      onClick={[Function]}
-      onResponderGrant={[Function]}
-      onResponderMove={[Function]}
-      onResponderRelease={[Function]}
-      onResponderTerminate={[Function]}
-      onResponderTerminationRequest={[Function]}
-      onStartShouldSetResponder={[Function]}
       style={
         {
-          "backgroundColor": "#FFFFFF",
-          "borderColor": "#D1D5DB",
-          "borderRadius": 16,
-          "borderWidth": 1,
-          "opacity": 1,
-          "paddingHorizontal": 14,
-          "paddingVertical": 6,
+          "flexDirection": "row",
+          "flexWrap": "wrap",
+          "gap": 6,
         }
       }
-      testID="mode-earpiece"
     >
-      <Text
+      <View
+        accessibilityRole="button"
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": false,
+            "expanded": undefined,
+            "selected": true,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={true}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
         style={
-          [
-            {
-              "color": "#6B7280",
-              "fontSize": 13,
-              "fontWeight": "500",
-            },
-            false,
-          ]
+          {
+            "backgroundColor": "#4A90D9",
+            "borderColor": "#4A90D9",
+            "borderRadius": 16,
+            "borderWidth": 1,
+            "opacity": 1,
+            "paddingHorizontal": 14,
+            "paddingVertical": 6,
+          }
         }
+        testID="session-mode-earpiece"
       >
-        Earpiece
-      </Text>
+        <Text
+          style={
+            [
+              {
+                "color": "#6B7280",
+                "fontSize": 13,
+                "fontWeight": "500",
+              },
+              {
+                "color": "#FFFFFF",
+              },
+            ]
+          }
+        >
+          Earpiece
+        </Text>
+      </View>
+      <View
+        accessibilityRole="button"
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": false,
+            "expanded": undefined,
+            "selected": false,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={true}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
+        style={
+          {
+            "backgroundColor": "#FFFFFF",
+            "borderColor": "#D1D5DB",
+            "borderRadius": 16,
+            "borderWidth": 1,
+            "opacity": 1,
+            "paddingHorizontal": 14,
+            "paddingVertical": 6,
+          }
+        }
+        testID="session-mode-speaker"
+      >
+        <Text
+          style={
+            [
+              {
+                "color": "#6B7280",
+                "fontSize": 13,
+                "fontWeight": "500",
+              },
+              false,
+            ]
+          }
+        >
+          Speaker-phone
+        </Text>
+      </View>
+      <View
+        accessibilityRole="button"
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": false,
+            "expanded": undefined,
+            "selected": false,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={true}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
+        style={
+          {
+            "backgroundColor": "#FFFFFF",
+            "borderColor": "#D1D5DB",
+            "borderRadius": 16,
+            "borderWidth": 1,
+            "opacity": 1,
+            "paddingHorizontal": 14,
+            "paddingVertical": 6,
+          }
+        }
+        testID="session-mode-therapist"
+      >
+        <Text
+          style={
+            [
+              {
+                "color": "#6B7280",
+                "fontSize": 13,
+                "fontWeight": "500",
+              },
+              false,
+            ]
+          }
+        >
+          Therapist
+        </Text>
+      </View>
     </View>
-    <View
-      accessibilityState={
-        {
-          "busy": undefined,
-          "checked": undefined,
-          "disabled": undefined,
-          "expanded": undefined,
-          "selected": undefined,
-        }
-      }
-      accessibilityValue={
-        {
-          "max": undefined,
-          "min": undefined,
-          "now": undefined,
-          "text": undefined,
-        }
-      }
-      accessible={true}
-      collapsable={false}
-      focusable={true}
-      onClick={[Function]}
-      onResponderGrant={[Function]}
-      onResponderMove={[Function]}
-      onResponderRelease={[Function]}
-      onResponderTerminate={[Function]}
-      onResponderTerminationRequest={[Function]}
-      onStartShouldSetResponder={[Function]}
+    <Text
       style={
         {
-          "backgroundColor": "#4A90D9",
-          "borderColor": "#4A90D9",
-          "borderRadius": 16,
-          "borderWidth": 1,
-          "opacity": 1,
-          "paddingHorizontal": 14,
-          "paddingVertical": 6,
+          "color": "#6B7280",
+          "fontSize": 12.5,
+          "lineHeight": 17,
         }
       }
-      testID="mode-visual"
+      testID="session-mode-hint"
     >
-      <Text
-        style={
-          [
-            {
-              "color": "#6B7280",
-              "fontSize": 13,
-              "fontWeight": "500",
-            },
-            {
-              "color": "#FFFFFF",
-            },
-          ]
-        }
-      >
-        Visual
-      </Text>
-    </View>
+      Phone to your ear or on a call — the coach whispers to you privately.
+    </Text>
   </View>
   <View
     style={
@@ -752,7 +910,230 @@ exports[`LiveCoachScreen renders initial idle state 1`] = `
         "borderWidth": 1,
         "gap": 6,
         "marginHorizontal": 16,
-        "marginVertical": 8,
+        "marginVertical": 6,
+        "padding": 12,
+      }
+    }
+    testID="live-preflight"
+  >
+    <Text
+      style={
+        {
+          "color": "#374151",
+          "fontSize": 13,
+          "fontWeight": "700",
+          "letterSpacing": 0.4,
+          "textTransform": "uppercase",
+        }
+      }
+    >
+      Before you start
+    </Text>
+    <View
+      style={
+        {
+          "alignItems": "flex-start",
+          "flexDirection": "row",
+          "gap": 8,
+        }
+      }
+      testID="preflight-stt"
+    >
+      <Text
+        style={
+          [
+            {
+              "fontSize": 14,
+              "fontWeight": "700",
+              "width": 16,
+            },
+            {
+              "color": "#B45309",
+            },
+          ]
+        }
+      >
+        ✗
+      </Text>
+      <Text
+        style={
+          {
+            "color": "#1F2937",
+            "fontSize": 13.5,
+            "fontWeight": "600",
+            "width": 118,
+          }
+        }
+      >
+        On-device speech
+      </Text>
+      <Text
+        numberOfLines={2}
+        style={
+          {
+            "color": "#6B7280",
+            "flex": 1,
+            "fontSize": 12.5,
+            "lineHeight": 17,
+          }
+        }
+      >
+        on-device speech recognition isn't available here
+      </Text>
+    </View>
+    <View
+      style={
+        {
+          "alignItems": "flex-start",
+          "flexDirection": "row",
+          "gap": 8,
+        }
+      }
+      testID="preflight-speaker-id"
+    >
+      <Text
+        style={
+          [
+            {
+              "fontSize": 14,
+              "fontWeight": "700",
+              "width": 16,
+            },
+            {
+              "color": "#B45309",
+            },
+          ]
+        }
+      >
+        ✗
+      </Text>
+      <Text
+        style={
+          {
+            "color": "#1F2937",
+            "fontSize": 13.5,
+            "fontWeight": "600",
+            "width": 118,
+          }
+        }
+      >
+        Speaker-ID
+      </Text>
+      <Text
+        numberOfLines={2}
+        style={
+          {
+            "color": "#6B7280",
+            "flex": 1,
+            "fontSize": 12.5,
+            "lineHeight": 17,
+          }
+        }
+      >
+        server labels voices by speaking order
+      </Text>
+    </View>
+    <View
+      style={
+        {
+          "alignItems": "flex-start",
+          "flexDirection": "row",
+          "gap": 8,
+        }
+      }
+      testID="preflight-llm"
+    >
+      <Text
+        style={
+          [
+            {
+              "fontSize": 14,
+              "fontWeight": "700",
+              "width": 16,
+            },
+            {
+              "color": "#15803D",
+            },
+          ]
+        }
+      >
+        ✓
+      </Text>
+      <Text
+        style={
+          {
+            "color": "#1F2937",
+            "fontSize": 13.5,
+            "fontWeight": "600",
+            "width": 118,
+          }
+        }
+      >
+        Suggestions
+      </Text>
+      <Text
+        numberOfLines={2}
+        style={
+          {
+            "color": "#6B7280",
+            "flex": 1,
+            "fontSize": 12.5,
+            "lineHeight": 17,
+          }
+        }
+      >
+        cloud
+      </Text>
+    </View>
+    <Text
+      style={
+        {
+          "color": "#374151",
+          "fontSize": 13,
+          "fontWeight": "700",
+          "letterSpacing": 0.4,
+          "marginTop": 6,
+          "textTransform": "uppercase",
+        }
+      }
+    >
+      Who's here
+    </Text>
+    <View
+      style={
+        {
+          "flexDirection": "row",
+          "flexWrap": "wrap",
+          "gap": 6,
+        }
+      }
+      testID="whos-here"
+    >
+      <Text
+        style={
+          {
+            "color": "#6B7280",
+            "flex": 1,
+            "fontSize": 12.5,
+            "lineHeight": 17,
+          }
+        }
+        testID="whos-here-empty"
+      >
+        Nobody enrolled yet — voices will be labelled by speaking order. Enroll yourself and the people you talk with in Settings → Voice.
+      </Text>
+    </View>
+  </View>
+  <View
+    style={
+      {
+        "backgroundColor": "#FFFFFF",
+        "borderColor": "#E5E7EB",
+        "borderRadius": 12,
+        "borderWidth": 1,
+        "gap": 6,
+        "marginHorizontal": 16,
+        "marginVertical": 6,
         "padding": 14,
       }
     }
@@ -767,7 +1148,7 @@ exports[`LiveCoachScreen renders initial idle state 1`] = `
         }
       }
     >
-      Place the phone between you.
+      Hold the phone to your ear as you normally would.
     </Text>
     <Text
       style={
@@ -779,17 +1160,6 @@ exports[`LiveCoachScreen renders initial idle state 1`] = `
       }
     >
       Tap Start, then speak first — the coach learns which voice is yours.
-    </Text>
-    <Text
-      style={
-        {
-          "color": "#374151",
-          "fontSize": 13.5,
-          "lineHeight": 19,
-        }
-      }
-    >
-      Earpiece = private coaching in your ear; Visual = on-screen only.
     </Text>
   </View>
   <View
@@ -1023,13 +1393,12 @@ exports[`LiveCoachScreen renders recording state with transcript and suggestions
   <View
     style={
       {
-        "alignItems": "center",
-        "flexDirection": "row",
-        "gap": 8,
+        "gap": 6,
         "paddingHorizontal": 16,
-        "paddingVertical": 8,
+        "paddingVertical": 6,
       }
     }
+    testID="live-mode-picker"
   >
     <Text
       style={
@@ -1037,126 +1406,244 @@ exports[`LiveCoachScreen renders recording state with transcript and suggestions
           "color": "#374151",
           "fontSize": 14,
           "fontWeight": "600",
-          "marginRight": 4,
         }
       }
     >
-      Coach mode:
+      Session mode
     </Text>
     <View
-      accessibilityState={
-        {
-          "busy": undefined,
-          "checked": undefined,
-          "disabled": undefined,
-          "expanded": undefined,
-          "selected": undefined,
-        }
-      }
-      accessibilityValue={
-        {
-          "max": undefined,
-          "min": undefined,
-          "now": undefined,
-          "text": undefined,
-        }
-      }
-      accessible={true}
-      collapsable={false}
-      focusable={true}
-      onClick={[Function]}
-      onResponderGrant={[Function]}
-      onResponderMove={[Function]}
-      onResponderRelease={[Function]}
-      onResponderTerminate={[Function]}
-      onResponderTerminationRequest={[Function]}
-      onStartShouldSetResponder={[Function]}
       style={
         {
-          "backgroundColor": "#FFFFFF",
-          "borderColor": "#D1D5DB",
-          "borderRadius": 16,
-          "borderWidth": 1,
-          "opacity": 1,
-          "paddingHorizontal": 14,
-          "paddingVertical": 6,
+          "flexDirection": "row",
+          "flexWrap": "wrap",
+          "gap": 6,
         }
       }
-      testID="mode-earpiece"
     >
-      <Text
+      <View
+        accessibilityRole="button"
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": true,
+            "expanded": undefined,
+            "selected": true,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={false}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
         style={
-          [
-            {
-              "color": "#6B7280",
-              "fontSize": 13,
-              "fontWeight": "500",
-            },
-            false,
-          ]
+          {
+            "backgroundColor": "#4A90D9",
+            "borderColor": "#4A90D9",
+            "borderRadius": 16,
+            "borderWidth": 1,
+            "opacity": 0.6,
+            "paddingHorizontal": 14,
+            "paddingVertical": 6,
+          }
         }
+        testID="session-mode-earpiece"
       >
-        Earpiece
-      </Text>
+        <Text
+          style={
+            [
+              {
+                "color": "#6B7280",
+                "fontSize": 13,
+                "fontWeight": "500",
+              },
+              {
+                "color": "#FFFFFF",
+              },
+            ]
+          }
+        >
+          Earpiece
+        </Text>
+      </View>
+      <View
+        accessibilityRole="button"
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": true,
+            "expanded": undefined,
+            "selected": false,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={false}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
+        style={
+          {
+            "backgroundColor": "#FFFFFF",
+            "borderColor": "#D1D5DB",
+            "borderRadius": 16,
+            "borderWidth": 1,
+            "opacity": 0.6,
+            "paddingHorizontal": 14,
+            "paddingVertical": 6,
+          }
+        }
+        testID="session-mode-speaker"
+      >
+        <Text
+          style={
+            [
+              {
+                "color": "#6B7280",
+                "fontSize": 13,
+                "fontWeight": "500",
+              },
+              false,
+            ]
+          }
+        >
+          Speaker-phone
+        </Text>
+      </View>
+      <View
+        accessibilityRole="button"
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": true,
+            "expanded": undefined,
+            "selected": false,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={false}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
+        style={
+          {
+            "backgroundColor": "#FFFFFF",
+            "borderColor": "#D1D5DB",
+            "borderRadius": 16,
+            "borderWidth": 1,
+            "opacity": 0.6,
+            "paddingHorizontal": 14,
+            "paddingVertical": 6,
+          }
+        }
+        testID="session-mode-therapist"
+      >
+        <Text
+          style={
+            [
+              {
+                "color": "#6B7280",
+                "fontSize": 13,
+                "fontWeight": "500",
+              },
+              false,
+            ]
+          }
+        >
+          Therapist
+        </Text>
+      </View>
     </View>
-    <View
-      accessibilityState={
-        {
-          "busy": undefined,
-          "checked": undefined,
-          "disabled": undefined,
-          "expanded": undefined,
-          "selected": undefined,
-        }
-      }
-      accessibilityValue={
-        {
-          "max": undefined,
-          "min": undefined,
-          "now": undefined,
-          "text": undefined,
-        }
-      }
-      accessible={true}
-      collapsable={false}
-      focusable={true}
-      onClick={[Function]}
-      onResponderGrant={[Function]}
-      onResponderMove={[Function]}
-      onResponderRelease={[Function]}
-      onResponderTerminate={[Function]}
-      onResponderTerminationRequest={[Function]}
-      onStartShouldSetResponder={[Function]}
+    <Text
       style={
         {
-          "backgroundColor": "#4A90D9",
-          "borderColor": "#4A90D9",
-          "borderRadius": 16,
-          "borderWidth": 1,
-          "opacity": 1,
-          "paddingHorizontal": 14,
-          "paddingVertical": 6,
+          "color": "#6B7280",
+          "fontSize": 12.5,
+          "lineHeight": 17,
         }
       }
-      testID="mode-visual"
+      testID="session-mode-hint"
     >
-      <Text
-        style={
-          [
-            {
-              "color": "#6B7280",
-              "fontSize": 13,
-              "fontWeight": "500",
-            },
-            {
-              "color": "#FFFFFF",
-            },
-          ]
+      Phone to your ear or on a call — the coach whispers to you privately.
+    </Text>
+  </View>
+  <View
+    style={
+      {
+        "flexDirection": "row",
+        "justifyContent": "space-between",
+        "paddingBottom": 4,
+        "paddingHorizontal": 16,
+      }
+    }
+    testID="session-strip"
+  >
+    <Text
+      style={
+        {
+          "color": "#6B7280",
+          "fontSize": 12.5,
+          "fontWeight": "600",
         }
-      >
-        Visual
-      </Text>
-    </View>
+      }
+    >
+      Earpiece
+    </Text>
+    <Text
+      style={
+        [
+          {
+            "color": "#6B7280",
+            "fontSize": 12.5,
+            "fontWeight": "600",
+          },
+          false,
+        ]
+      }
+      testID="escalation-count"
+    >
+      escalations: 0
+    </Text>
   </View>
   <View
     style={

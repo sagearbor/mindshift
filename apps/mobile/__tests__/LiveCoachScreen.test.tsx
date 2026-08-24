@@ -7,6 +7,27 @@ jest.mock("../src/hooks/useAudioStream", () => ({
   useAudioStream: () => mockUseAudioStream(),
 }));
 
+// The screen's mount-time reads: enrolled people ("who's here"), the
+// therapist link (end-of-session share), and the persisted mode. All
+// deterministic here; the real modules are covered by their own suites.
+const mockListVoicePeople = jest.fn();
+jest.mock("../src/api/liveSessions", () => ({
+  listVoicePeople: () => mockListVoicePeople(),
+}));
+const mockGetTherapistLink = jest.fn();
+jest.mock("../src/api/therapist", () => ({
+  getTherapistLink: () => mockGetTherapistLink(),
+}));
+const mockLoadLiveMode = jest.fn();
+const mockSaveLiveMode = jest.fn();
+jest.mock("../src/live/modePrefs", () => ({
+  loadLiveMode: (uid: string | null) => mockLoadLiveMode(uid),
+  saveLiveMode: (uid: string | null, mode: string) => mockSaveLiveMode(uid, mode),
+}));
+jest.mock("../src/api/client", () => ({
+  postShare: jest.fn(),
+}));
+
 import LiveCoachScreen from "../src/screens/LiveCoachScreen";
 
 const defaultHookState = {
@@ -28,30 +49,53 @@ const defaultHookState = {
   stopSession: jest.fn(),
   sendEmpathyUpdate: jest.fn(),
   sendInterjectUpdate: jest.fn(),
+  liveCapable: false,
+  liveCapabilityReason: "on-device speech recognition isn't available here",
+  liveMode: false,
+  setLiveMode: jest.fn(),
+  sessionMode: "earpiece" as const,
+  setSessionMode: jest.fn(),
+  liveStatus: "",
+  nudgeFlash: null,
+  clearNudgeFlash: jest.fn(),
+  latencySummary: "",
+  toneFlags: [],
+  preflight: null,
+  runPreflight: jest.fn(),
+  escalationCount: 0,
+  sessionSummary: null,
+  lastEpisode: null,
 };
 
 /** Build a "response" feed entry (the shape the hook now exposes). */
 function responseEntry(
   texts: string[],
-  { id = 1, tone = "empathetic", muted = false } = {},
+  { id = 1, tone = "empathetic", muted = false, source = undefined as undefined | "on-device" | "cloud" } = {},
 ) {
-  return { id, kind: "response" as const, texts, tone, muted, timestamp: id };
+  return { id, kind: "response" as const, texts, tone, muted, timestamp: id, ...(source ? { source } : {}) };
 }
+
+const flush = () => act(async () => { await Promise.resolve(); });
 
 beforeEach(() => {
   mockUseAudioStream.mockReturnValue({ ...defaultHookState });
+  mockListVoicePeople.mockReset().mockResolvedValue({ people: [], error: null });
+  mockGetTherapistLink.mockReset().mockResolvedValue({ linked: false });
+  mockLoadLiveMode.mockReset().mockResolvedValue("earpiece");
+  mockSaveLiveMode.mockReset().mockResolvedValue(undefined);
 });
 
 describe("LiveCoachScreen", () => {
-  it("renders initial idle state", () => {
+  it("renders initial idle state", async () => {
     let component: renderer.ReactTestRenderer;
     act(() => {
       component = renderer.create(<LiveCoachScreen />);
     });
+    await flush();
     expect(component!.toJSON()).toMatchSnapshot();
   });
 
-  it("renders recording state with transcript and suggestions", () => {
+  it("renders recording state with transcript and suggestions", async () => {
     mockUseAudioStream.mockReturnValue({
       ...defaultHookState,
       isRecording: true,
@@ -81,10 +125,11 @@ describe("LiveCoachScreen", () => {
     act(() => {
       component = renderer.create(<LiveCoachScreen />);
     });
+    await flush();
     expect(component!.toJSON()).toMatchSnapshot();
   });
 
-  it("renders disconnected state", () => {
+  it("renders disconnected state", async () => {
     mockUseAudioStream.mockReturnValue({
       ...defaultHookState,
       connectionStatus: "disconnected",
@@ -94,10 +139,11 @@ describe("LiveCoachScreen", () => {
     act(() => {
       component = renderer.create(<LiveCoachScreen />);
     });
+    await flush();
     expect(component!.toJSON()).toMatchSnapshot();
   });
 
-  it("shows the mic error banner when capture fails", () => {
+  it("shows the mic error banner when capture fails", async () => {
     mockUseAudioStream.mockReturnValue({
       ...defaultHookState,
       micError: "Microphone permission denied — enable microphone access.",
@@ -107,6 +153,7 @@ describe("LiveCoachScreen", () => {
     act(() => {
       root = renderer.create(<LiveCoachScreen />);
     });
+    await flush();
     const banner = root!.root.findByProps({ testID: "mic-error-banner" });
     expect(banner).toBeTruthy();
     // The honest failure message is shown verbatim.
@@ -114,42 +161,76 @@ describe("LiveCoachScreen", () => {
     expect(text).toContain("Microphone permission denied");
   });
 
-  it("hides the mic error banner when there is no error", () => {
+  it("hides the mic error banner when there is no error", async () => {
     let root: renderer.ReactTestRenderer;
     act(() => {
       root = renderer.create(<LiveCoachScreen />);
     });
+    await flush();
     expect(
       root!.root.findAllByProps({ testID: "mic-error-banner" }),
     ).toHaveLength(0);
   });
 
-  it("wires coach mode to speech: visual on mount, earpiece enables speaking", () => {
+  it("the mode decides speech: earpiece/speaker speak, therapist never does", async () => {
     const setSpeechEnabled = jest.fn();
-    mockUseAudioStream.mockReturnValue({
-      ...defaultHookState,
-      setSpeechEnabled,
-    });
-
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, setSpeechEnabled });
     let root: renderer.ReactTestRenderer;
     act(() => {
       root = renderer.create(<LiveCoachScreen />);
     });
-    // Default mode is visual — speech starts disabled, honestly silent.
-    expect(setSpeechEnabled).toHaveBeenLastCalledWith(false);
-
-    act(() => {
-      root!.root.findByProps({ testID: "mode-earpiece" }).props.onPress();
-    });
+    await flush();
     expect(setSpeechEnabled).toHaveBeenLastCalledWith(true);
 
-    act(() => {
-      root!.root.findByProps({ testID: "mode-visual" }).props.onPress();
-    });
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, setSpeechEnabled, sessionMode: "speaker" });
+    act(() => root!.update(<LiveCoachScreen />));
+    expect(setSpeechEnabled).toHaveBeenLastCalledWith(true);
+
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, setSpeechEnabled, sessionMode: "therapist" });
+    act(() => root!.update(<LiveCoachScreen />));
     expect(setSpeechEnabled).toHaveBeenLastCalledWith(false);
   });
 
-  it("shows an honest note when earpiece is selected but TTS is unavailable", () => {
+  it("mode picker: shows each mode's one-line hint, persists the choice per account, locks while live", async () => {
+    const setSessionMode = jest.fn();
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, setSessionMode });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    await flush();
+    // The persisted mode is applied on mount.
+    expect(mockLoadLiveMode).toHaveBeenCalled();
+    expect(setSessionMode).toHaveBeenCalledWith("earpiece");
+    expect(JSON.stringify(root!.toJSON())).toContain("the coach whispers to you privately");
+
+    act(() => {
+      root!.root.findByProps({ testID: "session-mode-speaker" }).props.onPress();
+    });
+    expect(setSessionMode).toHaveBeenLastCalledWith("speaker");
+    expect(mockSaveLiveMode).toHaveBeenLastCalledWith(null, "speaker");
+
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, setSessionMode, sessionMode: "therapist" });
+    act(() => root!.update(<LiveCoachScreen />));
+    expect(JSON.stringify(root!.toJSON())).toContain("nothing is ever spoken");
+
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, setSessionMode, sessionActive: true });
+    act(() => root!.update(<LiveCoachScreen />));
+    expect(root!.root.findByProps({ testID: "session-mode-speaker" }).props.disabled).toBe(true);
+  });
+
+  it("applies a remembered mode (speaker-phone on Sage's phone)", async () => {
+    mockLoadLiveMode.mockResolvedValue("speaker");
+    const setSessionMode = jest.fn();
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, setSessionMode });
+    act(() => {
+      renderer.create(<LiveCoachScreen />);
+    });
+    await flush();
+    expect(setSessionMode).toHaveBeenCalledWith("speaker");
+  });
+
+  it("shows an honest note when a spoken mode is selected but TTS is unavailable", async () => {
     mockUseAudioStream.mockReturnValue({
       ...defaultHookState,
       speechAvailable: false,
@@ -159,55 +240,40 @@ describe("LiveCoachScreen", () => {
     act(() => {
       root = renderer.create(<LiveCoachScreen />);
     });
-    // Visual mode: no note (nothing was promised aloud).
-    expect(
-      root!.root.findAllByProps({ testID: "speech-unavailable-note" }),
-    ).toHaveLength(0);
+    await flush();
+    expect(root!.root.findByProps({ testID: "speech-unavailable-note" })).toBeTruthy();
 
-    act(() => {
-      root!.root.findByProps({ testID: "mode-earpiece" }).props.onPress();
-    });
-    // Count host nodes only — RN <Text> also yields a composite node
-    // carrying the same testID.
-    const notes = root!.root.findAll(
-      (node) =>
-        node.props.testID === "speech-unavailable-note" &&
-        typeof node.type === "string",
-    );
-    expect(notes).toHaveLength(1);
+    // Therapist mode never speaks, so there's nothing to warn about.
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, speechAvailable: false, sessionMode: "therapist" });
+    act(() => root!.update(<LiveCoachScreen />));
+    expect(root!.root.findAllByProps({ testID: "speech-unavailable-note" })).toHaveLength(0);
   });
 
-  it("hides the unavailable note when TTS works in earpiece mode", () => {
+  it("hides the unavailable note when TTS works", async () => {
     let root: renderer.ReactTestRenderer;
     act(() => {
       root = renderer.create(<LiveCoachScreen />);
     });
-    act(() => {
-      root!.root.findByProps({ testID: "mode-earpiece" }).props.onPress();
-    });
-    expect(
-      root!.root.findAllByProps({ testID: "speech-unavailable-note" }),
-    ).toHaveLength(0);
+    await flush();
+    expect(root!.root.findAllByProps({ testID: "speech-unavailable-note" })).toHaveLength(0);
   });
 
-  it("moving the interject slider updates local state and notifies the hook", () => {
+  it("moving the interject slider updates local state and notifies the hook", async () => {
     const sendInterjectUpdate = jest.fn();
     mockUseAudioStream.mockReturnValue({
       ...defaultHookState,
       sendInterjectUpdate,
     });
-
     let root: renderer.ReactTestRenderer;
     act(() => {
       root = renderer.create(<LiveCoachScreen />);
     });
+    await flush();
+    const slider = root!.root.findByProps({ testID: "interject-slider" });
     act(() => {
-      root!.root
-        .findByProps({ testID: "interject-slider" })
-        .props.onValueChange(75);
+      slider.props.onValueChange(70.4);
     });
-
-    expect(sendInterjectUpdate).toHaveBeenCalledWith(75);
+    expect(sendInterjectUpdate).toHaveBeenCalledWith(70);
   });
 
   it("passes the chosen interject level into startSession", async () => {
@@ -216,253 +282,246 @@ describe("LiveCoachScreen", () => {
       ...defaultHookState,
       startSession,
     });
-
     let root: renderer.ReactTestRenderer;
     act(() => {
       root = renderer.create(<LiveCoachScreen />);
     });
+    await flush();
     act(() => {
-      root!.root
-        .findByProps({ testID: "interject-slider" })
-        .props.onValueChange(30);
+      root!.root.findByProps({ testID: "interject-slider" }).props.onValueChange(30);
     });
     await act(async () => {
       await root!.root.findByProps({ testID: "mic-toggle" }).props.onPress();
     });
-
-    expect(startSession).toHaveBeenCalledWith(
-      expect.any(String),
-      50,
-      30,
-    );
+    expect(startSession).toHaveBeenCalledWith(expect.stringMatching(/^live-/), 50, 30);
   });
 
-  it("dims muted suggestions instead of hiding them", () => {
+  it("dims muted suggestions instead of hiding them", async () => {
     mockUseAudioStream.mockReturnValue({
       ...defaultHookState,
       // Two separate feed entries: newest first, the older one muted.
       suggestions: [
         responseEntry(["Spoken advice."], { id: 2, tone: "balanced" }),
-        responseEntry(["Quiet aside."], {
-          id: 1,
-          tone: "balanced",
-          muted: true,
-        }),
+        responseEntry(["Quiet aside."], { id: 1, tone: "balanced", muted: true }),
       ],
     });
-
     let root: renderer.ReactTestRenderer;
     act(() => {
       root = renderer.create(<LiveCoachScreen />);
     });
+    await flush();
     // Host nodes only — RN's <View> also yields a composite node carrying
     // the same testID.
     const cards = root!.root.findAll(
-      (node) =>
-        node.props.testID === "suggestion-card" &&
-        typeof node.type === "string",
+      (node) => node.props.testID === "suggestion-card" && typeof node.type === "string",
     );
     expect(cards).toHaveLength(2);
-    expect(cards[0].props.style).not.toContainEqual(
-      expect.objectContaining({ opacity: 0.5 }),
-    );
-    expect(cards[1].props.style).toContainEqual(
-      expect.objectContaining({ opacity: 0.5 }),
-    );
+    expect(cards[0].props.style).not.toContainEqual(expect.objectContaining({ opacity: 0.5 }));
+    expect(cards[1].props.style).toContainEqual(expect.objectContaining({ opacity: 0.5 }));
   });
 
-  it("identity chip appears with a session and toggles the self speaker", () => {
-    const setSelfSpeaker = jest.fn();
-    mockUseAudioStream.mockReturnValue({
-      ...defaultHookState,
-      sessionActive: true,
-      connectionStatus: "live",
-      selfSpeaker: "Speaker A",
-      setSelfSpeaker,
-    });
-
-    let root: renderer.ReactTestRenderer;
-    act(() => {
-      root = renderer.create(<LiveCoachScreen />);
-    });
-    const chip = root!.root.findByProps({ testID: "self-speaker-chip" });
-    expect(chip).toBeTruthy();
-
-    act(() => chip.props.onPress());
-    // Currently "Speaker A" → toggles to "Speaker B".
-    expect(setSelfSpeaker).toHaveBeenCalledWith("Speaker B");
-  });
-
-  it("hides the identity chip before any session or transcript", () => {
-    let root: renderer.ReactTestRenderer;
-    act(() => {
-      root = renderer.create(<LiveCoachScreen />);
-    });
-    expect(
-      root!.root.findAllByProps({ testID: "self-speaker-chip" }),
-    ).toHaveLength(0);
-  });
-
-  it("shows the idle explainer only when idle with no transcript", () => {
-    let root: renderer.ReactTestRenderer;
-    act(() => {
-      root = renderer.create(<LiveCoachScreen />);
-    });
-    expect(
-      root!.root.findAllByProps({ testID: "idle-explainer" }).length,
-    ).toBeGreaterThan(0);
-
-    // During a live session it is gone.
-    mockUseAudioStream.mockReturnValue({
-      ...defaultHookState,
-      sessionActive: true,
-      connectionStatus: "live",
-    });
-    let live: renderer.ReactTestRenderer;
-    act(() => {
-      live = renderer.create(<LiveCoachScreen />);
-    });
-    expect(
-      live!.root.findAllByProps({ testID: "idle-explainer" }),
-    ).toHaveLength(0);
-  });
-
-  it("review button shows only after a session ends with a transcript, and hands off the mapped turns", () => {
-    const onReviewTranscript = jest.fn();
-    const transcript = [
-      // First entry carries live utterance timing; second (legacy-path style)
-      // does not — the handoff must carry timing through only where it exists.
-      {
-        speaker: "Speaker A",
-        text: "You never listen.",
-        timestamp: 1,
-        startTime: 0.5,
-        endTime: 2.1,
-      },
-      { speaker: "Speaker B", text: "I'm trying.", timestamp: 2 },
-    ];
-
-    // Live session in progress: no review button yet.
-    mockUseAudioStream.mockReturnValue({
-      ...defaultHookState,
-      sessionActive: true,
-      transcript,
-    });
-    let live: renderer.ReactTestRenderer;
-    act(() => {
-      live = renderer.create(
-        <LiveCoachScreen onReviewTranscript={onReviewTranscript} />,
-      );
-    });
-    expect(
-      live!.root.findAllByProps({ testID: "review-transcript-button" }),
-    ).toHaveLength(0);
-
-    // Session ended with a transcript: the button appears and hands off the
-    // mapped turns — wall-clock timestamps dropped, utterance timing renamed
-    // to the wire's snake_case and kept only where the entry had it.
-    mockUseAudioStream.mockReturnValue({
-      ...defaultHookState,
-      sessionActive: false,
-      transcript,
-    });
-    let ended: renderer.ReactTestRenderer;
-    act(() => {
-      ended = renderer.create(
-        <LiveCoachScreen onReviewTranscript={onReviewTranscript} />,
-      );
-    });
-    const button = ended!.root.findByProps({
-      testID: "review-transcript-button",
-    });
-    act(() => button.props.onPress());
-    expect(onReviewTranscript).toHaveBeenCalledWith([
-      {
-        speaker: "Speaker A",
-        text: "You never listen.",
-        start_time: 0.5,
-        end_time: 2.1,
-      },
-      { speaker: "Speaker B", text: "I'm trying." },
-    ]);
-    // The untimed entry must have NO timing keys — absent, not 0.
-    expect(onReviewTranscript.mock.calls[0][0][1]).not.toHaveProperty(
-      "start_time",
-    );
-  });
-
-  it("renders a nudge entry as a compact banner, not a suggestion card", () => {
+  it("tags each suggestion with where it came from (on-device first, cloud augments)", async () => {
     mockUseAudioStream.mockReturnValue({
       ...defaultHookState,
       sessionActive: true,
       connectionStatus: "live",
       suggestions: [
-        {
-          id: 1,
-          kind: "nudge" as const,
-          texts: ["ease up"],
-          tone: "balanced",
-          muted: false,
-          timestamp: 1,
-        },
+        responseEntry(["Cloud's take."], { id: 2, source: "cloud" }),
+        responseEntry(["Phone's take."], { id: 1, source: "on-device" }),
       ],
     });
-
     let root: renderer.ReactTestRenderer;
     act(() => {
       root = renderer.create(<LiveCoachScreen />);
     });
-    expect(
-      root!.root.findAllByProps({ testID: "nudge-banner" }).length,
-    ).toBeGreaterThan(0);
-    // A nudge is NOT a full SuggestionCard stack.
+    await flush();
+    const tagCloud = root!.root.findByProps({ testID: "suggestion-source-2" });
+    const tagLocal = root!.root.findByProps({ testID: "suggestion-source-1" });
+    expect(JSON.stringify(tagCloud.props.children)).toContain("cloud");
+    expect(JSON.stringify(tagLocal.props.children)).toContain("on-device");
+  });
+
+  it("identity chip appears with a session and toggles the self speaker", async () => {
+    const setSelfSpeaker = jest.fn();
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      sessionActive: true,
+      selfSpeaker: "Speaker A",
+      setSelfSpeaker,
+    });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    await flush();
+    act(() => {
+      root!.root.findByProps({ testID: "self-speaker-chip" }).props.onPress();
+    });
+    expect(setSelfSpeaker).toHaveBeenCalledWith("Speaker B");
+  });
+
+  it("hides the identity chip before any session — and always in therapist mode", async () => {
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    await flush();
+    expect(root!.root.findAllByProps({ testID: "self-speaker-chip" })).toHaveLength(0);
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, sessionActive: true, sessionMode: "therapist" });
+    act(() => root!.update(<LiveCoachScreen />));
+    expect(root!.root.findAllByProps({ testID: "self-speaker-chip" })).toHaveLength(0);
+  });
+
+  it("shows the pre-flight panel + explainer only when idle with no transcript", async () => {
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    await flush();
+    expect(root!.root.findByProps({ testID: "idle-explainer" })).toBeTruthy();
+    expect(root!.root.findByProps({ testID: "live-preflight" })).toBeTruthy();
+
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, sessionActive: true });
+    act(() => root!.update(<LiveCoachScreen />));
+    expect(root!.root.findAllByProps({ testID: "idle-explainer" })).toHaveLength(0);
+    expect(root!.root.findAllByProps({ testID: "live-preflight" })).toHaveLength(0);
+  });
+
+  it("pre-flight tells the truth: no on-device STT here, so the server labels voices", async () => {
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    await flush();
+    const text = JSON.stringify(root!.toJSON());
+    expect(text).toContain("on-device speech recognition isn't available here");
+    expect(text).toContain("server labels voices by speaking order");
+    expect(defaultHookState.runPreflight).not.toHaveBeenCalled();
+  });
+
+  it("pre-flight on a capable phone: probes on mount and shows speaker-ID + LLM honestly", async () => {
+    const runPreflight = jest.fn().mockResolvedValue(undefined);
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      liveCapable: true,
+      liveMode: true,
+      runPreflight,
+      preflight: {
+        status: "ready",
+        capabilities: {
+          vad: "silero",
+          speakerId: { active: false, reason: "server has no ECAPA export (503)", enrolled: 0, model: null, droppedForModel: 0 },
+          llm: ["os", "bundled", "cloud"],
+        },
+      },
+    });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    await flush();
+    expect(runPreflight).toHaveBeenCalled();
+    const text = JSON.stringify(root!.toJSON());
+    expect(text).toContain("server has no ECAPA export (503)");
+    expect(text).toContain("os → bundled");
+    expect(text).toContain("Silero VAD");
+  });
+
+  it("who's here: lists the enrolled people, or says nobody is enrolled", async () => {
+    mockListVoicePeople.mockResolvedValue({
+      people: [
+        { personId: "self", displayName: "You", isSelf: true, enrollCount: 3 },
+        { personId: "mom", displayName: "Mom", isSelf: false, enrollCount: 2 },
+      ],
+      error: null,
+    });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    await flush();
+    expect(root!.root.findByProps({ testID: "whos-here-self" })).toBeTruthy();
+    expect(root!.root.findByProps({ testID: "whos-here-mom" })).toBeTruthy();
+
+    mockListVoicePeople.mockResolvedValue({ people: [], error: null });
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    await flush();
+    expect(root!.root.findByProps({ testID: "whos-here-empty" })).toBeTruthy();
+  });
+
+  it("review button shows only after a session ends with a transcript, and hands off the mapped turns", async () => {
+    const onReviewTranscript = jest.fn();
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      sessionActive: false,
+      transcript: [
+        { speaker: "Speaker A", text: "Hi", timestamp: 1, startTime: 0.5, endTime: 1.2 },
+        { speaker: "Speaker B", text: "Hey", timestamp: 2 },
+      ],
+    });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen onReviewTranscript={onReviewTranscript} />);
+    });
+    await flush();
+    act(() => {
+      root!.root.findByProps({ testID: "review-transcript-button" }).props.onPress();
+    });
+    expect(onReviewTranscript).toHaveBeenCalledWith([
+      { speaker: "Speaker A", text: "Hi", start_time: 0.5, end_time: 1.2 },
+      { speaker: "Speaker B", text: "Hey" },
+    ]);
+
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, sessionActive: true, transcript: [{ speaker: "A", text: "x", timestamp: 1 }] });
+    act(() => root!.update(<LiveCoachScreen onReviewTranscript={onReviewTranscript} />));
+    expect(root!.root.findAllByProps({ testID: "review-transcript-button" })).toHaveLength(0);
+  });
+
+  it("renders a nudge entry as a compact banner, not a suggestion card", async () => {
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      suggestions: [{ id: 1, kind: "nudge" as const, texts: ["ease up"], tone: "balanced", muted: false, timestamp: 1 }],
+    });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    await flush();
+    expect(root!.root.findByProps({ testID: "nudge-banner" })).toBeTruthy();
     expect(
       root!.root.findAllByProps({ testID: "suggestion-card" }),
     ).toHaveLength(0);
     expect(JSON.stringify(root!.toJSON())).toContain("ease up");
   });
-  it("hides the on-device controls when the device can't run the fast loop", () => {
+
+  it("hides the on-device switch when the device can't run the fast loop", async () => {
     let root: renderer.ReactTestRenderer;
     act(() => {
       root = renderer.create(<LiveCoachScreen />);
     });
+    await flush();
     expect(root!.root.findAllByProps({ testID: "live-mode-row" })).toHaveLength(0);
-    expect(root!.root.findAllByProps({ testID: "session-mode-row" })).toHaveLength(0);
   });
 
-  it("offers the on-device switch and session shapes when capable, locked while live", () => {
+  it("offers the on-device switch when capable, locked while live, with the loaded status + tone flag", async () => {
     const setLiveMode = jest.fn();
-    const setSessionMode = jest.fn();
     mockUseAudioStream.mockReturnValue({
       ...defaultHookState,
       liveCapable: true,
       liveMode: true,
       setLiveMode,
-      sessionMode: "earpiece",
-      setSessionMode,
-      liveStatus: "",
-      nudgeFlash: null,
-      clearNudgeFlash: jest.fn(),
-      latencySummary: "",
-      toneFlags: [],
     });
     let root: renderer.ReactTestRenderer;
     act(() => {
       root = renderer.create(<LiveCoachScreen />);
     });
+    await flush();
     const sw = root!.root.findByProps({ testID: "live-mode-switch" });
     expect(sw.props.value).toBe(true);
     expect(sw.props.disabled).toBe(false);
-    act(() => {
-      root!.root.findByProps({ testID: "session-mode-speaker" }).props.onPress();
-    });
-    expect(setSessionMode).toHaveBeenCalledWith("speaker");
-    act(() => {
-      root!.root.findByProps({ testID: "session-mode-therapist" }).props.onPress();
-    });
-    expect(setSessionMode).toHaveBeenCalledWith("therapist");
 
-    // Live: the shape is read at session start, so it locks.
     mockUseAudioStream.mockReturnValue({
       ...defaultHookState,
       sessionActive: true,
@@ -470,38 +529,53 @@ describe("LiveCoachScreen", () => {
       liveMode: true,
       setLiveMode,
       sessionMode: "speaker",
-      setSessionMode,
       liveStatus: "On-device: Silero VAD · speaker-ID on (2 enrolled) · LLM os → bundled → cloud",
-      nudgeFlash: null,
-      clearNudgeFlash: jest.fn(),
-      latencySummary: "",
+      escalationCount: 2,
       toneFlags: [{ type: "tone_flag", session_id: "s", speaker: "Mom", start_time: 0, end_time: 1, source: "text", scores: {}, label: "hurt", confidence: 0.7 }],
     });
     act(() => {
       root!.update(<LiveCoachScreen />);
     });
     expect(root!.root.findByProps({ testID: "live-mode-switch" }).props.disabled).toBe(true);
-    expect(root!.root.findByProps({ testID: "session-mode-speaker" }).props.disabled).toBe(true);
     const rendered = JSON.stringify(root!.toJSON());
     expect(rendered).toContain("On-device: Silero VAD");
     expect(rendered).toContain("Mom: hurt (text tone)");
+    expect(rendered).toContain("escalations: 2");
   });
 
-  it("flashes a nudge and clears it after a moment; shows the latency headline after a session", () => {
+  it("therapist mode: two-column transcript, 'observing' strip, no self chip", async () => {
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      sessionActive: true,
+      connectionStatus: "live",
+      sessionMode: "therapist",
+      transcript: [
+        { speaker: "Sage", text: "I felt ignored.", timestamp: 1 },
+        { speaker: "Mom", text: "I didn't mean to.", timestamp: 2 },
+      ],
+    });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    await flush();
+    expect(root!.root.findByProps({ testID: "therapist-transcript" })).toBeTruthy();
+    expect(root!.root.findByProps({ testID: "therapist-turn-0-left" })).toBeTruthy();
+    expect(root!.root.findByProps({ testID: "therapist-turn-1-right" })).toBeTruthy();
+    expect(root!.root.findAllByProps({ testID: "live-transcript" })).toHaveLength(0);
+    expect(JSON.stringify(root!.toJSON())).toContain("observing");
+  });
+
+  it("flashes a nudge and clears it after a moment; shows the latency headline after a session", async () => {
     jest.useFakeTimers();
     const clearNudgeFlash = jest.fn();
     mockUseAudioStream.mockReturnValue({
       ...defaultHookState,
       liveCapable: true,
       liveMode: true,
-      setLiveMode: jest.fn(),
-      sessionMode: "earpiece",
-      setSessionMode: jest.fn(),
-      liveStatus: "",
       nudgeFlash: { channel: "A", level: 2, t: 3, vectors: ["aggressive_tone", "yelling"] },
       clearNudgeFlash,
       latencySummary: "[fastLoop] 3 turns, median segment-end→speak 640 ms",
-      toneFlags: [],
     });
     let root: renderer.ReactTestRenderer;
     act(() => {
@@ -516,5 +590,39 @@ describe("LiveCoachScreen", () => {
     });
     expect(clearNudgeFlash).toHaveBeenCalled();
     jest.useRealTimers();
+  });
+
+  it("session end: summary card with the measured numbers and 'Share with my therapist' when linked", async () => {
+    mockGetTherapistLink.mockResolvedValue({ linked: true, therapist_email: "mom@example.com", status: "accepted", auto_share: false });
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      transcript: [{ speaker: "You", text: "hi", timestamp: 1 }],
+      sessionSummary: {
+        durationMs: 134000,
+        turnsBySpeaker: [{ speaker: "You", turns: 3 }, { speaker: "Mom", turns: 2 }],
+        totalTurns: 5,
+        escalations: 1,
+        firstWordsMedianMs: 640,
+        firstWordsBestMs: 410,
+        spokenTurns: 2,
+        topProvider: "os",
+      },
+      lastEpisode: { episodeId: "ep-1", postStatus: "created", sharedWith: [] },
+    });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    await flush();
+    const text = root!.root
+      .findAll((n) => typeof n.type === "string")
+      .flatMap((n) => n.children)
+      .filter((c): c is string => typeof c === "string")
+      .join("");
+    expect(root!.root.findByProps({ testID: "session-summary" })).toBeTruthy();
+    expect(text).toContain("2m 14s");
+    expect(text).toContain("640 ms");
+    expect(text).toContain("You: 3 · Mom: 2 · via os");
+    expect(root!.root.findByProps({ testID: "summary-share-therapist" })).toBeTruthy();
   });
 });

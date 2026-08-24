@@ -22,6 +22,7 @@ import {
 } from "../api/client";
 import { getMe } from "../api/me";
 import VoiceTrainingFlow from "../components/VoiceTrainingFlow";
+import TherapistLinkCard from "../components/TherapistLinkCard";
 import Avatar from "../components/Avatar";
 import { useAuthStore } from "../store/authStore";
 import { useAvatarStore } from "../store/avatarStore";
@@ -360,6 +361,14 @@ export default function AdvancedScreen({
           and Growth.
         </Text>
       </TouchableOpacity>
+
+      <Text style={styles.sectionHeading} testID="section-therapist">
+        Therapist
+      </Text>
+      {/* Two-sided setup: name your therapist's account; sessions are then
+          shared with them automatically (per-episode grants — the same
+          "Share with…" Replay offers, revocable there one by one). */}
+      <TherapistLinkCard />
 
       <Text style={styles.sectionHeading} testID="section-appearance">
         Appearance

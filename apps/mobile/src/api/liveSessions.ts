@@ -48,7 +48,14 @@ export interface LiveSessionBody {
 }
 
 export type PostLiveSessionResult =
-  | { status: "created"; episodeId: string }
+  | {
+      status: "created";
+      episodeId: string;
+      /** Therapist emails the server auto-shared the episode with at
+       *  ingest (the patient's linked therapist, auto-share on). Empty on
+       *  older servers and when nobody was granted. */
+      sharedWith: string[];
+    }
   | { status: "unsupported" } // 404: endpoint not deployed yet
   | { status: "failed"; error: string };
 
@@ -61,8 +68,11 @@ export async function postLiveSession(body: LiveSessionBody): Promise<PostLiveSe
     });
     if (res.status === 404) return { status: "unsupported" };
     if (!res.ok) return { status: "failed", error: `API error: ${res.status}` };
-    const data = (await res.json()) as { episode_id?: string };
-    return { status: "created", episodeId: data.episode_id ?? "" };
+    const data = (await res.json()) as { episode_id?: string; shared_with?: unknown };
+    const sharedWith = Array.isArray(data.shared_with)
+      ? data.shared_with.filter((x): x is string => typeof x === "string")
+      : [];
+    return { status: "created", episodeId: data.episode_id ?? "", sharedWith };
   } catch (err) {
     return { status: "failed", error: err instanceof Error ? err.message : String(err) };
   }
@@ -129,4 +139,50 @@ export async function fetchVoiceprints(path = VOICEPRINTS_PATH): Promise<Voicepr
 
 export function ecapaModelUrl(): string {
   return `${API_URL}/models/ecapa.onnx`;
+}
+
+/** One enrolled person, as the pre-session "who's here" strip shows it
+ *  (no embedding — that opt-in is `fetchVoiceprints`). */
+export interface VoicePerson {
+  personId: string;
+  displayName: string;
+  isSelf: boolean;
+  enrollCount: number;
+}
+
+export interface VoicePeopleResult {
+  people: VoicePerson[];
+  /** Why the list may be empty: null on a clean answer. */
+  error: string | null;
+}
+
+/** `GET /voice/people` (default, embedding-free) — the account's enrolled
+ *  people, owner first. Read-only consumer; enrolment itself lives in the
+ *  People / Voice settings screens. Never throws. */
+export async function listVoicePeople(): Promise<VoicePeopleResult> {
+  try {
+    const res = await fetch(`${API_URL}/voice/people`, {
+      method: "GET",
+      headers: await authHeaders(false),
+    });
+    if (res.status === 404) return { people: [], error: "server has no people endpoint (404)" };
+    if (res.status === 401 || res.status === 403) return { people: [], error: `not signed in (${res.status})` };
+    if (!res.ok) return { people: [], error: `people endpoint answered ${res.status}` };
+    const data = (await res.json()) as { people?: VoiceprintWire[] & { enroll_count?: number }[] };
+    const list = Array.isArray(data?.people) ? data.people : [];
+    const people: VoicePerson[] = [];
+    for (const p of list as (VoiceprintWire & { enroll_count?: number })[]) {
+      if (!p || typeof p !== "object" || !p.person_id) continue;
+      people.push({
+        personId: p.person_id,
+        displayName: p.display_name || (p.is_self ? "You" : p.person_id),
+        isSelf: Boolean(p.is_self),
+        enrollCount: typeof p.enroll_count === "number" ? p.enroll_count : 0,
+      });
+    }
+    return { people, error: null };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { people: [], error: `people unreachable (${msg})` };
+  }
 }

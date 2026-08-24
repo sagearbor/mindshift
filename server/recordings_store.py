@@ -1152,3 +1152,137 @@ class RecordingsStore:
                 blob.delete()
                 deleted = True
         return deleted
+
+    # -- therapist link + therapist-private notes ---------------------------
+    # A patient may name ONE therapist account (server/therapist_links.py,
+    # routers/therapist.py). The link is stored twice so both sides are one
+    # read: the patient's own document and a per-therapist reverse index::
+    #
+    #     therapist_links/{patient_uid}/link.json
+    #     therapist_patients/{therapist_uid}/{patient_uid}.json
+    #
+    # Both bodies are the same ``link`` dict ({patient_uid, patient_email,
+    # therapist_uid, therapist_email, status, auto_share, created_at,
+    # accepted_at}). The link itself grants NOTHING — the per-episode share
+    # grant (``add_share``) is still the only access mechanism; the link only
+    # tells ingest whom to grant to. Notes a viewer keeps on an episode are
+    # private to that viewer::
+    #
+    #     therapist_notes/{uid}/{episode_id}.json      # {text, updated_at}
+    @staticmethod
+    def _therapist_link_blob_name(patient_uid: str) -> str:
+        return f"therapist_links/{patient_uid}/link.json"
+
+    @staticmethod
+    def _therapist_patients_prefix(therapist_uid: str) -> str:
+        return f"therapist_patients/{therapist_uid}/"
+
+    @staticmethod
+    def _therapist_patient_blob_name(therapist_uid: str, patient_uid: str) -> str:
+        return f"therapist_patients/{therapist_uid}/{patient_uid}.json"
+
+    @staticmethod
+    def _therapist_note_blob_name(uid: str, episode_id: str) -> str:
+        return f"therapist_notes/{uid}/{episode_id}.json"
+
+    @staticmethod
+    def _therapist_notes_prefix(uid: str) -> str:
+        return f"therapist_notes/{uid}/"
+
+    async def read_therapist_link(self, patient_uid: str) -> dict | None:
+        """The patient's therapist link, or ``None`` when none is set."""
+        return await asyncio.to_thread(
+            self._read_json_blob, self._therapist_link_blob_name(patient_uid),
+        )
+
+    async def write_therapist_link(self, patient_uid: str, link: dict) -> None:
+        """Set (or replace) the patient's link. A previous link to a DIFFERENT
+        therapist has its reverse-index entry removed so the old therapist's
+        patient list no longer shows this patient."""
+        await asyncio.to_thread(self._write_therapist_link_sync, patient_uid, link)
+
+    def _write_therapist_link_sync(self, patient_uid: str, link: dict) -> None:
+        previous = self._read_json_blob(self._therapist_link_blob_name(patient_uid))
+        body = json.dumps(link)
+        self._bucket.blob(self._therapist_link_blob_name(patient_uid)).upload_from_string(
+            body, content_type="application/json",
+        )
+        self._bucket.blob(
+            self._therapist_patient_blob_name(link["therapist_uid"], patient_uid)
+        ).upload_from_string(body, content_type="application/json")
+        old_t = (previous or {}).get("therapist_uid")
+        if old_t and old_t != link["therapist_uid"]:
+            stale = self._bucket.blob(self._therapist_patient_blob_name(old_t, patient_uid))
+            if stale.exists():
+                stale.delete()
+
+    async def delete_therapist_link(self, patient_uid: str) -> bool:
+        """Remove the link (both sides). ``True`` when one existed."""
+        return await asyncio.to_thread(self._delete_therapist_link_sync, patient_uid)
+
+    def _delete_therapist_link_sync(self, patient_uid: str) -> bool:
+        name = self._therapist_link_blob_name(patient_uid)
+        link = self._read_json_blob(name)
+        if link is None:
+            return False
+        self._bucket.blob(name).delete()
+        reverse = self._bucket.blob(
+            self._therapist_patient_blob_name(link.get("therapist_uid", ""), patient_uid)
+        )
+        if reverse.exists():
+            reverse.delete()
+        return True
+
+    async def list_therapist_patients(self, therapist_uid: str) -> list[dict]:
+        """Every link naming ``therapist_uid`` as the therapist (one prefix
+        scan of the reverse index), oldest first."""
+        return await asyncio.to_thread(self._list_therapist_patients_sync, therapist_uid)
+
+    def _list_therapist_patients_sync(self, therapist_uid: str) -> list[dict]:
+        out: list[dict] = []
+        for blob in self._bucket.list_blobs(prefix=self._therapist_patients_prefix(therapist_uid)):
+            if not blob.name.endswith(".json"):
+                continue
+            try:
+                out.append(json.loads(blob.download_as_bytes()))
+            except (ValueError, TypeError):
+                continue
+        out.sort(key=lambda link: link.get("created_at") or "")
+        return out
+
+    async def read_therapist_note(self, uid: str, episode_id: str) -> dict | None:
+        return await asyncio.to_thread(
+            self._read_json_blob, self._therapist_note_blob_name(uid, episode_id),
+        )
+
+    async def write_therapist_note(self, uid: str, episode_id: str, note: dict) -> None:
+        def _write() -> None:
+            self._bucket.blob(self._therapist_note_blob_name(uid, episode_id)).upload_from_string(
+                json.dumps(note), content_type="application/json",
+            )
+        await asyncio.to_thread(_write)
+
+    async def delete_therapist_note(self, uid: str, episode_id: str) -> bool:
+        def _delete() -> bool:
+            blob = self._bucket.blob(self._therapist_note_blob_name(uid, episode_id))
+            if not blob.exists():
+                return False
+            blob.delete()
+            return True
+        return await asyncio.to_thread(_delete)
+
+    async def list_therapist_notes(self, uid: str) -> dict[str, dict]:
+        """``{episode_id: note}`` for every note the viewer keeps — one prefix scan."""
+        def _list() -> dict[str, dict]:
+            prefix = self._therapist_notes_prefix(uid)
+            out: dict[str, dict] = {}
+            for blob in self._bucket.list_blobs(prefix=prefix):
+                name = blob.name[len(prefix):]
+                if not name.endswith(".json"):
+                    continue
+                try:
+                    out[name[:-5]] = json.loads(blob.download_as_bytes())
+                except (ValueError, TypeError):
+                    continue
+            return out
+        return await asyncio.to_thread(_list)

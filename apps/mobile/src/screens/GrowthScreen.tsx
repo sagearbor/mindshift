@@ -4,6 +4,7 @@ import {
   Text,
   TouchableOpacity,
   ScrollView,
+  RefreshControl,
   StyleSheet,
   ActivityIndicator,
   useWindowDimensions,
@@ -93,6 +94,7 @@ export default function GrowthScreen({
 }: GrowthScreenProps) {
   const [result, setResult] = useState<GrowthResult | null>(null);
   const [error, setError] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<PartnerFilter>({ kind: "all" });
   const { width: windowWidth } = useWindowDimensions();
   const [chartWidth, setChartWidth] = useState(windowWidth - 40);
@@ -117,6 +119,19 @@ export default function GrowthScreen({
   useEffect(() => {
     load();
   }, [load]);
+
+  // Pull-to-refresh keeps the current chart on screen while re-reading —
+  // a live session's batch analysis lands a few seconds after it ends.
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    getGrowth()
+      .then((r) => {
+        setResult(r);
+        setError(false);
+      })
+      .catch(() => setError(true))
+      .finally(() => setRefreshing(false));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -418,6 +433,13 @@ export default function GrowthScreen({
       style={styles.flex}
       contentContainerStyle={styles.content}
       testID="growth-screen"
+      refreshControl={
+        <RefreshControl
+          testID="growth-refresh"
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+        />
+      }
     >
       {onBack && (
         <TouchableOpacity

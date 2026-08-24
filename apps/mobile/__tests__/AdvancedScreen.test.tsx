@@ -34,6 +34,15 @@ jest.mock("../src/api/me", () => ({
   getMe: jest.fn(),
 }));
 
+// The "My therapist" card (TherapistLinkCard.test.tsx covers it) reads the
+// link on mount; keep it deterministic and unlinked here.
+jest.mock("../src/api/therapist", () => ({
+  getTherapistLink: jest.fn(() => Promise.resolve({ linked: false })),
+  setTherapistLink: jest.fn(),
+  setAutoShare: jest.fn(),
+  unlinkTherapist: jest.fn(),
+}));
+
 // The guided training flow is its own tested component (VoiceTrainingFlow
 // .test.tsx); here it is a stub that records the props AdvancedScreen wires
 // so the toggle + completion refresh can be driven without a recorder.

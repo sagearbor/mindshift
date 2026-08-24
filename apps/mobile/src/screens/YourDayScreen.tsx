@@ -1,13 +1,15 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
+  RefreshControl,
   StyleSheet,
 } from "react-native";
 import { listRecordings, getRecordingEpisodes } from "../api/client";
+import { mergeRecent, useLiveEpisodeStore } from "../store/liveEpisodeStore";
 import type { Episode, RecordingSummary } from "../api/client";
 import type { DayEntry } from "./dayTimeline";
 import {
@@ -57,8 +59,13 @@ export default function YourDayScreen({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [entries, setEntries] = useState<DayEntry[]>([]);
-  // Bumped by "Try again" to force a full refetch.
+  // Bumped by "Try again" / pull-to-refresh to force a full refetch.
   const [reloadNonce, setReloadNonce] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  // Live sessions this phone just finished (server-confirmed): shown at once
+  // even if the list was fetched a beat before they landed; the server's
+  // own row replaces the optimistic one on the next fetch.
+  const recentLive = useLiveEpisodeStore((s) => s.recent);
 
   const mountedRef = useRef(true);
   // The full recordings list, fetched once (cleared on retry) — stepping
@@ -84,7 +91,10 @@ export default function YourDayScreen({
         if (recordingsRef.current === null) {
           recordingsRef.current = await listRecordings();
         }
-        const dayRecs = recordingsForDay(recordingsRef.current, day);
+        const dayRecs = recordingsForDay(
+          mergeRecent(recordingsRef.current, recentLive),
+          day,
+        );
         const resolved: DayEntry[] = await Promise.all(
           dayRecs.map(async (rec) => {
             const cache = episodeCacheRef.current;
@@ -109,14 +119,26 @@ export default function YourDayScreen({
           );
         }
       } finally {
-        if (mountedRef.current && !stale) setLoading(false);
+        if (mountedRef.current && !stale) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
     };
     void run();
     return () => {
       stale = true;
     };
-  }, [day, reloadNonce]);
+  }, [day, reloadNonce, recentLive]);
+
+  // Pull-to-refresh: drop both caches so a live session's "could have said"
+  // reflection (which lands a few seconds after the session) is re-read.
+  const handleRefresh = useCallback(() => {
+    recordingsRef.current = null;
+    episodeCacheRef.current = new Map();
+    setRefreshing(true);
+    setReloadNonce((n) => n + 1);
+  }, []);
 
   const todayKey = dateKey(new Date());
   const isToday = dateKey(day) === todayKey;
@@ -216,6 +238,13 @@ export default function YourDayScreen({
           style={styles.flex}
           contentContainerStyle={styles.content}
           testID="your-day-timeline"
+          refreshControl={
+            <RefreshControl
+              testID="your-day-refresh"
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+            />
+          }
         >
           {entries.map(({ recording, episodes }) => (
             <View key={recording.id} testID={`day-recording-${recording.id}`}>
