@@ -28,3 +28,9 @@ speechbrain>=1.0,<2
 # downgrades a 1.x hub (pip resolves it; speaker_id's snapshot_download call is
 # unaffected either way).
 transformers>=4.40,<5
+# ONNX export of the pinned ECAPA model (server/ecapa_onnx.py) — served to the
+# phone by GET /models/ecapa.onnx for on-device speaker-ID (PR #139) and
+# pre-exported at image build time (Dockerfile). onnxruntime is only needed
+# for the parity check / server-side ONNX inference, both lazy imports.
+onnx>=1.16,<2
+onnxruntime>=1.17,<2
