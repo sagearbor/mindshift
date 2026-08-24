@@ -9,18 +9,31 @@
  *   materializes it on disk; ORT-RN needs a plain filesystem path, so the
  *   `file://` prefix is stripped (microsoft/onnxruntime#27062).
  * - ECAPA (voiceprints) is downloaded from the server at runtime into the
- *   app's document directory (`GET /models/ecapa.onnx`, produced by
- *   Foundation B's scripts/export_ecapa_onnx.py) — ~20 MB is too much to
- *   bundle, and absence must degrade to "speaker-ID off", not a crash.
+ *   app's document directory (`GET|HEAD /models/ecapa.onnx`, produced by
+ *   server/ecapa_onnx.py — ~80 MB, far too much to bundle) with the
+ *   download-once + ETag-revalidate protocol in modelDownload.ts. Absence
+ *   (server 503, offline with no cache, older server) degrades to
+ *   "speaker-ID off" with a reason, never a crash.
  *
- * Never imported by tests (they use testing/ortNode.ts); every export here
- * returns null instead of throwing when a native piece is missing.
+ * Never imported by tests (they use testing/ortNode.ts and drive
+ * modelDownload.ts with fakes); every export here returns null / an
+ * `unavailable` result instead of throwing when a native piece is missing.
  */
 import { Asset } from "expo-asset";
 import { Directory, File, Paths } from "expo-file-system";
 import * as ort from "onnxruntime-react-native";
 import type { OnnxSession, OnnxSessionFactory, OrtRuntimeLike } from "./ort";
 import { wrapOrtRuntime } from "./ort";
+import {
+  ECAPA_FILENAME,
+  resolveEcapaModel,
+  type EcapaModelResult,
+  type FetchLike,
+  type ModelFileStat,
+  type ModelFileStore,
+} from "./modelDownload";
+
+export { ECAPA_FILENAME };
 
 /** Fixed-shape models on CPU: the safe default on both platforms. */
 const SESSION_OPTIONS = {
@@ -63,46 +76,94 @@ export async function loadSileroSession(
   }
 }
 
-export const ECAPA_FILENAME = "ecapa.onnx";
+/**
+ * modelDownload.ts's filesystem seam over expo-file-system's `File` /
+ * `Directory` (SDK 57 object API), rooted at `<document dir>/models/` —
+ * persistent across launches and OTA updates, excluded from nothing the
+ * user would notice (it is regenerable, not user data).
+ */
+export function expoModelFileStore(): ModelFileStore {
+  const dir = new Directory(Paths.document, "models");
+  const file = (name: string) => new File(dir, name);
+  const stat = (f: File): ModelFileStat => ({ exists: f.exists, size: f.exists ? (f.size ?? 0) : 0 });
+  const ensureDir = () => {
+    if (!dir.exists) dir.create({ intermediates: true, idempotent: true });
+  };
+  return {
+    async stat(name) {
+      return stat(file(name));
+    },
+    pathOf(name) {
+      return stripFileScheme(file(name).uri);
+    },
+    async readText(name) {
+      const f = file(name);
+      return f.exists ? await f.text() : null;
+    },
+    async writeText(name, text) {
+      ensureDir();
+      file(name).write(text);
+    },
+    async download(url, name, headers) {
+      ensureDir();
+      const downloaded = await File.downloadFileAsync(url, file(name), { headers, idempotent: true });
+      return stat(downloaded);
+    },
+    async move(from, to) {
+      const dest = file(to);
+      if (dest.exists) dest.delete();
+      file(from).move(dest);
+    },
+    async remove(name) {
+      const f = file(name);
+      if (f.exists) f.delete();
+    },
+  };
+}
 
 /**
- * Resolve the ECAPA model on disk, downloading it from `url` on first use.
- * Null (never a throw) when the download fails or the endpoint is absent —
- * speaker-ID is simply disabled for this session.
+ * Resolve the ECAPA model on disk (download once, revalidate by ETag on
+ * each launch). Never throws; see modelDownload.ts for the outcomes.
  */
-export async function ecapaModelPath(url: string, headers: Record<string, string> = {}): Promise<string | null> {
+export async function ecapaModel(
+  url: string,
+  headers: Record<string, string> = {},
+  fetchImpl: FetchLike = fetch as unknown as FetchLike,
+): Promise<EcapaModelResult> {
   try {
-    const dir = new Directory(Paths.document, "models");
-    if (!dir.exists) dir.create();
-    const file = new File(dir, ECAPA_FILENAME);
-    if (file.exists && (file.size ?? 0) > 1_000_000) return stripFileScheme(file.uri);
-    const downloaded = await File.downloadFileAsync(url, file, { headers, idempotent: true });
-    if (!downloaded.exists || (downloaded.size ?? 0) < 1_000_000) {
-      // A 404 body or an HTML error page is not a model.
-      try {
-        downloaded.delete();
-      } catch {
-        // Nothing to clean up.
-      }
-      return null;
-    }
-    return stripFileScheme(downloaded.uri);
-  } catch {
-    return null;
+    return await resolveEcapaModel({ url, headers, fetch: fetchImpl, store: expoModelFileStore() });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { status: "unavailable", code: "network", reason: `model store failed (${msg})` };
   }
+}
+
+/** Back-compat shape: just the path, or null. */
+export async function ecapaModelPath(url: string, headers: Record<string, string> = {}): Promise<string | null> {
+  const result = await ecapaModel(url, headers);
+  return result.status === "ready" ? result.path : null;
+}
+
+export interface EcapaLoad {
+  session: OnnxSession | null;
+  model: EcapaModelResult;
 }
 
 export async function loadEcapaSession(
   url: string,
   headers: Record<string, string> = {},
   factory: OnnxSessionFactory = nativeOrtSessionFactory(),
-): Promise<OnnxSession | null> {
-  const path = await ecapaModelPath(url, headers);
-  if (!path) return null;
+): Promise<EcapaLoad> {
+  const model = await ecapaModel(url, headers);
+  if (model.status !== "ready") return { session: null, model };
   try {
-    return await factory(path);
+    return { session: await factory(model.path), model };
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
     console.warn("[live] ECAPA model failed to load — speaker-ID disabled:", err);
-    return null;
+    return {
+      session: null,
+      model: { status: "unavailable", code: "bad-download", reason: `ONNX Runtime rejected the model (${msg})` },
+    };
   }
 }

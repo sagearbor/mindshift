@@ -19,7 +19,7 @@ import {
 } from "../src/live/speakerId";
 import type { OnnxSession, OnnxTensor } from "../src/live/ort";
 import { nodeOrtSessionFactory } from "../src/live/testing/ortNode";
-import { sineF32, unitVector } from "../src/live/testing/synth";
+import { AUDIO_FIXTURES_DIR, loadWav16k, sineF32, unitVector } from "../src/live/testing/synth";
 
 const D = ECAPA_DIM;
 
@@ -145,27 +145,91 @@ describe("EcapaEmbedder", () => {
     await expect(new EcapaEmbedder(session).embed(sineF32(200, 0.5), 44100)).rejects.toThrow(/16 kHz/);
   });
 
-  // Foundation B's scripts/export_ecapa_onnx.py produces this file; when it
-  // exists locally the real model runs here (parity: same speaker → high
-  // cosine, different frequency content → lower). Skipped honestly otherwise.
+  // Cross-runtime parity, the property on-device speaker-ID depends on: the
+  // ONNX export (server/ecapa_onnx.py — served by GET /models/ecapa.onnx)
+  // run under onnxruntime-node must land on the SAME point in embedding
+  // space as the server's torch model for the same real speech, else a
+  // server-enrolled print scores lower on the phone for no visible reason.
+  // The torch side is the committed fixture written by
+  // `scripts/export_ecapa_onnx.py --reference-json`; the audio is the real
+  // family/poker recordings under server/tests/fixtures/audio, read with
+  // the same int16/32768 arithmetic. Skipped honestly (never fake-passed)
+  // when the ~80 MB export isn't on this machine: produce it with
+  // `tmp/venv-voice/bin/python scripts/export_ecapa_onnx.py` (it lands in
+  // server/.ecapa_cache under its revision-stamped name) or via the server.
+  interface Reference {
+    revision: string;
+    dim: number;
+    slices: { fixture: string; label: string; start_s: number; end_s: number; embedding: number[] }[];
+  }
+  const reference = JSON.parse(
+    fs.readFileSync(path.resolve(__dirname, "fixtures/ecapa_reference.json"), "utf8"),
+  ) as Reference;
   const candidates = [
+    path.resolve(__dirname, `../../../server/.ecapa_cache/ecapa_${reference.revision}.onnx`),
     path.resolve(__dirname, "../assets/models/ecapa.onnx"),
     path.resolve(__dirname, "../../../server/.ecapa_cache/ecapa.onnx"),
     path.resolve(__dirname, "../../../tmp/ecapa.onnx"),
   ];
   const ecapaPath = candidates.find((p) => fs.existsSync(p));
-  const maybe = ecapaPath ? it : it.skip;
-  maybe("real ECAPA export: 192-d unit output, self-similar > cross-similar", async () => {
+  const fixturesPresent = reference.slices.every((s) => fs.existsSync(path.join(AUDIO_FIXTURES_DIR, s.fixture)));
+  const maybe = ecapaPath && fixturesPresent ? it : it.skip;
+
+  maybe("real ECAPA export matches the server's torch embeddings on real speech (cosine > 0.999)", async () => {
     const session = await nodeOrtSessionFactory()(ecapaPath as string);
     const embedder = new EcapaEmbedder(session);
-    const t0 = performance.now();
-    const a1 = await embedder.embed(sineF32(140, 1.5, 0.4), 16000);
-    const a2 = await embedder.embed(sineF32(145, 1.5, 0.4), 16000);
-    const b = await embedder.embed(sineF32(320, 1.5, 0.4), 16000);
+    const audio = new Map<string, Float32Array>();
+    const pcmFor = (name: string) => {
+      let pcm = audio.get(name);
+      if (!pcm) {
+        pcm = loadWav16k(path.join(AUDIO_FIXTURES_DIR, name));
+        audio.set(name, pcm);
+      }
+      return pcm;
+    };
+    // Warm the session so the first timed slice isn't paying setup cost.
+    await embedder.embed(pcmFor(reference.slices[0].fixture).subarray(0, 16000 * 1.5), 16000);
+
+    const byLabel = new Map<string, Float32Array>();
+    let worst = 1;
+    const perSecondAndAHalf: number[] = [];
+    for (const slice of reference.slices) {
+      const clip = pcmFor(slice.fixture).subarray(slice.start_s * 16000, slice.end_s * 16000);
+      const t0 = performance.now();
+      const got = await embedder.embed(clip, 16000);
+      const ms = performance.now() - t0;
+      if (slice.end_s - slice.start_s === 1.5) perSecondAndAHalf.push(ms);
+      expect(got.length).toBe(reference.dim);
+      let norm = 0;
+      for (const x of got) norm += x * x;
+      expect(Math.sqrt(norm)).toBeCloseTo(1, 3);
+      const cos = cosine(got, slice.embedding);
+      worst = Math.min(worst, cos);
+      byLabel.set(slice.label, got);
+      // eslint-disable-next-line no-console
+      console.log(`[ecapa] ${slice.label.padEnd(24)} ${(slice.end_s - slice.start_s).toFixed(1)}s cosine(onnx-node, torch)=${cos.toFixed(6)} ${ms.toFixed(1)} ms`);
+      expect(cos).toBeGreaterThan(0.999);
+    }
+    const avg = perSecondAndAHalf.reduce((a, b) => a + b, 0) / Math.max(1, perSecondAndAHalf.length);
     // eslint-disable-next-line no-console
-    console.log(`[ecapa] ${((performance.now() - t0) / 3).toFixed(1)} ms per 1.5 s segment on onnxruntime-node`);
-    expect(a1.length).toBe(D);
-    expect(cosine(a1, a2)).toBeGreaterThan(cosine(a1, b));
+    console.log(`[ecapa] worst cosine ${worst.toFixed(6)}; ${avg.toFixed(1)} ms per 1.5 s slice on onnxruntime-node`);
+
+    // The space still discriminates: the owner's two slices are far closer
+    // to each other than to his son's — the relationship MATCH_THRESHOLD
+    // relies on (same assertion as the server's parity test).
+    const sageA = byLabel.get("Sage 0-5s") as Float32Array;
+    const sageB = byLabel.get("Sage 10-15s") as Float32Array;
+    const asher = byLabel.get("Asher 5-10s") as Float32Array;
+    expect(cosine(sageA, sageB)).toBeGreaterThan(cosine(sageA, asher) + 0.2);
+    // And a SpeakerLabeler seeded with the server's reference print for
+    // Sage recognizes his phone-side embedding as him — the actual product
+    // path (server-enrolled voiceprint, on-device turn embedding).
+    const sageRef = reference.slices.find((s) => s.label === "Sage 0-5s") as Reference["slices"][number];
+    const labeler = new SpeakerLabeler([
+      { personId: "sage", displayName: "You", isSelf: true, embedding: sageRef.embedding },
+    ]);
+    expect(labeler.label(sageB)).toMatchObject({ speaker: "You", isSelf: true });
+    expect(labeler.label(asher)).toMatchObject({ speaker: "Speaker A", isSelf: false });
     await session.release();
   });
 });

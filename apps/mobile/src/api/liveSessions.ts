@@ -6,18 +6,18 @@
  *   so an episode exists even when the cloud never heard the audio. A 404
  *   (endpoint not deployed yet) resolves to null rather than failing the
  *   session — the transcript is already on screen.
- * - `fetchVoiceprints` — Foundation B's enrolled-people list
- *   (`GET /voice/people`: person_id, display_name, is_self). As merged
- *   (#132) the server deliberately never serves the embedding ("the raw
- *   signature never leaves the server"), so today this yields people with
- *   NO voiceprint and on-device matching stays off — the phone's turns are
- *   labelled by the server's `speaker_identity` events instead. The parser
- *   already accepts an `embedding`/`voiceprint` field, so an opt-in export
- *   endpoint lights up on-device speaker-ID with no client change.
- *   Tolerant of absence: [] means "match nobody", never a guess.
- * - `ecapaModelUrl` / `authHeaders` — where an ECAPA ONNX export would be
- *   served (`GET /models/ecapa.onnx`; not on the server yet — a 404 disables
- *   speaker-ID for the session), downloaded by src/live/ortNative.ts.
+ * - `fetchVoiceprints` — Foundation B's enrolled-people list with the
+ *   on-device opt-in: `GET /voice/people?include_embeddings=true` returns,
+ *   for the signed-in account's OWN enrolled people only, the blended
+ *   L2-normalized voiceprint (`embedding`, `dim`, `model`) the server itself
+ *   matches with (server/routers/voice.py — the default response still
+ *   never carries one). People without a usable vector are skipped: []
+ *   means "match nobody", never a guess. The result also says WHY it is
+ *   empty (older server, 401, network) so the session status line can.
+ * - `ecapaModelUrl` / `authHeaders` — where the ECAPA ONNX export is
+ *   served (`GET|HEAD /models/ecapa.onnx`, server/routers/models.py),
+ *   downloaded once + ETag-revalidated by src/live/modelDownload.ts via
+ *   src/live/ortNative.ts.
  *
  * Mirrors me.ts / client.ts: fresh Firebase ID token as Bearer auth when
  * signed in; absent otherwise so the server answers its own 401.
@@ -68,9 +68,8 @@ export async function postLiveSession(body: LiveSessionBody): Promise<PostLiveSe
   }
 }
 
-/** Foundation B's list endpoint. Overridable so the path can follow the
- *  server without a client release once it lands. */
-export const VOICEPRINTS_PATH = "/voice/people";
+/** Foundation B's list endpoint, with the embeddings opt-in. */
+export const VOICEPRINTS_PATH = "/voice/people?include_embeddings=true";
 
 interface VoiceprintWire {
   person_id: string;
@@ -78,28 +77,53 @@ interface VoiceprintWire {
   is_self?: boolean;
   embedding?: number[] | null;
   voiceprint?: number[] | null;
+  dim?: number | null;
+  model?: string | null;
 }
 
-export async function fetchVoiceprints(path = VOICEPRINTS_PATH): Promise<EnrolledPerson[]> {
+export interface VoiceprintsResult {
+  people: EnrolledPerson[];
+  /** Why the list may be empty/partial: null on a clean answer. */
+  error: string | null;
+}
+
+/** Parse the wire people list into labeler input — exported for tests and
+ *  for any future cached copy. A person whose vector length disagrees with
+ *  the server's own `dim` is dropped (a corrupt print must not silently
+ *  match nobody / everybody). */
+export function parseVoiceprints(data: unknown): EnrolledPerson[] {
+  const list: VoiceprintWire[] = Array.isArray(data)
+    ? (data as VoiceprintWire[])
+    : (((data as { people?: VoiceprintWire[] } | null)?.people) ?? []);
+  const people: EnrolledPerson[] = [];
+  for (const p of list) {
+    if (!p || typeof p !== "object") continue;
+    const emb = p.embedding ?? p.voiceprint;
+    if (!p.person_id || !Array.isArray(emb) || emb.length === 0) continue;
+    if (typeof p.dim === "number" && p.dim > 0 && p.dim !== emb.length) continue;
+    if (!emb.every((x) => typeof x === "number" && Number.isFinite(x))) continue;
+    people.push({
+      personId: p.person_id,
+      displayName: p.display_name || (p.is_self ? "You" : p.person_id),
+      isSelf: Boolean(p.is_self),
+      embedding: emb,
+      model: p.model ?? null,
+      dim: typeof p.dim === "number" ? p.dim : emb.length,
+    });
+  }
+  return people;
+}
+
+export async function fetchVoiceprints(path = VOICEPRINTS_PATH): Promise<VoiceprintsResult> {
   try {
     const res = await fetch(`${API_URL}${path}`, { method: "GET", headers: await authHeaders(false) });
-    if (!res.ok) return [];
-    const data = (await res.json()) as VoiceprintWire[] | { people?: VoiceprintWire[] };
-    const list = Array.isArray(data) ? data : (data.people ?? []);
-    const people: EnrolledPerson[] = [];
-    for (const p of list) {
-      const emb = p.embedding ?? p.voiceprint;
-      if (!p.person_id || !Array.isArray(emb) || emb.length === 0) continue;
-      people.push({
-        personId: p.person_id,
-        displayName: p.display_name || (p.is_self ? "You" : p.person_id),
-        isSelf: Boolean(p.is_self),
-        embedding: emb,
-      });
-    }
-    return people;
-  } catch {
-    return [];
+    if (res.status === 404) return { people: [], error: "server has no people endpoint (404)" };
+    if (res.status === 401 || res.status === 403) return { people: [], error: `not signed in (${res.status})` };
+    if (!res.ok) return { people: [], error: `people endpoint answered ${res.status}` };
+    return { people: parseVoiceprints(await res.json()), error: null };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { people: [], error: `voiceprints unreachable (${msg})` };
   }
 }
 

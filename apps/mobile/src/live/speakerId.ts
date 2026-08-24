@@ -32,6 +32,12 @@ export interface EnrolledPerson {
   isSelf: boolean;
   /** L2-normalized (or raw — cosine normalizes defensively) voiceprint. */
   embedding: ArrayLike<number>;
+  /** "<source>@<revision>" the server embedded this print with (its
+   *  `model` field); null/absent for a legacy profile. speakerIdSetup.ts
+   *  refuses to match a print against a model of a different revision. */
+  model?: string | null;
+  /** Server-reported length of `embedding`, when known. */
+  dim?: number | null;
 }
 
 /** Where enrolled voiceprints come from. Production: GET from the server

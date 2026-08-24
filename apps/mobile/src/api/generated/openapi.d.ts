@@ -42,9 +42,21 @@ export interface paths {
         /**
          * List Voice People
          * @description Every person this account has enrolled a voice for (the owner first,
-         *     then partners by name). Same honesty rules as GET /voice/profile: never
-         *     an embedding, never a 503, a legacy single-document owner print is served
-         *     as "self" without being rewritten.
+         *     then partners by name). Same honesty rules as GET /voice/profile: never a
+         *     503, a legacy single-document owner print is served as "self" without
+         *     being rewritten, and — by default — never an embedding.
+         *
+         *     ``include_embeddings=true`` is the deliberate exception, for the phone's
+         *     on-device speaker-ID (apps/mobile/src/live/speakerId.ts): the realtime
+         *     loop can only tell "you" from "Mom" locally if it holds the same
+         *     voiceprints the server matches with. Scope is structural, not a filter:
+         *     ``store.list_voiceprints(uid)`` is keyed by the VERIFIED uid, so a caller
+         *     can only ever receive the prints their own account enrolled (a partner's
+         *     voiceprint is data the account owner enrolled, on their own device, of a
+         *     voice they recorded — never another account's biometric). Each returned
+         *     person carries ``embedding`` + ``dim`` + ``model`` (the pinned ECAPA
+         *     revision) so the client can refuse a print from a different model
+         *     rather than match across embedding spaces.
          */
         get: operations["list_voice_people_voice_people_get"];
         put?: never;
@@ -241,6 +253,24 @@ export interface paths {
         delete: operations["forget_voice_person_voice_people__person_id__delete"];
         options?: never;
         head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/models/ecapa.onnx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The ECAPA-TDNN speaker-embedding model as ONNX (on-device voice ID) */
+        get: operations["get_ecapa_onnx"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        /** The ECAPA-TDNN speaker-embedding model as ONNX (on-device voice ID) */
+        head: operations["head_ecapa_onnx"];
         patch?: never;
         trace?: never;
     };
@@ -3340,6 +3370,8 @@ export interface components {
              * @default []
              */
             samples: components["schemas"]["VoiceSampleOut"][];
+            /** Embedding */
+            embedding?: number[] | null;
         };
         /**
          * VoiceSampleOut
@@ -3432,7 +3464,10 @@ export interface operations {
     };
     list_voice_people_voice_people_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Also return each person's blended, L2-normalized voiceprint (`embedding`, `dim` floats) so the caller's own device can match speakers locally with the ECAPA model from GET /models/ecapa.onnx. Off by default: the signature never leaves the server unless asked. */
+                include_embeddings?: boolean;
+            };
             header?: {
                 authorization?: string;
             };
@@ -3658,6 +3693,96 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    get_ecapa_onnx: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The ONNX graph: input `waveform` float32 [1, T] mono 16 kHz, output `embedding` float32 [1, 192] L2-normalized. `ETag` is the pinned model revision; `Cache-Control: private, max-age=86400`. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": unknown;
+                };
+            };
+            /** @description `If-None-Match` matched the current revision. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description No exported model and this server can't produce one (voice deps not installed, or the export failed) — the reason is in `detail` (and the `X-Model-Unavailable` header for HEAD). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    head_ecapa_onnx: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The ONNX graph: input `waveform` float32 [1, T] mono 16 kHz, output `embedding` float32 [1, 192] L2-normalized. `ETag` is the pinned model revision; `Cache-Control: private, max-age=86400`. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": unknown;
+                };
+            };
+            /** @description `If-None-Match` matched the current revision. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description No exported model and this server can't produce one (voice deps not installed, or the export failed) — the reason is in `detail` (and the `X-Model-Unavailable` header for HEAD). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

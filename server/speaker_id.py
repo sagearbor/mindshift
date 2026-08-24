@@ -150,6 +150,18 @@ class SpeakerIdUnavailable(RuntimeError):
 # Availability + model loading (the ONLY torch-touching code)
 # ---------------------------------------------------------------------------
 
+def cache_dir() -> str:
+    """Where the pinned checkpoint (and, since the on-device seam, the ONNX
+    export of it — ``ecapa_onnx.default_onnx_path``) live on disk:
+    ``MINDSHIFT_ECAPA_CACHE`` or ``server/.ecapa_cache`` (gitignored). Read
+    at call time, not import time, so a test can point it at ``tmp_path``
+    and a deploy can point it at a persistent volume."""
+    return os.getenv(
+        "MINDSHIFT_ECAPA_CACHE",
+        os.path.join(os.path.dirname(__file__), ".ecapa_cache"),
+    )
+
+
 def is_available() -> bool:
     """True when the optional voice deps import. Cheap import probe (no model
     load), used by the router (→ honest 503) and the pipeline (→ skip cleanly).
@@ -183,10 +195,7 @@ def _load_model():
                 "voice enrollment not available on this server — install "
                 "requirements-voice.txt (torch + speechbrain)"
             ) from exc
-        savedir = os.getenv(
-            "MINDSHIFT_ECAPA_CACHE",
-            os.path.join(os.path.dirname(__file__), ".ecapa_cache"),
-        )
+        savedir = cache_dir()
         # Enforce the revision PIN by pre-fetching that exact snapshot to a local
         # dir, then loading from it. This is version-robust: it does NOT rely on
         # SpeechBrain's from_hparams forwarding a `revision=` kwarg (some releases

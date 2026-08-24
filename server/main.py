@@ -946,6 +946,14 @@ from routers import voice as _voice_router  # noqa: E402
 
 app.include_router(_voice_router.router)
 
+# Model assets for the phone's on-device loop: GET|HEAD /models/ecapa.onnx —
+# the pinned ECAPA speaker embedder as ONNX, served from the cache dir (and
+# generated once there when torch is installed), honest 503 otherwise. Own
+# file, same lazy-main pattern as the voice router.
+from routers import models as _models_router  # noqa: E402
+
+app.include_router(_models_router.router)
+
 # Live sessions (Track 2 — phone later analysis): POST /sessions/live ingest,
 # POST /episodes/{id}/reflect ("what you could have said"), GET /sessions for
 # the therapist dashboard. Own file for the same reason as the voice router;
