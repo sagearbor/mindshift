@@ -778,11 +778,15 @@ async def run_e2e(
             kinds[s.get("kind", "response")] = kinds.get(s.get("kind", "response"), 0) + 1
         sources = sorted({s.get("suggestion_source") for s in suggestions})
         sug_errors = run.of_type("suggestion_error")
+        error_reasons: dict[str, int] = {}
+        for e in sug_errors:
+            error_reasons[str(e.get("reason"))] = error_reasons.get(str(e.get("reason")), 0) + 1
         limit_hit = run.of_type("limit_reached")
         timing = first_response_ms(run)
         report.data["suggestions"] = {
             "final": len(finals), "partial": len(partials), "kinds": kinds, "sources": sources,
-            "errors": len(sug_errors), "limit_reached": len(limit_hit), "timing": timing,
+            "errors": len(sug_errors), "error_reasons": error_reasons,
+            "limit_reached": len(limit_hit), "timing": timing,
         }
         ttf = timing["first_p50_ms"]
         ttf_txt = (
@@ -790,12 +794,33 @@ async def run_e2e(
             f"{ttf} ms (min {timing['first_min_ms']}, max {timing['first_max_ms']}) over {timing['turns_with_response']} turns"
             if ttf is not None else "no turn received a suggestion"
         )
-        ok_sugg = bool(finals) and not sug_errors and sources and all(s == "cloud" for s in sources)
+        # A suggestion_error is the server honestly reporting an utterance
+        # that yielded nothing. The model occasionally answering with
+        # unparseable JSON ("llm_parse_error") is a soft wart of the path
+        # working (⚠️, counted); any OTHER reason (provider auth, timeout,
+        # a crash class name) is a broken path (❌).
+        hard_errors = {r: n for r, n in error_reasons.items() if r != "llm_parse_error"}
+        path_ok = bool(finals) and bool(sources) and all(s == "cloud" for s in sources)
+        ok_sugg: bool | None = False if (not path_ok or hard_errors) else (True if not sug_errors else None)
         report.add("cloud suggestions", ok_sugg,
                    f"{len(finals)} final ({', '.join(f'{v} {k}' for k, v in kinds.items()) or 'none'}), "
-                   f"{len(partials)} partial previews, source={sources or ['-']}, {len(sug_errors)} suggestion_error, "
+                   f"{len(partials)} partial previews, source={sources or ['-']}, "
+                   f"{len(sug_errors)} suggestion_error{(' ' + str(error_reasons)) if error_reasons else ''}, "
                    f"{len(limit_hit)} limit_reached; {ttf_txt}"
                    + (f"; speed {speed:g}x means later turns supersede pending ones (latest-wins)" if speed > 1 else ""))
+
+        # Server-side transcripts: a local-first client gets NO transcript
+        # echo for its turn_local, so every `transcript` event is a span
+        # the server's own transcriber (Deepgram) finalized and did NOT
+        # suppress — i.e. it landed BEFORE the phone's turn_local for that
+        # span (overlap suppression only drops segments that arrive after).
+        transcripts = run.of_type("transcript")
+        report.data["server_transcripts"] = len(transcripts)
+        report.add("server transcripts", None if transcripts else True,
+                   f"{len(transcripts)} un-suppressed transcript events from the server's transcriber"
+                   + (" — Deepgram is live and finalized these spans before the phone's turn_local arrived, "
+                      "so they were coached twice (once per source); the latency n above counts both"
+                      if transcripts else " (none: nothing coached twice)"))
 
         # identity verdicts
         idents = run.of_type("speaker_identity")
