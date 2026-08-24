@@ -60,6 +60,17 @@ ENV WHISPER_MODEL=${WHISPER_MODEL}
 # App code (server/ only — apps/, tests/, docs/ are excluded via .dockerignore).
 COPY server/ ./server/
 
+# Pre-export the ECAPA speaker-embedding model to ONNX at BUILD time so
+# GET /models/ecapa.onnx (the phone's on-device speaker-ID download, PR #139)
+# is served instantly from every instance instead of each cold instance
+# spending tens of seconds (and a HF fetch) exporting it on first request onto
+# Cloud Run's ephemeral filesystem. Only meaningful when the voice deps are in
+# the image; a torch-less build skips it and the route answers an honest 503.
+# The pinned checkpoint download (~20MB) happens here, once, at build time.
+RUN if [ "$INSTALL_VOICE" = "1" ]; then \
+      cd server && python -c "import ecapa_onnx; print('ECAPA ONNX ->', ecapa_onnx.export())" ; \
+    fi
+
 WORKDIR /app/server
 
 # Cloud Run provides $PORT (default 8080). Bind 0.0.0.0 so it's reachable.
