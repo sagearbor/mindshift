@@ -267,3 +267,77 @@ def test_ecapa_clustering_family_real_fixture_full_accuracy():
             f"{d['mapped']:<12} {d['ok']}"
         )
     assert acc == 1.0, "\n".join(lines)
+
+
+_POKER6_FIXTURE = _AUDIO_DIR / "test_recording_poker6_real.wav"
+
+
+@pytest.mark.skipif(
+    not _POKER6_FIXTURE.exists(),
+    reason="poker6 real fixture missing (test_recording_poker6_real.wav)",
+)
+def test_ecapa_clustering_poker6_fixture_full_accuracy():
+    """A real 6-speaker recording (owner's poker night, ~30s, 6 real men in
+    strict turn order) that exposed a genuine gap: the pipeline correctly
+    finds up to MAX_SPEAKERS_LOCAL=6 candidate speakers, but the shipped
+    STRONG_SEPARATION_COSINE=0.30 / NEW_VOICE_ANCHOR_COSINE=0.20 thresholds
+    rejected the real 6th voice's split by a hair (marginal cosine 0.301 vs
+    the 0.30 bar; anchor 0.231 vs the 0.20 bar) — undercounting 5 real
+    voices instead of 6.
+
+    RECALIBRATED 2026-08-24 (STRONG_SEPARATION_COSINE 0.30->0.32,
+    NEW_VOICE_ANCHOR_COSINE 0.20->0.24 — see diarize_local.py's comments on
+    both constants for the full investigation, including why the fixture
+    that originally justified the OLD anchor value doesn't regress at the
+    new one). Freshly measured 2026-08-24: 6/6 = 100% exact per-turn
+    accuracy, num_speakers=6 (previously 5). Pinned at that measured
+    ceiling — if this regresses, investigate rather than lower the bar.
+
+    Ground truth here is the OWNER'S OWN STATED SCHEDULE (see the meta
+    file's ``_note``), approximate turn boundaries (+/- 1-2s slop per the
+    owner), not independently re-verified.
+    """
+    wav_path = _POKER6_FIXTURE
+    meta = json.loads(wav_path.with_name(wav_path.stem + "_meta.json").read_text())
+    pcm, sr = _load_16k_pcm(wav_path)
+    turns = [
+        {"speaker": t["speaker"], "start_time": t["approx_start"], "end_time": t["approx_end"]}
+        for t in meta["approx_turns"]
+    ]
+    truth = [t["speaker"] for t in turns]
+
+    got = diarize_local.diarize_turns(pcm, sr, [dict(t) for t in turns])
+    assert got is not None, (
+        "poker6: local diarization returned nothing trustworthy on a "
+        "6-speaker real recording"
+    )
+    pred = [t["speaker"] for t in got["turns"]]
+    assert len(pred) == len(truth), (
+        f"poker6: predicted {len(pred)} turns, expected {len(truth)} "
+        f"(word-level splitting behaved differently than the 2026-08-24 "
+        f"measurement: split_utterances={got['split_utterances']})"
+    )
+
+    acc, correct, mapping = _best_permutation_accuracy(truth, pred)
+    detail = [
+        {
+            "turn": i,
+            "truth": t,
+            "pred": p,
+            "mapped": mapping.get(p, "???"),
+            "ok": mapping.get(p) == t,
+        }
+        for i, (t, p) in enumerate(zip(truth, pred))
+    ]
+    lines = [
+        f"poker6: exact per-turn accuracy {correct}/{len(truth)} = {acc:.4f}, "
+        f"num_speakers={got['num_speakers']}",
+        "  turn  truth        pred         mapped       ok",
+    ]
+    for d in detail:
+        lines.append(
+            f"  {d['turn']:>4}  {d['truth']:<11} {d['pred']:<12} "
+            f"{d['mapped']:<12} {d['ok']}"
+        )
+    assert got["num_speakers"] == 6, "\n".join(lines)
+    assert acc == 1.0, "\n".join(lines)

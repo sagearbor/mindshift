@@ -1,0 +1,24 @@
+# Optional — only needed for MINDSHIFT_DIARIZE_ENGINE=pyannote (higher
+# speaker-count diarization; see server/diarize_pyannote.py).
+#   pip install -r requirements-pyannote.txt
+#
+# Kept OUT of the base requirements AND out of requirements-voice.txt on
+# purpose: pyannote.audio 3.3.2 needs an OLDER torch/torchaudio/huggingface_hub
+# than requirements-voice.txt's speechbrain setup tolerates (torch>=2.6
+# changed torch.load's weights_only default, breaking pyannote's lightning
+# checkpoint loader; torchaudio>=2.9 removed the AudioMetaData class pyannote
+# imports at module load time; huggingface_hub>=0.26 removed the
+# use_auth_token kwarg pyannote still passes) — install this into ITS OWN
+# venv (e.g. tmp/venv-pyannote), never alongside requirements-voice.txt.
+# Without this installed, diarize_pyannote.is_available() reports False and
+# MINDSHIFT_DIARIZE_ENGINE=pyannote falls back to the default local-ecapa
+# engine (server never breaks; see diarize_local.py's engine dispatch).
+#
+# Also needs a HuggingFace access token (HF_TOKEN in .env) with the license
+# accepted for the two gated models — see docs/research/poker6-sliding-window/
+# README.md for the exact steps.
+torch==2.8.0
+torchaudio==2.8.0
+huggingface_hub==0.24.6
+matplotlib>=3.7,<4
+pyannote.audio==3.3.2
