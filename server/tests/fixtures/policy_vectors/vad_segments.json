@@ -1,0 +1,153 @@
+{
+  "_schema": {
+    "version": 1,
+    "subject": "server/watch/diarize.py speech_segments (energy VAD + merge-gap + min-duration)",
+    "description": "Golden test vectors for the energy VAD that turns raw PCM into (start_s, end_s) speech spans. Each case describes a synthetic int16 mono signal as a sequence of constant-loudness stretches; the consumer generates the PCM deterministically from that spec (see `signal`), runs its VAD with `config`, and asserts the returned spans equal `expected` within `tolerance_s`. Timestamps in seconds as floats. Language-neutral on purpose so a Kotlin/TypeScript port of the VAD can consume the same file.",
+    "signal": {
+      "generator": "Concatenate the stretches in order. Each stretch is `seconds` long (sample count = floor(seconds * sample_rate)). A stretch with `dbfs: null` is digital silence (all zeros). Otherwise it is a pure sine at `tone_hz` (case-level, default 150.0), phase starting at 0 for EVERY stretch, whose RMS is `dbfs` dB relative to int16 full scale (32768): amplitude = 32768 * 10^(dbfs/20) * sqrt(2), cast to int16. The RMS of a sine is amplitude/sqrt(2), so this lands the stretch on the requested dBFS (to within the sub-cycle truncation error of a stretch that isn't a whole number of periods — negligible at these margins).",
+      "dbfs": "float or null — RMS loudness of the stretch in dBFS. The VAD's `floor_dbfs` is compared with strict `>` (a frame AT the floor is silence), so cases stay well clear of the floor on both sides unless they are specifically probing it"
+    },
+    "config": {
+      "floor_dbfs": "float — frames with RMS at/under this are silence (default -45.0, shared with the streaming VectorEngine so 'speech' means one thing)",
+      "frame_seconds": "float — VAD frame length (default 0.25); a trailing sub-frame shorter than this is still evaluated, not dropped",
+      "merge_gap_seconds": "float — adjacent speech runs separated by a gap <= this (inclusive) are one turn (default 0.30)",
+      "min_seconds": "float — merged spans shorter than this (strict <) are dropped as coughs/clicks (default 0.60). Merging happens BEFORE this filter, so two sub-minimum bursts across a short gap survive as one turn"
+    },
+    "expected": "list of {start_s, end_s} spans, in time order",
+    "tolerance_s": "float — absolute tolerance on each boundary. Spans are frame-aligned in the reference implementation, so this only needs to absorb float accumulation of frame boundaries, not detection jitter"
+  },
+  "cases": [
+    {
+      "name": "silence_only",
+      "description": "Pure digital silence yields no spans at all (rms is -inf, never above the floor). Source: test_speech_segments_pure_silence_is_empty.",
+      "sample_rate": 16000,
+      "config": {"floor_dbfs": -45.0, "frame_seconds": 0.25, "merge_gap_seconds": 0.3, "min_seconds": 0.6},
+      "signal": [{"seconds": 3.0, "dbfs": null}],
+      "expected": [],
+      "tolerance_s": 0.01
+    },
+    {
+      "name": "one_burst",
+      "description": "A single 2 s burst is one span covering exactly its frames.",
+      "sample_rate": 16000,
+      "config": {"floor_dbfs": -45.0, "frame_seconds": 0.25, "merge_gap_seconds": 0.3, "min_seconds": 0.6},
+      "signal": [{"seconds": 2.0, "dbfs": -20.0}],
+      "expected": [{"start_s": 0.0, "end_s": 2.0}],
+      "tolerance_s": 0.01
+    },
+    {
+      "name": "two_bursts_merged_across_short_gap",
+      "description": "A one-frame (0.25 s <= 0.30 s merge gap) pause does not split a turn: two 1 s bursts become one 2.25 s span. Source: test_speech_segments_merges_a_short_gap.",
+      "sample_rate": 16000,
+      "config": {"floor_dbfs": -45.0, "frame_seconds": 0.25, "merge_gap_seconds": 0.3, "min_seconds": 0.6},
+      "signal": [
+        {"seconds": 1.0, "dbfs": -20.0},
+        {"seconds": 0.25, "dbfs": null},
+        {"seconds": 1.0, "dbfs": -20.0}
+      ],
+      "expected": [{"start_s": 0.0, "end_s": 2.25}],
+      "tolerance_s": 0.01
+    },
+    {
+      "name": "two_bursts_kept_apart_across_long_gap",
+      "description": "A 1 s pause (> merge gap) keeps two 2 s bursts as separate turns. Source: test_speech_segments_finds_two_bursts.",
+      "sample_rate": 16000,
+      "config": {"floor_dbfs": -45.0, "frame_seconds": 0.25, "merge_gap_seconds": 0.3, "min_seconds": 0.6},
+      "signal": [
+        {"seconds": 2.0, "dbfs": -20.0},
+        {"seconds": 1.0, "dbfs": null},
+        {"seconds": 2.0, "dbfs": -20.0}
+      ],
+      "expected": [{"start_s": 0.0, "end_s": 2.0}, {"start_s": 3.0, "end_s": 5.0}],
+      "tolerance_s": 0.01
+    },
+    {
+      "name": "two_frame_gap_splits",
+      "description": "Merge-gap boundary from the other side: a two-frame (0.5 s > 0.30 s) pause is a real turn boundary even though each burst is only 1 s.",
+      "sample_rate": 16000,
+      "config": {"floor_dbfs": -45.0, "frame_seconds": 0.25, "merge_gap_seconds": 0.3, "min_seconds": 0.6},
+      "signal": [
+        {"seconds": 1.0, "dbfs": -20.0},
+        {"seconds": 0.5, "dbfs": null},
+        {"seconds": 1.0, "dbfs": -20.0}
+      ],
+      "expected": [{"start_s": 0.0, "end_s": 1.0}, {"start_s": 1.5, "end_s": 2.5}],
+      "tolerance_s": 0.01
+    },
+    {
+      "name": "burst_too_short_dropped",
+      "description": "A single-frame (0.25 s < 0.60 s) blip is a cough, not a turn: only the 2 s burst survives, starting after the blip and its 1 s gap. Source: test_speech_segments_drops_too_short_bursts.",
+      "sample_rate": 16000,
+      "config": {"floor_dbfs": -45.0, "frame_seconds": 0.25, "merge_gap_seconds": 0.3, "min_seconds": 0.6},
+      "signal": [
+        {"seconds": 0.25, "dbfs": -20.0},
+        {"seconds": 1.0, "dbfs": null},
+        {"seconds": 2.0, "dbfs": -20.0}
+      ],
+      "expected": [{"start_s": 1.25, "end_s": 3.25}],
+      "tolerance_s": 0.01
+    },
+    {
+      "name": "merge_happens_before_min_duration_drop",
+      "description": "Ordering of the two clean-up passes: two 0.5 s bursts (each alone < 0.60 s) across a one-frame gap merge into a 1.25 s span FIRST, so neither is dropped.",
+      "sample_rate": 16000,
+      "config": {"floor_dbfs": -45.0, "frame_seconds": 0.25, "merge_gap_seconds": 0.3, "min_seconds": 0.6},
+      "signal": [
+        {"seconds": 0.5, "dbfs": -20.0},
+        {"seconds": 0.25, "dbfs": null},
+        {"seconds": 0.5, "dbfs": -20.0}
+      ],
+      "expected": [{"start_s": 0.0, "end_s": 1.25}],
+      "tolerance_s": 0.01
+    },
+    {
+      "name": "mixed_conversation_shape",
+      "description": "Everything at once: leading silence, a turn with an internal one-frame pause (merged), a long gap, a one-frame cough (dropped), another long gap, a final turn, trailing silence.",
+      "sample_rate": 16000,
+      "config": {"floor_dbfs": -45.0, "frame_seconds": 0.25, "merge_gap_seconds": 0.3, "min_seconds": 0.6},
+      "signal": [
+        {"seconds": 0.5, "dbfs": null},
+        {"seconds": 1.0, "dbfs": -20.0},
+        {"seconds": 0.25, "dbfs": null},
+        {"seconds": 0.5, "dbfs": -25.0},
+        {"seconds": 1.0, "dbfs": null},
+        {"seconds": 0.25, "dbfs": -15.0},
+        {"seconds": 1.0, "dbfs": null},
+        {"seconds": 1.5, "dbfs": -20.0},
+        {"seconds": 0.5, "dbfs": null}
+      ],
+      "expected": [{"start_s": 0.5, "end_s": 2.25}, {"start_s": 4.5, "end_s": 6.0}],
+      "tolerance_s": 0.01
+    },
+    {
+      "name": "quiet_tone_under_floor_is_silence",
+      "description": "Loudness, not just non-zero samples, decides speech: a 2 s tone at -50 dBFS (under the -45 floor) is silence.",
+      "sample_rate": 16000,
+      "config": {"floor_dbfs": -45.0, "frame_seconds": 0.25, "merge_gap_seconds": 0.3, "min_seconds": 0.6},
+      "signal": [{"seconds": 2.0, "dbfs": -50.0}],
+      "expected": [],
+      "tolerance_s": 0.01
+    },
+    {
+      "name": "tone_just_over_floor_is_speech",
+      "description": "The floor is a threshold, not a comfort margin: -40 dBFS (5 dB over the floor) is speech.",
+      "sample_rate": 16000,
+      "config": {"floor_dbfs": -45.0, "frame_seconds": 0.25, "merge_gap_seconds": 0.3, "min_seconds": 0.6},
+      "signal": [{"seconds": 1.0, "dbfs": -40.0}],
+      "expected": [{"start_s": 0.0, "end_s": 1.0}],
+      "tolerance_s": 0.01
+    },
+    {
+      "name": "trailing_sub_frame_is_evaluated",
+      "description": "A clip whose length isn't a frame multiple: the last 0.125 s partial frame is still scored, so the span runs to the true end (1.125 s), not the last full frame (1.0 s). Source: test_speech_segments_includes_trailing_sub_frame_speech.",
+      "sample_rate": 16000,
+      "config": {"floor_dbfs": -45.0, "frame_seconds": 0.25, "merge_gap_seconds": 0.3, "min_seconds": 0.6},
+      "signal": [
+        {"seconds": 1.0, "dbfs": -20.0},
+        {"seconds": 0.125, "dbfs": -20.0}
+      ],
+      "expected": [{"start_s": 0.0, "end_s": 1.125}],
+      "tolerance_s": 0.01
+    }
+  ]
+}

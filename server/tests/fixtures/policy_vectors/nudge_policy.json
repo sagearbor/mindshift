@@ -1,0 +1,324 @@
+{
+  "_schema": {
+    "version": 1,
+    "subject": "server/nudge_policy.py NudgePolicy (mirror: apps/watch/shared/.../NudgeStateMachine.kt)",
+    "description": "Golden test vectors for the nudge/escalation policy. Each case constructs one fresh policy from `config`, then feeds `inputs` in order — one policy call per input step — and asserts `expected[i]` after step i. Language-neutral on purpose: plain field names, timestamps in seconds as floats, no enums beyond the string literals listed here. A Kotlin (watch) or TypeScript (phone) port must produce identical `expected` from identical `inputs`.",
+    "config": {
+      "cooldown_s": "float — seconds with no qualifying (>= current level) observation before the channel drops exactly ONE level; comparison is strict `elapsed > cooldown_s`, so an exact tie does NOT drop",
+      "channels": "list of channel labels the policy runs, in emission order (\"A\" | \"B\"); the shipped watch default is [\"A\", \"B\"]",
+      "subscriptions": "list of {vector, sensitivity, haptics, channel}. `vector` is one of \"yelling\" | \"aggressive_tone\" | \"interrupting\" | \"airtime\" | \"hr_spike\"; `sensitivity` scales the incoming level (`round_half_up(level * sensitivity)` clamped to 0..3 — half-up, NOT banker's rounding: 0.5 -> 1, 1.5 -> 2); `haptics: false` means the vector never nudges; `channel` is the lane the vector escalates"
+    },
+    "inputs": {
+      "t": "float seconds — the policy clock for this call (monotonic within a case)",
+      "events": "list of {vector, level} observed in this call; `level` is the raw 0..3 vector level BEFORE sensitivity scaling. An empty list is a legitimate step (a quiet tick — this is what lets cooldown de-escalation fire). Optional `db_over_baseline` (float) on a `yelling` event is the raw loudness the watch's offline machine would have seen; it is informational for the server and is the DRIVING input for the Kotlin single-channel machine, which maps it to a level via >=14 -> 3, >=10 -> 2, >=6 -> 1, else 0 (must agree with `level` — the Python driver asserts this)"
+    },
+    "expected": {
+      "nudges": "list of {channel, level, vectors} emitted by THIS call, at most one per channel, in `config.channels` order. `vectors` is the sorted, de-duplicated list of vector names that produced the new (max) level on an escalation, and [] on a cooldown de-escalation",
+      "levels": "map channel -> current level after this call, for every channel in `config.channels`"
+    },
+    "applies_to": {
+      "server": "the Python NudgePolicy (server/nudge_policy.py) — every case",
+      "watch": "cases the Kotlin NudgeStateMachine can run as-is: single channel \"A\", every subscription at sensitivity 1.0 with haptics on, and each step carrying at most ONE `yelling` event with `db_over_baseline`. For those, an empty `events` step is fed as db_over_baseline=0.0, and `onLocalLoudness` must return `nudges[0].level` when `nudges` is non-empty and null otherwise",
+      "phone": "the future TypeScript port — every case"
+    }
+  },
+  "cases": [
+    {
+      "name": "below_threshold_no_nudge",
+      "description": "Level-0 observations (loudness under the +6 dB first threshold) never emit and never move the channel off 0. Source: NudgeStateMachine thresholds / test_haptics_off_vector_never_nudges's 'nothing happens' shape.",
+      "applies_to": ["server", "watch", "phone"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A"],
+        "subscriptions": [{"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"}]
+      },
+      "inputs": [
+        {"t": 1.0, "events": [{"vector": "yelling", "level": 0, "db_over_baseline": 3.0}]},
+        {"t": 2.0, "events": [{"vector": "yelling", "level": 0, "db_over_baseline": 5.9}]},
+        {"t": 30.0, "events": []}
+      ],
+      "expected": [
+        {"nudges": [], "levels": {"A": 0}},
+        {"nudges": [], "levels": {"A": 0}},
+        {"nudges": [], "levels": {"A": 0}}
+      ]
+    },
+    {
+      "name": "single_nudge_then_sustain_is_silent",
+      "description": "First qualifying observation emits once; a repeat at the same level refreshes the decay clock but does NOT re-emit. Source: test_no_event_when_level_unchanged.",
+      "applies_to": ["server", "watch", "phone"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A"],
+        "subscriptions": [{"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"}]
+      },
+      "inputs": [
+        {"t": 1.0, "events": [{"vector": "yelling", "level": 2, "db_over_baseline": 11.0}]},
+        {"t": 2.0, "events": [{"vector": "yelling", "level": 2, "db_over_baseline": 11.0}]}
+      ],
+      "expected": [
+        {"nudges": [{"channel": "A", "level": 2, "vectors": ["yelling"]}], "levels": {"A": 2}},
+        {"nudges": [], "levels": {"A": 2}}
+      ]
+    },
+    {
+      "name": "escalates_and_cools_down",
+      "description": "The Kotlin NudgeStateMachineTest.escalatesAndCoolsDown vector verbatim: escalate to 2, sustain (clock -> t=2), quiet within cooldown (10-2=8) holds, quiet at t=23 (23-2=21 > 20) drops one level.",
+      "applies_to": ["server", "watch", "phone"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A"],
+        "subscriptions": [{"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"}]
+      },
+      "inputs": [
+        {"t": 1.0, "events": [{"vector": "yelling", "level": 2, "db_over_baseline": 11.0}]},
+        {"t": 2.0, "events": [{"vector": "yelling", "level": 2, "db_over_baseline": 11.0}]},
+        {"t": 10.0, "events": [{"vector": "yelling", "level": 0, "db_over_baseline": 0.0}]},
+        {"t": 23.0, "events": [{"vector": "yelling", "level": 0, "db_over_baseline": 0.0}]}
+      ],
+      "expected": [
+        {"nudges": [{"channel": "A", "level": 2, "vectors": ["yelling"]}], "levels": {"A": 2}},
+        {"nudges": [], "levels": {"A": 2}},
+        {"nudges": [], "levels": {"A": 2}},
+        {"nudges": [{"channel": "A", "level": 1, "vectors": []}], "levels": {"A": 1}}
+      ]
+    },
+    {
+      "name": "cooldown_is_strictly_greater_than",
+      "description": "Hysteresis edge: elapsed == cooldown_s is NOT enough to drop (21-1=20, not > 20); the very next tick past it is. This is the exact tie the Kotlin test comment warns about.",
+      "applies_to": ["server", "watch", "phone"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A"],
+        "subscriptions": [{"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"}]
+      },
+      "inputs": [
+        {"t": 1.0, "events": [{"vector": "yelling", "level": 2, "db_over_baseline": 11.0}]},
+        {"t": 21.0, "events": []},
+        {"t": 21.5, "events": []}
+      ],
+      "expected": [
+        {"nudges": [{"channel": "A", "level": 2, "vectors": ["yelling"]}], "levels": {"A": 2}},
+        {"nudges": [], "levels": {"A": 2}},
+        {"nudges": [{"channel": "A", "level": 1, "vectors": []}], "levels": {"A": 1}}
+      ]
+    },
+    {
+      "name": "sustained_observation_refreshes_clock",
+      "description": "The 'Critical 2' fix (test_sustained_qualifying_event / sustainedLoudnessRefreshesClock): a qualifying observation at the current level rebases the decay clock, so a quiet reading 21 s after the ORIGINAL escalation but only 7 s after the refresh must not drop.",
+      "applies_to": ["server", "watch", "phone"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A"],
+        "subscriptions": [{"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"}]
+      },
+      "inputs": [
+        {"t": 1.0, "events": [{"vector": "yelling", "level": 3, "db_over_baseline": 20.0}]},
+        {"t": 15.0, "events": [{"vector": "yelling", "level": 3, "db_over_baseline": 20.0}]},
+        {"t": 22.0, "events": [{"vector": "yelling", "level": 0, "db_over_baseline": 0.0}]}
+      ],
+      "expected": [
+        {"nudges": [{"channel": "A", "level": 3, "vectors": ["yelling"]}], "levels": {"A": 3}},
+        {"nudges": [], "levels": {"A": 3}},
+        {"nudges": [], "levels": {"A": 3}}
+      ]
+    },
+    {
+      "name": "stepwise_deescalation_3_to_0",
+      "description": "De-escalation is one level per cooldown expiry, never a snap to 0, and each drop rebases the clock (22-1, 43-22, 64-43 are all 21 > 20). Source: test_stepwise_deescalation / stepwiseDeescalation2To1To0, extended to a full 3 -> 0 walk.",
+      "applies_to": ["server", "watch", "phone"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A"],
+        "subscriptions": [{"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"}]
+      },
+      "inputs": [
+        {"t": 1.0, "events": [{"vector": "yelling", "level": 3, "db_over_baseline": 15.0}]},
+        {"t": 22.0, "events": []},
+        {"t": 43.0, "events": []},
+        {"t": 64.0, "events": []},
+        {"t": 100.0, "events": []}
+      ],
+      "expected": [
+        {"nudges": [{"channel": "A", "level": 3, "vectors": ["yelling"]}], "levels": {"A": 3}},
+        {"nudges": [{"channel": "A", "level": 2, "vectors": []}], "levels": {"A": 2}},
+        {"nudges": [{"channel": "A", "level": 1, "vectors": []}], "levels": {"A": 1}},
+        {"nudges": [{"channel": "A", "level": 0, "vectors": []}], "levels": {"A": 0}},
+        {"nudges": [], "levels": {"A": 0}}
+      ]
+    },
+    {
+      "name": "lower_observation_never_snaps_down",
+      "description": "A weaker observation while hot (level 1 under a level-3 channel) does nothing before cooldown, drops exactly one level per expiry after it, and once the channel decays down to that observation's level it becomes a sustaining (clock-refreshing, silent) input. Source: test_two_vectors_multi_step, expressed on a single vector so the watch can run it too.",
+      "applies_to": ["server", "watch", "phone"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A"],
+        "subscriptions": [{"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"}]
+      },
+      "inputs": [
+        {"t": 1.0, "events": [{"vector": "yelling", "level": 3, "db_over_baseline": 16.0}]},
+        {"t": 5.0, "events": [{"vector": "yelling", "level": 1, "db_over_baseline": 7.0}]},
+        {"t": 22.0, "events": [{"vector": "yelling", "level": 1, "db_over_baseline": 7.0}]},
+        {"t": 43.0, "events": [{"vector": "yelling", "level": 1, "db_over_baseline": 7.0}]},
+        {"t": 50.0, "events": [{"vector": "yelling", "level": 1, "db_over_baseline": 7.0}]},
+        {"t": 60.0, "events": []}
+      ],
+      "expected": [
+        {"nudges": [{"channel": "A", "level": 3, "vectors": ["yelling"]}], "levels": {"A": 3}},
+        {"nudges": [], "levels": {"A": 3}},
+        {"nudges": [{"channel": "A", "level": 2, "vectors": []}], "levels": {"A": 2}},
+        {"nudges": [{"channel": "A", "level": 1, "vectors": []}], "levels": {"A": 1}},
+        {"nudges": [], "levels": {"A": 1}},
+        {"nudges": [], "levels": {"A": 1}}
+      ]
+    },
+    {
+      "name": "full_decay_then_fresh_escalation",
+      "description": "Reset semantics: there is no explicit reset call — a channel that has decayed all the way to 0 is indistinguishable from a fresh policy (a new session gets a new policy instance). After the walk down, a new observation escalates and emits again, and its clock starts from that new escalation.",
+      "applies_to": ["server", "watch", "phone"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A"],
+        "subscriptions": [{"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"}]
+      },
+      "inputs": [
+        {"t": 1.0, "events": [{"vector": "yelling", "level": 2, "db_over_baseline": 12.0}]},
+        {"t": 22.0, "events": []},
+        {"t": 43.0, "events": []},
+        {"t": 50.0, "events": [{"vector": "yelling", "level": 1, "db_over_baseline": 8.0}]},
+        {"t": 70.0, "events": []},
+        {"t": 70.5, "events": []}
+      ],
+      "expected": [
+        {"nudges": [{"channel": "A", "level": 2, "vectors": ["yelling"]}], "levels": {"A": 2}},
+        {"nudges": [{"channel": "A", "level": 1, "vectors": []}], "levels": {"A": 1}},
+        {"nudges": [{"channel": "A", "level": 0, "vectors": []}], "levels": {"A": 0}},
+        {"nudges": [{"channel": "A", "level": 1, "vectors": ["yelling"]}], "levels": {"A": 1}},
+        {"nudges": [], "levels": {"A": 1}},
+        {"nudges": [{"channel": "A", "level": 0, "vectors": []}], "levels": {"A": 0}}
+      ]
+    },
+    {
+      "name": "channels_are_independent",
+      "description": "Two lanes escalate, sustain and decay on their own clocks: A (yelling) and B (hr_spike) both emit at t=1; only A is refreshed at t=10; at t=25 B (25-1=24 > 20) drops while A (25-10=15) holds. Source: test_channels_are_independent.",
+      "applies_to": ["server", "phone"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A", "B"],
+        "subscriptions": [
+          {"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"},
+          {"vector": "hr_spike", "sensitivity": 1.0, "haptics": true, "channel": "B"}
+        ]
+      },
+      "inputs": [
+        {"t": 1.0, "events": [{"vector": "yelling", "level": 2}, {"vector": "hr_spike", "level": 1}]},
+        {"t": 10.0, "events": [{"vector": "yelling", "level": 2}]},
+        {"t": 25.0, "events": []}
+      ],
+      "expected": [
+        {"nudges": [{"channel": "A", "level": 2, "vectors": ["yelling"]}, {"channel": "B", "level": 1, "vectors": ["hr_spike"]}], "levels": {"A": 2, "B": 1}},
+        {"nudges": [], "levels": {"A": 2, "B": 1}},
+        {"nudges": [{"channel": "B", "level": 0, "vectors": []}], "levels": {"A": 2, "B": 0}}
+      ]
+    },
+    {
+      "name": "haptics_off_vector_never_nudges",
+      "description": "A subscription with haptics off is invisible to the policy even at level 3. Source: test_haptics_off_vector_never_nudges.",
+      "applies_to": ["server", "phone"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A", "B"],
+        "subscriptions": [{"vector": "yelling", "sensitivity": 1.0, "haptics": false, "channel": "A"}]
+      },
+      "inputs": [
+        {"t": 1.0, "events": [{"vector": "yelling", "level": 3}]}
+      ],
+      "expected": [
+        {"nudges": [], "levels": {"A": 0, "B": 0}}
+      ]
+    },
+    {
+      "name": "sensitivity_scales_with_half_up_rounding",
+      "description": "sensitivity 0.5: level 1 -> 0.5 -> rounds UP to 1 (banker's rounding would give 0 and no nudge); level 3 -> 1.5 -> 2. Source: test_sensitivity_scales_level + test_rounding_half_up.",
+      "applies_to": ["server", "phone"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A"],
+        "subscriptions": [{"vector": "yelling", "sensitivity": 0.5, "haptics": true, "channel": "A"}]
+      },
+      "inputs": [
+        {"t": 1.0, "events": [{"vector": "yelling", "level": 1}]},
+        {"t": 2.0, "events": [{"vector": "yelling", "level": 3}]},
+        {"t": 3.0, "events": [{"vector": "yelling", "level": 2}]}
+      ],
+      "expected": [
+        {"nudges": [{"channel": "A", "level": 1, "vectors": ["yelling"]}], "levels": {"A": 1}},
+        {"nudges": [{"channel": "A", "level": 2, "vectors": ["yelling"]}], "levels": {"A": 2}},
+        {"nudges": [], "levels": {"A": 2}}
+      ]
+    },
+    {
+      "name": "sensitivity_clamps_to_three",
+      "description": "Over-sensitive subscriptions saturate at level 3 (2 * 2.0 = 4 -> 3); a later raw 3 (-> 6 -> 3) is a sustain, not a new emission.",
+      "applies_to": ["server", "phone"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A"],
+        "subscriptions": [{"vector": "yelling", "sensitivity": 2.0, "haptics": true, "channel": "A"}]
+      },
+      "inputs": [
+        {"t": 1.0, "events": [{"vector": "yelling", "level": 2}]},
+        {"t": 2.0, "events": [{"vector": "yelling", "level": 3}]}
+      ],
+      "expected": [
+        {"nudges": [{"channel": "A", "level": 3, "vectors": ["yelling"]}], "levels": {"A": 3}},
+        {"nudges": [], "levels": {"A": 3}}
+      ]
+    },
+    {
+      "name": "two_vectors_one_channel_max_and_ties",
+      "description": "Several vectors on one lane: the lane takes the MAX scaled level and `vectors` names only the vector(s) that produced it — one name on a clear winner, both names (sorted) on a tie at the new level. A lower co-occurring vector is not listed. Source: test_two_vectors_multi_step's channel setup.",
+      "applies_to": ["server", "phone"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A"],
+        "subscriptions": [
+          {"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"},
+          {"vector": "aggressive_tone", "sensitivity": 1.0, "haptics": true, "channel": "A"}
+        ]
+      },
+      "inputs": [
+        {"t": 1.0, "events": [{"vector": "yelling", "level": 1}, {"vector": "aggressive_tone", "level": 2}]},
+        {"t": 2.0, "events": [{"vector": "yelling", "level": 3}, {"vector": "aggressive_tone", "level": 3}]},
+        {"t": 23.5, "events": [{"vector": "yelling", "level": 1}]}
+      ],
+      "expected": [
+        {"nudges": [{"channel": "A", "level": 2, "vectors": ["aggressive_tone"]}], "levels": {"A": 2}},
+        {"nudges": [{"channel": "A", "level": 3, "vectors": ["aggressive_tone", "yelling"]}], "levels": {"A": 3}},
+        {"nudges": [{"channel": "A", "level": 2, "vectors": []}], "levels": {"A": 2}}
+      ]
+    },
+    {
+      "name": "single_channel_policy_ignores_other_lane",
+      "description": "A caller running only channel A (the phone's realtime path) never nudges on a subscription routed to B, and its `levels` map has no phantom B entry. This is the one behavioural knob Foundation A added; the default two-lane config is unchanged.",
+      "applies_to": ["server", "phone"],
+      "config": {
+        "cooldown_s": 20.0,
+        "channels": ["A"],
+        "subscriptions": [
+          {"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"},
+          {"vector": "hr_spike", "sensitivity": 1.0, "haptics": true, "channel": "B"}
+        ]
+      },
+      "inputs": [
+        {"t": 1.0, "events": [{"vector": "hr_spike", "level": 3}]},
+        {"t": 2.0, "events": [{"vector": "hr_spike", "level": 3}, {"vector": "yelling", "level": 1}]}
+      ],
+      "expected": [
+        {"nudges": [], "levels": {"A": 0}},
+        {"nudges": [{"channel": "A", "level": 1, "vectors": ["yelling"]}], "levels": {"A": 1}}
+      ]
+    }
+  ]
+}
