@@ -14,7 +14,7 @@ os.environ["MINDSHIFT_DB_PATH"] = _tmp.name
 _tmp.close()
 
 from main import app, init_db  # noqa: E402 — must set env before import
-from auth import get_current_uid  # noqa: E402
+from auth import get_current_uid, get_fresh_uid  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -43,6 +43,12 @@ def _test_uid_override(x_test_uid: str = Header(default=DEFAULT_TEST_UID)) -> st
 # Installed once on the shared app: every TestClient/AsyncClient built from
 # ``main.app`` (this conftest, tests/conftest, or any test module) inherits it.
 app.dependency_overrides[get_current_uid] = _test_uid_override
+# Same stand-in for the FRESH-token dependency (auth.get_fresh_uid, used by
+# DELETE /me): the suite runs authenticated without real Firebase, so there is
+# no real ``iat`` to age. The freshness gate itself is exercised directly
+# against auth.get_fresh_uid in test_account_deletion.py, where the override is
+# removed and a fake verifier supplies the claims.
+app.dependency_overrides[get_fresh_uid] = _test_uid_override
 
 
 @pytest.fixture(autouse=True)

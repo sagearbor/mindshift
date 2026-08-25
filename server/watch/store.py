@@ -247,6 +247,35 @@ class LiveSessionStore(Protocol):
         never True merely because get_subscriptions would fabricate defaults."""
         ...
 
+    # -- account deletion (DELETE /me, server/account_deletion.py) ----------
+    # One per account-keyed document kind. Each is idempotent (False when
+    # there was nothing to delete) so a re-run of a half-finished account
+    # deletion reports honestly instead of erroring.
+
+    async def delete_baseline(self, account_id: str) -> bool:
+        """Remove the account's enrollment baseline. True when one existed."""
+        ...
+
+    async def delete_subscriptions(self, account_id: str) -> bool:
+        """Remove the account's saved vector subscriptions. True when a SAVED
+        doc existed (the fabricated defaults are not a document)."""
+        ...
+
+    async def delete_account(self, account_id: str) -> bool:
+        """Remove the account document itself. True when one existed."""
+        ...
+
+    async def delete_speaker_profile(self, account_id: str) -> bool:
+        """Remove the account's watch-domain speaker profile. True when one
+        existed."""
+        ...
+
+    async def delete_group(self, group_id: str) -> bool:
+        """Remove a group outright. True when one existed. Used only when an
+        account deletion empties a group of its last member — a group with no
+        members can never be read, joined or left again."""
+        ...
+
 
 class MemoryLiveSessionStore:
     """In-memory implementation of LiveSessionStore for testing and default runtime."""
@@ -466,6 +495,29 @@ class MemoryLiveSessionStore:
         """True only when a SAVED subscriptions doc exists for the account —
         never True merely because get_subscriptions would fabricate defaults."""
         return account_id in self._subscriptions
+
+    # -- account deletion --------------------------------------------------
+
+    async def delete_baseline(self, account_id: str) -> bool:
+        """Remove the account's enrollment baseline. True when one existed."""
+        return self._baselines.pop(account_id, None) is not None
+
+    async def delete_subscriptions(self, account_id: str) -> bool:
+        """Remove the account's SAVED vector subscriptions. True when one existed."""
+        return self._subscriptions.pop(account_id, None) is not None
+
+    async def delete_account(self, account_id: str) -> bool:
+        """Remove the account document. True when one existed."""
+        return self._accounts.pop(account_id, None) is not None
+
+    async def delete_speaker_profile(self, account_id: str) -> bool:
+        """Remove the account's speaker profile. True when one existed."""
+        return self._profiles.pop(account_id, None) is not None
+
+    async def delete_group(self, group_id: str) -> bool:
+        """Remove a group outright. True when one existed."""
+        with self._groups_lock:
+            return self._groups.pop(group_id, None) is not None
 
 
 class FirestoreLiveSessionStore:
@@ -846,6 +898,42 @@ class FirestoreLiveSessionStore:
             return True
 
         return _run(db.transaction())
+
+    # -- account deletion --------------------------------------------------
+    # Each is one document delete, addressed by the account id (or group id) —
+    # never a collection scan. ``.get()`` first so the return value honestly
+    # reports whether anything existed (Firestore's ``delete()`` succeeds on an
+    # absent document and tells you nothing).
+
+    def _delete_doc_sync(self, collection: str, doc_id: str) -> bool:
+        db = self._get_db()
+        ref = db.collection(collection).document(doc_id)
+        if not ref.get().exists:
+            return False
+        ref.delete()
+        return True
+
+    async def delete_baseline(self, account_id: str) -> bool:
+        """Remove the account's enrollment baseline. True when one existed."""
+        return await asyncio.to_thread(self._delete_doc_sync, "baselines", account_id)
+
+    async def delete_subscriptions(self, account_id: str) -> bool:
+        """Remove the account's SAVED vector subscriptions. True when one existed."""
+        return await asyncio.to_thread(self._delete_doc_sync, "subscriptions", account_id)
+
+    async def delete_account(self, account_id: str) -> bool:
+        """Remove the account document. True when one existed."""
+        return await asyncio.to_thread(self._delete_doc_sync, "accounts", account_id)
+
+    async def delete_speaker_profile(self, account_id: str) -> bool:
+        """Remove the account's speaker profile. True when one existed."""
+        return await asyncio.to_thread(
+            self._delete_doc_sync, "speaker_profiles", account_id,
+        )
+
+    async def delete_group(self, group_id: str) -> bool:
+        """Remove a group outright. True when one existed."""
+        return await asyncio.to_thread(self._delete_doc_sync, "groups", group_id)
 
 
 def get_store() -> LiveSessionStore:

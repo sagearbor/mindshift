@@ -59,26 +59,93 @@
 
 <p class="eyebrow">MindShift</p>
 <h1>Delete your data</h1>
-<p class="updated">Last updated: 25 August 2026 · App: <code>com.sagearbor.mindshift.app</code></p>
+<p class="updated">Last updated: 26 August 2026 · App: <code>com.sagearbor.mindshift.app</code></p>
 
 <div class="card">
-  <p><strong>In one line.</strong> You can delete individual recordings and your
-  voiceprint yourself, from inside the app, right now. To delete your
-  <em>whole account</em> and everything under it, email us — we do it within 30
-  days and confirm when it is done.</p>
+  <p><strong>In one line.</strong> Delete your whole MindShift account, and
+  everything under it, yourself — from inside the app, in about four taps. It
+  happens immediately. No email, no waiting period, nobody reading your request.</p>
 </div>
 
-<h2>Delete individual things, in the app</h2>
+<h2>Delete your entire account, in the app</h2>
+<ol>
+  <li>Tap your <strong>profile picture</strong> (top right) and choose
+  <strong>Settings</strong>.</li>
+  <li>Scroll to the bottom, to the <strong>Account</strong> section.</li>
+  <li>Tap <strong>Delete my account</strong>. It opens in place and shows you
+  exactly what will be deleted.</li>
+  <li>Type <code>DELETE</code> in the box, then tap
+  <strong>Delete my account permanently</strong>.</li>
+</ol>
+<p>You are signed out at the end, because there is no longer an account to be
+signed in to. There is no undo, no grace period and no backup copy we can
+restore from.</p>
+<p>The same control is in the web version at
+<a href="https://arborfam-hub.web.app">arborfam-hub.web.app</a> — same place,
+same steps — so you can do it from a browser without installing anything.</p>
+
+<h2>What gets deleted</h2>
+<ul>
+  <li>Your sign-in account itself.</li>
+  <li>Every stored recording and session: audio, video, transcripts, analysis,
+  titles and speaker labels.</li>
+  <li>Your voiceprint and every enrolled person's voice signature, plus every
+  individual voice sample.</li>
+  <li>Every share you granted, and every session anyone shared with you.</li>
+  <li>Your therapist link, in both directions — as a patient, and as a
+  therapist for anyone linked to you.</li>
+  <li>Private notes you wrote on sessions, and the notes anyone wrote about
+  <em>your</em> sessions (see below).</li>
+  <li>Unfinished uploads and queued analysis jobs.</li>
+  <li>Watch pairings, watch live sessions, captures and group memberships.</li>
+  <li>Diagnostic reports you sent from the app.</li>
+  <li>Saved relationships, participants and text-tool sessions.</li>
+</ul>
+<p>If any part of it cannot be completed, <strong>nothing is half-deleted</strong>:
+your account is left exactly as it was, the app tells you so, and you can try
+again. The one exception is the diagnostic reports — if only those fail to
+delete, the account and everything in it still go, because a crash report you
+chose to send us should never be the reason you cannot close your account.</p>
+
+<h2>Sessions you shared with a therapist</h2>
+<p>Sharing grants a view; it never hands over ownership. A session you recorded
+is yours, so deleting your account <strong>deletes the session itself</strong>
+and every grant that let anyone see it — the therapist's access ends because
+the thing they had access to is gone.</p>
+<p>The private notes that therapist wrote <em>about that session</em> are
+deleted too. A note is an annotation on your conversation, and leaving one
+behind would leave a record of what you said sitting under someone else's
+account. Notes they wrote about anyone else's sessions, and everything else in
+their account, are untouched — deleting your account never deletes any part of
+theirs.</p>
+
+<h2>What does not get deleted, and why</h2>
+<ul>
+  <li><strong>Videos in your own camera roll.</strong> Videos recorded in the app
+  are also saved to your phone's photo library. That copy is yours, on your
+  device — delete it from your gallery.</li>
+  <li><strong>A copy on someone else's phone.</strong> If you exported a session
+  or someone screenshotted it, we cannot reach that.</li>
+  <li><strong>Operational logs</strong> (timestamps, status codes, request ids
+  and account identifiers — never transcripts, audio or analysis) may persist in
+  server logs for a short period before rotating out.</li>
+  <li><strong>Telemetry sent by a paired watch</strong>, which identifies the
+  device and carries no account id at all — there is nothing in it to attribute
+  to you.</li>
+</ul>
+
+<h2>Delete individual things instead</h2>
+<p>If you want to keep your account and remove only part of it:</p>
 <ul>
   <li><strong>A recording or session</strong> — open <em>Recordings</em>, pick the
   session, tap <strong>Delete</strong>. This removes its stored audio, its video,
   its transcript and its analysis, and revokes every share on it.</li>
-  <li><strong>Your voiceprint</strong> — <em>Settings → Advanced →
+  <li><strong>Your voiceprint</strong> — <em>Settings → Voice →
   Forget my voice</em>. Your voice signature is erased permanently. There is no
   tombstone and no backup copy.</li>
   <li><strong>One enrolled person</strong> — <em>Settings → People</em>, pick the
   person, delete. Removes that person's voice signature.</li>
-  <li><strong>One voice sample</strong> — <em>Settings → Advanced</em>, in the
+  <li><strong>One voice sample</strong> — <em>Settings → Voice</em>, in the
   samples list. Deleting the last sample deletes the whole voiceprint.</li>
   <li><strong>Access you granted someone</strong> — open the session, open its
   share list, remove the person. Their access ends immediately.</li>
@@ -88,50 +155,21 @@
   each session's share list.</li>
 </ul>
 
-<h2>Delete your entire account</h2>
-<p>Email us from the address you signed up with:</p>
+<h2>If you can no longer sign in</h2>
+<p>The in-app path needs you to be signed in — that is how we know the request
+is really yours, and it is why we can act on it instantly. If you have lost
+access to the account, email us and we will do it by hand:</p>
 <p>
   <a class="cta" href="mailto:sagearbor@gmail.com?subject=MindShift%20account%20deletion&body=Please%20delete%20my%20MindShift%20account%20and%20all%20data%20associated%20with%20it.%0A%0AAccount%20email%3A%20">
     Email a deletion request
   </a>
 </p>
-<p>Or write to <a href="mailto:sagearbor@gmail.com">sagearbor@gmail.com</a> with
+<p>Write to <a href="mailto:sagearbor@gmail.com">sagearbor@gmail.com</a> with
 the subject <strong>"MindShift account deletion"</strong> and the email address
-on the account.</p>
-<p>There is no self-serve "delete my account" button in the app yet. This is a
-manual request handled by a person, and we would rather say so than imply a
-button that does not exist.</p>
-
-<h2>What gets deleted</h2>
-<ul>
-  <li>Your sign-in account itself.</li>
-  <li>Every stored recording and session: audio, video, transcripts, analysis,
-  titles and speaker labels.</li>
-  <li>Your voiceprint and every enrolled person's voice signature.</li>
-  <li>Your therapist link and any share grants you made or received.</li>
-  <li>Your saved settings, relationships and voice profile.</li>
-  <li>Diagnostic reports tied to your account.</li>
-</ul>
-
-<h2>What does not get deleted, and why</h2>
-<ul>
-  <li><strong>Notes a therapist wrote</strong> about a session are that
-  therapist's own record, held under their account. Deleting your account removes
-  their access to your sessions; their notes stay with them.</li>
-  <li><strong>A copy on someone else's phone.</strong> If you exported a session
-  or someone screenshotted it, we cannot reach that.</li>
-  <li><strong>Videos in your own camera roll.</strong> Videos recorded in the app
-  are also saved to your phone's photo library. That copy is yours — delete it
-  from your phone's gallery.</li>
-  <li><strong>Operational logs</strong> (timestamps, error codes, account
-  identifiers — never transcripts or audio) may persist in server logs for a
-  short period before rotating out.</li>
-</ul>
-
-<h2>How long it takes</h2>
-<p>Within <strong>30 days</strong> of your request, usually much sooner. We reply
-to confirm when it is done. If you do not hear back within 30 days, email again —
-it means the first one did not arrive.</p>
+on the account, from that address if you still can. We complete it within
+<strong>30 days</strong>, usually much sooner, and reply to confirm. If you do
+not hear back within 30 days, email again — it means the first one did not
+arrive.</p>
 
 <footer>
   <p>MindShift · <a href="https://arborfam-hub.web.app">arborfam-hub.web.app</a>

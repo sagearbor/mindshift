@@ -164,6 +164,24 @@ class PairingStore(Protocol):
         same cloud data again."""
         ...
 
+    # -- account deletion (DELETE /me, server/account_deletion.py) ----------
+
+    async def delete_pairings_for_account(self, account_id: str) -> int:
+        """Delete every ``Pairing`` record CLAIMED by ``account_id``. Returns
+        how many were deleted (0 is a valid result).
+
+        Pairings are short-lived handshake records, but a claimed one keeps
+        ``claimed_account_id`` — and, inside its own TTL, the raw device token
+        — so an account deletion must take them with it rather than wait for
+        expiry. Unclaimed pairings carry no account id at all and are left
+        alone: they belong to nobody yet."""
+        ...
+
+    async def delete_failed_claim_record(self, account_id: str) -> bool:
+        """Remove the account's brute-force circuit-breaker counter. True when
+        one existed."""
+        ...
+
 
 class MemoryPairingStore:
     """In-memory implementation of PairingStore for testing and default runtime."""
@@ -235,6 +253,22 @@ class MemoryPairingStore:
         for h in matching:
             del self._device_tokens[h]
         return len(matching)
+
+    # -- account deletion --------------------------------------------------
+
+    async def delete_pairings_for_account(self, account_id: str) -> int:
+        with self._lock:
+            matching = [
+                pid for pid, p in self._pairings.items()
+                if p.claimed_account_id == account_id
+            ]
+            for pid in matching:
+                del self._pairings[pid]
+            return len(matching)
+
+    async def delete_failed_claim_record(self, account_id: str) -> bool:
+        with self._failed_claims_lock:
+            return self._failed_claims.pop(account_id, None) is not None
 
 
 class FirestorePairingStore:
@@ -392,6 +426,39 @@ class FirestorePairingStore:
             doc.reference.delete()
             count += 1
         return count
+
+    # -- account deletion --------------------------------------------------
+
+    async def delete_pairings_for_account(self, account_id: str) -> int:
+        return await asyncio.to_thread(self._delete_pairings_for_account_sync, account_id)
+
+    def _delete_pairings_for_account_sync(self, account_id: str) -> int:
+        # Same reasoning as _delete_device_tokens_for_account_sync: an equality
+        # query scoped to THIS account's own claimed pairings, streamed and
+        # deleted one by one (no bulk delete-by-query exists), on a rare and
+        # explicit user action rather than a hot path.
+        db = self._get_db()
+        docs = (
+            db.collection("pairings")
+            .where("claimed_account_id", "==", account_id)
+            .stream()
+        )
+        count = 0
+        for doc in docs:
+            doc.reference.delete()
+            count += 1
+        return count
+
+    async def delete_failed_claim_record(self, account_id: str) -> bool:
+        return await asyncio.to_thread(self._delete_failed_claim_record_sync, account_id)
+
+    def _delete_failed_claim_record_sync(self, account_id: str) -> bool:
+        db = self._get_db()
+        ref = db.collection("failed_claim_attempts").document(account_id)
+        if not ref.get().exists:
+            return False
+        ref.delete()
+        return True
 
 
 def get_pairing_store() -> PairingStore:

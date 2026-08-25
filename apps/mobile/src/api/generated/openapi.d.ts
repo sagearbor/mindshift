@@ -610,7 +610,26 @@ export interface paths {
         get: operations["me_me_get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Me
+         * @description Permanently delete the caller's account and everything under it.
+         *
+         *     Acts on the verified token's uid and nothing else. Runs every storage tier
+         *     (``account_deletion.delete_account_data``), and only if every one of them
+         *     succeeded deletes the Firebase Auth user — last, on purpose: a failure
+         *     part-way through leaves an account that can still sign in and retry,
+         *     instead of data orphaned behind an unusable login.
+         *
+         *     Idempotent: calling it again on an already-deleted account walks the same
+         *     tiers, finds nothing, reports zeros and ``firebase_user_deleted: false``.
+         *
+         *     A tier that failed makes this a **500** whose detail carries both the
+         *     failed tiers and the counts that DID succeed, so the client can say what
+         *     happened and the user can retry — never a fabricated success. The one
+         *     exception is diagnostics reports, which are non-blocking and come back in
+         *     ``warnings`` instead (see ``account_deletion.delete_diagnostics_tier``).
+         */
+        delete: operations["delete_me_me_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2468,6 +2487,40 @@ export interface components {
             follow_rate: number | null;
             /** Description */
             description: string;
+        };
+        /**
+         * DeleteAccountRequest
+         * @description The type-to-confirm guard, as a model so FastAPI answers 422 for a
+         *     missing body, a wrong value and a malformed one alike — one rejection
+         *     path, no hand-rolled check to drift.
+         */
+        DeleteAccountRequest: {
+            /**
+             * Confirm
+             * @description Must be exactly "DELETE". The client asks the user to type it; the server refuses anything else.
+             * @constant
+             */
+            confirm: "DELETE";
+        };
+        /**
+         * DeleteAccountResponse
+         * @description What was actually erased, so the client can show it rather than assert
+         *     a generic "done".
+         */
+        DeleteAccountResponse: {
+            /** Deleted */
+            deleted: boolean;
+            /** Firebase User Deleted */
+            firebase_user_deleted: boolean;
+            /** Counts */
+            counts: {
+                [key: string]: number;
+            };
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
         };
         /** DeleteSampleResponse */
         DeleteSampleResponse: {
@@ -5037,6 +5090,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_me_me_delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeleteAccountResponse"];
                 };
             };
             /** @description Validation Error */

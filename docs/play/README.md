@@ -52,7 +52,7 @@ These do not need re-deriving. Copy them.
 | Target audience | 18 and over only, unless the app is genuinely built for minors |
 | Store listing appeals to children | No |
 | Encrypted in transit | Yes (any app on Cloud Run + HTTPS/wss) |
-| Deletion mechanism | Same shape: in-app deletes for individual items + an emailed account-deletion request, with a `/delete-account` page |
+| Deletion mechanism | Same shape: in-app deletes for individual items, a self-serve `DELETE /me` behind a type-to-confirm flow in Settings → Account, and a `/delete-account` page whose email route is only for someone who can no longer sign in |
 | Agent hard rules | Identical — see `notes_for_the_agent` in the YAML |
 
 Also constant for any app sharing MindShift's architecture (Expo + Firebase Auth
@@ -191,11 +191,19 @@ Copy this verbatim, changing only the two bracketed values.
 These bit MindShift and will bite the rest of the fleet, because they are
 architectural rather than app-specific:
 
-- **No self-serve account deletion.** Play requires an account-deletion path for
-  any app with account creation. An emailed request with a public instructions
-  page is accepted, but a `DELETE /me` endpoint that wipes the uid's objects
-  (storage prefixes, database rows, and the Firebase Auth user) is the real fix
-  and would be shared across every app on this backend.
+- ~~**No self-serve account deletion.**~~ **Closed.** `DELETE /me`
+  (`server/routers/account.py` + `server/account_deletion.py`) erases every
+  storage tier for the authenticated uid — GCS prefixes, Firestore documents,
+  SQLite rows, capture blobs — and then the Firebase Auth user, last, so a
+  mid-way failure leaves the account retryable rather than orphaning data. The
+  UI is Settings → Account → "Delete my account" (one Expo screen, so phone and
+  web get it together). **Reuse this across the other 7:** the tier walk is a
+  standalone module that takes stores as arguments, the guards (a freshly
+  issued token via `auth.get_fresh_uid`, a `{"confirm": "DELETE"}` body, a
+  3/min per-IP budget) are worth copying verbatim, and the scope + shared-data
+  rule are documented once in `server/account_deletion.py`'s module docstring,
+  which the privacy policy, the `/delete-account` page and the answer pack all
+  restate.
 - **No provider-side retention controls.** No zero-data-retention header on the
   LLM client, no `redact`/`no_store` on the STT vendor. Each vendor's account
   default governs. Setting them once in a shared client would let every app's

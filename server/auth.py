@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 
 from fastapi import Header, HTTPException
 
@@ -66,6 +67,20 @@ def init_firebase() -> None:
         )
 
 
+def verify_id_token_claims(token: str) -> dict:
+    """Verify a Firebase ID token and return its full decoded claims.
+
+    The single place the Admin SDK is asked to verify. :func:`verify_id_token`
+    is the thin "just the uid" wrapper over this; :func:`get_fresh_uid` needs
+    the ``iat``/``auth_time`` claims as well, and must never re-verify with a
+    second, independently-drifting code path.
+    """
+    from firebase_admin import auth as fb_auth
+
+    init_firebase()
+    return fb_auth.verify_id_token(token)
+
+
 def verify_id_token(token: str) -> str:
     """Verify a Firebase ID token and return its ``uid``.
 
@@ -73,11 +88,31 @@ def verify_id_token(token: str) -> str:
     audience/issuer, or an unusable SDK). The returned uid is taken only from
     the verified claims.
     """
+    return verify_id_token_claims(token)["uid"]
+
+
+def delete_firebase_user(uid: str) -> bool:
+    """Permanently delete the Firebase Auth user ``uid``.
+
+    Returns ``True`` when a user existed and was deleted, ``False`` when there
+    was no such user (the idempotent re-run of an account deletion that already
+    got this far). Every OTHER failure — an unusable SDK, a transient Admin
+    error — propagates, exactly like :func:`resolve_uid_by_email`'s contract:
+    only a genuine "no such account" is allowed to read as a clean no-op, so a
+    broken delete is never reported as a successful one.
+
+    Called LAST by ``DELETE /me`` (routers/account.py) so a failure anywhere
+    earlier leaves the account signed-in-able and the deletion retryable,
+    rather than orphaning data behind an account nobody can authenticate as.
+    """
     from firebase_admin import auth as fb_auth
 
     init_firebase()
-    decoded = fb_auth.verify_id_token(token)
-    return decoded["uid"]
+    try:
+        fb_auth.delete_user(uid)
+    except fb_auth.UserNotFoundError:
+        return False
+    return True
 
 
 def resolve_uid_by_email(email: str) -> str | None:
@@ -139,3 +174,72 @@ async def get_current_uid(authorization: str = Header(default="")) -> str:
     except Exception:
         # Never leak provider internals (they can carry key ids / request urls).
         raise HTTPException(status_code=401, detail="invalid or expired token")
+
+
+# How recently an ID token must have been MINTED for the irreversible account
+# deletion (DELETE /me) to accept it. Firebase ID tokens live ~1 h and refresh
+# silently, so a token in flight or scraped off a device stays usable for the
+# rest of that hour; requiring a freshly issued one means the caller must still
+# hold the refresh credential *right now* and is deliberately re-asking for a
+# token seconds before the destructive call (the client does exactly that —
+# ``getFreshToken(true)`` → Firebase ``getIdToken(true)``).
+#
+# Honest about what this is and is not: it proves CURRENT possession of the
+# refresh credential, not that a human just re-entered a password. It closes
+# the replayed-stale-token window; it does not replace a re-authentication
+# prompt, and the type-to-confirm step in the UI is the other half of the
+# guard. Ten minutes is generous enough to survive a slow phone, a paused
+# confirm dialog and clock skew without ever prompting a real user twice.
+FRESH_TOKEN_MAX_AGE_SECONDS = int(
+    os.getenv("MINDSHIFT_FRESH_TOKEN_MAX_AGE_SECONDS", "600")
+)
+
+
+def token_age_seconds(claims: dict, *, now: float | None = None) -> float | None:
+    """How long ago the ID token in ``claims`` was minted, in seconds.
+
+    Reads ``iat`` (issued-at), falling back to ``auth_time`` (last sign-in)
+    when a token carries no ``iat``. ``None`` means neither claim was present
+    — the caller MUST treat that as "not fresh" (fail closed), never as fresh.
+    A negative age (the issuer's clock ahead of ours) is clamped to 0 rather
+    than reported as stale, so ordinary skew can't lock a user out.
+    """
+    stamp = claims.get("iat", claims.get("auth_time"))
+    try:
+        issued = float(stamp)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    current = time.time() if now is None else now
+    return max(0.0, current - issued)
+
+
+async def get_fresh_uid(authorization: str = Header(default="")) -> str:
+    """FastAPI dependency: a verified uid from a *freshly issued* ID token.
+
+    Same contract as :func:`get_current_uid` plus the freshness gate described
+    on :data:`FRESH_TOKEN_MAX_AGE_SECONDS`. A valid but stale token is a 401
+    with a distinct, actionable detail so the client knows to force-refresh (or
+    ask the user to sign in again) rather than showing a generic auth error.
+
+    Used only by irreversible account-scoped actions — today, ``DELETE /me``.
+    """
+    scheme, _, token = authorization.partition(" ")
+    token = token.strip()
+    if scheme != "Bearer" or not token:
+        raise HTTPException(status_code=401, detail="missing bearer token")
+    try:
+        claims = verify_id_token_claims(token)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="invalid or expired token")
+    age = token_age_seconds(claims)
+    if age is None or age > FRESH_TOKEN_MAX_AGE_SECONDS:
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "a freshly issued sign-in token is required for this action — "
+                "sign in again and retry"
+            ),
+        )
+    return claims["uid"]

@@ -42,6 +42,20 @@ def clamp_event(e: TelemetryEvent) -> TelemetryEvent:
     return clamped
 
 
+def _event_account(e: TelemetryEvent) -> str | None:
+    """The account id a diagnostics event names in its payload, or ``None``.
+
+    The phone's ``DiagnosticsPayload`` carries ``uid`` at the top level of
+    ``data``; watch events have no ``data`` at all. Pure — the memory store
+    and (conceptually) the Firestore ``data.uid`` query share this one
+    definition of "whose event is this"."""
+    data = e.data
+    if not isinstance(data, dict):
+        return None
+    uid = data.get("uid")
+    return uid if isinstance(uid, str) and uid else None
+
+
 def _sort_key(e: TelemetryEvent) -> tuple[str, str]:
     """Newest-first ordering: by ``received_at``, then ``ts`` as a tiebreak."""
     return (e.received_at, e.ts)
@@ -61,6 +75,20 @@ class TelemetryStore(Protocol):
         filters to events with ``received_at >= since`` when given.
         Result is capped to ``limit`` entries.
         """
+        ...
+
+    async def delete_events_for_account(self, account_id: str) -> int:
+        """Delete every diagnostics event this account's own phone sent —
+        those whose structured payload carries ``data.uid == account_id``
+        (apps/mobile/src/diagnostics/diagnostics.ts's ``DiagnosticsPayload``).
+        Returns how many were deleted.
+
+        Deliberately keyed on the payload uid and NOT on ``device``: the
+        device id a phone sends is ``phone:<platform>:<uid>``, which embeds
+        the uid as a SUFFIX no store can query by, and watch-sent events carry
+        a hardware device id with no account in it at all. Events with no
+        ``data.uid`` (every watch event) are not this account's to delete —
+        they identify a device, never a person, and are left alone."""
         ...
 
 
@@ -84,6 +112,13 @@ class MemoryTelemetryStore:
             events = [e for e in events if e.received_at >= since]
         events = sorted(events, key=_sort_key, reverse=True)
         return [e.model_copy(deep=True) for e in events[:limit]]
+
+    async def delete_events_for_account(self, account_id: str) -> int:
+        """See TelemetryStore.delete_events_for_account."""
+        keep = [e for e in self._events if _event_account(e) != account_id]
+        removed = len(self._events) - len(keep)
+        self._events = keep
+        return removed
 
 
 class FirestoreTelemetryStore:
@@ -130,6 +165,24 @@ class FirestoreTelemetryStore:
             events = [e for e in events if e.received_at >= since]
         events.sort(key=_sort_key, reverse=True)
         return events[:limit]
+
+    async def delete_events_for_account(self, account_id: str) -> int:
+        """See TelemetryStore.delete_events_for_account."""
+        return await asyncio.to_thread(self._delete_events_for_account_sync, account_id)
+
+    def _delete_events_for_account_sync(self, account_id: str) -> int:
+        # An equality query on the nested payload field (Firestore's automatic
+        # single-field indexes cover nested paths, so this needs no composite
+        # index), then a delete per matching doc — same shape as
+        # FirestorePairingStore._delete_device_tokens_for_account_sync, and
+        # scoped to this account's own events rather than a collection scan.
+        db = self._get_db()
+        docs = db.collection("telemetry").where("data.uid", "==", account_id).stream()
+        count = 0
+        for doc in docs:
+            doc.reference.delete()
+            count += 1
+        return count
 
 
 def get_telemetry_store() -> TelemetryStore:
