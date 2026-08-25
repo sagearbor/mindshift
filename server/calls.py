@@ -83,6 +83,7 @@ import logging
 import os
 import re
 import secrets
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -259,6 +260,82 @@ def turn_rest_credentials(
     return username, base64.b64encode(digest).decode("ascii"), expiry
 
 
+# --- Cloudflare Realtime TURN (vendor-minted credentials) -------------------
+#
+# Cloudflare's TURN service mints credentials through its own REST API; the
+# shared-secret (RFC 5766 REST) scheme above does not apply to it, nor to
+# Twilio or Metered. The account-scoped API token is NOT what lives here: a
+# TURN key token can only mint relay credentials for that one key.
+#
+# Set MINDSHIFT_TURN_KEY_ID + MINDSHIFT_TURN_KEY_TOKEN to enable. A failed or
+# slow mint degrades to STUN-only rather than failing the call; the result is
+# cached until shortly before expiry so a busy call does not mint per member.
+
+CLOUDFLARE_TURN_MINT_URL = (
+    "https://rtc.live.cloudflare.com/v1/turn/keys/{key_id}/credentials/generate-ice-servers"
+)
+CLOUDFLARE_MINT_TIMEOUT_S = 4.0
+_CF_CACHE: dict[str, Any] = {"expires_at": 0.0, "servers": None}
+_CF_LOCK = threading.Lock()
+
+
+def cloudflare_turn_key() -> tuple[str, str] | None:
+    """``(key_id, key_token)`` when Cloudflare TURN is configured, else None."""
+    key_id = os.getenv("MINDSHIFT_TURN_KEY_ID", "").strip()
+    token = os.getenv("MINDSHIFT_TURN_KEY_TOKEN", "").strip()
+    return (key_id, token) if key_id and token else None
+
+
+def cloudflare_ice_servers() -> list[dict] | None:
+    """Mint (or reuse) a Cloudflare ICE server list, or None when Cloudflare
+    TURN is not configured. Never raises: on any failure the caller falls
+    back to the STUN/static path so a call still tries a direct connection."""
+    key = cloudflare_turn_key()
+    if key is None:
+        return None
+    key_id, token = key
+    now = time.time()
+    with _CF_LOCK:
+        cached = _CF_CACHE.get("servers")
+        if cached is not None and now < float(_CF_CACHE.get("expires_at") or 0.0):
+            return cached
+    ttl = turn_ttl_seconds()
+    try:
+        import httpx
+
+        resp = httpx.post(
+            CLOUDFLARE_TURN_MINT_URL.format(key_id=key_id),
+            headers={"Authorization": f"Bearer {token}"},
+            json={"ttl": ttl},
+            timeout=CLOUDFLARE_MINT_TIMEOUT_S,
+        )
+        resp.raise_for_status()
+        servers = resp.json().get("iceServers")
+    except Exception as exc:  # noqa: BLE001 — a relay is an optimisation
+        logger.warning("cloudflare TURN mint failed (%s); falling back to STUN", exc)
+        return None
+    if isinstance(servers, dict):
+        servers = [servers]
+    if not isinstance(servers, list) or not servers:
+        logger.warning("cloudflare TURN mint returned no iceServers; falling back")
+        return None
+    if not any(s.get("username") for s in servers if isinstance(s, dict)):
+        logger.warning("cloudflare TURN mint returned no credentials; falling back")
+        return None
+    with _CF_LOCK:
+        # Re-mint a minute before expiry so no client is handed a stale pair.
+        _CF_CACHE["servers"] = servers
+        _CF_CACHE["expires_at"] = now + max(60.0, ttl - 60.0)
+    return servers
+
+
+def _reset_cloudflare_cache() -> None:
+    """Test seam: drop the minted-credential cache."""
+    with _CF_LOCK:
+        _CF_CACHE["servers"] = None
+        _CF_CACHE["expires_at"] = 0.0
+
+
 def ice_servers(user_key: str | None = None) -> list[dict]:
     """The ICE server list handed to one member: Google's public STUN by
     default, plus a TURN relay when the deployment configured one
@@ -266,10 +343,18 @@ def ice_servers(user_key: str | None = None) -> list[dict]:
 
     Two ways to authenticate to that relay, in order of preference:
 
+    * VENDOR-MINTED (``MINDSHIFT_TURN_KEY_ID`` + ``MINDSHIFT_TURN_KEY_TOKEN``)
+      — Cloudflare Realtime TURN. The vendor mints a short-lived
+      username/credential per handout over its REST API; Cloudflare (like
+      Twilio and Metered) does NOT support the shared-secret scheme below,
+      so this is the path for those providers. The key token stays on the
+      server; only the minted pair reaches a client. A mint failure degrades
+      to the STUN-only list rather than sinking the call — the client's
+      preflight then says a relay is unavailable.
     * EPHEMERAL (``MINDSHIFT_TURN_SECRET``, optionally
       ``MINDSHIFT_TURN_REALM``) — a TURN REST credential minted per member
       per handout, valid ``MINDSHIFT_TURN_TTL_SECONDS`` (default 4h). Nothing
-      long-lived ever leaves the server.
+      long-lived ever leaves the server. Works with self-hosted coturn.
     * STATIC (``MINDSHIFT_TURN_USERNAME`` / ``MINDSHIFT_TURN_CREDENTIAL``) —
       one password shared by everyone who ever joins a call. Still supported
       (some vendors only issue static creds), but it is the weaker path: it
@@ -280,6 +365,9 @@ def ice_servers(user_key: str | None = None) -> list[dict]:
     on carrier-grade NAT may fail to connect — the client's ICE preflight
     (live/call/iceProbe.ts) says so out loud rather than failing silently.
     """
+    vendor = cloudflare_ice_servers()
+    if vendor is not None:
+        return vendor
     servers: list[dict] = [{"urls": [DEFAULT_STUN_URL]}]
     urls = turn_urls()
     if urls:
@@ -308,6 +396,12 @@ def ice_servers(user_key: str | None = None) -> list[dict]:
 def turn_status() -> dict[str, Any]:
     """How TURN is configured right now, for ``GET /calls/ice`` and the
     client preflight line. Never leaks the secret or the credential."""
+    if cloudflare_turn_key():
+        return {
+            "turn_configured": True,
+            "turn_credential_mode": "cloudflare",
+            "ttl_seconds": turn_ttl_seconds(),
+        }
     urls = turn_urls()
     if not urls:
         mode = "none"
