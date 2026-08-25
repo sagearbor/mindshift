@@ -961,9 +961,13 @@ notes_for_the_agent:
   when_something_does_not_match_this_pack:
     value: >
       Play's forms change wording constantly. If a question here does not exist,
-      skip it. If a question exists that is NOT here, do not guess: record the
-      exact question text and every option offered, leave it unanswered, and
-      report it. A wrong Data safety answer is worse than an unfinished form.
+      skip it. If a question exists that is NOT here, go to section 11
+      (`catch_all`) — it has one-line answers for essentially every other field
+      the console can show, plus a decision rule for the residue. Only if the
+      question survives all of that should you fall back to recording the exact
+      question text and every option offered, and reporting it. A wrong Data
+      safety answer is worse than an unfinished form.
+    see_also: "catch_all.decision_rule_for_any_question_not_in_this_pack"
   report_back_with:
     - "Every section completed, and the state each was left in (draft / saved / ready for owner to submit)."
     - "Every OWNER_MUST_SUPPLY field left blank."
@@ -971,7 +975,155 @@ notes_for_the_agent:
     - "A screenshot of the content-rating summary screen and the Data safety summary screen."
 
 # ===========================================================================
-# 11. Provenance — every data-safety claim, mapped to the code that proves it
+# 11. Catch-all — everything else the console can ask, and what to do when it
+#     asks something this pack does not name.
+#     Read this section BEFORE guessing at anything.
+# ===========================================================================
+catch_all:
+
+  decision_rule_for_any_question_not_in_this_pack:
+    rule: >
+      Answer with the CONSERVATIVE option — the one that claims LESS about the
+      app and MORE about the data. Concretely: if the question is "does the app
+      contain / do / show X", the answer is almost always No (this app contains
+      no authored media, no ads, no purchases, no gambling, no location, no
+      social graph). If the question is "do you collect / share / store Y", look
+      it up in `data_safety.data_types` first; if it is genuinely not there,
+      answer Yes and pick "App functionality" as the purpose rather than
+      answering No. Under-claiming what you collect is the one mistake that gets
+      an app enforced against; over-claiming never is.
+    then: >
+      Record the exact question text and every option offered, and put it in the
+      report so the pack can be corrected. A guess that is never reported is a
+      guess that silently becomes wrong for the other seven apps too.
+
+  one_line_answers_for_the_whole_console:
+    # If a form asks any of these in any wording, this is the answer.
+    app_or_game: "App"
+    free_or_paid: "Free"
+    contains_ads: "No"
+    in_app_purchases: "No"
+    contains_gambling: "No"
+    real_money_gambling_or_games_of_skill: "No"
+    is_a_browser: "No"
+    is_a_launcher_or_home_screen_replacement: "No"
+    is_a_vpn: "No"
+    uses_accessibility_services: "No"
+    uses_device_admin_or_special_permissions: "No"
+    requests_all_files_access_MANAGE_EXTERNAL_STORAGE: "No"
+    requests_package_visibility_QUERY_ALL_PACKAGES: "No"
+    uses_exact_alarms: "No"
+    uses_sms_or_call_log_permissions: "No"
+    uses_photo_and_video_permissions_broad_access: "No"
+    uses_health_connect: "No"
+    is_a_medical_device_or_makes_medical_claims: "No"
+    is_a_covid_19_contact_tracing_or_status_app: "No"
+    is_a_news_app: "No"
+    is_a_dating_app: "No"
+    is_a_financial_or_lending_app: "No"
+    is_a_government_app: "No"
+    is_a_kids_or_family_app: "No"
+    contains_user_generated_content: "Yes — a user's own conversation transcripts, visible only to them and to a therapist they name."
+    allows_user_to_user_interaction: "Yes — in-app audio calls and therapist sharing. Invite-only; no discovery, no strangers."
+    has_a_content_moderation_system: "No — there is no public or shared surface to moderate. Content is private to the account and to people the user personally invited."
+    has_an_in_app_user_reporting_mechanism: "No — for the same reason. Abuse reports go to sagearbor@gmail.com."
+    shares_location_between_users: "No"
+    uses_an_advertising_id: "No"
+    sells_personal_data: "No"
+    transfers_data_outside_the_users_country: "Yes — the backend and its storage run in Google Cloud in the United States."
+    target_countries: "OWNER_MUST_SUPPLY — distribution is an owner decision, not part of this checklist."
+    app_name_translations: "None. English only."
+    promo_video: "None."
+
+  data_safety_wizard_screen_by_screen:
+    # The Data safety form is a multi-step wizard. These are the screens in order.
+    step_1_overview:
+      - "Does your app collect or share any of the required user data types? → Yes"
+      - "Is all of the user data collected by your app encrypted in transit? → Yes"
+      - "Do you provide a way for users to request that their data is deleted? → Yes, and the URL is https://arborfam-hub.web.app/delete-account"
+    step_2_data_types:
+      instruction: >
+        Tick exactly the types listed in `data_safety.data_types` and nothing
+        else. `data_safety.overview.data_types_not_collected_at_all` is the
+        explicit list of what stays unticked.
+      tick_these:
+        - "Personal info → Name"
+        - "Personal info → Email address"
+        - "Personal info → User IDs"
+        - "Personal info → Other info"
+        - "Messages → Other in-app messages"
+        - "Photos and videos → Videos"
+        - "Audio → Voice or sound recordings"
+        - "App activity → App interactions"
+        - "App activity → Other user-generated content"
+        - "App info and performance → Crash logs"
+        - "App info and performance → Diagnostics"
+    step_3_data_usage_and_handling:
+      instruction: >
+        Play asks the SAME four questions for every ticked type. Read them off
+        the matching block in `data_safety.data_types`:
+          1. Is this data collected, shared, or both?          → `collected` / `shared`
+          2. Is this data processed ephemerally?               → `processed_ephemerally`
+          3. Is this data required, or can users choose?       → `required_or_optional`
+          4. Why is this data collected/shared? (tick all)     → `purposes`
+      purpose_options_and_which_ones_ever_apply:
+        app_functionality: "Applies to every declared type."
+        analytics: "Only App interactions, Crash logs, Diagnostics."
+        developer_communications: "Never."
+        advertising_or_marketing: "NEVER. There are no ads. Do not tick this on anything."
+        fraud_prevention_security_and_compliance: "Only User IDs."
+        personalization: "Only Personal info → Other info (the voiceprint) and Other user-generated content."
+        account_management: "Only Name, Email address, User IDs."
+    step_4_review_and_submit:
+      value: "See `notes_for_the_agent.hard_rules` before pressing anything on this screen."
+
+  content_rating_extra_questions_that_sometimes_appear:
+    - question: "Does the app allow users to communicate with each other via text, voice, or video?"
+      value: "Yes"
+    - question: "Are those communications between users who know each other, or can any user contact any other?"
+      value: "Users who already know each other — invite by email or a code shared out of band. No discovery, no matching, no public profiles."
+    - question: "Does the app allow users to share their own content with other users?"
+      value: "Yes — a user can share their own session with a therapist they name by email."
+    - question: "Is user-generated content moderated or reviewed before it is visible to others?"
+      value: "Not applicable — content is only ever visible to the person who created it and to someone they personally invited."
+    - question: "Does the app display user-generated content publicly?"
+      value: "No"
+    - question: "Does the app contain content that may be frightening or disturbing to children?"
+      value: "No"
+    - question: "Does the app contain crude humour?"
+      value: "No"
+    - question: "Does the app contain any references to illegal activity?"
+      value: "No"
+    - question: "Does the app provide unrestricted internet access (e.g. a browser or search engine)?"
+      value: "No"
+    - question: "Does the app allow users to share their personal information with third parties?"
+      value: "No — sharing is with a named therapist inside the app, not with third parties."
+
+  if_the_owner_has_authorised_submitting:
+    read_this_first: >
+      This pack's default (notes_for_the_agent.hard_rules) is to STOP at the
+      review screen of the content-rating questionnaire and the Data safety
+      form, because those were the terms this pack was written under. If the
+      owner has since told you to submit them, here is what actually changes —
+      so the decision is made with the facts rather than by vibes.
+    what_is_recoverable:
+      - "Content rating: re-openable and re-submittable at any time. A corrected questionnaire simply reissues the rating. Low risk."
+      - "Data safety: editable and re-submittable at any time. A correction takes effect on the next review. Low risk — but a WRONG declaration that goes live is a policy violation for as long as it stands, so correctness matters more than speed."
+      - "Store listing: editable at any time."
+      - "App access, target audience, ads, government apps: editable at any time."
+    what_is_NOT_recoverable_and_stays_forbidden_regardless:
+      - "Creating, promoting, rolling out or publishing a RELEASE. A published version cannot be unpublished from users who already installed it, and the version code is burned forever. Nothing under 'Release' or 'Testing' is in scope for this pack under any instruction."
+      - "Changing the developer account, payment profile, users & permissions, or API access."
+      - "Accepting a new Play agreement or policy acknowledgement on the owner's behalf."
+    the_one_thing_that_must_still_stop_you:
+      value: >
+        A field marked OWNER_MUST_SUPPLY — specifically the App access demo
+        credentials. Submitting App access with invented or blank credentials
+        gets the app rejected on review and burns days. Leave it, report it,
+        and complete every other section around it.
+
+# ===========================================================================
+# 12. Provenance — every data-safety claim, mapped to the code that proves it
 # ===========================================================================
 _provenance:
   login_is_required_no_guest_mode:
