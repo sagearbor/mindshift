@@ -1,9 +1,16 @@
 """Tests for the multi-vendor LLM abstraction layer."""
 
 import sys
+import threading
+import time
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 import pytest
 
+# `llm_client` is imported as a module (not just its names) because the hedged
+# streaming tests below resolve attributes at use time — an earlier test in this
+# file reloads the module.
+import llm_client
 from llm_client import LLMClient, MAX_RETRIES, REQUEST_TIMEOUT_SECONDS
 
 
@@ -506,14 +513,6 @@ class TestStreamComplete:
 # ---------------------------------------------------------------------------
 # Hedged streaming (perf/llm-hedging)
 # ---------------------------------------------------------------------------
-
-import threading
-import time
-from types import SimpleNamespace
-
-import llm_client
-# Resolved via the module at use time: an earlier test reloads llm_client.
-
 
 class FakeSSE:
     """One scripted streaming attempt, shaped like the SDK's MessageStream
