@@ -570,6 +570,80 @@ class TestMergedTranscript:
         call = calls.registry.get(cid)
         assert call.turns[0]["transcript_source"] == "cloud"
 
+    def test_local_first_member_late_cloud_segment_is_not_merged(self, env):
+        """Found by the 3-way production e2e: a member whose phone DOES
+        transcribe itself still streams PCM (tone enrichment), and the
+        server's transcriber can finalize a span the phone has not reported
+        yet. Deepgram stops being fed once the session is local-first, so
+        the last such window is its ``finish()`` flush at stop: the local
+        session still surfaces + coaches that segment (solo behaviour,
+        unchanged), but it never enters the shared transcript."""
+        cid = _open_pair(env)
+        app.state.transcriber_factory = lambda: StoppableTranscriber(
+            final=[TranscriptSegment("Server heard this too.", 3.0, 4.0, speaker=1)],
+        )
+        with open_ws(env.client, f"/ws/session/{HOST_SID}", token=HOST_TOKEN) as host, \
+                open_ws(env.client, f"/ws/session/{PEER_SID}", token=PEER_TOKEN) as peer:
+            _bind(host, cid)
+            _bind(peer, cid)
+            recv_until(host, lambda m: m.get("type") == "call_state")
+            # The phone reports its first turn: the session is local-first.
+            host.send_text(json.dumps(_turn(HOST_SID, "One.", start=0.0, end=1.0)))
+            recv_until(host, lambda m: m.get("type") == "suggestion")
+            recv_until(peer, lambda m: m.get("type") == "suggestion")
+            # The host hangs up: the transcriber's flush yields a span no
+            # local range covers. Echoed + coached on the host's own socket …
+            host.send_text(json.dumps({"type": "stop"}))
+            done, seen = recv_until(host, lambda m: m.get("type") == "session_complete")
+            assert [m["text"] for m in seen if m.get("type") == "transcript"] == ["Server heard this too."]
+            assert done["call"]["status"] == "active"
+            # … but nothing reached the peer (still on the call) or the shared transcript.
+            recv_until(peer, lambda m: m.get("type") == "call_state" and not _by_uid(m)[HOST]["connected"])
+            peer.send_text(json.dumps({"type": "config", "empathy_slider": 42}))
+            assert json.loads(peer.receive_text())["type"] == "config_ack"
+        call = calls.registry.get(cid)
+        assert [(t["text"], t["transcript_source"]) for t in call.turns] == [("One.", "on-device")]
+
+    def test_phone_turn_replaces_its_earlier_cloud_duplicate(self, env):
+        """The first-turn race: Deepgram beats the phone's very first
+        turn_local (nothing has latched the session local-first yet), so
+        the span is merged as a cloud row; the phone's turn for the same
+        span then replaces it in place — same seq, the phone's text and
+        tone — instead of appending, and is not relayed a second time."""
+        cid = _open_pair(env)
+        app.state.transcriber_factory = lambda: StoppableTranscriber(
+            live=[TranscriptSegment("server heard this", 1.0, 2.0, speaker=1)],
+        )
+        with open_ws(env.client, f"/ws/session/{HOST_SID}", token=HOST_TOKEN) as host, \
+                open_ws(env.client, f"/ws/session/{PEER_SID}", token=PEER_TOKEN) as peer:
+            _bind(host, cid)
+            _bind(peer, cid)
+            recv_until(host, lambda m: m.get("type") == "call_state")
+            host.send_bytes(b"\x00" * 3200)
+            recv_until(host, lambda m: m.get("type") == "suggestion")
+            first, _ = recv_until(peer, lambda m: m.get("type") == "transcript")
+            assert first["text"] == "server heard this" and first["seq"] == 1
+            recv_until(peer, lambda m: m.get("type") == "suggestion")
+            # The phone's own report of the same words, a hair wider.
+            host.send_text(json.dumps(_turn(
+                HOST_SID, "Server heard this.", start=0.9, end=2.1,
+                text_tone={"frustration": 70, "label": "angry"},
+            )))
+            recv_until(host, lambda m: m.get("type") == "suggestion")
+            peer.send_text(json.dumps({"type": "config", "empathy_slider": 42}))
+            assert json.loads(peer.receive_text())["type"] == "config_ack"  # no second transcript
+            # A genuinely new turn still appends.
+            host.send_text(json.dumps(_turn(HOST_SID, "Two.", start=5.0, end=6.0)))
+            second, _ = recv_until(peer, lambda m: m.get("type") == "transcript")
+            assert second["text"] == "Two." and second["seq"] == 2
+        call = calls.registry.get(cid)
+        assert [(t["seq"], t["text"], t["transcript_source"]) for t in call.turns] == [
+            (1, "Server heard this.", "on-device"), (2, "Two.", "on-device"),
+        ]
+        assert call.turns[0]["text_tone"]["frustration"] == 70 and call.turns[0]["local_start_time"] == 0.9
+        assert call.participant(HOST).turn_count == 2
+        assert [t["call_seq"] for t in call.turns_for(HOST, "s")] == [1, 2]
+
 
 # ---------------------------------------------------------------------------
 # Ending: episodes, sharing, disconnects

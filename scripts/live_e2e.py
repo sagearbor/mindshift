@@ -69,7 +69,12 @@ Usage
       --id-token <patient id token> --therapist-id-token <therapist id token>
 
 ``--call`` runs the in-app call walk instead (two phones on one call —
-see run_call_e2e and docs/plans/2026-08-25-in-app-calls.md).
+see run_call_e2e and docs/plans/2026-08-25-in-app-calls.md);
+``--call --participants 3`` adds a second coached participant (a third
+account, ``--peer-*`` or a third ``--signup`` throwaway) and makes the
+therapist the read-only observer on her own socket (run_call_e2e_three_way:
+full-mesh signaling, per-participant coaching with ``for_uid`` copies for
+her, hang-up order host → peer → therapist, two episodes granted to her).
 
 Options: ``--speed N`` streams N× faster than real time (the on-device
 timeline still advances by audio, so turn timestamps stay exact);
@@ -1792,6 +1797,645 @@ async def run_call_e2e(
 
 
 # ---------------------------------------------------------------------------
+# --call --participants 3: two coached participants + an observing therapist
+# ---------------------------------------------------------------------------
+#
+# Three phones on one call. The host (Sage, slot A) and a second participant
+# (Dad, slot B — the named invitee, joins over REST without a code) are the
+# coached ones; the therapist (Mom, slot C) joins as an OBSERVER over her own
+# socket (`call_join` with the join code and role "therapist"). Her turns are
+# transcribed and merged like anyone's, nobody coaches her, and she receives
+# every participant's coaching read-only, tagged `for_uid`. Signaling is a
+# full mesh (`to` is required with three members; an unaddressed frame is an
+# error). Hang-up order is host → Dad → Mom, so the participants' sockets see
+# the call still active when they leave (their episode comes from GET
+# /calls/{id}) and HER socket — the last one — ends the call and receives
+# `call_ended` with both participants' episodes. Both are granted to her
+# directly (no therapist link is created), and she gets no episode of her own.
+
+THERAPIST_LINES: list[tuple[int, str]] = [
+    # (scene turn index she speaks after, what she says) — short, in the gaps
+    (1, "Take a breath, both of you."),
+    (6, "Let's pause there for a second."),
+    (9, "Can you each say what you need right now?"),
+]
+THERAPIST_TURN_S = 1.2
+# Her line is finalized this long after the turn it follows ended: on the
+# streaming clock that is two 100 ms frames after that turn's turn_local went
+# out, so it lands between that turn and the next one.
+THERAPIST_GAP_S = 0.2
+MISSING_TO_ERROR = "rtc_signal: 'to' is required in a call with more than two members"
+CALL_HANGUP_TIMEOUT_S = 90.0
+
+
+def therapist_turn_locals(scene: Scene, session_id: str, lines: list[tuple[int, str]] = THERAPIST_LINES) -> list[dict]:
+    """The observer's own turn_locals (her phone hears only her): a calm
+    line after each of the scene turns in ``lines``, on her capture clock."""
+    out = []
+    for after_idx, text in lines:
+        end = round(scene.turns[after_idx]["end_time"] + THERAPIST_GAP_S, 4)
+        start = round(max(0.0, end - THERAPIST_TURN_S), 4)
+        words = len(text.split())
+        out.append({
+            "type": "turn_local",
+            "session_id": session_id,
+            "speaker": "Speaker A",
+            "speaker_person_id": "self",
+            "speaker_match_score": 0.9,
+            "is_self": True,
+            "text": text,
+            "start_time": start,
+            "end_time": end,
+            "transcript_source": "on-device",
+            "prosody": {"rms_dbfs": None, "pitch_hz": None, "speech_rate": round(words / (end - start), 3)},
+            "text_tone": dict(TEXT_TONE_BY_EMOTION["calm_deescalate"]),
+            "suggestion": None,
+            "suggestion_source": None,
+            "tts_source": "on-device",
+        })
+    return out
+
+
+@dataclass
+class MeshMember:
+    role: str                      # "host" | "peer" | "therapist" (this walk's names)
+    call_role: str                 # "participant" | "therapist" (the server's)
+    account: Account
+    session_id: str
+    display_name: str
+    turn_locals: list[dict]
+    pcm: np.ndarray
+    join: dict = field(default_factory=dict)      # extra call_join fields (join_code / role)
+    run: WsRun | None = None
+    uid: str | None = None
+    label: str | None = None
+    first_state: dict | None = None               # the call_state that answered call_join
+    bound_state: dict | None = None               # the call_state showing every member connected
+    signals_out: dict[str, dict] = field(default_factory=dict)   # to uid -> payload sent
+    missing_to_error: str | None = None
+    ready: asyncio.Event = field(default_factory=asyncio.Event)
+    done: asyncio.Event = field(default_factory=asyncio.Event)
+
+    def events(self, kind: str, call_id: str) -> list[dict]:
+        if self.run is None:
+            return []
+        return [e for e in self.run.of_type(kind) if e.get("call_id") == call_id]
+
+    @property
+    def own_texts(self) -> list[str]:
+        return [t["text"] for t in self.turn_locals]
+
+
+def _pctl(values: list[float], q: float) -> float | None:
+    if not values:
+        return None
+    s = sorted(values)
+    return round(s[min(len(s) - 1, int(round(q * (len(s) - 1))))], 1)
+
+
+def transcript_delivery_ms(members: list[MeshMember], call_id: str) -> dict:
+    """Per (sender turn, other viewer): ms from the turn_local going out to
+    that viewer's ``transcript`` event for it — the relay's own latency."""
+    deltas: list[float] = []
+    rows: list[dict] = []
+    for m in members:
+        if m.run is None:
+            continue
+        for sent_at, ev in m.run.sent_turns:
+            for o in members:
+                if o is m or o.run is None:
+                    continue
+                hit = next((
+                    at for at, e in o.run.events
+                    if e.get("type") == "transcript" and e.get("call_id") == call_id
+                    and e.get("participant_uid") == m.uid and e.get("text") == ev["text"] and at >= sent_at
+                ), None)
+                ms = None if hit is None else round((hit - sent_at) * 1000.0, 1)
+                if ms is not None:
+                    deltas.append(ms)
+                rows.append({"from": m.role, "to": o.role, "text": ev["text"][:30], "ms": ms})
+    return {
+        "n": len(deltas), "expected": len(rows),
+        "p50_ms": _pctl(deltas, 0.5), "p95_ms": _pctl(deltas, 0.95),
+        "max_ms": round(max(deltas), 1) if deltas else None,
+        "per_delivery": rows,
+    }
+
+
+def _mesh_pre_stream(m: MeshMember, members: list[MeshMember], call_id: str, go: asyncio.Event, arrived: list[str]):
+    """Bind (the therapist joins here, with the code), wait until call_state
+    shows every member connected, then the full-mesh signaling: the host
+    first proves an unaddressed frame is refused, then everyone sends one
+    addressed offer to each other member and waits for the two it is owed.
+    Streaming starts together (a barrier) so arrival order is scene order."""
+    others = [o for o in members if o is not m]
+
+    async def pre(ws, run: WsRun) -> None:
+        m.run = run
+        await ws.send(json.dumps({"type": "call_join", "call_id": call_id, "display_name": m.display_name, **m.join}))
+        state = await _wait_event(run, lambda e: e.get("type") == "call_state" or "error" in e, timeout_s=CALL_JOIN_TIMEOUT_S)
+        if state is None or "error" in state:
+            raise RuntimeError(f"call_join answered {state}")
+        m.first_state, m.uid, m.label = state, state.get("self_uid"), state.get("self_label")
+        n = len(members)
+        full = await _wait_event(
+            run, lambda e: e.get("type") == "call_state" and len(e.get("participants") or []) == n
+            and all(p.get("connected") for p in e["participants"]),
+            timeout_s=CALL_JOIN_TIMEOUT_S,
+        )
+        if full is None:
+            raise RuntimeError(f"call_state never showed all {n} members connected")
+        m.bound_state = full
+        m.ready.set()
+        for o in others:
+            await asyncio.wait_for(o.ready.wait(), timeout=CALL_JOIN_TIMEOUT_S)
+        other_uids = [p["uid"] for p in full["participants"] if p["uid"] != m.uid]
+        if m.role == "host":
+            n_before = len(run.events)
+            await ws.send(json.dumps({"type": "rtc_signal", "call_id": call_id, "payload": {"type": "offer", "sdp": "v=0 unaddressed"}}))
+            err = await _wait_event(run, lambda e: e.get("type") is None and "error" in e, timeout_s=CALL_JOIN_TIMEOUT_S, after=n_before)
+            m.missing_to_error = None if err is None else str(err.get("error"))
+        for to_uid in other_uids:
+            payload = {"type": "offer", "sdp": f"v=0 e2e-offer {m.session_id} -> {to_uid}"}
+            m.signals_out[to_uid] = payload
+            await ws.send(json.dumps({"type": "rtc_signal", "call_id": call_id, "to": to_uid, "payload": payload}))
+        deadline = time.monotonic() + CALL_JOIN_TIMEOUT_S
+        while len(m.events("rtc_signal", call_id)) < len(others) and time.monotonic() < deadline:
+            await asyncio.sleep(0.02)
+        arrived.append(m.role)
+        if len(arrived) == n:
+            go.set()
+        await asyncio.wait_for(go.wait(), timeout=CALL_JOIN_TIMEOUT_S)
+    return pre
+
+
+def _mesh_post_stream(m: MeshMember, members: list[MeshMember], call_id: str, hang_up_after: MeshMember | None):
+    """Before hanging up: wait for everyone to finish talking and for their
+    last turns to land, then for ``hang_up_after`` to have left (its
+    session_complete) and for the call_state that shows it disconnected."""
+    others = [o for o in members if o is not m]
+    n_other_turns = sum(len(o.turn_locals) for o in others)
+
+    async def post(ws, run: WsRun) -> None:
+        m.done.set()
+        for o in others:
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(o.done.wait(), timeout=CALL_JOIN_TIMEOUT_S)
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and len(m.events("transcript", call_id)) < n_other_turns:
+            await asyncio.sleep(0.05)
+        if hang_up_after is not None:
+            deadline = time.monotonic() + CALL_HANGUP_TIMEOUT_S
+            while time.monotonic() < deadline:
+                prev = hang_up_after.run
+                if prev is not None and (prev.session_complete is not None or prev.error is not None):
+                    break
+                await asyncio.sleep(0.05)
+            await _wait_event(
+                run, lambda e: e.get("type") == "call_state" and any(
+                    p.get("uid") == hang_up_after.uid and not p.get("connected") for p in e.get("participants") or []
+                ), timeout_s=5.0,
+            )
+    return post
+
+
+async def run_call_e2e_three_way(
+    *, base_url: str, patient: Account, peer: Account, therapist: Account, scene: Scene,
+    speed: float = 1.0, analysis_timeout_s: float = 180.0, cleanup: bool = False,
+    http: httpx.AsyncClient | None = None, session_id: str | None = None,
+) -> Report:
+    """The three-way call walk (see the section comment above): POST /calls
+    (Dad invited) → Dad joins over REST → three sockets bind (Mom joins on
+    hers with the code as the therapist) → full-mesh signaling → all three
+    speak concurrently (host = Speaker A turns, Dad = Speaker B turns, Mom
+    three short lines) → merged transcript per viewer, coaching per
+    participant, read-only copies for Mom → host, Dad, then Mom hang up →
+    two participant episodes (Mom's dashboard lists both, none of her own)."""
+    report = Report(scene=scene.name, base_url=base_url, speed=speed, mode="call-3way")
+    own_http = http is None
+    http = http or httpx.AsyncClient()
+    session_id = session_id or f"e2e-call3-{scene.name}-{int(time.time() * 1000)}"
+    report.data["session_id"] = session_id
+    report.data["accounts"] = {"patient": patient.email, "peer": peer.email, "therapist": therapist.email}
+    report.add("accounts", True, f"host {patient.email} | second participant {peer.email} | therapist {therapist.email}")
+    a_idx = scene.self_turn_indexes
+    b_idx = [i for i in range(len(scene.turns)) if i not in a_idx]
+    host = MeshMember("host", "participant", patient, f"{session_id}-a", "Sage",
+                      call_side_turn_locals(scene, f"{session_id}-a", a_idx), call_side_pcm(scene, a_idx))
+    dad = MeshMember("peer", "participant", peer, f"{session_id}-b", "Dad",
+                     call_side_turn_locals(scene, f"{session_id}-b", b_idx), call_side_pcm(scene, b_idx))
+    mom = MeshMember("therapist", "therapist", therapist, f"{session_id}-c", "Mom",
+                     therapist_turn_locals(scene, f"{session_id}-c"), np.zeros_like(scene.pcm))
+    members = [host, dad, mom]
+    by_role = {m.role: m for m in members}
+    call_id: str | None = None
+    h_ep = d_ep = None
+    try:
+        # --- 1. create + Dad joins over REST (Mom joins on her socket) -------
+        code, created = await _req(http, "POST", base_url, "/calls", patient,
+                                   json={"invitee_email": peer.email, "display_name": host.display_name, "max_participants": 3})
+        if code != 201 or not isinstance(created, dict):
+            report.add("call create", False, f"POST /calls -> {code} {str(created)[:300]}")
+            return report
+        call_id = created["call_id"]
+        join_code = created.get("join_code")
+        mom.join = {"join_code": join_code, "role": "therapist"}
+        report.data["call"] = {"call_id": call_id, "join_code": join_code, "join_url": created.get("join_url")}
+        report.add("call create", created.get("max_participants") == 3 and created.get("therapist_label") == "Speaker C",
+                   f"POST /calls 201 call {call_id} code {join_code} max_participants={created.get('max_participants')} "
+                   f"invitee={created.get('invitee_email')} therapist_label={created.get('therapist_label')} "
+                   f"ice={[s.get('urls') for s in created.get('ice_servers') or []]}")
+        code, joined = await _req(http, "POST", base_url, f"/calls/{call_id}/join", peer, json={"display_name": dad.display_name})
+        rows = {p.get("display_name"): p for p in (joined.get("participants") or [])} if isinstance(joined, dict) else {}
+        join_ok = (
+            code == 200 and isinstance(joined, dict) and joined.get("status") == "active"
+            and joined.get("self_role") == "participant" and joined.get("self_label") == "Speaker B"
+            and joined.get("peer_label") == "Speaker A" and joined.get("therapist_uid") is None
+            and (rows.get("Sage") or {}).get("label") == "Speaker A" and (rows.get("You") or {}).get("label") == "Speaker B"
+        )
+        report.add("call join (Dad, invitee, no code)", join_ok,
+                   f"POST /calls/{{id}}/join -> {code}: status {joined.get('status') if isinstance(joined, dict) else joined}, "
+                   f"self_label {joined.get('self_label') if isinstance(joined, dict) else None}, "
+                   f"participants {[(p.get('display_name'), p.get('label'), p.get('role')) for p in (joined.get('participants') or [])] if isinstance(joined, dict) else None}")
+        if not join_ok:
+            return report
+
+        # --- 2. three phones on the call, concurrently -----------------------
+        go, arrived = asyncio.Event(), []
+        hang_up_after = {"host": None, "peer": host, "therapist": dad}
+
+        async def member_run(m: MeshMember) -> WsRun:
+            return await stream_live_session(
+                base_url, m.account, scene, session_id=m.session_id, speed=speed,
+                pcm=m.pcm, turn_locals=m.turn_locals,
+                pre_stream=_mesh_pre_stream(m, members, call_id, go, arrived),
+                post_stream=_mesh_post_stream(m, members, call_id, hang_up_after[m.role]),
+                stop_timeout_s=CALL_HANGUP_TIMEOUT_S,
+            )
+
+        runs = await asyncio.gather(*(member_run(m) for m in members))
+        for m, run in zip(members, runs):
+            m.run = run
+            ok = run.error is None and run.config_ack and run.session_complete is not None and m.bound_state is not None and run.close_code == 1000
+            report.data[f"ws_{m.role}"] = {
+                "frames_sent": run.frames_sent, "turn_locals": len(run.sent_turns), "close_code": run.close_code,
+                "error": run.error, "event_counts": _count_types(run), "uid": m.uid, "label": m.label,
+            }
+            report.add(f"call ws ({m.role})", ok,
+                       f"{m.account.email} as {m.label}: config_ack={run.config_ack} bound={m.bound_state is not None} "
+                       f"{run.frames_sent} frames, {len(run.sent_turns)}/{len(m.turn_locals)} turn_local, "
+                       f"session_complete={run.session_complete is not None} close={run.close_code} error={run.error} "
+                       f"events={_count_types(run)}")
+        if any(m.run.error or m.bound_state is None for m in members):
+            return report
+        uids = {m.role: m.uid for m in members}
+
+        # --- call_state: roles, labels, relative names, connected transitions --
+        expect_names = {
+            "host": {"peer": "Dad", "therapist": "Mom (therapist)", "host": "You"},
+            "peer": {"host": "Sage", "therapist": "Mom (therapist)", "peer": "You"},
+            "therapist": {"host": "Sage", "peer": "Dad", "therapist": "You"},
+        }
+        expect_labels = {"host": ("participant", "Speaker A", "Speaker B"), "peer": ("participant", "Speaker B", "Speaker A"),
+                         "therapist": ("therapist", "Speaker C", "Speaker A")}
+        state_problems: list[str] = []
+        for m in members:
+            role, label, peer_label = expect_labels[m.role]
+            st = m.bound_state
+            if (m.first_state.get("self_role"), m.first_state.get("self_label"), st.get("peer_label")) != (role, label, peer_label):
+                state_problems.append(f"{m.role}: self_role/self_label/peer_label = {m.first_state.get('self_role')}/{m.first_state.get('self_label')}/{st.get('peer_label')}")
+            if st.get("status") != "active" or st.get("therapist_uid") != uids["therapist"] or st.get("therapist_label") != "Speaker C":
+                state_problems.append(f"{m.role}: status={st.get('status')} therapist_uid ok={st.get('therapist_uid') == uids['therapist']}")
+            rows = {p["uid"]: p for p in st.get("participants") or []}
+            for other_role, name in expect_names[m.role].items():
+                row = rows.get(uids[other_role]) or {}
+                exp_role, exp_label, _ = expect_labels[other_role]
+                if (row.get("display_name"), row.get("role"), row.get("label"), row.get("is_self")) != (name, exp_role, exp_label, other_role == m.role):
+                    state_problems.append(f"{m.role} sees {other_role} as {row.get('display_name')!r}/{row.get('role')}/{row.get('label')}/is_self={row.get('is_self')} (want {name!r})")
+            first_rows = {p["uid"]: p for p in m.first_state.get("participants") or []}
+            if not (first_rows.get(m.uid) or {}).get("connected"):
+                state_problems.append(f"{m.role}: the call_state answering call_join does not show it connected")
+
+        def _saw_disconnect(viewer: MeshMember, left: MeshMember) -> bool:
+            return any(
+                any(p.get("uid") == left.uid and p.get("connected") is False for p in e.get("participants") or [])
+                and any(p.get("uid") == viewer.uid and p.get("connected") for p in e.get("participants") or [])
+                for e in viewer.events("call_state", call_id)
+            )
+        transitions = {
+            "peer saw host leave": _saw_disconnect(dad, host),
+            "therapist saw host leave": _saw_disconnect(mom, host),
+            "therapist saw peer leave": _saw_disconnect(mom, dad),
+        }
+        for name, ok in transitions.items():
+            if not ok:
+                state_problems.append(f"no call_state where {name}")
+        report.data["call_state"] = {"problems": state_problems, "transitions": transitions,
+                                     "n_frames": {m.role: len(m.events("call_state", call_id)) for m in members}}
+        report.add("call_state (roles, labels, names, transitions)", not state_problems,
+                   f"host A/participant, Dad B/participant, Mom C/therapist; relative names as expected on all three; "
+                   f"transitions {transitions}; call_state frames {report.data['call_state']['n_frames']}"
+                   + (f"; PROBLEMS: {state_problems}" if state_problems else ""))
+
+        # --- full-mesh signaling --------------------------------------------
+        mesh_problems: list[str] = []
+        for m in members:
+            got = m.events("rtc_signal", call_id)
+            for o in members:
+                if o is m:
+                    continue
+                want = {"type": "rtc_signal", "call_id": call_id, "from": o.uid, "payload": o.signals_out.get(m.uid)}
+                if want not in got:
+                    mesh_problems.append(f"{o.role} -> {m.role} MISSING")
+            if len(got) != len(members) - 1:
+                mesh_problems.append(f"{m.role} received {len(got)} rtc_signal frames (want {len(members) - 1})")
+            errs = [e for _, e in m.run.events if e.get("type") is None and "error" in e]
+            expected_errs = 1 if m.role == "host" else 0
+            if len(errs) != expected_errs:
+                mesh_problems.append(f"{m.role}: {len(errs)} error frames {errs[:3]}")
+        if host.missing_to_error != MISSING_TO_ERROR:
+            mesh_problems.append(f"unaddressed rtc_signal answered {host.missing_to_error!r}")
+        report.data["signaling"] = {"problems": mesh_problems, "missing_to_error": host.missing_to_error,
+                                    "delivered": {m.role: len(m.events("rtc_signal", call_id)) for m in members}}
+        report.add("rtc signaling (full mesh)", not mesh_problems,
+                   f"6 addressed offers delivered verbatim with the right `from` ({report.data['signaling']['delivered']}); "
+                   f"unaddressed frame with 3 members -> {host.missing_to_error!r}"
+                   + (f"; PROBLEMS: {mesh_problems}" if mesh_problems else ""))
+
+        # --- the merged transcript per viewer -------------------------------
+        merged_problems: list[str] = []
+        merged_txt: list[str] = []
+        for m in members:
+            got = m.events("transcript", call_id)
+            by_sender: dict[str, list[dict]] = {}
+            for e in got:
+                by_sender.setdefault(e.get("participant_uid"), []).append(e)
+            for o in members:
+                if o is m:
+                    continue
+                mine = by_sender.pop(o.uid, [])
+                texts = [e.get("text") for e in mine]
+                if sorted(texts) != sorted(o.own_texts):
+                    merged_problems.append(f"{m.role} saw {len(mine)}/{len(o.own_texts)} of {o.role}'s turns")
+                bad = [e for e in mine if e.get("speaker") != o.label or e.get("is_self") is not False
+                       or e.get("role") != o.call_role or e.get("display_name") != expect_names[m.role][o.role]]
+                if bad:
+                    merged_problems.append(f"{m.role} saw {o.role}'s turns as {sorted({(e.get('speaker'), e.get('display_name'), e.get('role'), e.get('is_self')) for e in bad})}")
+                untagged = [e for e in mine if e.get("text_tone") is None or "local_start_time" not in e or e.get("seq") is None]
+                if untagged:
+                    # A phone's turn_local always carries text_tone; a row
+                    # without one is the server's transcriber (Deepgram)
+                    # hearing that member's own audio — a second copy of a
+                    # turn the phone also reported (see calls.py push_turn).
+                    merged_problems.append(
+                        f"{m.role}: {len(untagged)} of {o.role}'s rows have no text_tone/local clock "
+                        f"(server-STT copies of the phone's own turns): {[e.get('text', '')[:40] for e in untagged]}"
+                    )
+            if by_sender:
+                merged_problems.append(f"{m.role} saw turns from unknown senders {list(by_sender)} (own echo?)")
+            participant_texts = [e.get("text") for e in got if e.get("participant_uid") in (uids["host"], uids["peer"])]
+            scene_order = [scene.turns[i]["text"] for i in range(len(scene.turns)) if scene.turns[i]["text"] in participant_texts]
+            in_order = participant_texts == scene_order
+            names = sorted({e.get("display_name") for e in got})
+            report.data[f"merged_{m.role}"] = {"count": len(got), "expected": sum(len(o.turn_locals) for o in members if o is not m),
+                                               "in_order": in_order, "names": names}
+            merged_txt.append(f"{m.role} saw {len(got)} turns named {names}{'' if in_order else ' (participant order differs from the scene)'}")
+        report.add("merged transcript (per viewer)", not merged_problems,
+                   "; ".join(merged_txt) + (f"; PROBLEMS: {merged_problems}" if merged_problems else ""))
+
+        # --- coaching: per participant only; read-only copies for the therapist --
+        coach_problems: list[str] = []
+        coach_txt: list[str] = []
+        for m in (host, dad):
+            other_labels = {o.label for o in members if o is not m}
+            finals = [s for s in m.run.of_type("suggestion") if not s.get("partial")]
+            tagged = [e for e in m.run.events if isinstance(e[1], dict) and "for_uid" in e[1]]
+            nudges = [s for s in finals if s.get("kind") == "nudge"]
+            responses = [s for s in finals if s.get("kind", "response") == "response"]
+            about = {lbl: len([s for s in responses if s.get("speaker") == lbl]) for lbl in sorted(other_labels)}
+            peer_label = dad.label if m is host else host.label
+            wrong = [s for s in responses if s.get("speaker") not in other_labels] + [s for s in nudges if s.get("speaker") != m.label]
+            errors = m.run.of_type("suggestion_error")
+            hard = [e for e in errors if e.get("reason") != "llm_parse_error"]
+            if about.get(peer_label, 0) < 1:
+                coach_problems.append(f"{m.role}: no suggestion about {peer_label}")
+            if wrong:
+                coach_problems.append(f"{m.role}: {len(wrong)} mislabelled events")
+            if hard:
+                coach_problems.append(f"{m.role}: {len(hard)} suggestion_error {sorted({str(e.get('reason')) for e in hard})}")
+            if tagged:
+                coach_problems.append(f"{m.role}: {len(tagged)} events carry for_uid (a participant's wire must not)")
+            report.data[f"coaching_{m.role}"] = {"responses": len(responses), "about": about, "nudges": len(nudges), "errors": len(errors), "tagged": len(tagged)}
+            coach_txt.append(f"{m.role}: {len(responses)} suggestions about {about}, {len(nudges)} nudges on own turns"
+                             + (f", {len(errors)} suggestion_error" if errors else ""))
+        own = [e for _, e in mom.run.events if e.get("type") in ("suggestion", "tone_flag", "speaker_identity") and "for_uid" not in e]
+        own_sugg = [e for e in own if e.get("type") == "suggestion"]
+        copies = [e for _, e in mom.run.events if "for_uid" in e]
+        copies_for = {r: [c for c in copies if c.get("for_uid") == uids[r]] for r in ("host", "peer")}
+        foreign = [c for c in copies if c.get("for_uid") not in (uids["host"], uids["peer"])]
+        copy_kinds = {r: sorted({(c.get("type"), c.get("kind")) for c in cs}) for r, cs in copies_for.items()}
+        if own_sugg:
+            coach_problems.append(f"therapist was coached: {len(own_sugg)} suggestion(s) without for_uid")
+        for r, cs in copies_for.items():
+            if not [c for c in cs if c.get("type") == "suggestion" and not c.get("partial")]:
+                coach_problems.append(f"therapist got no suggestion copy for {r}")
+        if foreign:
+            coach_problems.append(f"therapist got {len(foreign)} copies tagged for a non-participant")
+        report.data["coaching_therapist"] = {
+            "own_suggestions": len(own_sugg), "own_other_events": len(own) - len(own_sugg),
+            "copies": {r: len(cs) for r, cs in copies_for.items()}, "copy_kinds": copy_kinds, "foreign": len(foreign),
+        }
+        coach_txt.append(
+            f"therapist: {len(own_sugg)} suggestions of her own (never coached), "
+            f"{len(own) - len(own_sugg)} own-audio tone/identity events, read-only copies for host={len(copies_for['host'])} "
+            f"peer={len(copies_for['peer'])} kinds={copy_kinds}"
+        )
+        report.add("per-participant coaching + read-only therapist copies", not coach_problems,
+                   "; ".join(coach_txt) + (f" (speed {speed:g}x: latest-wins supersedes some turns)" if speed > 1 else "")
+                   + (f"; PROBLEMS: {coach_problems}" if coach_problems else ""))
+
+        # --- relay latency: turn_local -> the other viewers' transcript -------
+        timing = transcript_delivery_ms(members, call_id)
+        report.data["delivery"] = {k: v for k, v in timing.items() if k != "per_delivery"}
+        report.data["delivery"]["slowest"] = sorted((r for r in timing["per_delivery"] if r["ms"] is not None), key=lambda r: -r["ms"])[:3]
+        report.add("turn_local -> other-viewer transcript timing", timing["n"] == timing["expected"] and timing["n"] > 0,
+                   f"{timing['n']}/{timing['expected']} deliveries timed: p50 {timing['p50_ms']} ms, p95 {timing['p95_ms']} ms, "
+                   f"max {timing['max_ms']} ms; slowest {[(r['from'], r['to'], r['ms']) for r in report.data['delivery']['slowest']]}")
+
+        # --- hang-up: host, Dad, then Mom (the last socket ends the call) -----
+        end_problems: list[str] = []
+        for m in (host, dad):
+            ended = m.events("call_ended", call_id)
+            done_call = (m.run.session_complete or {}).get("call") or {}
+            if ended:
+                end_problems.append(f"{m.role} received call_ended (it left while others were still on)")
+            if done_call.get("status") != "active" or done_call.get("episode_id") is not None:
+                end_problems.append(f"{m.role} session_complete.call={done_call}")
+        ended = mom.events("call_ended", call_id)
+        last = ended[-1] if ended else {}
+        mom_done = (mom.run.session_complete or {}).get("call") or {}
+        if len(ended) != 1:
+            end_problems.append(f"therapist received {len(ended)} call_ended frames (want 1)")
+        elif (last.get("reason"), last.get("ended_by"), last.get("episode_id")) != ("all participants left", uids["therapist"], None):
+            end_problems.append(f"therapist call_ended reason/ended_by/episode_id = {last.get('reason')}/{last.get('ended_by')}/{last.get('episode_id')}")
+        episodes = last.get("episodes") or {}
+        if sorted(episodes) != sorted([uids["host"], uids["peer"]]) or not all(episodes.values()) or len(set(episodes.values())) != 2:
+            end_problems.append(f"call_ended.episodes={episodes} (want one per participant, none for the therapist)")
+        if last.get("turn_count") != sum(len(m.turn_locals) for m in members):
+            end_problems.append(f"call_ended.turn_count={last.get('turn_count')} (want {sum(len(m.turn_locals) for m in members)})")
+        if mom_done.get("status") != "ended" or mom_done.get("episode_id") is not None:
+            end_problems.append(f"therapist session_complete.call={mom_done}")
+        report.data["call_ended"] = {k: last.get(k) for k in ("reason", "ended_by", "episode_id", "episodes", "shared_with", "turn_count")}
+        report.add("hang-up order + call_ended on the last socket", not end_problems,
+                   f"host and Dad left with the call active (no call_ended, episode later via REST); Mom's socket ended it: "
+                   f"reason={last.get('reason')!r} ended_by=therapist episodes={ {k[:8]: (v or '')[:8] for k, v in episodes.items()} } "
+                   f"episode_id={last.get('episode_id')} turn_count={last.get('turn_count')}"
+                   + (f"; PROBLEMS: {end_problems}" if end_problems else ""))
+
+        # --- 3. GET /calls/{id} as everyone -----------------------------------
+        views = {}
+        for m in members:
+            code, v = await _req(http, "GET", base_url, f"/calls/{call_id}", m.account)
+            views[m.role] = (code, v if isinstance(v, dict) else {})
+        h_view, d_view, t_view = views["host"][1], views["peer"][1], views["therapist"][1]
+        h_ep, d_ep = h_view.get("episode_id"), d_view.get("episode_id")
+        rest_problems: list[str] = []
+        codes = {r: c for r, (c, _) in views.items()}
+        if any(c != 200 for c in codes.values()):
+            rest_problems.append(f"status codes {codes}")
+        if h_view.get("status") != "ended" or h_view.get("end_reason") != "all participants left":
+            rest_problems.append(f"status={h_view.get('status')} end_reason={h_view.get('end_reason')}")
+        if not h_ep or not d_ep or h_ep == d_ep or episodes.get(uids["host"]) != h_ep or episodes.get(uids["peer"]) != d_ep:
+            rest_problems.append(f"episode ids host={h_ep} dad={d_ep} vs call_ended.episodes")
+        if t_view.get("episode_id") is not None or t_view.get("self_role") != "therapist":
+            rest_problems.append(f"therapist view episode_id={t_view.get('episode_id')} self_role={t_view.get('self_role')}")
+        for r, v in (("host", h_view), ("peer", d_view)):
+            if v.get("shared_with") != [therapist.email]:
+                rest_problems.append(f"{r} shared_with={v.get('shared_with')} (want [{therapist.email}])")
+        if any(p.get("connected") for p in h_view.get("participants") or []):
+            rest_problems.append("a participant still reads connected after the end")
+        report.data["episodes"] = {"host": h_ep, "peer": d_ep, "shared_with": h_view.get("shared_with"), "turn_count": h_view.get("turn_count")}
+        report.add("call ended (REST)", not rest_problems,
+                   f"GET /calls/{{id}}: status {h_view.get('status')} ({h_view.get('end_reason')}), {h_view.get('turn_count')} merged turns; "
+                   f"host episode {h_ep}, Dad episode {d_ep}, therapist episode {t_view.get('episode_id')}; "
+                   f"shared_with host={h_view.get('shared_with')} dad={d_view.get('shared_with')}"
+                   + (f"; PROBLEMS: {rest_problems}" if rest_problems else ""))
+        if not h_ep or not d_ep:
+            return report
+        report.data["episode_id"] = h_ep
+
+        # --- 4. the participants' episodes -------------------------------------
+        status, detail, waited = await wait_for_analysis(http, base_url, patient, h_ep, timeout_s=analysis_timeout_s)
+        live = ((detail or {}).get("analysis") or {}).get("live") or {}
+        if status == "full":
+            report.add("batch analysis (host)", True, f"full after {waited:.1f}s — {len((detail or {}).get('analysis', {}).get('per_turn') or [])} heats")
+        elif status == "failed":
+            report.add("batch analysis (host)", False, f"analysis_status failed after {waited:.1f}s: {live.get('analysis_error')}")
+        else:
+            report.add("batch analysis (host)", False, f"{status} after {waited:.1f}s (analysis_status={live.get('analysis_status')})")
+
+        code, body = await _req(http, "POST", base_url, f"/episodes/{h_ep}/reflect", patient, timeout=180.0)
+        refl = (body.get("could_have_said") or []) if code == 200 and isinstance(body, dict) else []
+        report.add("reflection (host)", code == 200 and bool(refl),
+                   f"POST /episodes/{{id}}/reflect -> {code}: {len(refl)} reflections for {len(a_idx)} own turns (cached={body.get('cached') if isinstance(body, dict) else None})")
+
+        all_texts = sorted(t["text"] for m in members for t in m.turn_locals)
+        expect_labels_by = {
+            "host": ("Speaker A", {"Speaker A": "You", "Speaker B": "Dad", "Speaker C": "Mom (therapist)"},
+                     sorted(scene.turns[i]["text"] for i in scene.expected_self_escalations)),
+            "peer": ("Speaker B", {"Speaker B": "You", "Speaker A": "Sage", "Speaker C": "Mom (therapist)"},
+                     sorted(t["text"] for t in scene.turns if t["speaker"] == "Speaker B" and t.get("emotion_coarse") == "angry")),
+        }
+        for m, ep in ((host, h_ep), (dad, d_ep)):
+            self_label, want_labels, want_esc = expect_labels_by[m.role]
+            code, detail = await _req(http, "GET", base_url, f"/recordings/{ep}", m.account)
+            if code != 200 or not isinstance(detail, dict):
+                report.add(f"episode detail ({m.role})", False, f"GET /recordings/{{id}} -> {code} {str(detail)[:200]}")
+                continue
+            turns = detail.get("turns") or []
+            labels = {k: (v or {}).get("display_label") for k, v in (detail.get("speaker_labels") or {}).items()}
+            live = ((detail.get("analysis") or {}).get("live") or {})
+            esc = ((live.get("tone_summary") or {}).get("self") or {}).get("escalation_turns")
+            esc_texts = sorted(turns[i].get("text") for i in (esc or []) if i < len(turns))
+            got_labels = {k: labels.get(k) for k in want_labels}
+            ok_detail = (
+                detail.get("mode") == "call" and live.get("mode") == "call"
+                and sorted(t.get("text") for t in turns) == all_texts
+                and got_labels == want_labels and live.get("self_speaker") == self_label
+                and esc_texts == want_esc
+                and all(t.get("is_self") is (t.get("speaker") == self_label) for t in turns)
+                and all("call_seq" in t and "local_start_time" in t and "participant_uid" in t for t in turns)
+                and [t.get("speaker") for t in turns if t.get("speaker") == "Speaker C"] == ["Speaker C"] * len(mom.turn_locals)
+            )
+            cloud_rows = [t for t in turns if t.get("transcript_source") == "cloud"]
+            report.data[f"detail_{m.role}"] = {"mode": detail.get("mode"), "turns": len(turns), "labels": got_labels,
+                                               "escalation_turns": esc, "self_speaker": live.get("self_speaker"), "title": detail.get("title"),
+                                               "cloud_rows": len(cloud_rows)}
+            report.add(f"episode detail ({m.role})", ok_detail,
+                       f"GET /recordings/{{id}} 200 — mode {detail.get('mode')}, {len(turns)}/{len(all_texts)} merged turns "
+                       f"({len(mom.turn_locals)} from the therapist"
+                       + (f", {len(cloud_rows)} server-STT duplicates of phone turns: {[t.get('text', '')[:40] for t in cloud_rows]}" if cloud_rows else "")
+                       + f"), labels {got_labels}, self_speaker {live.get('self_speaker')}, "
+                       f"self escalation turns {esc} (texts match scene: {esc_texts == want_esc}), title {detail.get('title')!r}, "
+                       f"analysis_status={live.get('analysis_status')}")
+
+        code, growth = await _req(http, "GET", base_url, "/growth", patient)
+        pt = next((p for p in (growth.get("points") or []) if p.get("recording_id") == h_ep), None) if code == 200 and isinstance(growth, dict) else None
+        report.data["growth_point"] = pt
+        report.add("growth (host)", pt is not None and pt.get("mode") == "call",
+                   f"GET /growth -> {code}: " + (f"point present, my_score={pt.get('my_score')} mode={pt.get('mode')} partners={pt.get('partner_names')}" if pt else "no point for the episode"))
+
+        # --- 5. the therapist's dashboard: both episodes, none of her own ------
+        code, sessions = await _req(http, "GET", base_url, "/sessions", therapist)
+        rows = (sessions.get("sessions") if isinstance(sessions, dict) else None) or []
+        h_row = next((s for s in rows if s.get("id") == h_ep), None)
+        d_row = next((s for s in rows if s.get("id") == d_ep), None)
+        own_call_rows = [s for s in rows if not s.get("shared") and s.get("mode") == "call"]
+        dash_problems: list[str] = []
+        if code != 200:
+            dash_problems.append(f"GET /sessions -> {code}")
+        for name, row, owner in (("host", h_row, patient.email), ("peer", d_row, peer.email)):
+            if row is None:
+                dash_problems.append(f"{name}'s episode not listed")
+            elif not row.get("shared") or row.get("mode") != "call" or row.get("role") != owner:
+                dash_problems.append(f"{name}'s row shared={row.get('shared')} mode={row.get('mode')} role={row.get('role')!r}")
+        if own_call_rows:
+            dash_problems.append(f"{len(own_call_rows)} call episode(s) of her OWN listed: {[r.get('title') for r in own_call_rows]}")
+        report.data["therapist_rows"] = {
+            "host": {k: h_row.get(k) for k in ("shared", "role", "mode", "title")} if h_row else None,
+            "peer": {k: d_row.get(k) for k in ("shared", "role", "mode", "title")} if d_row else None,
+            "own_call_rows": len(own_call_rows), "total": len(rows),
+        }
+        report.add("therapist dashboard (direct grants, no own episode)", not dash_problems,
+                   f"GET /sessions as Mom -> {code}: {len(rows)} rows; host's call episode "
+                   + (f"shared={h_row.get('shared')} role={h_row.get('role')!r} title={h_row.get('title')!r}" if h_row else "MISSING")
+                   + "; Dad's call episode " + (f"shared={d_row.get('shared')} role={d_row.get('role')!r}" if d_row else "MISSING")
+                   + f"; own call episodes {len(own_call_rows)}" + (f"; PROBLEMS: {dash_problems}" if dash_problems else ""))
+        code, shared_detail = await _req(http, "GET", base_url, f"/recordings/{h_ep}", therapist)
+        shared_flag = shared_detail.get("shared") if isinstance(shared_detail, dict) else None
+        report.add("therapist detail read", code == 200 and bool(shared_flag),
+                   f"GET /recordings/{{host episode}} as Mom -> {code} shared={shared_flag}")
+
+        # --- cleanup ----------------------------------------------------------
+        if cleanup:
+            notes = []
+            for acct, ep in ((patient, h_ep), (peer, d_ep)):
+                code, _ = await _req(http, "DELETE", base_url, f"/recordings/{ep}", acct)
+                notes.append(f"episode {ep} delete {code}")
+            code, sessions = await _req(http, "GET", base_url, "/sessions", therapist)
+            left = [s for s in ((sessions.get("sessions") if isinstance(sessions, dict) else None) or []) if s.get("id") in (h_ep, d_ep)]
+            notes.append(f"therapist dashboard rows left for the call: {len(left)}")
+            for acct in (patient, peer, therapist):
+                if acct.signed_up:
+                    notes.append(f"firebase delete {acct.email}: {await firebase_delete_account(http, acct)}")
+            report.add("cleanup", None, "; ".join(notes))
+    finally:
+        if own_http:
+            await http.aclose()
+    return report
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -1805,6 +2449,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="in-app call: the patient hosts (POST /calls), the therapist joins by code, both phones "
                         "bind their sockets (call_join), exchange fake SDP over rtc_signal, speak their own scene "
                         "turns concurrently, and each gets a mode=call episode of the merged transcript")
+    p.add_argument("--participants", type=int, default=2, choices=[2, 3],
+                   help="with --call: 2 (patient + therapist as the two participants) or 3 (patient hosts, a "
+                        "second participant account joins as the invitee, the therapist joins her socket as the "
+                        "read-only observer; full-mesh signaling, per-participant coaching, two episodes both "
+                        "granted to her)")
     p.add_argument("--no-enroll", action="store_true", help="skip POST /voice/enroll-direct")
     p.add_argument("--analysis-timeout", type=float, default=180.0, help="seconds to wait for the batch analysis")
     p.add_argument("--cleanup", action="store_true", help="delete the episode/voiceprint (+ --signup accounts) afterwards")
@@ -1824,6 +2473,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--therapist-id-token")
     p.add_argument("--therapist-email")
     p.add_argument("--therapist-password")
+    # the second participant (--call --participants 3)
+    p.add_argument("--peer-id-token")
+    p.add_argument("--peer-email")
+    p.add_argument("--peer-password")
     # throwaway accounts
     p.add_argument("--signup", action="store_true", help="create throwaway email/password accounts for both roles")
     p.add_argument("--signup-email-base", default="sagearbor@gmail.com", help="base address for +e2e plus-addressing")
@@ -1831,13 +2484,19 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-async def resolve_accounts(args: argparse.Namespace, http: httpx.AsyncClient) -> tuple[Account, Account]:
+async def resolve_accounts(args: argparse.Namespace, http: httpx.AsyncClient) -> tuple[Account, Account, Account | None]:
+    """The patient and therapist accounts, plus the second participant when
+    ``--call --participants 3`` (else None)."""
     key = args.firebase_api_key
+    want_peer = bool(args.call) and args.participants == 3
     if args.signup:
-        pw_p, pw_t = secrets.token_urlsafe(12), secrets.token_urlsafe(12)
+        pw_p, pw_t, pw_d = secrets.token_urlsafe(12), secrets.token_urlsafe(12), secrets.token_urlsafe(12)
         patient = await firebase_password_auth(http, email=args.email or throwaway_email(args.signup_email_base, "patient"), password=args.password or pw_p, signup=True, api_key=key)
         therapist = await firebase_password_auth(http, email=args.therapist_email or throwaway_email(args.signup_email_base, "therapist"), password=args.therapist_password or pw_t, signup=True, api_key=key)
-        return patient, therapist
+        peer = None
+        if want_peer:
+            peer = await firebase_password_auth(http, email=args.peer_email or throwaway_email(args.signup_email_base, "peer"), password=args.peer_password or pw_d, signup=True, api_key=key)
+        return patient, therapist, peer
     if args.id_token:
         patient = Account.from_id_token(args.email or "<id-token>", args.id_token)
     elif args.email and args.password:
@@ -1850,19 +2509,33 @@ async def resolve_accounts(args: argparse.Namespace, http: httpx.AsyncClient) ->
         therapist = await firebase_password_auth(http, email=args.therapist_email, password=args.therapist_password, signup=False, api_key=key)
     else:
         raise SystemExit("need --signup, --therapist-id-token, or --therapist-email + --therapist-password for the therapist")
-    return patient, therapist
+    peer = None
+    if want_peer:
+        if args.peer_id_token:
+            peer = Account.from_id_token(args.peer_email or "<peer id-token>", args.peer_id_token)
+        elif args.peer_email and args.peer_password:
+            peer = await firebase_password_auth(http, email=args.peer_email, password=args.peer_password, signup=False, api_key=key)
+        else:
+            raise SystemExit("--participants 3 needs --signup, --peer-id-token, or --peer-email + --peer-password for the second participant")
+    return patient, therapist, peer
 
 
 async def amain(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     scene = load_scene(args.scene)
     async with httpx.AsyncClient() as http:
-        patient, therapist = await resolve_accounts(args, http)
+        patient, therapist, peer = await resolve_accounts(args, http)
         if args.call:
-            report = await run_call_e2e(
-                base_url=args.base_url, patient=patient, therapist=therapist, scene=scene,
-                speed=args.speed, analysis_timeout_s=args.analysis_timeout, cleanup=args.cleanup, http=http,
-            )
+            if peer is not None:
+                report = await run_call_e2e_three_way(
+                    base_url=args.base_url, patient=patient, peer=peer, therapist=therapist, scene=scene,
+                    speed=args.speed, analysis_timeout_s=args.analysis_timeout, cleanup=args.cleanup, http=http,
+                )
+            else:
+                report = await run_call_e2e(
+                    base_url=args.base_url, patient=patient, therapist=therapist, scene=scene,
+                    speed=args.speed, analysis_timeout_s=args.analysis_timeout, cleanup=args.cleanup, http=http,
+                )
             print(format_report(report))
             if args.json:
                 print(json.dumps(report.to_dict(), indent=2, default=str))
