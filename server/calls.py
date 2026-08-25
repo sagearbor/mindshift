@@ -739,7 +739,7 @@ class Call:
         await self._persist_episodes()
         for p in list(self.participants.values()):
             if p.connected:
-                await self._send(p, {
+                frame = {
                     "type": "call_ended",
                     "call_id": self.call_id,
                     "reason": reason,
@@ -747,10 +747,13 @@ class Call:
                     "episode_id": p.episode_id,
                     "recording_id": p.episode_id,
                     "shared_with": list(p.shared_with),
-                    # The observer's view: every participant's episode.
-                    "episodes": {q.uid: q.episode_id for q in self.coached()},
                     "turn_count": len(self.turns),
-                })
+                }
+                if p.is_therapist:
+                    # The observer's view: every participant's episode (she
+                    # was granted each). A participant learns only its own.
+                    frame["episodes"] = {q.uid: q.episode_id for q in self.coached()}
+                await self._send(p, frame)
         for p in list(self.participants.values()):
             ep, p.endpoint = p.endpoint, None
             if ep is not None:

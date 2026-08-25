@@ -1073,3 +1073,33 @@ class TestRegistryBounds:
         assert {c["call_id"] for c in (c2, c3, c4)} <= set(calls.registry._calls)
         # Only live calls are left and the global cap holds for a third tenant.
         assert env.client.post("/calls", json={}, headers=_h(THIRD)).status_code == 503
+
+
+class TestRoleBoundaries:
+    def test_observer_cannot_end_the_call_and_participants_do_not_see_each_others_episode_ids(self, env):
+        cid = _open_three(env)
+        # The therapist is a member, not a coached participant: she may leave,
+        # but she cannot hang up for everyone.
+        res = env.client.post(f"/calls/{cid}/end", headers=_h(THER))
+        assert res.status_code == 403, res.text
+        assert calls.registry.get(cid).status == "active"
+        with open_ws(env.client, f"/ws/session/{HOST_SID}", token=HOST_TOKEN) as host, \
+                open_ws(env.client, f"/ws/session/{PEER_SID}", token=PEER_TOKEN) as peer, \
+                open_ws(env.client, f"/ws/session/{THER_SID}", token=THER_TOKEN) as ther:
+            _bind(host, cid)
+            _bind(peer, cid)
+            _bind(ther, cid)
+            _drain_state(host, 3)
+            _drain_state(peer, 3)
+            host.send_text(json.dumps(_turn(HOST_SID, "One.")))
+            recv_until(peer, lambda m: m.get("type") == "suggestion")
+            recv_until(host, lambda m: m.get("type") == "suggestion")
+            assert env.client.post(f"/calls/{cid}/end", headers=_h(PEER)).status_code == 200
+            ended_host, _ = recv_until(host, lambda m: m.get("type") == "call_ended")
+            ended_peer, _ = recv_until(peer, lambda m: m.get("type") == "call_ended")
+            ended_ther, _ = recv_until(ther, lambda m: m.get("type") == "call_ended")
+        # Each participant learns ITS episode; the map of everyone's is the observer's view only.
+        assert ended_host["episode_id"] in env.store._by_uid[HOST]
+        assert ended_peer["episode_id"] in env.store._by_uid[PEER]
+        assert "episodes" not in ended_host and "episodes" not in ended_peer
+        assert ended_ther["episodes"] == {HOST: ended_host["episode_id"], PEER: ended_peer["episode_id"]}

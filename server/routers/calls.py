@@ -270,7 +270,10 @@ async def end_call(
     uid: str = Depends(get_current_uid),
 ):
     call = _visible(call_id, uid)
-    if uid not in call.participants:
+    me = call.participant(uid)
+    if me is None or me.is_therapist:
+        # The invitee who never joined, and the observing therapist (a
+        # member, not a coached participant), may not hang up for everyone.
         raise HTTPException(status_code=403, detail="only a participant can end the call")
     await call.end(reason="ended", ended_by=uid, store=_store(request))
     return call.rest_view(uid)
