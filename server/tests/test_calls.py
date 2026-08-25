@@ -1495,3 +1495,76 @@ class TestReconnectClock:
             assert len(call.participants) == 2  # no duplicate seat
 
         asyncio.run(run())
+
+
+# --- Cloudflare vendor-minted TURN -----------------------------------------
+
+class TestCloudflareTurn:
+    """Cloudflare Realtime TURN mints credentials over its own REST API (the
+    shared-secret scheme does not apply to it). A mint failure must degrade to
+    the STUN/static path, never sink a call."""
+
+    @staticmethod
+    def _enable(monkeypatch):
+        monkeypatch.setenv("MINDSHIFT_TURN_KEY_ID", "kid-test")
+        monkeypatch.setenv("MINDSHIFT_TURN_KEY_TOKEN", "ktok-test")
+        calls._reset_cloudflare_cache()
+
+    def test_minted_servers_are_handed_out_and_cached(self, monkeypatch):
+        self._enable(monkeypatch)
+        minted = {"iceServers": [
+            {"urls": ["stun:stun.cloudflare.com:3478"]},
+            {"urls": ["turns:turn.cloudflare.com:5349?transport=tcp"],
+             "username": "u" * 64, "credential": "c" * 64},
+        ]}
+        posts: list[dict] = []
+
+        class FakeResp:
+            def raise_for_status(self): pass
+            def json(self): return minted
+
+        def fake_post(url, headers=None, json=None, timeout=None):
+            posts.append({"url": url, "headers": headers, "json": json})
+            return FakeResp()
+
+        import httpx
+        monkeypatch.setattr(httpx, "post", fake_post)
+
+        got = calls.ice_servers("member-1")
+        assert any(s.get("username") for s in got), got
+        assert calls.turn_status()["turn_credential_mode"] == "cloudflare"
+        assert "kid-test" in posts[0]["url"]
+        assert posts[0]["headers"]["Authorization"] == "Bearer ktok-test"
+        # A second handout reuses the cached pair rather than minting again.
+        calls.ice_servers("member-2")
+        assert len(posts) == 1
+
+    def test_mint_failure_degrades_to_stun(self, monkeypatch):
+        self._enable(monkeypatch)
+        import httpx
+
+        def boom(*a, **k):
+            raise RuntimeError("cloudflare down")
+
+        monkeypatch.setattr(httpx, "post", boom)
+        got = calls.ice_servers("member-1")
+        # STUN-only: a direct connection is still attempted.
+        assert got and not any(s.get("username") for s in got)
+
+    def test_credential_less_response_degrades(self, monkeypatch):
+        self._enable(monkeypatch)
+
+        class FakeResp:
+            def raise_for_status(self): pass
+            def json(self): return {"iceServers": [{"urls": ["stun:stun.cloudflare.com:3478"]}]}
+
+        import httpx
+        monkeypatch.setattr(httpx, "post", lambda *a, **k: FakeResp())
+        got = calls.ice_servers("member-1")
+        assert not any(s.get("username") for s in got)
+
+    def test_not_configured_leaves_previous_behaviour(self, monkeypatch):
+        monkeypatch.delenv("MINDSHIFT_TURN_KEY_ID", raising=False)
+        monkeypatch.delenv("MINDSHIFT_TURN_KEY_TOKEN", raising=False)
+        calls._reset_cloudflare_cache()
+        assert calls.turn_status()["turn_credential_mode"] in {"none", "static", "ephemeral", "open"}
