@@ -42,7 +42,10 @@
   "submit": {
     "production": {
       "android": {
-        "track": "internal"
+        "serviceAccountKeyPath": "./play-service-account.json",
+        "track": "production",
+        "releaseStatus": "draft",
+        "changesNotSentForReview": true
       },
       "ios": {
         "appleId": "REPLACE_WITH_APPLE_ID_EMAIL",
