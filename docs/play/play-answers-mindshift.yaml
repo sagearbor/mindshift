@@ -1,0 +1,1257 @@
+_schema:
+  what_this_is: >
+    A complete, pre-decided answer pack for the Google Play Console "Set up your
+    app" checklist for com.sagearbor.mindshift.app. There is no Play API for this
+    checklist, so a browser agent (Claude in Chrome / Cowork) drives the forms.
+    This file exists so that agent never has to guess, never has to stop and ask,
+    and never invents an answer that contradicts what the code actually does.
+  how_to_use: >
+    Walk it top to bottom. Each section maps to one left-nav item in Play Console
+    under "Policy → App content" or "Grow → Store presence → Main store listing".
+    Every leaf value is the literal thing to type or the literal option to click.
+    Where a field cannot be answered without the owner (credentials, uploads,
+    a human judgement call), the value is the string OWNER_MUST_SUPPLY and the
+    sibling `owner_action` says exactly what is needed. Never invent a value for
+    an OWNER_MUST_SUPPLY field.
+  key_conventions:
+    - "`value:` is what to enter/select."
+    - "`why:` is the justification — paste it into a Play appeal if one is ever needed."
+    - "`proof:` is a file:line in this repo that makes the claim checkable."
+    - "OWNER_MUST_SUPPLY means: stop, leave the field blank, report it, move on."
+  verified_against_commit: 1eb5760  # origin/main, 2026-08-25
+  last_updated: 2026-08-25
+  authored_by: Claude (agent), from a full read of server/ and apps/mobile/
+
+app_identity:
+  package_name: com.sagearbor.mindshift.app
+  proof: apps/mobile/app.json:29
+  play_developer_account: "7699975610134980668 (Sage Arbor)"
+  app_already_exists_in_console: true
+  note: >
+    The Play app record already exists (versionCode 31 / 1.16.0 was uploaded by
+    hand). This pack completes the "Set up your app" declarations only — it does
+    NOT ship a release. See docs/plans/2026-08-24-realtime-three-tracks-handoff.md §9.
+  current_version: "1.18.0 (versionCode 34)"
+  proof_version: apps/mobile/app.json:5,30
+
+# ===========================================================================
+# 1. App access  (Policy → App content → App access)
+# ===========================================================================
+app_access:
+  question: "Is all or some functionality of your app restricted?"
+  value: "All or some functionality is restricted"
+  why: >
+    The app is a hard login gate. An unauthenticated user only ever sees the
+    login screen — there is no guest mode, no anonymous Firebase sign-in, and no
+    "skip" branch anywhere in the client.
+  proof:
+    - apps/mobile/App.tsx:416-425   # auth gate: `if (!user) return <LoginScreen/>`
+    - apps/mobile/src/screens/LoginScreen.tsx:26-49  # email+password / Google / Apple only
+  instructions_block:
+    name: "Full app — demo account"
+    # Play shows this text verbatim to the reviewer. Keep it short and literal.
+    value: |
+      MindShift requires a free account. Sign in on the first screen with the
+      demo credentials below (email + password — do NOT use "Continue with
+      Google", it is tied to a real person's account).
+
+      After sign-in you land on Home. To exercise the core feature:
+        1. Tap "Live Coach".
+        2. Grant the microphone and speech-recognition permissions when asked.
+        3. Tap Start and speak for ~20 seconds (any speech is fine). Coaching
+           suggestions appear on screen within a few seconds.
+        4. Tap Stop. The session appears under "Your Day" / "Recordings".
+
+      The in-app Call feature needs a second signed-in account and is not
+      required to evaluate the app.
+    username: OWNER_MUST_SUPPLY
+    password: OWNER_MUST_SUPPLY
+  owner_action: >
+    Create a throwaway Firebase email/password account in the arborfam-hub
+    project (Firebase Console → Authentication → Users → Add user), e.g.
+    play-review@<something you control>. Do NOT hand Play a real account: any
+    reviewer who signs in can see that account's stored recordings, transcripts
+    and voiceprints. The agent must not invent credentials.
+  any_other_instructions: "No"
+
+# ===========================================================================
+# 2. Ads  (Policy → App content → Ads)
+# ===========================================================================
+ads:
+  question: "Does your app contain ads?"
+  value: "No, my app does not contain ads"
+  why: >
+    There is no advertising, attribution or analytics SDK of any kind. The full
+    dependency list contains no AdMob / react-native-google-mobile-ads, no
+    Facebook SDK, AppsFlyer, Adjust, Branch, Segment, Amplitude, Mixpanel,
+    OneSignal, Sentry, Crashlytics or @react-native-firebase/analytics. The one
+    "sentry" string in the repo is inside a Jest transformIgnorePatterns regex
+    with no matching dependency. The manifest does not request
+    com.google.android.gms.permission.AD_ID, and no advertising identifier is
+    ever read.
+  proof:
+    - apps/mobile/package.json:14-51  # complete dependency list
+    - apps/mobile/package.json:68     # the "sentry" string — a Jest regex, not a dep
+    - apps/mobile/app.json:31-40      # android.permissions — no AD_ID
+    - apps/mobile/src/auth/firebase.ts:1-12  # firebase/app + firebase/auth ONLY, no getAnalytics
+  note_for_the_agent: >
+    Play will separately ask whether the app has ads in the Data safety
+    "Advertising or marketing" purpose. Answer no there too — nothing is
+    collected for advertising.
+
+# ===========================================================================
+# 3. Content rating  (Policy → App content → Content ratings → IARC questionnaire)
+# ===========================================================================
+content_rating:
+  email_address: sagearbor@gmail.com
+  category:
+    value: "Utility, Productivity, Communication, or Other"
+    why: >
+      MindShift is a communication tool: it coaches you during a conversation and
+      hosts audio calls. It is not a game, not social networking (there is no
+      feed, no profiles, no discovery, no stranger-to-stranger contact — you can
+      only talk to someone whose email you already know or who has your join
+      code), not dating, not entertainment, not a news/reference app.
+    if_that_exact_label_is_absent: >
+      IARC wording drifts. Pick the option whose text contains "Utility",
+      "Productivity" or "Communication". Do NOT pick "Social Networking" (no
+      public profiles or discovery) and do NOT pick "Games".
+    proof:
+      - server/calls.py:15-21          # peer-to-peer audio calls, closed invite/code
+      - docs/plans/2026-08-25-in-app-calls.md:59-83  # join by invited email or 6-char code
+
+  violence:
+    answer_to_every_question_in_this_section: "No"
+    questions:
+      - question: "Does the app contain violence (realistic, cartoon, fantasy) or references to violence?"
+        value: "No"
+      - question: "Does the app contain graphic depictions of blood, gore, or mutilation?"
+        value: "No"
+      - question: "Does the app depict or reference torture, killing, or harm to identifiable human beings?"
+        value: "No"
+      - question: "Does the app glamorize or trivialize the use of weapons?"
+        value: "No"
+    why: >
+      The app ships no authored content of any kind beyond its own UI and
+      AI-generated coaching text whose system prompt is a de-escalation /
+      empathy stance. It renders the user's own conversation back to them.
+    proof:
+      - server/main.py:1079-1134  # empathy_system_prompt — the whole authored content surface
+
+  sexuality:
+    answer_to_every_question_in_this_section: "No"
+    questions:
+      - question: "Does the app contain nudity, partial nudity, or sexually suggestive content?"
+        value: "No"
+      - question: "Does the app contain references to or depictions of sexual acts?"
+        value: "No"
+      - question: "Does the app provide access to sexual or erotic material?"
+        value: "No"
+
+  language:
+    answer_to_every_question_in_this_section: "No"
+    questions:
+      - question: "Does the app contain profanity, crude humour, or vulgar language?"
+        value: "No"
+    why: >
+      Nothing the app itself authors contains profanity. A user's own transcript
+      can obviously contain anything they say, but that is user-generated content
+      shown only to that user (and to a therapist they deliberately invited) — it
+      is declared under the user-interaction question below, which is where IARC
+      handles UGC. Do NOT answer "Yes" here; that question is about content the
+      developer ships.
+
+  controlled_substance:
+    answer_to_every_question_in_this_section: "No"
+    questions:
+      - question: "Does the app contain references to, or depictions of, alcohol, tobacco, or drugs?"
+        value: "No"
+
+  gambling_and_contests:
+    answer_to_every_question_in_this_section: "No"
+    questions:
+      - question: "Does the app contain gambling, simulated gambling, or contests?"
+        value: "No"
+      - question: "Does the app allow real-money gambling or wagering?"
+        value: "No"
+
+  miscellaneous:
+    - question: >
+        Does the app natively allow users to interact or exchange content with
+        other users (chat, voice/video communication, sharing images, audio or
+        video)?
+      value: "Yes"
+      why: >
+        Two real user-to-user features. (1) In-app calls: peer-to-peer WebRTC
+        audio between 2-3 invited members, with each member's live transcript
+        relayed to the others through the server. (2) Therapist sharing: a user
+        can name a therapist by email, which grants that account read access to
+        the user's session transcripts, analysis AND playback of any stored
+        audio/video for those sessions.
+      proof:
+        - server/calls.py:15-21                     # P2P audio, server relays signaling only
+        - server/audio_pipeline.py:2269-2273        # each member's turns pushed to the other sockets
+        - server/routers/therapist.py:113-142       # PUT /therapist/link — name a therapist by email
+        - server/main.py:3796-3830                  # media_url minted for a share recipient (they can play the audio)
+    - question: >
+        Do those interactions happen with users the person does not know / can
+        strangers contact each other?
+      value: "No"
+      why: >
+        There is no discovery, no directory, no public profile and no matching.
+        A call reaches you only if the host typed your account email or handed
+        you a 6-character join code out of band; a therapist link is created by
+        the patient typing the therapist's account email, and the therapist must
+        already have a MindShift account (unknown emails are a 404).
+      proof:
+        - server/routers/therapist.py:113-142       # 404 when the email has no account
+        - docs/plans/2026-08-25-in-app-calls.md:59-83
+      if_the_form_only_offers_a_single_yes_no: >
+        Answer Yes to "users can interact", then answer the follow-ups honestly:
+        moderation = none (there is no public surface to moderate), user
+        reporting = not applicable (no strangers), location sharing = No.
+    - question: "Does the app share the user's current physical location with other users?"
+      value: "No"
+      why: >
+        No location permission is requested and no location library is
+        installed — there is no expo-location, no Geolocation call anywhere.
+      proof:
+        - apps/mobile/app.json:31-40   # android.permissions: no ACCESS_*_LOCATION
+        - apps/mobile/package.json:14-51  # no expo-location
+    - question: "Does the app allow users to purchase digital goods?"
+      value: "No"
+      why: "There is no billing library, no IAP, no subscription code path."
+      proof: apps/mobile/package.json:14-51
+    - question: "Does the app contain any content or links that take the user to a website outside the app?"
+      value: "Yes"
+      why: >
+        Two outbound links exist: the Wear OS companion's Play Store listing
+        (opened with Linking.openURL from Watch Setup), and the share sheet /
+        call-invite link, which points at the app's own web build. The user can
+        also paste an arbitrary media URL into the Analyze screen for the server
+        to fetch.
+      proof:
+        - apps/mobile/src/screens/WatchSetupScreen.tsx:21-22,140
+        - apps/mobile/src/live/call/invite.ts:59
+    - question: "Does the app collect or share the user's personal information?"
+      value: "Yes"
+      why: "See the data_safety section below — audio, transcripts, email, voiceprints."
+    - question: "Is the app a 'news' app?"
+      value: "No"
+    - question: "Does the app enable digital purchases of real-world goods or services?"
+      value: "No"
+    - question: "Is the app designed for or targeted at children?"
+      value: "No"
+      why: "See target_audience below — 18+ only."
+
+  expected_result:
+    value: "Expected: IARC 'Everyone' / PEGI 3 / ESRB Everyone, with a 'Users Interact' interactive element."
+    note: >
+      The "Users Interact" descriptor is EXPECTED and correct — it comes from the
+      call/sharing answer above. Do not go back and change answers to make it
+      disappear.
+
+  agent_stop_rule:
+    value: "STOP at the review/summary screen. Do NOT press Submit."
+    why: >
+      A submitted rating is what unlocks a release, and this pack is explicitly
+      not authorised to publish anything. Fill every answer, screenshot the
+      summary, and hand it to the owner to press Submit.
+
+# ===========================================================================
+# 4. Target audience and content  (Policy → App content → Target audience)
+# ===========================================================================
+target_audience:
+  age_groups_selected:
+    value: ["18 and over"]
+    why: >
+      The app records real conversations, builds a biometric voiceprint of the
+      user's voice, and is positioned for couples therapy. It is intended for
+      adults. Selecting only 18+ keeps the app out of the Families policy
+      programme and out of Teacher Approved review — which is correct, because
+      nothing here is designed for or appealing to minors.
+    proof: PRD.md:26-33   # target users: therapists, therapy patients, couples
+  do_not_select: ["Ages 5 and under", "Ages 6-8", "Ages 9-12", "Ages 13-15", "Ages 16-17"]
+  store_presence_appeals_to_children:
+    question: "Could your store listing unintentionally appeal to children?"
+    value: "No"
+    why: >
+      The icon, feature graphic and screenshots are muted indigo/sage adult
+      design; the copy is about couples and therapists. No cartoon characters,
+      no bright primary-colour play imagery, no child actors, no toys or games.
+  ads_shown_to_children:
+    value: "Not applicable — the app has no ads."
+  designed_for_families:
+    value: "No"
+  known_child_users:
+    question: "Do you have any known users under the target age?"
+    value: "No"
+  google_play_families_policy:
+    value: "Not opted in."
+  news_app:
+    value: "No"
+  covid_19_contact_tracing_or_status:
+    value: "No"
+  data_safety_child_note: >
+    Because 18+ is the only selected age group, Play will not ask for a Families
+    Ads SDK declaration or a Teacher Approved submission. If the console still
+    shows those, the age selection did not save — re-check it.
+
+# ===========================================================================
+# 5. Data safety  (Policy → App content → Data safety)
+# ===========================================================================
+data_safety:
+  _reading_note: >
+    Play's "Shared" has a narrow definition that EXCLUDES transfers to a service
+    provider processing on your behalf, and transfers triggered by a specific
+    user-initiated action. Under a strict reading, Deepgram/Anthropic (processors)
+    and therapist sharing (user-initiated) would both be "not shared". This pack
+    deliberately declares them as SHARED anyway. Over-declaring is never an
+    enforcement risk; under-declaring is exactly how apps get flagged, and the
+    privacy policy at https://arborfam-hub.web.app/privacy names all of them by
+    company. Keep the two consistent — if you ever change one, change the other.
+
+  overview:
+    does_your_app_collect_or_share_any_of_the_required_user_data_types:
+      value: "Yes"
+    is_all_of_the_user_data_collected_by_your_app_encrypted_in_transit:
+      value: "Yes"
+      why: >
+        Every network hop is TLS. The API is Cloud Run (HTTPS only; the service
+        URL is https:// and the app derives wss:// from it). The live audio
+        socket is wss://. Outbound to Deepgram is wss:// with certificate
+        verification explicitly enforced in code, and https:// for uploads. The
+        Anthropic and Cloudflare calls are https://. In-app call media is
+        WebRTC, which is DTLS-SRTP encrypted by the platform stack and never
+        traverses the MindShift server.
+      proof:
+        - scripts/deploy_cloudrun.sh:210-228        # Cloud Run managed; wss derived from https
+        - apps/mobile/src/hooks/useAudioStream.ts:67-70,1230  # WS_BASE = API_URL with http→ws
+        - server/audio_pipeline.py:81-92,106        # wss://api.deepgram.com + cert verification enforced
+        - server/audio_ingest.py:48                 # https://api.deepgram.com/v1/listen
+        - server/calls.py:15-21,274-276             # P2P media; https Cloudflare TURN mint
+    do_you_provide_a_way_for_users_to_request_that_their_data_is_deleted:
+      value: "Yes"
+      deletion_url: "https://arborfam-hub.web.app/delete-account"
+      why: >
+        In-app, a user can delete individual recordings and every share grant on
+        them, their voiceprint ("Forget my voice"), individual enrolled people
+        and individual voice samples, their therapist link, and an in-progress
+        upload. Full account deletion is a documented email request handled by
+        the developer — there is no self-serve account-delete endpoint yet.
+      proof:
+        - server/main.py:3707-3720                  # DELETE /recordings/{id}
+        - server/main.py:3776-3794                  # DELETE /recordings/{id}/shares/{uid}
+        - server/routers/voice.py:1055-1067         # DELETE /voice/voiceprint  ("Forget my voice")
+        - server/routers/voice.py:1077-1093         # DELETE /voice/people/{id}
+        - server/routers/voice.py:1009-1045         # DELETE /voice/samples/{id}
+        - server/routers/therapist.py:160-164       # DELETE /therapist/link
+        - server/watch/routers/rest.py:513-526      # DELETE /live-sessions/{id}
+        - server/watch/routers/captures.py:227-257  # DELETE /captures/{id} — blob then doc
+        - apps/mobile/src/screens/AdvancedScreen.tsx:229,265  # the in-app buttons
+        - apps/mobile/src/screens/RecordingsScreen.tsx:126
+      known_gap_owner_must_close: >
+        There is NO endpoint and NO UI that deletes an account and everything
+        under it. Play REQUIRES an account-deletion path for any app with
+        account creation, and the URL above must actually work. The page
+        docs ships (apps/mobile/public/delete-account/index.html) makes it an
+        email request to sagearbor@gmail.com, which Play accepts — but the owner
+        must actually honour those emails, and a server-side
+        DELETE /me endpoint (recordings/, voiceprints/, therapist_links/,
+        therapist_notes/, shared/ under the uid, plus the Firestore accounts /
+        speaker_profiles / live_sessions / captures docs and the Firebase Auth
+        user) is the real fix. Tracked as an owner action, not invented here.
+    data_types_not_collected_at_all:
+      - "Location (approximate and precise)"        # no location lib, no permission
+      - "Financial info (all)"                      # no billing, no payments
+      - "Health and fitness (all)"                  # see _judgement_calls below
+      - "Emails / SMS or MMS"                       # never read
+      - "Photos"                                    # the avatar selfie stays in on-device SecureStore
+      - "Contacts / Calendar"                       # no library, no permission
+      - "Web browsing history"
+      - "Installed apps"                            # getSpeechRecognitionServices() is a local probe, never transmitted
+      - "In-app search history"
+      - "Device or other IDs"                       # no ad ID, no Android ID, no Firebase installation ID
+
+  # -------- the matrix. One block per Play data type that IS declared. -------
+  data_types:
+
+    - play_path: "Personal info → Name"
+      collected: true
+      shared: true
+      processed_ephemerally: false
+      required_or_optional: "Optional — users can choose whether it's collected"
+      purposes: ["App functionality", "Account management"]
+      what_it_actually_is: >
+        The Firebase account display name (populated when the user signs in with
+        Google), a self-declared display name a user may type when starting or
+        joining a call, and the names a user attaches to voices ("Mom", "Alex").
+      why_shared: >
+        Call members see each other's display names, and a therapist who is
+        granted an episode sees the speaker labels the patient set.
+      proof:
+        - apps/mobile/src/store/authStore.ts:62            # {uid, email, displayName} held client-side
+        - server/calls.py:1122-1132                        # display names persisted as episode speaker labels
+        - server/recordings_store.py:202-227               # meta.json manual_speaker_labels / manual_speaker_people
+
+    - play_path: "Personal info → Email address"
+      collected: true
+      shared: true
+      processed_ephemerally: false
+      required_or_optional: "Required"
+      purposes: ["App functionality", "Account management"]
+      what_it_actually_is: >
+        The account's sign-in email. Stored server-side inside therapist links,
+        inside every share grant, and in the watch-domain account record. Also
+        included verbatim in the auto-sent diagnostics report.
+      why_shared: >
+        A therapist sees the patient's email on shared sessions and vice versa,
+        and a patient names their therapist BY email.
+      proof:
+        - server/auth.py:83-104,107-122                    # resolve_uid_by_email / resolve_email_by_uid
+        - server/therapist_links.py:58-67                  # patient_email + therapist_email persisted
+        - server/recordings_store.py:895-899,907-912       # share grant + reverse index carry emails
+        - server/routers/sessions.py:713-744               # shared rows labelled with the owner's email
+        - apps/mobile/src/diagnostics/diagnostics.ts:164-201,210-225  # email inside the diagnostics payload
+
+    - play_path: "Personal info → User IDs"
+      collected: true
+      shared: true
+      processed_ephemerally: false
+      required_or_optional: "Required"
+      purposes: ["App functionality", "Account management", "Fraud prevention, security, and compliance"]
+      what_it_actually_is: >
+        The Firebase Auth uid. It is the tenancy key for literally everything —
+        every stored object lives under recordings/{uid}/ or voiceprints/{uid}/,
+        which is what makes it impossible for one account to read another's data.
+      why_shared: >
+        A share recipient's client receives the owner's uid in the
+        "shared with me" listing.
+      proof:
+        - server/auth.py:69-80                             # verify_id_token -> uid
+        - server/recordings_store.py:29-32                 # every read/write/delete scoped under recordings/{uid}/
+        - server/recordings_store.py:851-859               # shared/{recipient_uid}/{owner_uid}:{rid}.json
+        - server/main.py:3232-3264                         # GET /recordings returns shared_with_me
+
+    - play_path: "Personal info → Other info"
+      collected: true
+      shared: false
+      processed_ephemerally: false
+      required_or_optional: "Optional — users can choose whether it's collected"
+      purposes: ["App functionality", "Personalization"]
+      what_it_actually_is: >
+        THE VOICEPRINT. A 192-number ECAPA-TDNN speaker embedding — a biometric
+        identifier — computed from the user's (or an enrolled person's) speech
+        and stored as JSON in Google Cloud Storage under voiceprints/{uid}/.
+        Play's Data safety form has no "biometrics" category, so it belongs
+        here; the privacy policy names it explicitly. The raw audio it was
+        derived from is NOT kept for the guided-clip path.
+      why_not_shared: >
+        The embedding is never sent to Deepgram, Anthropic, or any other third
+        party — nothing in audio_pipeline.py or llm_client.py puts an embedding
+        into an outbound provider payload. The only place it leaves the server is
+        back to the enrolling account's own phone, on an explicit
+        include_embeddings=true request, so the phone can match speakers locally.
+      user_can_delete: "Yes — Settings → Advanced → Forget my voice, and per-person / per-sample deletes."
+      proof:
+        - server/speaker_id.py:52,245-266                  # EMBEDDING_DIM = 192; embed_pcm -> l2_normalize
+        - server/recordings_store.py:1018-1023,1048-1055   # 'biometric data'; voiceprints/{uid}/{person_id}/profile.json
+        - server/routers/voice.py:450-452                  # "a numeric voice signature (192 numbers), not your audio"
+        - server/routers/voice.py:559-605                  # include_embeddings=true — uid-scoped, opt-in, to the owner only
+        - server/routers/voice.py:1055-1067                # DELETE /voice/voiceprint — real delete, no tombstone
+        - apps/mobile/src/live/speakerId.ts:169-186        # phone holds them in memory only, never persisted
+
+    - play_path: "Messages → Other in-app messages"
+      collected: true
+      shared: true
+      processed_ephemerally: false
+      required_or_optional: "Required"
+      purposes: ["App functionality"]
+      what_it_actually_is: >
+        The transcript of the user's conversation — the core working material.
+        Turns, speaker labels, timings, the tone numbers the phone measured, the
+        coaching suggestions generated for them, and any free-text note a
+        therapist writes on an episode.
+      why_shared: >
+        Transcript text is sent to Anthropic (Claude) to generate the coaching
+        suggestions — raw and unredacted, with no PII scrubbing. And a therapist
+        the user named gets full read access to the transcript and analysis.
+      retention_truth: >
+        Live sessions keep NOTHING server-side while they run (a bounded
+        in-memory list, explicitly not persisted). A transcript becomes stored
+        only when the phone POSTs the finished session, or when an upload is
+        made with consent. Once stored there is no TTL — it lives until deleted.
+      proof:
+        - server/audio_pipeline.py:1179-1195               # _turn_prompt — raw text into the Anthropic prompt
+        - server/llm_client.py:638-650                     # the Anthropic messages.create request shape
+        - server/llm_client.py:474-479                     # client built with api_key/timeout/retries ONLY — no ZDR header
+        - server/audio_pipeline.py:1307-1310               # live transcript "Deliberately NOT persisted anywhere"
+        - server/recordings_store.py:20-24,248-253         # turns.json + analysis.json in GCS when stored
+        - server/main.py:3405-3430                         # a share recipient reads the owner's transcript + analysis
+        - server/recordings_store.py:1184-1190             # therapist_notes/{uid}/{episode_id}.json
+
+    - play_path: "Audio files → Voice or sound recordings"
+      collected: true
+      shared: true
+      processed_ephemerally: false
+      required_or_optional: "Required"
+      purposes: ["App functionality"]
+      what_it_actually_is: >
+        Microphone audio. During a live session the phone streams raw 16 kHz mono
+        PCM to the MindShift server continuously — this happens whether or not the
+        "on-device coaching" toggle is on; the on-device loop runs ALONGSIDE the
+        upload, not instead of it. Uploaded recordings (files or in-app captures)
+        are sent whole. Voice-enrollment clips are uploaded as WAV.
+      why_shared: >
+        The server streams that PCM to Deepgram (wss://api.deepgram.com/v1/listen,
+        model nova-3, diarize=true) for transcription; uploads are POSTed to
+        Deepgram's prerecorded endpoint. Coaching text (not user audio) is also
+        POSTed to Deepgram Aura for text-to-speech. A therapist granted an episode
+        can PLAY BACK its stored audio, not just read it.
+      what_is_actually_kept: >
+        Live audio is never written to disk anywhere on the server — the only
+        retention is a 90-second in-memory ring buffer that dies with the socket.
+        Uploads are process-and-discard unless the user ticks consent AND storage
+        is enabled, and even then only a compressed AAC derivative is kept, never
+        the original bytes. The watch domain is the exception: it stores raw PCM
+        (captures/{account}/{id}.pcm in GCS, and base64 PCM inside Firestore
+        live_session docs).
+      proof:
+        - apps/mobile/src/hooks/useAudioStream.ts:932,960-964,1230  # PCM to the WS on every live session
+        - apps/mobile/src/hooks/useAudioStream.ts:1843-1875         # streaming starts unconditionally; fast loop starts after
+        - server/audio_pipeline.py:106-117,432-437,470              # Deepgram live: URL, auth header, ws.send(audio)
+        - server/audio_ingest.py:48-61,528-539                      # Deepgram prerecorded: URL, params, payload
+        - server/audio_pipeline.py:125-126,762-767                  # Deepgram Aura TTS (coaching text)
+        - server/audio_pipeline.py:183,946-1016                     # PcmRingBuffer, 90 s, in-memory, dies with the connection
+        - server/main.py:2830-2836,2945,3131-3135                   # triple-gated storage; consent defaults false
+        - server/recordings_store.py:17-18,238-244                  # derivatives only, never the original bytes
+        - server/routers/sessions.py:556-562                        # live episodes: media_type "none", "no audio kept"
+        - server/watch/routers/captures.py:85-88,190                # captures/{account}/{id}.pcm — RAW PCM at rest
+        - server/watch/store.py:37,56-84                            # pcm_b64 raw audio inside the Firestore doc
+        - apps/mobile/src/api/client.ts:2031                        # POST /voice/enroll-direct (WAV upload)
+        - server/main.py:3796-3830                                  # a share recipient gets a playback token for the OWNER's media
+
+    - play_path: "Photos and videos → Videos"
+      collected: true
+      shared: true
+      processed_ephemerally: false
+      required_or_optional: "Optional — users can choose whether it's collected"
+      purposes: ["App functionality"]
+      what_it_actually_is: >
+        Video the user records in the app (480p, 10-minute cap) or picks from
+        their device, uploaded for analysis. It is also written to the user's own
+        camera roll, which is a local action, not collection.
+      why_shared: >
+        The upload path sends a 16 kHz WAV downmix to Deepgram — but when ffmpeg
+        cannot produce that downmix it falls back to POSTing the ORIGINAL
+        container bytes, i.e. the video itself, to Deepgram. And a therapist
+        granted the episode can play the stored 360p derivative.
+      optional_because: >
+        Video is only involved if the user chooses to record or upload one. The
+        live coaching path never touches the camera; in-app calls are audio-only.
+      proof:
+        - apps/mobile/src/screens/RecordScreenNative.tsx:113,270-323  # 480p capture; MediaLibrary.Asset.create
+        - apps/mobile/src/api/client.ts:663,867,887                   # /analyze/upload and the chunked path
+        - server/audio_ingest.py:451-470,528-534                      # downmix, else the original container bytes go to Deepgram
+        - server/recordings_store.py:241-244                          # video_360p.mp4 derivative only
+        - apps/mobile/src/live/call/callSession.ts:22-25              # calls are audio-only
+
+    - play_path: "App activity → Other user-generated content"
+      collected: true
+      shared: true
+      processed_ephemerally: false
+      required_or_optional: "Optional — users can choose whether it's collected"
+      purposes: ["App functionality", "Personalization"]
+      what_it_actually_is: >
+        Everything the user types or configures around a session: session titles,
+        the names attached to voices, the relationship/role configuration, the
+        empathy-slider setting, and a therapist's private free-text notes on an
+        episode (capped at 5000 chars).
+      why_shared: "Speaker labels and titles travel with an episode a therapist is granted."
+      proof:
+        - server/recordings_store.py:202-227                # meta.json: title, manual_speaker_labels, source
+        - server/main.py:836-848                            # voice_profiles (suggestion/rephrase pairs, style_notes)
+        - server/therapist_links.py:44                      # note cap 5000 chars
+        - server/recordings_store.py:1258-1263              # therapist_notes write
+
+    - play_path: "App activity → App interactions"
+      collected: true
+      shared: false
+      processed_ephemerally: false
+      required_or_optional: "Required"
+      purposes: ["App functionality", "Analytics"]
+      what_it_actually_is: >
+        The "last session" record inside the diagnostics report: session mode,
+        turn count, latency percentiles, live status string, STT restart count,
+        WebSocket reconnect count, mic error text, the POST status.
+      required_because: >
+        It is sent automatically, without a prompt, whenever a session ended with
+        any error. There is no opt-out, so it must be declared Required —
+        declaring it Optional would be the mismatch that gets an app flagged.
+      proof:
+        - apps/mobile/src/diagnostics/diagnostics.ts:84-104,235-239
+        - apps/mobile/src/hooks/useAudioStream.ts:1069-1073   # void store.send("auto", {uid, email})
+
+    - play_path: "App info and performance → Crash logs"
+      collected: true
+      shared: false
+      processed_ephemerally: false
+      required_or_optional: "Required"
+      purposes: ["App functionality", "Analytics"]
+      what_it_actually_is: >
+        Error names, messages and stack traces, sent to MindShift's own server
+        (POST /telemetry and POST /client-log). No third-party crash SDK is
+        involved — there is no Crashlytics and no Sentry.
+      proof:
+        - apps/mobile/src/diagnostics/diagnostics.ts:235-239
+        - apps/mobile/src/api/client.ts:518-542               # POST /client-log
+        - server/watch/routers/telemetry.py:54,74,104         # message/stack stored, clamped
+        - server/main.py:5302-5311                            # /client-log: uid + up to 2000 chars
+
+    - play_path: "App info and performance → Diagnostics"
+      collected: true
+      shared: false
+      processed_ephemerally: false
+      required_or_optional: "Required"
+      purposes: ["App functionality", "Analytics"]
+      what_it_actually_is: >
+        Device model, brand and manufacturer; OS version; app version, build and
+        runtime version; the EAS update id and channel; a per-report random
+        diagnostics id; and a capability probe (does this phone have on-device
+        STT / a local LLM). Sent with the same auto-report as above.
+      note_expo_updates: >
+        Separately, expo-updates contacts https://u.expo.dev on EVERY app load
+        (checkAutomatically: ON_LOAD). That request carries runtime version,
+        platform, channel and current-update-id headers plus the requesting IP —
+        device/runtime metadata to a third party (Expo), on every launch. It
+        carries no app content. It is disclosed in the privacy policy.
+      proof:
+        - apps/mobile/src/diagnostics/diagnostics.ts:106-133,135-162
+        - apps/mobile/app.json:11-15                          # u.expo.dev, ON_LOAD
+        - apps/mobile/package.json:37                         # expo-updates ~57.0.8
+
+  third_parties_to_name_in_the_privacy_policy:
+    # These must match the policy word for word.
+    - name: "Deepgram"
+      role: "Speech-to-text (live + uploaded audio) and text-to-speech for the spoken coaching."
+      receives: "Microphone audio / uploaded media, and the coaching text for TTS."
+      proof: [server/audio_pipeline.py:106, server/audio_ingest.py:48, server/audio_pipeline.py:125-126]
+    - name: "Anthropic (Claude)"
+      role: "Generates the coaching suggestions and the tone/analysis output."
+      receives: "Conversation transcript text, unredacted, plus the tone numbers the phone measured."
+      model: "claude-3-haiku-20240307 (default, MINDSHIFT_MODEL)"
+      proof: [server/llm_client.py:347,474-479,638-650, server/audio_pipeline.py:1139-1195]
+    - name: "Google (Firebase Authentication)"
+      role: "Sign-in and identity. Project arborfam-hub."
+      receives: "Email, password/Google credential, display name."
+      proof: [apps/mobile/src/auth/firebaseConfig.ts:14-30, server/auth.py:32,69-80]
+    - name: "Google Cloud (Cloud Run, Cloud Storage, Firestore)"
+      role: "Runs the MindShift backend and stores everything the user chose to keep."
+      receives: "Everything stored — audio derivatives, video derivatives, transcripts, analysis, voiceprints, links, notes."
+      proof: [scripts/deploy_cloudrun.sh:108-109,126-129,210-221, server/recordings_store.py:53-73]
+    - name: "Google / Apple platform speech services"
+      role: "On-device transcription on the phone."
+      honest_caveat: >
+        The app asks for on-device recognition explicitly
+        (requiresOnDeviceRecognition: true, and on Android pins the recognizer to
+        com.google.android.as, Android System Intelligence). But the recognizer is
+        the platform's, not MindShift's, and MindShift cannot contractually
+        guarantee the OS never contacts its vendor — the code even treats
+        "network" as a restartable recognizer error. Say this plainly rather than
+        claiming audio never leaves the device on that path.
+      proof: [apps/mobile/src/live/expoStt.ts:50,167-179, apps/mobile/src/live/expoStt.ts:55-62, apps/mobile/app.json:117-120]
+    - name: "Cloudflare (Realtime TURN)"
+      role: "Relays in-app call audio when a direct peer-to-peer path cannot be established."
+      receives: "Encrypted SRTP packets it cannot read, plus connection metadata. No transcripts, no account data."
+      proof: [server/calls.py:274-287, env.example:117-123]
+    - name: "Expo (EAS Update)"
+      role: "Over-the-air app updates."
+      receives: "Runtime version, platform, channel, current-update-id and IP, on every app launch."
+      proof: [apps/mobile/app.json:11-15]
+
+  _judgement_calls:
+    - field: "Health and fitness → Health info"
+      declared: "Not collected"
+      reasoning: >
+        Play defines health info as "information about a user's health, such as
+        medical records or symptoms". MindShift stores conversation transcripts
+        and communication-quality scores (warmth, defensiveness, escalation) —
+        not diagnoses, symptoms, medications or medical records. The product
+        explicitly disclaims being a counseling replacement or a medical tool,
+        and is not HIPAA-certified.
+      counter_argument_the_owner_should_weigh: >
+        The app is sold to couples therapists and a therapist can hold clinical
+        notes on a patient's episodes. If MindShift ever adds a clinical
+        assessment, a diagnosis, or an integration with a medical record, flip
+        this to Collected and update the privacy policy in the same change.
+      proof: [PRD.md:22, PRD.md:248-254, server/recordings_store.py:1184-1190]
+    - field: "Store listing category"
+      declared: "Communication"
+      reasoning: >
+        Deliberately NOT "Health & Fitness" or "Medical". Those categories pull
+        the app into Play's Health apps declaration and health-content policy,
+        which is the wrong regime for a tool that explicitly is not a medical
+        device. "Communication" is honest: the app hosts calls and coaches
+        conversations.
+    - field: "Sharing with a therapist declared as Shared"
+      declared: "Shared = Yes"
+      reasoning: "See _reading_note at the top of this section."
+
+  _open_risks_the_owner_should_know_about:
+    - "No account-deletion endpoint or UI exists (see known_gap_owner_must_close)."
+    - >
+      No provider-side retention controls are configured: no Anthropic
+      zero-data-retention / no-training header (server/llm_client.py:474-479) and
+      no Deepgram redact/no_store parameters (server/audio_pipeline.py:107-117,
+      server/audio_ingest.py:52-61). Each vendor's account default governs. Both
+      vendors' business terms do bar training on API traffic by default; the
+      privacy policy says so without over-promising.
+    - >
+      Stored user content has NO retention limit at all — no bucket lifecycle
+      rule, no TTL, no scheduled deletion anywhere in the repo. The policy says
+      "until you delete it", which is the truth.
+    - >
+      POST/GET /telemetry are unauthenticated by design
+      (server/watch/routers/telemetry.py:91,115) and the ?account= legacy
+      identity bridge is on by default in production
+      (server/watch/config.py:13-16, scripts/deploy_cloudrun.sh:130-131). Neither
+      changes a Data safety answer, but both are security debt.
+    - >
+      server/llm_cache.py writes prompt + response text to disk with no TTL
+      (server/llm_cache.py:66-69). It is test-only today — no production code
+      path imports it — but it ships inside server/ and the Dockerfile copies
+      server/. Worth deleting from the image.
+    - >
+      Deleting a therapist link does NOT revoke episode grants already made
+      (server/routers/therapist.py:12-14). The privacy policy states this
+      explicitly so the declaration and the behaviour agree.
+
+# ===========================================================================
+# 6. Government apps  (Policy → App content → Government apps)
+# ===========================================================================
+government_apps:
+  question: "Is your app developed by or on behalf of a government?"
+  value: "No"
+  why: "Independent developer (Sage Arbor), no government affiliation or contract."
+
+# ===========================================================================
+# 7. Other App content declarations Play will ask for
+# ===========================================================================
+other_declarations:
+  financial_features:
+    value: "My app doesn't provide any financial features"
+  health_apps:
+    value: "Not applicable — the app is not in a Health category and does not use Health Connect."
+    note: >
+      If the console forces this form (it appears for Health & Fitness / Medical
+      category apps), that means the store-listing category was set wrong. Fix
+      the category to Communication instead of filling this form in.
+  data_deletion:
+    value: "https://arborfam-hub.web.app/delete-account"
+  news_apps:
+    value: "No"
+  covid_19_apps:
+    value: "No"
+  advertising_id:
+    question: "Does your app use an advertising ID?"
+    value: "No"
+    why: >
+      com.google.android.gms.permission.AD_ID is not declared and no advertising
+      identifier is read anywhere. Note that Expo SDK 57 does not add it
+      implicitly; if the merged manifest of a built AAB ever shows AD_ID, a
+      dependency added it and this answer must be re-checked against the AAB.
+    proof: apps/mobile/app.json:31-40
+  privacy_policy:
+    value: "https://arborfam-hub.web.app/privacy"
+    note: "Paste this into BOTH App content → Privacy policy and the store listing."
+
+# ===========================================================================
+# 8. Main store listing  (Grow → Store presence → Main store listing)
+# ===========================================================================
+store_listing:
+  app_name:
+    value: "MindShift: Empathy Coach"
+    char_count: 24
+    limit: 30
+    note: >
+      The installed launcher label stays "MindShift" (apps/mobile/app.json:3) —
+      the store name may differ and this one says what it is.
+  short_description:
+    value: "Real-time coaching for hard conversations. Hear how you land, as you speak."
+    char_count: 75
+    limit: 80
+  full_description:
+    char_count: 3260
+    limit: 4000
+    value: |
+      MindShift is an empathy coach that listens while you talk and tells you,
+      in the moment, how what you just said is likely to land — and what you
+      could say instead.
+
+      Most communication advice arrives too late. You read the book, you agree
+      with it, and then Tuesday night happens and you say the thing anyway.
+      MindShift works in the ninety seconds where it matters: while the
+      conversation is still in front of you.
+
+      HOW IT WORKS
+
+      Start a session, put one earbud in, and talk. MindShift transcribes the
+      conversation, tracks the tone on both sides, and offers short, specific
+      alternatives you can actually say out loud. An empathy slider decides the
+      stance — from "hold your boundary" at one end to "pure validation" at the
+      other — so the coaching matches what this conversation needs rather than a
+      generic script.
+
+      When the conversation is over, you get the part that is genuinely hard to
+      see from the inside: where it turned, who escalated first, and the two or
+      three moments where a different sentence would have changed the next ten
+      minutes.
+
+      BUILT WITH THERAPISTS IN MIND
+
+      MindShift began as a tool for couples therapy, and it still shows.
+
+      • Share a session with your therapist by email. They see the transcript,
+        the tone timeline, and the analysis — and can keep private notes on it.
+      • Progress you can point at. Warmth, defensiveness, escalation and repair
+        are tracked over weeks, so "we're doing better" stops being a feeling and
+        becomes a line on a chart.
+      • Homework that produces evidence. The between-sessions conversations are
+        where the work actually happens; this is a way to bring them into the room.
+
+      IN-APP CALLS
+
+      Phone calls lock other apps out of the microphone, so MindShift hosts the
+      call itself. Two people can talk with each side coached separately and
+      privately — you never see the suggestions written for the other person — and
+      a therapist can sit in as a silent observer, seeing the shared transcript
+      and both sides' coaching. The audio goes peer-to-peer; MindShift's server
+      only introduces the two phones to each other.
+
+      RECORD OR UPLOAD
+
+      Not every conversation is a live one. Record audio or video in the app, or
+      upload something you already have, and get the same analysis: who spoke,
+      how it landed, and what a better version of the sticky part would have
+      sounded like.
+
+      PRIVACY, PLAINLY
+
+      This app hears private conversations, so here is the short version, and the
+      full version is at https://arborfam-hub.web.app/privacy.
+
+      • Nothing is stored unless you ask for it. A live coaching session keeps
+        no audio at all — audio is transcribed as it streams and thrown away.
+      • Recordings are opt-in, one at a time, with a consent tick.
+      • Your voice signature is a set of numbers, not a recording, and one tap
+        in Settings deletes it.
+      • Sharing is something you do on purpose, to one therapist you name by
+        email, and you can revoke it.
+      • No ads. No advertising SDKs. Nothing sold to anyone, ever.
+
+      WHAT IT IS NOT
+
+      MindShift is a communication coach, not therapy, not counselling, and not a
+      medical or mental-health service. It does not diagnose or treat anything.
+      If you or someone else is in crisis, contact a qualified professional or
+      your local emergency services.
+
+      Requires a free account and a microphone. English only for now.
+  app_category:
+    value: "Communication"
+    alternative_if_rejected: "Lifestyle"
+    do_not_use: ["Health & Fitness", "Medical"]
+    why: "See data_safety._judgement_calls — those categories trigger the Health apps regime."
+  tags:
+    # Play lets you pick up to 5 from a fixed list; these are the closest matches.
+    value: ["Voice Calling", "Self-Improvement", "Relationships", "Speech Recognition", "Note Taking"]
+    note: >
+      The tag list is fixed and changes over time. Pick the nearest available
+      options; do not create anything. If "Relationships" is absent, use
+      "Personal Growth" or "Lifestyle".
+  contact_details:
+    email: sagearbor@gmail.com
+    phone: "OWNER_MUST_SUPPLY (optional — Play does not require it; leave blank)"
+    website: "https://arborfam-hub.web.app"
+    privacy_policy: "https://arborfam-hub.web.app/privacy"
+  external_marketing:
+    value: "Leave unchecked (no external marketing / no Google-run promotion)."
+
+# ===========================================================================
+# 9. Graphics
+# ===========================================================================
+graphics_checklist:
+  app_icon:
+    required: "512 × 512 PNG (32-bit, with alpha), ≤ 1 MB"
+    already_exists_at: apps/mobile/assets/play/store-icon-512.png
+    verified: "PNG 512×512 — correct size, ready to upload as-is."
+    source_of_truth: apps/mobile/assets/icon.png   # 1024×1024, the in-app icon
+    note: "Do not regenerate. Upload the 512 file above."
+  feature_graphic:
+    required: "1024 × 500 PNG or JPEG, no alpha, ≤ 15 MB"
+    already_exists_at: apps/mobile/assets/play/feature-graphic.png
+    verified: "PNG 1024×500 — correct size, ready to upload as-is."
+  phone_screenshots:
+    required: "2–8 images, 16:9 or 9:16, each side 320–3840 px, PNG or JPEG"
+    already_exist_at:
+      - apps/mobile/assets/play/screenshots/mindshift-1-hero.png       # 1080×1920
+      - apps/mobile/assets/play/screenshots/mindshift-2-empathy.png    # 1080×1920
+      - apps/mobile/assets/play/screenshots/mindshift-3-earpiece.png   # 1080×1920
+    dimension_check: "All three are 1080×1920 — valid phone screenshots."
+    IMPORTANT: >
+      Play requires screenshots to depict the actual in-app experience. Before
+      uploading, open each of the three files and confirm it shows real MindShift
+      UI rather than a marketing render. If any of them is a mockup, replace it —
+      a listing built on renders is a rejection risk and, more practically, a bad
+      listing.
+    what_to_capture_if_they_must_be_retaken:
+      # On the Pixel 10, install the build, then screenshot exactly these.
+      - screen: "Live Coach, mid-session"
+        how: "Home → Live Coach → Start, speak for ~30 s until 2–3 suggestion cards and a live transcript are on screen, then screenshot."
+        why: "This is the product. It must be screenshot #1."
+        file: apps/mobile/src/screens/LiveCoachScreen.tsx
+      - screen: "The empathy slider set to a non-default value"
+        how: "In Live Coach, drag the empathy slider toward 'Empathetic' so the label and the suggestion tone visibly change, then screenshot."
+        why: "The single most differentiating control; explains the product in one image."
+        file: apps/mobile/src/components/EmpathySlider.tsx
+      - screen: "Replay of a finished session"
+        how: "Recordings → open a session → the transcript with per-turn tone heat and the 'what you could have said' cards."
+        why: "Shows the after-the-fact value, which is what sells it to a therapist."
+        file: apps/mobile/src/screens/ReplayScreen.tsx
+      - screen: "Growth over time"
+        how: "Home → Growth → the warmth/escalation chart with at least two weeks of sessions."
+        why: "The measurable-progress claim in the description needs a picture."
+        file: apps/mobile/src/screens/GrowthScreen.tsx
+      - screen: "Call panel (optional 5th)"
+        how: "Home → Call → the pre-flight panel + an active call with the merged transcript."
+        why: "The user-to-user feature declared in the content rating."
+        file: apps/mobile/src/components/CallPanel.tsx
+    owner_action: >
+      Retaking screenshots needs the app running on the Pixel 10 and a real
+      session with speech. An agent cannot do this. If the three existing files
+      are real UI, nothing is needed.
+  tablet_screenshots:
+    value: "Skip — not required, and the app is phone-first (orientation: portrait)."
+    proof: apps/mobile/app.json:7
+  wear_os_screenshots:
+    value: "Skip — the Wear OS companion is a separate listing (com.sagearbor.gauge.wear)."
+    proof: apps/mobile/src/screens/WatchSetupScreen.tsx:21-22
+  promo_video:
+    value: "Leave blank."
+
+# ===========================================================================
+# 10. Notes for the browser agent
+# ===========================================================================
+notes_for_the_agent:
+  hard_rules:
+    - "NEVER create, edit, promote, roll out or publish a release. Not to production, not to a testing track, not as a draft. Nothing under 'Release' or 'Testing' is in scope."
+    - "NEVER press Submit on the content-rating questionnaire. Fill every answer, land on the review/summary screen, screenshot it, stop."
+    - "NEVER press 'Send for review' / 'Submit for review' on the Data safety form. Save the draft and stop at the summary."
+    - "NEVER invent a credential, a phone number, a company name or an address. Any field this pack marks OWNER_MUST_SUPPLY is left blank and reported."
+    - "NEVER change the developer account settings, payment profile, users & permissions, or API access."
+    - "NEVER accept a new Play agreement or policy acknowledgement on the owner's behalf."
+  save_behaviour:
+    - "Play autosaves some forms and requires an explicit Save on others. Press Save on each section when it is offered — saving a draft is fine and expected."
+    - "The Data safety form is a multi-step wizard; 'Next' through it and Save. Only the final 'Submit' is off-limits."
+  what_to_skip_entirely:
+    - "Store settings → app category is set in the store listing; do not touch Tags beyond what section 8 lists."
+    - "Pricing & distribution / countries — owner decision, not in this pack."
+    - "Any Play Console prompt about ads, Google Analytics linking, or App Campaigns."
+    - "Anything under Monetise."
+  when_something_does_not_match_this_pack:
+    value: >
+      Play's forms change wording constantly. If a question here does not exist,
+      skip it. If a question exists that is NOT here, go to section 11
+      (`catch_all`) — it has one-line answers for essentially every other field
+      the console can show, plus a decision rule for the residue. Only if the
+      question survives all of that should you fall back to recording the exact
+      question text and every option offered, and reporting it. A wrong Data
+      safety answer is worse than an unfinished form.
+    see_also: "catch_all.decision_rule_for_any_question_not_in_this_pack"
+  report_back_with:
+    - "Every section completed, and the state each was left in (draft / saved / ready for owner to submit)."
+    - "Every OWNER_MUST_SUPPLY field left blank."
+    - "The exact text of any question not covered by this pack."
+    - "A screenshot of the content-rating summary screen and the Data safety summary screen."
+
+# ===========================================================================
+# 11. Catch-all — everything else the console can ask, and what to do when it
+#     asks something this pack does not name.
+#     Read this section BEFORE guessing at anything.
+# ===========================================================================
+catch_all:
+
+  decision_rule_for_any_question_not_in_this_pack:
+    rule: >
+      Answer with the CONSERVATIVE option — the one that claims LESS about the
+      app and MORE about the data. Concretely: if the question is "does the app
+      contain / do / show X", the answer is almost always No (this app contains
+      no authored media, no ads, no purchases, no gambling, no location, no
+      social graph). If the question is "do you collect / share / store Y", look
+      it up in `data_safety.data_types` first; if it is genuinely not there,
+      answer Yes and pick "App functionality" as the purpose rather than
+      answering No. Under-claiming what you collect is the one mistake that gets
+      an app enforced against; over-claiming never is.
+    then: >
+      Record the exact question text and every option offered, and put it in the
+      report so the pack can be corrected. A guess that is never reported is a
+      guess that silently becomes wrong for the other seven apps too.
+
+  one_line_answers_for_the_whole_console:
+    # If a form asks any of these in any wording, this is the answer.
+    app_or_game: "App"
+    free_or_paid: "Free"
+    contains_ads: "No"
+    in_app_purchases: "No"
+    contains_gambling: "No"
+    real_money_gambling_or_games_of_skill: "No"
+    is_a_browser: "No"
+    is_a_launcher_or_home_screen_replacement: "No"
+    is_a_vpn: "No"
+    uses_accessibility_services: "No"
+    uses_device_admin_or_special_permissions: "No"
+    requests_all_files_access_MANAGE_EXTERNAL_STORAGE: "No"
+    requests_package_visibility_QUERY_ALL_PACKAGES: "No"
+    uses_exact_alarms: "No"
+    uses_sms_or_call_log_permissions: "No"
+    uses_photo_and_video_permissions_broad_access: "No"
+    uses_health_connect: "No"
+    is_a_medical_device_or_makes_medical_claims: "No"
+    is_a_covid_19_contact_tracing_or_status_app: "No"
+    is_a_news_app: "No"
+    is_a_dating_app: "No"
+    is_a_financial_or_lending_app: "No"
+    is_a_government_app: "No"
+    is_a_kids_or_family_app: "No"
+    contains_user_generated_content: "Yes — a user's own conversation transcripts, visible only to them and to a therapist they name."
+    allows_user_to_user_interaction: "Yes — in-app audio calls and therapist sharing. Invite-only; no discovery, no strangers."
+    has_a_content_moderation_system: "No — there is no public or shared surface to moderate. Content is private to the account and to people the user personally invited."
+    has_an_in_app_user_reporting_mechanism: "No — for the same reason. Abuse reports go to sagearbor@gmail.com."
+    shares_location_between_users: "No"
+    uses_an_advertising_id: "No"
+    sells_personal_data: "No"
+    transfers_data_outside_the_users_country: "Yes — the backend and its storage run in Google Cloud in the United States."
+    target_countries: "OWNER_MUST_SUPPLY — distribution is an owner decision, not part of this checklist."
+    app_name_translations: "None. English only."
+    promo_video: "None."
+
+  data_safety_wizard_screen_by_screen:
+    # The Data safety form is a multi-step wizard. These are the screens in order.
+    step_1_overview:
+      - "Does your app collect or share any of the required user data types? → Yes"
+      - "Is all of the user data collected by your app encrypted in transit? → Yes"
+      - "Do you provide a way for users to request that their data is deleted? → Yes, and the URL is https://arborfam-hub.web.app/delete-account"
+    step_2_data_types:
+      instruction: >
+        Tick exactly the types listed in `data_safety.data_types` and nothing
+        else. `data_safety.overview.data_types_not_collected_at_all` is the
+        explicit list of what stays unticked.
+      tick_these:
+        - "Personal info → Name"
+        - "Personal info → Email address"
+        - "Personal info → User IDs"
+        - "Personal info → Other info"
+        - "Messages → Other in-app messages"
+        - "Photos and videos → Videos"
+        - "Audio → Voice or sound recordings"
+        - "App activity → App interactions"
+        - "App activity → Other user-generated content"
+        - "App info and performance → Crash logs"
+        - "App info and performance → Diagnostics"
+    step_3_data_usage_and_handling:
+      instruction: >
+        Play asks the SAME four questions for every ticked type. Read them off
+        the matching block in `data_safety.data_types`:
+          1. Is this data collected, shared, or both?          → `collected` / `shared`
+          2. Is this data processed ephemerally?               → `processed_ephemerally`
+          3. Is this data required, or can users choose?       → `required_or_optional`
+          4. Why is this data collected/shared? (tick all)     → `purposes`
+      purpose_options_and_which_ones_ever_apply:
+        app_functionality: "Applies to every declared type."
+        analytics: "Only App interactions, Crash logs, Diagnostics."
+        developer_communications: "Never."
+        advertising_or_marketing: "NEVER. There are no ads. Do not tick this on anything."
+        fraud_prevention_security_and_compliance: "Only User IDs."
+        personalization: "Only Personal info → Other info (the voiceprint) and Other user-generated content."
+        account_management: "Only Name, Email address, User IDs."
+    step_4_review_and_submit:
+      value: "See `notes_for_the_agent.hard_rules` before pressing anything on this screen."
+
+  content_rating_extra_questions_that_sometimes_appear:
+    - question: "Does the app allow users to communicate with each other via text, voice, or video?"
+      value: "Yes"
+    - question: "Are those communications between users who know each other, or can any user contact any other?"
+      value: "Users who already know each other — invite by email or a code shared out of band. No discovery, no matching, no public profiles."
+    - question: "Does the app allow users to share their own content with other users?"
+      value: "Yes — a user can share their own session with a therapist they name by email."
+    - question: "Is user-generated content moderated or reviewed before it is visible to others?"
+      value: "Not applicable — content is only ever visible to the person who created it and to someone they personally invited."
+    - question: "Does the app display user-generated content publicly?"
+      value: "No"
+    - question: "Does the app contain content that may be frightening or disturbing to children?"
+      value: "No"
+    - question: "Does the app contain crude humour?"
+      value: "No"
+    - question: "Does the app contain any references to illegal activity?"
+      value: "No"
+    - question: "Does the app provide unrestricted internet access (e.g. a browser or search engine)?"
+      value: "No"
+    - question: "Does the app allow users to share their personal information with third parties?"
+      value: "No — sharing is with a named therapist inside the app, not with third parties."
+
+  if_the_owner_has_authorised_submitting:
+    read_this_first: >
+      This pack's default (notes_for_the_agent.hard_rules) is to STOP at the
+      review screen of the content-rating questionnaire and the Data safety
+      form, because those were the terms this pack was written under. If the
+      owner has since told you to submit them, here is what actually changes —
+      so the decision is made with the facts rather than by vibes.
+    what_is_recoverable:
+      - "Content rating: re-openable and re-submittable at any time. A corrected questionnaire simply reissues the rating. Low risk."
+      - "Data safety: editable and re-submittable at any time. A correction takes effect on the next review. Low risk — but a WRONG declaration that goes live is a policy violation for as long as it stands, so correctness matters more than speed."
+      - "Store listing: editable at any time."
+      - "App access, target audience, ads, government apps: editable at any time."
+    what_is_NOT_recoverable_and_stays_forbidden_regardless:
+      - "Creating, promoting, rolling out or publishing a RELEASE. A published version cannot be unpublished from users who already installed it, and the version code is burned forever. Nothing under 'Release' or 'Testing' is in scope for this pack under any instruction."
+      - "Changing the developer account, payment profile, users & permissions, or API access."
+      - "Accepting a new Play agreement or policy acknowledgement on the owner's behalf."
+    the_one_thing_that_must_still_stop_you:
+      value: >
+        A field marked OWNER_MUST_SUPPLY — specifically the App access demo
+        credentials. Submitting App access with invented or blank credentials
+        gets the app rejected on review and burns days. Leave it, report it,
+        and complete every other section around it.
+
+# ===========================================================================
+# 12. Provenance — every data-safety claim, mapped to the code that proves it
+# ===========================================================================
+_provenance:
+  login_is_required_no_guest_mode:
+    - apps/mobile/App.tsx:416-425
+    - apps/mobile/src/screens/LoginScreen.tsx:26-49
+    - server/auth.py:125-141                      # Bearer required on REST
+    - server/audio_pipeline.py:1506-1545          # WS closes 4401 without a valid id_token
+  identity_provider_is_firebase_auth:
+    - apps/mobile/src/auth/firebaseConfig.ts:14-30
+    - server/auth.py:32,38-66,69-80
+  audio_leaves_the_device_on_every_live_session:
+    - apps/mobile/src/hooks/useAudioStream.ts:932
+    - apps/mobile/src/hooks/useAudioStream.ts:960-964
+    - apps/mobile/src/hooks/useAudioStream.ts:1230
+    - apps/mobile/src/hooks/useAudioStream.ts:1843-1875
+    - apps/mobile/src/live/fastLoop.ts:14-18
+  audio_goes_to_deepgram:
+    - server/audio_pipeline.py:106-117            # wss://api.deepgram.com/v1/listen, nova-3, diarize
+    - server/audio_pipeline.py:425-437,470        # key, auth header, ws.send(audio_bytes)
+    - server/audio_ingest.py:48-61,522-547        # prerecorded upload endpoint
+  coaching_text_goes_to_deepgram_for_tts:
+    - server/audio_pipeline.py:125-126,751-767
+  transcript_text_goes_to_anthropic_unredacted:
+    - server/audio_pipeline.py:1179-1195
+    - server/main.py:2245-2250
+    - server/llm_client.py:638-650
+    - server/audio_pipeline.py:326-337            # the only redaction in the codebase is for LOGS
+  no_provider_retention_opt_out_is_configured:
+    - server/llm_client.py:474-479                # no default_headers, no ZDR, no anthropic-beta
+    - server/audio_pipeline.py:107-117            # no redact / no_store params
+    - server/audio_ingest.py:52-61
+  a_transcript_turn_can_be_sent_to_anthropic_twice:
+    - server/llm_client.py:25-46,81-107,221-231   # hedged streaming
+  live_sessions_store_no_audio_and_no_transcript:
+    - server/audio_pipeline.py:183,946-1016       # 90 s in-memory ring buffer only
+    - server/audio_pipeline.py:1307-1310          # "Deliberately NOT persisted anywhere"
+    - server/audio_pipeline.py:2714-2748          # cleanup on disconnect
+    - server/routers/sessions.py:556-562          # stored live episode: media_type "none"
+  uploads_are_process_and_discard_unless_consented:
+    - server/main.py:491-493
+    - server/audio_ingest.py:20
+    - server/main.py:2830-2836,2945,3131-3135     # consent + store + bucket, consent defaults false
+    - server/audio_ingest.py:200-224,249-283,352-381  # ffmpeg temp files unlinked in finally
+  only_derivatives_are_stored_never_originals:
+    - server/recordings_store.py:17-18,168-200,238-244
+    - server/audio_ingest.py:131-143
+  what_is_stored_and_where:
+    gcs_recordings_bucket: "arborfam-hub-mindshift-recordings"
+    proof:
+      - scripts/deploy_cloudrun.sh:104-109
+      - server/recordings_store.py:53-73,18-32
+      - server/recordings_store.py:238-253         # audio.m4a, video_360p.mp4, meta.json, turns.json, analysis.json
+    gcs_captures_bucket: "arborfam-hub-mindshift-captures (watch domain — RAW PCM)"
+    proof_captures:
+      - scripts/deploy_cloudrun.sh:128-129
+      - server/watch/routers/captures.py:85-88,190
+    firestore_project: "arborfam-hub"
+    proof_firestore:
+      - scripts/deploy_cloudrun.sh:126-127
+      - server/watch/store.py:478-482
+      - server/watch/store.py:37,56-84             # live_sessions.pcm_b64 — base64 raw audio in the doc
+      - server/watch/store.py:600-621,632-640      # accounts, speaker_profiles
+    sqlite_ephemeral: "mindshift.db on the Cloud Run instance filesystem — resets on redeploy"
+    proof_sqlite:
+      - server/main.py:86-88,771-773,853-855
+  voiceprints_are_biometric_and_deletable:
+    - server/speaker_id.py:52,60-63,245-266
+    - server/recordings_store.py:1018-1023,1048-1055,1135-1154
+    - server/routers/voice.py:60-62,450-452,1009-1045,1055-1067,1077-1093
+    - server/routers/voice.py:744-747              # guided enrollment clip is NOT persisted
+  voiceprints_never_go_to_a_third_party:
+    - server/routers/voice.py:14-17,456-460,493-497   # embedding excluded from responses by default
+    - server/routers/voice.py:559-605                 # the one opt-in path, uid-scoped, to the owner's own device
+    - apps/mobile/src/live/speakerId.ts:169-186       # phone holds them in memory only
+  therapist_sharing_is_real_user_initiated_and_includes_media_playback:
+    - server/routers/therapist.py:113-142,145-157,160-164,193-220
+    - server/therapist_links.py:14-28,51-67,107-140
+    - server/main.py:3405-3430                     # shared transcript + analysis
+    - server/main.py:3796-3830                     # shared MEDIA playback token
+    - server/main.py:3728-3775,3776-3794           # per-episode grant + revoke
+    - server/recordings_store.py:949-960           # revocation is a fresh read, so it is immediate
+    - server/routers/therapist.py:12-14            # unlinking does NOT revoke existing grants
+    - server/calls.py:1155-1182                    # an in-call therapist is granted each participant's episode
+  in_app_call_audio_is_peer_to_peer_and_never_recorded:
+    - server/calls.py:15-21
+    - server/routers/calls.py:37-39
+    - server/calls.py:107-118                      # signaling only, 64 KiB cap, rate limited
+    - server/calls.py:1107-1157                    # what IS persisted: one transcript episode per participant
+    - apps/mobile/src/live/call/callSession.ts:22-25
+  turn_relay_is_cloudflare:
+    - server/calls.py:274-287,289-330
+    - env.example:117-123
+  on_device_stt_is_requested_but_not_guaranteed:
+    - apps/mobile/src/live/expoStt.ts:167-179      # requiresOnDeviceRecognition: true
+    - apps/mobile/src/live/expoStt.ts:50,176       # Android pinned to com.google.android.as
+    - apps/mobile/src/live/expoStt.ts:55-62        # "network" is a restartable recognizer error
+    - apps/mobile/src/live/expoStt.ts:82-105       # capability probe + offline model download
+    - apps/mobile/app.json:117-120                 # manifest declares visibility of the CLOUD recognizer too
+    - apps/mobile/src/live/sttWeb.ts:1-8           # the WEB build is unambiguously vendor-side
+  on_device_llm_makes_no_network_calls:
+    - apps/mobile/src/live/localLlm.ts:233-234,338-346,399-410
+    - apps/mobile/src/live/defaultDeps.ts:169
+  the_only_model_the_app_downloads_comes_from_our_own_server:
+    - apps/mobile/src/api/liveSessions.ts:155-157  # GET /models/ecapa.onnx
+    - apps/mobile/src/live/modelDownload.ts:1-32,110-216
+    - apps/mobile/src/live/ortNative.ts:9-11,54-64 # Silero VAD is bundled, never downloaded
+  diagnostics_are_auto_sent_with_uid_and_email:
+    - apps/mobile/src/diagnostics/diagnostics.ts:84-104,106-133,135-162,164-201,210-225,235-239
+    - apps/mobile/src/hooks/useAudioStream.ts:1069-1073
+    - apps/mobile/src/api/client.ts:518-542
+  expo_updates_contacts_a_third_party_on_every_launch:
+    - apps/mobile/app.json:11-15
+    - apps/mobile/package.json:37
+  no_ad_or_analytics_sdk:
+    - apps/mobile/package.json:14-51
+    - apps/mobile/src/auth/firebase.ts:1-12
+    - apps/mobile/app.json:31-40
+  encrypted_in_transit:
+    - scripts/deploy_cloudrun.sh:210-228
+    - server/audio_pipeline.py:81-92
+    - server/main.py:1413-1430                     # X-Forwarded-Proto -> https media URLs
+    - server/main.py:948-965                       # CORS allowlist, allow_credentials=False
+  encrypted_at_rest:
+    - server/recordings_store.py:68-72,238-253     # standard GCS bucket — Google-managed AES-256 by default
+    - server/watch/store.py:478-482                # standard Firestore — encrypted at rest by default
+    - note: "No CMEK anywhere in the repo, and no application-layer encryption. Stored objects are plaintext JSON/media inside an encrypted-at-rest bucket."
+  no_retention_limit_on_stored_content:
+    - note: "Repo-wide search finds no bucket lifecycle rule, no object TTL and no scheduled deletion."
+    - server/main.py:580-586,4687-4688             # the only real TTL: analysis job state, 24 h, lazily deleted
+    - server/main.py:1364-1365                     # media playback token, 900 s
+    - server/calls.py:96,100                       # call room 180 min / ended-call record 60 min, in memory

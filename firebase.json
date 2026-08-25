@@ -1,6 +1,8 @@
 {
   "hosting": {
     "public": "apps/mobile/dist",
+    "_comment_trailingSlash": "Serve /privacy and /delete-account (which are public/<name>/index.html) at their exact URLs with a 200 instead of Firebase's default 301 to /<name>/. Google Play validates the privacy-policy and data-deletion URLs it is given, so the URL in the Play Console must answer directly. Root and the SPA catch-all rewrite are unaffected.",
+    "trailingSlash": false,
     "ignore": [
       "firebase.json",
       "**/.*",
