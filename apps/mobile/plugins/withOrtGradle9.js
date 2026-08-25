@@ -25,6 +25,17 @@
 //    path doesn't exist ("No podspec found for `onnxruntime-react-native`",
 //    2026-08-24, first iOS prebuild on the new Mac). Rewrite the `:path` to
 //    wherever Node actually resolves the package, relative to ios/.
+//
+// 4. 16 KB memory page support. Play rejected the vc 36 production release
+//    with "Your app does not support 16 KB memory page sizes". Dumping the
+//    ELF program headers of every arm64 .so in the AAB found exactly ONE
+//    offender out of 25: `libonnxruntimejsi.so`, at p_align=4096. ORT's own
+//    prebuilt `libonnxruntime.so` is already fine — it is the small JSI shim
+//    that onnxruntime-react-native compiles from source that misses out,
+//    because its CMake invocation never opts into the NDK r27 flag that the
+//    React Native and Expo modules set for themselves. Pass it explicitly
+//    (plus the raw linker flag, so this holds on an NDK that doesn't know
+//    the option). Verify after a build with scripts/check_16kb_alignment.py.
 const path = require("path");
 const {
   withGradleProperties,
@@ -51,6 +62,24 @@ const SNIPPET = `allprojects {
   ext.VersionNumber = org.gradle.util.internal.VersionNumber
 }`;
 
+// Appended to onnxruntime-react-native's CMake arguments so the JSI shim it
+// builds from source gets 16 KB-aligned LOAD segments. `+=` on the existing
+// list, never a replacement: ORT's build.gradle already passes ANDROID_STL,
+// NODE_MODULES_DIR, USE_NNAPI and friends there.
+const PAGE_SIZE_SNIPPET = `subprojects { sub ->
+  // See plugins/withOrtGradle9.js (4): libonnxruntimejsi.so was the single
+  // 4 KB-aligned library in the AAB and Play blocks the release for it.
+  if (sub.name == "onnxruntime-react-native") {
+    sub.afterEvaluate {
+      if (sub.extensions.findByName("android") != null) {
+        sub.android.defaultConfig.externalNativeBuild.cmake.arguments +=
+          ["-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
+           "-DCMAKE_SHARED_LINKER_FLAGS_INIT=-Wl,-z,max-page-size=16384"]
+      }
+    }
+  }
+}`;
+
 const withOrtGradle9 = (config) => {
   config = withProjectBuildGradle(config, (mod) => {
     if (mod.modResults.language !== "groovy") {
@@ -60,6 +89,14 @@ const withOrtGradle9 = (config) => {
       src: mod.modResults.contents,
       newSrc: SNIPPET,
       tag: "mindshift-ort-gradle9",
+      anchor: /^allprojects\s*\{/m,
+      offset: 0,
+      comment: "//",
+    }).contents;
+    mod.modResults.contents = generateCode.mergeContents({
+      src: mod.modResults.contents,
+      newSrc: PAGE_SIZE_SNIPPET,
+      tag: "mindshift-ort-16kb",
       anchor: /^allprojects\s*\{/m,
       offset: 0,
       comment: "//",
