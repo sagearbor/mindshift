@@ -993,6 +993,14 @@ from routers import therapist as _therapist_router  # noqa: E402
 
 app.include_router(_therapist_router.router)
 
+# In-app calls (2026-08-25): POST /calls (+ /join, /{id}/join, /{id}/end,
+# GET /{id}) — the REST half of MindShift placing the call itself. The
+# signaling + merged transcript ride the existing /ws/session socket
+# (server/calls.py, audio_pipeline's call_join / rtc_signal frames).
+from routers import calls as _calls_router  # noqa: E402
+
+app.include_router(_calls_router.router)
+
 # Watch domain (ported from Gauge — docs/plans/2026-08-15-unification-*.md):
 from watch.app import build_watch_routers  # noqa: E402
 
@@ -3215,7 +3223,7 @@ def _recording_summary(m: dict) -> dict:
         # empty map when the user has set none.
         "manual_speaker_labels": m.get("manual_speaker_labels") or {},
         # Live sessions only (Track 2): the coaching mode the phone ran in
-        # ("earpiece" | "speaker" | "therapist"). None for uploads/links, so
+        # ("earpiece" | "speaker" | "therapist" | "call"). None for uploads/links, so
         # the list can badge a live session without loading its analysis.
         "mode": m.get("mode"),
     }

@@ -52,6 +52,7 @@ import pytest
 import uvicorn
 
 import audio_pipeline
+import calls
 import live_e2e
 import live_sessions
 import main
@@ -200,6 +201,7 @@ class MemoryStore:
     def __init__(self) -> None:
         self._by_uid: dict[str, dict[str, dict]] = {}
         self._shares: dict[str, dict[str, dict]] = {}
+        self._links: dict[str, dict] = {}
         self.voiceprints: dict[str, list[dict]] = {}
 
     async def save_live_session(self, uid, recording_id, *, meta, turns, analysis):
@@ -272,6 +274,19 @@ class MemoryStore:
             out.append(meta)
         return out
 
+    # -- therapist link (the --call run links so the call episode auto-shares) --
+    async def read_therapist_link(self, patient_uid):
+        return self._links.get(patient_uid)
+
+    async def write_therapist_link(self, patient_uid, link):
+        self._links[patient_uid] = dict(link)
+
+    async def delete_therapist_link(self, patient_uid):
+        return self._links.pop(patient_uid, None) is not None
+
+    async def list_therapist_patients(self, therapist_uid):
+        return [l for l in self._links.values() if l.get("therapist_uid") == therapist_uid]
+
 
 # ---------------------------------------------------------------------------
 # A real server on the loopback
@@ -321,6 +336,7 @@ def e2e_env(monkeypatch):
     """Providers + auth for one run; returns the store so the test can seed
     a voiceprint and inspect what was persisted."""
     _clear_state()
+    calls.registry.reset()
     store = MemoryStore()
     app.state.recordings_store = store
     app.state.llm_client = RoutingLLM()
@@ -334,6 +350,7 @@ def e2e_env(monkeypatch):
     monkeypatch.setattr(audio_pipeline, "tone_id", EchoToneId())
     yield store
     _clear_state()
+    calls.registry.reset()
 
 
 def _account(uid: str, email: str, token: str) -> live_e2e.Account:
@@ -513,6 +530,55 @@ class TestWatchHelpers:
         assert live_e2e.watch_ws_url("http://127.0.0.1:8000", "ls", account="u") == "ws://127.0.0.1:8000/ws/live-session/ls?account=u"
         assert live_e2e._spec_level_ok("mild", 1) and live_e2e._spec_level_ok("strong", 3)
         assert not live_e2e._spec_level_ok("strong", 2) and not live_e2e._spec_level_ok("bogus", 3)
+
+
+async def test_call_e2e_inprocess(live_server, e2e_env, monkeypatch):
+    """``--call``: the patient hosts, the therapist joins by code, both
+    phones bind + signal over their own sockets, speak their halves of the
+    couple scene concurrently, and each ends with a mode=call episode of
+    the merged transcript — the patient's auto-shared to the therapist
+    through the link the run creates."""
+    scene = live_e2e.load_scene("scene_couple_escalation")
+    monkeypatch.setattr(audio_pipeline, "speaker_id", None)
+    patient = _account(PATIENT_UID, PATIENT_EMAIL, "tok-user-a")
+    therapist = _account(THERAPIST_UID, THERAPIST_EMAIL, "tok-user-b")
+    # 4x: the scene's 0.4 s turn gaps become 100 ms of wall clock — enough
+    # for the two sockets' turn_locals to arrive in scene order.
+    report = await live_e2e.run_call_e2e(
+        base_url=live_server, patient=patient, therapist=therapist, scene=scene,
+        speed=4.0, analysis_timeout_s=30.0,
+        session_id=f"e2e-call-{int(time.time() * 1000)}",
+    )
+    text = live_e2e.format_report(report)
+    print("\n" + text)
+    assert not report.failures, text
+    data = report.data
+    n_self, n_other = len(scene.self_turn_indexes), len(scene.turns) - len(scene.self_turn_indexes)
+    assert data["ws_host"]["turn_locals"] == n_self and data["ws_joiner"]["turn_locals"] == n_other
+    assert data["ws_host"]["close_code"] == 1000 and data["ws_joiner"]["close_code"] == 1000
+    assert data["signaling"] == {"offer_ok": True, "answer_ok": True, "host_error": None, "joiner_error": None}
+    # Each phone saw exactly the other's turns, named by the join display names.
+    assert data["merged_host"] == {"count": n_other, "expected": n_other, "in_order": True, "names": ["Therapist"]}
+    assert data["merged_joiner"] == {"count": n_self, "expected": n_self, "in_order": True, "names": ["Patient"]}
+    # Both sides were coached on the other's turns (nudges on their own are
+    # subject to latest-wins at 4x, so only the presence of responses is pinned).
+    assert data["coaching_host"]["responses"] >= 1 and data["coaching_joiner"]["responses"] >= 1
+    assert data["coaching_host"]["errors"] == 0 and data["coaching_joiner"]["errors"] == 0
+    assert data["episodes"]["shared_with"] == [THERAPIST_EMAIL]
+    assert data["detail"]["turns"] == len(scene.turns) and data["detail"]["in_order"]
+    assert data["detail"]["escalation_turns"] == scene.expected_self_escalations
+    assert data["detail"]["peer_label"] == "Therapist"
+    assert data["growth_point"]["mode"] == "call"
+    assert data["therapist_rows"]["shared"]["role"] == PATIENT_EMAIL
+    assert data["therapist_rows"]["own"]["role"] == "You"
+    # The stored episodes: one per participant, same merged turns, opposite selves.
+    host_rec = e2e_env._by_uid[PATIENT_UID][data["episodes"]["host"]]
+    joiner_rec = e2e_env._by_uid[THERAPIST_UID][data["episodes"]["joiner"]]
+    assert [t["text"] for t in host_rec["turns"]] == [t["text"] for t in joiner_rec["turns"]] == [t["text"] for t in scene.turns]
+    assert host_rec["analysis"]["live"]["self_speaker"] == "Speaker A"
+    assert joiner_rec["analysis"]["live"]["self_speaker"] == "Speaker B"
+    assert [t["call_seq"] for t in host_rec["turns"]] == list(range(1, len(scene.turns) + 1))
+    assert joiner_rec["meta"]["title"] == "Call with Patient"
 
 
 class TestPureHelpers:

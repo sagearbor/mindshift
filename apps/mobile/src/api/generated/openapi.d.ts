@@ -398,6 +398,181 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/therapist/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Link */
+        get: operations["get_link_therapist_link_get"];
+        /** Set Link */
+        put: operations["set_link_therapist_link_put"];
+        post?: never;
+        /** Delete Link */
+        delete: operations["delete_link_therapist_link_delete"];
+        options?: never;
+        head?: never;
+        /** Patch Link */
+        patch: operations["patch_link_therapist_link_patch"];
+        trace?: never;
+    };
+    "/therapist/patients": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Patients */
+        get: operations["list_patients_therapist_patients_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/therapist/patients/{patient_uid}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept Patient */
+        post: operations["accept_patient_therapist_patients__patient_uid__accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/therapist/patients/{patient_uid}/decline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decline Patient */
+        post: operations["decline_patient_therapist_patients__patient_uid__decline_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/therapist/notes/{episode_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Note */
+        get: operations["get_note_therapist_notes__episode_id__get"];
+        /** Put Note */
+        put: operations["put_note_therapist_notes__episode_id__put"];
+        post?: never;
+        /** Delete Note */
+        delete: operations["delete_note_therapist_notes__episode_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Call */
+        post: operations["create_call_calls_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/calls/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Join By Code */
+        post: operations["join_by_code_calls_join_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/calls/{call_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Call */
+        get: operations["get_call_calls__call_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/calls/{call_id}/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Join Call */
+        post: operations["join_call_calls__call_id__join_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/calls/{call_id}/end": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** End Call */
+        post: operations["end_call_calls__call_id__end_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me": {
         parameters: {
             query?: never;
@@ -1934,6 +2109,121 @@ export interface components {
             /** Display Name */
             display_name?: string | null;
         };
+        /** CallCreateIn */
+        CallCreateIn: {
+            /** Invitee Email */
+            invitee_email?: string | null;
+            /** Invitee Uid */
+            invitee_uid?: string | null;
+            /** Display Name */
+            display_name?: string | null;
+            /** Ttl Minutes */
+            ttl_minutes?: number | null;
+            /** Max Participants */
+            max_participants?: number | null;
+        };
+        /** CallInviteeOut */
+        CallInviteeOut: {
+            /** Uid */
+            uid?: string | null;
+            /** Email */
+            email?: string | null;
+        };
+        /** CallJoinByCodeIn */
+        CallJoinByCodeIn: {
+            /** Join Code */
+            join_code: string;
+            /** Display Name */
+            display_name?: string | null;
+            /** Role */
+            role?: ("participant" | "therapist") | null;
+        };
+        /** CallJoinIn */
+        CallJoinIn: {
+            /** Join Code */
+            join_code?: string | null;
+            /** Display Name */
+            display_name?: string | null;
+            /** Role */
+            role?: ("participant" | "therapist") | null;
+        };
+        /** CallOut */
+        CallOut: {
+            /** Call Id */
+            call_id: string;
+            /** Status */
+            status: string;
+            /** Host Uid */
+            host_uid: string;
+            /** Max Participants */
+            max_participants: number;
+            /** Self Uid */
+            self_uid: string;
+            /** Self Role */
+            self_role: ("participant" | "therapist") | null;
+            /** Self Label */
+            self_label: string | null;
+            /** Peer Label */
+            peer_label: string | null;
+            /** Therapist Label */
+            therapist_label: string;
+            /** Therapist Uid */
+            therapist_uid: string | null;
+            /** Participants */
+            participants: components["schemas"]["CallParticipantOut"][];
+            invitee: components["schemas"]["CallInviteeOut"] | null;
+            /** Ice Servers */
+            ice_servers: components["schemas"]["IceServerOut"][];
+            /** Join Code */
+            join_code: string;
+            /** Join Url */
+            join_url: string;
+            /** Invitee Uid */
+            invitee_uid: string | null;
+            /** Invitee Email */
+            invitee_email: string | null;
+            /** Created At */
+            created_at: string;
+            /** Expires At */
+            expires_at: string;
+            /** Started At */
+            started_at: string | null;
+            /** Ended At */
+            ended_at: string | null;
+            /** End Reason */
+            end_reason: string | null;
+            /** Turn Count */
+            turn_count: number;
+            /** Episode Id */
+            episode_id: string | null;
+            /**
+             * Shared With
+             * @default []
+             */
+            shared_with: string[];
+        };
+        /** CallParticipantOut */
+        CallParticipantOut: {
+            /** Uid */
+            uid: string;
+            /** Slot */
+            slot: string;
+            /** Label */
+            label: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "participant" | "therapist";
+            /** Display Name */
+            display_name: string;
+            /** Is Self */
+            is_self: boolean;
+            /** Connected */
+            connected: boolean;
+            /** Joined At */
+            joined_at: string;
+        };
         /**
          * Capture
          * @description A consent-attested retro-capture: a short clip of the wearer's own
@@ -2472,6 +2762,15 @@ export interface components {
             /** Stonewalling */
             stonewalling: number;
         };
+        /** IceServerOut */
+        IceServerOut: {
+            /** Urls */
+            urls: string[];
+            /** Username */
+            username?: string | null;
+            /** Credential */
+            credential?: string | null;
+        };
         /** InviteRequest */
         InviteRequest: {
             /** Email */
@@ -2519,6 +2818,16 @@ export interface components {
             display_name: string;
             /** Attested */
             attested: boolean;
+        };
+        /** LinkPatch */
+        LinkPatch: {
+            /** Auto Share */
+            auto_share: boolean;
+        };
+        /** LinkRequest */
+        LinkRequest: {
+            /** Email */
+            email: string;
         };
         /** LiveSession */
         LiveSession: {
@@ -2576,13 +2885,17 @@ export interface components {
              * Mode
              * @enum {string}
              */
-            mode: "earpiece" | "speaker" | "therapist";
+            mode: "earpiece" | "speaker" | "therapist" | "call";
             /** Turns */
             turns: components["schemas"]["TurnLocalEvent"][];
             /** Tone Flags */
             tone_flags?: components["schemas"]["ToneFlagEvent"][];
             /** Speaker Identities */
             speaker_identities?: components["schemas"]["SpeakerIdentityEvent"][];
+            /** Speaker Labels */
+            speaker_labels?: {
+                [key: string]: components["schemas"]["LiveSpeakerLabelIn"];
+            };
             /** Title */
             title?: string | null;
             /**
@@ -2621,6 +2934,30 @@ export interface components {
             analysis_scheduled: boolean;
             /** Reflect Scheduled */
             reflect_scheduled: boolean;
+            /**
+             * Shared With
+             * @default []
+             */
+            shared_with: string[];
+        };
+        /**
+         * LiveSpeakerLabelIn
+         * @description A speaker the user NAMED mid-call (raw label → person). Stored as the
+         *     human-assertion rung (meta.json ``manual_speaker_labels`` /
+         *     ``manual_speaker_people``), exactly what "Who is this?" writes on a
+         *     stored recording — so the therapist's view shows the patient's own name
+         *     for the person the moment the session lands.
+         */
+        LiveSpeakerLabelIn: {
+            /** Display Name */
+            display_name: string;
+            /** Person Id */
+            person_id?: string | null;
+            /**
+             * Is Self
+             * @default false
+             */
+            is_self: boolean;
         };
         /**
          * MeResponse
@@ -2660,6 +2997,20 @@ export interface components {
             delta_vs_self?: number | null;
             /** Improving */
             improving?: boolean | null;
+        };
+        /** NoteIn */
+        NoteIn: {
+            /** Text */
+            text: string;
+        };
+        /** NoteOut */
+        NoteOut: {
+            /** Episode Id */
+            episode_id: string;
+            /** Text */
+            text: string;
+            /** Updated At */
+            updated_at: string | null;
         };
         /** NudgeEvent */
         NudgeEvent: {
@@ -3016,6 +3367,11 @@ export interface components {
          */
         SpeakerIdentityEvent: {
             /**
+             * For Uid
+             * @description In-app calls: the participant this event was coaching (observer copies only)
+             */
+            for_uid?: string | null;
+            /**
              * Type
              * @description Event type discriminator
              * @default speaker_identity
@@ -3106,6 +3462,11 @@ export interface components {
          *     the same reasoning as TurnTextTone.label.
          */
         ToneFlagEvent: {
+            /**
+             * For Uid
+             * @description In-app calls: the participant this event was coaching (observer copies only)
+             */
+            for_uid?: string | null;
             /**
              * Type
              * @description Event type discriminator
@@ -4064,6 +4425,505 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_link_therapist_link_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_link_therapist_link_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_link_therapist_link_delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_link_therapist_link_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_patients_therapist_patients_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_patient_therapist_patients__patient_uid__accept_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                patient_uid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decline_patient_therapist_patients__patient_uid__decline_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                patient_uid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_note_therapist_notes__episode_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                episode_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_note_therapist_notes__episode_id__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                episode_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NoteIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_note_therapist_notes__episode_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                episode_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_call_calls_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CallCreateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    join_by_code_calls_join_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CallJoinByCodeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_call_calls__call_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    join_call_calls__call_id__join_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CallJoinIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    end_call_calls__call_id__end_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallOut"];
                 };
             };
             /** @description Validation Error */

@@ -40,6 +40,7 @@ import websockets
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
+import calls
 import llm_client
 from llm_client import LLMClient
 from models.audio import (
@@ -1113,13 +1114,22 @@ def _tone_context_from_event(event: TurnLocalEvent) -> dict | None:
     must not say "pitch: None"); ``None`` when there is nothing at all so the
     prompt stays byte-identical to the legacy one.
     """
+    return _tone_context_from_parts(
+        event.text_tone.model_dump() if event.text_tone is not None else None,
+        event.prosody.model_dump() if event.prosody is not None else None,
+    )
+
+
+def _tone_context_from_parts(text_tone: dict | None, prosody: dict | None) -> dict | None:
+    """Same as :func:`_tone_context_from_event` from already-dumped dicts
+    (a call peer's turn arrives as the merged-transcript row)."""
     out: dict = {}
-    for key, model in (("text_tone", event.text_tone), ("prosody", event.prosody)):
-        if model is None:
+    for key, values in (("text_tone", text_tone), ("prosody", prosody)):
+        if not isinstance(values, dict):
             continue
-        values = {k: v for k, v in model.model_dump().items() if v is not None}
-        if values:
-            out[key] = values
+        kept = {k: v for k, v in values.items() if v is not None}
+        if kept:
+            out[key] = kept
     return out or None
 
 
@@ -1276,6 +1286,16 @@ class SessionContext:
     # keeps counting — so every segment from a replacement transcriber is
     # shifted by the session time at which that transcriber took over.
     transcriber_offset_s: float = 0.0
+    # In-app calls (server/calls.py): the call this session is bound to via
+    # a `call_join` frame, this participant's slot label ("Speaker A"/"B" —
+    # every own turn is relabelled to it and is_self, structurally) and the
+    # peer's. None = a solo session, byte-identical to before calls existed.
+    call: "calls.Call | None" = None
+    call_label: str | None = None
+    call_peer_label: str | None = None
+    # "participant" (coached) or "therapist" (observer: transcribed and
+    # merged, never coached; receives the participants' coaching read-only).
+    call_role: str | None = None
 
 
 def _remember_utterance(ctx: SessionContext, utterance: Utterance) -> None:
@@ -1612,6 +1632,57 @@ async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                                                — per-stage ms percentiles for
                                                  local-first / report_latency clients
 
+    In-app calls (2026-08-25, server/calls.py) — MindShift IS the call, so
+    every side can be coached. Audio is peer-to-peer (WebRTC, full mesh);
+    this socket carries the signaling and the merged transcript. Members
+    are two coached "participant"s (host = Speaker A, second = Speaker B)
+    and at most one "therapist" observer (Speaker C: transcribed and
+    merged, never coached, sees the participants' coaching read-only):
+    Client → Server (text):
+        {"type": "call_join", "call_id", "join_code"?, "display_name"?,
+         "role"?: "participant" | "therapist"} — bind this session to the call.
+                                                 A non-member with the join code
+                                                 joins here too. Answered with
+                                                 `call_state` (or {"error":
+                                                 "call_join: …"}).
+        {"type": "rtc_signal", "call_id", "to"?: uid,
+         "payload": {sdp | candidate | …}}      — relayed verbatim to the addressed
+                                                 member's socket as {"type":
+                                                 "rtc_signal", "call_id", "from":
+                                                 uid, "payload"}. `to` may be
+                                                 omitted only in a two-member call.
+        turn_local                             — as above; in a call the turn is
+                                                 relabelled to this member's slot
+                                                 label, is_self, appended to the
+                                                 shared transcript and pushed to
+                                                 every other member (below). A
+                                                 therapist's turn is never coached.
+        speaker_label                          — call-wide: naming another member's
+                                                 slot label persists to the call
+                                                 record and this member's episode.
+    Server → Client (text):
+        {"type": "call_state", "call_id", "status", "self_role", "self_label",
+         "peer_label", "therapist_label", "participants": [{uid, slot, label,
+         role, display_name, is_self, connected}], "ice_servers": [...], ...}
+                                               — on every bind/leave/name change
+        {"type": "transcript", "speaker": <sender's label>, "display_name",
+         "role", "text", "start_time", "end_time", "call_id", "participant_uid",
+         "is_self": false, "seq", "local_start_time", "local_end_time",
+         "text_tone", "prosody"}               — a turn another member's phone
+                                                 finalized; a participant is
+                                                 coached on it (a `suggestion`
+                                                 follows), a therapist just sees it
+        suggestion / tone_flag / speaker_identity + "for_uid"
+                                               — THERAPIST sockets only: a read-only
+                                                 copy of each participant's coaching
+                                                 event, tagged with that participant
+        {"type": "call_ended", "call_id", "reason", "ended_by", "episode_id",
+         "episodes": {uid: episode_id}}        — the call is over; `episode_id` is
+                                                 THIS participant's stored episode
+                                                 (null for the therapist, who gets
+                                                 `episodes` and a share of each)
+        session_complete also carries "call": {call_id, status, episode_id}.
+
     New WebSockets beyond ``MAX_WS_SESSIONS`` concurrent sessions are closed
     immediately with code 1013 ("try again later") — an honest rejection
     instead of letting every session degrade (P2-1).
@@ -1742,6 +1813,11 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
     async def send_event(event) -> None:
         async with send_lock:
             await websocket.send_text(event.model_dump_json())
+        # In-app call: the observing therapist sees this participant's
+        # coaching read-only (tagged for_uid by the call). Best-effort.
+        if ctx.call is not None and ctx.call_role == calls.ROLE_PARTICIPANT:
+            with contextlib.suppress(Exception):
+                await ctx.call.fan_out(ctx.uid, event.model_dump())
 
     async def process_segment(job: SuggestionJob) -> None:
         utterance, timing = job.utterance, job.timing
@@ -2042,6 +2118,13 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             # suggestion. This also keeps the utterance buffer complete even
             # when the latest-wins policy below skips coaching a turn.
             speaker = labeler.label_for(segment.speaker)
+            is_self: bool | None = None
+            if ctx.call is not None:
+                # In a call the server-STT fallback (a participant whose phone
+                # has no on-device STT) hears only THIS participant, so every
+                # segment is structurally their own turn.
+                speaker = ctx.call_label or speaker
+                is_self = True
             utterance = Utterance(
                 session_id=session_id,
                 speaker=speaker,
@@ -2060,9 +2143,16 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                     end_time=segment.end_time,
                 ).model_dump())
 
-            await enqueue_job(utterance, ctx.latency.start(
-                frame_received=frame_received, segment_finalized=segment_finalized,
-            ))
+            if ctx.call_role != calls.ROLE_THERAPIST:
+                await enqueue_job(utterance, ctx.latency.start(
+                    frame_received=frame_received, segment_finalized=segment_finalized,
+                ), is_self=is_self)
+            if ctx.call is not None:
+                with contextlib.suppress(calls.CallError):
+                    await ctx.call.push_turn(ctx.uid, {
+                        "text": segment.text, "start_time": segment.start_time,
+                        "end_time": segment.end_time, "transcript_source": "cloud",
+                    })
 
     async def handle_turn_local(event: TurnLocalEvent, received: float) -> None:
         """A turn the PHONE finalized (Track 3-server).
@@ -2125,6 +2215,149 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             is_self=event.is_self,
             tone_context=_tone_context_from_event(event),
         )
+
+    # In-app calls: what this session exposes to a call it is bound to (see
+    # calls.CallEndpoint). Remote turns arrive here from the PEER's socket
+    # handler (same process, same loop) and are rendered + coached exactly as
+    # an OTHER turn — the peer's phone is this session's transcriber for
+    # that voice.
+    class _CallSessionEndpoint(calls.CallEndpoint):
+        def __init__(self) -> None:
+            self.uid = ctx.uid or ""
+            self.session_id = session_id
+
+        async def send_json(self, payload: dict) -> None:
+            await send_json(payload)
+
+        async def on_remote_turn(self, turn: dict, *, display_name: str) -> None:
+            received = ctx.latency.now()
+            call = ctx.call
+            await send_json({
+                "type": "transcript",
+                "session_id": session_id,
+                "speaker": turn["speaker"],
+                "display_name": display_name,
+                "role": turn.get("role"),
+                "text": turn["text"],
+                "start_time": turn["start_time"],
+                "end_time": turn["end_time"],
+                "call_id": call.call_id if call is not None else None,
+                "participant_uid": turn.get("participant_uid"),
+                "is_self": False,
+                "seq": turn.get("seq"),
+                "local_start_time": turn.get("local_start_time"),
+                "local_end_time": turn.get("local_end_time"),
+                # The sender's on-device measurements, so an observer can
+                # run the scoreboard over the whole conversation.
+                "text_tone": turn.get("text_tone"),
+                "prosody": turn.get("prosody"),
+            })
+            utterance = Utterance(
+                session_id=session_id,
+                speaker=turn["speaker"],
+                text=turn["text"],
+                start_time=float(turn["start_time"]),
+                end_time=float(turn["end_time"]),
+            )
+            _remember_utterance(ctx, utterance)
+            if not utterance.text.strip():
+                return
+            if ctx.call_role != calls.ROLE_PARTICIPANT:
+                return  # the therapist observes; nobody coaches her
+            await enqueue_job(
+                utterance,
+                ctx.latency.start(frame_received=received, segment_finalized=received),
+                is_self=False,
+                tone_context=_tone_context_from_parts(turn.get("text_tone"), turn.get("prosody")),
+            )
+
+        def set_peer_name(self, label: str, display_name: str) -> None:
+            # The coach's prompts say "from Mom"; a person id the user
+            # attached by a speaker_label frame is kept.
+            existing = ctx.speaker_labels.get(label) or {}
+            ctx.speaker_labels[label] = {
+                "person_id": existing.get("person_id"),
+                "display_name": display_name,
+                "is_self": False,
+            }
+
+        def detach(self) -> None:
+            ctx.call = None
+
+    call_endpoint = _CallSessionEndpoint()
+
+    async def handle_call_join(payload: dict) -> None:
+        call_id = payload.get("call_id")
+        if not isinstance(call_id, str) or not _is_valid_uuid(call_id):
+            await send_json({"error": "call_join: invalid call_id"})
+            return
+        call = calls.registry.get(call_id)
+        if call is None:
+            await send_json({"error": "call_join: no such call"})
+            return
+        display_name = calls.clean_display_name(payload.get("display_name"))
+        try:
+            if ctx.uid not in call.participants:
+                email = await calls.resolve_email(ctx.uid)
+                calls.registry.join(
+                    call, ctx.uid, join_code=payload.get("join_code"),
+                    email=email, display_name=display_name, role=payload.get("role"),
+                )
+            if ctx.call is not None and ctx.call is not call:
+                await ctx.call.leave(ctx.uid, call_endpoint)
+            participant = await call.bind(
+                ctx.uid, call_endpoint, store=recordings_store, display_name=display_name,
+            )
+        except calls.CallError as exc:
+            await send_json({"error": f"call_join: {exc.detail}"})
+            return
+        ctx.call = call
+        ctx.call_label = participant.label
+        ctx.call_role = participant.role
+        ctx.call_peer_label = call.state_for(ctx.uid)["peer_label"]
+        # Structural attribution: in a call this member IS its slot label.
+        ctx.self_speaker = participant.label
+        logger.info(
+            "Session %s bound to call %s as %s (%s, %s)",
+            session_id, call.call_id, participant.slot, participant.label, participant.role,
+        )
+
+    async def handle_rtc_signal(payload: dict, raw_len: int) -> None:
+        call = ctx.call
+        if call is None or payload.get("call_id") != call.call_id:
+            await send_json({"error": "rtc_signal: not in that call"})
+            return
+        if raw_len > calls.RTC_PAYLOAD_MAX_BYTES:
+            await send_json({"error": "rtc_signal: payload too large"})
+            return
+        signal = payload.get("payload")
+        if not isinstance(signal, dict) or not signal:
+            await send_json({"error": "rtc_signal: payload must be a non-empty object"})
+            return
+        to_uid = payload.get("to")
+        if to_uid is not None and not isinstance(to_uid, str):
+            await send_json({"error": "rtc_signal: invalid to"})
+            return
+        try:
+            await call.relay_signal(ctx.uid, signal, to_uid=to_uid)
+        except calls.CallError as exc:
+            await send_json({"error": f"rtc_signal: {exc.detail}"})
+
+    async def apply_call_speaker_label(ack: dict) -> None:
+        """Call-wide naming: a name for another member's label is the
+        viewer's naming of that member; a real name on the OWN label is a
+        self-declared name the others' screens show. Either way this
+        member stays its slot label for coaching."""
+        call = ctx.call
+        if call is None:
+            return
+        name = ack["display_name"]
+        target = call.by_label(ack["speaker"])
+        if target is not None and target.uid != ctx.uid:
+            await call.set_viewer_name(ctx.uid, target.uid, name)
+        elif ack["speaker"] == ctx.call_label and name.strip().lower() not in ("you", "me"):
+            await call.set_declared_name(ctx.uid, name)
+        ctx.self_speaker = ctx.call_label
 
     worker_tasks = [
         asyncio.create_task(suggestion_worker(i))
@@ -2315,7 +2548,29 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                     if event.end_time < event.start_time:
                         await send_json({"error": "turn_local end_time before start_time"})
                         continue
-                    await handle_turn_local(event, frame_received)
+                    if ctx.call is not None:
+                        # In a call the phone only ever hears its owner: the
+                        # turn is this member's, whatever label its
+                        # diarizer picked, and is_self by construction.
+                        event = event.model_copy(
+                            update={"speaker": ctx.call_label, "is_self": True},
+                        )
+                    if ctx.call is not None and ctx.call_role == calls.ROLE_THERAPIST:
+                        # The observer's own words: transcribed and merged
+                        # for everyone, never coached or enriched.
+                        ctx.local_first = True
+                        _remember_local_range(ctx.local_ranges, event.start_time, event.end_time)
+                        _remember_utterance(ctx, Utterance(
+                            session_id=session_id, speaker=event.speaker, text=event.text,
+                            start_time=event.start_time, end_time=event.end_time,
+                        ))
+                    else:
+                        await handle_turn_local(event, frame_received)
+                    if ctx.call is not None:
+                        try:
+                            await ctx.call.push_turn(ctx.uid, event)
+                        except calls.CallError as exc:
+                            await send_json({"error": f"turn_local: {exc.detail}"})
                 elif msg_type == "speaker_label":
                     # Mid-call naming ("Speaker B is Mom"): applied to this
                     # running session; the phone persists it at session end.
@@ -2328,6 +2583,11 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                         session_id, ack["speaker"], ack["person_id"], ack["is_self"],
                     )
                     await send_json(ack)
+                    await apply_call_speaker_label(ack)
+                elif msg_type == "call_join":
+                    await handle_call_join(payload)
+                elif msg_type == "rtc_signal":
+                    await handle_rtc_signal(payload, len(message["text"]))
                 elif msg_type == "stop":
                     # Graceful stop: flush the transcriber so the FINAL
                     # utterance is delivered, wait (bounded — P1-8) for the
@@ -2338,6 +2598,19 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                         frame_received=frame_received,
                     )
                     completion: dict = {"type": "session_complete"}
+                    # In-app call: hang up this side. When this was the last
+                    # socket the call ends here (episodes persisted) and the
+                    # `call_ended` frame precedes session_complete.
+                    call = ctx.call
+                    if call is not None:
+                        with contextlib.suppress(Exception):
+                            await call.leave(ctx.uid, call_endpoint)
+                        me = call.participant(ctx.uid)
+                        completion["call"] = {
+                            "call_id": call.call_id,
+                            "status": call.status,
+                            "episode_id": me.episode_id if me else None,
+                        }
                     try:
                         await asyncio.wait_for(
                             suggestion_queue.join(), timeout=STOP_DRAIN_TIMEOUT_S
@@ -2388,6 +2661,12 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         logger.info("Client disconnected from session %s", session_id)
     finally:
         # Cleanup must never raise, whatever state the connection died in.
+        # In-app call: an abrupt drop leaves the call (the peer's call_state
+        # shows us disconnected and it keeps coaching solo; if we were the
+        # last one, the call ends and the episodes are persisted).
+        if ctx.call is not None:
+            with contextlib.suppress(Exception):
+                await ctx.call.leave(ctx.uid, call_endpoint)
         await cancel_workers()
         # Enrichment tasks may still be inside a model call (to_thread) — the
         # thread finishes on its own; the task just stops mattering.
@@ -2489,9 +2768,13 @@ async def _enrich_turn_local(
     # (if computed) and the server-corrected identity (if any) — the most
     # informed view of the turn, not the phone's first guess.
     tone_flag = await guarded("tone", _enrich_tone(ctx, event, pcm_bytes, send_json))
-    identity = await guarded(
-        "identity", _enrich_identity(ctx, event, pcm_bytes, send_json, store),
-    )
+    # In a call the speaker is known structurally (participant = speaker), so
+    # a voiceprint verdict could only contradict the truth — skipped.
+    identity = None
+    if ctx.call is None:
+        identity = await guarded(
+            "identity", _enrich_identity(ctx, event, pcm_bytes, send_json, store),
+        )
     relayed = event
     if identity is not None:
         relayed = event.model_copy(update={
@@ -2567,6 +2850,9 @@ async def _enrich_tone(
     )
     if tone_id.surface_allowed():
         await send_json(flag.model_dump())
+        if ctx.call is not None:
+            with contextlib.suppress(Exception):
+                await ctx.call.fan_out(ctx.uid, flag.model_dump())
         return flag
     # Dark mode: this log line IS the feature's output — nothing reaches the
     # client, and nothing reaches the watch (see the return contract above).
@@ -2680,6 +2966,9 @@ async def _enrich_identity(
         score=round(score, 4),
     )
     await send_json(identity.model_dump())
+    if ctx.call is not None:
+        with contextlib.suppress(Exception):
+            await ctx.call.fan_out(ctx.uid, identity.model_dump())
     return identity
 
 

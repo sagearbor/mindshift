@@ -68,6 +68,9 @@ Usage
   python scripts/live_e2e.py --base-url http://localhost:8000 \
       --id-token <patient id token> --therapist-id-token <therapist id token>
 
+``--call`` runs the in-app call walk instead (two phones on one call —
+see run_call_e2e and docs/plans/2026-08-25-in-app-calls.md).
+
 Options: ``--speed N`` streams N× faster than real time (the on-device
 timeline still advances by audio, so turn timestamps stay exact);
 ``--mode earpiece|speaker|therapist``; ``--no-enroll`` skips voiceprint
@@ -507,15 +510,28 @@ class WsRun:
 async def stream_live_session(
     base_url: str, account: Account, scene: Scene, *, session_id: str,
     speed: float = 1.0, config: dict | None = None, stop_timeout_s: float = 60.0,
+    pcm: np.ndarray | None = None, turn_locals: list[dict] | None = None,
+    pre_stream=None, post_stream=None,
 ) -> WsRun:
     """Stream ``scene`` to the server the way the phone does; return every
     event. Never raises for a protocol-level failure — ``run.error`` says
-    what went wrong so the report can say ❌ with the reason."""
+    what went wrong so the report can say ❌ with the reason.
+
+    ``pcm`` / ``turn_locals`` override what this "phone" hears and reports
+    (an in-app call participant hears only itself — see ``--call``);
+    ``pre_stream(ws, run)`` is awaited after ``config_ack`` with the reader
+    running, so a call participant can bind (``call_join``) and exchange
+    signaling before the first frame; ``post_stream(ws, run)`` after the
+    last turn_local and before ``stop`` (a call participant waits for the
+    others to finish talking rather than hanging up on them)."""
     from websockets.asyncio.client import connect
     from websockets.exceptions import ConnectionClosed
 
     run = WsRun(session_id=session_id)
-    turn_locals = build_turn_locals(scene, session_id)
+    if turn_locals is None:
+        turn_locals = build_turn_locals(scene, session_id)
+    if pcm is None:
+        pcm = scene.pcm
     cfg = {
         "type": "config",
         "id_token": account.ws_token,
@@ -560,9 +576,17 @@ async def stream_live_session(
 
             reader_task = asyncio.create_task(reader())
 
+            if pre_stream is not None:
+                try:
+                    await pre_stream(ws, run)
+                except Exception as exc:  # noqa: BLE001 — reported, never raised past the report
+                    run.error = f"pre_stream: {type(exc).__name__}: {exc}"
+                    reader_task.cancel()
+                    return run
+
             # Sender: frames on the (scaled) real-time clock; a turn_local as
             # soon as its audio (+ STT lag) has been streamed.
-            pcm_bytes = scene.pcm.astype("<i2").tobytes()
+            pcm_bytes = pcm.astype("<i2").tobytes()
             n_frames = math.ceil(len(pcm_bytes) / FRAME_BYTES)
             pending = list(turn_locals)
             t0 = time.monotonic()
@@ -586,6 +610,11 @@ async def stream_live_session(
                 await asyncio.sleep(STT_LAG_S / speed)
                 await ws.send(json.dumps(ev))
                 run.sent_turns.append((time.monotonic(), ev))
+            if post_stream is not None and not done.is_set():
+                try:
+                    await post_stream(ws, run)
+                except Exception as exc:  # noqa: BLE001 — reported, never raised past the report
+                    run.error = run.error or f"post_stream: {type(exc).__name__}: {exc}"
             if not done.is_set():
                 await ws.send(json.dumps({"type": "stop"}))
             try:
@@ -1375,6 +1404,394 @@ def _count_types(run: WsRun) -> dict[str, int]:
 
 
 # ---------------------------------------------------------------------------
+# --call: two phones, one in-app call (server/calls.py)
+# ---------------------------------------------------------------------------
+#
+# MindShift places the call itself so both sides can be coached: the audio
+# is peer-to-peer (WebRTC — signaling relayed by the server, no media through
+# it), each phone transcribes ONLY ITS OWNER on-device and reports
+# `turn_local` as in a solo session, and the server merges both into one
+# shared transcript, pushes every turn to the other phone as a `transcript`
+# event (slot labels: host = "Speaker A", joiner = "Speaker B"), coaches
+# each participant on the merged context, and at the end persists one
+# episode per participant (mode "call") with auto-share through the
+# therapist link.
+#
+# This section plays BOTH phones at once: the patient is the host and
+# speaks the scene's self turns; the therapist joins and speaks every other
+# turn. Each side streams the scene WAV with the OTHER side's turns silenced
+# (a phone's mic hears only its owner) and sends turn_local for its own
+# turns only — on the same audio clock, so arrival order is scene order.
+# Signaling is exercised with a fake SDP offer/answer (there is no real
+# WebRTC stack in a script; the RELAY is what the server owns).
+
+CALL_JOIN_TIMEOUT_S = 30.0
+
+
+async def _wait_event(run: WsRun, predicate, *, timeout_s: float, after: int = 0) -> dict | None:
+    """Poll ``run.events`` (the reader task appends) for the first event at
+    index >= ``after`` matching ``predicate``; None on timeout."""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        for _, ev in run.events[after:]:
+            if predicate(ev):
+                return ev
+        await asyncio.sleep(0.02)
+    return None
+
+
+def call_side_pcm(scene: Scene, own_turn_indexes: list[int]) -> np.ndarray:
+    """The scene audio as THIS participant's phone hears it: everything
+    but its own turns silenced."""
+    out = np.zeros_like(scene.pcm)
+    for i in own_turn_indexes:
+        t = scene.turns[i]
+        a, b = int(t["start_time"] * scene.sr), int(t["end_time"] * scene.sr)
+        out[a:b] = scene.pcm[a:b]
+    return out
+
+
+def call_side_turn_locals(scene: Scene, session_id: str, own_turn_indexes: list[int]) -> list[dict]:
+    """This participant's turn_local reports — its own turns only, labelled
+    the way its phone would (its single voice, "Speaker A" locally; the
+    server relabels by slot) and self by its own verdict."""
+    all_events = build_turn_locals(scene, session_id)
+    out = []
+    for i in own_turn_indexes:
+        ev = dict(all_events[i])
+        ev.update({"speaker": "Speaker A", "is_self": True, "speaker_person_id": "self", "speaker_match_score": 0.9})
+        out.append(ev)
+    return out
+
+
+@dataclass
+class CallSide:
+    role: str                  # "host" | "joiner"
+    account: Account
+    session_id: str
+    turn_indexes: list[int]
+    display_name: str
+    run: WsRun | None = None
+    uid: str | None = None     # from call_state.self_uid (the server's view)
+    bound_state: dict | None = None
+    signal_in: dict | None = None
+    signal_out: dict | None = None
+    signal_error: str | None = None
+
+
+def _pre_stream_for(side: CallSide, call_id: str, peer_ready: asyncio.Event, self_ready: asyncio.Event):
+    """The call handshake this side runs after config_ack: bind with
+    call_join, wait until call_state shows BOTH connected, then the host
+    offers and the joiner answers (fake SDP) — proving the relay both ways
+    before a single frame is streamed."""
+    async def pre(ws, run: WsRun) -> None:
+        await ws.send(json.dumps({"type": "call_join", "call_id": call_id, "display_name": side.display_name}))
+        state = await _wait_event(run, lambda e: e.get("type") == "call_state" or "error" in e, timeout_s=CALL_JOIN_TIMEOUT_S)
+        if state is None or "error" in state:
+            raise RuntimeError(f"call_join answered {state}")
+        side.uid = state.get("self_uid")
+        self_ready.set()
+        both = await _wait_event(
+            run, lambda e: e.get("type") == "call_state" and len(e.get("participants") or []) == 2
+            and all(p.get("connected") for p in e["participants"]),
+            timeout_s=CALL_JOIN_TIMEOUT_S,
+        )
+        if both is None:
+            raise RuntimeError("call_state never showed both participants connected")
+        side.bound_state = both
+        await peer_ready.wait()
+        n_before = len(run.events)
+        if side.role == "host":
+            side.signal_out = {"type": "offer", "sdp": f"v=0 e2e-offer {side.session_id}"}
+            await ws.send(json.dumps({"type": "rtc_signal", "call_id": call_id, "payload": side.signal_out}))
+            got = await _wait_event(run, lambda e: e.get("type") == "rtc_signal" or "error" in e, timeout_s=CALL_JOIN_TIMEOUT_S)
+        else:
+            got = await _wait_event(run, lambda e: e.get("type") == "rtc_signal" or "error" in e, timeout_s=CALL_JOIN_TIMEOUT_S, after=n_before)
+            if got is not None and got.get("type") == "rtc_signal":
+                side.signal_out = {"type": "answer", "sdp": f"v=0 e2e-answer {side.session_id}"}
+                await ws.send(json.dumps({"type": "rtc_signal", "call_id": call_id, "to": got.get("from"), "payload": side.signal_out}))
+        if got is None:
+            side.signal_error = "no rtc_signal arrived"
+        elif "error" in got:
+            side.signal_error = str(got["error"])
+        else:
+            side.signal_in = got
+    return pre
+
+
+def _post_stream_for(side: CallSide, call_id: str, self_done: asyncio.Event, peer_done: asyncio.Event, n_peer_turns: int):
+    """Before hanging up: say we are done, wait for the peer to be done,
+    and give the peer's last turn a moment to land as a transcript — a
+    person does not hang up mid-sentence."""
+    async def post(ws, run: WsRun) -> None:
+        self_done.set()
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(peer_done.wait(), timeout=CALL_JOIN_TIMEOUT_S)
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            got = [e for _, e in run.events if e.get("type") == "transcript" and e.get("call_id") == call_id]
+            if len(got) >= n_peer_turns:
+                break
+            await asyncio.sleep(0.05)
+    return post
+
+
+async def run_call_e2e(
+    *, base_url: str, patient: Account, therapist: Account, scene: Scene,
+    speed: float = 1.0, analysis_timeout_s: float = 180.0, cleanup: bool = False,
+    http: httpx.AsyncClient | None = None, session_id: str | None = None,
+    link_therapist: bool = True,
+) -> Report:
+    """The in-app call walk: link → POST /calls → join by code → both
+    sockets bind + signal → both stream their own turns concurrently → the
+    merged transcript on each phone → per-participant coaching → both stop
+    → GET /calls/{id} (ended, one episode each) → the patient's episode
+    (analysis, reflection, detail, growth) → the therapist sees the
+    patient's episode through the auto-share AND has its own."""
+    report = Report(scene=scene.name, base_url=base_url, speed=speed, mode="call")
+    own_http = http is None
+    http = http or httpx.AsyncClient()
+    session_id = session_id or f"e2e-call-{scene.name}-{int(time.time() * 1000)}"
+    report.data["session_id"] = session_id
+    report.data["accounts"] = {"patient": patient.email, "therapist": therapist.email}
+    report.add("accounts", True, f"patient (host) {patient.email} | therapist (joiner) {therapist.email}")
+    self_idx = scene.self_turn_indexes
+    other_idx = [i for i in range(len(scene.turns)) if i not in self_idx]
+    host = CallSide("host", patient, f"{session_id}-a", self_idx, "Patient")
+    joiner = CallSide("joiner", therapist, f"{session_id}-b", other_idx, "Therapist")
+    call_id: str | None = None
+    linked = False
+    try:
+        # --- 0. the therapist link (so the call episode auto-shares) ---------
+        if link_therapist:
+            code, body = await _req(http, "PUT", base_url, "/therapist/link", patient, json={"email": therapist.email})
+            linked = code == 200 and isinstance(body, dict) and body.get("linked") is True
+            report.add("therapist link", True if linked else None,
+                       f"PUT /therapist/link -> {code} {body if isinstance(body, dict) else str(body)[:120]}"
+                       + ("" if linked else " — the call episode will need a manual share"))
+
+        # --- 1. create + join ------------------------------------------------
+        code, created = await _req(http, "POST", base_url, "/calls", patient,
+                                   json={"invitee_email": therapist.email, "display_name": host.display_name})
+        if code != 201 or not isinstance(created, dict):
+            report.add("call create", False, f"POST /calls -> {code} {str(created)[:300]}")
+            return report
+        call_id = created["call_id"]
+        report.data["call"] = {"call_id": call_id, "join_code": created.get("join_code"), "join_url": created.get("join_url")}
+        report.add("call create", True,
+                   f"POST /calls 201 call {call_id} code {created.get('join_code')} url {created.get('join_url')} "
+                   f"invitee={created.get('invitee_email')} ice={[s.get('urls') for s in created.get('ice_servers') or []]}")
+        code, joined = await _req(http, "POST", base_url, "/calls/join", therapist,
+                                  json={"join_code": created["join_code"], "display_name": joiner.display_name})
+        if code != 200 or not isinstance(joined, dict) or joined.get("status") != "active":
+            report.add("call join", False, f"POST /calls/join (as therapist, by code) -> {code} {str(joined)[:300]}")
+            return report
+        report.add("call join", True,
+                   f"POST /calls/join 200 as the therapist: status {joined.get('status')}, self_label {joined.get('self_label')}, "
+                   f"participants {[(p.get('display_name'), p.get('label')) for p in joined.get('participants') or []]}")
+
+        # --- 2. both phones on the call, concurrently -------------------------
+        host_ready, joiner_ready = asyncio.Event(), asyncio.Event()
+        host_done, joiner_done = asyncio.Event(), asyncio.Event()
+
+        async def side_run(side: CallSide, self_ready, peer_ready, self_done, peer_done, n_peer_turns: int) -> WsRun:
+            return await stream_live_session(
+                base_url, side.account, scene, session_id=side.session_id, speed=speed,
+                pcm=call_side_pcm(scene, side.turn_indexes),
+                turn_locals=call_side_turn_locals(scene, side.session_id, side.turn_indexes),
+                pre_stream=_pre_stream_for(side, call_id, peer_ready, self_ready),
+                post_stream=_post_stream_for(side, call_id, self_done, peer_done, n_peer_turns),
+            )
+
+        host.run, joiner.run = await asyncio.gather(
+            side_run(host, host_ready, joiner_ready, host_done, joiner_done, len(other_idx)),
+            side_run(joiner, joiner_ready, host_ready, joiner_done, host_done, len(self_idx)),
+        )
+        for side in (host, joiner):
+            run = side.run
+            ok = run.error is None and run.config_ack and run.session_complete is not None and side.bound_state is not None
+            report.data[f"ws_{side.role}"] = {
+                "frames_sent": run.frames_sent, "turn_locals": len(run.sent_turns), "close_code": run.close_code,
+                "error": run.error, "event_counts": _count_types(run), "uid": side.uid,
+            }
+            report.add(f"call ws ({side.role})", ok,
+                       f"{side.account.email}: config_ack={run.config_ack} bound={side.bound_state is not None} "
+                       f"{run.frames_sent} frames, {len(run.sent_turns)} turn_local (own turns {side.turn_indexes}), "
+                       f"session_complete={run.session_complete is not None} close={run.close_code} error={run.error} "
+                       f"events={_count_types(run)}")
+        if host.run.error or joiner.run.error or host.bound_state is None or joiner.bound_state is None:
+            return report
+
+        # signaling: the offer reached the joiner from the host, the answer came back
+        offer_ok = (host.signal_error is None and joiner.signal_in is not None
+                    and joiner.signal_in.get("payload") == host.signal_out and joiner.signal_in.get("from") == host.uid)
+        answer_ok = (joiner.signal_error is None and host.signal_in is not None
+                     and host.signal_in.get("payload") == joiner.signal_out and host.signal_in.get("from") == joiner.uid)
+        report.data["signaling"] = {"offer_ok": offer_ok, "answer_ok": answer_ok,
+                                    "host_error": host.signal_error, "joiner_error": joiner.signal_error}
+        report.add("rtc signaling", offer_ok and answer_ok,
+                   f"host offer -> joiner: {'delivered' if offer_ok else 'MISSING'} (from={joiner.signal_in.get('from') if joiner.signal_in else None}); "
+                   f"joiner answer -> host: {'delivered' if answer_ok else 'MISSING'}"
+                   + (f"; errors host={host.signal_error} joiner={joiner.signal_error}" if host.signal_error or joiner.signal_error else ""))
+
+        # the merged transcript on each phone: every PEER turn, with the peer's slot label
+        def _remote(side: CallSide) -> list[dict]:
+            return [e for e in side.run.of_type("transcript") if e.get("call_id") == call_id]
+        expect = [(host, "Speaker B", other_idx), (joiner, "Speaker A", self_idx)]
+        merged_ok = True
+        merged_txt = []
+        for side, peer_label, peer_idx in expect:
+            got = _remote(side)
+            texts_ok = sorted(e.get("text") for e in got) == sorted(scene.turns[i]["text"] for i in peer_idx)
+            labels_ok = all(e.get("speaker") == peer_label and e.get("is_self") is False for e in got)
+            in_order = [e.get("text") for e in got] == [scene.turns[i]["text"] for i in peer_idx]
+            names = sorted({e.get("display_name") for e in got})
+            merged_ok = merged_ok and texts_ok and labels_ok
+            merged_txt.append(
+                f"{side.role} saw {len(got)}/{len(peer_idx)} peer turns as {peer_label} named {names}"
+                f"{'' if in_order else ' (order differs from the scene)'}"
+            )
+            report.data[f"merged_{side.role}"] = {"count": len(got), "expected": len(peer_idx), "in_order": in_order, "names": names}
+        report.add("merged transcript", merged_ok, "; ".join(merged_txt))
+
+        # per-participant coaching: nudges on own turns, suggestions on the peer's
+        coach_ok = True
+        coach_txt = []
+        for side, peer_label, _peer_idx in expect:
+            finals = [s for s in side.run.of_type("suggestion") if not s.get("partial")]
+            nudges = [s for s in finals if s.get("kind") == "nudge"]
+            responses = [s for s in finals if s.get("kind", "response") == "response"]
+            wrong = [s for s in responses if s.get("speaker") != peer_label] + [s for s in nudges if s.get("speaker") == peer_label]
+            errors = side.run.of_type("suggestion_error")
+            hard = [e for e in errors if e.get("reason") != "llm_parse_error"]
+            side_ok = bool(responses) and not wrong and not hard
+            coach_ok = coach_ok and side_ok
+            coach_txt.append(
+                f"{side.role}: {len(responses)} suggestions about {peer_label}, {len(nudges)} nudges on own turns"
+                + (f", {len(wrong)} MISLABELLED" if wrong else "") + (f", {len(errors)} suggestion_error" if errors else "")
+            )
+            report.data[f"coaching_{side.role}"] = {"responses": len(responses), "nudges": len(nudges), "errors": len(errors)}
+        report.add("per-participant coaching", coach_ok,
+                   "; ".join(coach_txt) + (f" (speed {speed:g}x: latest-wins supersedes some turns)" if speed > 1 else ""))
+
+        # --- 3. the call ended, one episode each -----------------------------
+        code, h_view = await _req(http, "GET", base_url, f"/calls/{call_id}", patient)
+        code_j, j_view = await _req(http, "GET", base_url, f"/calls/{call_id}", therapist)
+        if code != 200 or code_j != 200 or not isinstance(h_view, dict) or not isinstance(j_view, dict):
+            report.add("call ended", False, f"GET /calls/{{id}} -> host {code} / joiner {code_j}")
+            return report
+        h_ep, j_ep = h_view.get("episode_id"), j_view.get("episode_id")
+        ended_frames = [side.run.of_type("call_ended") for side in (host, joiner)]
+        ended_ok = h_view.get("status") == "ended" and bool(h_ep) and bool(j_ep) and h_ep != j_ep
+        report.data["episodes"] = {"host": h_ep, "joiner": j_ep, "shared_with": h_view.get("shared_with")}
+        report.add("call ended", ended_ok,
+                   f"GET /calls/{{id}}: status {h_view.get('status')} ({h_view.get('end_reason')}), {h_view.get('turn_count')} merged turns, "
+                   f"host episode {h_ep} shared_with={h_view.get('shared_with')}, joiner episode {j_ep}; "
+                   f"call_ended frames on the sockets: {[len(f) for f in ended_frames]}")
+        if linked and h_view.get("shared_with") != [therapist.email]:
+            report.add("call auto-share", False, f"host episode shared_with={h_view.get('shared_with')}, expected [{therapist.email}]")
+        if not ended_ok:
+            return report
+        episode_id = h_ep
+        report.data["episode_id"] = episode_id
+
+        # --- 4. the patient's episode ----------------------------------------
+        status, detail, waited = await wait_for_analysis(http, base_url, patient, episode_id, timeout_s=analysis_timeout_s)
+        live = ((detail or {}).get("analysis") or {}).get("live") or {}
+        if status == "full":
+            report.add("batch analysis", True, f"full after {waited:.1f}s — {len((detail or {}).get('analysis', {}).get('per_turn') or [])} heats")
+        elif status == "failed":
+            report.add("batch analysis", False, f"analysis_status failed after {waited:.1f}s: {live.get('analysis_error')}")
+        else:
+            report.add("batch analysis", False, f"{status} after {waited:.1f}s (analysis_status={live.get('analysis_status')})")
+
+        code, body = await _req(http, "POST", base_url, f"/episodes/{episode_id}/reflect", patient, timeout=180.0)
+        refl = (body.get("could_have_said") or []) if code == 200 and isinstance(body, dict) else []
+        report.add("reflection", code == 200 and bool(refl),
+                   f"POST /episodes/{{id}}/reflect -> {code}: {len(refl)} reflections for {len(self_idx)} own turns (cached={body.get('cached') if isinstance(body, dict) else None})")
+
+        code, detail = await _req(http, "GET", base_url, f"/recordings/{episode_id}", patient)
+        if code == 200 and isinstance(detail, dict):
+            turns = detail.get("turns") or []
+            labels = detail.get("speaker_labels") or {}
+            live = ((detail.get("analysis") or {}).get("live") or {})
+            esc = ((live.get("tone_summary") or {}).get("self") or {}).get("escalation_turns")
+            exp_esc_texts = sorted(scene.turns[i]["text"] for i in scene.expected_self_escalations)
+            esc_texts = sorted(turns[i].get("text") for i in (esc or []) if i < len(turns))
+            in_order = [t.get("text") for t in turns] == [t["text"] for t in scene.turns]
+            ok_detail = (
+                detail.get("mode") == "call" and live.get("mode") == "call"
+                and sorted(t.get("text") for t in turns) == sorted(t["text"] for t in scene.turns)
+                and (labels.get("Speaker A") or {}).get("display_label") == "You"
+                and live.get("self_speaker") == "Speaker A"
+                and esc_texts == exp_esc_texts
+                and all(t.get("is_self") is (t.get("speaker") == "Speaker A") for t in turns)
+                and all("call_seq" in t and "local_start_time" in t for t in turns)
+            )
+            report.data["detail"] = {"mode": detail.get("mode"), "turns": len(turns), "in_order": in_order,
+                                     "escalation_turns": esc, "self_speaker": live.get("self_speaker"),
+                                     "peer_label": (labels.get("Speaker B") or {}).get("display_label")}
+            report.add("episode detail (patient)", ok_detail,
+                       f"GET /recordings/{{id}} 200 — mode {detail.get('mode')}, {len(turns)}/{len(scene.turns)} merged turns"
+                       f"{'' if in_order else ' (order differs from the scene)'}, Speaker A labelled "
+                       f"{(labels.get('Speaker A') or {}).get('display_label')!r}, Speaker B labelled "
+                       f"{(labels.get('Speaker B') or {}).get('display_label')!r}, self escalation turns {esc} "
+                       f"(scene expects {scene.expected_self_escalations}), analysis_status={live.get('analysis_status')}")
+        else:
+            report.add("episode detail (patient)", False, f"GET /recordings/{{id}} -> {code} {str(detail)[:200]}")
+
+        code, growth = await _req(http, "GET", base_url, "/growth", patient)
+        pt = next((p for p in (growth.get("points") or []) if p.get("recording_id") == episode_id), None) if code == 200 and isinstance(growth, dict) else None
+        report.data["growth_point"] = pt
+        report.add("growth", pt is not None and pt.get("mode") == "call",
+                   f"GET /growth -> {code}: " + (f"point present, my_score={pt.get('my_score')} mode={pt.get('mode')} source={pt.get('source')}" if pt else "no point for the episode"))
+
+        # --- 5. the therapist: the patient's episode (shared) + its own -------
+        code, sessions = await _req(http, "GET", base_url, "/sessions", therapist)
+        rows = (sessions.get("sessions") if isinstance(sessions, dict) else None) or []
+        shared_row = next((s for s in rows if s.get("id") == episode_id), None)
+        own_row = next((s for s in rows if s.get("id") == j_ep), None)
+        if shared_row is None and not linked:
+            code_s, body = await _req(http, "POST", base_url, f"/recordings/{episode_id}/shares", patient, json={"email": therapist.email})
+            report.add("share (manual)", code_s == 200, f"POST /recordings/{{id}}/shares -> {code_s}")
+            code, sessions = await _req(http, "GET", base_url, "/sessions", therapist)
+            rows = (sessions.get("sessions") if isinstance(sessions, dict) else None) or []
+            shared_row = next((s for s in rows if s.get("id") == episode_id), None)
+            own_row = next((s for s in rows if s.get("id") == j_ep), None)
+        ok_rows = (
+            code == 200 and shared_row is not None and bool(shared_row.get("shared")) and shared_row.get("mode") == "call"
+            and own_row is not None and not own_row.get("shared") and own_row.get("mode") == "call"
+        )
+        report.data["therapist_rows"] = {
+            "shared": {k: shared_row.get(k) for k in ("shared", "role", "mode", "analysisStatus")} if shared_row else None,
+            "own": {k: own_row.get(k) for k in ("shared", "role", "mode", "analysisStatus")} if own_row else None,
+        }
+        report.add("therapist visibility", ok_rows,
+                   f"GET /sessions as therapist -> {code}: patient's call episode "
+                   + (f"listed shared={shared_row.get('shared')} role={shared_row.get('role')!r} mode={shared_row.get('mode')}" if shared_row else "MISSING")
+                   + "; therapist's own call episode "
+                   + (f"listed role={own_row.get('role')!r} mode={own_row.get('mode')} couldHaveSaid={len(own_row.get('couldHaveSaid') or [])}" if own_row else "MISSING"))
+
+        # --- cleanup --------------------------------------------------------
+        if cleanup:
+            notes = []
+            for acct, ep in ((patient, h_ep), (therapist, j_ep)):
+                code, _ = await _req(http, "DELETE", base_url, f"/recordings/{ep}", acct)
+                notes.append(f"episode {ep} delete {code}")
+            if linked:
+                code, _ = await _req(http, "DELETE", base_url, "/therapist/link", patient)
+                notes.append(f"unlink {code}")
+            for acct in (patient, therapist):
+                if acct.signed_up:
+                    notes.append(f"firebase delete {acct.email}: {await firebase_delete_account(http, acct)}")
+            report.add("cleanup", None, "; ".join(notes))
+    finally:
+        if own_http:
+            await http.aclose()
+    return report
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -1384,6 +1801,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--scene", default="scene_couple_escalation", help=f"one of {list_scenes()}")
     p.add_argument("--speed", type=float, default=1.0, help="stream N× faster than real time (default 1)")
     p.add_argument("--mode", default="earpiece", choices=["earpiece", "speaker", "therapist"])
+    p.add_argument("--call", action="store_true",
+                   help="in-app call: the patient hosts (POST /calls), the therapist joins by code, both phones "
+                        "bind their sockets (call_join), exchange fake SDP over rtc_signal, speak their own scene "
+                        "turns concurrently, and each gets a mode=call episode of the merged transcript")
     p.add_argument("--no-enroll", action="store_true", help="skip POST /voice/enroll-direct")
     p.add_argument("--analysis-timeout", type=float, default=180.0, help="seconds to wait for the batch analysis")
     p.add_argument("--cleanup", action="store_true", help="delete the episode/voiceprint (+ --signup accounts) afterwards")
@@ -1437,6 +1858,15 @@ async def amain(argv: list[str] | None = None) -> int:
     scene = load_scene(args.scene)
     async with httpx.AsyncClient() as http:
         patient, therapist = await resolve_accounts(args, http)
+        if args.call:
+            report = await run_call_e2e(
+                base_url=args.base_url, patient=patient, therapist=therapist, scene=scene,
+                speed=args.speed, analysis_timeout_s=args.analysis_timeout, cleanup=args.cleanup, http=http,
+            )
+            print(format_report(report))
+            if args.json:
+                print(json.dumps(report.to_dict(), indent=2, default=str))
+            return 1 if report.failures else 0
         report = await run_e2e(
             base_url=args.base_url, patient=patient, therapist=therapist, scene=scene,
             speed=args.speed, mode=args.mode, enroll=not args.no_enroll,
