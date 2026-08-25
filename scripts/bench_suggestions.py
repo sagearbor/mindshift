@@ -15,6 +15,9 @@ fields (``cache_read_input_tokens`` > 0 = the cache engaged)::
     python scripts/bench_suggestions.py --n 20
     python scripts/bench_suggestions.py --n 20 --variants legacy,lean+cached
     python scripts/bench_suggestions.py --n 20 --model claude-sonnet-5
+    # hedged streaming A/B, the variants interleaved call-by-call so both
+    # see the same provider weather (p99/max + hedge rate in the table)
+    python scripts/bench_suggestions.py --interleave --variants lean-nohedge,lean --n 75
 
 ``ws`` — the whole realtime pipeline in-process: a real uvicorn serving
 ``main.app`` on the loopback with ONLY the LLM real (transcriber/TTS are
@@ -28,6 +31,7 @@ repair) so before/after come from the same code::
 
     python scripts/bench_suggestions.py --mode ws --scene scene_couple_escalation --speed 2
     python scripts/bench_suggestions.py --mode ws --legacy --scene scene_couple_escalation --speed 2
+    python scripts/bench_suggestions.py --mode ws --no-hedge ...   # shipping knobs minus hedging
 
 Spend is small (Haiku, ~100 short calls per full run). Never deploys.
 """
@@ -107,36 +111,61 @@ SUGGESTION_SCHEMA = {
 }
 
 VARIANTS: dict[str, dict] = {
-    # production before this branch: REST contract (tone_score), 512 tokens,
-    # plain-string system prompt
-    "legacy": dict(live=False, cache=False, max_tokens=512, schema=False),
-    "cached": dict(live=False, cache=True, max_tokens=512, schema=False),
-    # what ships (audio_pipeline + llm_client defaults)
-    "lean": dict(live=True, cache=False, max_tokens=200, schema=False),
+    # production before perf/cloud-suggestion-latency: REST contract
+    # (tone_score), 512 tokens, plain-string system prompt, no hedging
+    "legacy": dict(live=False, cache=False, max_tokens=512, schema=False, hedge=False),
+    "cached": dict(live=False, cache=True, max_tokens=512, schema=False, hedge=False),
+    # the lean request WITHOUT hedged streaming — production between #156
+    # and perf/llm-hedging; the "before" of the hedging A/B
+    "lean-nohedge": dict(live=True, cache=False, max_tokens=200, schema=False, hedge=False),
+    # what ships (audio_pipeline + llm_client defaults): lean + hedged
+    "lean": dict(live=True, cache=False, max_tokens=200, schema=False, hedge=True),
     # the cache_control marker on top — evaluated, OFF by default (see
     # llm_client.PROMPT_CACHE_ENABLED for the measurement)
-    "lean+cached": dict(live=True, cache=True, max_tokens=200, schema=False),
+    "lean+cached": dict(live=True, cache=True, max_tokens=200, schema=False, hedge=True),
     # structured outputs (output_config.format) on top — evaluated, not shipped
-    "lean+schema": dict(live=True, cache=False, max_tokens=200, schema=True),
+    "lean+schema": dict(live=True, cache=False, max_tokens=200, schema=True, hedge=True),
 }
 
 
-def run_llm_variant(name: str, spec: dict, turns: list[dict], model: str) -> dict:
-    import audio_pipeline
-    from audio_pipeline import _first_suggestion_in, _parse_or_repair, _turn_prompt
-    from llm_client import LLMClient
-    from main import empathy_system_prompt, parse_llm_json
-    from models.audio import Utterance
+def apply_hedge_knobs(hedge: bool, hedge_after_ms: int, deadline_ms: int) -> None:
+    """Flip the hedged-streaming knobs (module attributes, read per call)."""
+    import llm_client
 
-    llm = LLMClient(model=model, cache_system_prompt=spec["cache"])
-    totals: list[float] = []
-    ttfts: list[float] = []
-    firsts: list[float] = []
-    out_tokens: list[int] = []
-    raw_fail = repaired = unrecovered = 0
-    max_hit = 0
-    per_call: list[dict] = []
-    for turn in turns:
+    llm_client.LLM_HEDGE_AFTER_MS = hedge_after_ms if hedge else 0
+    llm_client.LLM_FIRST_TOKEN_DEADLINE_MS = deadline_ms if hedge else 0
+
+
+class LLMVariantRunner:
+    """One variant's LLMClient + accumulators, stepped one turn at a time so
+    several variants can be INTERLEAVED call-by-call (the provider's stall
+    tail is bursty in time; interleaving gives every variant the same
+    weather, which sequential blocks do not)."""
+
+    def __init__(self, name: str, spec: dict, model: str, *, hedge_after_ms: int,
+                 deadline_ms: int) -> None:
+        from llm_client import LLMClient
+
+        self.name, self.spec, self.model = name, spec, model
+        self.hedge_after_ms, self.deadline_ms = hedge_after_ms, deadline_ms
+        self.llm = LLMClient(model=model, cache_system_prompt=spec["cache"])
+        self.totals: list[float] = []
+        self.ttfts: list[float] = []
+        self.firsts: list[float] = []
+        self.out_tokens: list[int] = []
+        self.raw_fail = self.repaired = self.unrecovered = self.max_hit = 0
+        self.slow_llm = 0
+        self.per_call: list[dict] = []
+
+    def step(self, turn: dict) -> None:
+        import audio_pipeline
+        from audio_pipeline import _first_suggestion_in, _parse_or_repair, _turn_prompt
+        from llm_client import LLMFirstTokenTimeout
+        from main import empathy_system_prompt, parse_llm_json
+        from models.audio import Utterance
+
+        spec, llm = self.spec, self.llm
+        apply_hedge_knobs(spec["hedge"], self.hedge_after_ms, self.deadline_ms)
         u = Utterance(session_id="bench", speaker=turn["speaker"], text=turn["text"],
                       start_time=0.0, end_time=1.0)
         system = empathy_system_prompt(60, "Husband", None, live=spec["live"])
@@ -144,60 +173,87 @@ def run_llm_variant(name: str, spec: dict, turns: list[dict], model: str) -> dic
         parts: list[str] = []
         t0 = time.monotonic()
         ttft = first = None
-        for delta in llm.stream_complete(
+        stream = llm.stream_complete(
             system=system, user=user, max_tokens=spec["max_tokens"],
             response_schema=SUGGESTION_SCHEMA if spec["schema"] else None,
-        ):
-            now = time.monotonic()
-            if ttft is None:
-                ttft = now
-            parts.append(delta)
-            if first is None and _first_suggestion_in("".join(parts)) is not None:
-                first = now
+        )
+        abandoned = False
+        try:
+            for delta in stream:
+                now = time.monotonic()
+                if ttft is None:
+                    ttft = now
+                parts.append(delta)
+                if first is None and _first_suggestion_in("".join(parts)) is not None:
+                    first = now
+        except LLMFirstTokenTimeout:
+            abandoned = True
+            self.slow_llm += 1
         t1 = time.monotonic()
         raw = "".join(parts)
         usage = llm.last_usage or {}
-        totals.append((t1 - t0) * 1000)
-        ttfts.append(((ttft or t1) - t0) * 1000)
+        self.totals.append((t1 - t0) * 1000)
+        self.ttfts.append(((ttft or t1) - t0) * 1000)
         if first is not None:
-            firsts.append((first - t0) * 1000)
-        out_tokens.append(usage.get("output_tokens", 0))
+            self.firsts.append((first - t0) * 1000)
+        self.out_tokens.append(usage.get("output_tokens", 0))
         if usage.get("output_tokens", 0) >= spec["max_tokens"]:
-            max_hit += 1
-        ok_raw = True
-        try:
-            data = parse_llm_json(raw)
-            ok_raw = isinstance(data, dict) and isinstance(data.get("suggestions"), list)
-        except Exception:  # noqa: BLE001
-            ok_raw = False
-        if not ok_raw:
-            raw_fail += 1
+            self.max_hit += 1
+        ok_raw = not abandoned
+        if ok_raw:
+            try:
+                data = parse_llm_json(raw)
+                ok_raw = isinstance(data, dict) and isinstance(data.get("suggestions"), list)
+            except Exception:  # noqa: BLE001
+                ok_raw = False
+        if not ok_raw and not abandoned:
+            self.raw_fail += 1
             try:
                 asyncio.run(_parse_or_repair(
                     llm, raw, keys='"suggestions" (list of strings), "importance" (integer)',
                     what="response", utterance_text=u.text,
                 ))
-                repaired += 1
+                self.repaired += 1
             except audio_pipeline.SuggestionUnavailable:
-                unrecovered += 1
-        per_call.append({"ms": round(totals[-1]), "out": out_tokens[-1],
-                         "cache_read": usage.get("cache_read_input_tokens", 0),
-                         "ok": ok_raw})
-    llm.close()
-    u = llm.usage_totals
-    return {
-        "variant": name, "n": len(turns),
-        "total_p50": pct(totals, 50), "total_p95": pct(totals, 95),
-        "ttft_p50": pct(ttfts, 50), "ttft_p95": pct(ttfts, 95),
-        "first_p50": pct(firsts, 50) if firsts else None,
-        "first_p95": pct(firsts, 95) if firsts else None,
-        "first_n": len(firsts),
-        "out_tok_p50": pct(out_tokens, 50), "max_tokens_hit": max_hit,
-        "raw_fail": raw_fail, "repaired": repaired, "unrecovered": unrecovered,
-        "input_tokens": u["input_tokens"], "cache_write": u["cache_creation_input_tokens"],
-        "cache_read": u["cache_read_input_tokens"],
-        "per_call": per_call,
-    }
+                self.unrecovered += 1
+        self.per_call.append({
+            "ms": round(self.totals[-1]), "ttft_ms": round(self.ttfts[-1]),
+            "out": self.out_tokens[-1], "cache_read": usage.get("cache_read_input_tokens", 0),
+            "ok": ok_raw, "hedged": bool(getattr(stream, "hedged", False)),
+            "hedge_won": bool(getattr(stream, "hedge_won", False)),
+            "slow_llm": abandoned,
+        })
+
+    def result(self) -> dict:
+        self.llm.close()
+        u, h = self.llm.usage_totals, self.llm.hedge_totals
+        n = len(self.totals)
+        return {
+            "variant": self.name, "n": n,
+            "total_p50": pct(self.totals, 50), "total_p95": pct(self.totals, 95),
+            "total_p99": pct(self.totals, 99), "total_max": max(self.totals) if n else None,
+            "ttft_p50": pct(self.ttfts, 50), "ttft_p95": pct(self.ttfts, 95),
+            "ttft_p99": pct(self.ttfts, 99), "ttft_max": max(self.ttfts) if n else None,
+            "first_p50": pct(self.firsts, 50) if self.firsts else None,
+            "first_p95": pct(self.firsts, 95) if self.firsts else None,
+            "first_n": len(self.firsts),
+            "out_tok_p50": pct(self.out_tokens, 50), "max_tokens_hit": self.max_hit,
+            "raw_fail": self.raw_fail, "repaired": self.repaired, "unrecovered": self.unrecovered,
+            "input_tokens": u["input_tokens"], "cache_write": u["cache_creation_input_tokens"],
+            "cache_read": u["cache_read_input_tokens"],
+            "hedged": h["hedged"], "hedge_won": h["hedge_won"], "slow_llm": h["slow_llm"],
+            "hedge_extra_input_tokens": h["hedge_extra_input_tokens"],
+            "per_call": self.per_call,
+        }
+
+
+def run_llm_variant(name: str, spec: dict, turns: list[dict], model: str, *,
+                    hedge_after_ms: int = 1500, deadline_ms: int = 6000) -> dict:
+    runner = LLMVariantRunner(name, spec, model, hedge_after_ms=hedge_after_ms,
+                              deadline_ms=deadline_ms)
+    for turn in turns:
+        runner.step(turn)
+    return runner.result()
 
 
 def run_nudge_variant(name: str, max_tokens: int, turns: list[dict], model: str) -> dict:
@@ -228,20 +284,30 @@ def run_nudge_variant(name: str, max_tokens: int, turns: list[dict], model: str)
             "total_p95": pct(totals, 95), "out_tok_p50": pct(out_tokens, 50), "raw_fail": fails}
 
 
-def print_llm_table(rows: list[dict], model: str) -> None:
-    print(f"\nLLM stage, model={model} (ms; sequential calls; n per variant)")
-    head = (f"{'variant':<13}{'n':>3}{'total p50':>10}{'p95':>7}{'ttft p50':>10}{'p95':>7}"
-            f"{'1st-sugg p50':>13}{'p95':>7}{'out tok':>8}{'cap hit':>8}"
-            f"{'parse fail':>11}{'repaired':>9}{'cache w/r':>12}")
+def print_llm_table(rows: list[dict], model: str, *, interleaved: bool) -> None:
+    order = "interleaved call-by-call" if interleaved else "sequential blocks"
+    print(f"\nLLM stage, model={model} (ms; {order}; n per variant)")
+    head = (f"{'variant':<13}{'n':>4}{'total p50':>10}{'p95':>7}{'p99':>7}{'max':>7}"
+            f"{'ttft p50':>10}{'p95':>7}{'p99':>7}{'max':>7}"
+            f"{'1st-sugg p50':>13}{'p95':>7}"
+            f"{'hedged':>10}{'won':>5}{'slow':>5}{'parse fail':>11}{'repaired':>9}")
     print(head)
     for r in rows:
-        print(f"{r['variant']:<13}{r['n']:>3}{fmt(r['total_p50']):>10}{fmt(r['total_p95']):>7}"
-              f"{fmt(r['ttft_p50']):>10}{fmt(r['ttft_p95']):>7}"
-              f"{fmt(r['first_p50']):>13}{fmt(r['first_p95']):>7}{fmt(r['out_tok_p50']):>8}"
-              f"{r['max_tokens_hit']:>8}{r['raw_fail']:>11}{r['repaired']:>9}"
-              f"{str(r['cache_write']) + '/' + str(r['cache_read']):>12}")
-    print("cache w/r = cache_creation_input_tokens / cache_read_input_tokens summed over the"
-          " variant's calls (0/0 = the prefix is below the model's cacheable minimum).")
+        rate = f"{r['hedged']}({100.0 * r['hedged'] / r['n']:.1f}%)" if r["n"] else "-"
+        print(f"{r['variant']:<13}{r['n']:>4}{fmt(r['total_p50']):>10}{fmt(r['total_p95']):>7}"
+              f"{fmt(r['total_p99']):>7}{fmt(r['total_max']):>7}"
+              f"{fmt(r['ttft_p50']):>10}{fmt(r['ttft_p95']):>7}{fmt(r['ttft_p99']):>7}"
+              f"{fmt(r['ttft_max']):>7}"
+              f"{fmt(r['first_p50']):>13}{fmt(r['first_p95']):>7}"
+              f"{rate:>10}{r['hedge_won']:>5}{r['slow_llm']:>5}"
+              f"{r['raw_fail']:>11}{r['repaired']:>9}")
+    print("hedged = calls that fired a second request (rate); won = the second request "
+          "answered first; slow = abandoned at the first-token deadline (counted in the "
+          "percentiles at the deadline).")
+    for r in rows:
+        print(f"  {r['variant']}: out tok p50 {fmt(r['out_tok_p50'])}, cap hit {r['max_tokens_hit']}, "
+              f"input tokens {r['input_tokens']} (+{r['hedge_extra_input_tokens']} billed for "
+              f"hedge losers), cache w/r {r['cache_write']}/{r['cache_read']}")
 
 
 def run_llm_mode(args: argparse.Namespace) -> int:
@@ -251,13 +317,31 @@ def run_llm_mode(args: argparse.Namespace) -> int:
         raise SystemExit(f"unknown variant(s) {unknown}; choose from {list(VARIANTS)}")
     turns = sample_turns(args.n, other_only=True)
     rows = []
-    for name in names:
-        print(f"... {name} x{args.n} on {args.model}", flush=True)
-        try:
-            rows.append(run_llm_variant(name, VARIANTS[name], turns, args.model))
-        except Exception as exc:  # noqa: BLE001 — a variant the API rejects is a finding
-            print(f"    {name}: FAILED {type(exc).__name__}: {str(exc)[:200]}")
-    print_llm_table(rows, args.model)
+    if args.interleave:
+        # Every variant sees the same turn at (nearly) the same moment.
+        runners = [LLMVariantRunner(name, VARIANTS[name], args.model,
+                                    hedge_after_ms=args.hedge_after, deadline_ms=args.deadline)
+                   for name in names]
+        print(f"... {' | '.join(names)} x{args.n} on {args.model}, interleaved", flush=True)
+        for i, turn in enumerate(turns):
+            for runner in runners:
+                try:
+                    runner.step(turn)
+                except Exception as exc:  # noqa: BLE001 — a failing call is a finding, not a crash
+                    print(f"    {runner.name} call {i}: {type(exc).__name__}: {str(exc)[:120]}")
+            if (i + 1) % 10 == 0:
+                print(f"    {i + 1}/{len(turns)}", flush=True)
+        rows = [runner.result() for runner in runners]
+    else:
+        for name in names:
+            print(f"... {name} x{args.n} on {args.model}", flush=True)
+            try:
+                rows.append(run_llm_variant(name, VARIANTS[name], turns, args.model,
+                                            hedge_after_ms=args.hedge_after,
+                                            deadline_ms=args.deadline))
+            except Exception as exc:  # noqa: BLE001 — a variant the API rejects is a finding
+                print(f"    {name}: FAILED {type(exc).__name__}: {str(exc)[:200]}")
+    print_llm_table(rows, args.model, interleaved=args.interleave)
     if args.nudges:
         self_turns = sample_turns(args.n, self_only=True)
         nrows = []
@@ -295,8 +379,11 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-def apply_legacy_knobs(legacy: bool) -> dict:
-    """Flip the perf knobs (module attributes — same seam the tests use)."""
+def apply_legacy_knobs(legacy: bool, *, hedge: bool = True, hedge_after_ms: int = 1500,
+                       deadline_ms: int = 6000) -> dict:
+    """Flip the perf knobs (module attributes — same seam the tests use).
+    ``--legacy`` also turns hedged streaming off; ``--no-hedge`` turns off
+    only that (the "before" of the perf/llm-hedging A/B)."""
     import audio_pipeline
     import llm_client
 
@@ -311,6 +398,9 @@ def apply_legacy_knobs(legacy: bool) -> dict:
         setattr(audio_pipeline, k, v)
     knobs["cache_system_prompt"] = False if legacy else llm_client.PROMPT_CACHE_ENABLED
     llm_client.LLMClient.cache_system_prompt = knobs["cache_system_prompt"]
+    apply_hedge_knobs(hedge and not legacy, hedge_after_ms, deadline_ms)
+    knobs["LLM_HEDGE_AFTER_MS"] = llm_client.LLM_HEDGE_AFTER_MS
+    knobs["LLM_FIRST_TOKEN_DEADLINE_MS"] = llm_client.LLM_FIRST_TOKEN_DEADLINE_MS
     return knobs
 
 
@@ -351,7 +441,8 @@ def run_ws_mode(args: argparse.Namespace) -> int:
     import main
     from llm_client import LLMClient
 
-    knobs = apply_legacy_knobs(args.legacy)
+    knobs = apply_legacy_knobs(args.legacy, hedge=not args.no_hedge,
+                               hedge_after_ms=args.hedge_after, deadline_ms=args.deadline)
     asyncio.run(main.init_db())
     auth.verify_id_token = lambda token: "bench-user"  # keyless, like the test suite
     audio_pipeline.watch_relay = None
@@ -369,7 +460,9 @@ def run_ws_mode(args: argparse.Namespace) -> int:
         time.sleep(0.05)
     if not server.started:
         raise SystemExit("uvicorn did not start")
-    label = "LEGACY (pre-change knobs)" if args.legacy else "CURRENT (shipping knobs)"
+    label = ("LEGACY (pre-change knobs)" if args.legacy
+             else "CURRENT minus hedging (--no-hedge)" if args.no_hedge
+             else "CURRENT (shipping knobs)")
     print(f"\nws mode — {label}: {knobs}; model={args.model}; speed={args.speed}x")
     results = []
     try:
@@ -395,6 +488,8 @@ def run_ws_mode(args: argparse.Namespace) -> int:
             v = lat.get(stage)
             if v:
                 print(f"    {stage:<18}{v['p50']:>9.1f}{v['p95']:>9.1f}{v['n']:>5}")
+        if lat.get("hedge"):
+            print(f"    hedge: {lat['hedge']}")
         t = r["timing"]
         print(f"    client time-to-first-partial p50 {t['partial_p50_ms']} ms; "
               f"first-response p50 {t['first_p50_ms']} (min {t['first_min_ms']}, max {t['first_max_ms']}) "
@@ -416,16 +511,24 @@ def run_ws_mode(args: argparse.Namespace) -> int:
             first_all.append(first)
             (first_self if t["is_self"] else first_other).append(first)
     print(f"\nPOOLED over {len(results)} run(s) — client-side, ms from turn_local sent (n = turns with a response)")
-    print(f"{'metric':<34}{'n':>4}{'p50':>8}{'p95':>8}{'min':>7}{'max':>7}")
+    print(f"{'metric':<34}{'n':>4}{'p50':>8}{'p95':>8}{'p99':>8}{'min':>7}{'max':>7}")
     for label, vals in (("time-to-first-partial (other)", partial_all),
                         ("first response, any turn", first_all),
                         ("first response, OTHER turns", first_other),
                         ("first response, SELF (nudge) turns", first_self)):
         if vals:
             print(f"{label:<34}{len(vals):>4}{pct(vals, 50):>8.0f}{pct(vals, 95):>8.0f}"
-                  f"{min(vals):>7.0f}{max(vals):>7.0f}")
-    usage = main.app.state.llm_client.usage_totals
-    print(f"\nLLM usage over the run(s): {usage}")
+                  f"{pct(vals, 99):>8.0f}{min(vals):>7.0f}{max(vals):>7.0f}")
+    # Server-side hedge counts summed over the runs (each session reports its own).
+    hedge_sum: dict[str, int] = {}
+    for r in results:
+        for k, v in (r["latency_summary"].get("hedge") or {}).items():
+            hedge_sum[k] = hedge_sum.get(k, 0) + v
+    errors_all = [e for r in results for e in (r["errors"] or [])]
+    print(f"\nserver hedge counts over the run(s): {hedge_sum or 'none'}; "
+          f"suggestion_error reasons: {errors_all or 'none'}")
+    llm = main.app.state.llm_client
+    print(f"LLM usage over the run(s): {llm.usage_totals}; hedge: {llm.hedge_totals}")
     if args.json:
         print(json.dumps(results, indent=1, default=str))
     return 0
@@ -441,7 +544,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--n", type=int, default=20, help="llm mode: calls per variant")
     p.add_argument("--variants", default=",".join(VARIANTS), help="llm mode: comma list")
     p.add_argument("--nudges", action="store_true", help="llm mode: also bench the self-turn nudge path")
-    p.add_argument("--legacy", action="store_true", help="ws mode: pre-change knobs")
+    p.add_argument("--interleave", action="store_true",
+                   help="llm mode: round-robin the variants call-by-call instead of sequential blocks")
+    p.add_argument("--hedge-after", type=int, default=1500,
+                   help="hedged variants: ms without a first token before the second request fires")
+    p.add_argument("--deadline", type=int, default=6000,
+                   help="hedged variants: ms without a first token before the call is abandoned")
+    p.add_argument("--legacy", action="store_true", help="ws mode: pre-change knobs (incl. no hedging)")
+    p.add_argument("--no-hedge", action="store_true", help="ws mode: shipping knobs minus hedged streaming")
     p.add_argument("--scene", default="scene_couple_escalation", help="ws mode: comma list")
     p.add_argument("--speed", type=float, default=1.0, help="ws mode: stream N× real time")
     p.add_argument("--repeat", type=int, default=1, help="ws mode: runs per scene")

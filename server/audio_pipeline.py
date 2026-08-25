@@ -40,6 +40,7 @@ import websockets
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
+import llm_client
 from llm_client import LLMClient
 from models.audio import (
     DiarizationConfig,
@@ -802,6 +803,12 @@ class UtteranceTiming:
     tts_end: float | None = None
     sent: float | None = None               # SuggestionEvent on the wire (or decided: nothing to send)
     queue_depth: int = 0                    # items ahead of this one at enqueue time
+    # Hedged streaming (perf/llm-hedging): None = the LLM stage was not a
+    # hedge-capable streaming call (legacy complete() path, or a test double);
+    # otherwise whether a second request was fired, and whether it was the
+    # one whose answer was used. Logged and counted, never a duration.
+    hedged: bool | None = None
+    hedge_won: bool = False
 
     # (stage name, start stamp, end stamp) — in the order they are logged.
     _STAGES = (
@@ -843,9 +850,22 @@ class LatencyRecorder:
             stage: deque(maxlen=window) for stage in self.STAGES
         }
         self.count = 0
+        # Hedged-streaming counters over the WHOLE session (not windowed —
+        # they are the cost side of the tail fix and must add up): n =
+        # hedge-capable LLM streaming calls, hedged / hedge_won as on
+        # UtteranceTiming, slow_llm = turns abandoned at the first-token
+        # deadline (those never reach record(); see record_abandoned()).
+        self.hedge = {"n": 0, "hedged": 0, "hedge_won": 0, "slow_llm": 0}
 
     def now(self) -> float:
         return self.clock()
+
+    def record_abandoned(self, reason: str, session_id: str) -> None:
+        """Count a turn whose LLM stage was abandoned (no durations to fold —
+        the stage never completed). Only ``slow_llm`` is counted today."""
+        if reason == "slow_llm":
+            self.hedge["slow_llm"] += 1
+            logger.info("latency session=%s abandoned=slow_llm", session_id)
 
     def start(
         self,
@@ -868,22 +888,35 @@ class LatencyRecorder:
         for name, value in stages.items():
             self._samples[name].append(value)
         self.count += 1
+        if timing.hedged is not None:
+            self.hedge["n"] += 1
+            self.hedge["hedged"] += int(timing.hedged)
+            self.hedge["hedge_won"] += int(timing.hedge_won)
         logger.info(
             "latency session=%s seg_to_enqueue=%s queue_wait=%s llm=%s "
-            "llm_first_partial=%s tts=%s total=%s queue_depth=%d",
+            "llm_first_partial=%s tts=%s total=%s queue_depth=%d "
+            "hedged=%s hedge_won=%s",
             session_id,
             *(
                 f"{stages[name]:.1f}ms" if name in stages else "-"
                 for name in self.STAGES
             ),
             timing.queue_depth,
+            "-" if timing.hedged is None else int(timing.hedged),
+            "-" if timing.hedged is None else int(timing.hedge_won),
         )
         return stages
 
     def summary(self) -> dict[str, dict[str, float | int]]:
         """``{stage: {"p50": ms, "p95": ms, "n": count}}`` over the window,
         omitting stages with no samples. Nearest-rank percentiles — exact for
-        small n (no interpolation inventing a value nobody measured)."""
+        small n (no interpolation inventing a value nobody measured).
+
+        Plus one non-stage entry, ``"hedge"`` (``{"n", "hedged",
+        "hedge_won", "slow_llm"}`` — whole-session counts, see ``self.hedge``)
+        whenever at least one hedge-capable LLM call happened or a turn was
+        abandoned as ``slow_llm``; absent otherwise, so a legacy session's
+        summary is exactly what it was."""
         out: dict[str, dict[str, float | int]] = {}
         for stage, samples in self._samples.items():
             if not samples:
@@ -894,6 +927,8 @@ class LatencyRecorder:
                 "p95": _nearest_rank(ordered, 95),
                 "n": len(ordered),
             }
+        if self.hedge["n"] or self.hedge["slow_llm"]:
+            out["hedge"] = dict(self.hedge)
         return out
 
 
@@ -1745,15 +1780,29 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 and utterance.speaker == job.self_speaker
             )
 
+        # Hedge bookkeeping for this turn's LLM call (filled by the streaming
+        # helper when the client's stream is a hedge-capable one).
+        hedge_stats: dict = {}
+
+        def note_hedge() -> None:
+            if "hedged" in hedge_stats:
+                timing.hedged = bool(hedge_stats["hedged"])
+                timing.hedge_won = bool(hedge_stats.get("hedge_won"))
+
         if self_turn:
             # Coach their DELIVERY (one whispered nudge) rather than suggesting
-            # what to say to the other person.
+            # what to say to the other person. A local-first client's nudge
+            # goes through the same hedged streaming call as a suggestion
+            # (there is nothing to preview, but the first-token tail is the
+            # same tail); a legacy client keeps the plain complete() call.
             timing.llm_start = ctx.latency.now()
             nudge, importance = await _generate_nudge(
                 llm_client, utterance, job.empathy_slider, job.role,
                 ctx.voice_profile, job.tone_context, speaker_name=speaker_name,
+                stream=progressive, stats=hedge_stats,
             )
             timing.llm_end = ctx.latency.now()
+            note_hedge()
             if not nudge:
                 # "Only speak when something should change." The transcript
                 # event already went out at enqueue; a self turn that needs no
@@ -1812,9 +1861,10 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             llm_client, utterance, job.empathy_slider, job.role,
             ctx.voice_profile, job.tone_context,
             on_first_suggestion=on_first_suggestion if progressive else None,
-            speaker_name=speaker_name,
+            speaker_name=speaker_name, stats=hedge_stats,
         )
         timing.llm_end = ctx.latency.now()
+        note_hedge()
 
         # Interjection gate: the coach only VOICES a suggestion when the
         # LLM-scored importance of the moment clears the session's threshold.
@@ -1876,6 +1926,10 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                     exc.reason if isinstance(exc, SuggestionUnavailable)
                     else type(exc).__name__
                 )
+                # A turn abandoned at the LLM first-token deadline (hedged
+                # streaming) is counted in the session's latency report —
+                # it is the tail this instrumentation exists to see.
+                ctx.latency.record_abandoned(reason, session_id)
                 # Suppress send failures — the socket may already be gone.
                 with contextlib.suppress(Exception):
                     await job.wait_turn()  # errors keep utterance order too
@@ -2740,34 +2794,55 @@ async def _parse_or_repair(
 
 
 async def _stream_with_first_suggestion(
-    llm, system: str, user: str, on_first_suggestion, *, max_tokens: int = 512,
+    llm, system: str, user: str, on_first_suggestion=None, *,
+    max_tokens: int = 512, stats: dict | None = None,
 ) -> str:
     """Consume ``llm.stream_complete`` in a thread; fire ``on_first_suggestion``
-    (a coroutine function) exactly once, as soon as the first suggestion
-    string is complete; return the full response text.
+    (a coroutine function, optional) exactly once, as soon as the first
+    suggestion string is complete; return the full response text.
 
     The preview coroutine is scheduled onto the event loop from the worker
     thread and awaited (failures suppressed) before returning, so the
     partial event is always on the wire BEFORE the caller sends the final
     one — the client never sees a preview after the real thing.
+
+    Hedged streaming (perf/llm-hedging): when the client's stream is an
+    :class:`~llm_client.HedgedStream` its ``hedged`` / ``hedge_won`` /
+    ``first_token_ms`` are copied into ``stats`` (when given) after the
+    stream is drained; a stream that produced no first token by the
+    deadline raises :class:`SuggestionUnavailable` (``slow_llm``) so the
+    worker reports the turn honestly and moves on instead of holding the
+    queue for the SDK timeout. ``stats`` stays empty for a plain generator
+    (a test double, a non-Anthropic provider).
     """
     loop = asyncio.get_running_loop()
     previews: list = []
 
     def run() -> str:
         parts: list[str] = []
-        notified = False
-        for delta in llm.stream_complete(
+        notified = on_first_suggestion is None
+        stream = llm.stream_complete(
             system=system, user=user, max_tokens=max_tokens,
-        ):
-            parts.append(delta)
-            if not notified:
-                first = _first_suggestion_in("".join(parts))
-                if first is not None:
-                    notified = True
-                    previews.append(asyncio.run_coroutine_threadsafe(
-                        on_first_suggestion(first), loop,
-                    ))
+        )
+        try:
+            for delta in stream:
+                parts.append(delta)
+                if not notified:
+                    first = _first_suggestion_in("".join(parts))
+                    if first is not None:
+                        notified = True
+                        previews.append(asyncio.run_coroutine_threadsafe(
+                            on_first_suggestion(first), loop,
+                        ))
+        # Resolved through the module at catch time (not imported by name)
+        # so a reloaded llm_client — the test suite does that — still matches.
+        except llm_client.LLMFirstTokenTimeout as exc:
+            raise SuggestionUnavailable("slow_llm") from exc
+        finally:
+            if stats is not None and hasattr(stream, "hedged"):
+                stats["hedged"] = bool(getattr(stream, "hedged", False))
+                stats["hedge_won"] = bool(getattr(stream, "hedge_won", False))
+                stats["first_token_ms"] = getattr(stream, "first_token_ms", None)
         return "".join(parts)
 
     raw = await asyncio.to_thread(run)
@@ -2791,6 +2866,7 @@ async def _generate_suggestions(
     *,
     on_first_suggestion=None,
     speaker_name: str | None = None,
+    stats: dict | None = None,
 ) -> tuple[list[str], int]:
     """Call LLMClient.complete(); parse suggestions + moment importance.
 
@@ -2824,7 +2900,7 @@ async def _generate_suggestions(
     if on_first_suggestion is not None and _supports_streaming(llm):
         raw = await _stream_with_first_suggestion(
             llm, system, user_content, on_first_suggestion,
-            max_tokens=SUGGESTION_MAX_TOKENS,
+            max_tokens=SUGGESTION_MAX_TOKENS, stats=stats,
         )
     else:
         raw = await asyncio.to_thread(
@@ -2866,6 +2942,9 @@ async def _generate_nudge(
     voice_profile: dict | None = None,
     tone_context: dict | None = None,
     speaker_name: str | None = None,
+    *,
+    stream: bool = False,
+    stats: dict | None = None,
 ) -> tuple[str, int]:
     """Call the LLM for a SELF turn; parse the single delivery nudge + urgency.
 
@@ -2889,13 +2968,22 @@ async def _generate_nudge(
 
     system = self_feedback_prompt(empathy_slider, role, voice_profile)
     # tone_context renders the phone's measurements as hints (Track 3-server);
-    # None keeps the prompt byte-identical. No streaming preview for a nudge:
-    # it is one short phrase, there is nothing to preview.
+    # None keeps the prompt byte-identical. No streaming PREVIEW for a nudge
+    # (one short phrase, nothing to preview) — but with ``stream=True`` and
+    # a streaming-capable client the call still goes through the hedged
+    # stream, so a nudge gets the same first-token tail protection as a
+    # suggestion. ``stream=False`` (legacy clients) is the exact old call.
     user_content = _turn_prompt(utterance, tone_context, speaker_name)
 
-    raw = await asyncio.to_thread(
-        llm.complete, system=system, user=user_content, max_tokens=NUDGE_MAX_TOKENS,
-    )
+    if stream and _supports_streaming(llm):
+        raw = await _stream_with_first_suggestion(
+            llm, system, user_content, None,
+            max_tokens=NUDGE_MAX_TOKENS, stats=stats,
+        )
+    else:
+        raw = await asyncio.to_thread(
+            llm.complete, system=system, user=user_content, max_tokens=NUDGE_MAX_TOKENS,
+        )
 
     data = await _parse_or_repair(
         llm, raw, keys='"nudge" (string), "importance" (integer)',
