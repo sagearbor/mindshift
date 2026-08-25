@@ -135,10 +135,30 @@ a wrong code is refused BEFORE the account-email lookup; after 50 wrong
 codes on one call (`JOIN_CODE_FAILURES_MAX`) the code is burned (the named
 invitee never needed it; the host starts a new call).
 
-ICE: `stun:stun.l.google.com:19302` always; add TURN with
-`MINDSHIFT_TURN_URLS` (comma-separated), `MINDSHIFT_TURN_USERNAME`,
-`MINDSHIFT_TURN_CREDENTIAL` (read per request — no restart). Without TURN two
-phones on carrier NAT may fail to connect; the client should say so.
+ICE: `stun:stun.l.google.com:19302` always; add TURN with `MINDSHIFT_TURN_URLS`
+(comma-separated). Two ways to authenticate to that relay, read per request —
+no restart:
+
+* **Ephemeral (preferred)** — `MINDSHIFT_TURN_SECRET` (+ optional
+  `MINDSHIFT_TURN_REALM`, `MINDSHIFT_TURN_TTL_SECONDS`, default 4h): the
+  server mints a standard TURN REST credential
+  (draft-uberti-behave-turn-rest-00, coturn's `use-auth-secret`) **per member,
+  per handout** — username `"<unix-expiry>:<uid>"`, credential
+  `base64(HMAC-SHA1(secret, username))`. Nobody shares a password and a leaked
+  credential expires. Takes precedence when both are configured.
+* **Static** — `MINDSHIFT_TURN_USERNAME` / `MINDSHIFT_TURN_CREDENTIAL`: one
+  password every client holds, forever. Still supported because some vendors
+  (Cloudflare, Twilio, Metered) only issue API-minted credentials.
+
+`GET /calls/ice` returns the same list WITHOUT creating a call (plus
+`turn_configured`, `turn_credential_mode`, `ttl_seconds`) so the client can run
+a connectivity pre-flight before the demo:
+`apps/mobile/src/live/call/iceProbe.ts` gathers candidates against it and the
+Call pre-flight panel shows one honest line — *relay ready* / *direct likely,
+no TURN* / *relay needed — no TURN configured* / *TURN configured but no relay
+candidate*. Vendor comparison, prices and click-paths:
+`docs/research/turn-options-2026-08-25.md`. Without TURN two phones on carrier
+NAT may fail to connect; the client says so rather than spinning.
 `MINDSHIFT_CALL_JOIN_BASE` overrides the `join_url` base (default the web
 app, so Mom can join from Safari; `mindshift://call` for a deep link).
 
@@ -487,8 +507,12 @@ in `src/hooks/useAudioStream.ts` and `src/screens/LiveCoachScreen.tsx`,
    **The phone does NOT `POST /sessions/live` for a call** — `call_ended`
    carries this participant's `episode_id` + `shared_with`, which land in
    `lastEpisode` (the summary card's "shared with…") and Your Day.
-9. **No TURN configured** (`ice_servers` has no `turn:`) → the panel says two
-   phones on mobile data may not connect; Wi-Fi usually works.
+9. **No TURN configured** (`ice_servers` has no `turn:`) → the in-call panel says
+   two phones on mobile data may not connect; Wi-Fi usually works. And BEFORE
+   the call, the pre-flight panel's **Peer connection** row runs a real ICE
+   gathering pass (`iceProbe.ts` against `GET /calls/ice`) and reads
+   *relay needed — no TURN configured* — so this is found at the kitchen table,
+   not mid-demo.
 
 ### Send diagnostics (bonus item)
 Settings → *Diagnostics* → **Send diagnostics** (and automatically when a

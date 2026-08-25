@@ -142,12 +142,50 @@ only while everyone is silent; the same on Dad's phone after Sage's turns; a NUD
 on the sharp line, escalation counter ticks; Mom's page shows every line from both phones within
 ~1 s of it being finalized, plus every suggestion card, without lag on her side.
 
+**Check this BEFORE the demo, not during it.** Open **Live Coach → Call** and read the
+pre-flight panel's **Peer connection** row. It runs a real ICE gathering pass against the
+server's own `ice_servers` and tells you one of:
+
+| The row says | What it means | Do |
+|---|---|---|
+| *relay ready — a call connects even on carrier-grade NAT* | a TURN relay answered | nothing; you're fine |
+| *direct likely — but no TURN is configured…* | STUN works, no relay fallback | fine on Wi-Fi; risky on cellular |
+| **relay needed — no TURN configured** | this is the state that kills the demo | configure TURN below, or put everyone on Wi-Fi |
+| *TURN is configured but gave no relay candidate…* | wrong credentials/ports/realm, or an expired credential | re-mint the credential |
+| *couldn't check on this device (…)* | the check itself failed (older server → no `GET /calls/ice`) | check the server version |
+
+Same answer from a laptop, without touching the phone:
+`curl -s -H "Authorization: Bearer $ID_TOKEN" https://<service-url>/calls/ice | jq` —
+`turn_credential_mode` is `none` / `static` / `ephemeral`.
+
 **If a peer can't connect** (strip stays *connected* but no audio, or "connecting…" forever):
-- Only STUN is configured; **TURN is not** (`MINDSHIFT_TURN_URLS`, `MINDSHIFT_TURN_USERNAME`,
-  `MINDSHIFT_TURN_CREDENTIAL` are unset). Two phones both behind carrier NAT may never reach each
-  other. Fix order: (1) put all three devices on the same home Wi-Fi; (2) Pixel hotspot for Dad's
-  phone; (3) set the three TURN env vars on the Cloud Run service (any coturn/Metered/Twilio TURN;
-  they are read per request — no image rebuild, no restart) and re-join.
+- Almost always: **no TURN relay is configured**, so two phones both behind carrier NAT never
+  reach each other. Fix order: (1) put all three devices on the same home Wi-Fi; (2) Pixel hotspot
+  for Dad's phone; (3) configure TURN (below) and re-join.
+- **Configuring TURN takes about five minutes and costs nothing.** Full comparison and click-paths:
+  `docs/research/turn-options-2026-08-25.md`. The short version — **Cloudflare Realtime TURN**,
+  1,000 GB/month free, `turns:` on port 443:
+  1. https://dash.cloudflare.com → **Realtime** → **TURN** → **Create TURN key** → copy the
+     **Key ID** and **API token**.
+  2. Mint a credential:
+     ```bash
+     curl -sX POST \
+       "https://rtc.live.cloudflare.com/v1/turn/keys/$TURN_KEY_ID/credentials/generate-ice-servers" \
+       -H "Authorization: Bearer $TURN_KEY_API_TOKEN" -H "Content-Type: application/json" \
+       -d '{"ttl": 86400}'
+     ```
+  3. Set on the Cloud Run service (read per request — **no image rebuild, no restart**):
+     ```bash
+     gcloud run services update mindshift-api --region us-central1 --set-env-vars \
+     "MINDSHIFT_TURN_URLS=turn:turn.cloudflare.com:3478?transport=udp,turns:turn.cloudflare.com:5349?transport=tcp,MINDSHIFT_TURN_USERNAME=<username>,MINDSHIFT_TURN_CREDENTIAL=<credential>"
+     ```
+  4. Re-open the Call pre-flight; the row must now read *relay ready*.
+- **Per-member ephemeral credentials instead of one shared password:** set
+  `MINDSHIFT_TURN_SECRET` (+ `MINDSHIFT_TURN_REALM`) and the server mints a TURN REST credential
+  per member per handout — username `"<unix-expiry>:<uid>"`, password
+  `base64(HMAC-SHA1(secret, username))`, valid `MINDSHIFT_TURN_TTL_SECONDS` (default 4h). It takes
+  precedence over the static pair. **Cloudflare does not support this scheme** (its credentials are
+  API-minted); ExpressTURN Premium ($9/mo) and self-hosted coturn do.
 - **Transcript and coaching do not depend on WebRTC.** Every phone's turns go to the server over its
   own WebSocket, so even with no audio path the merged transcript, suggestions and Mom's page keep
   working. If the three of you are in the same house, that is the demo: sit in one room, skip the

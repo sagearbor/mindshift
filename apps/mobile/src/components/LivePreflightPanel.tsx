@@ -2,6 +2,7 @@ import React from "react";
 import { View, Text, ActivityIndicator, StyleSheet } from "react-native";
 import type { PreflightState } from "../hooks/useAudioStream";
 import type { VoicePerson } from "../api/liveSessions";
+import { iceProbeOk, type IceProbeResult } from "../live/call/iceProbe";
 
 interface Props {
   /** Can this device run the on-device loop at all (on-device STT)? */
@@ -13,6 +14,12 @@ interface Props {
   /** Enrolled people expected in this session; null while loading. */
   people: VoicePerson[] | null;
   peopleError: string | null;
+  /** Call mode only: what the ICE connectivity probe found (null = not run
+   *  yet), and whether it is running right now. Off in the other modes —
+   *  an in-person session has no peer connection to check. */
+  isCall?: boolean;
+  iceProbe?: IceProbeResult | null;
+  iceProbing?: boolean;
 }
 
 /** "cloud" when every local provider is absent; else the first local name. */
@@ -61,6 +68,9 @@ export default function LivePreflightPanel({
   preflight,
   people,
   peopleError,
+  isCall = false,
+  iceProbe = null,
+  iceProbing = false,
 }: Props) {
   const caps = preflight?.status === "ready" ? preflight.capabilities : null;
   const probing = preflight?.status === "probing";
@@ -106,6 +116,24 @@ export default function LivePreflightPanel({
                 : "not checked yet"
         }
       />
+      {/* Call mode only: can these two phones actually reach each other?
+          One honest line from a real ICE gathering run against the server's
+          own ice_servers — "relay needed — no TURN configured" is the
+          answer that saves a demo, so it is never hidden. */}
+      {isCall ? (
+        <Row
+          testID="preflight-peer-connection"
+          ok={iceProbing ? null : iceProbeOk(iceProbe)}
+          label="Peer connection"
+          detail={
+            iceProbing
+              ? "checking…"
+              : iceProbe
+                ? iceProbe.line
+                : "not checked yet"
+          }
+        />
+      ) : null}
       {onDevice && caps ? (
         <Row
           testID="preflight-vad"

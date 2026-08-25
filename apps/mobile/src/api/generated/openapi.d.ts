@@ -522,6 +522,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/calls/ice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Ice Config
+         * @description The ICE servers this deployment hands out, WITHOUT creating a call —
+         *     what the client's connectivity preflight gathers candidates against, so
+         *     "relay needed but no TURN configured" is known before the demo, not
+         *     during it. Authenticated: the credentials are minted for THIS uid and
+         *     expire, so they are never a public relay handout.
+         *
+         *     Declared before ``/{call_id}`` so "ice" is matched as a literal path.
+         */
+        get: operations["get_ice_config_calls_ice_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/calls/{call_id}": {
         parameters: {
             query?: never;
@@ -2762,6 +2788,21 @@ export interface components {
             /** Stonewalling */
             stonewalling: number;
         };
+        /**
+         * IceConfigOut
+         * @description ``GET /calls/ice`` — the same ICE servers a call hands out, before
+         *     there is a call, so a client can run a connectivity preflight.
+         */
+        IceConfigOut: {
+            /** Ice Servers */
+            ice_servers: components["schemas"]["IceServerOut"][];
+            /** Turn Configured */
+            turn_configured: boolean;
+            /** Turn Credential Mode */
+            turn_credential_mode: string;
+            /** Ttl Seconds */
+            ttl_seconds?: number | null;
+        };
         /** IceServerOut */
         IceServerOut: {
             /** Urls */
@@ -2770,6 +2811,8 @@ export interface components {
             username?: string | null;
             /** Credential */
             credential?: string | null;
+            /** Realm */
+            realm?: string | null;
         };
         /** InviteRequest */
         InviteRequest: {
@@ -3428,6 +3471,10 @@ export interface components {
             ts: string;
             /** Received At */
             received_at: string;
+            /** Data */
+            data?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** TelemetryEventIn */
         TelemetryEventIn: {
@@ -3441,6 +3488,10 @@ export interface components {
             stack?: string | null;
             /** Ts */
             ts: string;
+            /** Data */
+            data?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** TelemetryPost */
         TelemetryPost: {
@@ -4821,6 +4872,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CallOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_ice_config_calls_ice_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IceConfigOut"];
                 };
             };
             /** @description Validation Error */

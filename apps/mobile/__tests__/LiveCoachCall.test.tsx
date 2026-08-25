@@ -22,6 +22,18 @@ jest.mock("../src/live/modePrefs", () => ({
   saveLiveMode: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock("../src/api/client", () => ({ postShare: jest.fn(), listVoicePeople: jest.fn() }));
+// The connectivity pre-flight: the screen fetches GET /calls/ice and gathers
+// candidates against it. Both are faked here — the probe itself is covered
+// candidate-by-candidate in iceProbe.test.ts.
+const mockIceConfig = jest.fn();
+jest.mock("../src/live/call/callApi", () => ({
+  callApi: { ice: () => mockIceConfig() },
+}));
+const mockProbeIce = jest.fn();
+jest.mock("../src/live/call/iceProbe", () => {
+  const actual = jest.requireActual("../src/live/call/iceProbe");
+  return { ...actual, probeIce: (...args: unknown[]) => mockProbeIce(...args) };
+});
 
 import LiveCoachScreen from "../src/screens/LiveCoachScreen";
 import { LIVE_MODE_OPTIONS } from "../src/components/LiveModePicker";
@@ -72,12 +84,35 @@ const base = {
   setCallRoute: jest.fn(),
 };
 
-const flush = () => act(async () => { await Promise.resolve(); });
+// Deep enough to settle the idle-screen effects that await twice (the ICE
+// pre-flight fetches, then probes) — otherwise their setState lands after
+// the test has ended and Jest never exits.
+const flush = () => act(async () => { for (let i = 0; i < 8; i += 1) await Promise.resolve(); });
 const text = (root: renderer.ReactTestRenderer) => JSON.stringify(root.toJSON());
+/** Every string rendered inside one testID'd node (a pre-flight row). */
+const rowText = (root: renderer.ReactTestRenderer, testID: string) =>
+  root.root
+    .findByProps({ testID })
+    .findAll((n) => typeof n.props?.children === "string")
+    .map((n) => n.props.children as string)
+    .join(" ");
+
+const STUN_ONLY = [{ urls: ["stun:stun.l.google.com:19302"] }];
 
 beforeEach(() => {
   mockUseAudioStream.mockReturnValue({ ...base });
   mockLoadLiveMode.mockReset().mockResolvedValue("call");
+  mockIceConfig.mockReset().mockResolvedValue({
+    iceServers: STUN_ONLY,
+    turnConfigured: false,
+    credentialMode: "none",
+    ttlSeconds: null,
+  });
+  mockProbeIce.mockReset().mockResolvedValue({
+    host: true, srflx: false, relay: false, turnConfigured: false,
+    types: ["host"], candidates: 1, verdict: "relay-needed",
+    line: "relay needed — no TURN configured", reason: null, elapsedMs: 12,
+  });
 });
 
 describe("Live Coach — Call mode", () => {
@@ -115,6 +150,65 @@ describe("Live Coach — Call mode", () => {
     expect(root.root.findByProps({ testID: "call-join" }).props.disabled).toBe(false);
     act(() => root.root.findByProps({ testID: "call-join" }).props.onPress());
     expect(joinCall).toHaveBeenCalledWith("K7M2PQ", 50, 0);
+  });
+
+  /** Render idle and let the ICE fetch + probe (two awaits deep) settle,
+   *  so nothing lands after the test ends. */
+  const renderSettled = async () => {
+    let root!: renderer.ReactTestRenderer;
+    await act(async () => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    await act(async () => {
+      for (let i = 0; i < 6; i += 1) await Promise.resolve();
+    });
+    return root;
+  };
+
+  it("pre-flight: one honest line about whether these two phones can reach each other", async () => {
+    const root = await renderSettled();
+    // It probed with EXACTLY the ice servers the server hands a call.
+    expect(mockProbeIce).toHaveBeenCalledWith(STUN_ONLY);
+    const row = rowText(root, "preflight-peer-connection");
+    expect(row).toContain("Peer connection");
+    expect(row).toContain("relay needed — no TURN configured");
+    // Amber, not a green tick: this is the answer that kills a cellular demo.
+    expect(row).toContain("✗");
+    await act(async () => root.unmount());
+  });
+
+  it("pre-flight: a working relay reads as ready", async () => {
+    mockProbeIce.mockResolvedValue({
+      host: true, srflx: true, relay: true, turnConfigured: true,
+      types: ["host", "srflx", "relay"], candidates: 3, verdict: "relay",
+      line: "relay ready — a call connects even on carrier-grade NAT", reason: null, elapsedMs: 90,
+    });
+    const root = await renderSettled();
+    const row = rowText(root, "preflight-peer-connection");
+    expect(row).toContain("relay ready");
+    expect(row).toContain("✓");
+    await act(async () => root.unmount());
+  });
+
+  it("pre-flight: a check that couldn't run says why, instead of looking like a pass", async () => {
+    // An older deployment has no /calls/ice.
+    mockIceConfig.mockRejectedValue(new Error("this server has no in-app calls yet (404)"));
+    const root = await renderSettled();
+    const row = rowText(root, "preflight-peer-connection");
+    expect(row).toContain("couldn't check on this device");
+    expect(row).toContain("no in-app calls yet (404)");
+    expect(row).toContain("✗");
+    expect(mockProbeIce).not.toHaveBeenCalled();
+    await act(async () => root.unmount());
+  });
+
+  it("pre-flight: the peer-connection row is Call mode only", async () => {
+    mockUseAudioStream.mockReturnValue({ ...base, sessionMode: "speaker" });
+    mockLoadLiveMode.mockResolvedValue("speaker");
+    const root = await renderSettled();
+    expect(root.root.findAllByProps({ testID: "preflight-peer-connection" })).toHaveLength(0);
+    expect(mockProbeIce).not.toHaveBeenCalled();
+    await act(async () => root.unmount());
   });
 
   it("an invite link opens Call mode with one Answer tap", async () => {

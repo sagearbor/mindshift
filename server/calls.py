@@ -75,9 +75,13 @@ someone mid-call is the way to attach one.
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
+import hashlib
+import hmac
 import logging
 import os
+import re
 import secrets
 import time
 import uuid
@@ -134,6 +138,20 @@ ANALYZE_ON_END = os.getenv("MINDSHIFT_CALL_ANALYZE", "1") != "0"
 REFLECT_ON_END = os.getenv("MINDSHIFT_CALL_REFLECT", "1") != "0"
 
 DEFAULT_STUN_URL = "stun:stun.l.google.com:19302"
+# How long an ephemeral TURN credential stays valid (override with
+# MINDSHIFT_TURN_TTL_SECONDS, read per handout by turn_ttl_seconds()). Must
+# outlive the longest call a phone can be on (CALL_TTL_MINUTES defaults to
+# 180) because a peer connection keeps using the credential it was created
+# with — a relay allocation is refreshed against the SAME username/password
+# for the life of the connection. Default 4h; floor a minute, cap a day.
+TURN_TTL_SECONDS = 4 * 3600
+TURN_TTL_MIN_SECONDS = 60
+TURN_TTL_MAX_SECONDS = 24 * 3600
+# The per-member half of the TURN REST username. Anything a coturn username
+# can't hold (a colon would split the timestamp, whitespace breaks the STUN
+# attribute) is stripped; an empty result falls back to "member".
+_TURN_KEY_STRIP = re.compile(r"[^A-Za-z0-9._@=+-]")
+TURN_KEY_MAX = 64
 DISPLAY_NAME_MAX = 60
 JOIN_CODE_LEN = 6
 # No 0/O/1/I — the code is read out loud or typed from a text.
@@ -184,25 +202,126 @@ def _age_ms(received_at: Any) -> int | None:
     return int((datetime.now(timezone.utc) - then).total_seconds() * 1000)
 
 
-def ice_servers() -> list[dict]:
-    """The ICE server list handed to every member: Google's public STUN by
+def turn_urls() -> list[str]:
+    """``MINDSHIFT_TURN_URLS`` split on commas. Empty = STUN only."""
+    return [u.strip() for u in os.getenv("MINDSHIFT_TURN_URLS", "").split(",") if u.strip()]
+
+
+def _bounded_ttl(ttl: int) -> int:
+    return max(TURN_TTL_MIN_SECONDS, min(ttl, TURN_TTL_MAX_SECONDS))
+
+
+def turn_ttl_seconds() -> int:
+    """The configured ephemeral-credential lifetime, bounded to [1min, 24h].
+    Garbage in the env falls back to the default rather than raising — a
+    typo'd TTL must never take the call server down."""
+    raw = os.getenv("MINDSHIFT_TURN_TTL_SECONDS", "").strip()
+    try:
+        ttl = int(raw) if raw else TURN_TTL_SECONDS
+    except ValueError:
+        ttl = TURN_TTL_SECONDS
+    return _bounded_ttl(ttl)
+
+
+def turn_key(user_key: str | None) -> str:
+    """The per-member half of a TURN REST username, made safe to embed."""
+    cleaned = _TURN_KEY_STRIP.sub("", (user_key or "").strip())[:TURN_KEY_MAX]
+    return cleaned or "member"
+
+
+def turn_rest_credentials(
+    user_key: str | None,
+    *,
+    secret: str,
+    ttl_seconds: int | None = None,
+    now: float | None = None,
+) -> tuple[str, str, int]:
+    """One short-lived TURN credential in the standard *TURN REST API* shape
+    (draft-uberti-behave-turn-rest-00, what coturn's ``use-auth-secret`` /
+    ``static-auth-secret`` implements, and what Cloudflare/Metered/coturn all
+    accept):
+
+        username   = "<unix-expiry>:<user_key>"
+        credential = base64( HMAC-SHA1( secret, username ) )
+
+    The TURN server recomputes the same HMAC from its own copy of the secret,
+    so nothing has to be provisioned per user and a leaked credential dies at
+    ``expiry``. Returns ``(username, credential, expires_at_unix)``.
+
+    Each call member gets its OWN username (their uid), so one member's
+    credential can't be handed around as everyone's shared password, and a
+    stolen one is traceable and short-lived.
+    """
+    ttl = turn_ttl_seconds() if ttl_seconds is None else _bounded_ttl(int(ttl_seconds))
+    expiry = int(now if now is not None else time.time()) + ttl
+    username = f"{expiry}:{turn_key(user_key)}"
+    digest = hmac.new(secret.encode("utf-8"), username.encode("utf-8"), hashlib.sha1).digest()
+    return username, base64.b64encode(digest).decode("ascii"), expiry
+
+
+def ice_servers(user_key: str | None = None) -> list[dict]:
+    """The ICE server list handed to one member: Google's public STUN by
     default, plus a TURN relay when the deployment configured one
-    (``MINDSHIFT_TURN_URLS`` comma-separated, ``MINDSHIFT_TURN_USERNAME``,
-    ``MINDSHIFT_TURN_CREDENTIAL``). Read per call (not at import) so the
-    owner can add TURN with a config change. Without TURN, two phones on
-    carrier NAT may fail to connect — the phone reports that honestly."""
+    (``MINDSHIFT_TURN_URLS``, comma-separated).
+
+    Two ways to authenticate to that relay, in order of preference:
+
+    * EPHEMERAL (``MINDSHIFT_TURN_SECRET``, optionally
+      ``MINDSHIFT_TURN_REALM``) — a TURN REST credential minted per member
+      per handout, valid ``MINDSHIFT_TURN_TTL_SECONDS`` (default 4h). Nothing
+      long-lived ever leaves the server.
+    * STATIC (``MINDSHIFT_TURN_USERNAME`` / ``MINDSHIFT_TURN_CREDENTIAL``) —
+      one password shared by everyone who ever joins a call. Still supported
+      (some vendors only issue static creds), but it is the weaker path: it
+      does not expire and every client holds it.
+
+    Read per call (not at import) so the owner can add TURN with a config
+    change, and so each handout gets a fresh expiry. Without TURN, two phones
+    on carrier-grade NAT may fail to connect — the client's ICE preflight
+    (live/call/iceProbe.ts) says so out loud rather than failing silently.
+    """
     servers: list[dict] = [{"urls": [DEFAULT_STUN_URL]}]
-    turn_urls = [u.strip() for u in os.getenv("MINDSHIFT_TURN_URLS", "").split(",") if u.strip()]
-    if turn_urls:
-        entry: dict[str, Any] = {"urls": turn_urls}
-        username = os.getenv("MINDSHIFT_TURN_USERNAME", "").strip()
-        credential = os.getenv("MINDSHIFT_TURN_CREDENTIAL", "").strip()
-        if username:
+    urls = turn_urls()
+    if urls:
+        entry: dict[str, Any] = {"urls": urls}
+        secret = os.getenv("MINDSHIFT_TURN_SECRET", "").strip()
+        if secret:
+            username, credential, _expiry = turn_rest_credentials(user_key, secret=secret)
             entry["username"] = username
-        if credential:
             entry["credential"] = credential
+        else:
+            username = os.getenv("MINDSHIFT_TURN_USERNAME", "").strip()
+            credential = os.getenv("MINDSHIFT_TURN_CREDENTIAL", "").strip()
+            if username:
+                entry["username"] = username
+            if credential:
+                entry["credential"] = credential
+        realm = os.getenv("MINDSHIFT_TURN_REALM", "").strip()
+        if realm:
+            # Not part of RTCIceServer — carried so a failing relay can be
+            # diagnosed from the client ("which realm did the server mean?").
+            entry["realm"] = realm
         servers.append(entry)
     return servers
+
+
+def turn_status() -> dict[str, Any]:
+    """How TURN is configured right now, for ``GET /calls/ice`` and the
+    client preflight line. Never leaks the secret or the credential."""
+    urls = turn_urls()
+    if not urls:
+        mode = "none"
+    elif os.getenv("MINDSHIFT_TURN_SECRET", "").strip():
+        mode = "ephemeral"
+    elif os.getenv("MINDSHIFT_TURN_USERNAME", "").strip():
+        mode = "static"
+    else:
+        mode = "open"  # URLs with no auth at all (a test relay)
+    return {
+        "turn_configured": bool(urls),
+        "turn_credential_mode": mode,
+        "ttl_seconds": turn_ttl_seconds() if mode == "ephemeral" else None,
+    }
 
 
 def join_url(join_code: str) -> str:
@@ -499,7 +618,9 @@ class Call:
                 {"uid": self.invitee_uid, "email": self.invitee_email}
                 if (self.invitee_uid or self.invitee_email) else None
             ),
-            "ice_servers": ice_servers(),
+            # Per-member ephemeral TURN creds when a secret is configured:
+            # the viewer's uid is the username, so nobody shares a password.
+            "ice_servers": ice_servers(viewer_uid),
             "created_at": self.created_at,
             "expires_at": self.expires_at,
             "started_at": self.started_at,

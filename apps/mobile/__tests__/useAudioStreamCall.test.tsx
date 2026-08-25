@@ -78,6 +78,13 @@ const api: CallApi = {
   create: jest.fn().mockResolvedValue(created),
   join: jest.fn().mockResolvedValue(created),
   end: jest.fn().mockResolvedValue(undefined),
+  // Only the pre-flight screen calls this; the session hook never does.
+  ice: jest.fn().mockResolvedValue({
+    iceServers: created.iceServers,
+    turnConfigured: false,
+    credentialMode: "none",
+    ttlSeconds: null,
+  }),
 };
 const flush = () => new Promise((r) => setTimeout(r, 20));
 const mockFetch = global.fetch as jest.Mock;
