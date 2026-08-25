@@ -362,6 +362,15 @@ data_safety:
         failed_claim_attempts / diagnostics telemetry docs keyed to the uid;
         the SQLite sessions + relationships (+ participants, voice_profiles)
         rows; and last of all the Firebase Auth user.
+        ONE PRECISION, so this answer is exactly true of the code: every tier
+        holding the user's own content is BLOCKING — if it fails, the account
+        is NOT deleted, the endpoint returns 500 naming the failed tier, and
+        the user retries; nothing is ever reported as deleted that was not.
+        The single non-blocking tier is diagnostics ("Send diagnostics" crash
+        reports the user chose to send). If that one delete fails the account
+        and all of its content are still deleted and the leftover is reported
+        in the response's `warnings` and logged — because a crash report must
+        never be the reason a person cannot delete their account.
       shared_data_rule: >
         A session the user shared with a therapist is still the USER'S — sharing
         grants a view, never ownership — so account deletion deletes the session
@@ -391,8 +400,8 @@ data_safety:
       proof:
         - server/routers/account.py                 # DELETE /me — guards, rate limit, logging
         - server/account_deletion.py                # the tier walk + the documented scope/rules
-        - server/auth.py:159-235                    # get_fresh_uid + delete_firebase_user (called LAST)
-        - server/recordings_store.py:1290-1440      # the uid-scoped bulk-delete surface
+        - server/auth.py:70-115,193-245             # verify_id_token_claims, delete_firebase_user, get_fresh_uid
+        - server/recordings_store.py:1290-1432      # the uid-scoped bulk-delete surface
         - server/watch/store.py                     # delete_baseline/subscriptions/account/speaker_profile/group
         - server/watch/pairing_store.py             # delete_pairings_for_account, delete_failed_claim_record
         - server/watch/telemetry_store.py           # delete_events_for_account (data.uid)

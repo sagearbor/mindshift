@@ -138,6 +138,12 @@ class DeleteAccountResponse(BaseModel):
     """Per-category counts; every key in ``account_deletion.COUNT_KEYS`` is
     always present, so a zero reads as "none of these", never as "unknown"."""
 
+    warnings: list[str] = []
+    """Non-blocking tiers that failed — today only diagnostics reports (see
+    ``account_deletion.delete_diagnostics_tier``). Normally empty. Non-empty
+    means the account and all of its content ARE gone but that named leftover
+    was not removed, reported rather than hidden."""
+
 
 @router.delete("/me", response_model=DeleteAccountResponse)
 async def delete_me(
@@ -159,7 +165,9 @@ async def delete_me(
 
     A tier that failed makes this a **500** whose detail carries both the
     failed tiers and the counts that DID succeed, so the client can say what
-    happened and the user can retry — never a fabricated success."""
+    happened and the user can retry — never a fabricated success. The one
+    exception is diagnostics reports, which are non-blocking and come back in
+    ``warnings`` instead (see ``account_deletion.delete_diagnostics_tier``)."""
     import main  # lazy — see the module docstring
 
     started = time.monotonic()
@@ -220,12 +228,13 @@ async def delete_me(
 
     logger.info(
         "Account deleted uid=%s firebase_user_deleted=%s counts=%s "
-        "total_items=%d elapsed=%.2fs",
+        "total_items=%d warnings=%s elapsed=%.2fs",
         uid, summary.firebase_user_deleted, summary.counts, summary.total,
-        time.monotonic() - started,
+        summary.warnings, time.monotonic() - started,
     )
     return DeleteAccountResponse(
         deleted=True,
         firebase_user_deleted=summary.firebase_user_deleted,
         counts=summary.counts,
+        warnings=summary.warnings,
     )

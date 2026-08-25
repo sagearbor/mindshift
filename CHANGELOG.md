@@ -26,6 +26,11 @@ meant to be lifted into the owner's other 7 apps on the same backend.
     tokens, claimed pairings, failed-claim counters, diagnostics telemetry.
   - SQLite: `sessions` and `relationships` (+ `participants`,
     `voice_profiles`).
+  - Every tier holding user content is **blocking**: if one fails the account
+    is not deleted, a 500 names the failed tier and the user retries — nothing
+    is ever reported deleted that was not. Diagnostics ("Send diagnostics"
+    crash reports) are the one non-blocking tier and come back in `warnings`,
+    because a crash report must never be why someone can't close their account.
 - **Shared-data rule.** A session shared with a therapist stays the patient's,
   so deleting the account deletes the session, every grant on it, and that
   therapist's private notes **about that session**. Their other notes and the

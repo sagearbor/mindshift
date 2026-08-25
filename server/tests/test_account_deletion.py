@@ -633,6 +633,49 @@ async def test_firebase_delete_runs_after_every_tier(
     assert observed == {"recordings_left": 0, "live_sessions_left": 1}  # only ls-theirs
 
 
+async def test_a_failing_diagnostics_delete_never_blocks_the_account_deletion(
+    client, store, watch_deps, deleted_users, monkeypatch,
+):
+    """Diagnostics are crash reports the user sent us, not their conversation.
+    A telemetry hiccup must not be the reason someone can never delete their
+    account — but the leftover is reported, not hidden."""
+    db = await main.get_db()
+    try:
+        await seed_everything(store, watch_deps, db)
+    finally:
+        await db.close()
+
+    async def _boom(account_id):
+        raise RuntimeError("firestore query unavailable")
+
+    monkeypatch.setattr(
+        watch_deps.telemetry_store, "delete_events_for_account", _boom,
+    )
+
+    r = await client.request("DELETE", "/me", headers=_h(ME), json=CONFIRM)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["deleted"] is True
+    assert body["warnings"] == ["diagnostics: RuntimeError"]
+    assert body["counts"]["diagnostic_reports"] == 0
+    # The account is genuinely gone — the warning is about the leftover only.
+    assert body["counts"]["recordings"] == 2
+    assert deleted_users == [ME]
+
+
+async def test_a_clean_deletion_reports_no_warnings(
+    client, store, watch_deps, deleted_users,
+):
+    db = await main.get_db()
+    try:
+        await seed_everything(store, watch_deps, db)
+    finally:
+        await db.close()
+    r = await client.request("DELETE", "/me", headers=_h(ME), json=CONFIRM)
+    assert r.status_code == 200
+    assert r.json()["warnings"] == []
+
+
 async def test_data_survives_a_failing_firebase_delete_as_a_reported_error(
     client, store, watch_deps, monkeypatch,
 ):

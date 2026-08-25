@@ -57,6 +57,12 @@ Auth user itself (``auth.delete_firebase_user``). Deliberately last: if any
 tier fails, the account still exists and the user can sign in and retry rather
 than being locked out of data that outlived them.
 
+The single exception to "every tier must succeed" is diagnostics reports — see
+:func:`delete_diagnostics_tier`. They are crash reports the user chose to send,
+not their conversation, and a telemetry hiccup must never be the reason someone
+cannot delete their account. A failure there is reported in
+``DeletionSummary.warnings`` (and in the endpoint's response), never hidden.
+
 THE SHARED-DATA RULE (decided here; stated identically in the privacy policy,
 apps/mobile/public/delete-account/index.html and docs/play/play-answers-
 mindshift.yaml)
@@ -132,6 +138,7 @@ class DeletionSummary:
         default_factory=lambda: {k: 0 for k in COUNT_KEYS}
     )
     errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     firebase_user_deleted: bool = False
 
     def add(self, key: str, n: int) -> None:
@@ -146,7 +153,9 @@ class DeletionSummary:
         return sum(self.counts.values())
 
 
-async def _run_tier(summary: DeletionSummary, name: str, coro) -> None:
+async def _run_tier(
+    summary: DeletionSummary, name: str, coro, *, blocking: bool = True,
+) -> None:
     """Await one tier's deletion, recording a failure instead of raising.
 
     Every tier is attempted even when an earlier one failed: a user whose GCS
@@ -154,12 +163,19 @@ async def _run_tier(summary: DeletionSummary, name: str, coro) -> None:
     recorded error is what stops the Firebase user from being deleted over the
     top of the leftovers. The exception text is logged in full and summarized
     (type + tier) to the caller — provider internals never reach the wire.
+
+    ``blocking=False`` marks a tier whose failure must NOT stop the account
+    from being deleted — see :func:`delete_diagnostics_tier`, the only one. It
+    still records the failure (as a warning rather than an error), so the
+    response and the log say plainly that something was left behind; it is
+    never silently swallowed.
     """
     try:
         await coro
     except Exception as exc:  # noqa: BLE001 — one failed tier must not hide the rest
         logger.exception("Account deletion tier %s failed", name)
-        summary.errors.append(f"{name}: {type(exc).__name__}")
+        bucket = summary.errors if blocking else summary.warnings
+        bucket.append(f"{name}: {type(exc).__name__}")
 
 
 # ---------------------------------------------------------------------------
@@ -259,8 +275,7 @@ def purge_group_member(uid: str):
 
 
 async def delete_watch_tier(
-    uid: str, summary: DeletionSummary, *, store, pairing_store, telemetry_store,
-    blobs,
+    uid: str, summary: DeletionSummary, *, store, pairing_store, blobs,
 ) -> None:
     """Erase the uid's watch-domain documents and capture audio.
 
@@ -316,11 +331,26 @@ async def delete_watch_tier(
         await pairing_store.delete_failed_claim_record(uid)
         summary.add("watch_pairings", pairings)
 
-    if telemetry_store is not None:
-        summary.add(
-            "diagnostic_reports",
-            await telemetry_store.delete_events_for_account(uid),
-        )
+
+async def delete_diagnostics_tier(
+    uid: str, summary: DeletionSummary, *, telemetry_store,
+) -> None:
+    """Delete the diagnostics ("Send diagnostics") reports this account's phone
+    sent.
+
+    Its OWN tier, and the only NON-BLOCKING one (see :func:`_run_tier`). A
+    diagnostics report is a crash report the user chose to send us — not their
+    conversation — and it is the one thing here fetched by a query rather than
+    addressed by key. If that query ever misbehaves, the right outcome is that
+    the account is still deleted and the leftover is reported loudly, not that
+    a person is permanently unable to delete their account because of a
+    telemetry document. Every tier that holds the user's actual content stays
+    blocking."""
+    if telemetry_store is None:
+        return
+    summary.add(
+        "diagnostic_reports", await telemetry_store.delete_events_for_account(uid),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -402,8 +432,14 @@ async def delete_account_data(
         summary, "watch",
         delete_watch_tier(
             uid, summary, store=watch_store, pairing_store=pairing_store,
-            telemetry_store=telemetry_store, blobs=blobs,
+            blobs=blobs,
         ),
+    )
+
+    await _run_tier(
+        summary, "diagnostics",
+        delete_diagnostics_tier(uid, summary, telemetry_store=telemetry_store),
+        blocking=False,  # a crash report must never block an account deletion
     )
 
     if db is not None:

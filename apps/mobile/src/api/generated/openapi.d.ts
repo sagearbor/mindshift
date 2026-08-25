@@ -625,7 +625,9 @@ export interface paths {
          *
          *     A tier that failed makes this a **500** whose detail carries both the
          *     failed tiers and the counts that DID succeed, so the client can say what
-         *     happened and the user can retry — never a fabricated success.
+         *     happened and the user can retry — never a fabricated success. The one
+         *     exception is diagnostics reports, which are non-blocking and come back in
+         *     ``warnings`` instead (see ``account_deletion.delete_diagnostics_tier``).
          */
         delete: operations["delete_me_me_delete"];
         options?: never;
@@ -2514,6 +2516,11 @@ export interface components {
             counts: {
                 [key: string]: number;
             };
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
         };
         /** DeleteSampleResponse */
         DeleteSampleResponse: {
