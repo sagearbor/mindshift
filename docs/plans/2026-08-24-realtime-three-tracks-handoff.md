@@ -440,3 +440,21 @@ Suites at #157: pytest 1694 · Jest 147 suites / 1599 · tsc clean.
 5. **Biggest demo risk (#153 PLAUSIBLE)**: Android may silence the mic for
    third-party apps during a cellular call on the same phone. Rehearse
    once; fallback is speaker-phone on a *second* device or a VoIP call.
+
+## 12. Wear OS upload key — restored 2026-08-25
+
+`~/.config/gauge/gauge-upload.jks` (2,644 B) and `apps/watch/keystore.properties`
+were AirDropped from the old Mac and installed here; `storeFile` now points at
+the new absolute path. Both are gitignored — never commit them.
+
+Verified end to end: `cd apps/watch && ./gradlew :wearApp:bundleRelease` →
+`wearApp/build/outputs/bundle/release/wearApp-release.aab` (9.98 MB), signed
+`CN=Gauge, O=sagearbor, C=US`, SHA-256 `AE:0E:C6:10:4C:0E:EE:43:E0:25:64:26:0A:D5:54:53:90:10:C1:71:16:2F:3D:A9:BC:B0:E2:FA:6D:71:4D:92`.
+Play will accept this upload; the wear app can be updated again.
+
+`.env2` from the old Mac turned out to be dead (a single `DEEPGRAM_API_KEY`
+identical to `.env`) — nothing to migrate, safe to delete there.
+
+**Still missing (owner-only):** a Google Play **service-account key**. Neither
+Mac ever had one — the 1.16.0 Play release was uploaded by hand through the
+console — so `eas submit` cannot run unattended until it exists (§9).
