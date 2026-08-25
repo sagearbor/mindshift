@@ -588,6 +588,12 @@ class Call:
             if p.endpoint is not None and p.endpoint is not endpoint:
                 with contextlib.suppress(Exception):
                     p.endpoint.detach()
+            if p.endpoint is not endpoint:
+                # A new socket is a new capture clock (the phone's session
+                # restarted at 0): re-fix the sender→call-timeline offset at
+                # its next turn, or its turns would land before the ones
+                # already merged.
+                p.offset_s = None
             p.endpoint = endpoint
             if store is not None:
                 self.store = store

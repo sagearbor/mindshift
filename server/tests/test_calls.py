@@ -1191,3 +1191,63 @@ class TestRelayFlood:
         assert [bucket.allow() for _ in range(2)] == [True, False]
         clock[0] += 100.0  # refills to the burst, never beyond
         assert [bucket.allow() for _ in range(4)] == [True, True, True, False]
+
+
+class _Endpoint(calls.CallEndpoint):
+    def __init__(self, uid: str) -> None:
+        self.uid, self.session_id = uid, f"s-{uid}"
+        self.frames: list[dict] = []
+        self.turns: list[tuple[dict, str]] = []
+        self.detached = False
+
+    async def send_json(self, payload: dict) -> None:
+        self.frames.append(payload)
+
+    async def on_remote_turn(self, turn: dict, *, display_name: str) -> None:
+        self.turns.append((turn, display_name))
+
+    def set_peer_name(self, label: str, display_name: str) -> None:
+        pass
+
+    def detach(self) -> None:
+        self.detached = True
+
+
+class TestReconnectClock:
+    def test_a_new_socket_refixes_the_members_clock_offset(self, monkeypatch):
+        """The sender→call-timeline offset is fixed at a member's first turn.
+        A reconnect is a NEW capture clock (the phone's session restarted at
+        0): keeping the old offset would place its next turns before the
+        ones already merged."""
+        import asyncio
+        now = datetime.now(timezone.utc)
+        call = calls.Call(
+            call_id="c", host_uid="a", join_code="ABCDEF", created_at=now.isoformat(),
+            expires_at=(now + timedelta(hours=1)).isoformat(),
+        )
+        call.add_participant("a", email=None, display_name=None)
+        call.add_participant("b", email=None, display_name=None)
+        clock = [50.0]
+        monkeypatch.setattr(call, "elapsed_s", lambda: clock[0])
+
+        async def run():
+            a1, a2, b = _Endpoint("a"), _Endpoint("a"), _Endpoint("b")
+            await call.bind("a", a1)
+            await call.bind("b", b)
+            first = await call.push_turn("a", {"text": "first", "start_time": 0.0, "end_time": 1.0})
+            assert (first["start_time"], first["end_time"]) == (49.0, 50.0)
+            # Binding the SAME socket again (a repeated call_join) keeps the offset.
+            await call.bind("a", a1)
+            again = await call.push_turn("a", {"text": "again", "start_time": 1.0, "end_time": 2.0})
+            assert again["start_time"] == 50.0
+            clock[0] = 60.0
+            await call.bind("a", a2)  # the phone reconnected: its clock restarted
+            assert a1.detached and call.participant("a").endpoint is a2
+            second = await call.push_turn("a", {"text": "second", "start_time": 0.0, "end_time": 1.0})
+            assert second["start_time"] == 59.0 > again["end_time"]
+            # Arrival order and delivery to the peer are unaffected either way.
+            assert [t["seq"] for t in call.turns] == [1, 2, 3]
+            assert [t["text"] for t, _ in b.turns] == ["first", "again", "second"]
+            assert len(call.participants) == 2  # no duplicate seat
+
+        asyncio.run(run())
