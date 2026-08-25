@@ -7,11 +7,12 @@
  */
 import { authHeaders } from "../../api/liveSessions";
 import type { components } from "../../api/generated/openapi";
-import type { CallCreated, CallRole, IceServer } from "./types";
+import type { CallCreated, CallRole, IceConfig, IceServer } from "./types";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:8000";
 
 export type CallOut = components["schemas"]["CallOut"];
+export type IceConfigOut = components["schemas"]["IceConfigOut"];
 
 export interface CallApi {
   /** `POST /calls` — the caller becomes the host (slot A). */
@@ -21,6 +22,19 @@ export interface CallApi {
   join(joinCode: string, role?: CallRole, displayName?: string): Promise<CallCreated>;
   /** `POST /calls/{id}/end` — hang up for everyone; best effort. */
   end(callId: string): Promise<void>;
+  /** `GET /calls/ice` — the ICE servers WITHOUT creating a call, for the
+   *  connectivity pre-flight on the idle screen. */
+  ice(): Promise<IceConfig>;
+}
+
+export function fromIceConfigOut(body: Partial<IceConfigOut> | null | undefined): IceConfig {
+  const b = body ?? {};
+  return {
+    iceServers: Array.isArray(b.ice_servers) ? (b.ice_servers as IceServer[]) : [],
+    turnConfigured: b.turn_configured === true,
+    credentialMode: typeof b.turn_credential_mode === "string" ? b.turn_credential_mode : "none",
+    ttlSeconds: typeof b.ttl_seconds === "number" ? b.ttl_seconds : null,
+  };
 }
 
 export function fromCallOut(body: Partial<CallOut> | null | undefined): CallCreated {
@@ -88,5 +102,10 @@ export const callApi: CallApi = {
     } catch {
       // Best effort: the socket closing ends it server-side too.
     }
+  },
+  async ice() {
+    const res = await fetch(`${API_URL}/calls/ice`, { headers: await authHeaders() });
+    if (!res.ok) throw await describeFailure(res, "couldn't fetch the ICE servers");
+    return fromIceConfigOut((await res.json()) as IceConfigOut);
   },
 };

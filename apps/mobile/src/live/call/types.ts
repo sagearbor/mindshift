@@ -67,11 +67,29 @@ export interface CallParticipant {
   connected: boolean;
 }
 
-/** An ICE server as the server hands it over (the W3C RTCIceServer shape). */
+/** An ICE server as the server hands it over (the W3C RTCIceServer shape).
+ *  With `MINDSHIFT_TURN_SECRET` configured, `username`/`credential` are a
+ *  SHORT-LIVED TURN REST pair minted for THIS member (username is
+ *  "<unix-expiry>:<uid>"), not a password shared with every client. */
 export interface IceServer {
   urls: string | string[];
   username?: string;
   credential?: string;
+  /** The deployment's TURN realm when it set one. Not part of RTCIceServer
+   *  (browsers ignore the extra key) — carried for diagnosis. */
+  realm?: string;
+}
+
+/** `GET /calls/ice` — the ICE servers before there is a call, so the
+ *  connectivity pre-flight can run on the idle screen. */
+export interface IceConfig {
+  iceServers: IceServer[];
+  /** False = STUN only: two phones on carrier-grade NAT may not connect. */
+  turnConfigured: boolean;
+  /** "none" | "ephemeral" (per-member TURN REST) | "static" | "open". */
+  credentialMode: string;
+  /** Seconds the credentials stay valid; null unless the mode is ephemeral. */
+  ttlSeconds: number | null;
 }
 
 export interface SdpInit {
@@ -232,10 +250,13 @@ export const IDLE_CALL_VIEW: CallView = {
   error: null,
 };
 
-/** Whether an ICE server list includes a TURN relay. */
-export function hasTurnServer(servers: readonly IceServer[]): boolean {
-  return servers.some((s) => {
-    const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
-    return urls.some((u) => /^turns?:/i.test(u));
+/** Whether an ICE server list includes a TURN relay (turn:/turns:), as
+ *  opposed to STUN only. Tolerates a missing/odd list — it is fed straight
+ *  from the server's JSON, and the honest answer to "is there a relay?" for
+ *  anything unrecognised is no. */
+export function hasTurnServer(servers: readonly IceServer[] | null | undefined): boolean {
+  return (servers ?? []).some((s) => {
+    const urls = Array.isArray(s?.urls) ? s.urls : [s?.urls];
+    return urls.some((u) => typeof u === "string" && /^turns?:/i.test(u.trim()));
   });
 }

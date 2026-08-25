@@ -20,6 +20,11 @@
                                 At most two participants and one therapist
                                 (409 when the seat is taken or the call is
                                 full); idempotent for a member.
+* ``GET  /calls/ice``         — the ICE servers (STUN + TURN, with the
+                                caller's own short-lived TURN REST
+                                credentials) WITHOUT creating a call, so the
+                                client can run its connectivity preflight
+                                before the demo starts.
 * ``GET  /calls/{id}``        — the call as the caller sees it (participants
                                 with ``is_self``/``connected``, the labels,
                                 ICE servers, and — once ended — the caller's
@@ -92,6 +97,22 @@ class IceServerOut(BaseModel):
     urls: list[str]
     username: Optional[str] = None
     credential: Optional[str] = None
+    # The TURN realm the deployment configured, when it did — not part of
+    # RTCIceServer (browsers ignore it), carried so a relay that refuses an
+    # allocation can be diagnosed from the client.
+    realm: Optional[str] = None
+
+
+class IceConfigOut(BaseModel):
+    """``GET /calls/ice`` — the same ICE servers a call hands out, before
+    there is a call, so a client can run a connectivity preflight."""
+    ice_servers: list[IceServerOut]
+    # False = STUN only: two phones on carrier-grade NAT may not connect.
+    turn_configured: bool
+    # "none" | "ephemeral" (TURN REST, per-member) | "static" | "open"
+    turn_credential_mode: str
+    # Seconds these credentials stay valid; null unless the mode is ephemeral.
+    ttl_seconds: Optional[int] = None
 
 
 class CallParticipantOut(BaseModel):
@@ -227,6 +248,20 @@ async def join_by_code(
         _raise(exc)
     await call.broadcast_state()
     return call.rest_view(uid)
+
+
+@router.get("/ice", response_model=IceConfigOut)
+async def get_ice_config(uid: str = Depends(get_current_uid)):
+    """The ICE servers this deployment hands out, WITHOUT creating a call —
+    what the client's connectivity preflight gathers candidates against, so
+    "relay needed but no TURN configured" is known before the demo, not
+    during it. Authenticated: the credentials are minted for THIS uid and
+    expire, so they are never a public relay handout.
+
+    Declared before ``/{call_id}`` so "ice" is matched as a literal path.
+    """
+    servers = calls.ice_servers(uid)
+    return {"ice_servers": servers, **calls.turn_status()}
 
 
 @router.get("/{call_id}", response_model=CallOut)

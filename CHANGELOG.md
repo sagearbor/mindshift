@@ -4,6 +4,25 @@ Versions are numbered here. **App** = Android/EAS `version (versionCode)`.
 **Backend** = Cloud Run revision of `mindshift-api` (project `arborfam-hub`,
 `us-central1`). Newest first.
 
+## Unreleased — TURN credentials + call connectivity pre-flight (2026-08-25, `feat/turn-credentials`)
+Backend + JS only (no native change → OTA-able). Nothing changes until the
+owner configures a relay; see `docs/research/turn-options-2026-08-25.md`.
+- **Ephemeral TURN credentials.** With `MINDSHIFT_TURN_SECRET` (+ optional
+  `MINDSHIFT_TURN_REALM`, `MINDSHIFT_TURN_TTL_SECONDS`, default 4h) the server
+  mints a standard TURN REST credential **per member, per handout** —
+  `username = "<unix-expiry>:<uid>"`,
+  `credential = base64(HMAC-SHA1(secret, username))` — instead of one static
+  password shared with every client. The static
+  `MINDSHIFT_TURN_USERNAME`/`_CREDENTIAL` path still works and is what
+  Cloudflare/Twilio/Metered (API-minted credentials) need.
+- **`GET /calls/ice`** returns the same ICE servers without creating a call,
+  plus `turn_configured` / `turn_credential_mode` / `ttl_seconds`.
+- **Call pre-flight "Peer connection" row**: a real ICE gathering pass against
+  the server's own `ice_servers` (`src/live/call/iceProbe.ts`), reported in one
+  honest line — *relay ready* / *direct likely, no TURN* / **relay needed — no
+  TURN configured** / *TURN configured but no relay candidate*. The state that
+  kills a cellular demo is now visible before the demo.
+
 ## App 1.18.0 (versionCode 34) — in-app calls (2026-08-25, `feat/calls-client` + #164)
 New native module (`react-native-webrtc` via `@config-plugins/react-native-webrtc`)
 → **requires an EAS build, not OTA-able.**

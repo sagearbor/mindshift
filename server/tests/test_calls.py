@@ -23,8 +23,12 @@ socket, ``X-Test-Uid`` on REST).
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import json
 import re
+import time
 import types
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -254,7 +258,9 @@ class TestCallRest:
         assert body["invitee_uid"] == PEER and body["invitee_email"] == "mom@example.test"
         assert body["invitee"] == {"uid": PEER, "email": "mom@example.test"}
         assert body["self_label"] == "Speaker A" and body["peer_label"] == "Speaker B"
-        assert body["ice_servers"] == [{"urls": [calls.DEFAULT_STUN_URL], "username": None, "credential": None}]
+        assert body["ice_servers"] == [
+            {"urls": [calls.DEFAULT_STUN_URL], "username": None, "credential": None, "realm": None}
+        ]
         [me] = body["participants"]
         assert me == {
             "uid": HOST, "slot": "A", "label": "Speaker A", "role": "participant", "display_name": "You",
@@ -280,8 +286,56 @@ class TestCallRest:
         body = _create(env)
         assert body["ice_servers"][1] == {
             "urls": ["turn:relay.example:3478?transport=udp", "turns:relay.example:5349"],
-            "username": "u", "credential": "p",
+            "username": "u", "credential": "p", "realm": None,
         }
+
+    def test_ephemeral_turn_credentials_are_per_member_and_expire(self, env, monkeypatch):
+        """With a shared secret every member gets its OWN short-lived TURN
+        REST credential instead of one password baked into every client."""
+        monkeypatch.setenv("MINDSHIFT_TURN_URLS", "turn:relay.example:3478")
+        monkeypatch.setenv("MINDSHIFT_TURN_SECRET", "s3cret")
+        monkeypatch.setenv("MINDSHIFT_TURN_REALM", "mindshift.example")
+        # A static credential is still in the env: the secret wins.
+        monkeypatch.setenv("MINDSHIFT_TURN_USERNAME", "static-u")
+        monkeypatch.setenv("MINDSHIFT_TURN_CREDENTIAL", "static-p")
+        created = _create(env, invitee_email=EMAILS[PEER])
+        _join(env, created["call_id"], PEER)
+        host_entry = created["ice_servers"][1]
+        peer_entry = env.client.get(
+            f"/calls/{created['call_id']}", headers=_h(PEER)
+        ).json()["ice_servers"][1]
+        assert host_entry["realm"] == "mindshift.example"
+        assert host_entry["username"].endswith(f":{HOST}")
+        assert peer_entry["username"].endswith(f":{PEER}")
+        assert host_entry["credential"] != peer_entry["credential"] != "static-p"
+        expiry = int(host_entry["username"].split(":", 1)[0])
+        assert time.time() < expiry <= time.time() + calls.turn_ttl_seconds() + 5
+        # The credential is exactly base64(HMAC-SHA1(secret, username)).
+        expected = base64.b64encode(
+            hmac.new(b"s3cret", host_entry["username"].encode(), hashlib.sha1).digest()
+        ).decode()
+        assert host_entry["credential"] == expected
+
+    def test_ice_route_without_a_call(self, env, monkeypatch):
+        monkeypatch.delenv("MINDSHIFT_TURN_URLS", raising=False)
+        body = env.client.get("/calls/ice", headers=_h(HOST)).json()
+        assert body["ice_servers"][0]["urls"] == [calls.DEFAULT_STUN_URL]
+        assert body["turn_configured"] is False
+        assert body["turn_credential_mode"] == "none" and body["ttl_seconds"] is None
+
+        monkeypatch.setenv("MINDSHIFT_TURN_URLS", "turn:relay.example:3478")
+        monkeypatch.setenv("MINDSHIFT_TURN_SECRET", "s3cret")
+        monkeypatch.setenv("MINDSHIFT_TURN_TTL_SECONDS", "600")
+        body = env.client.get("/calls/ice", headers=_h(HOST)).json()
+        assert body["turn_configured"] is True
+        assert body["turn_credential_mode"] == "ephemeral" and body["ttl_seconds"] == 600
+        assert body["ice_servers"][1]["username"].endswith(f":{HOST}")
+        # "ice" is a literal path, not a call id — an unknown call still 404s.
+        assert env.client.get(f"/calls/{uuid.uuid4()}", headers=_h(HOST)).status_code == 404
+        # Authenticated: the credential belongs to the CALLER, not the route.
+        other = env.client.get("/calls/ice", headers=_h(PEER)).json()
+        assert other["ice_servers"][1]["username"].endswith(f":{PEER}")
+        assert other["ice_servers"][1]["credential"] != body["ice_servers"][1]["credential"]
 
     def test_invitee_joins_without_code_anyone_else_needs_it(self, env):
         created = _create(env, invitee_email=EMAILS[PEER])
@@ -1149,6 +1203,69 @@ class TestCallModel:
         assert calls.ice_servers() == [{"urls": [calls.DEFAULT_STUN_URL]}]
         monkeypatch.setenv("MINDSHIFT_CALL_JOIN_BASE", "mindshift://call/")
         assert calls.join_url("ABCDEF") == "mindshift://call/ABCDEF"
+
+
+class TestTurnRestCredentials:
+    """draft-uberti-behave-turn-rest-00 / coturn ``use-auth-secret``:
+    username ``"<unix-expiry>:<name>"``, credential
+    ``base64(HMAC-SHA1(secret, username))``."""
+
+    def test_shape_and_expiry(self):
+        username, credential, expiry = calls.turn_rest_credentials(
+            "user-a", secret="s3cret", ttl_seconds=3600, now=1_000_000.0
+        )
+        assert username == "1003600:user-a" and expiry == 1_003_600
+        assert credential == base64.b64encode(
+            hmac.new(b"s3cret", b"1003600:user-a", hashlib.sha1).digest()
+        ).decode()
+        # base64 of a 20-byte SHA-1 digest is always 28 chars ending in "=".
+        assert len(credential) == 28 and credential.endswith("=")
+
+    def test_expiry_moves_with_the_clock_and_ttl_is_bounded(self):
+        _, _, early = calls.turn_rest_credentials("u", secret="s", ttl_seconds=60, now=0.0)
+        _, _, later = calls.turn_rest_credentials("u", secret="s", ttl_seconds=60, now=100.0)
+        assert later - early == 100
+        # Below the floor and above the day cap are clamped, never honoured.
+        _, _, floored = calls.turn_rest_credentials("u", secret="s", ttl_seconds=1, now=0.0)
+        _, _, capped = calls.turn_rest_credentials("u", secret="s", ttl_seconds=10**9, now=0.0)
+        assert floored == 60 and capped == calls.TURN_TTL_MAX_SECONDS
+
+    def test_username_key_is_sanitized(self):
+        # A colon in the key would move the expiry the server parses.
+        assert calls.turn_key("ev:il uid") == "eviluid"
+        assert calls.turn_key(None) == "member" and calls.turn_key("   ") == "member"
+        assert len(calls.turn_key("x" * 500)) == calls.TURN_KEY_MAX
+        username, _, _ = calls.turn_rest_credentials("a:b", secret="s", ttl_seconds=60, now=0.0)
+        assert username.count(":") == 1 and username == "60:ab"
+
+    def test_two_members_get_different_credentials(self):
+        a, ca, _ = calls.turn_rest_credentials("user-a", secret="s", now=0.0)
+        b, cb, _ = calls.turn_rest_credentials("user-b", secret="s", now=0.0)
+        assert a != b and ca != cb
+
+    def test_ttl_env_is_bounded_and_survives_garbage(self, monkeypatch):
+        monkeypatch.setenv("MINDSHIFT_TURN_TTL_SECONDS", "not-a-number")
+        assert calls.turn_ttl_seconds() == calls.TURN_TTL_SECONDS
+        monkeypatch.setenv("MINDSHIFT_TURN_TTL_SECONDS", "0")
+        assert calls.turn_ttl_seconds() == 60
+        monkeypatch.setenv("MINDSHIFT_TURN_TTL_SECONDS", str(10**9))
+        assert calls.turn_ttl_seconds() == calls.TURN_TTL_MAX_SECONDS
+
+    def test_turn_status_never_leaks_the_secret(self, monkeypatch):
+        monkeypatch.setenv("MINDSHIFT_TURN_URLS", "turn:relay.example:3478")
+        monkeypatch.setenv("MINDSHIFT_TURN_SECRET", "s3cret")
+        assert calls.turn_status() == {
+            "turn_configured": True,
+            "turn_credential_mode": "ephemeral",
+            "ttl_seconds": calls.turn_ttl_seconds(),
+        }
+        monkeypatch.delenv("MINDSHIFT_TURN_SECRET")
+        monkeypatch.setenv("MINDSHIFT_TURN_USERNAME", "u")
+        assert calls.turn_status()["turn_credential_mode"] == "static"
+        monkeypatch.delenv("MINDSHIFT_TURN_URLS")
+        assert calls.turn_status() == {
+            "turn_configured": False, "turn_credential_mode": "none", "ttl_seconds": None
+        }
 
 
 # ---------------------------------------------------------------------------

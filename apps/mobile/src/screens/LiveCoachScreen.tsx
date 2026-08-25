@@ -20,6 +20,8 @@ import ScoreboardPanel from "../components/ScoreboardPanel";
 import WhoIsThisSheet, { type LiveLabelChoice } from "../components/WhoIsThisSheet";
 import CallPanel from "../components/CallPanel";
 import { IDLE_CALL_VIEW } from "../live/call/types";
+import { callApi } from "../live/call/callApi";
+import { probeIce, iceProbeUnavailable, type IceProbeResult } from "../live/call/iceProbe";
 import { useAudioStream, type TranscriptEntry } from "../hooks/useAudioStream";
 import { useAuthStore } from "../store/authStore";
 import { loadLiveMode, saveLiveMode } from "../live/modePrefs";
@@ -133,6 +135,9 @@ export default function LiveCoachScreen({
   const [peopleError, setPeopleError] = useState<string | null>(null);
   const [therapist, setTherapist] = useState<TherapistLink | null>(null);
   const modeLoadedRef = useRef(false);
+  // Call mode connectivity pre-flight (src/live/call/iceProbe.ts).
+  const [iceProbe, setIceProbe] = useState<IceProbeResult | null>(null);
+  const [iceProbing, setIceProbing] = useState(false);
 
   // A haptic nudge on the user's own delivery also flashes on screen for a
   // moment (the phone may be face-down on the table; the buzz is primary).
@@ -357,6 +362,33 @@ export default function LiveCoachScreen({
   const isTherapist = mode === "therapist" || isTherapistCall;
   const modeLabel = LIVE_MODE_OPTIONS.find((o) => o.mode === mode)?.label ?? mode;
   const idle = connectionStatus === "idle" && transcript.length === 0 && !sessionActive;
+
+  // Call mode: before anyone dials, find out whether these two phones can
+  // actually reach each other. Fetch the server's own ICE servers
+  // (GET /calls/ice — same list a call hands out, with this account's
+  // short-lived TURN credentials) and gather candidates against them. The
+  // answer is one line in the pre-flight panel; a failure to check says so
+  // instead of quietly looking fine.
+  useEffect(() => {
+    if (!isCall || !idle) return;
+    let cancelled = false;
+    setIceProbing(true);
+    void (async () => {
+      let result: IceProbeResult;
+      try {
+        const config = await callApi.ice();
+        result = await probeIce(config.iceServers);
+      } catch (err) {
+        result = iceProbeUnavailable(err instanceof Error ? err.message : String(err));
+      }
+      if (cancelled) return;
+      setIceProbe(result);
+      setIceProbing(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isCall, idle]);
 
   return (
     <View style={styles.container}>
@@ -595,6 +627,9 @@ export default function LiveCoachScreen({
             preflight={preflight ?? null}
             people={people}
             peopleError={peopleError}
+            isCall={isCall}
+            iceProbe={iceProbe}
+            iceProbing={iceProbing}
           />
           <View style={styles.explainerCard} testID="idle-explainer">
             {isTherapist ? (

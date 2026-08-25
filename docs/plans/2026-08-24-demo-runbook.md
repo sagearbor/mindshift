@@ -45,8 +45,13 @@ nudges appear read-only tagged *for Sage* / *for Dad*, the scoreboard is always 
 ever spoken to her. Keep the tab in the foreground, screen unlocked. No episode of her own —
 she gets both participants' shared to her dashboard.
 
-If two phones on mobile data never reach *connected*: no TURN server is configured (the panel
-says so) — put one side on Wi-Fi, or set `MINDSHIFT_TURN_URLS/USERNAME/CREDENTIAL` on Cloud Run.
+Before the demo, read the Call pre-flight panel's **Peer connection** row: it gathers real ICE
+candidates and says *relay ready* / *direct likely …* / **relay needed — no TURN configured**.
+If two phones on mobile data never reach *connected*, that row is why. Put one side on Wi-Fi, or
+configure a relay — **Cloudflare Realtime TURN is free to 1,000 GB/month**; five-minute click-path
+in `docs/research/turn-options-2026-08-25.md`, then set
+`MINDSHIFT_TURN_URLS/_USERNAME/_CREDENTIAL` (or `MINDSHIFT_TURN_SECRET` + `_REALM` for per-member
+ephemeral credentials) on Cloud Run — read per request, no restart.
 
 ## 0-old. The verdict on "mic during a call" (why Call mode exists — fallback setups only)
 
