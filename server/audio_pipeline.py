@@ -2159,7 +2159,8 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 # production e2e, 2026-08-25.) The first-turn race — Deepgram
                 # beating the phone's very first turn_local, before the latch
                 # — is closed by calls.Call.push_turn, which lets the phone's
-                # turn replace that cloud row in place.
+                # turn replace that cloud row in place and re-delivers it
+                # tagged `replaces_seq` so the other screens are corrected.
                 with contextlib.suppress(calls.CallError):
                     await ctx.call.push_turn(ctx.uid, {
                         "text": segment.text, "start_time": segment.start_time,
@@ -2244,6 +2245,11 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         async def on_remote_turn(self, turn: dict, *, display_name: str) -> None:
             received = ctx.latency.now()
             call = ctx.call
+            # Set when this row CORRECTS one already sent under the same seq:
+            # the sender's phone reported the words the server's transcriber
+            # had already merged for it (calls.Call.push_turn). The client
+            # swaps the line in place; null on every ordinary turn.
+            replaces_seq = turn.get("replaces_seq")
             await send_json({
                 "type": "transcript",
                 "session_id": session_id,
@@ -2257,6 +2263,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 "participant_uid": turn.get("participant_uid"),
                 "is_self": False,
                 "seq": turn.get("seq"),
+                "replaces_seq": replaces_seq,
                 "local_start_time": turn.get("local_start_time"),
                 "local_end_time": turn.get("local_end_time"),
                 # The sender's on-device measurements, so an observer can
@@ -2264,6 +2271,12 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 "text_tone": turn.get("text_tone"),
                 "prosody": turn.get("prosody"),
             })
+            if replaces_seq is not None:
+                # Same words, better wording/tone/clock. The cloud copy of
+                # this turn already went through the coach and into the
+                # utterance buffer — re-running either would spend a second
+                # LLM call and push a duplicate suggestion for one moment.
+                return
             utterance = Utterance(
                 session_id=session_id,
                 speaker=turn["speaker"],

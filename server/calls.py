@@ -172,6 +172,18 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _age_ms(received_at: Any) -> int | None:
+    """Milliseconds since a row's ``received_at`` stamp (None if unparseable)
+    — how far the phone trailed the server's transcriber on the same span."""
+    if not isinstance(received_at, str):
+        return None
+    try:
+        then = datetime.fromisoformat(received_at)
+    except ValueError:
+        return None
+    return int((datetime.now(timezone.utc) - then).total_seconds() * 1000)
+
+
 def ice_servers() -> list[dict]:
     """The ICE server list handed to every member: Google's public STUN by
     default, plus a TURN relay when the deployment configured one
@@ -275,7 +287,8 @@ class CallEndpoint:
     * ``send_json(payload)`` — a frame to this member's phone.
     * ``on_remote_turn(turn, display_name=)`` — someone else said
       something: render it (``transcript``) and, for a participant, coach
-      on it.
+      on it. A ``turn`` carrying ``replaces_seq`` is the corrected copy of
+      a row already delivered: render it in place, do not coach again.
     * ``set_peer_name(label, display_name)`` — another member's name (as
       this member sees it) changed; update the running session's naming.
     * ``detach()`` — the call ended; the session keeps coaching solo.
@@ -698,6 +711,28 @@ class Call:
                 return t
         return None
 
+    async def _deliver(self, uid: str, row: dict, *, replaces_seq: int | None = None) -> None:
+        """Push one merged row to every OTHER connected member. ``replaces_seq``
+        marks the row as the corrected copy of a row those members already
+        rendered (see push_turn); it rides the wire as
+        ``transcript.replaces_seq`` so a client can swap it in place by
+        ``seq`` instead of appending a second line. A dead peer socket must
+        never raise into the sender."""
+        payload = row if replaces_seq is None else {**row, "replaces_seq": replaces_seq}
+        for other in self.others_of(uid):
+            if other.endpoint is None:
+                continue
+            try:
+                await asyncio.wait_for(
+                    other.endpoint.on_remote_turn(payload, display_name=self.display_name_for(other.uid, uid)),
+                    timeout=DELIVERY_TIMEOUT_S,
+                )
+            except Exception:  # noqa: BLE001 — the sender's session must not sink on a peer
+                logger.warning(
+                    "call %s: delivering turn %d to %s failed", self.call_id, row["seq"], other.uid,
+                    exc_info=True,
+                )
+
     async def push_turn(self, uid: str, event: Any) -> dict | None:
         """A member's own finalized turn (a validated ``TurnLocalEvent`` or
         an equivalent dict from the server-STT fallback): append it to the
@@ -707,8 +742,12 @@ class Call:
         A phone turn that duplicates a CLOUD row this member pushed just
         before (the server's transcriber won the race for the phone's first
         span) REPLACES that row in place — same ``seq``, same position, the
-        phone's text/tone/prosody — and is not delivered again: the others
-        already rendered (and were coached on) those words."""
+        phone's text/tone/prosody — and is delivered AGAIN, tagged
+        ``replaces_seq``: the others already rendered the transcriber's
+        wording (no ``text_tone``, no sender clock), and only a second
+        delivery can correct the line on their screens. They are not coached
+        on it twice — same words, and the cloud copy already went through the
+        coach (see audio_pipeline's ``on_remote_turn``)."""
         data = event.model_dump() if hasattr(event, "model_dump") else dict(event)
         async with self.lock:
             if self.ended:
@@ -743,30 +782,23 @@ class Call:
                 "received_at": now_iso(),
             }
             if dup is not None:
+                # How far the phone trailed the transcriber on this span — the
+                # width of the race a hold-back would have to cover. Logged so
+                # production tells us whether that stays sub-second.
                 logger.info(
-                    "call %s: %s's phone turn replaces its cloud duplicate seq %d",
-                    self.call_id, uid, dup["seq"],
+                    "call %s: %s's phone turn replaces its cloud duplicate seq %d (%s ms later)",
+                    self.call_id, uid, dup["seq"], _age_ms(dup.get("received_at")),
                 )
+                replaced_seq = int(dup["seq"])
                 dup.clear()
                 dup.update(row)
+                await self._deliver(uid, dup, replaces_seq=replaced_seq)
                 return dup
             self.turns.append(row)
             p.turn_count += 1
             if len(self.turns) > CALL_MAX_TURNS:
                 del self.turns[:-CALL_MAX_TURNS]
-            for other in self.others_of(uid):
-                if other.endpoint is None:
-                    continue
-                try:
-                    await asyncio.wait_for(
-                        other.endpoint.on_remote_turn(row, display_name=self.display_name_for(other.uid, uid)),
-                        timeout=DELIVERY_TIMEOUT_S,
-                    )
-                except Exception:  # noqa: BLE001 — the sender's session must not sink on a peer
-                    logger.warning(
-                        "call %s: delivering turn %d to %s failed", self.call_id, row["seq"], other.uid,
-                        exc_info=True,
-                    )
+            await self._deliver(uid, row)
             return row
 
     def turns_for(self, viewer_uid: str, session_id: str) -> list[dict]:

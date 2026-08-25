@@ -1534,8 +1534,10 @@ def _post_stream_for(side: CallSide, call_id: str, self_done: asyncio.Event, pee
             await asyncio.wait_for(peer_done.wait(), timeout=CALL_JOIN_TIMEOUT_S)
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline:
-            got = [e for _, e in run.events if e.get("type") == "transcript" and e.get("call_id") == call_id]
-            if len(got) >= n_peer_turns:
+            got = render_transcript(
+                [e for _, e in run.events if e.get("type") == "transcript" and e.get("call_id") == call_id]
+            )
+            if len(got) >= n_peer_turns and not _uncorrected(got):
                 break
             await asyncio.sleep(0.05)
     return post
@@ -1641,7 +1643,9 @@ async def run_call_e2e(
 
         # the merged transcript on each phone: every PEER turn, with the peer's slot label
         def _remote(side: CallSide) -> list[dict]:
-            return [e for e in side.run.of_type("transcript") if e.get("call_id") == call_id]
+            # Rendered, not raw: a first-turn cloud row corrected by the
+            # sender's phone arrives twice on the wire and shows once.
+            return render_transcript([e for e in side.run.of_type("transcript") if e.get("call_id") == call_id])
         expect = [(host, "Speaker B", other_idx), (joiner, "Speaker A", self_idx)]
         merged_ok = True
         merged_txt = []
@@ -1886,6 +1890,41 @@ class MeshMember:
         return [t["text"] for t in self.turn_locals]
 
 
+def render_transcript(events: list[dict]) -> list[dict]:
+    """What a phone SHOWS given a member's relayed call ``transcript`` frames.
+
+    Rows are keyed by the merged transcript's ``seq``; a frame whose ``seq``
+    — or whose ``replaces_seq`` — names a row already on screen REPLACES it
+    in place rather than appending. That is exactly what the client does
+    (``apps/mobile/src/hooks/useAudioStream.ts``), and it is what makes the
+    server's correction of a first-turn cloud row (see calls.py
+    ``push_turn``) a fix rather than a duplicated line.
+    """
+    rows: list[dict] = []
+    at: dict[int, int] = {}
+    for e in events:
+        seq = e.get("seq")
+        replaces = e.get("replaces_seq")
+        key = replaces if isinstance(replaces, int) else seq
+        if isinstance(key, int) and key in at:
+            rows[at[key]] = e
+            if isinstance(seq, int):
+                at[seq] = at[key]
+            continue
+        if isinstance(seq, int):
+            at[seq] = len(rows)
+        rows.append(e)
+    return rows
+
+
+def _uncorrected(rows: list[dict]) -> list[dict]:
+    """Rendered rows that still carry no ``text_tone`` — the server
+    transcriber's copy of a member's own words, whose correction from that
+    member's phone has not landed yet (or never will, for a member with no
+    on-device STT at all)."""
+    return [e for e in rows if e.get("text_tone") is None]
+
+
 def _pctl(values: list[float], q: float) -> float | None:
     if not values:
         return None
@@ -1982,7 +2021,13 @@ def _mesh_post_stream(m: MeshMember, members: list[MeshMember], call_id: str, ha
             with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(o.done.wait(), timeout=CALL_JOIN_TIMEOUT_S)
         deadline = time.monotonic() + 5.0
-        while time.monotonic() < deadline and len(m.events("transcript", call_id)) < n_other_turns:
+        while time.monotonic() < deadline:
+            shown = render_transcript(m.events("transcript", call_id))
+            # Both conditions: every other member's turn is on screen AND no
+            # row is still the server transcriber's copy of a phone's own
+            # words (its correction may be a few hundred ms behind).
+            if len(shown) >= n_other_turns and not _uncorrected(shown):
+                break
             await asyncio.sleep(0.05)
         if hang_up_after is not None:
             deadline = time.monotonic() + CALL_HANGUP_TIMEOUT_S
@@ -2166,7 +2211,13 @@ async def run_call_e2e_three_way(
         merged_problems: list[str] = []
         merged_txt: list[str] = []
         for m in members:
-            got = m.events("transcript", call_id)
+            # What the phone renders, not what arrived: a corrected row
+            # (`replaces_seq`) swaps in place, so a member's first turn is one
+            # line whichever transcriber finalized it first.
+            frames = m.events("transcript", call_id)
+            got = render_transcript(frames)
+            corrected = [e for e in frames if e.get("replaces_seq") is not None]
+            toneless = 0
             by_sender: dict[str, list[dict]] = {}
             for e in got:
                 by_sender.setdefault(e.get("participant_uid"), []).append(e)
@@ -2182,14 +2233,18 @@ async def run_call_e2e_three_way(
                 if bad:
                     merged_problems.append(f"{m.role} saw {o.role}'s turns as {sorted({(e.get('speaker'), e.get('display_name'), e.get('role'), e.get('is_self')) for e in bad})}")
                 untagged = [e for e in mine if e.get("text_tone") is None or "local_start_time" not in e or e.get("seq") is None]
+                toneless += len(untagged)
                 if untagged:
                     # A phone's turn_local always carries text_tone; a row
                     # without one is the server's transcriber (Deepgram)
-                    # hearing that member's own audio — a second copy of a
-                    # turn the phone also reported (see calls.py push_turn).
+                    # hearing that member's own audio. The phone's own report
+                    # of those words must have replaced it in place (same
+                    # seq, re-relayed with replaces_seq — see calls.py
+                    # push_turn); a row still tone-less at the end means the
+                    # correction never reached this viewer.
                     merged_problems.append(
                         f"{m.role}: {len(untagged)} of {o.role}'s rows have no text_tone/local clock "
-                        f"(server-STT copies of the phone's own turns): {[e.get('text', '')[:40] for e in untagged]}"
+                        f"(uncorrected server-STT copies of the phone's own turns): {[e.get('text', '')[:40] for e in untagged]}"
                     )
             if by_sender:
                 merged_problems.append(f"{m.role} saw turns from unknown senders {list(by_sender)} (own echo?)")
@@ -2198,8 +2253,13 @@ async def run_call_e2e_three_way(
             in_order = participant_texts == scene_order
             names = sorted({e.get("display_name") for e in got})
             report.data[f"merged_{m.role}"] = {"count": len(got), "expected": sum(len(o.turn_locals) for o in members if o is not m),
-                                               "in_order": in_order, "names": names}
-            merged_txt.append(f"{m.role} saw {len(got)} turns named {names}{'' if in_order else ' (participant order differs from the scene)'}")
+                                               "in_order": in_order, "names": names,
+                                               "frames": len(frames), "corrected": len(corrected), "toneless": toneless}
+            merged_txt.append(
+                f"{m.role} saw {len(got)} turns named {names}"
+                f"{'' if in_order else ' (participant order differs from the scene)'}"
+                + (f" ({len(corrected)} first-turn row(s) corrected in place)" if corrected else "")
+            )
         report.add("merged transcript (per viewer)", not merged_problems,
                    "; ".join(merged_txt) + (f"; PROBLEMS: {merged_problems}" if merged_problems else ""))
 

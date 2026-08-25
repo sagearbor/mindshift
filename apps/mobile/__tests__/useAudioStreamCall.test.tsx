@@ -134,6 +134,62 @@ describe("useAudioStream — Call mode", () => {
     expect(ws.json().find((f) => f.type === "call_join")).toMatchObject({ type: "call_join", call_id: "call-uuid-1", role: "therapist" });
   });
 
+  it("relayed rows are keyed by seq: a corrected first turn replaces its line, never duplicates it", async () => {
+    // The server merges each member's turns under a `seq`. A member's FIRST
+    // utterance can reach us as the server transcriber's copy (no text_tone,
+    // no sender clock) before that phone's own turn_local latches it
+    // local-first; the phone's report then arrives under the SAME seq tagged
+    // `replaces_seq`. It must correct the line in place — appending would
+    // show the sentence twice (server/calls.py push_turn).
+    const hook = await renderHook(() => useAudioStream({ callApi: api, makeRtcAdapter: () => adapter }));
+    const result = hook.result;
+    await act(async () => {
+      await result.current.startCall(50);
+    });
+    const ws = WS.i[0];
+    await act(() => {
+      ws.onopen?.({});
+    });
+    const row = (seq: number, text: string, extra: Record<string, unknown> = {}) => ({
+      type: "transcript", session_id: "call-call-uuid-1", call_id: "call-uuid-1",
+      speaker: "Speaker B", display_name: "Dad", role: "participant", participant_uid: "uid-b",
+      is_self: false, seq, replaces_seq: null, text, start_time: 0, end_time: 4.1,
+      local_start_time: null, local_end_time: null, text_tone: null, prosody: null,
+      ...extra,
+    });
+    // The cloud copy of Dad's opener, then a turn his phone reported itself.
+    await act(() => {
+      ws.onmessage?.({ data: JSON.stringify(row(1, "hey i looked at the credit card statement")) });
+      ws.onmessage?.({ data: JSON.stringify(row(2, "Sure. I know it's higher.", { start_time: 4.5, end_time: 9.7, text_tone: { label: "neutral", frustration: 10 } })) });
+    });
+    expect(result.current.transcript.map((t) => t.text)).toEqual([
+      "hey i looked at the credit card statement",
+      "Sure. I know it's higher.",
+    ]);
+    // Dad's phone catches up on seq 1 — LATER than seq 2 on the wire.
+    await act(() => {
+      ws.onmessage?.({
+        data: JSON.stringify(row(1, "Hey, I looked at the credit card statement.", {
+          replaces_seq: 1, local_start_time: 0, local_end_time: 4.1,
+          text_tone: { label: "angry", frustration: 70 },
+        })),
+      });
+    });
+    // One line per turn, corrected in place, order untouched.
+    expect(result.current.transcript.map((t) => t.text)).toEqual([
+      "Hey, I looked at the credit card statement.",
+      "Sure. I know it's higher.",
+    ]);
+    expect(result.current.transcript[0]).toMatchObject({ speaker: "Dad", speakerId: "Speaker B", callSeq: 1 });
+    // The corrected row's tone reaches the scoreboard (the cloud copy had none).
+    expect(result.current.scoreboard?.people.find((p) => p.speaker === "Speaker B")?.scoredTurns).toBe(2);
+    // A bare re-delivery of a seq we already hold is deduped too.
+    await act(() => {
+      ws.onmessage?.({ data: JSON.stringify(row(2, "Sure. I know it's higher.", { start_time: 4.5, end_time: 9.7 })) });
+    });
+    expect(result.current.transcript).toHaveLength(2);
+  });
+
   it("a failed create/join opens no session and says why", async () => {
     (api.join as jest.Mock).mockRejectedValueOnce(new Error("no call with that code (it may have ended)"));
     const hook = await renderHook(() => useAudioStream({ callApi: api, makeRtcAdapter: () => adapter }));
