@@ -414,7 +414,17 @@ async def analyze_live_session(
     summary: str | None = None
     if llm is not None and transcript_text:
         try:
-            summary = await asyncio.to_thread(llm.complete, SUMMARY_SYSTEM_PROMPT, transcript_text)
+            # Cost guardrails: attribute the summary's tokens to the watch's
+            # account (server/usage_meter.py). Imported lazily so the watch
+            # package keeps importing standalone.
+            import usage_meter
+
+            with usage_meter.attribute(
+                getattr(session, "account_id", None), usage_meter.SITE_WATCH_SUMMARY,
+            ):
+                summary = await asyncio.to_thread(
+                    llm.complete, SUMMARY_SYSTEM_PROMPT, transcript_text,
+                )
         except Exception:  # noqa: BLE001 — a down/misconfigured LLM must never
             # crash analysis; the transcript itself is still real and kept.
             logger.exception("LLM summary failed for live session %s — leaving summary unset", live_session_id)

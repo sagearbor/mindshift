@@ -1286,3 +1286,95 @@ class RecordingsStore:
                     continue
             return out
         return await asyncio.to_thread(_list)
+
+    # -- usage counters (cost guardrails) ----------------------------------
+    # Layout: usage/{day}/{uid}/{instance}.json — ONE blob per process per uid
+    # per day. Each process owns its shard exclusively, so there is no
+    # read-modify-write race and no lost update under Cloud Run's N instances;
+    # a uid's true total for a day is the SUM of its shards. See
+    # server/usage_meter.py for the accuracy contract.
+
+    @staticmethod
+    def _usage_day_prefix(day: str) -> str:
+        return f"usage/{day}/"
+
+    @staticmethod
+    def _usage_uid_prefix(day: str, uid: str) -> str:
+        return f"usage/{day}/{uid}/"
+
+    @staticmethod
+    def _usage_shard_name(day: str, uid: str, instance_id: str) -> str:
+        return f"usage/{day}/{uid}/{instance_id}.json"
+
+    async def write_usage_shard(
+        self, uid: str, day: str, instance_id: str, counters: dict,
+    ) -> None:
+        """Overwrite THIS process's shard with its running totals for the day.
+
+        A full overwrite (not an increment) is what makes the shard layout
+        safe: the writer is the only author of this blob, so the last write
+        wins by construction and a lost flush costs only the delta since the
+        previous one."""
+        def _write() -> None:
+            doc = {
+                "uid": uid,
+                "day": day,
+                "instance": instance_id,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "counters": {
+                    k: v for k, v in counters.items() if isinstance(v, (int, float))
+                },
+            }
+            self._bucket.blob(
+                self._usage_shard_name(day, uid, instance_id),
+            ).upload_from_string(json.dumps(doc), content_type="application/json")
+        await asyncio.to_thread(_write)
+
+    async def read_usage_totals(
+        self, uid: str, day: str, *, exclude_instance: str | None = None,
+    ) -> dict[str, float]:
+        """Sum one uid's shards for ``day``. ``exclude_instance`` skips the
+        caller's own shard so a process can add its in-memory counters to the
+        result without double-counting itself."""
+        def _read() -> dict[str, float]:
+            out: dict[str, float] = {}
+            prefix = self._usage_uid_prefix(day, uid)
+            for blob in self._bucket.list_blobs(prefix=prefix):
+                name = blob.name[len(prefix):]
+                if not name.endswith(".json"):
+                    continue
+                if exclude_instance and name[:-5] == exclude_instance:
+                    continue
+                try:
+                    doc = json.loads(blob.download_as_bytes())
+                except (ValueError, TypeError):
+                    continue
+                for key, value in (doc.get("counters") or {}).items():
+                    if isinstance(value, (int, float)):
+                        out[key] = out.get(key, 0) + value
+            return out
+        return await asyncio.to_thread(_read)
+
+    async def list_usage(self, day: str) -> dict[str, dict[str, float]]:
+        """``{uid: counters}`` for one day — one prefix scan over every shard.
+
+        The owner rollup (GET /admin/usage) calls this once per day in the
+        window; ``usage_meter.MAX_ROLLUP_DAYS`` bounds how many that can be."""
+        def _list() -> dict[str, dict[str, float]]:
+            out: dict[str, dict[str, float]] = {}
+            prefix = self._usage_day_prefix(day)
+            for blob in self._bucket.list_blobs(prefix=prefix):
+                rest = blob.name[len(prefix):]
+                uid, _, shard = rest.partition("/")
+                if not uid or not shard.endswith(".json"):
+                    continue
+                try:
+                    doc = json.loads(blob.download_as_bytes())
+                except (ValueError, TypeError):
+                    continue
+                bucket = out.setdefault(uid, {})
+                for key, value in (doc.get("counters") or {}).items():
+                    if isinstance(value, (int, float)):
+                        bucket[key] = bucket.get(key, 0) + value
+            return out
+        return await asyncio.to_thread(_list)

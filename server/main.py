@@ -50,6 +50,7 @@ import link_fetch
 import live_sessions
 import prosody
 import recordings_store
+import usage_meter
 import therapist_links
 import speaker_id
 import word_metrics as word_metrics_mod
@@ -922,6 +923,11 @@ async def lifespan(app: FastAPI):
     # unset → the recordings endpoints report an honest 503 and /analyze/upload
     # keeps its process-and-discard behaviour.
     app.state.recordings_store = recordings_store.create_store()
+    # Cost guardrails: per-uid usage counters persist as shards in the same
+    # bucket (None → in-memory only, quotas still enforced per process). The
+    # flusher writes off the hot path every usage_meter.FLUSH_INTERVAL_S.
+    usage_meter.bind_store(app.state.recordings_store)
+    usage_meter.meter().start()
     logger.info(
         "MindShift API started — model=%s provider=%s llm_key_present=%s "
         "stt_provider=%s db_path=%s",
@@ -932,6 +938,9 @@ async def lifespan(app: FastAPI):
         FilePath(DB_PATH).resolve(),
     )
     yield
+    # Land the last counters before the process goes away (bounded: the
+    # flusher is cancelled first, then one final best-effort write).
+    await usage_meter.meter().stop()
     app.state.llm_client.close()
     logger.info("MindShift API shut down — LLM client closed")
 
@@ -1000,6 +1009,12 @@ app.include_router(_therapist_router.router)
 from routers import calls as _calls_router  # noqa: E402
 
 app.include_router(_calls_router.router)
+
+# Owner-only cost visibility: GET /admin/usage (MINDSHIFT_ADMIN_UIDS allowlist,
+# 404 to everyone else). Read-only — quotas are tuned with env vars, not HTTP.
+from routers import admin as _admin_router  # noqa: E402
+
+app.include_router(_admin_router.router)
 
 # Watch domain (ported from Gauge — docs/plans/2026-08-15-unification-*.md):
 from watch.app import build_watch_routers  # noqa: E402
@@ -1597,6 +1612,9 @@ async def respond(
     req: RespondRequest,
     uid: str = Depends(get_current_uid),
     _rl: None = Depends(_rate_limit),
+    _usage: None = Depends(usage_meter.usage_scope(
+        usage_meter.SITE_RESPOND, feature="batch_analysis",
+    )),
 ):
     # The voice profile is keyed on the speaker being coached — the
     # from_participant_id. Absent (or no profile) → None → today's exact prompt.
@@ -1664,6 +1682,9 @@ async def score(
     req: ScoreRequest,
     uid: str = Depends(get_current_uid),
     _rl: None = Depends(_rate_limit),
+    _usage: None = Depends(usage_meter.usage_scope(
+        usage_meter.SITE_SCORE, feature="batch_analysis",
+    )),
 ):
     system = (
         "You are a tone analysis engine. Analyze the following text and return "
@@ -2460,6 +2481,9 @@ async def analyze(
     req: AnalyzeRequest,
     uid: str = Depends(get_current_uid),
     _rl: None = Depends(_rate_limit),
+    _usage: None = Depends(usage_meter.usage_scope(
+        usage_meter.SITE_BATCH_ANALYSIS, feature="batch_analysis",
+    )),
 ):
     # Text path: no audio, so no voice labels — the shared helper produces the
     # exact same prompt and response it always did.
@@ -2947,6 +2971,9 @@ async def analyze_upload(
     title: str = Form(default="", max_length=RECORDING_TITLE_MAX),
     uid: str = Depends(get_current_uid),
     _rl: None = Depends(_rate_limit),
+    _usage: None = Depends(usage_meter.usage_scope(
+        usage_meter.SITE_BATCH_ANALYSIS, feature="batch_analysis",
+    )),
 ):
     """Analyze a RECORDING in ONE request: an audio file, or a video whose audio
     track we extract. By default process-and-discard; with explicit consent the
@@ -2995,6 +3022,9 @@ async def analyze_link(
     req: AnalyzeLinkRequest,
     uid: str = Depends(get_current_uid),
     _rl: None = Depends(_rate_limit),
+    _usage: None = Depends(usage_meter.usage_scope(
+        usage_meter.SITE_BATCH_ANALYSIS, feature="batch_analysis",
+    )),
 ):
     """Analyze a recording the user links to instead of uploading.
 
@@ -3040,6 +3070,9 @@ async def analyze_counterfactual(
     req: CounterfactualRequest,
     uid: str = Depends(get_current_uid),
     _rl: None = Depends(_rate_limit),
+    _usage: None = Depends(usage_meter.usage_scope(
+        usage_meter.SITE_COUNTERFACTUAL, feature="batch_analysis",
+    )),
 ):
     turns = req.turns
     pivot_index = req.pivot_index  # already validated in-range (422 otherwise)
@@ -4126,6 +4159,9 @@ async def complete_upload(
     upload_id: Annotated[str, Path(pattern=UUID_PATTERN)],
     uid: str = Depends(get_current_uid),
     _rl: None = Depends(_rate_limit),
+    _usage: None = Depends(usage_meter.usage_scope(
+        usage_meter.SITE_BATCH_ANALYSIS, feature="batch_analysis",
+    )),
 ):
     """Reassemble a completed upload and run the FULL analysis pipeline.
 
@@ -4457,6 +4493,9 @@ async def analyze_link_job(
     req: AnalyzeLinkRequest,
     uid: str = Depends(get_current_uid),
     _rl: None = Depends(_rate_limit),
+    _usage: None = Depends(usage_meter.usage_scope(
+        usage_meter.SITE_BATCH_ANALYSIS, feature="batch_analysis",
+    )),
 ):
     """Submit a link analysis as a background job → 202 {job_id}. Poll
     GET /analyze/jobs/{job_id} for staged progress and the final result. The job
@@ -4523,6 +4562,9 @@ async def complete_upload_job(
     upload_id: Annotated[str, Path(pattern=UUID_PATTERN)],
     uid: str = Depends(get_current_uid),
     _rl: None = Depends(_rate_limit),
+    _usage: None = Depends(usage_meter.usage_scope(
+        usage_meter.SITE_BATCH_ANALYSIS, feature="batch_analysis",
+    )),
 ):
     """Submit a chunked-upload completion as a background job → 202 {job_id}.
 
@@ -4572,6 +4614,9 @@ async def reanalyze_recording(
     recording_id: Annotated[str, Path(pattern=UUID_PATTERN)],
     uid: str = Depends(get_current_uid),
     _rl: None = Depends(_rate_limit),
+    _usage: None = Depends(usage_meter.usage_scope(
+        usage_meter.SITE_BATCH_ANALYSIS, feature="batch_analysis",
+    )),
 ):
     """Re-run the CURRENT full analysis pipeline over a stored recording, as a
     submit-and-poll background job → 202 {job_id}. Poll GET /analyze/jobs/{job_id}
@@ -4956,6 +5001,9 @@ async def export_session(
     format: ExportFormat = Query(default=ExportFormat.text),
     uid: str = Depends(get_current_uid),
     _rl: None = Depends(_rate_limit),
+    _usage: None = Depends(usage_meter.usage_scope(
+        usage_meter.SITE_EXPORT, feature="batch_analysis",
+    )),
 ):
     # Fetch session — scoped to the caller (foreign/missing → 404 below).
     db = await get_db()

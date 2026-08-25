@@ -62,6 +62,7 @@ import live_sessions
 import recordings_store
 import speaker_id
 import therapist_links
+import usage_meter
 from audio_pipeline import UUID_PATTERN
 from auth import get_current_uid
 from models.audio import SpeakerIdentityEvent, ToneFlagEvent, TurnLocalEvent
@@ -421,6 +422,28 @@ async def _post_ingest(
     live = analysis.get("live") if isinstance(analysis.get("live"), dict) else {}
     self_label = live.get("self_speaker")
 
+    # Cost guardrails: the transcript is ALREADY stored by the time we get
+    # here, so an exhausted daily budget must not fail the ingest — it skips
+    # the two LLM calls and records WHY on the session, where Replay can show
+    # it. The user keeps their transcript, tone flags and identities.
+    exceeded = usage_meter.check(uid, "batch_analysis")
+    if exceeded is not None and (analyze or reflect):
+        logger.info(
+            "Skipping live-session post-ingest LLM for uid=%s rid=%s — %s",
+            uid, recording_id, exceeded.limit,
+        )
+        analysis = {
+            **analysis,
+            "live": {
+                **live,
+                "analysis_status": live_sessions.ANALYSIS_FAILED,
+                "analysis_error": exceeded.message[:200],
+                "quota_notice": exceeded.notice(),
+            },
+        }
+        await store.update_analysis(uid, recording_id, analysis)
+        return
+
     if analyze and len(turns) >= main.ANALYZE_MIN_TURNS:
         try:
             analyze_turns = [
@@ -433,10 +456,11 @@ async def _post_ingest(
             # The live identity report is in the matcher's multi shape, so
             # the batch pass's own label ladder labels "You" + matched
             # partners itself; merge_full_analysis re-overlays them anyway.
-            full = await main._run_analysis(
-                analyze_turns, context,
-                speaker_identity=analysis.get("speaker_identity"),
-            )
+            with usage_meter.attribute(uid, usage_meter.SITE_BATCH_ANALYSIS):
+                full = await main._run_analysis(
+                    analyze_turns, context,
+                    speaker_identity=analysis.get("speaker_identity"),
+                )
             merged = live_sessions.merge_full_analysis(
                 analysis, full.model_dump(), turns, gap_seconds=_EPISODE_GAP_SECONDS,
             )
@@ -458,7 +482,10 @@ async def _post_ingest(
 
     if reflect and isinstance(self_label, str):
         try:
-            await _run_reflection(store, uid, recording_id, context=context or None)
+            with usage_meter.attribute(uid, usage_meter.SITE_REFLECTION):
+                await _run_reflection(
+                    store, uid, recording_id, context=context or None,
+                )
         except (ValueError, LookupError) as exc:
             logger.warning(
                 "Live-session reflection failed for uid=%s rid=%s: %s",
@@ -628,6 +655,11 @@ async def ingest_live_session(
     request: Request,
     uid: str = Depends(get_current_uid),
     _rl: None = Depends(_rate_limit),
+    # Attribution only, deliberately NO quota feature: this is the phone
+    # handing over a transcript it already recorded. Losing it because a
+    # daily budget is spent would be data loss, not a cost control — the
+    # LLM tail degrades instead (see _post_ingest).
+    _usage: None = Depends(usage_meter.usage_scope(usage_meter.SITE_REFLECTION)),
 ):
     store = _require_store(request)
     return await ingest_live(
@@ -658,6 +690,7 @@ async def reflect_episode(
     force: bool = False,
     uid: str = Depends(get_current_uid),
     _rl: None = Depends(_rate_limit),
+    _usage: None = Depends(usage_meter.usage_scope(usage_meter.SITE_REFLECTION)),
 ):
     """"What you could have said" for the caller's OWN turns in one episode.
 
@@ -677,6 +710,17 @@ async def reflect_episode(
             status_code=422,
             detail="no turn in this episode is identified as yours",
         )
+    # Cost guardrails: only a run that would actually CALL the model is
+    # gated. A cached reflection ("no LLM spend", above) stays readable after
+    # the daily budget is spent — refusing a free read would be theatre.
+    stored_reflection = (
+        ((rec.get("analysis") or {}).get("live") or {}).get("could_have_said")
+    )
+    if force or not stored_reflection:
+        exceeded = usage_meter.check(uid, "batch_analysis")
+        if exceeded is not None:
+            raise usage_meter.quota_error(exceeded)
+
     if force:
         analysis = rec.get("analysis") if isinstance(rec.get("analysis"), dict) else {}
         live = dict(analysis.get("live") or {})
