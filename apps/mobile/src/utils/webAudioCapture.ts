@@ -197,6 +197,13 @@ export class WebAudioCapture {
     };
   }
 
+  /** The live microphone stream while capturing (null before start / after
+   *  stop). An in-app call (live/call/callWeb.ts) sends this same track over
+   *  WebRTC so one getUserMedia serves both the coach and the other person. */
+  get mediaStream(): MediaStream | null {
+    return this.stopped ? null : this.stream;
+  }
+
   /**
    * Begin capture. MUST be invoked synchronously from a user gesture: the
    * AudioContext is created and resumed first (the Safari requirement) before

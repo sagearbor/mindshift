@@ -27,6 +27,7 @@ import Avatar from "../components/Avatar";
 import { useAuthStore } from "../store/authStore";
 import { useAvatarStore } from "../store/avatarStore";
 import { useOtaStatus, type OtaStatus } from "../utils/otaUpdate";
+import { useDiagnosticsStore } from "../diagnostics/diagnostics";
 import { formatDate, formatDateTime } from "../utils/dateDisplay";
 
 /** Bare host (no scheme/path) of the configured backend, for the About row. */
@@ -165,6 +166,16 @@ export default function AdvancedScreen({
       ? String(Constants.expoConfig.android.versionCode)
       : "unknown");
   const accountEmail = user?.email ?? "No email on this account";
+  // "Send diagnostics" (src/diagnostics): the last session's record + the
+  // capability probe, POSTed to /telemetry; the id is what the owner reads
+  // out so an agent can pull the record with scripts/diagnostics_tail.py.
+  const diagSending = useDiagnosticsStore((s) => s.sending);
+  const diagLastSent = useDiagnosticsStore((s) => s.lastSent);
+  const diagLastSession = useDiagnosticsStore((s) => s.lastSession);
+  const sendDiagnostics = useDiagnosticsStore((s) => s.send);
+  const handleSendDiagnostics = useCallback(() => {
+    void sendDiagnostics("manual", { uid: user?.uid ?? null, email: user?.email ?? null });
+  }, [sendDiagnostics, user?.uid, user?.email]);
 
   useEffect(() => {
     let cancelled = false;
@@ -554,6 +565,39 @@ export default function AdvancedScreen({
         />
       </View>
 
+      <Text style={styles.sectionHeading} testID="section-diagnostics">
+        Diagnostics
+      </Text>
+      <TouchableOpacity
+        testID="advanced-send-diagnostics"
+        accessibilityRole="button"
+        accessibilityState={{ disabled: diagSending }}
+        style={styles.row}
+        onPress={handleSendDiagnostics}
+        disabled={diagSending}
+      >
+        <Text style={styles.rowTitle}>{diagSending ? "Sending diagnostics…" : "Send diagnostics"}</Text>
+        <Text style={styles.rowSub}>
+          {diagLastSession
+            ? `Last session: ${diagLastSession.mode} · ${diagLastSession.turns} turns · ` +
+              `${diagLastSession.errors.length === 0 ? "no errors" : `${diagLastSession.errors.length} problem(s)`}` +
+              (diagLastSession.latency.medianToSpeakMs !== null
+                ? ` · median ${diagLastSession.latency.medianToSpeakMs} ms to speak`
+                : "")
+            : "No live session yet this launch — sends the capability check and app/device facts."}
+        </Text>
+        {diagLastSent ? (
+          <Text
+            style={[styles.rowSub, diagLastSent.ok ? styles.diagnosticsId : styles.diagnosticsError]}
+            testID="diagnostics-id"
+          >
+            {diagLastSent.ok
+              ? `Sent${diagLastSent.trigger === "auto" ? " automatically" : ""} · ID ${diagLastSent.id} — read this ID to Claude`
+              : `Couldn’t send (${diagLastSent.error ?? "unknown"}) · ID ${diagLastSent.id}`}
+          </Text>
+        ) : null}
+      </TouchableOpacity>
+
       <Text style={styles.sectionHeading} testID="section-account">
         Account
       </Text>
@@ -744,6 +788,16 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
     color: "#DC2626",
+  },
+  diagnosticsId: {
+    marginTop: 6,
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#15803D",
+  },
+  diagnosticsError: {
+    marginTop: 6,
+    color: "#991B1B",
   },
   sectionHeading: {
     fontSize: 13,

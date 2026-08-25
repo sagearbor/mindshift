@@ -30,7 +30,14 @@ export interface TextTone {
   label: string | null;
 }
 
-export type LiveMode = "earpiece" | "speaker" | "therapist";
+/**
+ * The live session's shape. `speaker` is shown as "In person" (both people
+ * in the room, one mic) — the wire value stays `speaker` so stored episodes
+ * and per-account prefs from before the rename keep working. `call` is an
+ * in-app WebRTC call: only the user's own voice is on this mic; the other
+ * side's turns arrive from the server (src/live/call/).
+ */
+export type LiveMode = "earpiece" | "speaker" | "therapist" | "call";
 
 export interface SuggestInput {
   text: string;

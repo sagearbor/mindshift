@@ -55,6 +55,14 @@ import {
   type LiveSpeakerLabel,
   type PostLiveSessionResult,
 } from "../api/liveSessions";
+import { CallSession } from "../live/call/callSession";
+import { callApi as defaultCallApi, type CallApi } from "../live/call/callApi";
+import { createNativeRtcAdapter } from "../live/call/rtcNative";
+import { createWebRtcAdapter } from "../live/call/callWeb";
+import type { AudioRoute, RtcAdapter } from "../live/call/rtc";
+import { IDLE_CALL_VIEW, type CallClientMessage, type CallRole, type CallView } from "../live/call/types";
+import { summarizeLatency, useDiagnosticsStore, type SessionDiagnostics } from "../diagnostics/diagnostics";
+import { useAuthStore } from "../store/authStore";
 
 const API_URL =
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:8000";
@@ -101,9 +109,25 @@ export interface SuggestionEntry {
    *  first suggestion string while the model is still writing. Never voiced;
    *  replaced by the final event for the same turn. */
   partial?: boolean;
+  /** In-app call, therapist view: this is a read-only copy of coaching meant
+   *  for another participant (`for_uid`), shown with their name. Never
+   *  voiced, never counted as one of the viewer's own escalations. */
+  forName?: string;
 }
 
 type ConnectionStatus = "idle" | "connecting" | "live" | "disconnected";
+
+/**
+ * The web build's gesture-bound start, done synchronously inside the tap
+ * (see startWebSession): the capture graph, the primed recognizer and the
+ * capture's start promise (already caught, so a permission refusal that
+ * lands before it's awaited is never an unhandled rejection).
+ */
+interface PreparedWebCapture {
+  capture: WebAudioCapture;
+  primed: SpeechRecognizer | null;
+  started: Promise<{ error: unknown } | null>;
+}
 
 /**
  * Seams for the on-device fast loop (Track 3). Production wires the native
@@ -132,6 +156,11 @@ export interface UseAudioStreamOptions {
     labels: Record<string, string>,
     people?: Record<string, string>,
   ) => Promise<unknown>;
+  /** In-app calls: the REST client (create/join/end) and the WebRTC
+   *  adapter (production: react-native-webrtc on the phone, the browser's
+   *  RTCPeerConnection on the web; tests: fakes). */
+  callApi?: CallApi;
+  makeRtcAdapter?: (getCaptureStream: () => MediaStream | null) => RtcAdapter;
 }
 
 /** What the sheet is told after a mid-call "that's Mom". */
@@ -211,8 +240,9 @@ interface UseAudioStreamReturn {
    *  Off = the legacy server path, unchanged. */
   liveMode: boolean;
   setLiveMode: (on: boolean) => void;
-  /** Session shape for the fast loop: earpiece (speak), speaker-phone (both
-   *  voices on one mic; speak only in silences), therapist (on-screen only). */
+  /** Session shape for the fast loop: earpiece (speak), in person (`speaker`:
+   *  both voices on one mic; speak only in silences), therapist (on-screen
+   *  only), call (an in-app call; only the user's voice on this mic). */
   sessionMode: LiveMode;
   setSessionMode: (mode: LiveMode) => void;
   /** What the fast loop actually loaded, or why it isn't running. Empty on
@@ -250,6 +280,21 @@ interface UseAudioStreamReturn {
   /** The pleasantness scoreboard over this session's on-device turns,
    *  keyed by raw label (see live/pleasantness.ts). Null before any turn. */
   scoreboard: Scoreboard | null;
+  /** In-app call (Call mode): what the call is doing right now. */
+  call: CallView;
+  /** Create a call on the server, start the session and wait for the other
+   *  person; the invite (code + link) lands in `call`. Forces Call mode. */
+  startCall: (empathyLevel: number, interjectLevel?: number) => Promise<void>;
+  /** Join a call by its code (typed, or from an invite link) and start the
+   *  session. On the web this MUST be called from the Answer tap. */
+  joinCall: (code: string, empathyLevel: number, interjectLevel?: number, role?: CallRole) => Promise<void>;
+  /** Hang up: ends the call for both sides and stops the session. */
+  hangUp: () => Promise<void>;
+  setCallMuted: (muted: boolean) => void;
+  /** Where the other person's voice comes out on the phone (native only;
+   *  the browser decides for itself). Speaker by default. */
+  callRoute: AudioRoute;
+  setCallRoute: (route: AudioRoute) => void;
 }
 
 const RECONNECT_DELAY_MS = 2000;
@@ -406,6 +451,28 @@ export function useAudioStream(
   const [lastEpisode, setLastEpisode] = useState<LastEpisode | null>(null);
   const [speakerNames, setSpeakerNames] = useState<Record<string, SpeakerBinding>>({});
   const [scoreboard, setScoreboard] = useState<Scoreboard | null>(null);
+  // --- In-app call (Call mode) ----------------------------------------------
+  const [callView, setCallView] = useState<CallView>(IDLE_CALL_VIEW);
+  const callViewRef = useRef<CallView>(IDLE_CALL_VIEW);
+  const callRef = useRef<CallSession | null>(null);
+  const [callRoute, setCallRouteState] = useState<AudioRoute>("speaker");
+  const callRouteRef = useRef<AudioRoute>("speaker");
+  const callApiRef = useRef(options.callApi ?? defaultCallApi);
+  callApiRef.current = options.callApi ?? defaultCallApi;
+  const makeRtcAdapterRef = useRef(options.makeRtcAdapter ?? null);
+  makeRtcAdapterRef.current = options.makeRtcAdapter ?? null;
+  /** The active WebRTC adapter (route changes go through it). */
+  const rtcAdapterRef = useRef<RtcAdapter | null>(null);
+  /** Web: capture + recognizer primed inside the Answer/Start tap, ahead of
+   *  the REST call that creates/joins the call (see beginWebCapture). */
+  const preparedWebRef = useRef<PreparedWebCapture | null>(null);
+  // --- Diagnostics counters (src/diagnostics) -------------------------------
+  const wsReconnectsRef = useRef(0);
+  const sttRestartsRef = useRef<number | null>(null);
+  const sttFailureRef = useRef<string | null>(null);
+  const micErrorRef = useRef("");
+  const transcriptionMessageRef = useRef("");
+  const liveStatusRef = useRef("");
   /** Mirrors speakerNames for the long-lived callbacks (onTurn, onmessage). */
   const speakerNamesRef = useRef<Record<string, SpeakerBinding>>({});
   /** Labels the USER gave this session (not voiceprint matches) — what
@@ -428,6 +495,11 @@ export function useAudioStream(
   const preflightInFlightRef = useRef(false);
   const liveModeRef = useRef(liveCapability.capable);
   const sessionModeRef = useRef<LiveMode>("earpiece");
+  /** The mode handed to the FAST LOOP, which can differ from the recorded /
+   *  UI mode: a therapist-role call runs the loop in "therapist" (STT + a
+   *  merged turn_local, but no TTS and no coaching) while the session record
+   *  and the Call UI stay "call". Mirrors sessionModeRef otherwise. */
+  const loopModeRef = useRef<LiveMode>("earpiece");
   /** The running loop for this session (null on the legacy path). */
   const fastLoopRef = useRef<FastLoop | null>(null);
   /** True from the loop's start until it has stopped — gates which server
@@ -460,6 +532,15 @@ export function useAudioStream(
   useEffect(() => {
     transcriptRef.current = transcript;
   }, [transcript]);
+  useEffect(() => {
+    micErrorRef.current = micError;
+  }, [micError]);
+  useEffect(() => {
+    transcriptionMessageRef.current = transcriptionMessage;
+  }, [transcriptionMessage]);
+  useEffect(() => {
+    liveStatusRef.current = liveStatus;
+  }, [liveStatus]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string>("");
@@ -553,7 +634,9 @@ export function useAudioStream(
       if (drainingRef.current) return; // User pressed stop: don't keep talking.
       // Therapist mode is on-screen only, by contract — the fast loop never
       // asks to speak in it, and neither may the cloud's suggestion event.
-      if (liveActiveRef.current && sessionModeRef.current === "therapist") return;
+      if (liveActiveRef.current && loopModeRef.current === "therapist") return;
+      // A therapist observing a call is never spoken to either.
+      if (callRef.current?.selfRole === "therapist") return;
       try {
         // Unconditional stop guarantees most-recent-wins without tracking
         // speaking state (Speech.stop() is a no-op when nothing is speaking,
@@ -596,6 +679,17 @@ export function useAudioStream(
       console.log(report);
       setLatencySummary(report.split("\n")[0]);
       latencyLogRef.current = summary.latencyLog;
+      sttRestartsRef.current = summary.sttRestarts ?? 0;
+    }
+    if (sessionModeRef.current === "call") {
+      // An in-app call is persisted by the SERVER (one episode per
+      // participant at call end — see call_ended below); a phone that POSTed
+      // its half again would store it twice. The record was already handed
+      // to lastEpisode from the call_ended frame.
+      localTurnsRef.current = [];
+      toneFlagsRef.current = [];
+      identitiesRef.current = [];
+      return;
     }
     const body: LiveSessionBody = {
       session_id: sessionIdRef.current,
@@ -690,14 +784,21 @@ export function useAudioStream(
             };
             setSpeakerNames(speakerNamesRef.current);
           }
-          const display = speakerNamesRef.current[turn.speaker]?.displayName ?? turn.speaker;
+          // In a call this phone hears only its owner: every local turn is
+          // "You", keyed by the slot label the server relabels it with
+          // (call_state.self_label) so naming/scoreboard/episodes line up.
+          const inCall = callRef.current !== null;
+          const rawLabel = inCall ? (callViewRef.current.selfLabel ?? turn.speaker) : turn.speaker;
+          const display = inCall
+            ? "You"
+            : (speakerNamesRef.current[turn.speaker]?.displayName ?? turn.speaker);
           setSpeakerLabel(display);
           if (turn.text) {
             setTranscript((prev) => [
               ...prev,
               {
                 speaker: display,
-                speakerId: turn.speaker,
+                speakerId: rawLabel,
                 text: turn.text,
                 timestamp: Date.now(),
                 startTime: turn.startTime,
@@ -710,9 +811,12 @@ export function useAudioStream(
           if (recent.length > MAX_SUGGESTION_FEED) recent.splice(0, recent.length - MAX_SUGGESTION_FEED);
           // Scoreboard: every on-device turn scores from what it carries
           // (tone, prosody, balance) — null inputs are honest gaps.
-          trackerRef.current.observe(turn.speaker, turn.textTone, turn.prosody);
+          trackerRef.current.observe(rawLabel, turn.textTone, turn.prosody);
           setScoreboard(trackerRef.current.board());
-          if (turn.suggestion) {
+          // A therapist observing a call is never coached: the loop runs in
+          // "therapist" (no local LLM speech) and a stray local suggestion
+          // is dropped here rather than shown as advice to her.
+          if (turn.suggestion && callRef.current?.selfRole !== "therapist") {
             const id = (suggestionIdRef.current += 1);
             const text = turn.suggestion;
             setSuggestions((prev) => {
@@ -742,6 +846,7 @@ export function useAudioStream(
         onSttError: (code, message) => {
           liveSttFailedRef.current = true;
           sttFailure = `speech recognition failed (${code}${message ? `: ${message}` : ""}) — transcript from the server`;
+          sttFailureRef.current = sttFailure;
           setLiveStatus(`On-device ${sttFailure}.`);
         },
         onDegrade: (stage, reason) => {
@@ -755,7 +860,7 @@ export function useAudioStream(
         },
       };
       try {
-        const build = await makeFastLoopRef.current(handlers, sessionModeRef.current);
+        const build = await makeFastLoopRef.current(handlers, loopModeRef.current);
         if (!sessionActiveRef.current || drainingRef.current) {
           // The user stopped while models were loading: don't start now.
           void build.loop.stop().catch(() => {});
@@ -769,7 +874,7 @@ export function useAudioStream(
         build.loop.setSelfSpeakerFallback(selfSpeakerRef.current);
         await build.loop.start({
           sessionId,
-          mode: sessionModeRef.current,
+          mode: loopModeRef.current,
           empathy,
         });
         fastLoopRef.current = build.loop;
@@ -912,6 +1017,58 @@ export function useAudioStream(
   }, []);
 
   /**
+   * The session's diagnostics record (src/diagnostics): what ran, what
+   * broke, how fast. Written to the diagnostics store for Settings' "Send
+   * diagnostics"; sent automatically when the session had errors, so a
+   * failed demo is diagnosable without the owner doing anything.
+   */
+  const recordSessionDiagnostics = useCallback(() => {
+    if (!sessionIdRef.current) return;
+    const call = callViewRef.current;
+    const errors: string[] = [];
+    if (micErrorRef.current) errors.push(`mic: ${micErrorRef.current}`);
+    if (sttFailureRef.current) errors.push(`stt: ${sttFailureRef.current}`);
+    if (transcriptionMessageRef.current) errors.push(`transcription: ${transcriptionMessageRef.current}`);
+    if (wsReconnectsRef.current > 0) errors.push(`ws reconnects: ${wsReconnectsRef.current}`);
+    if (/unavailable|failed/i.test(liveStatusRef.current)) errors.push(`live: ${liveStatusRef.current}`);
+    if (lastEpisodeRef.current?.postStatus === "failed") errors.push("POST /sessions/live failed");
+    if (call.status === "failed" && call.error) errors.push(`call: ${call.error}`);
+    if (call.iceRestarts > 0) errors.push(`call: ${call.iceRestarts} ICE restart(s)`);
+    const record: SessionDiagnostics = {
+      sessionId: sessionIdRef.current,
+      mode: sessionModeRef.current,
+      startedAt: sessionStartedAtRef.current || null,
+      endedAt: new Date().toISOString(),
+      turns: transcriptRef.current.length,
+      latency: summarizeLatency(latencyLogRef.current),
+      liveStatus: liveStatusRef.current,
+      onDevice: liveModeRef.current && liveCapability.capable,
+      sttRestarts: sttRestartsRef.current,
+      sttFailure: sttFailureRef.current,
+      wsReconnects: wsReconnectsRef.current,
+      micError: micErrorRef.current || null,
+      transcriptionMessage: transcriptionMessageRef.current || null,
+      postStatus: lastEpisodeRef.current?.postStatus ?? "none",
+      call:
+        call.status === "idle"
+          ? null
+          : {
+              status: call.status,
+              iceRestarts: call.iceRestarts,
+              error: call.error,
+              connectedSeconds: call.connectedAt ? Math.round((Date.now() - call.connectedAt) / 1000) : null,
+            },
+      errors,
+    };
+    const store = useDiagnosticsStore.getState();
+    store.recordSession(record);
+    if (errors.length > 0) {
+      const user = useAuthStore.getState().user;
+      void store.send("auto", { uid: user?.uid ?? null, email: user?.email ?? null });
+    }
+  }, [liveCapability.capable]);
+
+  /**
    * Final cleanup shared by every way a session ends after a manual stop:
    * server `session_complete`, server-side close, or the drain timeout.
    * Idempotent — safe to call from any of those paths.
@@ -923,9 +1080,15 @@ export function useAudioStream(
     }
     drainingRef.current = false;
     sessionActiveRef.current = false;
+    // A call outlives nothing: if the session ends for any reason (server
+    // close, reconnect exhaustion) the WebRTC side goes down with it.
+    const call = callRef.current;
+    callRef.current = null;
+    call?.hangUp();
     // Normally already stopped by stopSession; this covers a session that
-    // ends from the server side while the loop is still up.
-    void stopFastLoop();
+    // ends from the server side while the loop is still up. The diagnostics
+    // record waits for the POST /sessions/live outcome it reports.
+    void stopFastLoop().finally(() => recordSessionDiagnostics());
     if (sessionStartedAtRef.current) {
       setSessionSummary(
         summarizeSession({
@@ -944,7 +1107,7 @@ export function useAudioStream(
     setIsRecording(false);
     setSessionActive(false);
     setConnectionStatus("idle");
-  }, [teardownWebSocket, stopFastLoop]);
+  }, [teardownWebSocket, stopFastLoop, recordSessionDiagnostics]);
 
   /**
    * (Re)arm the drain inactivity timer: STOP_DRAIN_TIMEOUT_MS of server
@@ -971,6 +1134,16 @@ export function useAudioStream(
     if (drainingRef.current) return; // Stop already in progress.
     shouldReconnect.current = false;
     streamingRef.current = false;
+    // Call mode: hang up first (releases WebRTC's mic, stops remote audio)
+    // and tell the server — detached from callRef BEFORE hangUp so its
+    // "ended" callback can't re-enter this stop.
+    const call = callRef.current;
+    callRef.current = null;
+    if (call) {
+      const callId = call.callId;
+      call.hangUp();
+      if (callId) void callApiRef.current.end(callId);
+    }
     // The session is over: never keep coaching aloud after the user stops.
     // (drainingRef gates speakSuggestion, so late drain-window suggestions
     // still render visually but are not spoken.)
@@ -1031,6 +1204,9 @@ export function useAudioStream(
       shouldReconnect.current = false;
       streamingRef.current = false;
       releaseCapture();
+      const call = callRef.current;
+      callRef.current = null;
+      call?.hangUp();
       stopSpeechSafely(); // Never keep talking after the screen is gone.
       void stopFastLoop();
       teardownWebSocket();
@@ -1080,6 +1256,8 @@ export function useAudioStream(
             ...(idToken ? { id_token: idToken } : {}),
           }),
         );
+        // Call mode: (re)announce ourselves in the call on every (re)open.
+        callRef.current?.onSocketOpen();
       };
 
       ws.onmessage = (event) => {
@@ -1094,9 +1272,40 @@ export function useAudioStream(
         try {
           const data = JSON.parse(event.data);
 
+          // Call mode: call_state / rtc_signal / call_ended belong to the
+          // call state machine (src/live/call/callSession.ts). call_ended
+          // also carries THIS participant's episode (the server persisted
+          // it) — the record a solo session would have POSTed itself.
+          if (callRef.current && data.type === "call_ended") {
+            const episodeId = typeof data.episode_id === "string" ? data.episode_id : null;
+            const sharedWith: string[] = Array.isArray(data.shared_with)
+              ? data.shared_with.filter((e: unknown): e is string => typeof e === "string")
+              : [];
+            if (episodeId) {
+              lastEpisodeRef.current = { episodeId, postStatus: "created", sharedWith };
+              setLastEpisode(lastEpisodeRef.current);
+              useLiveEpisodeStore.getState().remember({
+                episodeId,
+                sessionId: sessionIdRef.current,
+                startedAt: sessionStartedAtRef.current,
+                mode: "call",
+                title: "Live session · call",
+                turnCount: typeof data.turn_count === "number" ? data.turn_count : transcriptRef.current.length,
+                sharedWith,
+              });
+            }
+          }
+          if (callRef.current?.handleServerMessage(data)) return;
+
+          // In a call, every OTHER member's turns arrive as transcript events
+          // (their phone sent turn_local; the server relabels them with their
+          // slot label and a display_name relative to us) and our own turns
+          // are never echoed — so in a call every transcript event is remote.
+          const inCall = callRef.current !== null;
+          const remoteTurn = inCall && data.type === "transcript";
           if (
             data.type === "transcript" &&
-            (!liveActiveRef.current || liveSttFailedRef.current)
+            (!liveActiveRef.current || liveSttFailedRef.current || remoteTurn)
           ) {
             // New protocol: the finalized utterance arrives on its own,
             // ahead of the suggestion event for the same turn. From the
@@ -1105,12 +1314,35 @@ export function useAudioStream(
             // ARE the transcript; the server's copy is only used again if
             // on-device STT died mid-session.)
             sawTranscriptEventRef.current = true;
-            const speaker = data.speaker || "Unknown";
+            // In a call: `speaker` is the sender's slot label ("Speaker A")
+            // and `display_name` their name relative to us ("Dad", "Mom
+            // (therapist)"); the slot label stays the key (naming, scoreboard,
+            // the episode's label ladder all use it).
+            const peers = callViewRef.current.peers;
+            const senderUid = typeof data.participant_uid === "string" ? data.participant_uid : null;
+            const peer = senderUid ? peers.find((pr) => pr.uid === senderUid) : undefined;
+            const rawLabel: string =
+              (typeof data.speaker === "string" && data.speaker) || peer?.label || "Unknown";
+            const speaker: string = remoteTurn
+              ? speakerNamesRef.current[rawLabel]?.displayName ??
+                ((typeof data.display_name === "string" && data.display_name) || peer?.displayName || rawLabel)
+              : rawLabel;
             setSpeakerLabel(speaker);
+            if (remoteTurn) {
+              // The sender's own on-device measurements ride along so an
+              // observer can score everyone (honest nulls otherwise).
+              trackerRef.current.observe(
+                rawLabel,
+                data.text_tone && typeof data.text_tone === "object" ? data.text_tone : null,
+                data.prosody && typeof data.prosody === "object" ? data.prosody : null,
+              );
+              setScoreboard(trackerRef.current.board());
+            }
             setTranscript((prev) => [
               ...prev,
               {
                 speaker,
+                ...(remoteTurn ? { speakerId: rawLabel } : {}),
                 text: data.text,
                 timestamp: Date.now(),
                 // Utterance timing (seconds) when the server provides it —
@@ -1134,6 +1366,13 @@ export function useAudioStream(
             // on every legacy event) or our own turn echoed back.
             const source: "on-device" | "cloud" =
               data.suggestion_source === "on-device" ? "on-device" : "cloud";
+            // Therapist sockets in a call get every participant's coaching as
+            // a read-only copy tagged for_uid: shown with that person's name,
+            // never voiced, never one of the viewer's own escalations.
+            const forUid = typeof data.for_uid === "string" ? data.for_uid : null;
+            const forName: string | undefined = forUid
+              ? (callViewRef.current.peers.find((pr) => pr.uid === forUid)?.displayName ?? forUid)
+              : undefined;
             if (
               data.utterance_text &&
               !sawTranscriptEventRef.current &&
@@ -1166,7 +1405,7 @@ export function useAudioStream(
               // kind may be absent on older servers → a normal "response".
               const kind: SuggestionKind =
                 data.kind === "nudge" ? "nudge" : "response";
-              if (kind === "nudge" && data.speak !== false && !liveActiveRef.current) {
+              if (kind === "nudge" && data.speak !== false && !liveActiveRef.current && !forName) {
                 // Legacy path: the server's delivery nudge is the only
                 // escalation signal (the fast loop counts its own).
                 escalationRef.current += 1;
@@ -1190,6 +1429,7 @@ export function useAudioStream(
                   timestamp: Date.now(),
                   source,
                   ...(partial ? { partial: true } : {}),
+                  ...(forName ? { forName } : {}),
                 };
                 const kept = partial ? prev : prev.filter((e) => !e.partial);
                 const next = [entry, ...kept];
@@ -1209,6 +1449,7 @@ export function useAudioStream(
               const loop = fastLoopRef.current;
               const voiceIt =
                 !muted &&
+                !forName &&
                 (!liveActiveRef.current ||
                   liveSttFailedRef.current ||
                   (source === "cloud" &&
@@ -1312,6 +1553,7 @@ export function useAudioStream(
           reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS
         ) {
           reconnectAttempts.current += 1;
+          wsReconnectsRef.current += 1;
           setTimeout(() => {
             if (shouldReconnect.current) {
               connectWebSocket(sessionId);
@@ -1324,10 +1566,13 @@ export function useAudioStream(
           streamingRef.current = false;
           sessionActiveRef.current = false;
           releaseCapture();
+          const call = callRef.current;
+          callRef.current = null;
+          call?.hangUp();
           pendingRef.current = new Int16Array(0);
           resamplerRef.current = null;
           stopSpeechSafely(); // Session is dead — stop coaching aloud too.
-          void stopFastLoop();
+          void stopFastLoop().finally(() => recordSessionDiagnostics());
           // Restore a playback audio session so later replay is audible.
           void setPlaybackMode().catch(() => {});
           setIsRecording(false);
@@ -1342,6 +1587,7 @@ export function useAudioStream(
       speakSuggestion,
       releaseCapture,
       stopFastLoop,
+      recordSessionDiagnostics,
     ],
   );
 
@@ -1368,9 +1614,44 @@ export function useAudioStream(
    * foreground — locking the screen or switching apps stops the microphone
    * (iOS releases it), and the session must be restarted.
    */
+  /**
+   * The synchronous, gesture-bound half of a web start: unlock TTS, start
+   * speech recognition, create + resume the AudioContext and request the
+   * mic — all before the first `await`, so it can also run at the top of
+   * an in-app call's Answer tap, ahead of the REST join. Null when the
+   * browser can't capture at all.
+   */
+  const beginWebCapture = useCallback((): PreparedWebCapture | null => {
+    if (!isWebAudioCaptureSupported()) return null;
+    const wantLive = liveModeRef.current && liveCapability.capable;
+    // Still inside the Start gesture: unlock TTS, start speech recognition.
+    if (speechAvailableRef.current) unlockWebSpeechSynthesis();
+    const primed = wantLive ? primeWebRecognizer() : null;
+    const capture = new WebAudioCapture({
+      onBuffer: handleAudioBuffer,
+      onTrackEnded: (reason) => {
+        if (!sessionActiveRef.current || drainingRef.current) return;
+        setMicError(
+          reason === "ended"
+            ? "The browser released the microphone (screen locked or app switched?) — stop and start the session again."
+            : "The microphone was muted by the browser — check for another app using it, then restart the session.",
+        );
+      },
+    });
+    const started = capture.start().then(
+      () => null,
+      (error: unknown) => ({ error }),
+    );
+    return { capture, primed, started };
+  }, [handleAudioBuffer, liveCapability.capable]);
+
   const startWebSession = useCallback(
     async (sessionId: string, empathyLevel: number) => {
-      if (!isWebAudioCaptureSupported()) {
+      // A call's Answer tap prepared the capture already; otherwise this IS
+      // the tap (startSession is reached synchronously from onPress).
+      const prepared = preparedWebRef.current ?? beginWebCapture();
+      preparedWebRef.current = null;
+      if (!prepared) {
         // Honest unsupported-browser state. Still run the session (no audio):
         // the coaching UI works and the server reports its own state (e.g.
         // transcription_unavailable) rather than us faking capture.
@@ -1384,24 +1665,10 @@ export function useAudioStream(
       }
 
       const wantLive = liveModeRef.current && liveCapability.capable;
-      // Still inside the Start gesture: unlock TTS, start speech recognition.
-      if (speechAvailableRef.current) unlockWebSpeechSynthesis();
-      const primed = wantLive ? primeWebRecognizer() : null;
-
-      const capture = new WebAudioCapture({
-        onBuffer: handleAudioBuffer,
-        onTrackEnded: (reason) => {
-          if (!sessionActiveRef.current || drainingRef.current) return;
-          setMicError(
-            reason === "ended"
-              ? "The browser released the microphone (screen locked or app switched?) — stop and start the session again."
-              : "The microphone was muted by the browser — check for another app using it, then restart the session.",
-          );
-        },
-      });
-      try {
-        await capture.start();
-      } catch (err) {
+      const { capture, primed } = prepared;
+      const failure = await prepared.started;
+      if (failure) {
+        const err = failure.error;
         primed?.stop();
         // Permission denied / no mic / unsupported: surface the honest reason
         // and open no session (nothing to record).
@@ -1441,7 +1708,7 @@ export function useAudioStream(
         await startFastLoop(sessionId, empathyLevel, primed);
       }
     },
-    [connectWebSocket, handleAudioBuffer, startFastLoop, liveCapability.capable],
+    [connectWebSocket, beginWebCapture, startFastLoop, liveCapability.capable],
   );
 
   const startSession = useCallback(
@@ -1647,6 +1914,7 @@ export function useAudioStream(
 
   const setSessionMode = useCallback((mode: LiveMode) => {
     sessionModeRef.current = mode;
+    loopModeRef.current = mode;
     setSessionModeState(mode);
   }, []);
 
@@ -1814,15 +2082,169 @@ export function useAudioStream(
     try {
       const capabilities = await probeRef.current();
       setPreflight({ status: "ready", capabilities });
+      useDiagnosticsStore.getState().setCapability(capabilities, liveCapability.reason);
     } catch (err) {
-      setPreflight({
-        status: "failed",
-        reason: err instanceof Error ? err.message : String(err),
-      });
+      const reason = err instanceof Error ? err.message : String(err);
+      setPreflight({ status: "failed", reason });
+      useDiagnosticsStore.getState().setCapability(null, reason);
     } finally {
       preflightInFlightRef.current = false;
     }
-  }, [liveCapability.capable]);
+  }, [liveCapability.capable, liveCapability.reason]);
+
+  // --- In-app call (Call mode) ------------------------------------------------
+
+  /** The WebRTC adapter for this platform (or the test seam). */
+  const makeRtcAdapter = useCallback((): RtcAdapter => {
+    const getCaptureStream = () => webCaptureRef.current?.mediaStream ?? null;
+    if (makeRtcAdapterRef.current) return makeRtcAdapterRef.current(getCaptureStream);
+    return Platform.OS === "web" ? createWebRtcAdapter({ getCaptureStream }) : createNativeRtcAdapter();
+  }, []);
+
+  /**
+   * Create or join a call, then start the session in Call mode. On the web
+   * everything Safari gates on the tap (AudioContext, speech recognition,
+   * getUserMedia, the remote <audio> element) happens synchronously at the
+   * top, BEFORE the REST round-trip — startWebSession then consumes it.
+   */
+  const beginCall = useCallback(
+    async (
+      how: { kind: "create" } | { kind: "join"; code: string; role: CallRole },
+      empathyLevel: number,
+      interjectLevel: number,
+    ) => {
+      const role: CallRole = how.kind === "join" ? how.role : "participant";
+      if (sessionActiveRef.current && !drainingRef.current) return;
+      // How the others see us: the account's name, else the email's local
+      // part (the server falls back to the email itself, then the slot).
+      const me = useAuthStore.getState().user;
+      const displayName =
+        (me?.displayName && me.displayName.trim()) || (me?.email ? me.email.split("@")[0] : "") || undefined;
+      if (callRef.current) {
+        callRef.current.hangUp();
+        callRef.current = null;
+      }
+      const setView = (v: CallView) => {
+        callViewRef.current = v;
+        setCallView(v);
+      };
+      setView({ ...IDLE_CALL_VIEW, status: "creating" });
+      let adapter: RtcAdapter;
+      try {
+        adapter = makeRtcAdapter();
+      } catch (err) {
+        setView({ ...IDLE_CALL_VIEW, status: "failed", error: err instanceof Error ? err.message : String(err) });
+        return;
+      }
+      rtcAdapterRef.current = adapter;
+      const session = new CallSession({
+        adapter,
+        role,
+        displayName,
+        send: (message: CallClientMessage) => {
+          const ws = wsRef.current;
+          if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+          try {
+            ws.send(JSON.stringify(message));
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        onChange: (v) => {
+          setView(v);
+          // The other side hung up / the server ended it: the session is
+          // over too. (A local hangUp detaches callRef first, so this never
+          // re-enters stopSession.)
+          if ((v.status === "ended" || v.status === "failed") && callRef.current === session) {
+            callRef.current = null;
+            if (sessionActiveRef.current && !drainingRef.current) void stopSession();
+          }
+        },
+      });
+      callRef.current = session;
+      if (Platform.OS === "web") {
+        session.prime();
+        preparedWebRef.current = beginWebCapture();
+      }
+      let created;
+      try {
+        created =
+          how.kind === "create"
+            ? await callApiRef.current.create({ displayName, maxParticipants: 3 })
+            : await callApiRef.current.join(how.code, how.role, displayName);
+      } catch (err) {
+        const prepared = preparedWebRef.current;
+        preparedWebRef.current = null;
+        prepared?.primed?.stop();
+        void prepared?.capture.stop().catch(() => {});
+        callRef.current = null;
+        setView({ ...IDLE_CALL_VIEW, status: "failed", error: err instanceof Error ? err.message : String(err) });
+        return;
+      }
+      session.begin(created);
+      // Call mode is implied by starting a call: the record + UI say "call".
+      // A therapist observer runs the loop in "therapist" so their own speech
+      // is transcribed and merged (turn_local) but never spoken to or coached.
+      sessionModeRef.current = "call";
+      loopModeRef.current = role === "therapist" ? "therapist" : "call";
+      setSessionModeState("call");
+      await startSession(`call-${created.callId.replace(/[^A-Za-z0-9_-]/g, "")}`, empathyLevel, interjectLevel);
+      if (!sessionActiveRef.current) {
+        // The session never opened (mic denied …): no call either.
+        const c = callRef.current;
+        callRef.current = null;
+        c?.hangUp();
+        void callApiRef.current.end(created.callId);
+        return;
+      }
+      if (adapter.setRoute) void adapter.setRoute(callRouteRef.current).catch(() => {});
+    },
+    [makeRtcAdapter, beginWebCapture, startSession, stopSession],
+  );
+
+  const startCall = useCallback(
+    (empathyLevel: number, interjectLevel: number = 0) => beginCall({ kind: "create" }, empathyLevel, interjectLevel),
+    [beginCall],
+  );
+
+  const joinCall = useCallback(
+    (code: string, empathyLevel: number, interjectLevel: number = 0, role: CallRole = "participant") =>
+      beginCall({ kind: "join", code, role }, empathyLevel, interjectLevel),
+    [beginCall],
+  );
+
+  const hangUp = useCallback(async () => {
+    if (sessionActiveRef.current || drainingRef.current) {
+      await stopSession();
+      return;
+    }
+    const call = callRef.current;
+    callRef.current = null;
+    if (call) {
+      const callId = call.callId;
+      call.hangUp();
+      if (callId) void callApiRef.current.end(callId);
+    }
+  }, [stopSession]);
+
+  const setCallMuted = useCallback((muted: boolean) => {
+    const call = callRef.current;
+    if (call) {
+      call.setMuted(muted);
+    } else {
+      const v = { ...callViewRef.current, muted };
+      callViewRef.current = v;
+      setCallView(v);
+    }
+  }, []);
+
+  const setCallRoute = useCallback((route: AudioRoute) => {
+    callRouteRef.current = route;
+    setCallRouteState(route);
+    const adapter = rtcAdapterRef.current;
+    if (adapter?.setRoute && callRef.current) void adapter.setRoute(route).catch(() => {});
+  }, []);
 
   return {
     isRecording,
@@ -1863,5 +2285,12 @@ export function useAudioStream(
     displayNameOf,
     labelSpeaker,
     scoreboard,
+    call: callView,
+    startCall,
+    joinCall,
+    hangUp,
+    setCallMuted,
+    callRoute,
+    setCallRoute,
   };
 }

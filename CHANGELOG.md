@@ -4,6 +4,20 @@ Versions are numbered here. **App** = Android/EAS `version (versionCode)`.
 **Backend** = Cloud Run revision of `mindshift-api` (project `arborfam-hub`,
 `us-central1`). Newest first.
 
+## App 1.18.0 (versionCode 34) — in-app calls (2026-08-25, `feat/calls-client` + #164)
+New native module (`react-native-webrtc` via `@config-plugins/react-native-webrtc`)
+→ **requires an EAS build, not OTA-able.**
+- **Call mode** in Live Coach: MindShift places a WebRTC call (full mesh, up to
+  2 participants + 1 therapist observer) so the phone's mic is never silenced
+  by the OS. Start a call / share invite links (participant + therapist) /
+  Join with code / Answer from `mindshift://call/<code>` or
+  `https://arborfam-hub.web.app/call/<code>[?role=therapist]`; mute,
+  speaker/earpiece, hang up; the other members' turns arrive as transcript
+  events; the therapist sees both participants' coaching read-only.
+- "Speaker-phone" mode renamed **"In person"** (stored value unchanged).
+- Settings → **Send diagnostics** (auto on error): `client_diagnostics` to
+  `/telemetry` with a readable `dx-XXXX-XXXX` id; `scripts/diagnostics_tail.py`.
+
 ## App 1.16.0 — the "own our diarization" release (2026-08-14, PRs #81–#87)
 Native config changed (background-mic foreground service, expo-battery) →
 **requires a Play build, not OTA-able.** An OTA (group `e4aec0e4`) already

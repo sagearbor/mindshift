@@ -2,7 +2,7 @@
   "expo": {
     "name": "MindShift",
     "slug": "mindshift",
-    "version": "1.17.0",
+    "version": "1.18.0",
     "scheme": "mindshift",
     "orientation": "portrait",
     "runtimeVersion": {
@@ -27,7 +27,7 @@
     },
     "android": {
       "package": "com.sagearbor.mindshift.app",
-      "versionCode": 33,
+      "versionCode": 34,
       "permissions": [
         "RECORD_AUDIO",
         "android.permission.RECORD_AUDIO",
@@ -81,6 +81,13 @@
         "@react-native-google-signin/google-signin",
         {
           "iosUrlScheme": "com.googleusercontent.apps.REPLACE_WITH_IOS_CLIENT_ID"
+        }
+      ],
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "MindShift uses your camera to record a video of the conversation so you can review it later.",
+          "microphonePermission": "MindShift uses your microphone for in-app calls and to coach you in real time."
         }
       ],
       "onnxruntime-react-native",

@@ -42,3 +42,21 @@ export async function setPlaybackMode(): Promise<void> {
     playsInSilentMode: true,
   });
 }
+
+/**
+ * In-app call (Call mode): keep the record-oriented session AND choose where
+ * the other person's voice comes out. Android: expo-audio maps
+ * `shouldRouteThroughEarpiece` onto AudioManager's mode + speakerphone
+ * (earpiece = MODE_IN_COMMUNICATION + speakerphone off; speaker =
+ * MODE_NORMAL + speakerphone on) — react-native-webrtc has no route API of
+ * its own. iOS ignores the flag (WebRTC's own audio session decides; the
+ * native iOS app is not a call target — Mom uses Safari). Web no-ops.
+ */
+export async function setCallAudioRoute(route: "speaker" | "earpiece"): Promise<void> {
+  if (Platform.OS === "web") return;
+  await setAudioModeAsync({
+    allowsRecording: true,
+    playsInSilentMode: true,
+    shouldRouteThroughEarpiece: route === "earpiece",
+  });
+}

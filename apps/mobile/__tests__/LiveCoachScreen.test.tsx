@@ -219,7 +219,7 @@ describe("LiveCoachScreen", () => {
     expect(root!.root.findByProps({ testID: "session-mode-speaker" }).props.disabled).toBe(true);
   });
 
-  it("applies a remembered mode (speaker-phone on Sage's phone)", async () => {
+  it("applies a remembered mode ('In person' — stored as `speaker` — on Sage's phone)", async () => {
     mockLoadLiveMode.mockResolvedValue("speaker");
     const setSessionMode = jest.fn();
     mockUseAudioStream.mockReturnValue({ ...defaultHookState, setSessionMode });

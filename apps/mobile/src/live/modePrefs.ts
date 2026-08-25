@@ -1,7 +1,9 @@
 /**
- * The live session mode the user last chose (earpiece / speaker-phone /
- * therapist), remembered PER ACCOUNT so Sage's phone opens on speaker-phone
- * and Mom's on therapist without either re-picking every session.
+ * The live session mode the user last chose (earpiece / in person /
+ * therapist / call), remembered PER ACCOUNT so Sage's phone opens on the
+ * mode he used last and Mom's on hers without either re-picking every
+ * session. ("In person" is stored under its original wire value `speaker`
+ * so prefs saved before the rename still load.)
  *
  * Same cross-platform persistence as layoutStore.ts / onboardingStorage.ts
  * (expo-secure-store on native, localStorage on web), fail-open: a storage
@@ -15,7 +17,7 @@ import type { LiveMode } from "./localLlm";
 export const MODE_KEY_PREFIX = "mindshift.liveMode.v1";
 export const DEFAULT_LIVE_MODE: LiveMode = "earpiece";
 
-const MODES: readonly LiveMode[] = ["earpiece", "speaker", "therapist"];
+const MODES: readonly LiveMode[] = ["earpiece", "speaker", "therapist", "call"];
 
 export function isLiveMode(value: unknown): value is LiveMode {
   return typeof value === "string" && (MODES as readonly string[]).includes(value);

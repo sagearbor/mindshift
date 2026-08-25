@@ -172,6 +172,9 @@ export interface FastLoopSummary {
   turns: LocalTurn[];
   latencyLog: TurnLatency[];
   sttAvailable: boolean;
+  /** How often the recognizer had to be restarted this session (both
+   *  recognizers count their own restarts); 0 when there was none. */
+  sttRestarts: number;
 }
 
 const defaultNow = () =>
@@ -537,7 +540,13 @@ export class FastLoop {
     } catch {
       // Recognizer teardown must never fail the session.
     }
-    return { turns: [...this.turns], latencyLog: [...this.latencyLog], sttAvailable: this.sttAvailable };
+    const restarts = (this.deps.recognizer as { restarts?: unknown } | null)?.restarts;
+    return {
+      turns: [...this.turns],
+      latencyLog: [...this.latencyLog],
+      sttAvailable: this.sttAvailable,
+      sttRestarts: typeof restarts === "number" ? restarts : 0,
+    };
   }
 
   // -------------------------------------------------------------------------
