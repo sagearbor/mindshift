@@ -1873,6 +1873,9 @@ class MeshMember:
     bound_state: dict | None = None               # the call_state showing every member connected
     signals_out: dict[str, dict] = field(default_factory=dict)   # to uid -> payload sent
     missing_to_error: str | None = None
+    # Therapist-seat consent: what POST /calls/{id}/therapist/approve answered
+    # (set on the member that approves — the second participant).
+    approve_result: tuple[int, object] | None = None
     ready: asyncio.Event = field(default_factory=asyncio.Event)
     done: asyncio.Event = field(default_factory=asyncio.Event)
 
@@ -1922,12 +1925,18 @@ def transcript_delivery_ms(members: list[MeshMember], call_id: str) -> dict:
     }
 
 
-def _mesh_pre_stream(m: MeshMember, members: list[MeshMember], call_id: str, go: asyncio.Event, arrived: list[str]):
+def _mesh_pre_stream(
+    m: MeshMember, members: list[MeshMember], call_id: str, go: asyncio.Event, arrived: list[str],
+    *, http=None, base_url: str = "", approved: "asyncio.Event | None" = None,
+):
     """Bind (the therapist joins here, with the code), wait until call_state
-    shows every member connected, then the full-mesh signaling: the host
-    first proves an unaddressed frame is refused, then everyone sends one
-    addressed offer to each other member and waits for the two it is owed.
-    Streaming starts together (a barrier) so arrival order is scene order."""
+    shows every member connected, APPROVE the therapist seat (the second
+    participant's consent — until then the server relays nothing to her, so
+    this must happen before the mesh signaling), then the full-mesh
+    signaling: the host first proves an unaddressed frame is refused, then
+    everyone sends one addressed offer to each other member and waits for the
+    two it is owed. Streaming starts together (a barrier) so arrival order is
+    scene order."""
     others = [o for o in members if o is not m]
 
     async def pre(ws, run: WsRun) -> None:
@@ -1949,6 +1958,16 @@ def _mesh_pre_stream(m: MeshMember, members: list[MeshMember], call_id: str, go:
         m.ready.set()
         for o in others:
             await asyncio.wait_for(o.ready.wait(), timeout=CALL_JOIN_TIMEOUT_S)
+        # Therapist-seat consent (server/calls.py): the SECOND participant
+        # lets the observer in. Everyone waits — her signaling is refused
+        # while she is pending, so an offer sent now would 409.
+        if approved is not None:
+            if m.role == "peer" and http is not None:
+                m.approve_result = await _req(
+                    http, "POST", base_url, f"/calls/{call_id}/therapist/approve", m.account,
+                )
+                approved.set()
+            await asyncio.wait_for(approved.wait(), timeout=CALL_JOIN_TIMEOUT_S)
         other_uids = [p["uid"] for p in full["participants"] if p["uid"] != m.uid]
         if m.role == "host":
             n_before = len(run.events)
@@ -2061,14 +2080,17 @@ async def run_call_e2e_three_way(
             return report
 
         # --- 2. three phones on the call, concurrently -----------------------
-        go, arrived = asyncio.Event(), []
+        go, arrived, approved = asyncio.Event(), [], asyncio.Event()
         hang_up_after = {"host": None, "peer": host, "therapist": dad}
 
         async def member_run(m: MeshMember) -> WsRun:
             return await stream_live_session(
                 base_url, m.account, scene, session_id=m.session_id, speed=speed,
                 pcm=m.pcm, turn_locals=m.turn_locals,
-                pre_stream=_mesh_pre_stream(m, members, call_id, go, arrived),
+                pre_stream=_mesh_pre_stream(
+                    m, members, call_id, go, arrived,
+                    http=http, base_url=base_url, approved=approved,
+                ),
                 post_stream=_mesh_post_stream(m, members, call_id, hang_up_after[m.role]),
                 stop_timeout_s=CALL_HANGUP_TIMEOUT_S,
             )
@@ -2089,6 +2111,14 @@ async def run_call_e2e_three_way(
         if any(m.run.error or m.bound_state is None for m in members):
             return report
         uids = {m.role: m.uid for m in members}
+
+        # --- therapist-seat consent -------------------------------------------
+        code, approve_body = dad.approve_result or (0, None)
+        approve_ok = code == 200 and isinstance(approve_body, dict) and approve_body.get("therapist_approval") == "approved"
+        report.data["therapist_approval"] = {"status": code, "approval": (approve_body or {}).get("therapist_approval") if isinstance(approve_body, dict) else None}
+        report.add("therapist seat approved by the second participant", approve_ok,
+                   f"POST /calls/{{id}}/therapist/approve as Dad -> {code} "
+                   f"therapist_approval={(approve_body or {}).get('therapist_approval') if isinstance(approve_body, dict) else approve_body}")
 
         # --- call_state: roles, labels, relative names, connected transitions --
         expect_names = {

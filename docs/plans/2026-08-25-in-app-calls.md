@@ -92,6 +92,30 @@ hang up for everyone — and for the never-joined invitee). Persists the
 episodes, sends `call_ended` to every bound socket, detaches them (each
 session keeps coaching solo). Idempotent.
 
+### `POST /calls/{call_id}/therapist/approve` · `…/decline` → 200 `CallOut`
+
+**Therapist-seat consent** (added 2026-08-25, closing PLAUSIBLE P2 of the
+adversarial review). The host hands out the join code; the OTHER participant
+never agreed to a third listener. A therapist who joins is `pending` until
+every coached participant *except the host* approves — and while she is
+pending the server gives her **nothing**: no `transcript`, no read-only
+coaching copies, no `rtc_signal` in either direction (so no audio path is
+ever built), none of her own turns enter the merged transcript, and no share
+grant of anyone's episode at the end.
+
+She is auto-approved (`therapist_auto_approved: true`, nobody has to tap)
+only when **every** coached participant's own therapist link names *her* and
+carries the `live` consent scope (`POST /therapist/consent`, server/consent.py)
+— i.e. everyone in the call has already agreed, once, in Settings. Agreeing
+that a therapist may *read* your sessions (`episodes`) is deliberately NOT
+enough to let her *listen* to one happening.
+
+`decline` removes her from the call (her socket gets `call_ended` with
+reason "the participants did not approve you joining" and `turn_count: 0`)
+and frees the seat; a later therapist starts pending again. Both endpoints:
+403 for the observer herself and for the never-joined invitee, 404 for a
+non-member or when no therapist has joined, 410 once the call ended.
+
 ### `CallOut` (the same body as the WS `call_state`, plus the join code/url)
 ```json
 { "call_id": "68da4269-…", "status": "open" | "active" | "ended",
@@ -114,6 +138,10 @@ session keeps coaching solo). Idempotent.
   "created_at": "…", "expires_at": "…", "started_at": "…" | null, "ended_at": "…" | null,
   "end_reason": "ended" | "all participants left" | "expired" | null,
   "turn_count": 13,
+  "therapist_approval": "approved" | "pending",   // the therapist seat's consent state
+  "therapist_approval_from": ["uid-b"],           // coached participants who still have to approve
+  "therapist_needs_your_approval": false,         // whether YOU are one of them (the phone's prompt)
+  "therapist_auto_approved": false,               // standing "live" consent from everyone covered it
   "episode_id": "56b5ca5d-…" | null,          // YOUR episode once ended (always null for the therapist)
   "shared_with": ["mom@example.com"] }        // who your episode was granted to
 ```

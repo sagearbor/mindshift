@@ -1274,4 +1274,15 @@ def dashboard_session(rec: dict, *, patient: str, shared: bool) -> dict:
         "toneSummary": summary,
         "couldHaveSaid": (live or {}).get("could_have_said") if live else None,
         "analysisStatus": (live or {}).get("analysis_status") if live else ("full" if per_turn else None),
+        # Disclosure (server/consent.py): HOW the viewer came to have this
+        # episode — "auto" (the patient's therapist link fired at ingest),
+        # "manual" (the patient tapped Share), "in_call" (the therapist was
+        # on the call) — and the consent record in force when it was shared.
+        # Both None on an episode nobody shared (the owner's own view) and on
+        # one shared before disclosure existed: the banner then says nothing
+        # rather than inventing a provenance.
+        "durationSeconds": rec.get("duration_seconds"),
+        "shareOrigin": rec.get("share_origin"),
+        "consent": rec.get("consent") if isinstance(rec.get("consent"), dict) else None,
+        "sharedAt": rec.get("shared_at"),
     }

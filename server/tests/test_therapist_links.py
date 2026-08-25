@@ -21,8 +21,10 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 import audio_ingest
+import consent
 import main
 import recordings_store
+import therapist_export
 import therapist_links
 from main import app, init_db
 from routers import sessions as sessions_router
@@ -125,6 +127,13 @@ class FakeStore:
 
     async def recording_exists(self, uid, rid):
         return rid in self._by_uid.get(uid, {})
+
+    async def write_episode_disclosure(self, uid, rid, disclosure):
+        r = self._by_uid.get(uid, {}).get(rid)
+        if r is None:
+            return None
+        r["meta"].update(disclosure)
+        return r["meta"]
 
     async def open_media_stream(self, uid, rid, range_header):
         return None
@@ -573,3 +582,283 @@ async def test_real_store_notes():
     assert await st.list_therapist_notes("t2") == {}
     assert await st.delete_therapist_note("t1", "e1") is True
     assert await st.delete_therapist_note("t1", "e1") is False
+
+
+# ---------------------------------------------------------------------------
+# Consent (server/consent.py) — the disclosure, the record, and what it gates
+# ---------------------------------------------------------------------------
+
+class TestConsent:
+    async def test_linking_records_the_episodes_consent_with_the_wording_shown(self, client, store):
+        body = (await _link(client)).json()
+        scopes = body["consent"]["scopes"]
+        assert body["consent"]["text_version"] == consent.TEXT_VERSION
+        assert scopes["episodes"]["granted"] is True and scopes["episodes"]["at"]
+        assert scopes["episodes"]["granted_text_version"] == consent.TEXT_VERSION
+        # The client renders the SERVER's wording — never its own copy.
+        assert scopes["episodes"]["disclosure"] == consent.DISCLOSURES["episodes"]
+        assert "transcript, tone and suggestions" in scopes["episodes"]["disclosure"]
+        # Being observed live is a separate, explicit tap.
+        assert scopes["live"]["granted"] is False and scopes["live"]["at"] is None
+        stored = store._links[PATIENT]
+        assert stored["consents"]["episodes"]["granted_by"] == PATIENT
+
+    async def test_relinking_keeps_the_original_consented_since(self, client, store):
+        first = (await _link(client)).json()["consent"]["scopes"]["episodes"]["at"]
+        again = (await _link(client)).json()["consent"]["scopes"]["episodes"]["at"]
+        assert again == first
+
+    async def test_grant_and_revoke_live(self, client, store):
+        await _link(client)
+        res = await client.post("/therapist/consent", json={"scope": "live"}, headers=_h(PATIENT))
+        assert res.status_code == 200, res.text
+        assert res.json()["consent"]["scopes"]["live"]["granted"] is True
+        # The therapist's patient row shows which scopes stand.
+        rows = (await client.get("/therapist/patients", headers=_h(THERAPIST))).json()["patients"]
+        assert rows[0]["consent_scopes"] == ["episodes", "live"]
+        off = await client.post("/therapist/consent", json={"scope": "live", "granted": False}, headers=_h(PATIENT))
+        assert off.json()["consent"]["scopes"]["live"]["granted"] is False
+        rows = (await client.get("/therapist/patients", headers=_h(THERAPIST))).json()["patients"]
+        assert rows[0]["consent_scopes"] == ["episodes"]
+
+    async def test_revoking_episodes_stops_auto_share_without_unlinking(self, client, store):
+        await _link(client)
+        res = await client.post(
+            "/therapist/consent", json={"scope": "episodes", "granted": False}, headers=_h(PATIENT),
+        )
+        assert res.status_code == 200
+        # The link and its auto_share flag are untouched — consent is its own gate.
+        assert res.json()["linked"] is True and res.json()["auto_share"] is True
+        first = await client.post("/sessions/live", json=_live_body(), headers=_h(PATIENT))
+        assert first.json()["shared_with"] == []
+        assert await store.find_share(THERAPIST, first.json()["episode_id"]) is None
+        # Granting again resumes sharing from the next session.
+        await client.post("/therapist/consent", json={"scope": "episodes"}, headers=_h(PATIENT))
+        body = {**_live_body(), "session_id": "3a2b1c9e-5a4d-4e8f-9c1a-2b3c4d5e6f79"}
+        body["turns"] = [{**t, "session_id": body["session_id"]} for t in body["turns"]]
+        again = await client.post("/sessions/live", json=body, headers=_h(PATIENT))
+        assert again.json()["shared_with"] == ["mom@example.com"]
+
+    async def test_consent_errors(self, client, store):
+        # No link at all: nothing to consent to.
+        assert (await client.post("/therapist/consent", json={"scope": "live"}, headers=_h(PATIENT))).status_code == 404
+        await _link(client)
+        bad = await client.post("/therapist/consent", json={"scope": "everything"}, headers=_h(PATIENT))
+        assert bad.status_code == 422 and "scope must be one of" in bad.json()["detail"]
+
+    async def test_a_link_written_before_consent_existed_keeps_sharing(self, client, store):
+        """A release must not silently cut off a patient already in treatment:
+        a link with NO ``consents`` key at all is grandfathered."""
+        legacy = therapist_links.new_link(
+            patient_uid=PATIENT, patient_email="sage@example.com",
+            therapist_uid=THERAPIST, therapist_email="mom@example.com",
+        )
+        legacy.pop("consents")
+        store._links[PATIENT] = legacy
+        assert therapist_links.consent_ok(legacy) is True
+        res = await client.post("/sessions/live", json=_live_body(), headers=_h(PATIENT))
+        assert res.json()["shared_with"] == ["mom@example.com"]
+
+    async def test_auto_shared_episode_is_stamped_and_the_dashboard_shows_it(self, client, store):
+        await _link(client)
+        res = await client.post("/sessions/live", json=_live_body(), headers=_h(PATIENT))
+        rid = res.json()["episode_id"]
+        meta = store._by_uid[PATIENT][rid]["meta"]
+        assert meta["share_origin"] == "auto"
+        assert meta["shared_with_therapist"] == "mom@example.com"
+        assert meta["consent"]["scope"] == "episodes" and meta["consent"]["granted_by"] == PATIENT
+        assert meta["consent"]["text_version"] == consent.TEXT_VERSION
+        # The therapist's dashboard row carries the banner's facts.
+        [row] = (await client.get("/sessions", headers=_h(THERAPIST))).json()["sessions"]
+        assert row["shareOrigin"] == "auto" and row["consent"]["scope"] == "episodes"
+        assert row["sharedAt"]
+
+    async def test_a_hand_share_is_stamped_manual(self, client, store):
+        rid = store.seed(PATIENT)
+        res = await client.post(
+            f"/recordings/{rid}/shares", json={"email": "mom@example.com"}, headers=_h(PATIENT),
+        )
+        assert res.status_code == 200, res.text
+        meta = store._by_uid[PATIENT][rid]["meta"]
+        assert meta["share_origin"] == "manual"
+        # The patient's own tap IS the consent — recorded as theirs.
+        assert meta["consent"]["granted_by"] == PATIENT and meta["consent"]["scope"] == "episodes"
+        [row] = (await client.get("/sessions", headers=_h(THERAPIST))).json()["sessions"]
+        assert row["shareOrigin"] == "manual"
+
+
+def test_consent_helpers_are_pure():
+    link = {"therapist_uid": "t"}
+    assert consent.consents_of(link) == {}
+    granted = consent.grant(link, granted_by="p", scope=consent.SCOPE_LIVE)
+    assert link == {"therapist_uid": "t"}  # never mutated in place
+    assert consent.has_consent(granted, consent.SCOPE_LIVE) is True
+    # Re-granting keeps the original "consented since".
+    again = consent.grant(granted, granted_by="p", scope=consent.SCOPE_LIVE)
+    assert again["consents"]["live"]["at"] == granted["consents"]["live"]["at"]
+    assert consent.has_consent(consent.revoke(again, consent.SCOPE_LIVE), consent.SCOPE_LIVE) is False
+    # A junk scope stored by hand is ignored, never trusted.
+    assert consent.consents_of({"consents": {"everything": {"at": "x"}}}) == {}
+    with pytest.raises(ValueError):
+        consent.clean_scope("everything")
+
+
+def test_should_auto_share_needs_consent_unless_grandfathered():
+    base = {"therapist_uid": "t"}
+    assert therapist_links.should_auto_share(base) is True          # legacy link
+    assert therapist_links.should_auto_share({**base, "consents": {}}) is False
+    consented = consent.grant(base, granted_by="p", scope=consent.SCOPE_EPISODES)
+    assert therapist_links.should_auto_share(consented) is True
+    assert therapist_links.should_auto_share({**consented, "auto_share": False}) is False
+
+
+# ---------------------------------------------------------------------------
+# Multi-patient hygiene: the unread mark, and no cross-patient leak
+# ---------------------------------------------------------------------------
+
+class TestPatientSeen:
+    async def test_seen_marks_the_link_and_shows_in_the_patient_list(self, client, store):
+        await _link(client)
+        rows = (await client.get("/therapist/patients", headers=_h(THERAPIST))).json()["patients"]
+        assert rows[0]["last_seen_at"] is None  # never opened -> unread
+        res = await client.post(f"/therapist/patients/{PATIENT}/seen", headers=_h(THERAPIST))
+        assert res.status_code == 200
+        seen_at = res.json()["last_seen_at"]
+        assert res.json()["patient_uid"] == PATIENT and seen_at
+        rows = (await client.get("/therapist/patients", headers=_h(THERAPIST))).json()["patients"]
+        assert rows[0]["last_seen_at"] == seen_at
+        # The patient's own view is untouched by the therapist's read mark.
+        assert (await client.get("/therapist/link", headers=_h(PATIENT))).json()["linked"] is True
+
+    async def test_seen_on_a_foreign_patient_is_404(self, client, store):
+        await _link(client)
+        assert (await client.post(f"/therapist/patients/{PATIENT}/seen", headers=_h(STRANGER))).status_code == 404
+        assert (await client.post(f"/therapist/patients/{STRANGER}/seen", headers=_h(THERAPIST))).status_code == 404
+
+
+class TestNoCrossPatientLeak:
+    async def test_two_patients_never_appear_under_each_other(self, client, store):
+        """Patient A's episodes must never show up under patient B — the
+        dashboard groups by the OWNER of the grant, resolved server-side."""
+        a_rid = store.seed(PATIENT, title="A talk")
+        b_rid = store.seed(STRANGER, title="B talk")
+        for owner, rid, email in ((PATIENT, a_rid, "sage@example.com"), (STRANGER, b_rid, "other@example.com")):
+            await store.add_share(owner, rid, recipient_uid=THERAPIST,
+                                  recipient_email="mom@example.com", owner_email=email)
+        rows = (await client.get("/sessions", headers=_h(THERAPIST))).json()["sessions"]
+        by_id = {r["id"]: r for r in rows}
+        assert set(by_id) == {a_rid, b_rid}
+        assert by_id[a_rid]["patient"] == "sage@example.com" and by_id[a_rid]["role"] == "sage@example.com"
+        assert by_id[b_rid]["patient"] == "other@example.com" and by_id[b_rid]["role"] == "other@example.com"
+        # No row ever carries another patient's turns.
+        assert by_id[a_rid]["title"] == "A talk" and by_id[b_rid]["title"] == "B talk"
+        # Each patient sees only their own session, labelled "You".
+        for uid, own, foreign in ((PATIENT, a_rid, b_rid), (STRANGER, b_rid, a_rid)):
+            mine = (await client.get("/sessions", headers=_h(uid))).json()["sessions"]
+            assert [r["id"] for r in mine] == [own]
+            assert mine[0]["patient"] == "You"
+            # And cannot reach the other's episode at all.
+            assert (await client.get(f"/recordings/{foreign}", headers=_h(uid))).status_code == 404
+            assert (await client.get(f"/therapist/notes/{foreign}", headers=_h(uid))).status_code == 404
+            assert (await client.get(f"/therapist/export/{foreign}", headers=_h(uid))).status_code == 404
+
+    async def test_notes_and_exports_stay_with_their_own_episode(self, client, store):
+        a_rid = store.seed(PATIENT, title="A talk")
+        b_rid = store.seed(STRANGER, title="B talk")
+        for owner, rid, email in ((PATIENT, a_rid, "sage@example.com"), (STRANGER, b_rid, "other@example.com")):
+            await store.add_share(owner, rid, recipient_uid=THERAPIST,
+                                  recipient_email="mom@example.com", owner_email=email)
+        await client.put(f"/therapist/notes/{a_rid}", json={"text": "A theme"}, headers=_h(THERAPIST))
+        assert (await client.get(f"/therapist/notes/{b_rid}", headers=_h(THERAPIST))).json()["text"] == ""
+        b_export = (await client.get(f"/therapist/export/{b_rid}", headers=_h(THERAPIST))).text
+        assert "A theme" not in b_export and "B talk" in b_export
+
+
+# ---------------------------------------------------------------------------
+# Export for a patient file
+# ---------------------------------------------------------------------------
+
+class TestExport:
+    async def test_therapist_export_carries_the_session_and_her_own_notes(self, client, store):
+        await _link(client)
+        rid = (await client.post("/sessions/live", json=_live_body(), headers=_h(PATIENT))).json()["episode_id"]
+        await client.put(f"/therapist/notes/{rid}", json={"text": "Revisit the calls theme."}, headers=_h(THERAPIST))
+        res = await client.get(f"/therapist/export/{rid}", headers=_h(THERAPIST))
+        assert res.status_code == 200, res.text
+        assert res.headers["content-type"].startswith("text/plain")
+        assert f"mindshift_session_{rid}.txt" in res.headers["content-disposition"]
+        text = res.text
+        assert "Patient: sage@example.com" in text
+        assert "Hey Mom." in text and "You never call." in text
+        assert "Revisit the calls theme." in text
+        # The provenance the therapist can copy into the file.
+        assert "shared automatically" in text.lower()
+        assert consent.DISCLOSURES["episodes"] in text
+        assert "Exported by: mom@example.com" in text
+        for heading in ("TONE", "ESCALATION MARKERS", "TRANSCRIPT", "WHAT COULD HAVE BEEN SAID", "YOUR NOTES"):
+            assert heading in text
+
+    async def test_pdf_export(self, client, store):
+        await _link(client)
+        rid = (await client.post("/sessions/live", json=_live_body(), headers=_h(PATIENT))).json()["episode_id"]
+        res = await client.get(f"/therapist/export/{rid}?format=pdf", headers=_h(THERAPIST))
+        assert res.status_code == 200
+        assert res.headers["content-type"] == "application/pdf"
+        assert res.content[:5] == b"%PDF-"
+
+    async def test_export_visibility_and_format_bounds(self, client, store):
+        rid = store.seed(PATIENT)
+        # Own episode: allowed, labelled "You", with no sharing record.
+        own = await client.get(f"/therapist/export/{rid}", headers=_h(PATIENT))
+        assert own.status_code == 200 and "Patient: You" in own.text
+        assert "no sharing record" in own.text
+        # A stranger never learns the id exists.
+        assert (await client.get(f"/therapist/export/{rid}", headers=_h(STRANGER))).status_code == 404
+        assert (await client.get(f"/therapist/export/{rid}?format=docx", headers=_h(PATIENT))).status_code == 422
+
+    async def test_export_escapes_reportlab_markup(self, client, store):
+        rid = store.seed(PATIENT)
+        store._by_uid[PATIENT][rid]["turns"][0]["text"] = "<b>if a < b & c</font> then"
+        res = await client.get(f"/therapist/export/{rid}?format=pdf", headers=_h(PATIENT))
+        assert res.status_code == 200 and res.content[:5] == b"%PDF-"
+
+
+def test_export_builders_are_honest_about_missing_scores():
+    session = {
+        "id": "e1", "title": None, "date": None, "mode": None, "source": None,
+        "turns": [{"speaker": "Speaker A", "text": "hi", "toneScores": {}, "isSelf": True}],
+        "avgPleasantness": None, "toneSummary": None, "couldHaveSaid": None,
+        "shareOrigin": None, "consent": None, "sharedAt": None, "durationSeconds": None,
+    }
+    text = therapist_export.build_text(session, note="", patient="p@x", exported_by="t@x")
+    # A score that was never measured prints an em dash, never a fabricated 0.
+    assert "(\u2014)" in text and "Average pleasantness: \u2014" in text
+    assert "Duration: unknown" in text
+    assert "(no notes)" in text
+    assert "No escalations were flagged" in text
+    assert therapist_export.escalation_turn_numbers(session) == []
+    assert therapist_export.build_pdf(session, patient="p@x")[:5] == b"%PDF-"
+
+
+def test_escalation_numbers_count_only_the_patients_own_turns():
+    session = {"turns": [
+        {"escalated": True, "isSelf": True},
+        {"escalated": True, "isSelf": False},   # the other person's - not the patient's
+        {"escalated": False, "isSelf": True},
+        {"escalated": True, "isSelf": True},
+    ]}
+    assert therapist_export.escalation_turn_numbers(session) == [1, 4]
+
+
+async def test_real_store_episode_disclosure_layout():
+    bucket = _FakeBucket()
+    st = recordings_store.RecordingsStore(bucket)
+    assert await st.write_episode_disclosure("u1", "r1", {"share_origin": "auto"}) is None
+    bucket.objects["recordings/u1/r1/meta.json"] = json.dumps({"id": "r1", "title": "t"}).encode()
+    meta = await st.write_episode_disclosure("u1", "r1", {"share_origin": "auto", "consent": None})
+    assert meta["share_origin"] == "auto" and meta["title"] == "t"
+    stored = json.loads(bucket.objects["recordings/u1/r1/meta.json"])
+    assert stored["share_origin"] == "auto" and stored["consent"] is None
+    # The last stamp wins (a hand-share of an already auto-shared episode).
+    meta = await st.write_episode_disclosure("u1", "r1", {"share_origin": "manual"})
+    assert meta["share_origin"] == "manual"

@@ -366,6 +366,32 @@ class RecordingsStore:
         )
         return meta
 
+    # -- therapist disclosure on an episode --------------------------------
+    async def write_episode_disclosure(
+        self, uid: str, recording_id: str, disclosure: dict,
+    ) -> dict | None:
+        """Stamp HOW this episode came to be shared with a therapist, and
+        under which consent (server/consent.py ``episode_disclosure``), onto
+        meta.json. Returns the updated meta, or ``None`` when the recording
+        does not exist for this uid.
+
+        Additive read-modify-write of meta.json only (turns/analysis/
+        derivatives untouched), same shape as :meth:`update_title`. The LAST
+        stamp wins: a hand-share of an already auto-shared episode is the
+        more specific truth about why the therapist has it."""
+        return await asyncio.to_thread(
+            self._write_episode_disclosure_sync, uid, recording_id, disclosure,
+        )
+
+    def _write_episode_disclosure_sync(self, uid, recording_id, disclosure) -> dict | None:
+        blob = self._bucket.blob(self._prefix(uid, recording_id) + "meta.json")
+        if not blob.exists():
+            return None
+        meta = json.loads(blob.download_as_bytes())
+        meta.update(disclosure)
+        blob.upload_from_string(json.dumps(meta), content_type="application/json")
+        return meta
+
     # -- update manual speaker labels -------------------------------------
     async def update_manual_speaker_labels(
         self, uid: str, recording_id: str, labels: dict,

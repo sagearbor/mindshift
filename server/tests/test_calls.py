@@ -99,6 +99,13 @@ class FakeStore:
     async def recording_exists(self, uid, rid):
         return rid in self._by_uid.get(uid, {})
 
+    async def write_episode_disclosure(self, uid, rid, disclosure):
+        r = self._by_uid.get(uid, {}).get(rid)
+        if r is None:
+            return None
+        r["meta"].update(disclosure)
+        return r["meta"]
+
     async def add_share(self, owner_uid, rid, *, recipient_uid, recipient_email, owner_email):
         r = self._by_uid.get(owner_uid, {}).get(rid)
         if r is None:
@@ -851,12 +858,26 @@ def _drain_state(ws, n_members: int) -> dict:
     return state
 
 
-def _open_three(env):
+def _approve_therapist(env, call_id: str, uid: str = PEER) -> dict:
+    res = env.client.post(f"/calls/{call_id}/therapist/approve", headers=_h(uid))
+    assert res.status_code == 200, res.text
+    return res.json()
+
+
+def _open_three(env, *, approve: bool = True, expect_pending: bool = True):
+    """A host + a second participant + an observing therapist. The therapist
+    seat needs the SECOND participant's consent (the host handed out the
+    code, they never agreed to a third listener), so unless a test is about
+    the pending state itself the peer approves here."""
     created = _create(env, invitee_email=EMAILS[PEER], display_name="Sage")
     cid, code = created["call_id"], created["join_code"]
     assert _join(env, cid, PEER, display_name="Dad")[0] == 200
     status, body = _join(env, cid, THER, join_code=code, role="therapist", display_name="Mom")
     assert status == 200, body
+    if expect_pending:
+        assert body["therapist_approval"] == "pending"
+    if approve:
+        _approve_therapist(env, cid)
     return cid
 
 
@@ -1325,3 +1346,192 @@ class TestReconnectClock:
             assert len(call.participants) == 2  # no duplicate seat
 
         asyncio.run(run())
+
+
+# ---------------------------------------------------------------------------
+# Therapist-seat consent (PLAUSIBLE P2 of the 2026-08-25 adversarial review):
+# the SECOND participant must approve a third listener the host invited.
+# ---------------------------------------------------------------------------
+
+def _live_consent(store: FakeStore, patient: str, therapist: str) -> None:
+    """The patient's standing "my therapist may listen in" (Settings)."""
+    import consent as consent_mod
+    import therapist_links
+
+    link = therapist_links.new_link(
+        patient_uid=patient, patient_email=EMAILS[patient],
+        therapist_uid=therapist, therapist_email=EMAILS.get(therapist, "someone@example.test"),
+    )
+    store._links[patient] = consent_mod.grant(
+        link, granted_by=patient, scope=consent_mod.SCOPE_LIVE,
+    )
+
+
+class TestTherapistSeatConsent:
+    def test_pending_until_the_second_participant_approves(self, env):
+        cid = _open_three(env, approve=False)
+        host_view = env.client.get(f"/calls/{cid}", headers=_h(HOST)).json()
+        assert host_view["therapist_approval"] == "pending"
+        assert host_view["therapist_approval_from"] == [PEER]
+        # The host handed out the code — it is the OTHER participant's call.
+        assert host_view["therapist_needs_your_approval"] is False
+        peer_view = env.client.get(f"/calls/{cid}", headers=_h(PEER)).json()
+        assert peer_view["therapist_needs_your_approval"] is True
+        ther_view = env.client.get(f"/calls/{cid}", headers=_h(THER)).json()
+        assert ther_view["therapist_approval"] == "pending"
+
+        with open_ws(env.client, f"/ws/session/{HOST_SID}", token=HOST_TOKEN) as host, \
+                open_ws(env.client, f"/ws/session/{PEER_SID}", token=PEER_TOKEN) as peer, \
+                open_ws(env.client, f"/ws/session/{THER_SID}", token=THER_TOKEN) as ther:
+            _bind(host, cid)
+            _bind(peer, cid)
+            _bind(ther, cid)
+            _drain_state(host, 3)
+            _drain_state(peer, 3)
+            # No AUDIO PATH either: her signaling is refused in both directions.
+            ther.send_text(json.dumps({"type": "rtc_signal", "call_id": cid, "to": HOST, "payload": {"type": "offer", "sdp": "x"}}))
+            assert json.loads(ther.receive_text()) == {
+                "error": f"rtc_signal: {calls.THERAPIST_PENDING_DETAIL}",
+            }
+            host.send_text(json.dumps({"type": "rtc_signal", "call_id": cid, "to": THER, "payload": {"type": "offer", "sdp": "x"}}))
+            assert json.loads(host.receive_text()) == {
+                "error": f"rtc_signal: {calls.THERAPIST_PENDING_DETAIL}",
+            }
+            # She is not in the conversation: nothing she says is merged …
+            ther.send_text(json.dumps(_turn(THER_SID, "I am listening.")))
+            # … and nothing said reaches her.
+            host.send_text(json.dumps(_turn(HOST_SID, "Before.")))
+            remote, _ = recv_until(peer, lambda m: m.get("type") == "transcript")
+            assert remote["text"] == "Before."
+            assert [t["text"] for t in calls.registry.get(cid).turns] == ["Before."]
+
+            _approve_therapist(env, cid)
+            state, _ = recv_until(ther, lambda m: m.get("type") == "call_state" and m.get("therapist_approval") == "approved")
+            assert state["therapist_approval_from"] == []
+            host.send_text(json.dumps(_turn(HOST_SID, "After.", start=5.0, end=6.0)))
+            # Frames are ordered: her FIRST transcript is the one after approval,
+            # which is what proves "Before." never reached her.
+            first, _ = recv_until(ther, lambda m: m.get("type") == "transcript")
+            assert first["text"] == "After."
+            # And the read-only coaching copies start flowing.
+            copy, _ = recv_until(ther, lambda m: m.get("type") == "suggestion")
+            assert copy["for_uid"] == HOST
+
+    def test_declining_removes_her_and_frees_the_seat(self, env):
+        cid = _open_three(env, approve=False)
+        with open_ws(env.client, f"/ws/session/{THER_SID}", token=THER_TOKEN) as ther:
+            _bind(ther, cid)
+            res = env.client.post(f"/calls/{cid}/therapist/decline", headers=_h(PEER))
+            assert res.status_code == 200, res.text
+            assert res.json()["therapist_uid"] is None
+            assert res.json()["therapist_approval"] == "approved"  # nobody to approve
+            ended, _ = recv_until(ther, lambda m: m.get("type") == "call_ended")
+        assert "did not approve" in ended["reason"]
+        assert ended["episode_id"] is None and ended["turn_count"] == 0
+        # She is no longer a member: the call reads as absent to her.
+        assert env.client.get(f"/calls/{cid}", headers=_h(THER)).status_code == 404
+        call = calls.registry.get(cid)
+        assert THER not in call.participants and call.therapist() is None
+        # The seat is free again — and the next therapist starts pending.
+        code = env.client.get(f"/calls/{cid}", headers=_h(HOST)).json()["join_code"]
+        status, body = _join(env, cid, "user-x", join_code=code, role="therapist")
+        assert status == 200 and body["therapist_approval"] == "pending"
+
+    def test_only_a_coached_participant_may_decide(self, env):
+        cid = _open_three(env, approve=False)
+        for path in ("approve", "decline"):
+            # The observer cannot let herself in.
+            assert env.client.post(f"/calls/{cid}/therapist/{path}", headers=_h(THER)).status_code == 403
+            # A stranger never learns the call exists.
+            assert env.client.post(f"/calls/{cid}/therapist/{path}", headers=_h("user-x")).status_code == 404
+        # The host may approve, but its approval was never the one required.
+        assert env.client.post(f"/calls/{cid}/therapist/approve", headers=_h(HOST)).status_code == 200
+        assert env.client.get(f"/calls/{cid}", headers=_h(HOST)).json()["therapist_approval"] == "pending"
+        _approve_therapist(env, cid)
+        assert env.client.get(f"/calls/{cid}", headers=_h(HOST)).json()["therapist_approval"] == "approved"
+
+    def test_no_therapist_at_all_is_never_pending(self, env):
+        cid = _open_pair(env)
+        body = env.client.get(f"/calls/{cid}", headers=_h(HOST)).json()
+        assert body["therapist_approval"] == "approved" and body["therapist_approval_from"] == []
+        assert env.client.post(f"/calls/{cid}/therapist/approve", headers=_h(HOST)).status_code == 404
+        assert env.client.post(f"/calls/{cid}/therapist/decline", headers=_h(HOST)).status_code == 404
+
+    def test_a_therapist_joining_a_host_alone_needs_nobody(self, env):
+        """Only the host is on the call: there is no other conversation to
+        protect, and the host chose to hand out the code."""
+        created = _create(env, display_name="Sage")
+        cid, code = created["call_id"], created["join_code"]
+        status, body = _join(env, cid, THER, join_code=code, role="therapist", display_name="Mom")
+        assert status == 200 and body["therapist_approval"] == "approved"
+        # …until a second participant arrives: now it IS their conversation too.
+        assert _join(env, cid, PEER, join_code=code)[0] == 200
+        assert env.client.get(f"/calls/{cid}", headers=_h(PEER)).json()["therapist_approval"] == "pending"
+
+    def test_standing_consent_from_everyone_auto_approves(self, env):
+        _live_consent(env.store, HOST, THER)
+        _live_consent(env.store, PEER, THER)
+        cid = _open_three(env, approve=False, expect_pending=False)
+        body = env.client.get(f"/calls/{cid}", headers=_h(PEER)).json()
+        assert body["therapist_approval"] == "approved"
+        assert body["therapist_auto_approved"] is True
+        assert body["therapist_needs_your_approval"] is False
+
+    def test_standing_consent_from_only_one_participant_is_not_enough(self, env):
+        _live_consent(env.store, HOST, THER)   # the peer never agreed
+        cid = _open_three(env, approve=False)
+        assert env.client.get(f"/calls/{cid}", headers=_h(PEER)).json()["therapist_auto_approved"] is False
+
+    def test_a_link_naming_a_different_therapist_does_not_auto_approve(self, env):
+        _live_consent(env.store, HOST, "user-x")
+        _live_consent(env.store, PEER, "user-x")
+        cid = _open_three(env, approve=False)
+        assert env.client.get(f"/calls/{cid}", headers=_h(PEER)).json()["therapist_approval"] == "pending"
+
+    def test_episodes_consent_alone_does_not_let_her_listen_live(self, env):
+        """Agreeing that a therapist may READ your sessions is not agreeing
+        that she may LISTEN to them happening."""
+        _seed_link(env.store, HOST, THER)
+        _seed_link(env.store, PEER, THER)
+        cid = _open_three(env, approve=False)
+        assert env.client.get(f"/calls/{cid}", headers=_h(PEER)).json()["therapist_approval"] == "pending"
+
+    def test_a_pending_observer_gets_no_episode_grant_at_the_end(self, env):
+        cid = _open_three(env, approve=False)
+        with open_ws(env.client, f"/ws/session/{HOST_SID}", token=HOST_TOKEN) as host, \
+                open_ws(env.client, f"/ws/session/{PEER_SID}", token=PEER_TOKEN) as peer, \
+                open_ws(env.client, f"/ws/session/{THER_SID}", token=THER_TOKEN) as ther:
+            _bind(host, cid)
+            _bind(peer, cid)
+            _bind(ther, cid)
+            _drain_state(host, 3)
+            host.send_text(json.dumps(_turn(HOST_SID, "Just us.")))
+            recv_until(peer, lambda m: m.get("type") == "transcript")
+            assert env.client.post(f"/calls/{cid}/end", headers=_h(PEER)).status_code == 200
+            ended_host, _ = recv_until(host, lambda m: m.get("type") == "call_ended")
+            ended_ther, _ = recv_until(ther, lambda m: m.get("type") == "call_ended")
+        # She learns nothing: no episode map, and no grant on anyone's episode.
+        assert "episodes" not in ended_ther
+        assert env.store._index.get(THER, {}) == {}
+        rec = env.store._by_uid[HOST][ended_host["episode_id"]]
+        assert [s["uid"] for s in rec["meta"].get("shares") or []] == []
+
+    def test_an_approved_observer_is_granted_and_the_episode_says_why(self, env):
+        cid = _open_three(env)
+        with open_ws(env.client, f"/ws/session/{HOST_SID}", token=HOST_TOKEN) as host, \
+                open_ws(env.client, f"/ws/session/{PEER_SID}", token=PEER_TOKEN) as peer, \
+                open_ws(env.client, f"/ws/session/{THER_SID}", token=THER_TOKEN) as ther:
+            _bind(host, cid)
+            _bind(peer, cid)
+            _bind(ther, cid)
+            _drain_state(host, 3)
+            host.send_text(json.dumps(_turn(HOST_SID, "With Mom on the line.")))
+            recv_until(ther, lambda m: m.get("type") == "transcript")
+            assert env.client.post(f"/calls/{cid}/end", headers=_h(PEER)).status_code == 200
+            ended_host, _ = recv_until(host, lambda m: m.get("type") == "call_ended")
+        meta = env.store._by_uid[HOST][ended_host["episode_id"]]["meta"]
+        assert [s["uid"] for s in meta["shares"]] == [THER]
+        # Disclosure (server/consent.py): why she has it, and under what.
+        assert meta["share_origin"] == "in_call"
+        assert meta["shared_with_therapist"] == EMAILS[THER]
+        assert meta["consent"]["scope"] == "live" and meta["consent"]["granted_by"] == HOST
