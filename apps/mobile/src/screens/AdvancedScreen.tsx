@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   ScrollView,
   StyleSheet,
@@ -21,6 +22,7 @@ import {
   type VoiceSample,
 } from "../api/client";
 import { getMe } from "../api/me";
+import { deleteAccount, DELETE_CONFIRMATION } from "../api/account";
 import VoiceTrainingFlow from "../components/VoiceTrainingFlow";
 import TherapistLinkCard from "../components/TherapistLinkCard";
 import Avatar from "../components/Avatar";
@@ -149,6 +151,18 @@ export default function AdvancedScreen({
   // honest default is to say nothing about pairing state, same as before
   // this fetch existed, never a fabricated paired/unpaired guess.
   const [hasPairedWatch, setHasPairedWatch] = useState<boolean | null>(null);
+
+  // --- "Delete my account" (Play requires a self-serve path) --------------
+  // Deliberately an IN-SCREEN flow, not an Alert: the confirmation has to be
+  // TYPED, and react-native-web's Alert has no prompt/buttons at all — Mom
+  // uses this in Safari, so the destructive step must render identically on
+  // web and native. Collapsed by default; nothing here fires until the user
+  // opens it AND types the word.
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const deleteArmed = deleteConfirmText.trim() === DELETE_CONFIRMATION;
 
   // --- About section facts (all honest; a missing value reads "unknown"). ---
   const user = useAuthStore((s) => s.user);
@@ -282,6 +296,43 @@ export default function AdvancedScreen({
     },
     [profile],
   );
+
+  /** Close the delete flow and forget whatever was typed, so re-opening it
+   *  never starts already-armed. */
+  const cancelDelete = useCallback(() => {
+    setDeleteOpen(false);
+    setDeleteConfirmText("");
+    setDeleteError(null);
+  }, []);
+
+  /** Fire the deletion. Guarded twice — the button is disabled until the word
+   *  matches, and this checks again — so a mis-wired press can't delete an
+   *  account. On success we sign out, which drops the app back to the login
+   *  screen (`onSignOut` is App.tsx's handleSignOut: it also clears the
+   *  on-device profile photo, which is the last local trace of the account).
+   *  On failure the flow stays open with the server's own reason, because the
+   *  server guarantees it never half-deletes silently — retrying is safe. */
+  const handleDeleteAccount = useCallback(() => {
+    if (!deleteArmed || deleting) return;
+    setDeleting(true);
+    setDeleteError(null);
+    deleteAccount()
+      .then(() => {
+        setDeleting(false);
+        setDeleteOpen(false);
+        setDeleteConfirmText("");
+        onSignOut();
+      })
+      .catch((err: Error & { status?: number }) => {
+        setDeleting(false);
+        setDeleteError(
+          err?.status === 401
+            ? "Your sign-in expired before we could finish. Log out, sign in again, and retry."
+            : err?.message ||
+                "We couldn’t delete your account. Nothing was partly deleted — please try again.",
+        );
+      });
+  }, [deleteArmed, deleting, onSignOut]);
 
   /** Guided training finished: the server now holds the new sample — refetch
    *  so the card shows the SERVER's view (count + the guided sample's note)
@@ -649,6 +700,111 @@ export default function AdvancedScreen({
       >
         <Text style={[styles.rowTitle, styles.signOutText]}>Log out</Text>
       </TouchableOpacity>
+
+      {deleteOpen ? (
+        <View style={[styles.row, styles.dangerCard]} testID="delete-account-card">
+          <Text style={[styles.rowTitle, styles.signOutText]}>
+            Delete my account
+          </Text>
+          <Text style={styles.rowSub}>
+            This is permanent. There is no undo, no grace period and no backup
+            copy we can restore from.
+          </Text>
+
+          <Text style={styles.dangerHeading}>What gets deleted</Text>
+          <Text style={styles.dangerItem} testID="delete-account-scope">
+            • Every stored recording and session — audio, video, transcripts,
+            analysis, titles and speaker labels{"\n"}
+            • Your voiceprint and every person you’ve named{"\n"}
+            • Every share you granted, and every session shared with you{"\n"}
+            • Your therapist link, in both directions, and your private notes
+            {"\n"}
+            • Any session you shared with a therapist, and their notes about it
+            {"\n"}
+            • Your watch pairing, live sessions, captures and group memberships
+            {"\n"}
+            • Your diagnostic reports and your sign-in account itself
+          </Text>
+
+          <Text style={styles.dangerHeading}>What we can’t reach</Text>
+          <Text style={styles.dangerItem} testID="delete-account-limits">
+            • Videos the app saved to your phone’s photo library — delete those
+            from your gallery{"\n"}
+            • Anything someone else exported or screenshotted{"\n"}
+            • Server logs (timestamps and error codes, never your words), which
+            rotate out on their own
+          </Text>
+
+          <Text style={styles.dangerHeading}>
+            Type {DELETE_CONFIRMATION} to confirm
+          </Text>
+          <TextInput
+            testID="delete-account-confirm-input"
+            style={styles.dangerInput}
+            value={deleteConfirmText}
+            onChangeText={setDeleteConfirmText}
+            placeholder={DELETE_CONFIRMATION}
+            placeholderTextColor="#9CA3AF"
+            autoCapitalize="characters"
+            autoCorrect={false}
+            editable={!deleting}
+            accessibilityLabel={`Type ${DELETE_CONFIRMATION} to confirm deleting your account`}
+          />
+
+          {deleteError ? (
+            <Text style={styles.sampleError} testID="delete-account-error">
+              {deleteError}
+            </Text>
+          ) : null}
+
+          <TouchableOpacity
+            testID="delete-account-submit"
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !deleteArmed || deleting }}
+            style={[
+              styles.dangerButton,
+              deleteArmed && !deleting ? null : styles.dangerButtonDisabled,
+            ]}
+            disabled={!deleteArmed || deleting}
+            onPress={handleDeleteAccount}
+          >
+            <View style={styles.forgetTitleRow}>
+              <Text style={styles.dangerButtonText}>
+                {deleting ? "Deleting…" : "Delete my account permanently"}
+              </Text>
+              {deleting ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : null}
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            testID="delete-account-cancel"
+            accessibilityRole="button"
+            style={styles.trainButton}
+            disabled={deleting}
+            onPress={cancelDelete}
+          >
+            <Text style={styles.trainText}>Cancel — keep my account</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <TouchableOpacity
+          testID="delete-account-open"
+          accessibilityRole="button"
+          style={styles.row}
+          onPress={() => setDeleteOpen(true)}
+        >
+          <Text style={[styles.rowTitle, styles.signOutText]}>
+            Delete my account
+          </Text>
+          <Text style={styles.rowSub}>
+            Permanently erase your account and everything in it. You’ll be
+            shown exactly what goes, and asked to type {DELETE_CONFIRMATION}{" "}
+            first.
+          </Text>
+        </TouchableOpacity>
+      )}
     </ScrollView>
   );
 }
@@ -844,6 +1000,49 @@ const styles = StyleSheet.create({
   },
   signOutText: {
     color: "#DC2626",
+  },
+  dangerCard: {
+    borderColor: "#DC2626",
+  },
+  dangerHeading: {
+    marginTop: 14,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#1F2937",
+  },
+  dangerItem: {
+    marginTop: 4,
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: "#6B7280",
+  },
+  dangerInput: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    minHeight: 44,
+    fontSize: 16,
+    color: "#1F2937",
+    backgroundColor: "#FFFFFF",
+  },
+  dangerButton: {
+    marginTop: 14,
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: "#DC2626",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
+  },
+  dangerButtonDisabled: {
+    backgroundColor: "#E5A5A5",
+  },
+  dangerButtonText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
   profilePhotoRow: {
     flexDirection: "row",

@@ -1002,10 +1002,26 @@ from routers import calls as _calls_router  # noqa: E402
 app.include_router(_calls_router.router)
 
 # Watch domain (ported from Gauge — docs/plans/2026-08-15-unification-*.md):
-from watch.app import build_watch_routers  # noqa: E402
+from watch.app import build_watch_deps, build_watch_routers  # noqa: E402
 
-for _r in build_watch_routers():
+# Built ONCE and kept on app.state as well as handed to the routers: DELETE /me
+# (routers/account.py) has to delete a user's live sessions, captures, groups,
+# watch pairings and diagnostics, and must operate on the SAME store instances
+# the watch routers write through — a second build_watch_deps() would hand it a
+# fresh empty in-memory store in keyless dev/CI. See watch/app.py's WatchDeps.
+_watch_deps = build_watch_deps()
+app.state.watch_deps = _watch_deps
+
+for _r in build_watch_routers(_watch_deps):
     app.include_router(_r)
+
+# Account deletion (Play requirement): DELETE /me — erases every tier of the
+# caller's stored data and then the Firebase Auth user. Its own file for the
+# same reason as the voice router; the deletion scope, the shared-data rule and
+# the honest list of what is unreachable all live in server/account_deletion.py.
+from routers import account as _account_router  # noqa: E402
+
+app.include_router(_account_router.router)
 
 
 @app.middleware("http")

@@ -4,6 +4,51 @@ Versions are numbered here. **App** = Android/EAS `version (versionCode)`.
 **Backend** = Cloud Run revision of `mindshift-api` (project `arborfam-hub`,
 `us-central1`). Newest first.
 
+## Unreleased — self-serve account deletion (2026-08-26, `feat/account-deletion`)
+Backend + JS only (no native change → OTA-able). Closes the Play requirement
+that any app with account creation offer in-app account deletion; the shape is
+meant to be lifted into the owner's other 7 apps on the same backend.
+- **`DELETE /me`** (`server/routers/account.py`, `server/account_deletion.py`)
+  erases every storage tier for the authenticated uid and then the Firebase
+  Auth user, **last**, so a mid-way failure leaves the account signed-in-able
+  and the deletion retryable instead of orphaning data. Idempotent; returns
+  per-category counts. Scope, the shared-data rule and the honest list of what
+  cannot be reached are documented in `account_deletion.py`'s module docstring
+  — the single source the privacy policy, the `/delete-account` page and the
+  Play answer pack all restate.
+  - Recordings bucket: `recordings/`, `shared/` (both directions),
+    `voiceprints/`, `uploads/`, `jobs/`, `therapist_links/`,
+    `therapist_patients/`, `therapist_notes/` — plus the notes OTHER accounts
+    wrote about this user's episodes.
+  - Watch/Firestore: live sessions (owned deleted, shared-with pointer
+    removed), baselines, subscriptions, accounts, speaker profiles, captures
+    (blob before doc), group membership (group deleted once empty), device
+    tokens, claimed pairings, failed-claim counters, diagnostics telemetry.
+  - SQLite: `sessions` and `relationships` (+ `participants`,
+    `voice_profiles`).
+- **Shared-data rule.** A session shared with a therapist stays the patient's,
+  so deleting the account deletes the session, every grant on it, and that
+  therapist's private notes **about that session**. Their other notes and the
+  rest of their account are untouched.
+- **Guards.** The endpoint acts only on the token's uid (nothing names an
+  account, so a therapist can never delete a patient); requires a **freshly
+  issued** ID token (`auth.get_fresh_uid`, `MINDSHIFT_FRESH_TOKEN_MAX_AGE_SECONDS`,
+  default 600 s) so a stale captured token cannot replay it; requires a body of
+  exactly `{"confirm": "DELETE"}`; and has its own 3/min per-IP budget
+  (`ACCOUNT_DELETE_RATE_LIMIT_PER_MINUTE`). Every deletion logs uid + counts at
+  INFO.
+- **UI.** Settings → Account → **Delete my account**: an in-screen flow (not an
+  `Alert` — react-native-web has no prompt, and Mom uses Safari) that lists what
+  goes and what cannot be reached, requires typing `DELETE`, then signs out on
+  success. One Expo screen, so phone and web get it together.
+- **`/delete-account` and the privacy policy** now lead with the in-app path and
+  its exact taps; the email route survives only for someone who can no longer
+  sign in. `docs/play/play-answers-mindshift.yaml`'s data-safety answer records
+  the same scope and rule.
+- `watch.app` now exposes `WatchDeps` / `build_watch_deps()` so `main.py` can
+  hold the SAME store instances the watch routers close over — a second
+  `get_store()` would hand deletion an empty in-memory store in dev/CI.
+
 ## Unreleased — TURN credentials + call connectivity pre-flight (2026-08-25, `feat/turn-credentials`)
 Backend + JS only (no native change → OTA-able). Nothing changes until the
 owner configures a relay; see `docs/research/turn-options-2026-08-25.md`.

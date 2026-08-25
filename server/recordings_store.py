@@ -1286,3 +1286,147 @@ class RecordingsStore:
                     continue
             return out
         return await asyncio.to_thread(_list)
+
+    # -- account deletion (DELETE /me) -------------------------------------
+    # The bulk reads/deletes ``account_deletion.delete_account_data`` composes.
+    # Everything here is a WHOLE-NAMESPACE operation for ONE uid, so each takes
+    # the uid and builds its own prefix from the same ``_*_prefix`` helpers the
+    # rest of the class uses — a caller can never hand in a raw path, and no
+    # method here can reach outside ``.../{uid}/``.
+
+    def _delete_prefix_sync(self, prefix: str) -> int:
+        """Delete every object under ``prefix``; return how many were removed.
+
+        Refuses an empty or non-uid-scoped prefix outright (a guard against a
+        future caller passing "" and wiping the bucket): every namespace in
+        this store is ``<kind>/<uid>/…``, so a legal prefix always has at
+        least two path segments and a trailing slash.
+        """
+        if not prefix.endswith("/") or prefix.count("/") < 2:
+            raise ValueError(f"refusing to bulk-delete unscoped prefix {prefix!r}")
+        removed = 0
+        for blob in list(self._bucket.list_blobs(prefix=prefix)):
+            blob.delete()
+            removed += 1
+        return removed
+
+    async def list_received_share_grants(self, recipient_uid: str) -> list[dict]:
+        """The RAW reverse-index grants issued TO ``recipient_uid``:
+        ``[{owner_uid, recording_id, owner_email, created_at}, …]``.
+
+        Unlike :meth:`list_shared_with` (which resolves each grant to the
+        owner's meta for display, and silently skips grants whose recording is
+        gone), this returns the index entries themselves — deletion needs the
+        ``(owner_uid, recording_id)`` pairs so it can revoke each grant on the
+        OWNER's side too, including entries whose recording already vanished."""
+        def _list() -> list[dict]:
+            out: list[dict] = []
+            for blob in self._bucket.list_blobs(
+                prefix=self._shares_prefix(recipient_uid)
+            ):
+                if not blob.name.endswith(".json"):
+                    continue
+                try:
+                    out.append(json.loads(blob.download_as_bytes()))
+                except (ValueError, TypeError):
+                    continue
+            return out
+        return await asyncio.to_thread(_list)
+
+    async def list_recording_share_recipients(self, uid: str) -> dict[str, list[str]]:
+        """``{recording_id: [recipient_uid, …]}`` for every recording ``uid``
+        owns that has live share grants on it.
+
+        Read BEFORE the recordings are deleted: it is the only record of who
+        could see each episode, and therefore of whose private notes about it
+        must go with it (the shared-data rule — see
+        ``account_deletion``'s module docstring)."""
+        def _list() -> dict[str, list[str]]:
+            out: dict[str, list[str]] = {}
+            prefix = self._prefix(uid)
+            for blob in self._bucket.list_blobs(prefix=prefix):
+                rel = blob.name[len(prefix):]
+                recording_id, _, fname = rel.partition("/")
+                if fname != "meta.json" or not recording_id:
+                    continue
+                try:
+                    meta = json.loads(blob.download_as_bytes())
+                except (ValueError, TypeError):
+                    continue
+                recipients = [
+                    s.get("uid") for s in (meta.get("shares") or []) if s.get("uid")
+                ]
+                if recipients:
+                    out[recording_id] = recipients
+            return out
+        return await asyncio.to_thread(_list)
+
+    async def delete_all_recordings(self, uid: str) -> int:
+        """Delete every recording ``uid`` owns — audio, video, meta, turns,
+        analysis — plus each recipient's reverse-index grant. Returns the
+        number of RECORDINGS removed (not objects).
+
+        Per recording this is :meth:`delete_recording`, so the grant teardown
+        is the same code path a single delete uses; nothing about revocation
+        can drift between the two."""
+        ids = await asyncio.to_thread(self._list_recording_ids_sync, uid)
+        deleted = 0
+        for recording_id in ids:
+            if await self.delete_recording(uid, recording_id):
+                deleted += 1
+        # Sweep any partial recording (no meta.json) the id scan above skipped,
+        # so the namespace is provably empty afterwards rather than "empty of
+        # the things we could name".
+        await asyncio.to_thread(self._delete_prefix_sync, self._prefix(uid))
+        return deleted
+
+    def _list_recording_ids_sync(self, uid: str) -> list[str]:
+        prefix = self._prefix(uid)
+        ids: set[str] = set()
+        for blob in self._bucket.list_blobs(prefix=prefix):
+            recording_id, _, fname = blob.name[len(prefix):].partition("/")
+            if recording_id and fname:
+                ids.add(recording_id)
+        return sorted(ids)
+
+    async def delete_all_voiceprints(self, uid: str) -> int:
+        """Delete every enrolled person's voiceprint for ``uid`` (self, every
+        named partner, and the legacy single-document layout). Returns how many
+        PEOPLE were removed."""
+        people = await self.list_voiceprints(uid)
+        await asyncio.to_thread(self._delete_prefix_sync, self._voiceprints_prefix(uid))
+        return len(people)
+
+    async def delete_all_uploads(self, uid: str) -> int:
+        """Delete every in-progress chunked upload (manifest + parts) for
+        ``uid``. Returns the number of OBJECTS removed — an abandoned upload
+        has no stable id worth counting."""
+        return await asyncio.to_thread(self._delete_prefix_sync, f"uploads/{uid}/")
+
+    async def delete_all_jobs(self, uid: str) -> int:
+        """Delete every stored analysis-job state doc for ``uid``. Returns the
+        number of objects removed."""
+        return await asyncio.to_thread(self._delete_prefix_sync, f"jobs/{uid}/")
+
+    async def delete_all_therapist_notes(self, uid: str) -> int:
+        """Delete every note ``uid`` wrote as a viewer. Returns how many."""
+        notes = await self.list_therapist_notes(uid)
+        await asyncio.to_thread(self._delete_prefix_sync, self._therapist_notes_prefix(uid))
+        return len(notes)
+
+    async def delete_therapist_patient_entry(
+        self, therapist_uid: str, patient_uid: str,
+    ) -> bool:
+        """Remove ONE row of a therapist's reverse patient index. ``True`` when
+        one existed. Used when the THERAPIST's account is deleted: each linked
+        patient's own ``therapist_links/{patient}/link.json`` is removed by
+        :meth:`delete_therapist_link`, and this clears the matching row."""
+        def _delete() -> bool:
+            blob = self._bucket.blob(
+                self._therapist_patient_blob_name(therapist_uid, patient_uid)
+            )
+            if not blob.exists():
+                return False
+            blob.delete()
+            return True
+        return await asyncio.to_thread(_delete)

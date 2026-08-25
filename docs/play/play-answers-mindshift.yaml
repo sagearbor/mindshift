@@ -18,8 +18,8 @@ _schema:
     - "`why:` is the justification — paste it into a Play appeal if one is ever needed."
     - "`proof:` is a file:line in this repo that makes the claim checkable."
     - "OWNER_MUST_SUPPLY means: stop, leave the field blank, report it, move on."
-  verified_against_commit: 1eb5760  # origin/main, 2026-08-25
-  last_updated: 2026-08-25
+  verified_against_commit: f04a5c1  # origin/main, 2026-08-25 (+ the account-deletion branch)
+  last_updated: 2026-08-26
   authored_by: Claude (agent), from a full read of server/ and apps/mobile/
 
 app_identity:
@@ -333,13 +333,73 @@ data_safety:
     do_you_provide_a_way_for_users_to_request_that_their_data_is_deleted:
       value: "Yes"
       deletion_url: "https://arborfam-hub.web.app/delete-account"
+      account_deletion_is_self_serve: true
       why: >
-        In-app, a user can delete individual recordings and every share grant on
-        them, their voiceprint ("Forget my voice"), individual enrolled people
-        and individual voice samples, their therapist link, and an in-progress
-        upload. Full account deletion is a documented email request handled by
-        the developer — there is no self-serve account-delete endpoint yet.
+        FULL ACCOUNT DELETION IS SELF-SERVE AND IMMEDIATE. Settings → Account →
+        "Delete my account" lists exactly what will go, requires the user to
+        type DELETE, then calls DELETE /me, which erases every tier of stored
+        data for the authenticated uid and finally deletes the Firebase Auth
+        user itself. No email, no waiting period, no human in the loop; the
+        user is signed out on success. The same control is in the web build
+        (one Expo codebase — react-native-web), so a browser-only user has the
+        identical path. Play's required "delete account" path and its optional
+        "delete some data" path are BOTH satisfied: partial deletes (one
+        recording, the voiceprint, one enrolled person, one voice sample, one
+        share grant, the therapist link, an in-progress upload) all still exist
+        as their own in-app actions.
+      deletion_scope: >
+        DELETE /me erases, for the caller's uid only: recordings/{uid}/ (audio,
+        360p video, transcripts, analysis, titles, speaker labels); every share
+        grant on those episodes plus the recipients' reverse-index objects;
+        shared/{uid}/ (grants others made to the user), revoked on the owner's
+        side too; voiceprints/{uid}/ (self, every named person, and the legacy
+        layout); uploads/{uid}/; jobs/{uid}/; therapist_links/{uid}/ and
+        therapist_patients/{uid}/ with the counterpart rows on the other
+        account; therapist_notes/{uid}/; the notes OTHER accounts wrote about
+        this user's episodes; the Firestore live_sessions / baselines /
+        subscriptions / accounts / speaker_profiles / captures (blob first,
+        then doc) / groups membership / device_tokens / pairings /
+        failed_claim_attempts / diagnostics telemetry docs keyed to the uid;
+        the SQLite sessions + relationships (+ participants, voice_profiles)
+        rows; and last of all the Firebase Auth user.
+      shared_data_rule: >
+        A session the user shared with a therapist is still the USER'S — sharing
+        grants a view, never ownership — so account deletion deletes the session
+        itself and every grant on it, and the therapist's private notes ABOUT
+        THAT SESSION go with it (a note is an annotation on the patient's
+        content; keeping it would leave a record of the conversation under
+        another account). Notes that therapist wrote on anyone else's sessions,
+        and every other part of their account, are untouched. The same wording
+        is in the privacy policy and on the /delete-account page.
+      not_reachable_by_deletion: >
+        Videos the app also saved to the user's own phone photo library (their
+        device, their copy); anything another person exported or screenshotted;
+        Cloud Run operational logs (timestamps, status codes, request ids,
+        account identifiers — never transcripts/audio/analysis) until they
+        rotate; watch-sent telemetry, which is keyed to a device id and carries
+        no account id at all. All three are stated on the /delete-account page
+        and in the privacy policy.
+      safety_guards: >
+        The endpoint acts ONLY on the uid in the verified token — nothing in the
+        path, query or body names an account, so a therapist can never delete a
+        patient nor vice versa. It requires a FRESHLY ISSUED ID token
+        (auth.get_fresh_uid, default 10-minute window; the client force-
+        refreshes via getIdToken(true)) so a stale captured token cannot replay
+        it, a body of exactly {"confirm": "DELETE"} (422 otherwise), and has its
+        own per-IP rate limit of 3/min. Every deletion is logged at INFO with
+        the uid, the per-category counts and the elapsed time.
       proof:
+        - server/routers/account.py                 # DELETE /me — guards, rate limit, logging
+        - server/account_deletion.py                # the tier walk + the documented scope/rules
+        - server/auth.py:159-235                    # get_fresh_uid + delete_firebase_user (called LAST)
+        - server/recordings_store.py:1290-1440      # the uid-scoped bulk-delete surface
+        - server/watch/store.py                     # delete_baseline/subscriptions/account/speaker_profile/group
+        - server/watch/pairing_store.py             # delete_pairings_for_account, delete_failed_claim_record
+        - server/watch/telemetry_store.py           # delete_events_for_account (data.uid)
+        - server/tests/test_account_deletion.py     # full walk, idempotency, confirm guard, scoping, ordering
+        - apps/mobile/src/api/account.ts            # force-refreshed token + typed confirmation
+        - apps/mobile/src/screens/AdvancedScreen.tsx  # Settings → Account → Delete my account
+        - apps/mobile/__tests__/DeleteAccount.test.tsx
         - server/main.py:3707-3720                  # DELETE /recordings/{id}
         - server/main.py:3776-3794                  # DELETE /recordings/{id}/shares/{uid}
         - server/routers/voice.py:1055-1067         # DELETE /voice/voiceprint  ("Forget my voice")
@@ -348,19 +408,12 @@ data_safety:
         - server/routers/therapist.py:160-164       # DELETE /therapist/link
         - server/watch/routers/rest.py:513-526      # DELETE /live-sessions/{id}
         - server/watch/routers/captures.py:227-257  # DELETE /captures/{id} — blob then doc
-        - apps/mobile/src/screens/AdvancedScreen.tsx:229,265  # the in-app buttons
         - apps/mobile/src/screens/RecordingsScreen.tsx:126
-      known_gap_owner_must_close: >
-        There is NO endpoint and NO UI that deletes an account and everything
-        under it. Play REQUIRES an account-deletion path for any app with
-        account creation, and the URL above must actually work. The page
-        docs ships (apps/mobile/public/delete-account/index.html) makes it an
-        email request to sagearbor@gmail.com, which Play accepts — but the owner
-        must actually honour those emails, and a server-side
-        DELETE /me endpoint (recordings/, voiceprints/, therapist_links/,
-        therapist_notes/, shared/ under the uid, plus the Firestore accounts /
-        speaker_profiles / live_sessions / captures docs and the Firebase Auth
-        user) is the real fix. Tracked as an owner action, not invented here.
+      owner_action_remaining: >
+        The email fallback on the /delete-account page is now only for someone
+        who can no longer sign in. The owner must still honour those — but they
+        should be rare, and the in-app path is what Play's URL check will find
+        described first.
     data_types_not_collected_at_all:
       - "Location (approximate and precise)"        # no location lib, no permission
       - "Financial info (all)"                      # no billing, no payments
@@ -452,7 +505,11 @@ data_safety:
         into an outbound provider payload. The only place it leaves the server is
         back to the enrolling account's own phone, on an explicit
         include_embeddings=true request, so the phone can match speakers locally.
-      user_can_delete: "Yes — Settings → Advanced → Forget my voice, and per-person / per-sample deletes."
+      user_can_delete: >
+        Yes — Settings → Voice → Forget my voice, plus per-person and per-sample
+        deletes, and Settings → Account → Delete my account removes every
+        enrolled person's voiceprint (self, named partners, and the legacy
+        single-document layout) as part of erasing the whole account.
       proof:
         - server/speaker_id.py:52,245-266                  # EMBEDDING_DIM = 192; embed_pcm -> l2_normalize
         - server/recordings_store.py:1018-1023,1048-1055   # 'biometric data'; voiceprints/{uid}/{person_id}/profile.json
@@ -698,7 +755,12 @@ data_safety:
       reasoning: "See _reading_note at the top of this section."
 
   _open_risks_the_owner_should_know_about:
-    - "No account-deletion endpoint or UI exists (see known_gap_owner_must_close)."
+    - >
+      Account deletion is now self-serve and immediate (DELETE /me + Settings →
+      Account → Delete my account). It is IRREVERSIBLE by design — no soft
+      delete, no tombstone, no restore window — which is what the policy and
+      the /delete-account page promise, and what Play requires. The email
+      fallback on that page survives only for a user who can no longer sign in.
     - >
       No provider-side retention controls are configured: no Anthropic
       zero-data-retention / no-training header (server/llm_client.py:474-479) and
@@ -847,6 +909,8 @@ store_listing:
         in Settings deletes it.
       • Sharing is something you do on purpose, to one therapist you name by
         email, and you can revoke it.
+      • Delete your whole account, and everything in it, yourself: Settings →
+        Account → Delete my account. It happens immediately.
       • No ads. No advertising SDKs. Nothing sold to anyone, ever.
 
       WHAT IT IS NOT

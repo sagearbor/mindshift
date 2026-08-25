@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import logging
 import os
+from dataclasses import dataclass
 
 from fastapi import APIRouter, Request
 
@@ -83,14 +84,31 @@ async def _rate_limit(request: Request) -> None:
     await main._rate_limit(request)
 
 
-def build_watch_routers() -> list[APIRouter]:
-    """Assemble every watch router against real, env-driven dependencies.
+@dataclass(frozen=True)
+class WatchDeps:
+    """The watch domain's four storage tiers, built once and shared.
 
-    Returns them as a flat list, in the same order gauge's ``create_app``
-    mounted them, for ``server/main.py``'s include block to iterate over.
+    Every watch router closes over these instances, so anything OUTSIDE the
+    watch routers that must reach the same data — today only ``DELETE /me``
+    (server/routers/account.py), which has to delete a user's live sessions,
+    captures, groups, watch pairings and diagnostics — needs the same objects,
+    not a second ``get_store()`` call. That distinction is load-bearing in
+    keyless dev and CI, where ``get_store()`` returns a fresh EMPTY in-memory
+    store each time: a second one would let account deletion truthfully report
+    "nothing to delete" while the live store still held everything.
+
+    ``server/main.py`` builds one of these at import, stashes it on
+    ``app.state.watch_deps``, and hands it to :func:`build_watch_routers`.
     """
-    settings = Settings()
 
+    store: object
+    pairing_store: object
+    telemetry_store: object
+    blobs: object | None
+
+
+def build_watch_deps() -> WatchDeps:
+    """Build the watch domain's storage tiers from env (see :class:`WatchDeps`)."""
     # I2 (final whole-branch review 2026-08-15): the in-memory/None fallbacks
     # below are correct for keyless local dev and CI, but silent in prod —
     # flag them loudly so a misconfigured deploy is caught before it loses
@@ -105,11 +123,32 @@ def build_watch_routers() -> list[APIRouter]:
             "watch domain running with no capture blob store — capture "
             "audio uploads will 503 (set MINDSHIFT_CAPTURE_BUCKET)"
         )
+    return WatchDeps(
+        store=get_store(),
+        pairing_store=get_pairing_store(),
+        telemetry_store=get_telemetry_store(),
+        blobs=get_blob_store(),
+    )
 
-    store = get_store()
-    pairing_store = get_pairing_store()
-    telemetry_store = get_telemetry_store()
-    blobs = get_blob_store()
+
+def build_watch_routers(deps: "WatchDeps | None" = None) -> list[APIRouter]:
+    """Assemble every watch router against real, env-driven dependencies.
+
+    Returns them as a flat list, in the same order gauge's ``create_app``
+    mounted them, for ``server/main.py``'s include block to iterate over.
+
+    ``deps`` lets the caller supply the storage tiers it ALSO holds a
+    reference to (``server/main.py`` does, for ``DELETE /me`` — see
+    :class:`WatchDeps`); omitted, this builds its own set exactly as before.
+    """
+    settings = Settings()
+    if deps is None:
+        deps = build_watch_deps()
+
+    store = deps.store
+    pairing_store = deps.pairing_store
+    telemetry_store = deps.telemetry_store
+    blobs = deps.blobs
 
     transcriber = build_transcriber(settings)
     llm = build_llm()
