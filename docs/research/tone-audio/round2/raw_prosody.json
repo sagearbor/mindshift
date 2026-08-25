@@ -1,0 +1,3822 @@
+{
+ "backend": "prosody",
+ "model": "prosody.py",
+ "license": "ours (numpy)",
+ "load_s": 3.33995558321476e-07,
+ "rss_before_mb": 62.75072,
+ "rss_after_load_mb": 62.75072,
+ "size_bytes": 0,
+ "pinned_threshold": null,
+ "fixtures": {
+  "gptaudio": {
+   "self_speaker": null,
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker A",
+     "seconds": 7.25,
+     "text": "Hey, can we talk about the dishes? They've been piling up all week and I wanted to check in before it becomes a thing.",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 31.7,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -33.177,
+       "f0_median": 188.23529411764707,
+       "f0_std": 94.67981839182649,
+       "voiced_fraction": 0.7493074792243767
+      },
+      "arousal": -33.1775,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -53.177,
+       "f0_median": 188.23529411764707,
+       "f0_std": 94.67981839182649,
+       "voiced_fraction": 0.7493074792243767
+      },
+      "arousal": -53.1775,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker B",
+     "seconds": 6.05,
+     "text": "Sure, but I did them Tuesday night. I don't think it's fair to act like I never touch them.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 26.2,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -23.783,
+       "f0_median": 95.80838323353294,
+       "f0_std": 148.73172081432725,
+       "voiced_fraction": 0.770764119601329
+      },
+      "arousal": -23.7834,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -43.783,
+       "f0_median": 95.80838323353294,
+       "f0_std": 148.73172081432725,
+       "voiced_fraction": 0.770764119601329
+      },
+      "arousal": -43.7834,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker A",
+     "seconds": 6.85,
+     "text": "Tuesday was five days ago. I've done every load since then and I'm getting tired of keeping score.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 29.6,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -26.318,
+       "f0_median": 271.1864406779661,
+       "f0_std": 69.33358004493857,
+       "voiced_fraction": 0.7844574780058651
+      },
+      "arousal": -26.318,
+      "escalation": {
+       "delta": 6.8595,
+       "baseline": -33.1775,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -46.318,
+       "f0_median": 271.1864406779661,
+       "f0_std": 69.33358004493857,
+       "voiced_fraction": 0.7844574780058651
+      },
+      "arousal": -46.318,
+      "escalation": {
+       "delta": 6.8595,
+       "baseline": -53.1775,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker B",
+     "seconds": 6.4,
+     "text": "So now I'm the villain because I didn't get to it fast enough? I have a life outside this kitchen too.",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 27.6,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -20.861,
+       "f0_median": 164.94845360824743,
+       "f0_std": 113.24109968657697,
+       "voiced_fraction": 0.7786499215070644
+      },
+      "arousal": -20.8608,
+      "escalation": {
+       "delta": 2.9226,
+       "baseline": -23.7834,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -40.861,
+       "f0_median": 164.94845360824743,
+       "f0_std": 113.24109968657697,
+       "voiced_fraction": 0.7786499215070644
+      },
+      "arousal": -40.8608,
+      "escalation": {
+       "delta": 2.9226,
+       "baseline": -43.7834,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker A",
+     "seconds": 7.25,
+     "text": "I AM SO SICK OF BEING THE ONLY ONE WHO CARES ABOUT THIS HOUSE! I CANNOT DO THIS BY MYSELF ANYMORE!",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 31.4,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -23.592,
+       "f0_median": 340.4255319148936,
+       "f0_std": 79.35684226811517,
+       "voiced_fraction": 0.7825484764542936
+      },
+      "arousal": -23.5922,
+      "escalation": {
+       "delta": 6.1556,
+       "baseline": -29.7478,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -43.592,
+       "f0_median": 340.4255319148936,
+       "f0_std": 79.35684226811517,
+       "voiced_fraction": 0.7825484764542936
+      },
+      "arousal": -43.5922,
+      "escalation": {
+       "delta": 6.1555,
+       "baseline": -49.7477,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker B",
+     "seconds": 5.75,
+     "text": "Wow. Impressive speech. You really do love playing the martyr, don't you.",
+     "scripted": "cold_contempt",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 24.9,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -22.214,
+       "f0_median": 101.91082802547771,
+       "f0_std": 146.32577551933582,
+       "voiced_fraction": 0.8094405594405595
+      },
+      "arousal": -22.2139,
+      "escalation": {
+       "delta": 0.1082,
+       "baseline": -22.3221,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -42.214,
+       "f0_median": 101.91082802547771,
+       "f0_std": 146.32577551933582,
+       "voiced_fraction": 0.8094405594405595
+      },
+      "arousal": -42.2139,
+      "escalation": {
+       "delta": 0.1082,
+       "baseline": -42.3221,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker A",
+     "seconds": 7.85,
+     "text": "I don't want to be the martyr. I just... I wanted us to be a team, and I don't feel like one right now.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 33.9,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -29.503,
+       "f0_median": 258.06451612903226,
+       "f0_std": 84.310970973766,
+       "voiced_fraction": 0.8107416879795396
+      },
+      "arousal": -29.5033,
+      "escalation": {
+       "delta": -3.1853,
+       "baseline": -26.318,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -49.503,
+       "f0_median": 258.06451612903226,
+       "f0_std": 84.310970973766,
+       "voiced_fraction": 0.8107416879795396
+      },
+      "arousal": -49.5033,
+      "escalation": {
+       "delta": -3.1853,
+       "baseline": -46.318,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker B",
+     "seconds": 8.55,
+     "text": "I don't want that either. I don't want us to be like this. I'm actually scared we're breaking something here.",
+     "scripted": "scared_shaky",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 36.9,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -22.47,
+       "f0_median": 128.0,
+       "f0_std": 142.6170427768699,
+       "voiced_fraction": 0.6913145539906104
+      },
+      "arousal": -22.4699,
+      "escalation": {
+       "delta": -0.256,
+       "baseline": -22.2139,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -42.47,
+       "f0_median": 128.0,
+       "f0_std": 142.6170427768699,
+       "voiced_fraction": 0.6913145539906104
+      },
+      "arousal": -42.4699,
+      "escalation": {
+       "delta": -0.256,
+       "baseline": -42.2139,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker A",
+     "seconds": 7.9,
+     "text": "I don't want that either. Can we just stop and figure out a system together? Something that actually works for both of us?",
+     "scripted": "repair_hopeful",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 34.1,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -33.082,
+       "f0_median": 175.82417582417582,
+       "f0_std": 101.32837374500323,
+       "voiced_fraction": 0.7496823379923762
+      },
+      "arousal": -33.0822,
+      "escalation": {
+       "delta": -5.1715,
+       "baseline": -27.9107,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -53.082,
+       "f0_median": 175.82417582417582,
+       "f0_std": 101.32837374500323,
+       "voiced_fraction": 0.7496823379923762
+      },
+      "arousal": -53.0822,
+      "escalation": {
+       "delta": -5.1715,
+       "baseline": -47.9107,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker B",
+     "seconds": 7.25,
+     "text": "Yeah. Let's start over. I'm sorry I got so defensive \u2014 I do want to fix this with you.",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 31.3,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -24.504,
+       "f0_median": 93.02325581395348,
+       "f0_std": 153.5489889937754,
+       "voiced_fraction": 0.7700831024930748
+      },
+      "arousal": -24.504,
+      "escalation": {
+       "delta": -2.1621,
+       "baseline": -22.3419,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -44.504,
+       "f0_median": 93.02325581395348,
+       "f0_std": 153.5489889937754,
+       "voiced_fraction": 0.7700831024930748
+      },
+      "arousal": -44.504,
+      "escalation": {
+       "delta": -2.1621,
+       "baseline": -42.3419,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    }
+   ]
+  },
+  "openai": {
+   "self_speaker": null,
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker A",
+     "seconds": 7.2,
+     "text": "Hey, can we talk about the dishes? They've been piling up all week and I wanted to check in before it becomes a thing.",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 31.5,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -27.537,
+       "f0_median": 190.47619047619048,
+       "f0_std": 106.64887913873939,
+       "voiced_fraction": 0.806136680613668
+      },
+      "arousal": -27.5371,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -47.537,
+       "f0_median": 190.47619047619048,
+       "f0_std": 106.64887913873939,
+       "voiced_fraction": 0.806136680613668
+      },
+      "arousal": -47.5371,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker B",
+     "seconds": 5.55,
+     "text": "Sure, but I did them Tuesday night. I don't think it's fair to act like I never touch them.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 24.0,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -22.72,
+       "f0_median": 99.37888198757764,
+       "f0_std": 144.14087120092006,
+       "voiced_fraction": 0.7880434782608695
+      },
+      "arousal": -22.7204,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -42.72,
+       "f0_median": 99.37888198757764,
+       "f0_std": 144.14087120092006,
+       "voiced_fraction": 0.7880434782608695
+      },
+      "arousal": -42.7204,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker A",
+     "seconds": 6.0,
+     "text": "Tuesday was five days ago. I've done every load since then and I'm getting tired of keeping score.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 24.6,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -27.939,
+       "f0_median": 195.1219512195122,
+       "f0_std": 77.88867373111992,
+       "voiced_fraction": 0.7520938023450586
+      },
+      "arousal": -27.9391,
+      "escalation": {
+       "delta": -0.402,
+       "baseline": -27.5371,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -47.939,
+       "f0_median": 195.1219512195122,
+       "f0_std": 77.88867373111992,
+       "voiced_fraction": 0.7520938023450586
+      },
+      "arousal": -47.9391,
+      "escalation": {
+       "delta": -0.402,
+       "baseline": -47.5371,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker B",
+     "seconds": 7.2,
+     "text": "So now I'm the villain because I didn't get to it fast enough? I have a life outside this kitchen too.",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 31.5,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -23.706,
+       "f0_median": 94.11764705882354,
+       "f0_std": 146.899722039847,
+       "voiced_fraction": 0.7782426778242678
+      },
+      "arousal": -23.7056,
+      "escalation": {
+       "delta": -0.9852,
+       "baseline": -22.7204,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -43.706,
+       "f0_median": 94.11764705882354,
+       "f0_std": 146.899722039847,
+       "voiced_fraction": 0.7782426778242678
+      },
+      "arousal": -43.7056,
+      "escalation": {
+       "delta": -0.9852,
+       "baseline": -42.7204,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker A",
+     "seconds": 7.1,
+     "text": "I AM SO SICK OF BEING THE ONLY ONE WHO CARES ABOUT THIS HOUSE! I CANNOT DO THIS BY MYSELF ANYMORE!",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 30.6,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -28.849,
+       "f0_median": 207.7922077922078,
+       "f0_std": 73.71800277400425,
+       "voiced_fraction": 0.7609618104667609
+      },
+      "arousal": -28.8489,
+      "escalation": {
+       "delta": -1.1108,
+       "baseline": -27.7381,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -48.849,
+       "f0_median": 207.7922077922078,
+       "f0_std": 73.71800277400425,
+       "voiced_fraction": 0.7609618104667609
+      },
+      "arousal": -48.8489,
+      "escalation": {
+       "delta": -1.1108,
+       "baseline": -47.7381,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker B",
+     "seconds": 5.5,
+     "text": "Wow. Impressive speech. You really do love playing the martyr, don't you.",
+     "scripted": "cold_contempt",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 23.7,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -22.736,
+       "f0_median": 100.62893081761007,
+       "f0_std": 144.02630796004635,
+       "voiced_fraction": 0.8519195612431444
+      },
+      "arousal": -22.7357,
+      "escalation": {
+       "delta": 0.4773,
+       "baseline": -23.213,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -42.736,
+       "f0_median": 100.62893081761007,
+       "f0_std": 144.02630796004635,
+       "voiced_fraction": 0.8519195612431444
+      },
+      "arousal": -42.7357,
+      "escalation": {
+       "delta": 0.4773,
+       "baseline": -43.213,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker A",
+     "seconds": 7.1,
+     "text": "I don't want to be the martyr. I just... I wanted us to be a team, and I don't feel like one right now.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 30.3,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -29.559,
+       "f0_median": 192.7710843373494,
+       "f0_std": 92.27851950024929,
+       "voiced_fraction": 0.7524752475247525
+      },
+      "arousal": -29.5588,
+      "escalation": {
+       "delta": -1.6197,
+       "baseline": -27.9391,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -49.559,
+       "f0_median": 192.7710843373494,
+       "f0_std": 92.27851950024929,
+       "voiced_fraction": 0.7524752475247525
+      },
+      "arousal": -49.5588,
+      "escalation": {
+       "delta": -1.6197,
+       "baseline": -47.9391,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker B",
+     "seconds": 6.95,
+     "text": "I don't want that either. I don't want us to be like this. I'm actually scared we're breaking something here.",
+     "scripted": "scared_shaky",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 30.0,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -23.268,
+       "f0_median": 94.67455621301775,
+       "f0_std": 143.20769481837692,
+       "voiced_fraction": 0.7846820809248555
+      },
+      "arousal": -23.2682,
+      "escalation": {
+       "delta": -0.5325,
+       "baseline": -22.7357,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -43.268,
+       "f0_median": 94.67455621301775,
+       "f0_std": 143.20769481837692,
+       "voiced_fraction": 0.7846820809248555
+      },
+      "arousal": -43.2682,
+      "escalation": {
+       "delta": -0.5325,
+       "baseline": -42.7357,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker A",
+     "seconds": 8.35,
+     "text": "I don't want that either. Can we just stop and figure out a system together? Something that actually works for both of us?",
+     "scripted": "repair_hopeful",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 34.5,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -28.204,
+       "f0_median": 214.77477477477478,
+       "f0_std": 87.18697322864205,
+       "voiced_fraction": 0.7115384615384616
+      },
+      "arousal": -28.204,
+      "escalation": {
+       "delta": 0.19,
+       "baseline": -28.394,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -48.204,
+       "f0_median": 214.77477477477478,
+       "f0_std": 87.18697322864205,
+       "voiced_fraction": 0.7115384615384616
+      },
+      "arousal": -48.204,
+      "escalation": {
+       "delta": 0.19,
+       "baseline": -48.394,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker B",
+     "seconds": 5.85,
+     "text": "Yeah. Let's start over. I'm sorry I got so defensive \u2014 I do want to fix this with you.",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 25.3,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -23.241,
+       "f0_median": 96.67761956918584,
+       "f0_std": 144.76715662930997,
+       "voiced_fraction": 0.7594501718213058
+      },
+      "arousal": -23.2414,
+      "escalation": {
+       "delta": -0.2394,
+       "baseline": -23.002,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -43.241,
+       "f0_median": 96.67761956918584,
+       "f0_std": 144.76715662930997,
+       "voiced_fraction": 0.7594501718213058
+      },
+      "arousal": -43.2414,
+      "escalation": {
+       "delta": -0.2394,
+       "baseline": -43.002,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    }
+   ]
+  },
+  "scene_couple_escalation": {
+   "self_speaker": "Speaker A",
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker A",
+     "seconds": 4.097,
+     "text": "Hey, I looked at the credit card statement tonight. Can we go over it?",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 17.7,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -22.877,
+       "f0_median": 103.8961038961039,
+       "f0_std": 143.06955285124113,
+       "voiced_fraction": 0.8201970443349754
+      },
+      "arousal": -22.8766,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -42.877,
+       "f0_median": 103.8961038961039,
+       "f0_std": 143.06955285124113,
+       "voiced_fraction": 0.8201970443349754
+      },
+      "arousal": -42.8766,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker B",
+     "seconds": 5.242,
+     "text": "Sure. I know it's higher than usual, but most of that was the car repair.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 21.6,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -26.957,
+       "f0_median": 206.46020646020645,
+       "f0_std": 74.79219841940571,
+       "voiced_fraction": 0.7178502879078695
+      },
+      "arousal": -26.9575,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -46.957,
+       "f0_median": 206.46020646020645,
+       "f0_std": 74.79219841940571,
+       "voiced_fraction": 0.7178502879078695
+      },
+      "arousal": -46.9575,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker A",
+     "seconds": 4.705,
+     "text": "The car was six hundred. There's another nine hundred I can't place.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 20.3,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -22.336,
+       "f0_median": 96.96969696969697,
+       "f0_std": 144.37938704206405,
+       "voiced_fraction": 0.7708779443254818
+      },
+      "arousal": -22.3365,
+      "escalation": {
+       "delta": 0.5401,
+       "baseline": -22.8766,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -42.336,
+       "f0_median": 96.96969696969697,
+       "f0_std": 144.37938704206405,
+       "voiced_fraction": 0.7708779443254818
+      },
+      "arousal": -42.3365,
+      "escalation": {
+       "delta": 0.5401,
+       "baseline": -42.8766,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker B",
+     "seconds": 5.126,
+     "text": "Some was groceries, some was your mom's birthday gift. I didn't hide anything.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 22.1,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -29.886,
+       "f0_median": 219.17808219178082,
+       "f0_std": 79.33099635700846,
+       "voiced_fraction": 0.7328094302554028
+      },
+      "arousal": -29.8864,
+      "escalation": {
+       "delta": -2.9289,
+       "baseline": -26.9575,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -49.886,
+       "f0_median": 219.17808219178082,
+       "f0_std": 79.33099635700846,
+       "voiced_fraction": 0.7328094302554028
+      },
+      "arousal": -49.8864,
+      "escalation": {
+       "delta": -2.9289,
+       "baseline": -46.9575,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker A",
+     "seconds": 4.942,
+     "text": "I'm not saying you hid it. I'm saying we agreed to talk before spending like that.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 21.3,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -21.388,
+       "f0_median": 93.02325581395348,
+       "f0_std": 108.3394735624338,
+       "voiced_fraction": 0.745417515274949
+      },
+      "arousal": -21.3875,
+      "escalation": {
+       "delta": 1.219,
+       "baseline": -22.6065,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -41.388,
+       "f0_median": 93.02325581395348,
+       "f0_std": 108.3394735624338,
+       "voiced_fraction": 0.745417515274949
+      },
+      "arousal": -41.3875,
+      "escalation": {
+       "delta": 1.219,
+       "baseline": -42.6065,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker B",
+     "seconds": 5.234,
+     "text": "We talked about it in the car. You just weren't listening, like always.",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 22.5,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -27.442,
+       "f0_median": 242.42424242424244,
+       "f0_std": 93.69474744451611,
+       "voiced_fraction": 0.801923076923077
+      },
+      "arousal": -27.4423,
+      "escalation": {
+       "delta": 0.9796,
+       "baseline": -28.4219,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -47.442,
+       "f0_median": 242.42424242424244,
+       "f0_std": 93.69474744451611,
+       "voiced_fraction": 0.801923076923077
+      },
+      "arousal": -47.4423,
+      "escalation": {
+       "delta": 0.9796,
+       "baseline": -48.422,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker A",
+     "seconds": 5.699,
+     "text": "LIKE ALWAYS? I AM THE ONLY ONE IN THIS HOUSE WHO EVEN LOOKS AT THE BILLS!",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 24.5,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -21.769,
+       "f0_median": 103.2258064516129,
+       "f0_std": 132.98243394989797,
+       "voiced_fraction": 0.7826855123674912
+      },
+      "arousal": -21.7686,
+      "escalation": {
+       "delta": 0.5679,
+       "baseline": -22.3365,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -41.769,
+       "f0_median": 103.2258064516129,
+       "f0_std": 132.98243394989797,
+       "voiced_fraction": 0.7826855123674912
+      },
+      "arousal": -41.7686,
+      "escalation": {
+       "delta": 0.5679,
+       "baseline": -42.3365,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker B",
+     "seconds": 3.921,
+     "text": "Please don't yell at me. I'm right here, I can hear you.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 16.9,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -27.984,
+       "f0_median": 250.0,
+       "f0_std": 89.23538933916066,
+       "voiced_fraction": 0.897172236503856
+      },
+      "arousal": -27.9836,
+      "escalation": {
+       "delta": -0.5413,
+       "baseline": -27.4423,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -47.984,
+       "f0_median": 250.0,
+       "f0_std": 89.23538933916066,
+       "voiced_fraction": 0.897172236503856
+      },
+      "arousal": -47.9836,
+      "escalation": {
+       "delta": -0.5413,
+       "baseline": -47.4423,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker A",
+     "seconds": 5.267,
+     "text": "Forget it. Clearly budgeting is beneath you. I'll just handle it, like everything else.",
+     "scripted": "cold_contempt",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 22.7,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -22.738,
+       "f0_median": 91.42857142857143,
+       "f0_std": 143.31820979636404,
+       "voiced_fraction": 0.8011472275334608
+      },
+      "arousal": -22.7376,
+      "escalation": {
+       "delta": -0.6851,
+       "baseline": -22.0526,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -42.738,
+       "f0_median": 91.42857142857143,
+       "f0_std": 143.31820979636404,
+       "voiced_fraction": 0.8011472275334608
+      },
+      "arousal": -42.7376,
+      "escalation": {
+       "delta": -0.6851,
+       "baseline": -42.0525,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker B",
+     "seconds": 5.695,
+     "text": "That's not fair. I'm trying, and you talk to me like I'm a child.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 24.6,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -28.527,
+       "f0_median": 188.23529411764707,
+       "f0_std": 101.59421414799885,
+       "voiced_fraction": 0.7243816254416962
+      },
+      "arousal": -28.5266,
+      "escalation": {
+       "delta": -0.8136,
+       "baseline": -27.7129,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -48.527,
+       "f0_median": 188.23529411764707,
+       "f0_std": 101.59421414799885,
+       "voiced_fraction": 0.7243816254416962
+      },
+      "arousal": -48.5266,
+      "escalation": {
+       "delta": -0.8136,
+       "baseline": -47.713,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 10,
+     "speaker": "Speaker A",
+     "seconds": 4.332,
+     "text": "You're right. I'm sorry. That came out way harsher than I meant.",
+     "scripted": "repair_apology",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 18.7,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -23.704,
+       "f0_median": 101.26582278481013,
+       "f0_std": 148.79666044435814,
+       "voiced_fraction": 0.8813953488372093
+      },
+      "arousal": -23.7038,
+      "escalation": {
+       "delta": -1.3673,
+       "baseline": -22.3365,
+       "history": 5,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -43.704,
+       "f0_median": 101.26582278481013,
+       "f0_std": 148.79666044435814,
+       "voiced_fraction": 0.8813953488372093
+      },
+      "arousal": -43.7038,
+      "escalation": {
+       "delta": -1.3673,
+       "baseline": -42.3365,
+       "history": 5,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 11,
+     "speaker": "Speaker B",
+     "seconds": 5.579,
+     "text": "Thank you. Can we just sit down Sunday and do it together, no phones?",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 24.0,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -30.836,
+       "f0_median": 188.23529411764707,
+       "f0_std": 107.7048705973635,
+       "voiced_fraction": 0.8194945848375451
+      },
+      "arousal": -30.8362,
+      "escalation": {
+       "delta": -2.8526,
+       "baseline": -27.9836,
+       "history": 5,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -50.836,
+       "f0_median": 188.23529411764707,
+       "f0_std": 107.7048705973635,
+       "voiced_fraction": 0.8194945848375451
+      },
+      "arousal": -50.8362,
+      "escalation": {
+       "delta": -2.8526,
+       "baseline": -47.9836,
+       "history": 5,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 12,
+     "speaker": "Speaker A",
+     "seconds": 4.927,
+     "text": "Yeah. Sunday. I'd like that. And I'll bring the good coffee.",
+     "scripted": "warm_happy",
+     "coarse": "happy",
+     "skipped": null,
+     "latency_ms": 21.4,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -23.379,
+       "f0_median": 103.2258064516129,
+       "f0_std": 151.0426459753603,
+       "voiced_fraction": 0.852760736196319
+      },
+      "arousal": -23.3791,
+      "escalation": {
+       "delta": -0.8421,
+       "baseline": -22.5371,
+       "history": 6,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -43.379,
+       "f0_median": 103.2258064516129,
+       "f0_std": 151.0426459753603,
+       "voiced_fraction": 0.852760736196319
+      },
+      "arousal": -43.3791,
+      "escalation": {
+       "delta": -0.8421,
+       "baseline": -42.5371,
+       "history": 6,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    }
+   ]
+  },
+  "scene_family3": {
+   "self_speaker": "Speaker A",
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker C",
+     "seconds": 3.862,
+     "text": "Okay, dinner's in ten minutes. Who's setting the table tonight?",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 16.7,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -19.362,
+       "f0_median": 183.90804597701148,
+       "f0_std": 93.94807861511549,
+       "voiced_fraction": 0.762402088772846
+      },
+      "arousal": -19.3615,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -39.362,
+       "f0_median": 183.90804597701148,
+       "f0_std": 93.94807861511549,
+       "voiced_fraction": 0.762402088772846
+      },
+      "arousal": -39.3615,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker B",
+     "seconds": 4.277,
+     "text": "Not me, I did it yesterday. And the day before, actually.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 18.0,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -22.313,
+       "f0_median": 235.2941176470588,
+       "f0_std": 98.14507227939008,
+       "voiced_fraction": 0.7688679245283019
+      },
+      "arousal": -22.3125,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -42.313,
+       "f0_median": 235.2941176470588,
+       "f0_std": 98.14507227939008,
+       "voiced_fraction": 0.7688679245283019
+      },
+      "arousal": -42.3125,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker A",
+     "seconds": 3.284,
+     "text": "Then it's my turn. Grab the plates for me, would you?",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 14.5,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -21.309,
+       "f0_median": 97.5609756097561,
+       "f0_std": 124.36768348882318,
+       "voiced_fraction": 0.8123076923076923
+      },
+      "arousal": -21.3092,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -41.309,
+       "f0_median": 97.5609756097561,
+       "f0_std": 124.36768348882318,
+       "voiced_fraction": 0.8123076923076923
+      },
+      "arousal": -41.3092,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker C",
+     "seconds": 3.672,
+     "text": "Also, someone left the milk out again. All afternoon.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 16.2,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -18.774,
+       "f0_median": 161.6161616161616,
+       "f0_std": 94.18144345398525,
+       "voiced_fraction": 0.8076923076923077
+      },
+      "arousal": -18.774,
+      "escalation": {
+       "delta": 0.5875,
+       "baseline": -19.3615,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -38.774,
+       "f0_median": 161.6161616161616,
+       "f0_std": 94.18144345398525,
+       "voiced_fraction": 0.8076923076923077
+      },
+      "arousal": -38.774,
+      "escalation": {
+       "delta": 0.5875,
+       "baseline": -39.3615,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker B",
+     "seconds": 4.842,
+     "text": "Why do you always assume it's me? Maybe ask Dad for once.",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 21.3,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -23.612,
+       "f0_median": 205.12820512820514,
+       "f0_std": 88.50983271883572,
+       "voiced_fraction": 0.7671517671517671
+      },
+      "arousal": -23.6115,
+      "escalation": {
+       "delta": -1.299,
+       "baseline": -22.3125,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -43.612,
+       "f0_median": 205.12820512820514,
+       "f0_std": 88.50983271883572,
+       "voiced_fraction": 0.7671517671517671
+      },
+      "arousal": -43.6115,
+      "escalation": {
+       "delta": -1.299,
+       "baseline": -42.3125,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker A",
+     "seconds": 4.5,
+     "text": "It was probably me, honestly. I made coffee around two.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 19.8,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -21.634,
+       "f0_median": 96.3855421686747,
+       "f0_std": 141.81467982081276,
+       "voiced_fraction": 0.8363228699551569
+      },
+      "arousal": -21.6344,
+      "escalation": {
+       "delta": -0.3252,
+       "baseline": -21.3092,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -41.634,
+       "f0_median": 96.3855421686747,
+       "f0_std": 141.81467982081276,
+       "voiced_fraction": 0.8363228699551569
+      },
+      "arousal": -41.6344,
+      "escalation": {
+       "delta": -0.3252,
+       "baseline": -41.3092,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker C",
+     "seconds": 3.579,
+     "text": "That's the third time this week. It's not funny anymore.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 15.8,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -20.583,
+       "f0_median": 158.41584158415841,
+       "f0_std": 83.02251028615797,
+       "voiced_fraction": 0.655367231638418
+      },
+      "arousal": -20.5833,
+      "escalation": {
+       "delta": -1.5156,
+       "baseline": -19.0678,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -40.583,
+       "f0_median": 158.41584158415841,
+       "f0_std": 83.02251028615797,
+       "voiced_fraction": 0.655367231638418
+      },
+      "arousal": -40.5833,
+      "escalation": {
+       "delta": -1.5155,
+       "baseline": -39.0678,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker B",
+     "seconds": 5.804,
+     "text": "OH MY GOD, IT'S MILK! WHY IS EVERYTHING IN THIS HOUSE A CRISIS?",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 25.5,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -25.056,
+       "f0_median": 246.15384615384616,
+       "f0_std": 81.98204060605177,
+       "voiced_fraction": 0.7885615251299827
+      },
+      "arousal": -25.0559,
+      "escalation": {
+       "delta": -2.0939,
+       "baseline": -22.962,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -45.056,
+       "f0_median": 246.15384615384616,
+       "f0_std": 81.98204060605177,
+       "voiced_fraction": 0.7885615251299827
+      },
+      "arousal": -45.0559,
+      "escalation": {
+       "delta": -2.0939,
+       "baseline": -42.962,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker C",
+     "seconds": 4.612,
+     "text": "Don't shout at me. I'm tired and I'm just asking for a little help.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 20.2,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -19.301,
+       "f0_median": 160.0,
+       "f0_std": 95.89352600920627,
+       "voiced_fraction": 0.7358078602620087
+      },
+      "arousal": -19.3013,
+      "escalation": {
+       "delta": 0.0602,
+       "baseline": -19.3615,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -39.301,
+       "f0_median": 160.0,
+       "f0_std": 95.89352600920627,
+       "voiced_fraction": 0.7358078602620087
+      },
+      "arousal": -39.3013,
+      "escalation": {
+       "delta": 0.0602,
+       "baseline": -39.3615,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker A",
+     "seconds": 4.556,
+     "text": "Hey! Don't talk to your mother like that, and don't drag me into it either!",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 20.1,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -22.709,
+       "f0_median": 95.23809523809524,
+       "f0_std": 133.20710165545842,
+       "voiced_fraction": 0.827433628318584
+      },
+      "arousal": -22.7087,
+      "escalation": {
+       "delta": -1.2369,
+       "baseline": -21.4718,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -42.709,
+       "f0_median": 95.23809523809524,
+       "f0_std": 133.20710165545842,
+       "voiced_fraction": 0.827433628318584
+      },
+      "arousal": -42.7087,
+      "escalation": {
+       "delta": -1.2369,
+       "baseline": -41.4718,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 10,
+     "speaker": "Speaker B",
+     "seconds": 4.168,
+     "text": "Fine. Sorry. I'm just sick of getting blamed for everything.",
+     "scripted": "sullen_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 18.2,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -28.755,
+       "f0_median": 141.5929203539823,
+       "f0_std": 123.12360146065545,
+       "voiced_fraction": 0.7433414043583535
+      },
+      "arousal": -28.7552,
+      "escalation": {
+       "delta": -5.1437,
+       "baseline": -23.6115,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -48.755,
+       "f0_median": 141.5929203539823,
+       "f0_std": 123.12360146065545,
+       "voiced_fraction": 0.7433414043583535
+      },
+      "arousal": -48.7552,
+      "escalation": {
+       "delta": -5.1437,
+       "baseline": -43.6115,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 11,
+     "speaker": "Speaker A",
+     "seconds": 4.218,
+     "text": "I know. I snapped too. Let's all just reset, okay?",
+     "scripted": "repair_apology",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 18.6,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -23.845,
+       "f0_median": 96.3855421686747,
+       "f0_std": 142.5913795772857,
+       "voiced_fraction": 0.7727272727272727
+      },
+      "arousal": -23.8448,
+      "escalation": {
+       "delta": -2.2104,
+       "baseline": -21.6344,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -43.845,
+       "f0_median": 96.3855421686747,
+       "f0_std": 142.5913795772857,
+       "voiced_fraction": 0.7727272727272727
+      },
+      "arousal": -43.8448,
+      "escalation": {
+       "delta": -2.2104,
+       "baseline": -41.6344,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 12,
+     "speaker": "Speaker C",
+     "seconds": 4.273,
+     "text": "Reset. Plates, forks, and somebody put the milk in the fridge.",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 18.7,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -20.589,
+       "f0_median": 179.77528089887642,
+       "f0_std": 114.6161568617005,
+       "voiced_fraction": 0.6816037735849056
+      },
+      "arousal": -20.5889,
+      "escalation": {
+       "delta": -1.2575,
+       "baseline": -19.3314,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -40.589,
+       "f0_median": 179.77528089887642,
+       "f0_std": 114.6161568617005,
+       "voiced_fraction": 0.6816037735849056
+      },
+      "arousal": -40.5889,
+      "escalation": {
+       "delta": -1.2575,
+       "baseline": -39.3314,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 13,
+     "speaker": "Speaker B",
+     "seconds": 3.851,
+     "text": "On it. And for the record, I'm making the garlic bread.",
+     "scripted": "warm_happy",
+     "coarse": "happy",
+     "skipped": null,
+     "latency_ms": 17.0,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -21.34,
+       "f0_median": 207.7922077922078,
+       "f0_std": 101.47935457346993,
+       "voiced_fraction": 0.806282722513089
+      },
+      "arousal": -21.3403,
+      "escalation": {
+       "delta": 2.9934,
+       "baseline": -24.3337,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -41.34,
+       "f0_median": 207.7922077922078,
+       "f0_std": 101.47935457346993,
+       "voiced_fraction": 0.806282722513089
+      },
+      "arousal": -41.3403,
+      "escalation": {
+       "delta": 2.9934,
+       "baseline": -44.3337,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 14,
+     "speaker": "Speaker A",
+     "seconds": 4.064,
+     "text": "Now we're talking. Best part of the week, right here.",
+     "scripted": "warm_happy",
+     "coarse": "happy",
+     "skipped": null,
+     "latency_ms": 17.8,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -21.308,
+       "f0_median": 102.56410256410257,
+       "f0_std": 142.20238921644486,
+       "voiced_fraction": 0.826302729528536
+      },
+      "arousal": -21.3082,
+      "escalation": {
+       "delta": 0.8634,
+       "baseline": -22.1715,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -41.308,
+       "f0_median": 102.56410256410257,
+       "f0_std": 142.20238921644486,
+       "voiced_fraction": 0.826302729528536
+      },
+      "arousal": -41.3082,
+      "escalation": {
+       "delta": 0.8633,
+       "baseline": -42.1715,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    }
+   ]
+  },
+  "scene_meeting4": {
+   "self_speaker": "Speaker A",
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker B",
+     "seconds": 4.011,
+     "text": "Okay, let's start. First item: the March launch timeline.",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 18.1,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -21.687,
+       "f0_median": 231.8840579710145,
+       "f0_std": 91.97794063795568,
+       "voiced_fraction": 0.7035175879396985
+      },
+      "arousal": -21.6865,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -41.687,
+       "f0_median": 231.8840579710145,
+       "f0_std": 91.97794063795568,
+       "voiced_fraction": 0.7035175879396985
+      },
+      "arousal": -41.6865,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker C",
+     "seconds": 4.852,
+     "text": "Engineering's on track. Integration tests finish by the twentieth.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 21.7,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -25.263,
+       "f0_median": 202.53164556962025,
+       "f0_std": 95.82224736609464,
+       "voiced_fraction": 0.7053941908713693
+      },
+      "arousal": -25.2631,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -45.263,
+       "f0_median": 202.53164556962025,
+       "f0_std": 95.82224736609464,
+       "voiced_fraction": 0.7053941908713693
+      },
+      "arousal": -45.2631,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker D",
+     "seconds": 4.723,
+     "text": "Marketing needs final screenshots by the fifteenth, or the press kit slips.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 20.8,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -20.865,
+       "f0_median": 179.77528089887642,
+       "f0_std": 82.09131450758278,
+       "voiced_fraction": 0.605543710021322
+      },
+      "arousal": -20.8648,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -40.865,
+       "f0_median": 179.77528089887642,
+       "f0_std": 82.09131450758278,
+       "voiced_fraction": 0.605543710021322
+      },
+      "arousal": -40.8648,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker A",
+     "seconds": 4.664,
+     "text": "Tight, but doable. I'll have design prioritize the screenshots.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 20.3,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -21.881,
+       "f0_median": 98.15950920245399,
+       "f0_std": 126.01855891679695,
+       "voiced_fraction": 0.7537796976241901
+      },
+      "arousal": -21.8811,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -41.881,
+       "f0_median": 98.15950920245399,
+       "f0_std": 126.01855891679695,
+       "voiced_fraction": 0.7537796976241901
+      },
+      "arousal": -41.8811,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker B",
+     "seconds": 4.538,
+     "text": "Good. Second item: the support backlog is up thirty percent.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 19.8,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -21.706,
+       "f0_median": 210.52631578947367,
+       "f0_std": 89.25660757483398,
+       "voiced_fraction": 0.6622222222222223
+      },
+      "arousal": -21.7056,
+      "escalation": {
+       "delta": -0.0191,
+       "baseline": -21.6865,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -41.706,
+       "f0_median": 210.52631578947367,
+       "f0_std": 89.25660757483398,
+       "voiced_fraction": 0.6622222222222223
+      },
+      "arousal": -41.7056,
+      "escalation": {
+       "delta": -0.0191,
+       "baseline": -41.6865,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker A",
+     "seconds": 3.97,
+     "text": "I'll pull the top ten tickets and send them round this afternoon.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 17.2,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -22.721,
+       "f0_median": 93.02325581395348,
+       "f0_std": 107.87782566740331,
+       "voiced_fraction": 0.6997455470737913
+      },
+      "arousal": -22.7208,
+      "escalation": {
+       "delta": -0.8397,
+       "baseline": -21.8811,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -42.721,
+       "f0_median": 93.02325581395348,
+       "f0_std": 107.87782566740331,
+       "voiced_fraction": 0.6997455470737913
+      },
+      "arousal": -42.7208,
+      "escalation": {
+       "delta": -0.8397,
+       "baseline": -41.8811,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker B",
+     "seconds": 4.057,
+     "text": "Third item, budget. Finance wants every team to trim eight percent.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 17.7,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -21.264,
+       "f0_median": 228.57142857142858,
+       "f0_std": 61.95297095033361,
+       "voiced_fraction": 0.6616915422885572
+      },
+      "arousal": -21.2639,
+      "escalation": {
+       "delta": 0.4322,
+       "baseline": -21.696,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -41.264,
+       "f0_median": 228.57142857142858,
+       "f0_std": 61.95297095033361,
+       "voiced_fraction": 0.6616915422885572
+      },
+      "arousal": -41.2639,
+      "escalation": {
+       "delta": 0.4322,
+       "baseline": -41.696,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker D",
+     "seconds": 3.878,
+     "text": "Eight percent? We already cut the contractor budget last quarter.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 16.8,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -19.496,
+       "f0_median": 186.04651162790697,
+       "f0_std": 97.55096231044975,
+       "voiced_fraction": 0.703125
+      },
+      "arousal": -19.4963,
+      "escalation": {
+       "delta": 1.3685,
+       "baseline": -20.8648,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -39.496,
+       "f0_median": 186.04651162790697,
+       "f0_std": 97.55096231044975,
+       "voiced_fraction": 0.703125
+      },
+      "arousal": -39.4963,
+      "escalation": {
+       "delta": 1.3685,
+       "baseline": -40.8648,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker C",
+     "seconds": 5.071,
+     "text": "We could delay the second hire until June. That covers most of it.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 22.1,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -27.4,
+       "f0_median": 168.42105263157896,
+       "f0_std": 103.38210607025549,
+       "voiced_fraction": 0.7222222222222222
+      },
+      "arousal": -27.3998,
+      "escalation": {
+       "delta": -2.1367,
+       "baseline": -25.2631,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -47.4,
+       "f0_median": 168.42105263157896,
+       "f0_std": 103.38210607025549,
+       "voiced_fraction": 0.7222222222222222
+      },
+      "arousal": -47.3998,
+      "escalation": {
+       "delta": -2.1367,
+       "baseline": -45.2631,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker B",
+     "seconds": 3.18,
+     "text": "That's one option. What about the conference sponsorship?",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 13.8,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -23.555,
+       "f0_median": 205.12820512820514,
+       "f0_std": 59.80685937887988,
+       "voiced_fraction": 0.5936507936507937
+      },
+      "arousal": -23.5553,
+      "escalation": {
+       "delta": -1.8688,
+       "baseline": -21.6865,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -43.555,
+       "f0_median": 205.12820512820514,
+       "f0_std": 59.80685937887988,
+       "voiced_fraction": 0.5936507936507937
+      },
+      "arousal": -43.5553,
+      "escalation": {
+       "delta": -1.8688,
+       "baseline": -41.6865,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 10,
+     "speaker": "Speaker D",
+     "seconds": 5.333,
+     "text": "We signed that in December. Backing out costs almost as much as going.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 23.2,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -19.979,
+       "f0_median": 166.66666666666666,
+       "f0_std": 76.5993078673976,
+       "voiced_fraction": 0.6754716981132075
+      },
+      "arousal": -19.9788,
+      "escalation": {
+       "delta": 0.2018,
+       "baseline": -20.1806,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -39.979,
+       "f0_median": 166.66666666666666,
+       "f0_std": 76.5993078673976,
+       "voiced_fraction": 0.6754716981132075
+      },
+      "arousal": -39.9788,
+      "escalation": {
+       "delta": 0.2017,
+       "baseline": -40.1805,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 11,
+     "speaker": "Speaker A",
+     "seconds": 3.758,
+     "text": "So we delay my hire again? That's the third time this year.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 16.3,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -22.161,
+       "f0_median": 93.5672514619883,
+       "f0_std": 115.82517140702973,
+       "voiced_fraction": 0.7983870967741935
+      },
+      "arousal": -22.1608,
+      "escalation": {
+       "delta": 0.1402,
+       "baseline": -22.301,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -42.161,
+       "f0_median": 93.5672514619883,
+       "f0_std": 115.82517140702973,
+       "voiced_fraction": 0.7983870967741935
+      },
+      "arousal": -42.1608,
+      "escalation": {
+       "delta": 0.1401,
+       "baseline": -42.301,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 12,
+     "speaker": "Speaker B",
+     "seconds": 3.333,
+     "text": "Nobody's decided anything. We're just listing options.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 14.4,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -22.957,
+       "f0_median": 192.7710843373494,
+       "f0_std": 80.90455008784815,
+       "voiced_fraction": 0.7242424242424242
+      },
+      "arousal": -22.9573,
+      "escalation": {
+       "delta": -1.2613,
+       "baseline": -21.696,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -42.957,
+       "f0_median": 192.7710843373494,
+       "f0_std": 80.90455008784815,
+       "voiced_fraction": 0.7242424242424242
+      },
+      "arousal": -42.9573,
+      "escalation": {
+       "delta": -1.2612,
+       "baseline": -41.696,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 13,
+     "speaker": "Speaker A",
+     "seconds": 5.417,
+     "text": "THEN LIST A DIFFERENT ONE! MY TEAM IS DROWNING AND EVERYONE HERE KNOWS IT!",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 23.5,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -20.369,
+       "f0_median": 107.38255033557047,
+       "f0_std": 124.13962536159872,
+       "voiced_fraction": 0.8531598513011153
+      },
+      "arousal": -20.3686,
+      "escalation": {
+       "delta": 1.7922,
+       "baseline": -22.1608,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -40.369,
+       "f0_median": 107.38255033557047,
+       "f0_std": 124.13962536159872,
+       "voiced_fraction": 0.8531598513011153
+      },
+      "arousal": -40.3686,
+      "escalation": {
+       "delta": 1.7922,
+       "baseline": -42.1608,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 14,
+     "speaker": "Speaker C",
+     "seconds": 6.992,
+     "text": "Okay. Let's take that seriously. Can we table this and come back with real numbers?",
+     "scripted": "calm_deescalate",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 30.4,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -27.543,
+       "f0_median": 179.77528089887642,
+       "f0_std": 112.98693331174074,
+       "voiced_fraction": 0.7169540229885057
+      },
+      "arousal": -27.5426,
+      "escalation": {
+       "delta": -1.2111,
+       "baseline": -26.3315,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -47.543,
+       "f0_median": 179.77528089887642,
+       "f0_std": 112.98693331174074,
+       "voiced_fraction": 0.7169540229885057
+      },
+      "arousal": -47.5426,
+      "escalation": {
+       "delta": -1.2111,
+       "baseline": -46.3315,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 15,
+     "speaker": "Speaker A",
+     "seconds": 5.522,
+     "text": "Yeah. Sorry, everyone. That was out of line. Real numbers by Thursday.",
+     "scripted": "repair_apology",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 24.0,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -23.237,
+       "f0_median": 88.88888888888889,
+       "f0_std": 150.2456007305849,
+       "voiced_fraction": 0.8961748633879781
+      },
+      "arousal": -23.2368,
+      "escalation": {
+       "delta": -1.2158,
+       "baseline": -22.0209,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -43.237,
+       "f0_median": 88.88888888888889,
+       "f0_std": 150.2456007305849,
+       "voiced_fraction": 0.8961748633879781
+      },
+      "arousal": -43.2368,
+      "escalation": {
+       "delta": -1.2159,
+       "baseline": -42.0209,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 16,
+     "speaker": "Speaker B",
+     "seconds": 3.185,
+     "text": "Thursday works. Thanks, everyone. That's all for today.",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 13.8,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -22.15,
+       "f0_median": 200.0,
+       "f0_std": 95.19342806611736,
+       "voiced_fraction": 0.7396825396825397
+      },
+      "arousal": -22.1505,
+      "escalation": {
+       "delta": -0.4449,
+       "baseline": -21.7056,
+       "history": 5,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -42.15,
+       "f0_median": 200.0,
+       "f0_std": 95.19342806611736,
+       "voiced_fraction": 0.7396825396825397
+      },
+      "arousal": -42.1505,
+      "escalation": {
+       "delta": -0.4449,
+       "baseline": -41.7056,
+       "history": 5,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    }
+   ]
+  },
+  "family_real": {
+   "self_speaker": null,
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Sage",
+     "seconds": 5.12,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 22.4,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -22.151,
+       "f0_median": 166.66666666666666,
+       "f0_std": 93.53449274063199,
+       "voiced_fraction": 0.7603143418467584
+      },
+      "arousal": -22.1509,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Asher",
+     "seconds": 2.74,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 11.9,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -30.281,
+       "f0_median": 216.21621621621622,
+       "f0_std": 103.50666696079753,
+       "voiced_fraction": 0.7084870848708487
+      },
+      "arousal": -30.2811,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Asher",
+     "seconds": 0.74,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": "too_short",
+     "latency_ms": 0.0,
+     "tone": null
+    },
+    {
+     "index": 3,
+     "speaker": "Sage",
+     "seconds": 4.645,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 20.2,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -19.096,
+       "f0_median": 148.14814814814815,
+       "f0_std": 98.02655998412394,
+       "voiced_fraction": 0.8047722342733189
+      },
+      "arousal": -19.0959,
+      "escalation": {
+       "delta": 3.055,
+       "baseline": -22.1509,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Asher",
+     "seconds": 0.5,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": "too_short",
+     "latency_ms": 0.0,
+     "tone": null
+    },
+    {
+     "index": 5,
+     "speaker": "Asher",
+     "seconds": 2.66,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 11.5,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -27.611,
+       "f0_median": 226.96177062374247,
+       "f0_std": 94.78593122384844,
+       "voiced_fraction": 0.5703422053231939
+      },
+      "arousal": -27.6107,
+      "escalation": {
+       "delta": 2.6704,
+       "baseline": -30.2811,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Sage",
+     "seconds": 5.29,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 23.0,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -15.319,
+       "f0_median": 168.42105263157896,
+       "f0_std": 69.9804897874715,
+       "voiced_fraction": 0.900952380952381
+      },
+      "arousal": -15.3192,
+      "escalation": {
+       "delta": 5.3042,
+       "baseline": -20.6234,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Asher",
+     "seconds": 3.37,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 14.6,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -20.633,
+       "f0_median": 250.0,
+       "f0_std": 74.14854770321992,
+       "voiced_fraction": 0.6497005988023952
+      },
+      "arousal": -20.6331,
+      "escalation": {
+       "delta": 8.3128,
+       "baseline": -28.9459,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    }
+   ]
+  },
+  "poker6_real": {
+   "self_speaker": null,
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Player1",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 20.8,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -37.138,
+       "f0_median": 102.23746529479014,
+       "f0_std": 58.22098236541217,
+       "voiced_fraction": 0.4426559356136821
+      },
+      "arousal": -37.1379,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Player2",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 21.6,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -35.841,
+       "f0_median": 131.14754098360655,
+       "f0_std": 46.83071517222024,
+       "voiced_fraction": 0.6881287726358148
+      },
+      "arousal": -35.8409,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Player3",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 21.6,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -28.421,
+       "f0_median": 128.0,
+       "f0_std": 38.7005753455734,
+       "voiced_fraction": 0.8249496981891348
+      },
+      "arousal": -28.4209,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Player4",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 21.6,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -26.865,
+       "f0_median": 175.82417582417582,
+       "f0_std": 48.77542974601099,
+       "voiced_fraction": 0.8229376257545271
+      },
+      "arousal": -26.8652,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Player5",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 21.6,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -23.6,
+       "f0_median": 115.94202898550725,
+       "f0_std": 26.6982700787455,
+       "voiced_fraction": 0.8229376257545271
+      },
+      "arousal": -23.5999,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Player6",
+     "seconds": 5.12,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 22.1,
+     "tone": {
+      "label": "n/a",
+      "confidence": 0.0,
+      "kind": "prosody",
+      "backend": "prosody",
+      "model": "prosody.py",
+      "scores": {
+       "rms_db": -26.925,
+       "f0_median": 120.30075187969925,
+       "f0_std": 24.331221295108783,
+       "voiced_fraction": 0.7445972495088409
+      },
+      "arousal": -26.925,
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    }
+   ]
+  }
+ },
+ "rss_peak_mb": 156.79488
+}

@@ -1,0 +1,3680 @@
+{
+ "backend": "odyssey_dim",
+ "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+ "license": "MIT",
+ "load_s": 4.811687207999057,
+ "rss_before_mb": 60.70272,
+ "rss_after_load_mb": 3025.354752,
+ "size_bytes": 1274499266,
+ "pinned_threshold": 0.03,
+ "fixtures": {
+  "gptaudio": {
+   "self_speaker": null,
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker A",
+     "seconds": 7.25,
+     "text": "Hey, can we talk about the dishes? They've been piling up all week and I wanted to check in before it becomes a thing.",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 437.5,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.4077,
+       "dominance": 0.5037,
+       "valence": 0.5964
+      },
+      "confidence": 0.0,
+      "arousal": 0.4077,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.325,
+       "dominance": 0.4179,
+       "valence": 0.5442
+      },
+      "confidence": 0.0,
+      "arousal": 0.325,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker B",
+     "seconds": 6.05,
+     "text": "Sure, but I did them Tuesday night. I don't think it's fair to act like I never touch them.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 374.0,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.3084,
+       "dominance": 0.4366,
+       "valence": 0.3039
+      },
+      "confidence": 0.0,
+      "arousal": 0.3084,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.2146,
+       "dominance": 0.3299,
+       "valence": 0.2913
+      },
+      "confidence": 0.0,
+      "arousal": 0.2146,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker A",
+     "seconds": 6.85,
+     "text": "Tuesday was five days ago. I've done every load since then and I'm getting tired of keeping score.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 346.6,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.7132,
+       "dominance": 0.7486,
+       "valence": 0.2975
+      },
+      "confidence": 1.0,
+      "arousal": 0.7132,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.3055,
+       "baseline": 0.4077,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.5991,
+       "dominance": 0.6395,
+       "valence": 0.3687
+      },
+      "confidence": 1.0,
+      "arousal": 0.5991,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.2741,
+       "baseline": 0.325,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker B",
+     "seconds": 6.4,
+     "text": "So now I'm the villain because I didn't get to it fast enough? I have a life outside this kitchen too.",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 387.9,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.5719,
+       "dominance": 0.6348,
+       "valence": 0.3001
+      },
+      "confidence": 1.0,
+      "arousal": 0.5719,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.2635,
+       "baseline": 0.3084,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.4659,
+       "dominance": 0.5417,
+       "valence": 0.3302
+      },
+      "confidence": 1.0,
+      "arousal": 0.4659,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.2513,
+       "baseline": 0.2146,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker A",
+     "seconds": 7.25,
+     "text": "I AM SO SICK OF BEING THE ONLY ONE WHO CARES ABOUT THIS HOUSE! I CANNOT DO THIS BY MYSELF ANYMORE!",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 375.1,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.9052,
+       "dominance": 0.898,
+       "valence": 0.1214
+      },
+      "confidence": 1.0,
+      "arousal": 0.9052,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.3448,
+       "baseline": 0.5605,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.7666,
+       "dominance": 0.7651,
+       "valence": 0.2073
+      },
+      "confidence": 1.0,
+      "arousal": 0.7666,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.3045,
+       "baseline": 0.462,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker B",
+     "seconds": 5.75,
+     "text": "Wow. Impressive speech. You really do love playing the martyr, don't you.",
+     "scripted": "cold_contempt",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 325.5,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3653,
+       "dominance": 0.5102,
+       "valence": 0.5875
+      },
+      "confidence": 0.0,
+      "arousal": 0.3653,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0748,
+       "baseline": 0.4401,
+       "history": 2,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.2753,
+       "dominance": 0.4268,
+       "valence": 0.5803
+      },
+      "confidence": 0.0,
+      "arousal": 0.2753,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.065,
+       "baseline": 0.3402,
+       "history": 2,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker A",
+     "seconds": 7.85,
+     "text": "I don't want to be the martyr. I just... I wanted us to be a team, and I don't feel like one right now.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 409.1,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5643,
+       "dominance": 0.6126,
+       "valence": 0.3097
+      },
+      "confidence": 0.0,
+      "arousal": 0.5643,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.1489,
+       "baseline": 0.7132,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4775,
+       "dominance": 0.5318,
+       "valence": 0.3159
+      },
+      "confidence": 0.0,
+      "arousal": 0.4775,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.1216,
+       "baseline": 0.5991,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker B",
+     "seconds": 8.55,
+     "text": "I don't want that either. I don't want us to be like this. I'm actually scared we're breaking something here.",
+     "scripted": "scared_shaky",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 452.3,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3392,
+       "dominance": 0.4221,
+       "valence": 0.1847
+      },
+      "confidence": 0.0,
+      "arousal": 0.3392,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0261,
+       "baseline": 0.3653,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.2496,
+       "dominance": 0.3416,
+       "valence": 0.1937
+      },
+      "confidence": 0.0,
+      "arousal": 0.2496,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0257,
+       "baseline": 0.2753,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker A",
+     "seconds": 7.9,
+     "text": "I don't want that either. Can we just stop and figure out a system together? Something that actually works for both of us?",
+     "scripted": "repair_hopeful",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 416.9,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4051,
+       "dominance": 0.4929,
+       "valence": 0.4175
+      },
+      "confidence": 0.0,
+      "arousal": 0.4051,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.2336,
+       "baseline": 0.6387,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3147,
+       "dominance": 0.4045,
+       "valence": 0.3993
+      },
+      "confidence": 0.0,
+      "arousal": 0.3147,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.2236,
+       "baseline": 0.5383,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker B",
+     "seconds": 7.25,
+     "text": "Yeah. Let's start over. I'm sorry I got so defensive \u2014 I do want to fix this with you.",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 375.3,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.2331,
+       "dominance": 0.3832,
+       "valence": 0.2277
+      },
+      "confidence": 0.0,
+      "arousal": 0.2331,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.1192,
+       "baseline": 0.3523,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.1608,
+       "dominance": 0.3026,
+       "valence": 0.2359
+      },
+      "confidence": 0.0,
+      "arousal": 0.1608,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.1016,
+       "baseline": 0.2624,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    }
+   ]
+  },
+  "openai": {
+   "self_speaker": null,
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker A",
+     "seconds": 7.2,
+     "text": "Hey, can we talk about the dishes? They've been piling up all week and I wanted to check in before it becomes a thing.",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 385.0,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.5331,
+       "dominance": 0.5988,
+       "valence": 0.5811
+      },
+      "confidence": 0.0,
+      "arousal": 0.5331,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.4441,
+       "dominance": 0.5104,
+       "valence": 0.5564
+      },
+      "confidence": 0.0,
+      "arousal": 0.4441,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker B",
+     "seconds": 5.55,
+     "text": "Sure, but I did them Tuesday night. I don't think it's fair to act like I never touch them.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 312.0,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.384,
+       "dominance": 0.5163,
+       "valence": 0.2795
+      },
+      "confidence": 0.0,
+      "arousal": 0.384,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.2644,
+       "dominance": 0.3958,
+       "valence": 0.2795
+      },
+      "confidence": 0.0,
+      "arousal": 0.2644,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker A",
+     "seconds": 6.0,
+     "text": "Tuesday was five days ago. I've done every load since then and I'm getting tired of keeping score.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 379.0,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.632,
+       "dominance": 0.6682,
+       "valence": 0.3632
+      },
+      "confidence": 1.0,
+      "arousal": 0.632,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.0989,
+       "baseline": 0.5331,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.5455,
+       "dominance": 0.5861,
+       "valence": 0.3403
+      },
+      "confidence": 1.0,
+      "arousal": 0.5455,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.1014,
+       "baseline": 0.4441,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker B",
+     "seconds": 7.2,
+     "text": "So now I'm the villain because I didn't get to it fast enough? I have a life outside this kitchen too.",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 394.2,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3574,
+       "dominance": 0.4875,
+       "valence": 0.2929
+      },
+      "confidence": 0.0,
+      "arousal": 0.3574,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0266,
+       "baseline": 0.384,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.2386,
+       "dominance": 0.3685,
+       "valence": 0.2871
+      },
+      "confidence": 0.0,
+      "arousal": 0.2386,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0258,
+       "baseline": 0.2644,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker A",
+     "seconds": 7.1,
+     "text": "I AM SO SICK OF BEING THE ONLY ONE WHO CARES ABOUT THIS HOUSE! I CANNOT DO THIS BY MYSELF ANYMORE!",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 466.7,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.7257,
+       "dominance": 0.775,
+       "valence": 0.2063
+      },
+      "confidence": 1.0,
+      "arousal": 0.7257,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.1431,
+       "baseline": 0.5826,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.6171,
+       "dominance": 0.6772,
+       "valence": 0.2182
+      },
+      "confidence": 1.0,
+      "arousal": 0.6171,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.1223,
+       "baseline": 0.4948,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker B",
+     "seconds": 5.5,
+     "text": "Wow. Impressive speech. You really do love playing the martyr, don't you.",
+     "scripted": "cold_contempt",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 346.5,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.4197,
+       "dominance": 0.5517,
+       "valence": 0.6374
+      },
+      "confidence": 0.8167,
+      "arousal": 0.4197,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.049,
+       "baseline": 0.3707,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.313,
+       "dominance": 0.4518,
+       "valence": 0.6139
+      },
+      "confidence": 1.0,
+      "arousal": 0.313,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.0615,
+       "baseline": 0.2515,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker A",
+     "seconds": 7.1,
+     "text": "I don't want to be the martyr. I just... I wanted us to be a team, and I don't feel like one right now.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 377.8,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.619,
+       "dominance": 0.6888,
+       "valence": 0.1431
+      },
+      "confidence": 0.0,
+      "arousal": 0.619,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.013,
+       "baseline": 0.632,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.507,
+       "dominance": 0.585,
+       "valence": 0.1724
+      },
+      "confidence": 0.0,
+      "arousal": 0.507,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0385,
+       "baseline": 0.5455,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker B",
+     "seconds": 6.95,
+     "text": "I don't want that either. I don't want us to be like this. I'm actually scared we're breaking something here.",
+     "scripted": "scared_shaky",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 360.2,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.4278,
+       "dominance": 0.5545,
+       "valence": 0.1378
+      },
+      "confidence": 0.73,
+      "arousal": 0.4278,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.0438,
+       "baseline": 0.384,
+       "history": 3,
+       "flag": true,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.2924,
+       "dominance": 0.4155,
+       "valence": 0.1769
+      },
+      "confidence": 0.0,
+      "arousal": 0.2924,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.028,
+       "baseline": 0.2644,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker A",
+     "seconds": 8.35,
+     "text": "I don't want that either. Can we just stop and figure out a system together? Something that actually works for both of us?",
+     "scripted": "repair_hopeful",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 464.8,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.617,
+       "dominance": 0.6689,
+       "valence": 0.3692
+      },
+      "confidence": 0.0,
+      "arousal": 0.617,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0085,
+       "baseline": 0.6255,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.489,
+       "dominance": 0.5467,
+       "valence": 0.4279
+      },
+      "confidence": 0.0,
+      "arousal": 0.489,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0373,
+       "baseline": 0.5262,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker B",
+     "seconds": 5.85,
+     "text": "Yeah. Let's start over. I'm sorry I got so defensive \u2014 I do want to fix this with you.",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 398.8,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3512,
+       "dominance": 0.4755,
+       "valence": 0.2201
+      },
+      "confidence": 0.0,
+      "arousal": 0.3512,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0507,
+       "baseline": 0.4019,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.2297,
+       "dominance": 0.356,
+       "valence": 0.2447
+      },
+      "confidence": 0.0,
+      "arousal": 0.2297,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0487,
+       "baseline": 0.2784,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    }
+   ]
+  },
+  "scene_couple_escalation": {
+   "self_speaker": "Speaker A",
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker A",
+     "seconds": 4.097,
+     "text": "Hey, I looked at the credit card statement tonight. Can we go over it?",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 239.4,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.3353,
+       "dominance": 0.4409,
+       "valence": 0.3509
+      },
+      "confidence": 0.0,
+      "arousal": 0.3353,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.2788,
+       "dominance": 0.3776,
+       "valence": 0.4197
+      },
+      "confidence": 0.0,
+      "arousal": 0.2788,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker B",
+     "seconds": 5.242,
+     "text": "Sure. I know it's higher than usual, but most of that was the car repair.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 284.5,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.5877,
+       "dominance": 0.6395,
+       "valence": 0.4838
+      },
+      "confidence": 0.0,
+      "arousal": 0.5877,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.5308,
+       "dominance": 0.5789,
+       "valence": 0.5584
+      },
+      "confidence": 0.0,
+      "arousal": 0.5308,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker A",
+     "seconds": 4.705,
+     "text": "The car was six hundred. There's another nine hundred I can't place.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 257.8,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.2785,
+       "dominance": 0.4194,
+       "valence": 0.2519
+      },
+      "confidence": 0.0,
+      "arousal": 0.2785,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0568,
+       "baseline": 0.3353,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.2133,
+       "dominance": 0.3311,
+       "valence": 0.2865
+      },
+      "confidence": 0.0,
+      "arousal": 0.2133,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0655,
+       "baseline": 0.2788,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker B",
+     "seconds": 5.126,
+     "text": "Some was groceries, some was your mom's birthday gift. I didn't hide anything.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 320.6,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5695,
+       "dominance": 0.6224,
+       "valence": 0.4544
+      },
+      "confidence": 0.0,
+      "arousal": 0.5695,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0182,
+       "baseline": 0.5877,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4946,
+       "dominance": 0.5521,
+       "valence": 0.4838
+      },
+      "confidence": 0.0,
+      "arousal": 0.4946,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0362,
+       "baseline": 0.5308,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker A",
+     "seconds": 4.942,
+     "text": "I'm not saying you hid it. I'm saying we agreed to talk before spending like that.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 262.4,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.4468,
+       "dominance": 0.5599,
+       "valence": 0.1944
+      },
+      "confidence": 1.0,
+      "arousal": 0.4468,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.1399,
+       "baseline": 0.3069,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.3069,
+       "dominance": 0.4148,
+       "valence": 0.2291
+      },
+      "confidence": 1.0,
+      "arousal": 0.3069,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.0609,
+       "baseline": 0.246,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker B",
+     "seconds": 5.234,
+     "text": "We talked about it in the car. You just weren't listening, like always.",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 294.7,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.6222,
+       "dominance": 0.6623,
+       "valence": 0.3768
+      },
+      "confidence": 0.7267,
+      "arousal": 0.6222,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.0436,
+       "baseline": 0.5786,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5178,
+       "dominance": 0.5626,
+       "valence": 0.4058
+      },
+      "confidence": 0.0,
+      "arousal": 0.5178,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.0051,
+       "baseline": 0.5127,
+       "history": 2,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker A",
+     "seconds": 5.699,
+     "text": "LIKE ALWAYS? I AM THE ONLY ONE IN THIS HOUSE WHO EVEN LOOKS AT THE BILLS!",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 295.5,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.4444,
+       "dominance": 0.5575,
+       "valence": 0.419
+      },
+      "confidence": 1.0,
+      "arousal": 0.4444,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.1091,
+       "baseline": 0.3353,
+       "history": 3,
+       "flag": true,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.3404,
+       "dominance": 0.4545,
+       "valence": 0.4389
+      },
+      "confidence": 1.0,
+      "arousal": 0.3404,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.0616,
+       "baseline": 0.2788,
+       "history": 3,
+       "flag": true,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker B",
+     "seconds": 3.921,
+     "text": "Please don't yell at me. I'm right here, I can hear you.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 269.1,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.7101,
+       "dominance": 0.74,
+       "valence": 0.2608
+      },
+      "confidence": 1.0,
+      "arousal": 0.7101,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.1224,
+       "baseline": 0.5877,
+       "history": 3,
+       "flag": true,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.6024,
+       "dominance": 0.6401,
+       "valence": 0.3413
+      },
+      "confidence": 1.0,
+      "arousal": 0.6024,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.0846,
+       "baseline": 0.5178,
+       "history": 3,
+       "flag": true,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker A",
+     "seconds": 5.267,
+     "text": "Forget it. Clearly budgeting is beneath you. I'll just handle it, like everything else.",
+     "scripted": "cold_contempt",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 287.1,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.4263,
+       "dominance": 0.5348,
+       "valence": 0.3215
+      },
+      "confidence": 0.6067,
+      "arousal": 0.4263,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.0364,
+       "baseline": 0.3899,
+       "history": 4,
+       "flag": true,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.2856,
+       "dominance": 0.4014,
+       "valence": 0.2873
+      },
+      "confidence": 0.0,
+      "arousal": 0.2856,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0072,
+       "baseline": 0.2928,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker B",
+     "seconds": 5.695,
+     "text": "That's not fair. I'm trying, and you talk to me like I'm a child.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 340.0,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5954,
+       "dominance": 0.6823,
+       "valence": 0.1442
+      },
+      "confidence": 0.0,
+      "arousal": 0.5954,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0095,
+       "baseline": 0.6049,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5017,
+       "dominance": 0.592,
+       "valence": 0.1666
+      },
+      "confidence": 0.0,
+      "arousal": 0.5017,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0226,
+       "baseline": 0.5243,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 10,
+     "speaker": "Speaker A",
+     "seconds": 4.332,
+     "text": "You're right. I'm sorry. That came out way harsher than I meant.",
+     "scripted": "repair_apology",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 239.9,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3183,
+       "dominance": 0.439,
+       "valence": 0.2678
+      },
+      "confidence": 0.0,
+      "arousal": 0.3183,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.108,
+       "baseline": 0.4263,
+       "history": 5,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.2299,
+       "dominance": 0.3416,
+       "valence": 0.2762
+      },
+      "confidence": 0.0,
+      "arousal": 0.2299,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0557,
+       "baseline": 0.2856,
+       "history": 5,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 11,
+     "speaker": "Speaker B",
+     "seconds": 5.579,
+     "text": "Thank you. Can we just sit down Sunday and do it together, no phones?",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 305.0,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4434,
+       "dominance": 0.5317,
+       "valence": 0.5076
+      },
+      "confidence": 0.0,
+      "arousal": 0.4434,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.152,
+       "baseline": 0.5954,
+       "history": 5,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3596,
+       "dominance": 0.4404,
+       "valence": 0.4772
+      },
+      "confidence": 0.0,
+      "arousal": 0.3596,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.1582,
+       "baseline": 0.5178,
+       "history": 5,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 12,
+     "speaker": "Speaker A",
+     "seconds": 4.927,
+     "text": "Yeah. Sunday. I'd like that. And I'll bring the good coffee.",
+     "scripted": "warm_happy",
+     "coarse": "happy",
+     "skipped": null,
+     "latency_ms": 261.0,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3953,
+       "dominance": 0.5376,
+       "valence": 0.6357
+      },
+      "confidence": 0.0,
+      "arousal": 0.3953,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.0145,
+       "baseline": 0.3808,
+       "history": 6,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.2867,
+       "dominance": 0.4229,
+       "valence": 0.6177
+      },
+      "confidence": 0.0,
+      "arousal": 0.2867,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.0045,
+       "baseline": 0.2822,
+       "history": 6,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    }
+   ]
+  },
+  "scene_family3": {
+   "self_speaker": "Speaker A",
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker C",
+     "seconds": 3.862,
+     "text": "Okay, dinner's in ten minutes. Who's setting the table tonight?",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 211.5,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.5164,
+       "dominance": 0.5795,
+       "valence": 0.4891
+      },
+      "confidence": 0.0,
+      "arousal": 0.5164,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.4518,
+       "dominance": 0.5163,
+       "valence": 0.5341
+      },
+      "confidence": 0.0,
+      "arousal": 0.4518,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker B",
+     "seconds": 4.277,
+     "text": "Not me, I did it yesterday. And the day before, actually.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 234.3,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.7202,
+       "dominance": 0.7406,
+       "valence": 0.3214
+      },
+      "confidence": 0.0,
+      "arousal": 0.7202,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.6254,
+       "dominance": 0.6529,
+       "valence": 0.407
+      },
+      "confidence": 0.0,
+      "arousal": 0.6254,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker A",
+     "seconds": 3.284,
+     "text": "Then it's my turn. Grab the plates for me, would you?",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 195.5,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.3819,
+       "dominance": 0.5117,
+       "valence": 0.3656
+      },
+      "confidence": 0.0,
+      "arousal": 0.3819,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.2935,
+       "dominance": 0.4129,
+       "valence": 0.3605
+      },
+      "confidence": 0.0,
+      "arousal": 0.2935,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker C",
+     "seconds": 3.672,
+     "text": "Also, someone left the milk out again. All afternoon.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 212.4,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4608,
+       "dominance": 0.5331,
+       "valence": 0.3999
+      },
+      "confidence": 0.0,
+      "arousal": 0.4608,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0556,
+       "baseline": 0.5164,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3611,
+       "dominance": 0.4375,
+       "valence": 0.4011
+      },
+      "confidence": 0.0,
+      "arousal": 0.3611,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0907,
+       "baseline": 0.4518,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker B",
+     "seconds": 4.842,
+     "text": "Why do you always assume it's me? Maybe ask Dad for once.",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 271.9,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.6636,
+       "dominance": 0.713,
+       "valence": 0.2479
+      },
+      "confidence": 0.0,
+      "arousal": 0.6636,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0566,
+       "baseline": 0.7202,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5939,
+       "dominance": 0.6447,
+       "valence": 0.2675
+      },
+      "confidence": 0.0,
+      "arousal": 0.5939,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0315,
+       "baseline": 0.6254,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker A",
+     "seconds": 4.5,
+     "text": "It was probably me, honestly. I made coffee around two.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 243.7,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.2906,
+       "dominance": 0.4622,
+       "valence": 0.3893
+      },
+      "confidence": 0.0,
+      "arousal": 0.2906,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0913,
+       "baseline": 0.3819,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.2177,
+       "dominance": 0.3522,
+       "valence": 0.4
+      },
+      "confidence": 0.0,
+      "arousal": 0.2177,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0758,
+       "baseline": 0.2935,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker C",
+     "seconds": 3.579,
+     "text": "That's the third time this week. It's not funny anymore.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 212.2,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5047,
+       "dominance": 0.595,
+       "valence": 0.3262
+      },
+      "confidence": 0.0,
+      "arousal": 0.5047,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.0161,
+       "baseline": 0.4886,
+       "history": 2,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4045,
+       "dominance": 0.4878,
+       "valence": 0.3489
+      },
+      "confidence": 0.0,
+      "arousal": 0.4045,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0019,
+       "baseline": 0.4064,
+       "history": 2,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker B",
+     "seconds": 5.804,
+     "text": "OH MY GOD, IT'S MILK! WHY IS EVERYTHING IN THIS HOUSE A CRISIS?",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 318.3,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.8455,
+       "dominance": 0.872,
+       "valence": 0.15
+      },
+      "confidence": 1.0,
+      "arousal": 0.8455,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.1536,
+       "baseline": 0.6919,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.805,
+       "dominance": 0.828,
+       "valence": 0.1486
+      },
+      "confidence": 1.0,
+      "arousal": 0.805,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.1954,
+       "baseline": 0.6097,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker C",
+     "seconds": 4.612,
+     "text": "Don't shout at me. I'm tired and I'm just asking for a little help.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 267.4,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.6113,
+       "dominance": 0.6925,
+       "valence": 0.2244
+      },
+      "confidence": 1.0,
+      "arousal": 0.6113,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.1066,
+       "baseline": 0.5047,
+       "history": 3,
+       "flag": true,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.4731,
+       "dominance": 0.5641,
+       "valence": 0.2687
+      },
+      "confidence": 1.0,
+      "arousal": 0.4731,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.0686,
+       "baseline": 0.4045,
+       "history": 3,
+       "flag": true,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker A",
+     "seconds": 4.556,
+     "text": "Hey! Don't talk to your mother like that, and don't drag me into it either!",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 250.5,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.3665,
+       "dominance": 0.5122,
+       "valence": 0.2044
+      },
+      "confidence": 0.5033,
+      "arousal": 0.3665,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.0302,
+       "baseline": 0.3363,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.2432,
+       "dominance": 0.3722,
+       "valence": 0.2311
+      },
+      "confidence": 0.0,
+      "arousal": 0.2432,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0124,
+       "baseline": 0.2556,
+       "history": 2,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 10,
+     "speaker": "Speaker B",
+     "seconds": 4.168,
+     "text": "Fine. Sorry. I'm just sick of getting blamed for everything.",
+     "scripted": "sullen_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 249.4,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5323,
+       "dominance": 0.5948,
+       "valence": 0.1846
+      },
+      "confidence": 0.0,
+      "arousal": 0.5323,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.1879,
+       "baseline": 0.7202,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4445,
+       "dominance": 0.4996,
+       "valence": 0.2018
+      },
+      "confidence": 0.0,
+      "arousal": 0.4445,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.1809,
+       "baseline": 0.6254,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 11,
+     "speaker": "Speaker A",
+     "seconds": 4.218,
+     "text": "I know. I snapped too. Let's all just reset, okay?",
+     "scripted": "repair_apology",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 228.3,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3415,
+       "dominance": 0.4384,
+       "valence": 0.3095
+      },
+      "confidence": 0.0,
+      "arousal": 0.3415,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.025,
+       "baseline": 0.3665,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.262,
+       "dominance": 0.3564,
+       "valence": 0.3232
+      },
+      "confidence": 0.0,
+      "arousal": 0.262,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.0188,
+       "baseline": 0.2432,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 12,
+     "speaker": "Speaker C",
+     "seconds": 4.273,
+     "text": "Reset. Plates, forks, and somebody put the milk in the fridge.",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 236.9,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4756,
+       "dominance": 0.5662,
+       "valence": 0.545
+      },
+      "confidence": 0.0,
+      "arousal": 0.4756,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.035,
+       "baseline": 0.5106,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4228,
+       "dominance": 0.4984,
+       "valence": 0.5521
+      },
+      "confidence": 0.0,
+      "arousal": 0.4228,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0054,
+       "baseline": 0.4282,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 13,
+     "speaker": "Speaker B",
+     "seconds": 3.851,
+     "text": "On it. And for the record, I'm making the garlic bread.",
+     "scripted": "warm_happy",
+     "coarse": "happy",
+     "skipped": null,
+     "latency_ms": 208.8,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.6885,
+       "dominance": 0.7202,
+       "valence": 0.6994
+      },
+      "confidence": 0.0,
+      "arousal": 0.6885,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0034,
+       "baseline": 0.6919,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.6094,
+       "dominance": 0.64,
+       "valence": 0.6847
+      },
+      "confidence": 0.0,
+      "arousal": 0.6094,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0002,
+       "baseline": 0.6097,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 14,
+     "speaker": "Speaker A",
+     "seconds": 4.064,
+     "text": "Now we're talking. Best part of the week, right here.",
+     "scripted": "warm_happy",
+     "coarse": "happy",
+     "skipped": null,
+     "latency_ms": 230.7,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.403,
+       "dominance": 0.5291,
+       "valence": 0.5739
+      },
+      "confidence": 0.8167,
+      "arousal": 0.403,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.049,
+       "baseline": 0.354,
+       "history": 4,
+       "flag": true,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.3004,
+       "dominance": 0.4327,
+       "valence": 0.5477
+      },
+      "confidence": 0.7967,
+      "arousal": 0.3004,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.0478,
+       "baseline": 0.2526,
+       "history": 4,
+       "flag": true,
+       "threshold": 0.03
+      }
+     }
+    }
+   ]
+  },
+  "scene_meeting4": {
+   "self_speaker": "Speaker A",
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker B",
+     "seconds": 4.011,
+     "text": "Okay, let's start. First item: the March launch timeline.",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 224.1,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.5708,
+       "dominance": 0.6335,
+       "valence": 0.6413
+      },
+      "confidence": 0.0,
+      "arousal": 0.5708,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.4568,
+       "dominance": 0.5308,
+       "valence": 0.5924
+      },
+      "confidence": 0.0,
+      "arousal": 0.4568,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker C",
+     "seconds": 4.852,
+     "text": "Engineering's on track. Integration tests finish by the twentieth.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 293.2,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.6167,
+       "dominance": 0.6724,
+       "valence": 0.6725
+      },
+      "confidence": 0.0,
+      "arousal": 0.6167,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.5606,
+       "dominance": 0.614,
+       "valence": 0.6554
+      },
+      "confidence": 0.0,
+      "arousal": 0.5606,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker D",
+     "seconds": 4.723,
+     "text": "Marketing needs final screenshots by the fifteenth, or the press kit slips.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 269.2,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.4644,
+       "dominance": 0.5425,
+       "valence": 0.5072
+      },
+      "confidence": 0.0,
+      "arousal": 0.4644,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.4226,
+       "dominance": 0.4969,
+       "valence": 0.5619
+      },
+      "confidence": 0.0,
+      "arousal": 0.4226,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker A",
+     "seconds": 4.664,
+     "text": "Tight, but doable. I'll have design prioritize the screenshots.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 265.5,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.4205,
+       "dominance": 0.5349,
+       "valence": 0.5845
+      },
+      "confidence": 0.0,
+      "arousal": 0.4205,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.3233,
+       "dominance": 0.447,
+       "valence": 0.5511
+      },
+      "confidence": 0.0,
+      "arousal": 0.3233,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker B",
+     "seconds": 4.538,
+     "text": "Good. Second item: the support backlog is up thirty percent.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 254.9,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5477,
+       "dominance": 0.6253,
+       "valence": 0.6786
+      },
+      "confidence": 0.0,
+      "arousal": 0.5477,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0231,
+       "baseline": 0.5708,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4374,
+       "dominance": 0.5164,
+       "valence": 0.6419
+      },
+      "confidence": 0.0,
+      "arousal": 0.4374,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0194,
+       "baseline": 0.4568,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker A",
+     "seconds": 3.97,
+     "text": "I'll pull the top ten tickets and send them round this afternoon.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 228.8,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3537,
+       "dominance": 0.4777,
+       "valence": 0.4988
+      },
+      "confidence": 0.0,
+      "arousal": 0.3537,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0668,
+       "baseline": 0.4205,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.2862,
+       "dominance": 0.407,
+       "valence": 0.4837
+      },
+      "confidence": 0.0,
+      "arousal": 0.2862,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0371,
+       "baseline": 0.3233,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker B",
+     "seconds": 4.057,
+     "text": "Third item, budget. Finance wants every team to trim eight percent.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 245.9,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.526,
+       "dominance": 0.5985,
+       "valence": 0.5723
+      },
+      "confidence": 0.0,
+      "arousal": 0.526,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0333,
+       "baseline": 0.5593,
+       "history": 2,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4527,
+       "dominance": 0.5195,
+       "valence": 0.595
+      },
+      "confidence": 0.0,
+      "arousal": 0.4527,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.0056,
+       "baseline": 0.4471,
+       "history": 2,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker D",
+     "seconds": 3.878,
+     "text": "Eight percent? We already cut the contractor budget last quarter.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 223.5,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.5009,
+       "dominance": 0.5673,
+       "valence": 0.3299
+      },
+      "confidence": 0.6083,
+      "arousal": 0.5009,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.0365,
+       "baseline": 0.4644,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4092,
+       "dominance": 0.4752,
+       "valence": 0.3984
+      },
+      "confidence": 0.0,
+      "arousal": 0.4092,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0134,
+       "baseline": 0.4226,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker C",
+     "seconds": 5.071,
+     "text": "We could delay the second hire until June. That covers most of it.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 267.7,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5385,
+       "dominance": 0.5884,
+       "valence": 0.4656
+      },
+      "confidence": 0.0,
+      "arousal": 0.5385,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0782,
+       "baseline": 0.6167,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4575,
+       "dominance": 0.5068,
+       "valence": 0.4489
+      },
+      "confidence": 0.0,
+      "arousal": 0.4575,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.1031,
+       "baseline": 0.5606,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker B",
+     "seconds": 3.18,
+     "text": "That's one option. What about the conference sponsorship?",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 176.9,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5046,
+       "dominance": 0.5741,
+       "valence": 0.5189
+      },
+      "confidence": 0.0,
+      "arousal": 0.5046,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0431,
+       "baseline": 0.5477,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.443,
+       "dominance": 0.5168,
+       "valence": 0.5748
+      },
+      "confidence": 0.0,
+      "arousal": 0.443,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0097,
+       "baseline": 0.4527,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 10,
+     "speaker": "Speaker D",
+     "seconds": 5.333,
+     "text": "We signed that in December. Backing out costs almost as much as going.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 282.8,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4959,
+       "dominance": 0.5786,
+       "valence": 0.4947
+      },
+      "confidence": 0.0,
+      "arousal": 0.4959,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.0132,
+       "baseline": 0.4827,
+       "history": 2,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.407,
+       "dominance": 0.4895,
+       "valence": 0.4972
+      },
+      "confidence": 0.0,
+      "arousal": 0.407,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0089,
+       "baseline": 0.4159,
+       "history": 2,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 11,
+     "speaker": "Speaker A",
+     "seconds": 3.758,
+     "text": "So we delay my hire again? That's the third time this year.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 247.2,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3368,
+       "dominance": 0.4595,
+       "valence": 0.3183
+      },
+      "confidence": 0.0,
+      "arousal": 0.3368,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0503,
+       "baseline": 0.3871,
+       "history": 2,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.2371,
+       "dominance": 0.3416,
+       "valence": 0.3244
+      },
+      "confidence": 0.0,
+      "arousal": 0.2371,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0676,
+       "baseline": 0.3047,
+       "history": 2,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 12,
+     "speaker": "Speaker B",
+     "seconds": 3.333,
+     "text": "Nobody's decided anything. We're just listing options.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 315.7,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5246,
+       "dominance": 0.5929,
+       "valence": 0.3824
+      },
+      "confidence": 0.0,
+      "arousal": 0.5246,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0123,
+       "baseline": 0.5369,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4156,
+       "dominance": 0.4794,
+       "valence": 0.4274
+      },
+      "confidence": 0.0,
+      "arousal": 0.4156,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0322,
+       "baseline": 0.4478,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 13,
+     "speaker": "Speaker A",
+     "seconds": 5.417,
+     "text": "THEN LIST A DIFFERENT ONE! MY TEAM IS DROWNING AND EVERYONE HERE KNOWS IT!",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 290.3,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.4668,
+       "dominance": 0.5662,
+       "valence": 0.2468
+      },
+      "confidence": 1.0,
+      "arousal": 0.4668,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.1131,
+       "baseline": 0.3537,
+       "history": 3,
+       "flag": true,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.3731,
+       "dominance": 0.4688,
+       "valence": 0.2878
+      },
+      "confidence": 1.0,
+      "arousal": 0.3731,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.0869,
+       "baseline": 0.2862,
+       "history": 3,
+       "flag": true,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 14,
+     "speaker": "Speaker C",
+     "seconds": 6.992,
+     "text": "Okay. Let's take that seriously. Can we table this and come back with real numbers?",
+     "scripted": "calm_deescalate",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 357.4,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.6154,
+       "dominance": 0.6627,
+       "valence": 0.6219
+      },
+      "confidence": 0.63,
+      "arousal": 0.6154,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.0378,
+       "baseline": 0.5776,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5298,
+       "dominance": 0.5786,
+       "valence": 0.5854
+      },
+      "confidence": 0.0,
+      "arousal": 0.5298,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.0208,
+       "baseline": 0.5091,
+       "history": 2,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 15,
+     "speaker": "Speaker A",
+     "seconds": 5.522,
+     "text": "Yeah. Sorry, everyone. That was out of line. Real numbers by Thursday.",
+     "scripted": "repair_apology",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 292.6,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.2941,
+       "dominance": 0.4391,
+       "valence": 0.1846
+      },
+      "confidence": 0.0,
+      "arousal": 0.2941,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.093,
+       "baseline": 0.3871,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.2023,
+       "dominance": 0.3355,
+       "valence": 0.1997
+      },
+      "confidence": 0.0,
+      "arousal": 0.2023,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.1024,
+       "baseline": 0.3047,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 16,
+     "speaker": "Speaker B",
+     "seconds": 3.185,
+     "text": "Thursday works. Thanks, everyone. That's all for today.",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 183.6,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5493,
+       "dominance": 0.6239,
+       "valence": 0.7118
+      },
+      "confidence": 0.0,
+      "arousal": 0.5493,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.0233,
+       "baseline": 0.526,
+       "history": 5,
+       "flag": false,
+       "threshold": 0.03
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4391,
+       "dominance": 0.5111,
+       "valence": 0.6697
+      },
+      "confidence": 0.0,
+      "arousal": 0.4391,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0039,
+       "baseline": 0.443,
+       "history": 5,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    }
+   ]
+  },
+  "family_real": {
+   "self_speaker": null,
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Sage",
+     "seconds": 5.12,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 303.2,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.4167,
+       "dominance": 0.4442,
+       "valence": 0.475
+      },
+      "confidence": 0.0,
+      "arousal": 0.4167,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Asher",
+     "seconds": 2.74,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 169.2,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.4239,
+       "dominance": 0.4343,
+       "valence": 0.5958
+      },
+      "confidence": 0.0,
+      "arousal": 0.4239,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Asher",
+     "seconds": 0.74,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": "too_short",
+     "latency_ms": 0.0,
+     "tone": null
+    },
+    {
+     "index": 3,
+     "speaker": "Sage",
+     "seconds": 4.645,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 257.0,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3633,
+       "dominance": 0.412,
+       "valence": 0.464
+      },
+      "confidence": 0.0,
+      "arousal": 0.3633,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": -0.0534,
+       "baseline": 0.4167,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Asher",
+     "seconds": 0.5,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": "too_short",
+     "latency_ms": 0.0,
+     "tone": null
+    },
+    {
+     "index": 5,
+     "speaker": "Asher",
+     "seconds": 2.66,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 175.0,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.5668,
+       "dominance": 0.5323,
+       "valence": 0.2742
+      },
+      "confidence": 1.0,
+      "arousal": 0.5668,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.1429,
+       "baseline": 0.4239,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Sage",
+     "seconds": 5.29,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 313.6,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.7125,
+       "dominance": 0.7257,
+       "valence": 0.3083
+      },
+      "confidence": 1.0,
+      "arousal": 0.7125,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.3225,
+       "baseline": 0.39,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Asher",
+     "seconds": 3.37,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 265.7,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "arousal": 0.5929,
+       "dominance": 0.5827,
+       "valence": 0.2776
+      },
+      "confidence": 1.0,
+      "arousal": 0.5929,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": 0.0976,
+       "baseline": 0.4953,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.03
+      }
+     }
+    }
+   ]
+  },
+  "poker6_real": {
+   "self_speaker": null,
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Player1",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 383.7,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.3798,
+       "dominance": 0.4708,
+       "valence": 0.7333
+      },
+      "confidence": 0.0,
+      "arousal": 0.3798,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Player2",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 265.4,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.3233,
+       "dominance": 0.3574,
+       "valence": 0.5339
+      },
+      "confidence": 0.0,
+      "arousal": 0.3233,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Player3",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 311.1,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.4597,
+       "dominance": 0.4953,
+       "valence": 0.5671
+      },
+      "confidence": 0.0,
+      "arousal": 0.4597,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Player4",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 267.8,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.4647,
+       "dominance": 0.501,
+       "valence": 0.6329
+      },
+      "confidence": 0.0,
+      "arousal": 0.4647,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Player5",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 271.3,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.4939,
+       "dominance": 0.5446,
+       "valence": 0.4993
+      },
+      "confidence": 0.0,
+      "arousal": 0.4939,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Player6",
+     "seconds": 5.12,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 276.2,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.2334,
+       "dominance": 0.3322,
+       "valence": 0.4451
+      },
+      "confidence": 0.0,
+      "arousal": 0.2334,
+      "kind": "dimensional",
+      "backend": "odyssey_dim",
+      "model": "3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes@00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.03
+      }
+     }
+    }
+   ]
+  }
+ },
+ "rss_peak_mb": 3025.354752
+}

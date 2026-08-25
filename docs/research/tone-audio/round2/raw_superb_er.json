@@ -1,0 +1,4674 @@
+{
+ "backend": "superb_er",
+ "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+ "license": "Apache-2.0",
+ "load_s": 1.7649386249977397,
+ "rss_before_mb": 63.586304,
+ "rss_after_load_mb": 447.217664,
+ "size_bytes": 378366972,
+ "pinned_threshold": 0.57,
+ "fixtures": {
+  "gptaudio": {
+   "self_speaker": null,
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker A",
+     "seconds": 7.25,
+     "text": "Hey, can we talk about the dishes? They've been piling up all week and I wanted to check in before it becomes a thing.",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 281.8,
+     "tone": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.2443,
+       "angry": 0.0378,
+       "happy": 0.6678,
+       "sad": 0.0501
+      },
+      "confidence": 0.6678,
+      "arousal": -2.8723,
+      "logits": {
+       "neutral": 0.2343,
+       "angry": -1.6322,
+       "happy": 1.2401,
+       "sad": -1.3496
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.2074,
+       "angry": 0.0348,
+       "happy": 0.5718,
+       "sad": 0.1859
+      },
+      "confidence": 0.5718,
+      "arousal": -2.7979,
+      "logits": {
+       "neutral": -0.0935,
+       "angry": -1.8772,
+       "happy": 0.9206,
+       "sad": -0.203
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker B",
+     "seconds": 6.05,
+     "text": "Sure, but I did them Tuesday night. I don't think it's fair to act like I never touch them.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 299.4,
+     "tone": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.2836,
+       "angry": 0.0227,
+       "happy": 0.6724,
+       "sad": 0.0213
+      },
+      "confidence": 0.6724,
+      "arousal": -3.3901,
+      "logits": {
+       "neutral": 0.6018,
+       "angry": -1.9253,
+       "happy": 1.4648,
+       "sad": -1.9853
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.3861,
+       "angry": 0.0007,
+       "happy": 0.5597,
+       "sad": 0.0535
+      },
+      "confidence": 0.5597,
+      "arousal": -6.7335,
+      "logits": {
+       "neutral": 1.3825,
+       "angry": -4.9798,
+       "happy": 1.7537,
+       "sad": -0.5936
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker A",
+     "seconds": 6.85,
+     "text": "Tuesday was five days ago. I've done every load since then and I'm getting tired of keeping score.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 236.7,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0393,
+       "angry": 0.8982,
+       "happy": 0.0609,
+       "sad": 0.0016
+      },
+      "confidence": 1.0,
+      "arousal": 2.6913,
+      "logits": {
+       "neutral": -0.2526,
+       "angry": 2.8765,
+       "happy": 0.1852,
+       "sad": -3.4716
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 5.5636,
+       "baseline": -2.8723,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.1525,
+       "angry": 0.7347,
+       "happy": 0.0879,
+       "sad": 0.0249
+      },
+      "confidence": 1.0,
+      "arousal": 1.5721,
+      "logits": {
+       "neutral": 0.087,
+       "angry": 1.6591,
+       "happy": -0.4639,
+       "sad": -1.7266
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 4.37,
+       "baseline": -2.7979,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker B",
+     "seconds": 6.4,
+     "text": "So now I'm the villain because I didn't get to it fast enough? I have a life outside this kitchen too.",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 275.3,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.6065,
+       "angry": 0.1517,
+       "happy": 0.2405,
+       "sad": 0.0012
+      },
+      "confidence": 1.0,
+      "arousal": -1.386,
+      "logits": {
+       "neutral": 1.6189,
+       "angry": 0.2329,
+       "happy": 0.694,
+       "sad": -4.5765
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 2.0041,
+       "baseline": -3.3901,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.9228,
+       "angry": 0.0197,
+       "happy": 0.0567,
+       "sad": 0.0008
+      },
+      "confidence": 1.0,
+      "arousal": -3.845,
+      "logits": {
+       "neutral": 2.8515,
+       "angry": -0.9935,
+       "happy": 0.0622,
+       "sad": -4.2328
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 2.8885,
+       "baseline": -6.7335,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker A",
+     "seconds": 7.25,
+     "text": "I AM SO SICK OF BEING THE ONLY ONE WHO CARES ABOUT THIS HOUSE! I CANNOT DO THIS BY MYSELF ANYMORE!",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 360.2,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0032,
+       "angry": 0.9855,
+       "happy": 0.009,
+       "sad": 0.0023
+      },
+      "confidence": 1.0,
+      "arousal": 4.6959,
+      "logits": {
+       "neutral": -1.4934,
+       "angry": 4.246,
+       "happy": -0.4499,
+       "sad": -1.8136
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 4.7864,
+       "baseline": -0.0905,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.02,
+       "angry": 0.7258,
+       "happy": 0.0093,
+       "sad": 0.2448
+      },
+      "confidence": 1.0,
+      "arousal": 1.0867,
+      "logits": {
+       "neutral": -1.0467,
+       "angry": 2.5447,
+       "happy": -1.8086,
+       "sad": 1.458
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 1.6996,
+       "baseline": -0.6129,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker B",
+     "seconds": 5.75,
+     "text": "Wow. Impressive speech. You really do love playing the martyr, don't you.",
+     "scripted": "cold_contempt",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 210.2,
+     "tone": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.1068,
+       "angry": 0.0419,
+       "happy": 0.8471,
+       "sad": 0.0042
+      },
+      "confidence": 0.8471,
+      "arousal": -3.0055,
+      "logits": {
+       "neutral": 0.0207,
+       "angry": -0.9139,
+       "happy": 2.0916,
+       "sad": -3.2133
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -0.6175,
+       "baseline": -2.388,
+       "history": 2,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.2636,
+       "angry": 0.0049,
+       "happy": 0.7263,
+       "sad": 0.0052
+      },
+      "confidence": 0.7263,
+      "arousal": -4.9979,
+      "logits": {
+       "neutral": 1.0705,
+       "angry": -2.9138,
+       "happy": 2.0841,
+       "sad": -2.8477
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.2914,
+       "baseline": -5.2893,
+       "history": 2,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker A",
+     "seconds": 7.85,
+     "text": "I don't want to be the martyr. I just... I wanted us to be a team, and I don't feel like one right now.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 348.6,
+     "tone": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.1511,
+       "angry": 0.2979,
+       "happy": 0.5413,
+       "sad": 0.0096
+      },
+      "confidence": 0.5413,
+      "arousal": -0.5971,
+      "logits": {
+       "neutral": -0.1301,
+       "angry": 0.5488,
+       "happy": 1.1459,
+       "sad": -2.8824
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -3.2884,
+       "baseline": 2.6913,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.4808,
+       "angry": 0.1487,
+       "happy": 0.2768,
+       "sad": 0.0937
+      },
+      "confidence": 0.4808,
+      "arousal": -1.1735,
+      "logits": {
+       "neutral": 0.5805,
+       "angry": -0.593,
+       "happy": 0.0283,
+       "sad": -1.055
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -2.2602,
+       "baseline": 1.0867,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker B",
+     "seconds": 8.55,
+     "text": "I don't want that either. I don't want us to be like this. I'm actually scared we're breaking something here.",
+     "scripted": "scared_shaky",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 305.4,
+     "tone": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.3755,
+       "angry": 0.0043,
+       "happy": 0.593,
+       "sad": 0.0271
+      },
+      "confidence": 0.593,
+      "arousal": -4.9169,
+      "logits": {
+       "neutral": 1.0896,
+       "angry": -3.3704,
+       "happy": 1.5465,
+       "sad": -1.54
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -1.9114,
+       "baseline": -3.0055,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.596,
+       "angry": 0.0003,
+       "happy": 0.3694,
+       "sad": 0.0343
+      },
+      "confidence": 0.596,
+      "arousal": -7.4811,
+      "logits": {
+       "neutral": 2.0145,
+       "angry": -5.4666,
+       "happy": 1.5361,
+       "sad": -0.8394
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -2.4832,
+       "baseline": -4.9979,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker A",
+     "seconds": 7.9,
+     "text": "I don't want that either. Can we just stop and figure out a system together? Something that actually works for both of us?",
+     "scripted": "repair_hopeful",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 269.5,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.2219,
+       "angry": 0.6136,
+       "happy": 0.1627,
+       "sad": 0.0018
+      },
+      "confidence": 0.6136,
+      "arousal": 1.0171,
+      "logits": {
+       "neutral": 0.7093,
+       "angry": 1.7263,
+       "happy": 0.3991,
+       "sad": -4.1045
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -0.03,
+       "baseline": 1.0471,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.5337,
+       "angry": 0.2079,
+       "happy": 0.2468,
+       "sad": 0.0117
+      },
+      "confidence": 0.5337,
+      "arousal": -0.9429,
+      "logits": {
+       "neutral": 1.0223,
+       "angry": 0.0795,
+       "happy": 0.2509,
+       "sad": -2.7982
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -0.8995,
+       "baseline": -0.0434,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker B",
+     "seconds": 7.25,
+     "text": "Yeah. Let's start over. I'm sorry I got so defensive \u2014 I do want to fix this with you.",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 299.8,
+     "tone": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.1729,
+       "angry": 0.028,
+       "happy": 0.7946,
+       "sad": 0.0045
+      },
+      "confidence": 0.7946,
+      "arousal": -3.3443,
+      "logits": {
+       "neutral": 0.4432,
+       "angry": -1.3761,
+       "happy": 1.9683,
+       "sad": -3.2035
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -0.1465,
+       "baseline": -3.1978,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.3785,
+       "angry": 0.0008,
+       "happy": 0.6135,
+       "sad": 0.0072
+      },
+      "confidence": 0.6135,
+      "arousal": -6.631,
+      "logits": {
+       "neutral": 1.6654,
+       "angry": -4.4826,
+       "happy": 2.1484,
+       "sad": -2.2978
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -0.7653,
+       "baseline": -5.8657,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    }
+   ]
+  },
+  "openai": {
+   "self_speaker": null,
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker A",
+     "seconds": 7.2,
+     "text": "Hey, can we talk about the dishes? They've been piling up all week and I wanted to check in before it becomes a thing.",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 335.8,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.2531,
+       "angry": 0.4183,
+       "happy": 0.3241,
+       "sad": 0.0045
+      },
+      "confidence": 0.4183,
+      "arousal": 0.2553,
+      "logits": {
+       "neutral": 0.4889,
+       "angry": 0.9915,
+       "happy": 0.7362,
+       "sad": -3.5402
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.7438,
+       "angry": 0.0614,
+       "happy": 0.1868,
+       "sad": 0.0079
+      },
+      "confidence": 0.7438,
+      "arousal": -2.4944,
+      "logits": {
+       "neutral": 1.6622,
+       "angry": -0.8321,
+       "happy": 0.2806,
+       "sad": -2.8776
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker B",
+     "seconds": 5.55,
+     "text": "Sure, but I did them Tuesday night. I don't think it's fair to act like I never touch them.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 285.5,
+     "tone": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.2676,
+       "angry": 0.1636,
+       "happy": 0.5617,
+       "sad": 0.0071
+      },
+      "confidence": 0.5617,
+      "arousal": -1.2336,
+      "logits": {
+       "neutral": 0.4466,
+       "angry": -0.0456,
+       "happy": 1.1881,
+       "sad": -3.1788
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.4573,
+       "angry": 0.0052,
+       "happy": 0.5135,
+       "sad": 0.0239
+      },
+      "confidence": 0.5135,
+      "arousal": -4.5845,
+      "logits": {
+       "neutral": 1.2852,
+       "angry": -3.1835,
+       "happy": 1.401,
+       "sad": -1.666
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker A",
+     "seconds": 6.0,
+     "text": "Tuesday was five days ago. I've done every load since then and I'm getting tired of keeping score.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 285.7,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.068,
+       "angry": 0.872,
+       "happy": 0.0598,
+       "sad": 0.0003
+      },
+      "confidence": 1.0,
+      "arousal": 2.5519,
+      "logits": {
+       "neutral": 0.5025,
+       "angry": 3.0544,
+       "happy": 0.3749,
+       "sad": -5.0974
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 2.2966,
+       "baseline": 0.2553,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.5373,
+       "angry": 0.348,
+       "happy": 0.1131,
+       "sad": 0.0016
+      },
+      "confidence": 1.0,
+      "arousal": -0.4345,
+      "logits": {
+       "neutral": 1.5644,
+       "angry": 1.1299,
+       "happy": 0.0064,
+       "sad": -4.2691
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 2.0599,
+       "baseline": -2.4944,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker B",
+     "seconds": 7.2,
+     "text": "So now I'm the villain because I didn't get to it fast enough? I have a life outside this kitchen too.",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 314.2,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.8639,
+       "angry": 0.0217,
+       "happy": 0.1115,
+       "sad": 0.0028
+      },
+      "confidence": 0.8639,
+      "arousal": -3.6823,
+      "logits": {
+       "neutral": 2.3426,
+       "angry": -1.3396,
+       "happy": 0.2956,
+       "sad": -3.3863
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -2.4487,
+       "baseline": -1.2336,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9478,
+       "angry": 0.0003,
+       "happy": 0.0469,
+       "sad": 0.005
+      },
+      "confidence": 0.9478,
+      "arousal": -7.9657,
+      "logits": {
+       "neutral": 3.368,
+       "angry": -4.5977,
+       "happy": 0.3617,
+       "sad": -1.8758
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -3.3812,
+       "baseline": -4.5845,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker A",
+     "seconds": 7.1,
+     "text": "I AM SO SICK OF BEING THE ONLY ONE WHO CARES ABOUT THIS HOUSE! I CANNOT DO THIS BY MYSELF ANYMORE!",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 306.1,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0073,
+       "angry": 0.9904,
+       "happy": 0.0021,
+       "sad": 0.0003
+      },
+      "confidence": 1.0,
+      "arousal": 4.9125,
+      "logits": {
+       "neutral": -0.0204,
+       "angry": 4.8921,
+       "happy": -1.2849,
+       "sad": -3.375
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 3.5089,
+       "baseline": 1.4036,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0312,
+       "angry": 0.9612,
+       "happy": 0.0032,
+       "sad": 0.0044
+      },
+      "confidence": 1.0,
+      "arousal": 3.4278,
+      "logits": {
+       "neutral": 0.305,
+       "angry": 3.7328,
+       "happy": -1.9712,
+       "sad": -1.6626
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 4.8922,
+       "baseline": -1.4645,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker B",
+     "seconds": 5.5,
+     "text": "Wow. Impressive speech. You really do love playing the martyr, don't you.",
+     "scripted": "cold_contempt",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 227.7,
+     "tone": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.3589,
+       "angry": 0.0138,
+       "happy": 0.6262,
+       "sad": 0.0011
+      },
+      "confidence": 0.6262,
+      "arousal": -3.8159,
+      "logits": {
+       "neutral": 1.4351,
+       "angry": -1.8242,
+       "happy": 1.9918,
+       "sad": -4.385
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -1.3579,
+       "baseline": -2.458,
+       "history": 2,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.5726,
+       "angry": 0.0007,
+       "happy": 0.4232,
+       "sad": 0.0035
+      },
+      "confidence": 0.5726,
+      "arousal": -6.695,
+      "logits": {
+       "neutral": 2.2277,
+       "angry": -4.4673,
+       "happy": 1.9254,
+       "sad": -2.8583
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -0.4199,
+       "baseline": -6.2751,
+       "history": 2,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker A",
+     "seconds": 7.1,
+     "text": "I don't want to be the martyr. I just... I wanted us to be a team, and I don't feel like one right now.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 270.8,
+     "tone": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.0257,
+       "angry": 0.2481,
+       "happy": 0.721,
+       "sad": 0.0052
+      },
+      "confidence": 0.721,
+      "arousal": -1.067,
+      "logits": {
+       "neutral": -1.3078,
+       "angry": 0.9598,
+       "happy": 2.0268,
+       "sad": -2.8976
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -3.6189,
+       "baseline": 2.5519,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.1283,
+       "angry": 0.3961,
+       "happy": 0.4298,
+       "sad": 0.0458
+      },
+      "confidence": 0.4298,
+      "arousal": -0.0816,
+      "logits": {
+       "neutral": -0.5301,
+       "angry": 0.5976,
+       "happy": 0.6792,
+       "sad": -1.5602
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.3529,
+       "baseline": -0.4345,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker B",
+     "seconds": 6.95,
+     "text": "I don't want that either. I don't want us to be like this. I'm actually scared we're breaking something here.",
+     "scripted": "scared_shaky",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 342.8,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.2057,
+       "angry": 0.1427,
+       "happy": 0.6335,
+       "sad": 0.0181
+      },
+      "confidence": 1.0,
+      "arousal": -1.4904,
+      "logits": {
+       "neutral": 0.0655,
+       "angry": -0.3004,
+       "happy": 1.1901,
+       "sad": -2.3656
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 2.1919,
+       "baseline": -3.6823,
+       "history": 3,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.2519,
+       "angry": 0.0087,
+       "happy": 0.6977,
+       "sad": 0.0417
+      },
+      "confidence": 1.0,
+      "arousal": -4.3792,
+      "logits": {
+       "neutral": 0.5524,
+       "angry": -2.808,
+       "happy": 1.5712,
+       "sad": -1.2465
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 2.3158,
+       "baseline": -6.695,
+       "history": 3,
+       "flag": true,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker A",
+     "seconds": 8.35,
+     "text": "I don't want that either. Can we just stop and figure out a system together? Something that actually works for both of us?",
+     "scripted": "repair_hopeful",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 326.3,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.1211,
+       "angry": 0.8525,
+       "happy": 0.0263,
+       "sad": 0.0001
+      },
+      "confidence": 0.8525,
+      "arousal": 1.9514,
+      "logits": {
+       "neutral": 1.2902,
+       "angry": 3.2417,
+       "happy": -0.2377,
+       "sad": -5.5122
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.5478,
+       "baseline": 1.4036,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.5069,
+       "angry": 0.4512,
+       "happy": 0.0406,
+       "sad": 0.0012
+      },
+      "confidence": 0.5069,
+      "arousal": -0.1164,
+      "logits": {
+       "neutral": 1.841,
+       "angry": 1.7246,
+       "happy": -0.6825,
+       "sad": -4.1712
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.1416,
+       "baseline": -0.2581,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker B",
+     "seconds": 5.85,
+     "text": "Yeah. Let's start over. I'm sorry I got so defensive \u2014 I do want to fix this with you.",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 225.8,
+     "tone": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.4442,
+       "angry": 0.0119,
+       "happy": 0.5399,
+       "sad": 0.004
+      },
+      "confidence": 0.5399,
+      "arousal": -3.8115,
+      "logits": {
+       "neutral": 1.4171,
+       "angry": -2.1994,
+       "happy": 1.6121,
+       "sad": -3.2953
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -1.2252,
+       "baseline": -2.5863,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.6664,
+       "angry": 0.0006,
+       "happy": 0.3276,
+       "sad": 0.0053
+      },
+      "confidence": 0.6664,
+      "arousal": -7.0082,
+      "logits": {
+       "neutral": 2.3774,
+       "angry": -4.6308,
+       "happy": 1.6674,
+       "sad": -2.4487
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -1.3685,
+       "baseline": -5.6398,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    }
+   ]
+  },
+  "scene_couple_escalation": {
+   "self_speaker": "Speaker A",
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker A",
+     "seconds": 4.097,
+     "text": "Hey, I looked at the credit card statement tonight. Can we go over it?",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 208.3,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.625,
+       "angry": 0.0029,
+       "happy": 0.3713,
+       "sad": 0.0007
+      },
+      "confidence": 0.625,
+      "arousal": -5.3667,
+      "logits": {
+       "neutral": 2.3648,
+       "angry": -3.0019,
+       "happy": 1.8442,
+       "sad": -4.3775
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9223,
+       "angry": 0.0,
+       "happy": 0.0775,
+       "sad": 0.0002
+      },
+      "confidence": 0.9223,
+      "arousal": -9.8723,
+      "logits": {
+       "neutral": 4.1536,
+       "angry": -5.7187,
+       "happy": 1.6765,
+       "sad": -4.2099
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker B",
+     "seconds": 5.242,
+     "text": "Sure. I know it's higher than usual, but most of that was the car repair.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 298.4,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0339,
+       "angry": 0.7833,
+       "happy": 0.182,
+       "sad": 0.0008
+      },
+      "confidence": 0.7833,
+      "arousal": 1.4597,
+      "logits": {
+       "neutral": -0.562,
+       "angry": 2.579,
+       "happy": 1.1193,
+       "sad": -4.2713
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.2357,
+       "angry": 0.5428,
+       "happy": 0.2153,
+       "sad": 0.0061
+      },
+      "confidence": 0.5428,
+      "arousal": 0.834,
+      "logits": {
+       "neutral": 0.4263,
+       "angry": 1.2603,
+       "happy": 0.3358,
+       "sad": -3.2264
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker A",
+     "seconds": 4.705,
+     "text": "The car was six hundred. There's another nine hundred I can't place.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 212.1,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.434,
+       "angry": 0.3669,
+       "happy": 0.1979,
+       "sad": 0.0012
+      },
+      "confidence": 1.0,
+      "arousal": -0.1679,
+      "logits": {
+       "neutral": 1.2992,
+       "angry": 1.1313,
+       "happy": 0.5137,
+       "sad": -4.599
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 5.1988,
+       "baseline": -5.3667,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.7871,
+       "angry": 0.0118,
+       "happy": 0.1987,
+       "sad": 0.0025
+      },
+      "confidence": 1.0,
+      "arousal": -4.2033,
+      "logits": {
+       "neutral": 2.2318,
+       "angry": -1.9715,
+       "happy": 0.8554,
+       "sad": -3.5313
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 5.669,
+       "baseline": -9.8723,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker B",
+     "seconds": 5.126,
+     "text": "Some was groceries, some was your mom's birthday gift. I didn't hide anything.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 245.3,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.5618,
+       "angry": 0.2918,
+       "happy": 0.1461,
+       "sad": 0.0002
+      },
+      "confidence": 0.5618,
+      "arousal": -0.6551,
+      "logits": {
+       "neutral": 1.9128,
+       "angry": 1.2577,
+       "happy": 0.5662,
+       "sad": -5.8638
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -2.1148,
+       "baseline": 1.4597,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.7775,
+       "angry": 0.143,
+       "happy": 0.0757,
+       "sad": 0.0039
+      },
+      "confidence": 0.7775,
+      "arousal": -1.6933,
+      "logits": {
+       "neutral": 1.9351,
+       "angry": 0.2418,
+       "happy": -0.3946,
+       "sad": -3.3612
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -2.5273,
+       "baseline": 0.834,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker A",
+     "seconds": 4.942,
+     "text": "I'm not saying you hid it. I'm saying we agreed to talk before spending like that.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 225.0,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.1423,
+       "angry": 0.6035,
+       "happy": 0.0396,
+       "sad": 0.2146
+      },
+      "confidence": 1.0,
+      "arousal": 1.034,
+      "logits": {
+       "neutral": -0.0518,
+       "angry": 1.3932,
+       "happy": -1.3314,
+       "sad": 0.3592
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 3.8013,
+       "baseline": -2.7673,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.4256,
+       "angry": 0.1884,
+       "happy": 0.072,
+       "sad": 0.314
+      },
+      "confidence": 1.0,
+      "arousal": -0.8149,
+      "logits": {
+       "neutral": 0.6732,
+       "angry": -0.1418,
+       "happy": -1.1044,
+       "sad": 0.3689
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 6.2229,
+       "baseline": -7.0378,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker B",
+     "seconds": 5.234,
+     "text": "We talked about it in the car. You just weren't listening, like always.",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 313.1,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.06,
+       "angry": 0.8266,
+       "happy": 0.1126,
+       "sad": 0.0007
+      },
+      "confidence": 1.0,
+      "arousal": 1.9936,
+      "logits": {
+       "neutral": 0.0132,
+       "angry": 2.6356,
+       "happy": 0.642,
+       "sad": -4.3766
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 1.5913,
+       "baseline": 0.4023,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.5372,
+       "angry": 0.4183,
+       "happy": 0.0425,
+       "sad": 0.002
+      },
+      "confidence": 0.5372,
+      "arousal": -0.2501,
+      "logits": {
+       "neutral": 1.7854,
+       "angry": 1.5352,
+       "happy": -0.7511,
+       "sad": -3.8216
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.1796,
+       "baseline": -0.4297,
+       "history": 2,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker A",
+     "seconds": 5.699,
+     "text": "LIKE ALWAYS? I AM THE ONLY ONE IN THIS HOUSE WHO EVEN LOOKS AT THE BILLS!",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 331.3,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.6865,
+       "angry": 0.0032,
+       "happy": 0.3096,
+       "sad": 0.0007
+      },
+      "confidence": 0.6865,
+      "arousal": -5.3696,
+      "logits": {
+       "neutral": 2.4746,
+       "angry": -2.895,
+       "happy": 1.6783,
+       "sad": -4.4296
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -5.2017,
+       "baseline": -0.1679,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.8517,
+       "angry": 0.0001,
+       "happy": 0.1478,
+       "sad": 0.0004
+      },
+      "confidence": 0.8517,
+      "arousal": -9.0269,
+      "logits": {
+       "neutral": 3.6,
+       "angry": -5.4269,
+       "happy": 1.8487,
+       "sad": -3.9812
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -4.8236,
+       "baseline": -4.2033,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker B",
+     "seconds": 3.921,
+     "text": "Please don't yell at me. I'm right here, I can hear you.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 176.3,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0285,
+       "angry": 0.9177,
+       "happy": 0.0536,
+       "sad": 0.0003
+      },
+      "confidence": 1.0,
+      "arousal": 2.8412,
+      "logits": {
+       "neutral": -0.0966,
+       "angry": 3.3769,
+       "happy": 0.5358,
+       "sad": -4.8234
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 1.3815,
+       "baseline": 1.4597,
+       "history": 3,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.419,
+       "angry": 0.4871,
+       "happy": 0.087,
+       "sad": 0.0069
+      },
+      "confidence": 0.4871,
+      "arousal": 0.1506,
+      "logits": {
+       "neutral": 1.1098,
+       "angry": 1.2604,
+       "happy": -0.4616,
+       "sad": -3.0012
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.4007,
+       "baseline": -0.2501,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker A",
+     "seconds": 5.267,
+     "text": "Forget it. Clearly budgeting is beneath you. I'll just handle it, like everything else.",
+     "scripted": "cold_contempt",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 220.4,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.4817,
+       "angry": 0.0751,
+       "happy": 0.4413,
+       "sad": 0.002
+      },
+      "confidence": 0.7975,
+      "arousal": -1.8581,
+      "logits": {
+       "neutral": 1.3254,
+       "angry": -0.5328,
+       "happy": 1.2377,
+       "sad": -4.1761
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.9092,
+       "baseline": -2.7673,
+       "history": 4,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.7114,
+       "angry": 0.0014,
+       "happy": 0.283,
+       "sad": 0.0042
+      },
+      "confidence": 0.7114,
+      "arousal": -6.2155,
+      "logits": {
+       "neutral": 2.3541,
+       "angry": -3.8614,
+       "happy": 1.4323,
+       "sad": -2.7834
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.3996,
+       "baseline": -6.6151,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker B",
+     "seconds": 5.695,
+     "text": "That's not fair. I'm trying, and you talk to me like I'm a child.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 288.2,
+     "tone": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.1079,
+       "angry": 0.4185,
+       "happy": 0.4625,
+       "sad": 0.0111
+      },
+      "confidence": 0.4625,
+      "arousal": -0.1,
+      "logits": {
+       "neutral": -0.3989,
+       "angry": 0.9565,
+       "happy": 1.0565,
+       "sad": -2.6743
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -1.8267,
+       "baseline": 1.7267,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.448,
+       "angry": 0.2594,
+       "happy": 0.2792,
+       "sad": 0.0134
+      },
+      "confidence": 0.448,
+      "arousal": -0.5466,
+      "logits": {
+       "neutral": 0.8029,
+       "angry": 0.2563,
+       "happy": 0.3301,
+       "sad": -2.7069
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -0.4969,
+       "baseline": -0.0497,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 10,
+     "speaker": "Speaker A",
+     "seconds": 4.332,
+     "text": "You're right. I'm sorry. That came out way harsher than I meant.",
+     "scripted": "repair_apology",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 385.5,
+     "tone": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.3122,
+       "angry": 0.0091,
+       "happy": 0.6716,
+       "sad": 0.0072
+      },
+      "confidence": 0.6716,
+      "arousal": -4.3042,
+      "logits": {
+       "neutral": 1.0523,
+       "angry": -2.4859,
+       "happy": 1.8184,
+       "sad": -2.7159
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -2.4461,
+       "baseline": -1.8581,
+       "history": 5,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.5772,
+       "angry": 0.0001,
+       "happy": 0.4178,
+       "sad": 0.005
+      },
+      "confidence": 0.5772,
+      "arousal": -9.2426,
+      "logits": {
+       "neutral": 2.6776,
+       "angry": -6.565,
+       "happy": 2.3544,
+       "sad": -2.0757
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -3.0271,
+       "baseline": -6.2155,
+       "history": 5,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 11,
+     "speaker": "Speaker B",
+     "seconds": 5.579,
+     "text": "Thank you. Can we just sit down Sunday and do it together, no phones?",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 289.3,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.5909,
+       "angry": 0.236,
+       "happy": 0.1708,
+       "sad": 0.0023
+      },
+      "confidence": 0.5909,
+      "arousal": -0.9178,
+      "logits": {
+       "neutral": 1.5148,
+       "angry": 0.597,
+       "happy": 0.2737,
+       "sad": -4.0436
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -2.3775,
+       "baseline": 1.4597,
+       "history": 5,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.8701,
+       "angry": 0.0657,
+       "happy": 0.0586,
+       "sad": 0.0055
+      },
+      "confidence": 0.8701,
+      "arousal": -2.5829,
+      "logits": {
+       "neutral": 2.1905,
+       "angry": -0.3925,
+       "happy": -0.5067,
+       "sad": -2.8677
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -2.3328,
+       "baseline": -0.2501,
+       "history": 5,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 12,
+     "speaker": "Speaker A",
+     "seconds": 4.927,
+     "text": "Yeah. Sunday. I'd like that. And I'll bring the good coffee.",
+     "scripted": "warm_happy",
+     "coarse": "happy",
+     "skipped": null,
+     "latency_ms": 231.7,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.1422,
+       "angry": 0.1729,
+       "happy": 0.6835,
+       "sad": 0.0014
+      },
+      "confidence": 1.0,
+      "arousal": -1.3744,
+      "logits": {
+       "neutral": 0.2281,
+       "angry": 0.424,
+       "happy": 1.7984,
+       "sad": -4.4105
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 1.7067,
+       "baseline": -3.0812,
+       "history": 6,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.5626,
+       "angry": 0.0005,
+       "happy": 0.4367,
+       "sad": 0.0002
+      },
+      "confidence": 0.5626,
+      "arousal": -7.0989,
+      "logits": {
+       "neutral": 2.8123,
+       "angry": -4.2866,
+       "happy": 2.5591,
+       "sad": -5.0403
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.5223,
+       "baseline": -7.6212,
+       "history": 6,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    }
+   ]
+  },
+  "scene_family3": {
+   "self_speaker": "Speaker A",
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker C",
+     "seconds": 3.862,
+     "text": "Okay, dinner's in ten minutes. Who's setting the table tonight?",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 225.0,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0533,
+       "angry": 0.9417,
+       "happy": 0.005,
+       "sad": 0.0
+      },
+      "confidence": 0.9417,
+      "arousal": 2.8724,
+      "logits": {
+       "neutral": 1.9307,
+       "angry": 4.8031,
+       "happy": -0.4386,
+       "sad": -7.8185
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.5668,
+       "angry": 0.4265,
+       "happy": 0.0067,
+       "sad": 0.0
+      },
+      "confidence": 0.5668,
+      "arousal": -0.2842,
+      "logits": {
+       "neutral": 3.2712,
+       "angry": 2.987,
+       "happy": -1.1689,
+       "sad": -6.8365
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker B",
+     "seconds": 4.277,
+     "text": "Not me, I did it yesterday. And the day before, actually.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 210.6,
+     "tone": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.2561,
+       "angry": 0.1694,
+       "happy": 0.5745,
+       "sad": 0.0
+      },
+      "confidence": 0.5745,
+      "arousal": -1.2213,
+      "logits": {
+       "neutral": 1.748,
+       "angry": 1.3345,
+       "happy": 2.5558,
+       "sad": -9.0574
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9185,
+       "angry": 0.0134,
+       "happy": 0.068,
+       "sad": 0.0
+      },
+      "confidence": 0.9185,
+      "arousal": -4.2256,
+      "logits": {
+       "neutral": 3.7574,
+       "angry": -0.4682,
+       "happy": 1.1546,
+       "sad": -8.0982
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker A",
+     "seconds": 3.284,
+     "text": "Then it's my turn. Grab the plates for me, would you?",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 255.3,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.8397,
+       "angry": 0.0134,
+       "happy": 0.1467,
+       "sad": 0.0001
+      },
+      "confidence": 0.8397,
+      "arousal": -4.1368,
+      "logits": {
+       "neutral": 2.8769,
+       "angry": -1.2599,
+       "happy": 1.1325,
+       "sad": -5.8247
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9816,
+       "angry": 0.0003,
+       "happy": 0.0181,
+       "sad": 0.0
+      },
+      "confidence": 0.9816,
+      "arousal": -8.0132,
+      "logits": {
+       "neutral": 4.578,
+       "angry": -3.4353,
+       "happy": 0.5833,
+       "sad": -5.3892
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker C",
+     "seconds": 3.672,
+     "text": "Also, someone left the milk out again. All afternoon.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 207.9,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.7345,
+       "angry": 0.0768,
+       "happy": 0.1884,
+       "sad": 0.0003
+      },
+      "confidence": 0.7345,
+      "arousal": -2.2582,
+      "logits": {
+       "neutral": 2.2494,
+       "angry": -0.0088,
+       "happy": 0.8886,
+       "sad": -5.6043
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -5.1306,
+       "baseline": 2.8724,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.8392,
+       "angry": 0.0421,
+       "happy": 0.1181,
+       "sad": 0.0006
+      },
+      "confidence": 0.8392,
+      "arousal": -2.9923,
+      "logits": {
+       "neutral": 2.4691,
+       "angry": -0.5232,
+       "happy": 0.5083,
+       "sad": -4.8365
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -2.7081,
+       "baseline": -0.2842,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker B",
+     "seconds": 4.842,
+     "text": "Why do you always assume it's me? Maybe ask Dad for once.",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 245.5,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0449,
+       "angry": 0.9089,
+       "happy": 0.0461,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 2.9812,
+      "logits": {
+       "neutral": 0.7452,
+       "angry": 3.7519,
+       "happy": 0.7707,
+       "sad": -6.9276
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 4.2025,
+       "baseline": -1.2213,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.4656,
+       "angry": 0.5061,
+       "happy": 0.0282,
+       "sad": 0.0001
+      },
+      "confidence": 1.0,
+      "arousal": 0.0834,
+      "logits": {
+       "neutral": 2.4041,
+       "angry": 2.4875,
+       "happy": -0.4016,
+       "sad": -6.3473
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 4.309,
+       "baseline": -4.2256,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker A",
+     "seconds": 4.5,
+     "text": "It was probably me, honestly. I made coffee around two.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 348.7,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.5851,
+       "angry": 0.1381,
+       "happy": 0.2684,
+       "sad": 0.0084
+      },
+      "confidence": 1.0,
+      "arousal": -1.4442,
+      "logits": {
+       "neutral": 1.2163,
+       "angry": -0.2279,
+       "happy": 0.4368,
+       "sad": -3.0255
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 2.6926,
+       "baseline": -4.1368,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.7203,
+       "angry": 0.0012,
+       "happy": 0.2747,
+       "sad": 0.0038
+      },
+      "confidence": 1.0,
+      "arousal": -6.4173,
+      "logits": {
+       "neutral": 2.4108,
+       "angry": -4.0066,
+       "happy": 1.447,
+       "sad": -2.8282
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 1.5959,
+       "baseline": -8.0132,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker C",
+     "seconds": 3.579,
+     "text": "That's the third time this week. It's not funny anymore.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 208.2,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0361,
+       "angry": 0.9449,
+       "happy": 0.0189,
+       "sad": 0.0001
+      },
+      "confidence": 1.0,
+      "arousal": 3.2641,
+      "logits": {
+       "neutral": 0.5805,
+       "angry": 3.8446,
+       "happy": -0.0671,
+       "sad": -5.3299
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 2.957,
+       "baseline": 0.3071,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.1135,
+       "angry": 0.8673,
+       "happy": 0.019,
+       "sad": 0.0002
+      },
+      "confidence": 1.0,
+      "arousal": 2.0335,
+      "logits": {
+       "neutral": 1.2861,
+       "angry": 3.3196,
+       "happy": -0.503,
+       "sad": -5.2051
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 3.6718,
+       "baseline": -1.6383,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker B",
+     "seconds": 5.804,
+     "text": "OH MY GOD, IT'S MILK! WHY IS EVERYTHING IN THIS HOUSE A CRISIS?",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 303.2,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.0399,
+       "angry": 0.8702,
+       "happy": 0.0899,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 2.27,
+      "logits": {
+       "neutral": 0.6321,
+       "angry": 3.715,
+       "happy": 1.4451,
+       "sad": -7.8285
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 1.3901,
+       "baseline": 0.8799,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.3486,
+       "angry": 0.5966,
+       "happy": 0.0547,
+       "sad": 0.0001
+      },
+      "confidence": 1.0,
+      "arousal": 0.5373,
+      "logits": {
+       "neutral": 1.9281,
+       "angry": 2.4654,
+       "happy": 0.076,
+       "sad": -6.3782
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 2.6084,
+       "baseline": -2.0711,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker C",
+     "seconds": 4.612,
+     "text": "Don't shout at me. I'm tired and I'm just asking for a little help.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 257.0,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.59,
+       "angry": 0.377,
+       "happy": 0.0329,
+       "sad": 0.0001
+      },
+      "confidence": 0.59,
+      "arousal": -0.448,
+      "logits": {
+       "neutral": 2.5414,
+       "angry": 2.0934,
+       "happy": -0.3457,
+       "sad": -6.2026
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -3.3204,
+       "baseline": 2.8724,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.6476,
+       "angry": 0.3261,
+       "happy": 0.025,
+       "sad": 0.0014
+      },
+      "confidence": 0.6476,
+      "arousal": -0.6862,
+      "logits": {
+       "neutral": 2.2292,
+       "angry": 1.543,
+       "happy": -1.0271,
+       "sad": -3.9323
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -0.402,
+       "baseline": -0.2842,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker A",
+     "seconds": 4.556,
+     "text": "Hey! Don't talk to your mother like that, and don't drag me into it either!",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 280.7,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.4651,
+       "angry": 0.2668,
+       "happy": 0.1799,
+       "sad": 0.0881
+      },
+      "confidence": 1.0,
+      "arousal": -0.5556,
+      "logits": {
+       "neutral": 0.6314,
+       "angry": 0.0758,
+       "happy": -0.3184,
+       "sad": -1.0324
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 2.2349,
+       "baseline": -2.7905,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.7287,
+       "angry": 0.0141,
+       "happy": 0.2224,
+       "sad": 0.0348
+      },
+      "confidence": 1.0,
+      "arousal": -3.943,
+      "logits": {
+       "neutral": 1.613,
+       "angry": -2.33,
+       "happy": 0.426,
+       "sad": -1.4293
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 3.2722,
+       "baseline": -7.2152,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 10,
+     "speaker": "Speaker B",
+     "seconds": 4.168,
+     "text": "Fine. Sorry. I'm just sick of getting blamed for everything.",
+     "scripted": "sullen_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 331.3,
+     "tone": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.279,
+       "angry": 0.2065,
+       "happy": 0.5143,
+       "sad": 0.0001
+      },
+      "confidence": 0.5143,
+      "arousal": -0.9125,
+      "logits": {
+       "neutral": 1.1886,
+       "angry": 0.8878,
+       "happy": 1.8003,
+       "sad": -6.4236
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -3.1825,
+       "baseline": 2.27,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.8855,
+       "angry": 0.0255,
+       "happy": 0.0883,
+       "sad": 0.0006
+      },
+      "confidence": 0.8855,
+      "arousal": -3.5476,
+      "logits": {
+       "neutral": 2.6588,
+       "angry": -0.8888,
+       "happy": 0.3537,
+       "sad": -4.5835
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -3.631,
+       "baseline": 0.0834,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 11,
+     "speaker": "Speaker A",
+     "seconds": 4.218,
+     "text": "I know. I snapped too. Let's all just reset, okay?",
+     "scripted": "repair_apology",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 210.9,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.7316,
+       "angry": 0.009,
+       "happy": 0.2593,
+       "sad": 0.0001
+      },
+      "confidence": 0.7316,
+      "arousal": -4.4,
+      "logits": {
+       "neutral": 2.7032,
+       "angry": -1.6968,
+       "happy": 1.6659,
+       "sad": -5.9109
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -2.9558,
+       "baseline": -1.4442,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.8428,
+       "angry": 0.0004,
+       "happy": 0.1566,
+       "sad": 0.0002
+      },
+      "confidence": 0.8428,
+      "arousal": -7.6491,
+      "logits": {
+       "neutral": 3.4836,
+       "angry": -4.1655,
+       "happy": 1.8006,
+       "sad": -4.877
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -1.2318,
+       "baseline": -6.4173,
+       "history": 3,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 12,
+     "speaker": "Speaker C",
+     "seconds": 4.273,
+     "text": "Reset. Plates, forks, and somebody put the milk in the fridge.",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 326.7,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.8021,
+       "angry": 0.1761,
+       "happy": 0.0218,
+       "sad": 0.0
+      },
+      "confidence": 0.8021,
+      "arousal": -1.5161,
+      "logits": {
+       "neutral": 3.8505,
+       "angry": 2.3344,
+       "happy": 0.2446,
+       "sad": -9.4819
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -2.7283,
+       "baseline": 1.2122,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9421,
+       "angry": 0.0313,
+       "happy": 0.0266,
+       "sad": 0.0
+      },
+      "confidence": 0.9421,
+      "arousal": -3.4056,
+      "logits": {
+       "neutral": 3.7692,
+       "angry": 0.3636,
+       "happy": 0.2027,
+       "sad": -7.2649
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -2.9204,
+       "baseline": -0.4852,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 13,
+     "speaker": "Speaker B",
+     "seconds": 3.851,
+     "text": "On it. And for the record, I'm making the garlic bread.",
+     "scripted": "warm_happy",
+     "coarse": "happy",
+     "skipped": null,
+     "latency_ms": 163.8,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0282,
+       "angry": 0.6475,
+       "happy": 0.3243,
+       "sad": 0.0
+      },
+      "confidence": 0.6475,
+      "arousal": 0.6915,
+      "logits": {
+       "neutral": 0.23,
+       "angry": 3.3645,
+       "happy": 2.6729,
+       "sad": -8.8922
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.0128,
+       "baseline": 0.6787,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.5636,
+       "angry": 0.1585,
+       "happy": 0.2779,
+       "sad": 0.0
+      },
+      "confidence": 0.5636,
+      "arousal": -1.2687,
+      "logits": {
+       "neutral": 2.2994,
+       "angry": 1.0307,
+       "happy": 1.5921,
+       "sad": -8.0674
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.4634,
+       "baseline": -1.7321,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 14,
+     "speaker": "Speaker A",
+     "seconds": 4.064,
+     "text": "Now we're talking. Best part of the week, right here.",
+     "scripted": "warm_happy",
+     "coarse": "happy",
+     "skipped": null,
+     "latency_ms": 244.2,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.6246,
+       "angry": 0.055,
+       "happy": 0.3201,
+       "sad": 0.0004
+      },
+      "confidence": 0.6246,
+      "arousal": -2.4306,
+      "logits": {
+       "neutral": 1.9822,
+       "angry": -0.4483,
+       "happy": 1.3138,
+       "sad": -5.4743
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.3599,
+       "baseline": -2.7905,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9338,
+       "angry": 0.0009,
+       "happy": 0.0651,
+       "sad": 0.0002
+      },
+      "confidence": 0.9338,
+      "arousal": -6.953,
+      "logits": {
+       "neutral": 3.6571,
+       "angry": -3.2959,
+       "happy": 0.993,
+       "sad": -4.6997
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.0802,
+       "baseline": -7.0332,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    }
+   ]
+  },
+  "scene_meeting4": {
+   "self_speaker": "Speaker A",
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker B",
+     "seconds": 4.011,
+     "text": "Okay, let's start. First item: the March launch timeline.",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 157.5,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.6382,
+       "angry": 0.2041,
+       "happy": 0.1576,
+       "sad": 0.0
+      },
+      "confidence": 0.6382,
+      "arousal": -1.1399,
+      "logits": {
+       "neutral": 2.6919,
+       "angry": 1.552,
+       "happy": 1.2935,
+       "sad": -8.6038
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9359,
+       "angry": 0.0163,
+       "happy": 0.0478,
+       "sad": 0.0
+      },
+      "confidence": 0.9359,
+      "arousal": -4.0512,
+      "logits": {
+       "neutral": 3.8351,
+       "angry": -0.2161,
+       "happy": 0.861,
+       "sad": -7.8997
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker C",
+     "seconds": 4.852,
+     "text": "Engineering's on track. Integration tests finish by the twentieth.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 243.8,
+     "tone": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.1827,
+       "angry": 0.2046,
+       "happy": 0.6127,
+       "sad": 0.0001
+      },
+      "confidence": 0.6127,
+      "arousal": -1.0968,
+      "logits": {
+       "neutral": 1.0138,
+       "angry": 1.1272,
+       "happy": 2.224,
+       "sad": -7.0965
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.6479,
+       "angry": 0.0203,
+       "happy": 0.3317,
+       "sad": 0.0
+      },
+      "confidence": 0.6479,
+      "arousal": -3.4631,
+      "logits": {
+       "neutral": 2.5927,
+       "angry": -0.8704,
+       "happy": 1.9232,
+       "sad": -7.0939
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker D",
+     "seconds": 4.723,
+     "text": "Marketing needs final screenshots by the fifteenth, or the press kit slips.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 254.8,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.6828,
+       "angry": 0.2489,
+       "happy": 0.0682,
+       "sad": 0.0001
+      },
+      "confidence": 0.6828,
+      "arousal": -1.0091,
+      "logits": {
+       "neutral": 2.586,
+       "angry": 1.5769,
+       "happy": 0.2825,
+       "sad": -6.7909
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.7938,
+       "angry": 0.1323,
+       "happy": 0.0738,
+       "sad": 0.0001
+      },
+      "confidence": 0.7938,
+      "arousal": -1.7919,
+      "logits": {
+       "neutral": 2.7106,
+       "angry": 0.9187,
+       "happy": 0.3351,
+       "sad": -6.4583
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker A",
+     "seconds": 4.664,
+     "text": "Tight, but doable. I'll have design prioritize the screenshots.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 331.5,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.7816,
+       "angry": 0.0149,
+       "happy": 0.2026,
+       "sad": 0.0009
+      },
+      "confidence": 0.7816,
+      "arousal": -3.9606,
+      "logits": {
+       "neutral": 2.3711,
+       "angry": -1.5895,
+       "happy": 1.0211,
+       "sad": -4.4277
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9498,
+       "angry": 0.0011,
+       "happy": 0.0483,
+       "sad": 0.0009
+      },
+      "confidence": 0.9498,
+      "arousal": -6.7951,
+      "logits": {
+       "neutral": 3.4704,
+       "angry": -3.3247,
+       "happy": 0.492,
+       "sad": -3.5344
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker B",
+     "seconds": 4.538,
+     "text": "Good. Second item: the support backlog is up thirty percent.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 224.4,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.1041,
+       "angry": 0.8924,
+       "happy": 0.0035,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 2.1489,
+      "logits": {
+       "neutral": 2.8773,
+       "angry": 5.0261,
+       "happy": -0.517,
+       "sad": -9.3903
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 3.2888,
+       "baseline": -1.1399,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.4559,
+       "angry": 0.54,
+       "happy": 0.0041,
+       "sad": 0.0
+      },
+      "confidence": 1.0,
+      "arousal": 0.1694,
+      "logits": {
+       "neutral": 3.5145,
+       "angry": 3.6839,
+       "happy": -1.1992,
+       "sad": -7.8999
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 4.2206,
+       "baseline": -4.0512,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker A",
+     "seconds": 3.97,
+     "text": "I'll pull the top ten tickets and send them round this afternoon.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 223.9,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9589,
+       "angry": 0.0256,
+       "happy": 0.0128,
+       "sad": 0.0026
+      },
+      "confidence": 0.9589,
+      "arousal": -3.622,
+      "logits": {
+       "neutral": 3.0836,
+       "angry": -0.5383,
+       "happy": -1.2296,
+       "sad": -2.8087
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.3386,
+       "baseline": -3.9606,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9932,
+       "angry": 0.0018,
+       "happy": 0.003,
+       "sad": 0.002
+      },
+      "confidence": 0.9932,
+      "arousal": -6.2873,
+      "logits": {
+       "neutral": 4.1161,
+       "angry": -2.1712,
+       "happy": -1.6882,
+       "sad": -2.0915
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.5078,
+       "baseline": -6.7951,
+       "history": 1,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker B",
+     "seconds": 4.057,
+     "text": "Third item, budget. Finance wants every team to trim eight percent.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 175.2,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.5257,
+       "angry": 0.4049,
+       "happy": 0.0694,
+       "sad": 0.0
+      },
+      "confidence": 0.5257,
+      "arousal": -0.2611,
+      "logits": {
+       "neutral": 2.5861,
+       "angry": 2.325,
+       "happy": 0.5611,
+       "sad": -8.0453
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -0.7656,
+       "baseline": 0.5045,
+       "history": 2,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9164,
+       "angry": 0.0474,
+       "happy": 0.0362,
+       "sad": 0.0
+      },
+      "confidence": 0.9164,
+      "arousal": -2.9621,
+      "logits": {
+       "neutral": 3.4347,
+       "angry": 0.4726,
+       "happy": 0.2021,
+       "sad": -6.9062
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -1.0212,
+       "baseline": -1.9409,
+       "history": 2,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker D",
+     "seconds": 3.878,
+     "text": "Eight percent? We already cut the contractor budget last quarter.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 188.3,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.5986,
+       "angry": 0.3958,
+       "happy": 0.0056,
+       "sad": 0.0
+      },
+      "confidence": 0.5224,
+      "arousal": -0.4136,
+      "logits": {
+       "neutral": 3.9992,
+       "angry": 3.5856,
+       "happy": -0.6815,
+       "sad": -9.4556
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.5955,
+       "baseline": -1.0091,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.7521,
+       "angry": 0.2368,
+       "happy": 0.0111,
+       "sad": 0.0
+      },
+      "confidence": 0.5582,
+      "arousal": -1.1556,
+      "logits": {
+       "neutral": 3.5424,
+       "angry": 2.3868,
+       "happy": -0.6706,
+       "sad": -7.5236
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.6363,
+       "baseline": -1.7919,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker C",
+     "seconds": 5.071,
+     "text": "We could delay the second hire until June. That covers most of it.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 261.1,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.2429,
+       "angry": 0.3438,
+       "happy": 0.413,
+       "sad": 0.0003
+      },
+      "confidence": 0.8014,
+      "arousal": -0.1832,
+      "logits": {
+       "neutral": 0.9065,
+       "angry": 1.2542,
+       "happy": 1.4374,
+       "sad": -5.7274
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.9136,
+       "baseline": -1.0968,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.769,
+       "angry": 0.1016,
+       "happy": 0.1283,
+       "sad": 0.0011
+      },
+      "confidence": 1.0,
+      "arousal": -2.0242,
+      "logits": {
+       "neutral": 2.0699,
+       "angry": 0.0457,
+       "happy": 0.2791,
+       "sad": -4.4617
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 1.4389,
+       "baseline": -3.4631,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker B",
+     "seconds": 3.18,
+     "text": "That's one option. What about the conference sponsorship?",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 219.8,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.3368,
+       "angry": 0.6552,
+       "happy": 0.0079,
+       "sad": 0.0
+      },
+      "confidence": 0.8127,
+      "arousal": 0.6654,
+      "logits": {
+       "neutral": 3.256,
+       "angry": 3.9214,
+       "happy": -0.4906,
+       "sad": -8.9873
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.9265,
+       "baseline": -0.2611,
+       "history": 3,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.9077,
+       "angry": 0.0867,
+       "happy": 0.0056,
+       "sad": 0.0
+      },
+      "confidence": 0.5382,
+      "arousal": -2.3485,
+      "logits": {
+       "neutral": 4.3457,
+       "angry": 1.9972,
+       "happy": -0.7472,
+       "sad": -8.3881
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.6136,
+       "baseline": -2.9621,
+       "history": 3,
+       "flag": true,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 10,
+     "speaker": "Speaker D",
+     "seconds": 5.333,
+     "text": "We signed that in December. Backing out costs almost as much as going.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 219.7,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.1318,
+       "angry": 0.8625,
+       "happy": 0.0055,
+       "sad": 0.0002
+      },
+      "confidence": 1.0,
+      "arousal": 1.8786,
+      "logits": {
+       "neutral": 1.7518,
+       "angry": 3.6304,
+       "happy": -1.4236,
+       "sad": -4.6675
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 2.5899,
+       "baseline": -0.7114,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.4331,
+       "angry": 0.549,
+       "happy": 0.0173,
+       "sad": 0.0006
+      },
+      "confidence": 1.0,
+      "arousal": 0.2371,
+      "logits": {
+       "neutral": 2.1081,
+       "angry": 2.3451,
+       "happy": -1.1148,
+       "sad": -4.4714
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 1.7108,
+       "baseline": -1.4737,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 11,
+     "speaker": "Speaker A",
+     "seconds": 3.758,
+     "text": "So we delay my hire again? That's the third time this year.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 167.4,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.679,
+       "angry": 0.0358,
+       "happy": 0.2821,
+       "sad": 0.003
+      },
+      "confidence": 0.7449,
+      "arousal": -2.9421,
+      "logits": {
+       "neutral": 1.7694,
+       "angry": -1.1726,
+       "happy": 0.8912,
+       "sad": -3.6437
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.8492,
+       "baseline": -3.7913,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.7672,
+       "angry": 0.0025,
+       "happy": 0.2273,
+       "sad": 0.003
+      },
+      "confidence": 0.7302,
+      "arousal": -5.7088,
+      "logits": {
+       "neutral": 2.43,
+       "angry": -3.2788,
+       "happy": 1.2134,
+       "sad": -3.112
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.8324,
+       "baseline": -6.5412,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 12,
+     "speaker": "Speaker B",
+     "seconds": 3.333,
+     "text": "Nobody's decided anything. We're just listing options.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 205.3,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.2337,
+       "angry": 0.7523,
+       "happy": 0.0139,
+       "sad": 0.0002
+      },
+      "confidence": 0.8483,
+      "arousal": 1.1693,
+      "logits": {
+       "neutral": 1.9426,
+       "angry": 3.1119,
+       "happy": -0.879,
+       "sad": -5.3465
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.9671,
+       "baseline": 0.2021,
+       "history": 4,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.8882,
+       "angry": 0.104,
+       "happy": 0.0075,
+       "sad": 0.0004
+      },
+      "confidence": 0.8882,
+      "arousal": -2.1448,
+      "logits": {
+       "neutral": 3.2949,
+       "angry": 1.1501,
+       "happy": -1.4854,
+       "sad": -4.5065
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.5105,
+       "baseline": -2.6553,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 13,
+     "speaker": "Speaker A",
+     "seconds": 5.417,
+     "text": "THEN LIST A DIFFERENT ONE! MY TEAM IS DROWNING AND EVERYONE HERE KNOWS IT!",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 276.9,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.6084,
+       "angry": 0.1036,
+       "happy": 0.2841,
+       "sad": 0.0039
+      },
+      "confidence": 1.0,
+      "arousal": -1.7706,
+      "logits": {
+       "neutral": 1.4336,
+       "angry": -0.337,
+       "happy": 0.6721,
+       "sad": -3.6136
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 1.8514,
+       "baseline": -3.622,
+       "history": 3,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.8524,
+       "angry": 0.0105,
+       "happy": 0.1354,
+       "sad": 0.0017
+      },
+      "confidence": 1.0,
+      "arousal": -4.3951,
+      "logits": {
+       "neutral": 2.4955,
+       "angry": -1.8996,
+       "happy": 0.6554,
+       "sad": -3.6951
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 1.8922,
+       "baseline": -6.2873,
+       "history": 3,
+       "flag": true,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 14,
+     "speaker": "Speaker C",
+     "seconds": 6.992,
+     "text": "Okay. Let's take that seriously. Can we table this and come back with real numbers?",
+     "scripted": "calm_deescalate",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 260.5,
+     "tone": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.0719,
+       "angry": 0.2459,
+       "happy": 0.6817,
+       "sad": 0.0005
+      },
+      "confidence": 0.6817,
+      "arousal": -1.0196,
+      "logits": {
+       "neutral": -0.1144,
+       "angry": 1.1158,
+       "happy": 2.1354,
+       "sad": -5.147
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -0.3796,
+       "baseline": -0.64,
+       "history": 2,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.4563,
+       "angry": 0.0501,
+       "happy": 0.4913,
+       "sad": 0.0023
+      },
+      "confidence": 0.4913,
+      "arousal": -2.2831,
+      "logits": {
+       "neutral": 1.2756,
+       "angry": -0.9335,
+       "happy": 1.3496,
+       "sad": -3.9974
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.4605,
+       "baseline": -2.7436,
+       "history": 2,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 15,
+     "speaker": "Speaker A",
+     "seconds": 5.522,
+     "text": "Yeah. Sorry, everyone. That was out of line. Real numbers by Thursday.",
+     "scripted": "repair_apology",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 254.5,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.5486,
+       "angry": 0.1803,
+       "happy": 0.267,
+       "sad": 0.0041
+      },
+      "confidence": 1.0,
+      "arousal": -1.1126,
+      "logits": {
+       "neutral": 1.267,
+       "angry": 0.1544,
+       "happy": 0.5469,
+       "sad": -3.6202
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 2.1694,
+       "baseline": -3.282,
+       "history": 4,
+       "flag": true,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9057,
+       "angry": 0.001,
+       "happy": 0.0924,
+       "sad": 0.0009
+      },
+      "confidence": 0.9057,
+      "arousal": -6.8242,
+      "logits": {
+       "neutral": 3.2454,
+       "angry": -3.5788,
+       "happy": 0.9629,
+       "sad": -3.7143
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -0.8262,
+       "baseline": -5.9981,
+       "history": 4,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 16,
+     "speaker": "Speaker B",
+     "seconds": 3.185,
+     "text": "Thursday works. Thanks, everyone. That's all for today.",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 178.0,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.88,
+       "angry": 0.057,
+       "happy": 0.063,
+       "sad": 0.0
+      },
+      "confidence": 0.88,
+      "arousal": -2.7369,
+      "logits": {
+       "neutral": 3.4428,
+       "angry": 0.7059,
+       "happy": 0.8053,
+       "sad": -8.0661
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -3.4023,
+       "baseline": 0.6654,
+       "history": 5,
+       "flag": false,
+       "threshold": 0.57
+      }
+     },
+     "tone_gain": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9873,
+       "angry": 0.0041,
+       "happy": 0.0086,
+       "sad": 0.0
+      },
+      "confidence": 0.9873,
+      "arousal": -5.4765,
+      "logits": {
+       "neutral": 4.6283,
+       "angry": -0.8483,
+       "happy": -0.1197,
+       "sad": -6.84
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": -3.128,
+       "baseline": -2.3485,
+       "history": 5,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    }
+   ]
+  },
+  "family_real": {
+   "self_speaker": null,
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Sage",
+     "seconds": 5.12,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 201.2,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9936,
+       "angry": 0.0,
+       "happy": 0.0011,
+       "sad": 0.0053
+      },
+      "confidence": 0.9936,
+      "arousal": -11.8103,
+      "logits": {
+       "neutral": 5.2992,
+       "angry": -6.5111,
+       "happy": -1.5055,
+       "sad": 0.0598
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Asher",
+     "seconds": 2.74,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 167.2,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.9697,
+       "angry": 0.0002,
+       "happy": 0.0187,
+       "sad": 0.0113
+      },
+      "confidence": 0.9697,
+      "arousal": -8.4685,
+      "logits": {
+       "neutral": 3.5499,
+       "angry": -4.9185,
+       "happy": -0.3967,
+       "sad": -0.9007
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Asher",
+     "seconds": 0.74,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": "too_short",
+     "latency_ms": 0.0,
+     "tone": null
+    },
+    {
+     "index": 3,
+     "speaker": "Sage",
+     "seconds": 4.645,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 225.8,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.9511,
+       "angry": 0.0,
+       "happy": 0.0223,
+       "sad": 0.0265
+      },
+      "confidence": 1.0,
+      "arousal": -10.3318,
+      "logits": {
+       "neutral": 3.7233,
+       "angry": -6.6085,
+       "happy": -0.0283,
+       "sad": 0.1432
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 1.4785,
+       "baseline": -11.8103,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Asher",
+     "seconds": 0.5,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": "too_short",
+     "latency_ms": 0.0,
+     "tone": null
+    },
+    {
+     "index": 5,
+     "speaker": "Asher",
+     "seconds": 2.66,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 163.7,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.974,
+       "angry": 0.0255,
+       "happy": 0.0003,
+       "sad": 0.0002
+      },
+      "confidence": 1.0,
+      "arousal": -3.643,
+      "logits": {
+       "neutral": 4.7309,
+       "angry": 1.0879,
+       "happy": -3.4305,
+       "sad": -3.7929
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 4.8255,
+       "baseline": -8.4685,
+       "history": 1,
+       "flag": true,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Sage",
+     "seconds": 5.29,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 211.0,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.7972,
+       "angry": 0.0004,
+       "happy": 0.1992,
+       "sad": 0.0031
+      },
+      "confidence": 1.0,
+      "arousal": -7.5135,
+      "logits": {
+       "neutral": 2.8106,
+       "angry": -4.7029,
+       "happy": 1.4238,
+       "sad": -2.732
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 3.5575,
+       "baseline": -11.071,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Asher",
+     "seconds": 3.37,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 151.5,
+     "tone": {
+      "label": "escalating",
+      "scores": {
+       "neutral": 0.995,
+       "angry": 0.0049,
+       "happy": 0.0001,
+       "sad": 0.0
+      },
+      "confidence": 0.6489,
+      "arousal": -5.316,
+      "logits": {
+       "neutral": 6.0967,
+       "angry": 0.7807,
+       "happy": -3.7901,
+       "sad": -4.8899
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": 0.7397,
+       "baseline": -6.0557,
+       "history": 2,
+       "flag": true,
+       "threshold": 0.57
+      }
+     }
+    }
+   ]
+  },
+  "poker6_real": {
+   "self_speaker": null,
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Player1",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 239.0,
+     "tone": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.1534,
+       "angry": 0.0207,
+       "happy": 0.7744,
+       "sad": 0.0515
+      },
+      "confidence": 0.7744,
+      "arousal": -3.6223,
+      "logits": {
+       "neutral": -0.11,
+       "angry": -2.1135,
+       "happy": 1.5089,
+       "sad": -1.2026
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Player2",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 284.6,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.3913,
+       "angry": 0.2706,
+       "happy": 0.1696,
+       "sad": 0.1684
+      },
+      "confidence": 0.3913,
+      "arousal": -0.3688,
+      "logits": {
+       "neutral": 0.3274,
+       "angry": -0.0414,
+       "happy": -0.5084,
+       "sad": -0.5158
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Player3",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 180.4,
+     "tone": {
+      "label": "happy",
+      "scores": {
+       "neutral": 0.0773,
+       "angry": 0.0007,
+       "happy": 0.7447,
+       "sad": 0.1773
+      },
+      "confidence": 0.7447,
+      "arousal": -6.9962,
+      "logits": {
+       "neutral": -0.0814,
+       "angry": -4.8119,
+       "happy": 2.1843,
+       "sad": 0.7493
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Player4",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 187.3,
+     "tone": {
+      "label": "neutral",
+      "scores": {
+       "neutral": 0.5064,
+       "angry": 0.1981,
+       "happy": 0.0569,
+       "sad": 0.2386
+      },
+      "confidence": 0.5064,
+      "arousal": -0.9385,
+      "logits": {
+       "neutral": 0.9008,
+       "angry": -0.0378,
+       "happy": -1.2852,
+       "sad": 0.1481
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Player5",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 213.2,
+     "tone": {
+      "label": "angry",
+      "scores": {
+       "neutral": 0.0124,
+       "angry": 0.3599,
+       "happy": 0.2787,
+       "sad": 0.349
+      },
+      "confidence": 0.3599,
+      "arousal": 0.0308,
+      "logits": {
+       "neutral": -2.4002,
+       "angry": 0.9653,
+       "happy": 0.7099,
+       "sad": 0.9345
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Player6",
+     "seconds": 5.12,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 369.5,
+     "tone": {
+      "label": "sad",
+      "scores": {
+       "neutral": 0.0059,
+       "angry": 0.0003,
+       "happy": 0.0658,
+       "sad": 0.928
+      },
+      "confidence": 0.928,
+      "arousal": -8.0593,
+      "logits": {
+       "neutral": -1.2749,
+       "angry": -4.2816,
+       "happy": 1.1315,
+       "sad": 3.7776
+      },
+      "kind": "categorical",
+      "backend": "superb_er",
+      "model": "superb/wav2vec2-base-superb-er@441a7599c3b22107314dcbd9166621c5c83f2cc5",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": 0.57
+      }
+     }
+    }
+   ]
+  }
+ },
+ "rss_peak_mb": 1572.70016
+}

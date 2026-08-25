@@ -1,0 +1,793 @@
+{
+ "model": "claude-haiku-4-5-20251001",
+ "gptaudio": {
+  "0": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 15,
+    "sarcasm": 5,
+    "sadness": 8,
+    "frustration": 28,
+    "label": "concerned but slightly tense"
+   },
+   "error": null,
+   "latency_ms": 1360.1407499954803
+  },
+  "1": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 35,
+    "sarcasm": 5,
+    "sadness": 15,
+    "frustration": 28,
+    "label": "Defensive but acknowledging"
+   },
+   "error": null,
+   "latency_ms": 3301.2175420008134
+  },
+  "2": {
+   "tone": {
+    "warmth": 35,
+    "defensiveness": 72,
+    "sarcasm": 15,
+    "sadness": 28,
+    "frustration": 68,
+    "label": "defensive and exhausted"
+   },
+   "error": null,
+   "latency_ms": 1078.1674169993494
+  },
+  "3": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 45,
+    "sarcasm": 8,
+    "sadness": 15,
+    "frustration": 38,
+    "label": "defensive with underlying hurt"
+   },
+   "error": null,
+   "latency_ms": 1670.849250003812
+  },
+  "4": {
+   "tone": {
+    "warmth": 15,
+    "defensiveness": 85,
+    "sarcasm": 10,
+    "sadness": 40,
+    "frustration": 90,
+    "label": "Escalating with blame and all-or-nothing language"
+   },
+   "error": null,
+   "latency_ms": 1677.1595829923172
+  },
+  "5": {
+   "tone": {
+    "warmth": 35,
+    "defensiveness": 72,
+    "sarcasm": 8,
+    "sadness": 58,
+    "frustration": 85,
+    "label": "Angry, defensive, dismissive"
+   },
+   "error": null,
+   "latency_ms": 1573.5359999962384
+  },
+  "6": {
+   "tone": {
+    "warmth": 65,
+    "defensiveness": 45,
+    "sarcasm": 5,
+    "sadness": 70,
+    "frustration": 55,
+    "label": "vulnerable but still tense"
+   },
+   "error": null,
+   "latency_ms": 1171.5035000088392
+  },
+  "7": {
+   "tone": {
+    "warmth": 78,
+    "defensiveness": 15,
+    "sarcasm": 0,
+    "sadness": 62,
+    "frustration": 8,
+    "label": "vulnerable and hopeful"
+   },
+   "error": null,
+   "latency_ms": 1758.6258330120472
+  },
+  "8": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 28,
+    "sarcasm": 0,
+    "sadness": 35,
+    "frustration": 22,
+    "label": "Hopeful but still guarded"
+   },
+   "error": null,
+   "latency_ms": 1576.7111250024755
+  },
+  "9": {
+   "tone": {
+    "warmth": 78,
+    "defensiveness": 15,
+    "sarcasm": 0,
+    "sadness": 12,
+    "frustration": 8,
+    "label": "relieved and collaborative"
+   },
+   "error": null,
+   "latency_ms": 2142.2511660057353
+  }
+ },
+ "openai": {
+  "0": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 15,
+    "sarcasm": 5,
+    "sadness": 8,
+    "frustration": 28,
+    "label": "Concerned but slightly tense"
+   },
+   "error": null,
+   "latency_ms": 1120.8310420042835
+  },
+  "1": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 35,
+    "sarcasm": 5,
+    "sadness": 15,
+    "frustration": 28,
+    "label": "Slightly defensive, seeking fairness"
+   },
+   "error": null,
+   "latency_ms": 1387.3365840117913
+  },
+  "2": {
+   "tone": {
+    "warmth": 35,
+    "defensiveness": 72,
+    "sarcasm": 15,
+    "sadness": 28,
+    "frustration": 68,
+    "label": "defensive and exhausted"
+   },
+   "error": null,
+   "latency_ms": 1114.6679169905838
+  },
+  "3": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 45,
+    "sarcasm": 8,
+    "sadness": 15,
+    "frustration": 38,
+    "label": "defensive with underlying hurt"
+   },
+   "error": null,
+   "latency_ms": 1673.2422080094693
+  },
+  "4": {
+   "tone": {
+    "warmth": 15,
+    "defensiveness": 85,
+    "sarcasm": 10,
+    "sadness": 40,
+    "frustration": 90,
+    "label": "Escalating with blame and all-or-nothing language"
+   },
+   "error": null,
+   "latency_ms": 1568.1631660118
+  },
+  "5": {
+   "tone": {
+    "warmth": 35,
+    "defensiveness": 72,
+    "sarcasm": 8,
+    "sadness": 58,
+    "frustration": 85,
+    "label": "Angry, defensive, dismissive"
+   },
+   "error": null,
+   "latency_ms": 1535.3522499935934
+  },
+  "6": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 35,
+    "sarcasm": 8,
+    "sadness": 68,
+    "frustration": 42,
+    "label": "vulnerable, reaching"
+   },
+   "error": null,
+   "latency_ms": 1287.3772500024643
+  },
+  "7": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 15,
+    "sarcasm": 0,
+    "sadness": 58,
+    "frustration": 22,
+    "label": "vulnerable and hopeful"
+   },
+   "error": null,
+   "latency_ms": 1189.2786670068745
+  },
+  "8": {
+   "tone": {
+    "warmth": 78,
+    "defensiveness": 15,
+    "sarcasm": 0,
+    "sadness": 22,
+    "frustration": 18,
+    "label": "hopeful, vulnerable, collaborative"
+   },
+   "error": null,
+   "latency_ms": 1076.1667920014588
+  },
+  "9": {
+   "tone": {
+    "warmth": 78,
+    "defensiveness": 15,
+    "sarcasm": 0,
+    "sadness": 12,
+    "frustration": 8,
+    "label": "relieved and collaborative"
+   },
+   "error": null,
+   "latency_ms": 1554.9629169981927
+  }
+ },
+ "scene_couple_escalation": {
+  "0": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 15,
+    "sarcasm": 0,
+    "sadness": 0,
+    "frustration": 8,
+    "label": "collaborative"
+   },
+   "error": null,
+   "latency_ms": 2021.0802090005018
+  },
+  "1": {
+   "tone": {
+    "warmth": 75,
+    "defensiveness": 15,
+    "sarcasm": 5,
+    "sadness": 10,
+    "frustration": 20,
+    "label": "Slightly concerned but collaborative"
+   },
+   "error": null,
+   "latency_ms": 1366.8324579921318
+  },
+  "2": {
+   "tone": {
+    "warmth": 45,
+    "defensiveness": 65,
+    "sarcasm": 15,
+    "sadness": 10,
+    "frustration": 70,
+    "label": "skeptical and tense"
+   },
+   "error": null,
+   "latency_ms": 1339.7376250068191
+  },
+  "3": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 15,
+    "sarcasm": 0,
+    "sadness": 8,
+    "frustration": 25,
+    "label": "Slightly frustrated but trusting"
+   },
+   "error": null,
+   "latency_ms": 1315.9542919893283
+  },
+  "4": {
+   "tone": {
+    "warmth": 62,
+    "defensiveness": 58,
+    "sarcasm": 15,
+    "sadness": 20,
+    "frustration": 52,
+    "label": "Measured but tense"
+   },
+   "error": null,
+   "latency_ms": 1361.6785000049276
+  },
+  "5": {
+   "tone": {
+    "warmth": 45,
+    "defensiveness": 62,
+    "sarcasm": 0,
+    "sadness": 35,
+    "frustration": 58,
+    "label": "Defensive and frustrated"
+   },
+   "error": null,
+   "latency_ms": 3375.004875008017
+  },
+  "6": {
+   "tone": {
+    "warmth": 15,
+    "defensiveness": 92,
+    "sarcasm": 35,
+    "sadness": 20,
+    "frustration": 88,
+    "label": "Defensive and escalating"
+   },
+   "error": null,
+   "latency_ms": 1465.125792004983
+  },
+  "7": {
+   "tone": {
+    "warmth": 25,
+    "defensiveness": 75,
+    "sarcasm": 0,
+    "sadness": 10,
+    "frustration": 80,
+    "label": "Defensive and frustrated"
+   },
+   "error": null,
+   "latency_ms": 1267.786917000194
+  },
+  "8": {
+   "tone": {
+    "warmth": 15,
+    "defensiveness": 85,
+    "sarcasm": 70,
+    "sadness": 40,
+    "frustration": 90,
+    "label": "Contemptuous and escalating"
+   },
+   "error": null,
+   "latency_ms": 1274.2977079906268
+  },
+  "9": {
+   "tone": {
+    "warmth": 35,
+    "defensiveness": 72,
+    "sarcasm": 0,
+    "sadness": 28,
+    "frustration": 65,
+    "label": "Defensive, frustrated, shutting down"
+   },
+   "error": null,
+   "latency_ms": 1350.3508750000037
+  },
+  "10": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 35,
+    "sarcasm": 8,
+    "sadness": 28,
+    "frustration": 22,
+    "label": "apologetic, slightly guarded"
+   },
+   "error": null,
+   "latency_ms": 1207.371583004715
+  },
+  "11": {
+   "tone": {
+    "warmth": 78,
+    "defensiveness": 12,
+    "sarcasm": 0,
+    "sadness": 8,
+    "frustration": 5,
+    "label": "Accepting and collaborative"
+   },
+   "error": null,
+   "latency_ms": 1143.6142919992562
+  },
+  "12": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 15,
+    "sarcasm": 8,
+    "sadness": 12,
+    "frustration": 10,
+    "label": "Conciliatory, genuine"
+   },
+   "error": null,
+   "latency_ms": 1469.61470801034
+  }
+ },
+ "scene_family3": {
+  "0": {
+   "tone": {
+    "warmth": 75,
+    "defensiveness": 10,
+    "sarcasm": 5,
+    "sadness": 5,
+    "frustration": 15,
+    "label": "cooperative and practical"
+   },
+   "error": null,
+   "latency_ms": 2752.1680000063498
+  },
+  "1": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 15,
+    "sarcasm": 8,
+    "sadness": 5,
+    "frustration": 20,
+    "label": "Acknowledging + Problem-solving"
+   },
+   "error": null,
+   "latency_ms": 1261.2808749981923
+  },
+  "2": {
+   "tone": {
+    "warmth": 45,
+    "defensiveness": 55,
+    "sarcasm": 30,
+    "sadness": 10,
+    "frustration": 50,
+    "label": "commanding, slightly tense"
+   },
+   "error": null,
+   "latency_ms": 1159.4989169971086
+  },
+  "3": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 15,
+    "sarcasm": 8,
+    "sadness": 5,
+    "frustration": 35,
+    "label": "Collaborative problem-solving"
+   },
+   "error": null,
+   "latency_ms": 1261.1091670114547
+  },
+  "4": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 15,
+    "sarcasm": 8,
+    "sadness": 10,
+    "frustration": 25,
+    "label": "Defensive but fair"
+   },
+   "error": null,
+   "latency_ms": 1470.417250005994
+  },
+  "5": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 15,
+    "sarcasm": 8,
+    "sadness": 5,
+    "frustration": 12,
+    "label": "accountable and calm"
+   },
+   "error": null,
+   "latency_ms": 2070.5594580067554
+  },
+  "6": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 15,
+    "sarcasm": 5,
+    "sadness": 20,
+    "frustration": 25,
+    "label": "Acknowledging concern with accountability"
+   },
+   "error": null,
+   "latency_ms": 1296.0825839982135
+  },
+  "7": {
+   "tone": {
+    "warmth": 45,
+    "defensiveness": 62,
+    "sarcasm": 15,
+    "sadness": 20,
+    "frustration": 58,
+    "label": "exasperated and accusatory"
+   },
+   "error": null,
+   "latency_ms": 1513.5432079987368
+  },
+  "8": {
+   "tone": {
+    "warmth": 35,
+    "defensiveness": 72,
+    "sarcasm": 68,
+    "sadness": 15,
+    "frustration": 78,
+    "label": "Defensive and exasperated"
+   },
+   "error": null,
+   "latency_ms": 1354.063959006453
+  },
+  "9": {
+   "tone": {
+    "warmth": 35,
+    "defensiveness": 72,
+    "sarcasm": 15,
+    "sadness": 20,
+    "frustration": 68,
+    "label": "defensive and escalating"
+   },
+   "error": null,
+   "latency_ms": 1249.4716670044
+  },
+  "10": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 35,
+    "sarcasm": 0,
+    "sadness": 15,
+    "frustration": 28,
+    "label": "Defensive but softening"
+   },
+   "error": null,
+   "latency_ms": 1982.4999170086812
+  },
+  "11": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 15,
+    "sarcasm": 0,
+    "sadness": 25,
+    "frustration": 20,
+    "label": "Conciliatory but slightly rushed"
+   },
+   "error": null,
+   "latency_ms": 1095.7607079908485
+  },
+  "12": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 15,
+    "sarcasm": 8,
+    "sadness": 12,
+    "frustration": 18,
+    "label": "calm and collaborative"
+   },
+   "error": null,
+   "latency_ms": 1625.0906250061234
+  },
+  "13": {
+   "tone": {
+    "warmth": 78,
+    "defensiveness": 15,
+    "sarcasm": 8,
+    "sadness": 12,
+    "frustration": 10,
+    "label": "appreciative and collaborative"
+   },
+   "error": null,
+   "latency_ms": 1142.9762080078945
+  },
+  "14": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 15,
+    "sarcasm": 58,
+    "sadness": 8,
+    "frustration": 12,
+    "label": "cautiously upbeat with edge"
+   },
+   "error": null,
+   "latency_ms": 1948.6438340099994
+  }
+ },
+ "scene_meeting4": {
+  "0": {
+   "tone": {
+    "warmth": 75,
+    "defensiveness": 10,
+    "sarcasm": 0,
+    "sadness": 0,
+    "frustration": 5,
+    "label": "professional and engaged"
+   },
+   "error": null,
+   "latency_ms": 1121.196250009234
+  },
+  "1": {
+   "tone": {
+    "warmth": 75,
+    "defensiveness": 15,
+    "sarcasm": 5,
+    "sadness": 0,
+    "frustration": 10,
+    "label": "collaborative and supportive"
+   },
+   "error": null,
+   "latency_ms": 1407.3382909991778
+  },
+  "2": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 15,
+    "sarcasm": 5,
+    "sadness": 0,
+    "frustration": 18,
+    "label": "collaborative problem-solver"
+   },
+   "error": null,
+   "latency_ms": 1202.714459010167
+  },
+  "3": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 15,
+    "sarcasm": 8,
+    "sadness": 5,
+    "frustration": 12,
+    "label": "Confident but vague"
+   },
+   "error": null,
+   "latency_ms": 1314.151040991419
+  },
+  "4": {
+   "tone": {
+    "warmth": 65,
+    "defensiveness": 15,
+    "sarcasm": 5,
+    "sadness": 10,
+    "frustration": 20,
+    "label": "concerned but measured"
+   },
+   "error": null,
+   "latency_ms": 1583.9851669879863
+  },
+  "5": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 15,
+    "sarcasm": 8,
+    "sadness": 5,
+    "frustration": 12,
+    "label": "helpful, slightly vague"
+   },
+   "error": null,
+   "latency_ms": 1345.0997910113074
+  },
+  "6": {
+   "tone": {
+    "warmth": 65,
+    "defensiveness": 35,
+    "sarcasm": 10,
+    "sadness": 15,
+    "frustration": 40,
+    "label": "Measured concern with collaborative intent"
+   },
+   "error": null,
+   "latency_ms": 1646.5663330018288
+  },
+  "7": {
+   "tone": {
+    "warmth": 65,
+    "defensiveness": 72,
+    "sarcasm": 15,
+    "sadness": 20,
+    "frustration": 68,
+    "label": "Frustrated and defensive"
+   },
+   "error": null,
+   "latency_ms": 1149.3621669942513
+  },
+  "8": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 15,
+    "sarcasm": 8,
+    "sadness": 10,
+    "frustration": 25,
+    "label": "pragmatic with mild concern"
+   },
+   "error": null,
+   "latency_ms": 1310.744792004698
+  },
+  "9": {
+   "tone": {
+    "warmth": 65,
+    "defensiveness": 35,
+    "sarcasm": 10,
+    "sadness": 15,
+    "frustration": 40,
+    "label": "cautiously collaborative"
+   },
+   "error": null,
+   "latency_ms": 2602.775291990838
+  },
+  "10": {
+   "tone": {
+    "warmth": 65,
+    "defensiveness": 35,
+    "sarcasm": 10,
+    "sadness": 15,
+    "frustration": 40,
+    "label": "Frustrated but pragmatic"
+   },
+   "error": null,
+   "latency_ms": 1933.2039580040146
+  },
+  "11": {
+   "tone": {
+    "warmth": 35,
+    "defensiveness": 72,
+    "sarcasm": 15,
+    "sadness": 28,
+    "frustration": 78,
+    "label": "frustrated and defensive"
+   },
+   "error": null,
+   "latency_ms": 1045.3655000019353
+  },
+  "12": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 35,
+    "sarcasm": 8,
+    "sadness": 15,
+    "frustration": 42,
+    "label": "frustrated but measured"
+   },
+   "error": null,
+   "latency_ms": 1427.5878749904223
+  },
+  "13": {
+   "tone": {
+    "warmth": 15,
+    "defensiveness": 92,
+    "sarcasm": 8,
+    "sadness": 35,
+    "frustration": 88,
+    "label": "Escalating with anger and desperation"
+   },
+   "error": null,
+   "latency_ms": 1203.8346659974195
+  },
+  "14": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 35,
+    "sarcasm": 8,
+    "sadness": 15,
+    "frustration": 28,
+    "label": "Calming, solution-focused"
+   },
+   "error": null,
+   "latency_ms": 1572.2131250076927
+  },
+  "15": {
+   "tone": {
+    "warmth": 72,
+    "defensiveness": 35,
+    "sarcasm": 0,
+    "sadness": 28,
+    "frustration": 22,
+    "label": "apologetic, regaining composure"
+   },
+   "error": null,
+   "latency_ms": 1158.215375005966
+  },
+  "16": {
+   "tone": {
+    "warmth": 65,
+    "defensiveness": 35,
+    "sarcasm": 5,
+    "sadness": 20,
+    "frustration": 40,
+    "label": "Calming down, still tense"
+   },
+   "error": null,
+   "latency_ms": 1144.7939579957165
+  }
+ }
+}

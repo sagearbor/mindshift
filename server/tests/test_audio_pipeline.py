@@ -2583,6 +2583,54 @@ class TestTurnLocalEnrichment:
         # …and it did not leak to the watch through the relay either.
         assert relay.calls and relay.calls[0]["tone_flag"] is None
 
+    def test_escalation_delta_tracked_per_speaker_across_turns(self, local_first_env, monkeypatch):
+        """The round-2 seam: a dimensional backend result carries ``arousal``
+        and the module exposes ``EscalationTracker`` / ``annotate_escalation``
+        (the REAL tone_id ones, on a fake classifier). The session keeps one
+        tracker, so the same speaker's second turn is judged against their
+        first: unscored → escalating, with the delta on the wire."""
+        import tone_id
+
+        class EscalatingToneId(FakeToneId):
+            EscalationTracker = tone_id.EscalationTracker
+            annotate_escalation = staticmethod(tone_id.annotate_escalation)
+
+            def __init__(self):
+                super().__init__(surface=True)
+                self.arousals = [0.40, 0.55]
+
+            def classify_pcm(self, pcm, sr):
+                self.calls.append((int(pcm.size), sr))
+                a = self.arousals.pop(0)
+                return {"label": tone_id.UNSCORED_LABEL, "confidence": 0.0, "arousal": a, "kind": "dimensional",
+                        "backend": "odyssey_dim", "model": "fake",
+                        "scores": {"arousal": a, "dominance": 0.5, "valence": 0.5}}
+
+        tone = EscalatingToneId()
+        monkeypatch.setattr(audio_pipeline, "tone_id", tone)
+        client = _inject(StoppableTranscriber())
+        flags = []
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            _stream_one_second(ws)
+            ws.send_text(json.dumps(_turn_local(start_time=0.0, end_time=1.0)))
+            for _ in range(2):
+                msg = json.loads(ws.receive_text())
+                if msg["type"] == "tone_flag":
+                    flags.append(msg)
+            _stream_one_second(ws)
+            ws.send_text(json.dumps(_turn_local(start_time=1.0, end_time=2.0)))
+            for _ in range(2):
+                msg = json.loads(ws.receive_text())
+                if msg["type"] == "tone_flag":
+                    flags.append(msg)
+            ws.send_text(json.dumps({"type": "stop"}))
+            json.loads(ws.receive_text())
+        assert [f["label"] for f in flags] == [tone_id.UNSCORED_LABEL, tone_id.ESCALATION_LABEL]
+        assert flags[0]["scores"]["arousal"] == 0.40 and "arousal_delta" not in flags[0]["scores"]
+        assert flags[1]["scores"]["arousal_delta"] == pytest.approx(0.15)
+        assert flags[1]["confidence"] == 1.0  # 0.15 ≥ 2× the pinned 0.03
+        assert tone.calls == [(16000, 16000), (16000, 16000)]
+
     def test_too_little_audio_skips_models_cleanly(self, local_first_env, monkeypatch):
         tone = FakeToneId()
         spk = FakeSpeakerId()

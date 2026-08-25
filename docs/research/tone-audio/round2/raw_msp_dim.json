@@ -1,0 +1,3680 @@
+{
+ "backend": "msp_dim",
+ "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim",
+ "license": "CC-BY-NC-SA-4.0 (research only)",
+ "load_s": 2.9119893750030315,
+ "rss_before_mb": 63.537152,
+ "rss_after_load_mb": 449.347584,
+ "size_bytes": 661381981,
+ "pinned_threshold": null,
+ "fixtures": {
+  "gptaudio": {
+   "self_speaker": null,
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker A",
+     "seconds": 7.25,
+     "text": "Hey, can we talk about the dishes? They've been piling up all week and I wanted to check in before it becomes a thing.",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 436.6,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.5364,
+       "dominance": 0.613,
+       "valence": 0.4743
+      },
+      "confidence": 0.0,
+      "arousal": 0.5364,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.5362,
+       "dominance": 0.6128,
+       "valence": 0.4745
+      },
+      "confidence": 0.0,
+      "arousal": 0.5362,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker B",
+     "seconds": 6.05,
+     "text": "Sure, but I did them Tuesday night. I don't think it's fair to act like I never touch them.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 551.3,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.3276,
+       "dominance": 0.466,
+       "valence": 0.2856
+      },
+      "confidence": 0.0,
+      "arousal": 0.3276,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.3276,
+       "dominance": 0.466,
+       "valence": 0.2857
+      },
+      "confidence": 0.0,
+      "arousal": 0.3276,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker A",
+     "seconds": 6.85,
+     "text": "Tuesday was five days ago. I've done every load since then and I'm getting tired of keeping score.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 485.7,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.7463,
+       "dominance": 0.7689,
+       "valence": 0.2067
+      },
+      "confidence": 0.0,
+      "arousal": 0.7463,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.2099,
+       "baseline": 0.5364,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.7461,
+       "dominance": 0.7688,
+       "valence": 0.2067
+      },
+      "confidence": 0.0,
+      "arousal": 0.7461,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.2099,
+       "baseline": 0.5362,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker B",
+     "seconds": 6.4,
+     "text": "So now I'm the villain because I didn't get to it fast enough? I have a life outside this kitchen too.",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 432.3,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5932,
+       "dominance": 0.6672,
+       "valence": 0.3175
+      },
+      "confidence": 0.0,
+      "arousal": 0.5932,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.2656,
+       "baseline": 0.3276,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5931,
+       "dominance": 0.6672,
+       "valence": 0.3175
+      },
+      "confidence": 0.0,
+      "arousal": 0.5931,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.2655,
+       "baseline": 0.3276,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker A",
+     "seconds": 7.25,
+     "text": "I AM SO SICK OF BEING THE ONLY ONE WHO CARES ABOUT THIS HOUSE! I CANNOT DO THIS BY MYSELF ANYMORE!",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 465.8,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.9018,
+       "dominance": 0.8636,
+       "valence": 0.1301
+      },
+      "confidence": 0.0,
+      "arousal": 0.9018,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.2605,
+       "baseline": 0.6413,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.9017,
+       "dominance": 0.8636,
+       "valence": 0.1301
+      },
+      "confidence": 0.0,
+      "arousal": 0.9017,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.2605,
+       "baseline": 0.6411,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker B",
+     "seconds": 5.75,
+     "text": "Wow. Impressive speech. You really do love playing the martyr, don't you.",
+     "scripted": "cold_contempt",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 385.4,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3477,
+       "dominance": 0.5212,
+       "valence": 0.4644
+      },
+      "confidence": 0.0,
+      "arousal": 0.3477,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.1127,
+       "baseline": 0.4604,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3477,
+       "dominance": 0.5212,
+       "valence": 0.4644
+      },
+      "confidence": 0.0,
+      "arousal": 0.3477,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.1126,
+       "baseline": 0.4603,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker A",
+     "seconds": 7.85,
+     "text": "I don't want to be the martyr. I just... I wanted us to be a team, and I don't feel like one right now.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 443.0,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.6206,
+       "dominance": 0.6511,
+       "valence": 0.1365
+      },
+      "confidence": 0.0,
+      "arousal": 0.6206,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.1257,
+       "baseline": 0.7463,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.6204,
+       "dominance": 0.6509,
+       "valence": 0.1366
+      },
+      "confidence": 0.0,
+      "arousal": 0.6204,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.1257,
+       "baseline": 0.7461,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker B",
+     "seconds": 8.55,
+     "text": "I don't want that either. I don't want us to be like this. I'm actually scared we're breaking something here.",
+     "scripted": "scared_shaky",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 658.8,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3893,
+       "dominance": 0.4386,
+       "valence": 0.0956
+      },
+      "confidence": 0.0,
+      "arousal": 0.3893,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0416,
+       "baseline": 0.3477,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3893,
+       "dominance": 0.4386,
+       "valence": 0.0956
+      },
+      "confidence": 0.0,
+      "arousal": 0.3893,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0416,
+       "baseline": 0.3477,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker A",
+     "seconds": 7.9,
+     "text": "I don't want that either. Can we just stop and figure out a system together? Something that actually works for both of us?",
+     "scripted": "repair_hopeful",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 727.4,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4767,
+       "dominance": 0.5466,
+       "valence": 0.2164
+      },
+      "confidence": 0.0,
+      "arousal": 0.4767,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.2067,
+       "baseline": 0.6835,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4765,
+       "dominance": 0.5464,
+       "valence": 0.2172
+      },
+      "confidence": 0.0,
+      "arousal": 0.4765,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.2067,
+       "baseline": 0.6832,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker B",
+     "seconds": 7.25,
+     "text": "Yeah. Let's start over. I'm sorry I got so defensive \u2014 I do want to fix this with you.",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 620.5,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3159,
+       "dominance": 0.4717,
+       "valence": 0.1672
+      },
+      "confidence": 0.0,
+      "arousal": 0.3159,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0526,
+       "baseline": 0.3685,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3158,
+       "dominance": 0.4717,
+       "valence": 0.1672
+      },
+      "confidence": 0.0,
+      "arousal": 0.3158,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0527,
+       "baseline": 0.3685,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    }
+   ]
+  },
+  "openai": {
+   "self_speaker": null,
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker A",
+     "seconds": 7.2,
+     "text": "Hey, can we talk about the dishes? They've been piling up all week and I wanted to check in before it becomes a thing.",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 515.8,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.6429,
+       "dominance": 0.6946,
+       "valence": 0.3752
+      },
+      "confidence": 0.0,
+      "arousal": 0.6429,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.6429,
+       "dominance": 0.6946,
+       "valence": 0.3753
+      },
+      "confidence": 0.0,
+      "arousal": 0.6429,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker B",
+     "seconds": 5.55,
+     "text": "Sure, but I did them Tuesday night. I don't think it's fair to act like I never touch them.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 441.6,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.3662,
+       "dominance": 0.5015,
+       "valence": 0.2088
+      },
+      "confidence": 0.0,
+      "arousal": 0.3662,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.3662,
+       "dominance": 0.5015,
+       "valence": 0.2088
+      },
+      "confidence": 0.0,
+      "arousal": 0.3662,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker A",
+     "seconds": 6.0,
+     "text": "Tuesday was five days ago. I've done every load since then and I'm getting tired of keeping score.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 401.6,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.6638,
+       "dominance": 0.7234,
+       "valence": 0.2747
+      },
+      "confidence": 0.0,
+      "arousal": 0.6638,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0209,
+       "baseline": 0.6429,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.6636,
+       "dominance": 0.7233,
+       "valence": 0.2747
+      },
+      "confidence": 0.0,
+      "arousal": 0.6636,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0207,
+       "baseline": 0.6429,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker B",
+     "seconds": 7.2,
+     "text": "So now I'm the villain because I didn't get to it fast enough? I have a life outside this kitchen too.",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 487.9,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.356,
+       "dominance": 0.4949,
+       "valence": 0.2451
+      },
+      "confidence": 0.0,
+      "arousal": 0.356,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0102,
+       "baseline": 0.3662,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.356,
+       "dominance": 0.4949,
+       "valence": 0.2452
+      },
+      "confidence": 0.0,
+      "arousal": 0.356,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0102,
+       "baseline": 0.3662,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker A",
+     "seconds": 7.1,
+     "text": "I AM SO SICK OF BEING THE ONLY ONE WHO CARES ABOUT THIS HOUSE! I CANNOT DO THIS BY MYSELF ANYMORE!",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 525.3,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.7509,
+       "dominance": 0.7808,
+       "valence": 0.2464
+      },
+      "confidence": 0.0,
+      "arousal": 0.7509,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0976,
+       "baseline": 0.6533,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.7508,
+       "dominance": 0.7808,
+       "valence": 0.2465
+      },
+      "confidence": 0.0,
+      "arousal": 0.7508,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0976,
+       "baseline": 0.6532,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker B",
+     "seconds": 5.5,
+     "text": "Wow. Impressive speech. You really do love playing the martyr, don't you.",
+     "scripted": "cold_contempt",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 406.3,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3896,
+       "dominance": 0.5389,
+       "valence": 0.4931
+      },
+      "confidence": 0.0,
+      "arousal": 0.3896,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0285,
+       "baseline": 0.3611,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3895,
+       "dominance": 0.5389,
+       "valence": 0.4931
+      },
+      "confidence": 0.0,
+      "arousal": 0.3895,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0284,
+       "baseline": 0.3611,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker A",
+     "seconds": 7.1,
+     "text": "I don't want to be the martyr. I just... I wanted us to be a team, and I don't feel like one right now.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 451.5,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.6543,
+       "dominance": 0.6919,
+       "valence": 0.116
+      },
+      "confidence": 0.0,
+      "arousal": 0.6543,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0095,
+       "baseline": 0.6638,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.6541,
+       "dominance": 0.6918,
+       "valence": 0.1161
+      },
+      "confidence": 0.0,
+      "arousal": 0.6541,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0095,
+       "baseline": 0.6636,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker B",
+     "seconds": 6.95,
+     "text": "I don't want that either. I don't want us to be like this. I'm actually scared we're breaking something here.",
+     "scripted": "scared_shaky",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 446.2,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3963,
+       "dominance": 0.5047,
+       "valence": 0.039
+      },
+      "confidence": 0.0,
+      "arousal": 0.3963,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0301,
+       "baseline": 0.3662,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3963,
+       "dominance": 0.5047,
+       "valence": 0.039
+      },
+      "confidence": 0.0,
+      "arousal": 0.3963,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0301,
+       "baseline": 0.3662,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker A",
+     "seconds": 8.35,
+     "text": "I don't want that either. Can we just stop and figure out a system together? Something that actually works for both of us?",
+     "scripted": "repair_hopeful",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 649.0,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.6754,
+       "dominance": 0.7056,
+       "valence": 0.2439
+      },
+      "confidence": 0.0,
+      "arousal": 0.6754,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0164,
+       "baseline": 0.659,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.6752,
+       "dominance": 0.7055,
+       "valence": 0.2442
+      },
+      "confidence": 0.0,
+      "arousal": 0.6752,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0164,
+       "baseline": 0.6588,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker B",
+     "seconds": 5.85,
+     "text": "Yeah. Let's start over. I'm sorry I got so defensive \u2014 I do want to fix this with you.",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 490.0,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4272,
+       "dominance": 0.5607,
+       "valence": 0.1941
+      },
+      "confidence": 0.0,
+      "arousal": 0.4272,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0493,
+       "baseline": 0.3779,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4272,
+       "dominance": 0.5607,
+       "valence": 0.1942
+      },
+      "confidence": 0.0,
+      "arousal": 0.4272,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0494,
+       "baseline": 0.3779,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    }
+   ]
+  },
+  "scene_couple_escalation": {
+   "self_speaker": "Speaker A",
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker A",
+     "seconds": 4.097,
+     "text": "Hey, I looked at the credit card statement tonight. Can we go over it?",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 285.5,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.4173,
+       "dominance": 0.5011,
+       "valence": 0.3598
+      },
+      "confidence": 0.0,
+      "arousal": 0.4173,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.4173,
+       "dominance": 0.5011,
+       "valence": 0.3598
+      },
+      "confidence": 0.0,
+      "arousal": 0.4173,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker B",
+     "seconds": 5.242,
+     "text": "Sure. I know it's higher than usual, but most of that was the car repair.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 355.9,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.6406,
+       "dominance": 0.6975,
+       "valence": 0.3655
+      },
+      "confidence": 0.0,
+      "arousal": 0.6406,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.6405,
+       "dominance": 0.6974,
+       "valence": 0.3656
+      },
+      "confidence": 0.0,
+      "arousal": 0.6405,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker A",
+     "seconds": 4.705,
+     "text": "The car was six hundred. There's another nine hundred I can't place.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 377.4,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.2719,
+       "dominance": 0.3995,
+       "valence": 0.1862
+      },
+      "confidence": 0.0,
+      "arousal": 0.2719,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.1454,
+       "baseline": 0.4173,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.2719,
+       "dominance": 0.3996,
+       "valence": 0.1863
+      },
+      "confidence": 0.0,
+      "arousal": 0.2719,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.1454,
+       "baseline": 0.4173,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker B",
+     "seconds": 5.126,
+     "text": "Some was groceries, some was your mom's birthday gift. I didn't hide anything.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 402.9,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5879,
+       "dominance": 0.6522,
+       "valence": 0.2988
+      },
+      "confidence": 0.0,
+      "arousal": 0.5879,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0527,
+       "baseline": 0.6406,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5876,
+       "dominance": 0.652,
+       "valence": 0.2989
+      },
+      "confidence": 0.0,
+      "arousal": 0.5876,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0529,
+       "baseline": 0.6405,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker A",
+     "seconds": 4.942,
+     "text": "I'm not saying you hid it. I'm saying we agreed to talk before spending like that.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 383.1,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4529,
+       "dominance": 0.5603,
+       "valence": 0.1836
+      },
+      "confidence": 0.0,
+      "arousal": 0.4529,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.1083,
+       "baseline": 0.3446,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4529,
+       "dominance": 0.5603,
+       "valence": 0.1836
+      },
+      "confidence": 0.0,
+      "arousal": 0.4529,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.1083,
+       "baseline": 0.3446,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker B",
+     "seconds": 5.234,
+     "text": "We talked about it in the car. You just weren't listening, like always.",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 341.0,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.6736,
+       "dominance": 0.7172,
+       "valence": 0.164
+      },
+      "confidence": 0.0,
+      "arousal": 0.6736,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0594,
+       "baseline": 0.6142,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.6735,
+       "dominance": 0.7171,
+       "valence": 0.1641
+      },
+      "confidence": 0.0,
+      "arousal": 0.6735,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0595,
+       "baseline": 0.614,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker A",
+     "seconds": 5.699,
+     "text": "LIKE ALWAYS? I AM THE ONLY ONE IN THIS HOUSE WHO EVEN LOOKS AT THE BILLS!",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 363.2,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3791,
+       "dominance": 0.5235,
+       "valence": 0.393
+      },
+      "confidence": 0.0,
+      "arousal": 0.3791,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0382,
+       "baseline": 0.4173,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3791,
+       "dominance": 0.5235,
+       "valence": 0.393
+      },
+      "confidence": 0.0,
+      "arousal": 0.3791,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0382,
+       "baseline": 0.4173,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker B",
+     "seconds": 3.921,
+     "text": "Please don't yell at me. I'm right here, I can hear you.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 321.3,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.8089,
+       "dominance": 0.8231,
+       "valence": 0.0235
+      },
+      "confidence": 0.0,
+      "arousal": 0.8089,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.1683,
+       "baseline": 0.6406,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.8088,
+       "dominance": 0.823,
+       "valence": 0.0236
+      },
+      "confidence": 0.0,
+      "arousal": 0.8088,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.1683,
+       "baseline": 0.6405,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker A",
+     "seconds": 5.267,
+     "text": "Forget it. Clearly budgeting is beneath you. I'll just handle it, like everything else.",
+     "scripted": "cold_contempt",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 297.7,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3892,
+       "dominance": 0.5076,
+       "valence": 0.2755
+      },
+      "confidence": 0.0,
+      "arousal": 0.3892,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.009,
+       "baseline": 0.3982,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3892,
+       "dominance": 0.5076,
+       "valence": 0.2755
+      },
+      "confidence": 0.0,
+      "arousal": 0.3892,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.009,
+       "baseline": 0.3982,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker B",
+     "seconds": 5.695,
+     "text": "That's not fair. I'm trying, and you talk to me like I'm a child.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 460.1,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.7228,
+       "dominance": 0.7614,
+       "valence": 0.1356
+      },
+      "confidence": 0.0,
+      "arousal": 0.7228,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0657,
+       "baseline": 0.6571,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.7227,
+       "dominance": 0.7613,
+       "valence": 0.1357
+      },
+      "confidence": 0.0,
+      "arousal": 0.7227,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0657,
+       "baseline": 0.657,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 10,
+     "speaker": "Speaker A",
+     "seconds": 4.332,
+     "text": "You're right. I'm sorry. That came out way harsher than I meant.",
+     "scripted": "repair_apology",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 294.6,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3038,
+       "dominance": 0.446,
+       "valence": 0.1169
+      },
+      "confidence": 0.0,
+      "arousal": 0.3038,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0854,
+       "baseline": 0.3892,
+       "history": 5,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3038,
+       "dominance": 0.446,
+       "valence": 0.1169
+      },
+      "confidence": 0.0,
+      "arousal": 0.3038,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0854,
+       "baseline": 0.3892,
+       "history": 5,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 11,
+     "speaker": "Speaker B",
+     "seconds": 5.579,
+     "text": "Thank you. Can we just sit down Sunday and do it together, no phones?",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 301.3,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5681,
+       "dominance": 0.633,
+       "valence": 0.4725
+      },
+      "confidence": 0.0,
+      "arousal": 0.5681,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.1055,
+       "baseline": 0.6736,
+       "history": 5,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5679,
+       "dominance": 0.6329,
+       "valence": 0.4728
+      },
+      "confidence": 0.0,
+      "arousal": 0.5679,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.1056,
+       "baseline": 0.6735,
+       "history": 5,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 12,
+     "speaker": "Speaker A",
+     "seconds": 4.927,
+     "text": "Yeah. Sunday. I'd like that. And I'll bring the good coffee.",
+     "scripted": "warm_happy",
+     "coarse": "happy",
+     "skipped": null,
+     "latency_ms": 171.8,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4031,
+       "dominance": 0.5298,
+       "valence": 0.6193
+      },
+      "confidence": 0.0,
+      "arousal": 0.4031,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.019,
+       "baseline": 0.3841,
+       "history": 6,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4031,
+       "dominance": 0.5298,
+       "valence": 0.6194
+      },
+      "confidence": 0.0,
+      "arousal": 0.4031,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.019,
+       "baseline": 0.3841,
+       "history": 6,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    }
+   ]
+  },
+  "scene_family3": {
+   "self_speaker": "Speaker A",
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker C",
+     "seconds": 3.862,
+     "text": "Okay, dinner's in ten minutes. Who's setting the table tonight?",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 129.6,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.5899,
+       "dominance": 0.6445,
+       "valence": 0.4448
+      },
+      "confidence": 0.0,
+      "arousal": 0.5899,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.5899,
+       "dominance": 0.6445,
+       "valence": 0.4448
+      },
+      "confidence": 0.0,
+      "arousal": 0.5899,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker B",
+     "seconds": 4.277,
+     "text": "Not me, I did it yesterday. And the day before, actually.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 146.3,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.7549,
+       "dominance": 0.7805,
+       "valence": 0.3448
+      },
+      "confidence": 0.0,
+      "arousal": 0.7549,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.7549,
+       "dominance": 0.7805,
+       "valence": 0.3448
+      },
+      "confidence": 0.0,
+      "arousal": 0.7549,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker A",
+     "seconds": 3.284,
+     "text": "Then it's my turn. Grab the plates for me, would you?",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 120.9,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.4834,
+       "dominance": 0.5847,
+       "valence": 0.3396
+      },
+      "confidence": 0.0,
+      "arousal": 0.4834,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.4833,
+       "dominance": 0.5847,
+       "valence": 0.3397
+      },
+      "confidence": 0.0,
+      "arousal": 0.4833,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker C",
+     "seconds": 3.672,
+     "text": "Also, someone left the milk out again. All afternoon.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 126.9,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4625,
+       "dominance": 0.5549,
+       "valence": 0.3987
+      },
+      "confidence": 0.0,
+      "arousal": 0.4625,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.1274,
+       "baseline": 0.5899,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4625,
+       "dominance": 0.5549,
+       "valence": 0.3988
+      },
+      "confidence": 0.0,
+      "arousal": 0.4625,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.1274,
+       "baseline": 0.5899,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker B",
+     "seconds": 4.842,
+     "text": "Why do you always assume it's me? Maybe ask Dad for once.",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 165.6,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.7042,
+       "dominance": 0.7404,
+       "valence": 0.1789
+      },
+      "confidence": 0.0,
+      "arousal": 0.7042,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0507,
+       "baseline": 0.7549,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.7041,
+       "dominance": 0.7403,
+       "valence": 0.1789
+      },
+      "confidence": 0.0,
+      "arousal": 0.7041,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0508,
+       "baseline": 0.7549,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker A",
+     "seconds": 4.5,
+     "text": "It was probably me, honestly. I made coffee around two.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 152.8,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.2899,
+       "dominance": 0.4453,
+       "valence": 0.2831
+      },
+      "confidence": 0.0,
+      "arousal": 0.2899,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.1935,
+       "baseline": 0.4834,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.29,
+       "dominance": 0.4453,
+       "valence": 0.2831
+      },
+      "confidence": 0.0,
+      "arousal": 0.29,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.1933,
+       "baseline": 0.4833,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker C",
+     "seconds": 3.579,
+     "text": "That's the third time this week. It's not funny anymore.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 123.8,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5545,
+       "dominance": 0.6381,
+       "valence": 0.3423
+      },
+      "confidence": 0.0,
+      "arousal": 0.5545,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0283,
+       "baseline": 0.5262,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5544,
+       "dominance": 0.6381,
+       "valence": 0.3423
+      },
+      "confidence": 0.0,
+      "arousal": 0.5544,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0282,
+       "baseline": 0.5262,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker B",
+     "seconds": 5.804,
+     "text": "OH MY GOD, IT'S MILK! WHY IS EVERYTHING IN THIS HOUSE A CRISIS?",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 199.7,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.8213,
+       "dominance": 0.8273,
+       "valence": 0.1764
+      },
+      "confidence": 0.0,
+      "arousal": 0.8213,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0917,
+       "baseline": 0.7296,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.8212,
+       "dominance": 0.8273,
+       "valence": 0.1765
+      },
+      "confidence": 0.0,
+      "arousal": 0.8212,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0917,
+       "baseline": 0.7295,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker C",
+     "seconds": 4.612,
+     "text": "Don't shout at me. I'm tired and I'm just asking for a little help.",
+     "scripted": "hurt_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 157.7,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.6353,
+       "dominance": 0.6974,
+       "valence": 0.2296
+      },
+      "confidence": 0.0,
+      "arousal": 0.6353,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0808,
+       "baseline": 0.5545,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.6352,
+       "dominance": 0.6974,
+       "valence": 0.2296
+      },
+      "confidence": 0.0,
+      "arousal": 0.6352,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0808,
+       "baseline": 0.5544,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker A",
+     "seconds": 4.556,
+     "text": "Hey! Don't talk to your mother like that, and don't drag me into it either!",
+     "scripted": "defensive_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 157.5,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3995,
+       "dominance": 0.5227,
+       "valence": 0.1003
+      },
+      "confidence": 0.0,
+      "arousal": 0.3995,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0129,
+       "baseline": 0.3866,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3994,
+       "dominance": 0.5227,
+       "valence": 0.1003
+      },
+      "confidence": 0.0,
+      "arousal": 0.3994,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0127,
+       "baseline": 0.3866,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 10,
+     "speaker": "Speaker B",
+     "seconds": 4.168,
+     "text": "Fine. Sorry. I'm just sick of getting blamed for everything.",
+     "scripted": "sullen_sad",
+     "coarse": "sad",
+     "skipped": null,
+     "latency_ms": 143.5,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5552,
+       "dominance": 0.6334,
+       "valence": 0.0831
+      },
+      "confidence": 0.0,
+      "arousal": 0.5552,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.1997,
+       "baseline": 0.7549,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.555,
+       "dominance": 0.6332,
+       "valence": 0.0833
+      },
+      "confidence": 0.0,
+      "arousal": 0.555,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.1999,
+       "baseline": 0.7549,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 11,
+     "speaker": "Speaker A",
+     "seconds": 4.218,
+     "text": "I know. I snapped too. Let's all just reset, okay?",
+     "scripted": "repair_apology",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 145.7,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3392,
+       "dominance": 0.4396,
+       "valence": 0.1618
+      },
+      "confidence": 0.0,
+      "arousal": 0.3392,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0603,
+       "baseline": 0.3995,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3391,
+       "dominance": 0.4396,
+       "valence": 0.1618
+      },
+      "confidence": 0.0,
+      "arousal": 0.3391,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0603,
+       "baseline": 0.3994,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 12,
+     "speaker": "Speaker C",
+     "seconds": 4.273,
+     "text": "Reset. Plates, forks, and somebody put the milk in the fridge.",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 145.8,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.501,
+       "dominance": 0.587,
+       "valence": 0.3963
+      },
+      "confidence": 0.0,
+      "arousal": 0.501,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0712,
+       "baseline": 0.5722,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.501,
+       "dominance": 0.587,
+       "valence": 0.3964
+      },
+      "confidence": 0.0,
+      "arousal": 0.501,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0711,
+       "baseline": 0.5721,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 13,
+     "speaker": "Speaker B",
+     "seconds": 3.851,
+     "text": "On it. And for the record, I'm making the garlic bread.",
+     "scripted": "warm_happy",
+     "coarse": "happy",
+     "skipped": null,
+     "latency_ms": 133.3,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.7404,
+       "dominance": 0.7896,
+       "valence": 0.6793
+      },
+      "confidence": 0.0,
+      "arousal": 0.7404,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0108,
+       "baseline": 0.7296,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.7404,
+       "dominance": 0.7896,
+       "valence": 0.6793
+      },
+      "confidence": 0.0,
+      "arousal": 0.7404,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0109,
+       "baseline": 0.7295,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 14,
+     "speaker": "Speaker A",
+     "seconds": 4.064,
+     "text": "Now we're talking. Best part of the week, right here.",
+     "scripted": "warm_happy",
+     "coarse": "happy",
+     "skipped": null,
+     "latency_ms": 156.4,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3931,
+       "dominance": 0.5229,
+       "valence": 0.4527
+      },
+      "confidence": 0.0,
+      "arousal": 0.3931,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0237,
+       "baseline": 0.3694,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3931,
+       "dominance": 0.5229,
+       "valence": 0.4527
+      },
+      "confidence": 0.0,
+      "arousal": 0.3931,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0239,
+       "baseline": 0.3692,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    }
+   ]
+  },
+  "scene_meeting4": {
+   "self_speaker": "Speaker A",
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Speaker B",
+     "seconds": 4.011,
+     "text": "Okay, let's start. First item: the March launch timeline.",
+     "scripted": "calm_open",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 144.0,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.6465,
+       "dominance": 0.6938,
+       "valence": 0.6696
+      },
+      "confidence": 0.0,
+      "arousal": 0.6465,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.6464,
+       "dominance": 0.6938,
+       "valence": 0.6696
+      },
+      "confidence": 0.0,
+      "arousal": 0.6464,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Speaker C",
+     "seconds": 4.852,
+     "text": "Engineering's on track. Integration tests finish by the twentieth.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 167.8,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.6452,
+       "dominance": 0.71,
+       "valence": 0.5671
+      },
+      "confidence": 0.0,
+      "arousal": 0.6452,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.6451,
+       "dominance": 0.7099,
+       "valence": 0.5671
+      },
+      "confidence": 0.0,
+      "arousal": 0.6451,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Speaker D",
+     "seconds": 4.723,
+     "text": "Marketing needs final screenshots by the fifteenth, or the press kit slips.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 231.6,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.5392,
+       "dominance": 0.6255,
+       "valence": 0.4214
+      },
+      "confidence": 0.0,
+      "arousal": 0.5392,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.5392,
+       "dominance": 0.6255,
+       "valence": 0.4215
+      },
+      "confidence": 0.0,
+      "arousal": 0.5392,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Speaker A",
+     "seconds": 4.664,
+     "text": "Tight, but doable. I'll have design prioritize the screenshots.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 160.7,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.4148,
+       "dominance": 0.5397,
+       "valence": 0.4989
+      },
+      "confidence": 0.0,
+      "arousal": 0.4148,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.4147,
+       "dominance": 0.5397,
+       "valence": 0.4989
+      },
+      "confidence": 0.0,
+      "arousal": 0.4147,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Speaker B",
+     "seconds": 4.538,
+     "text": "Good. Second item: the support backlog is up thirty percent.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 158.0,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5789,
+       "dominance": 0.6476,
+       "valence": 0.5796
+      },
+      "confidence": 0.0,
+      "arousal": 0.5789,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0676,
+       "baseline": 0.6465,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5789,
+       "dominance": 0.6476,
+       "valence": 0.5796
+      },
+      "confidence": 0.0,
+      "arousal": 0.5789,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0675,
+       "baseline": 0.6464,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Speaker A",
+     "seconds": 3.97,
+     "text": "I'll pull the top ten tickets and send them round this afternoon.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 170.6,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3697,
+       "dominance": 0.5036,
+       "valence": 0.4721
+      },
+      "confidence": 0.0,
+      "arousal": 0.3697,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0451,
+       "baseline": 0.4148,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3697,
+       "dominance": 0.5036,
+       "valence": 0.4721
+      },
+      "confidence": 0.0,
+      "arousal": 0.3697,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.045,
+       "baseline": 0.4147,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Speaker B",
+     "seconds": 4.057,
+     "text": "Third item, budget. Finance wants every team to trim eight percent.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 158.6,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.6312,
+       "dominance": 0.6814,
+       "valence": 0.5292
+      },
+      "confidence": 0.0,
+      "arousal": 0.6312,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0185,
+       "baseline": 0.6127,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.6312,
+       "dominance": 0.6814,
+       "valence": 0.5292
+      },
+      "confidence": 0.0,
+      "arousal": 0.6312,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0186,
+       "baseline": 0.6126,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Speaker D",
+     "seconds": 3.878,
+     "text": "Eight percent? We already cut the contractor budget last quarter.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 136.4,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5304,
+       "dominance": 0.6058,
+       "valence": 0.3763
+      },
+      "confidence": 0.0,
+      "arousal": 0.5304,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0088,
+       "baseline": 0.5392,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5304,
+       "dominance": 0.6058,
+       "valence": 0.3763
+      },
+      "confidence": 0.0,
+      "arousal": 0.5304,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0088,
+       "baseline": 0.5392,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 8,
+     "speaker": "Speaker C",
+     "seconds": 5.071,
+     "text": "We could delay the second hire until June. That covers most of it.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 169.0,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.565,
+       "dominance": 0.6463,
+       "valence": 0.4109
+      },
+      "confidence": 0.0,
+      "arousal": 0.565,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0802,
+       "baseline": 0.6452,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5649,
+       "dominance": 0.6462,
+       "valence": 0.4109
+      },
+      "confidence": 0.0,
+      "arousal": 0.5649,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0802,
+       "baseline": 0.6451,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 9,
+     "speaker": "Speaker B",
+     "seconds": 3.18,
+     "text": "That's one option. What about the conference sponsorship?",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 117.0,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.6152,
+       "dominance": 0.6901,
+       "valence": 0.6276
+      },
+      "confidence": 0.0,
+      "arousal": 0.6152,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.016,
+       "baseline": 0.6312,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.6151,
+       "dominance": 0.69,
+       "valence": 0.6276
+      },
+      "confidence": 0.0,
+      "arousal": 0.6151,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0161,
+       "baseline": 0.6312,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 10,
+     "speaker": "Speaker D",
+     "seconds": 5.333,
+     "text": "We signed that in December. Backing out costs almost as much as going.",
+     "scripted": "calm_guarded",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 178.1,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4925,
+       "dominance": 0.5905,
+       "valence": 0.4235
+      },
+      "confidence": 0.0,
+      "arousal": 0.4925,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0423,
+       "baseline": 0.5348,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4925,
+       "dominance": 0.5904,
+       "valence": 0.4235
+      },
+      "confidence": 0.0,
+      "arousal": 0.4925,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0423,
+       "baseline": 0.5348,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 11,
+     "speaker": "Speaker A",
+     "seconds": 3.758,
+     "text": "So we delay my hire again? That's the third time this year.",
+     "scripted": "tense_rising",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 126.3,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3884,
+       "dominance": 0.5103,
+       "valence": 0.2996
+      },
+      "confidence": 0.0,
+      "arousal": 0.3884,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0038,
+       "baseline": 0.3922,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.3884,
+       "dominance": 0.5103,
+       "valence": 0.2996
+      },
+      "confidence": 0.0,
+      "arousal": 0.3884,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0038,
+       "baseline": 0.3922,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 12,
+     "speaker": "Speaker B",
+     "seconds": 3.333,
+     "text": "Nobody's decided anything. We're just listing options.",
+     "scripted": "calm_neutral",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 122.3,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5678,
+       "dominance": 0.6518,
+       "valence": 0.2974
+      },
+      "confidence": 0.0,
+      "arousal": 0.5678,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0554,
+       "baseline": 0.6232,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5677,
+       "dominance": 0.6518,
+       "valence": 0.2975
+      },
+      "confidence": 0.0,
+      "arousal": 0.5677,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0554,
+       "baseline": 0.6231,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 13,
+     "speaker": "Speaker A",
+     "seconds": 5.417,
+     "text": "THEN LIST A DIFFERENT ONE! MY TEAM IS DROWNING AND EVERYONE HERE KNOWS IT!",
+     "scripted": "shout_angry",
+     "coarse": "angry",
+     "skipped": null,
+     "latency_ms": 180.6,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4053,
+       "dominance": 0.5118,
+       "valence": 0.3214
+      },
+      "confidence": 0.0,
+      "arousal": 0.4053,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0169,
+       "baseline": 0.3884,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4053,
+       "dominance": 0.5118,
+       "valence": 0.3214
+      },
+      "confidence": 0.0,
+      "arousal": 0.4053,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0169,
+       "baseline": 0.3884,
+       "history": 3,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 14,
+     "speaker": "Speaker C",
+     "seconds": 6.992,
+     "text": "Okay. Let's take that seriously. Can we table this and come back with real numbers?",
+     "scripted": "calm_deescalate",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 233.9,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.6674,
+       "dominance": 0.7214,
+       "valence": 0.4845
+      },
+      "confidence": 0.0,
+      "arousal": 0.6674,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0623,
+       "baseline": 0.6051,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.6672,
+       "dominance": 0.7213,
+       "valence": 0.4847
+      },
+      "confidence": 0.0,
+      "arousal": 0.6672,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0622,
+       "baseline": 0.605,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 15,
+     "speaker": "Speaker A",
+     "seconds": 5.522,
+     "text": "Yeah. Sorry, everyone. That was out of line. Real numbers by Thursday.",
+     "scripted": "repair_apology",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 183.7,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.2552,
+       "dominance": 0.4276,
+       "valence": 0.1092
+      },
+      "confidence": 0.0,
+      "arousal": 0.2552,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.1417,
+       "baseline": 0.3969,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.2552,
+       "dominance": 0.4276,
+       "valence": 0.1092
+      },
+      "confidence": 0.0,
+      "arousal": 0.2552,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.1417,
+       "baseline": 0.3969,
+       "history": 4,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 16,
+     "speaker": "Speaker B",
+     "seconds": 3.185,
+     "text": "Thursday works. Thanks, everyone. That's all for today.",
+     "scripted": "calm_close",
+     "coarse": "neutral",
+     "skipped": null,
+     "latency_ms": 110.9,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5672,
+       "dominance": 0.6459,
+       "valence": 0.6398
+      },
+      "confidence": 0.0,
+      "arousal": 0.5672,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.048,
+       "baseline": 0.6152,
+       "history": 5,
+       "flag": false,
+       "threshold": Infinity
+      }
+     },
+     "tone_gain": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.5672,
+       "dominance": 0.6459,
+       "valence": 0.6398
+      },
+      "confidence": 0.0,
+      "arousal": 0.5672,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0479,
+       "baseline": 0.6151,
+       "history": 5,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    }
+   ]
+  },
+  "family_real": {
+   "self_speaker": null,
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Sage",
+     "seconds": 5.12,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 171.0,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.4924,
+       "dominance": 0.5446,
+       "valence": 0.3382
+      },
+      "confidence": 0.0,
+      "arousal": 0.4924,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Asher",
+     "seconds": 2.74,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 105.1,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.5328,
+       "dominance": 0.4945,
+       "valence": 0.4933
+      },
+      "confidence": 0.0,
+      "arousal": 0.5328,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Asher",
+     "seconds": 0.74,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": "too_short",
+     "latency_ms": 0.0,
+     "tone": null
+    },
+    {
+     "index": 3,
+     "speaker": "Sage",
+     "seconds": 4.645,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 158.8,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.4849,
+       "dominance": 0.5076,
+       "valence": 0.5101
+      },
+      "confidence": 0.0,
+      "arousal": 0.4849,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": -0.0075,
+       "baseline": 0.4924,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Asher",
+     "seconds": 0.5,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": "too_short",
+     "latency_ms": 0.0,
+     "tone": null
+    },
+    {
+     "index": 5,
+     "speaker": "Asher",
+     "seconds": 2.66,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 119.3,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.6247,
+       "dominance": 0.5646,
+       "valence": 0.5893
+      },
+      "confidence": 0.0,
+      "arousal": 0.6247,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0919,
+       "baseline": 0.5328,
+       "history": 1,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 6,
+     "speaker": "Sage",
+     "seconds": 5.29,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 195.8,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.6757,
+       "dominance": 0.6819,
+       "valence": 0.2792
+      },
+      "confidence": 0.0,
+      "arousal": 0.6757,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.187,
+       "baseline": 0.4887,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 7,
+     "speaker": "Asher",
+     "seconds": 3.37,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 127.9,
+     "tone": {
+      "label": "steady",
+      "scores": {
+       "arousal": 0.6202,
+       "dominance": 0.5894,
+       "valence": 0.2139
+      },
+      "confidence": 0.0,
+      "arousal": 0.6202,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": 0.0414,
+       "baseline": 0.5788,
+       "history": 2,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    }
+   ]
+  },
+  "poker6_real": {
+   "self_speaker": null,
+   "rows": [
+    {
+     "index": 0,
+     "speaker": "Player1",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 167.4,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.4744,
+       "dominance": 0.5583,
+       "valence": 0.7341
+      },
+      "confidence": 0.0,
+      "arousal": 0.4744,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 1,
+     "speaker": "Player2",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 178.1,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.4681,
+       "dominance": 0.5064,
+       "valence": 0.6293
+      },
+      "confidence": 0.0,
+      "arousal": 0.4681,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 2,
+     "speaker": "Player3",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 169.8,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.4767,
+       "dominance": 0.5343,
+       "valence": 0.5355
+      },
+      "confidence": 0.0,
+      "arousal": 0.4767,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 3,
+     "speaker": "Player4",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 168.6,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.4609,
+       "dominance": 0.5119,
+       "valence": 0.5348
+      },
+      "confidence": 0.0,
+      "arousal": 0.4609,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 4,
+     "speaker": "Player5",
+     "seconds": 5.0,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 168.6,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.4658,
+       "dominance": 0.5426,
+       "valence": 0.3873
+      },
+      "confidence": 0.0,
+      "arousal": 0.4658,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    },
+    {
+     "index": 5,
+     "speaker": "Player6",
+     "seconds": 5.12,
+     "text": "",
+     "scripted": null,
+     "coarse": null,
+     "skipped": null,
+     "latency_ms": 168.7,
+     "tone": {
+      "label": "unscored",
+      "scores": {
+       "arousal": 0.2814,
+       "dominance": 0.3958,
+       "valence": 0.4721
+      },
+      "confidence": 0.0,
+      "arousal": 0.2814,
+      "kind": "dimensional",
+      "backend": "msp_dim",
+      "model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim@6eba34a2485ea31cb03600241787c3a5edab8626",
+      "escalation": {
+       "delta": null,
+       "baseline": null,
+       "history": 0,
+       "flag": false,
+       "threshold": Infinity
+      }
+     }
+    }
+   ]
+  }
+ },
+ "rss_peak_mb": 2022.03136
+}

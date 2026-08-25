@@ -1145,6 +1145,12 @@ class SessionContext:
     # server TTS. When local_first and unset, the phone speaks (expo-speech),
     # so the server must NOT also synthesize (double voice in the earpiece).
     tts_mode: str | None = None
+    # Audio-tone escalation state (tone_id.EscalationTracker): each speaker's
+    # running arousal baseline for THIS session, so a turn is judged against
+    # that speaker's own earlier turns (the round-2 finding: absolute tone
+    # reads voice identity; only the per-speaker delta reads escalation).
+    # Created lazily by _enrich_tone; None until audio tone runs once.
+    tone_tracker: object | None = None
     # Config `report_latency`: opt a legacy-protocol client into the
     # latency_summary on session_complete (local-first clients get it
     # automatically). Off by default so the old payload stays byte-identical.
@@ -2283,13 +2289,30 @@ async def _enrich_tone(
         # Flag off / model missing — an expected skip, not a failure.
         logger.debug("Audio tone unavailable for session %s: %s", ctx.session_id, exc)
         return None
+    # Per-speaker escalation: this turn's arousal against THIS speaker's own
+    # earlier turns in the session (pure numpy, microseconds — inline). The
+    # tracker lives on the session so baselines accumulate across turns; a
+    # speaker's first turn is honestly "unscored", never compared with
+    # someone else's voice.
+    scores = {str(k): float(v) for k, v in (result.get("scores") or {}).items()}
+    tracker_cls = getattr(tone_id, "EscalationTracker", None)
+    annotate = getattr(tone_id, "annotate_escalation", None)
+    escalation = None
+    if tracker_cls is not None and callable(annotate) and isinstance(result.get("arousal"), (int, float)):
+        if ctx.tone_tracker is None:
+            ctx.tone_tracker = tracker_cls()
+        result = annotate(result, event.speaker, ctx.tone_tracker)
+        escalation = result.get("escalation") or {}
+        scores["arousal"] = float(result["arousal"])
+        if escalation.get("delta") is not None:
+            scores["arousal_delta"] = float(escalation["delta"])
     flag = ToneFlagEvent(
         session_id=ctx.session_id,
         speaker=event.speaker,
         start_time=event.start_time,
         end_time=event.end_time,
         source="audio",
-        scores={str(k): float(v) for k, v in (result.get("scores") or {}).items()},
+        scores=scores,
         label=str(result["label"]),
         confidence=max(0.0, min(1.0, float(result.get("confidence", 0.0)))),
     )
@@ -2299,9 +2322,12 @@ async def _enrich_tone(
     # Dark mode: this log line IS the feature's output — nothing reaches the
     # client, and nothing reaches the watch (see the return contract above).
     logger.info(
-        "audio tone (dark) session=%s speaker=%s label=%s confidence=%.2f "
-        "seconds=%.1f phone_label=%s",
-        ctx.session_id, event.speaker, flag.label, flag.confidence,
+        "audio tone (dark) backend=%s session=%s speaker=%s label=%s confidence=%.2f "
+        "arousal=%s delta=%s history=%s seconds=%.1f phone_label=%s",
+        result.get("backend"), ctx.session_id, event.speaker, flag.label, flag.confidence,
+        result.get("arousal"),
+        None if escalation is None else escalation.get("delta"),
+        None if escalation is None else escalation.get("history"),
         pcm.size / sr,
         event.text_tone.label if event.text_tone else None,
     )
