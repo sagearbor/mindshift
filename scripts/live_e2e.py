@@ -242,6 +242,11 @@ def format_report(report: Report) -> str:
         lines.append("latency_summary (ms, server-measured per stage):")
         lines.append(f"    {'stage':<18}{'p50':>9}{'p95':>9}{'n':>5}")
         for stage, v in lat.items():
+            if stage == "hedge":
+                # Whole-session counts, not a stage (perf/llm-hedging).
+                lines.append(f"    hedge: {v.get('hedged', 0)}/{v.get('n', 0)} calls hedged, "
+                             f"{v.get('hedge_won', 0)} won, {v.get('slow_llm', 0)} abandoned (slow_llm)")
+                continue
             lines.append(f"    {stage:<18}{v.get('p50', 0):>9.1f}{v.get('p95', 0):>9.1f}{v.get('n', 0):>5}")
     verdict = "PASS" if not report.failures else "FAIL"
     lines.append(f"RESULT: {verdict} ({len(report.failures)} ❌, {len(report.warnings)} ⚠️)")

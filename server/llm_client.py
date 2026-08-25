@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import logging
 import os
+import queue
 import re
 import threading
-from typing import Iterator
+import time
+from typing import Callable, ContextManager, Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +21,283 @@ logger = logging.getLogger(__name__)
 # occupy a worker thread for 30 minutes. Fail fast instead.
 REQUEST_TIMEOUT_SECONDS = 30
 MAX_RETRIES = 1
+
+# Hedged streaming (perf/llm-hedging). Measured 2026-08-24 against the real
+# API (scripts/bench_suggestions.py): the cloud-suggestion time-to-first-token
+# is ~0.5–0.9 s at p50 but ~1 in 30 calls stalls for 5–11 s before the first
+# byte, in every prompt/request variant — a tail that is the provider's, not
+# ours. In a live conversation a 7 s stall is worse than a slightly higher
+# median, so a streaming call that has produced NO token after
+# ``MINDSHIFT_LLM_HEDGE_AFTER_MS`` fires a second identical request and keeps
+# whichever streams first (the loser is cancelled: its SSE connection is
+# closed, so it stops generating). Threshold well above p95 of the healthy
+# distribution so the hedge fires only on the stall tail (≈3 % of calls at
+# 1500 ms; the bench reports the actual rate). Cost of a hedge: the loser's
+# prompt tokens (identical to the winner's) plus whatever output it managed
+# before the close — ~+3 % input tokens overall at that rate.
+#
+# ``MINDSHIFT_LLM_FIRST_TOKEN_DEADLINE_MS`` is the hard cap: no attempt has
+# produced a first token by then → the call is abandoned with
+# :class:`LLMFirstTokenTimeout` (the realtime pipeline reports it as a
+# ``suggestion_error`` reason ``slow_llm`` and moves on to the next turn)
+# instead of holding the worker for the SDK's 30 s read timeout. Either knob
+# ``0`` disables that half.
+LLM_HEDGE_AFTER_MS = int(os.getenv("MINDSHIFT_LLM_HEDGE_AFTER_MS", "1500"))
+LLM_FIRST_TOKEN_DEADLINE_MS = int(os.getenv("MINDSHIFT_LLM_FIRST_TOKEN_DEADLINE_MS", "6000"))
+# Bound on how long a winner may go between deltas before the consumer gives
+# up on its thread — well past the SDK read timeout (plus its one retry) so it
+# can only fire if the producer thread died without reporting, never first.
+_STREAM_STALL_LIMIT_S = REQUEST_TIMEOUT_SECONDS * (MAX_RETRIES + 1) + 5
+
+
+class LLMFirstTokenTimeout(TimeoutError):
+    """No attempt of a hedged streaming call produced its first token within
+    ``deadline_ms`` — the call was abandoned (every attempt cancelled)."""
+
+    def __init__(self, deadline_ms: int, attempts: int) -> None:
+        super().__init__(
+            f"no first token from {attempts} attempt(s) within {deadline_ms} ms"
+        )
+        self.deadline_ms = deadline_ms
+        self.attempts = attempts
+
+
+# Queue message kinds from an attempt's producer thread to the consumer.
+_DELTA, _DONE, _ERROR = "delta", "done", "error"
+
+
+class _Attempt:
+    """One in-flight streaming request of a :class:`HedgedStream`."""
+
+    __slots__ = ("index", "cancel", "stream", "started_at")
+
+    def __init__(self, index: int, started_at: float) -> None:
+        self.index = index
+        self.cancel = threading.Event()
+        self.stream = None  # the SDK MessageStream once the connection is up
+        self.started_at = started_at
+
+
+class HedgedStream:
+    """Text-delta iterator over ONE logical streaming request, hedged.
+
+    ``open_stream()`` returns the SDK's ``messages.stream(...)`` context
+    manager. Each attempt runs on its own daemon thread and forwards deltas
+    to a queue; the consumer (whoever iterates this object) starts attempt 0,
+    fires attempt 1 if no delta has arrived after ``hedge_after_ms``, adopts
+    the first attempt to deliver a delta as the winner, cancels the rest, and
+    raises :class:`LLMFirstTokenTimeout` if nothing has arrived by
+    ``deadline_ms``. Once a winner exists its deltas are yielded until the
+    stream ends (usage handed to ``on_usage``) or fails (the error is raised
+    here, on the consumer's thread).
+
+    Attributes readable after iteration: ``hedged`` (a second request was
+    fired), ``hedge_won`` (the second request was the one used),
+    ``attempts``, ``first_token_ms`` (from the first request's start to the
+    winner's first delta; None when abandoned).
+
+    Cancellation is best-effort by design. A cancelled attempt's flag is
+    checked between deltas and its SSE response is closed from the consumer
+    thread (the SDK's ``MessageStream.close()``, which releases the
+    connection); a loser still stalled before its first byte may keep its
+    thread blocked until that byte or the SDK read timeout arrives, then
+    exits — it never reaches the consumer. Dedicated threads (not the
+    asyncio default executor) so a lingering loser cannot starve the event
+    loop's ``to_thread`` pool.
+    """
+
+    def __init__(
+        self,
+        open_stream: Callable[[], ContextManager],
+        *,
+        hedge_after_ms: int,
+        deadline_ms: int,
+        on_usage: Callable[[object], None] | None = None,
+        on_event: Callable[[str, "HedgedStream"], None] | None = None,
+        clock: Callable[[], float] = time.monotonic,
+        label: str = "",
+    ) -> None:
+        self._open = open_stream
+        self._hedge_after_s = max(0, hedge_after_ms) / 1000.0
+        self._deadline_s = max(0, deadline_ms) / 1000.0
+        self._on_usage = on_usage
+        self._on_event = on_event
+        self._clock = clock
+        self._label = label
+        self._q: "queue.Queue[tuple[_Attempt, str, object]]" = queue.Queue()
+        self._attempts: list[_Attempt] = []
+        self._winner: _Attempt | None = None
+        self._closed = False
+        self.hedged = False
+        self.hedge_won = False
+        self.attempts = 0
+        self.first_token_ms: float | None = None
+        self.usage: object = None  # the winner's final-message usage, once drained
+
+    # -- producer side --------------------------------------------------------
+
+    def _start_attempt(self) -> _Attempt:
+        attempt = _Attempt(len(self._attempts), self._clock())
+        self._attempts.append(attempt)
+        self.attempts = len(self._attempts)
+        threading.Thread(
+            target=self._run, args=(attempt,), daemon=True,
+            name=f"llm-stream-{attempt.index}",
+        ).start()
+        return attempt
+
+    def _run(self, attempt: _Attempt) -> None:
+        try:
+            # The context manager closes the SSE connection on every exit —
+            # drained, cancelled, or failed — so a loser never keeps
+            # generating (and billing) once it is abandoned.
+            with self._open() as stream:
+                attempt.stream = stream
+                if attempt.cancel.is_set():
+                    return
+                for text in stream.text_stream:
+                    if attempt.cancel.is_set():
+                        return
+                    self._q.put((attempt, _DELTA, text))
+                if attempt.cancel.is_set():
+                    return
+                usage = None
+                try:
+                    usage = stream.get_final_message().usage
+                except Exception:  # noqa: BLE001 — accounting must never break a reply
+                    logger.debug("Could not read streamed usage", exc_info=True)
+                self._q.put((attempt, _DONE, usage))
+        except BaseException as exc:  # noqa: BLE001 — forwarded to the consumer
+            if not attempt.cancel.is_set():
+                self._q.put((attempt, _ERROR, exc))
+
+    def _cancel(self, attempt: _Attempt) -> None:
+        attempt.cancel.set()
+        stream = attempt.stream
+        if stream is not None:
+            # Best-effort unblock of a thread waiting on the next SSE byte.
+            # The response object is the SDK's; closing it from another
+            # thread is tolerated (the reader sees a closed stream and its
+            # own exception path swallows it as cancelled).
+            with_close = getattr(stream, "close", None)
+            if callable(with_close):
+                try:
+                    with_close()
+                except Exception:  # noqa: BLE001 — cancellation is best-effort
+                    logger.debug("Closing a cancelled LLM stream failed", exc_info=True)
+
+    def close(self) -> None:
+        """Cancel every attempt (winner included) — the consumer is done."""
+        self._closed = True
+        for attempt in self._attempts:
+            if not attempt.cancel.is_set():
+                self._cancel(attempt)
+
+    def _emit(self, event: str) -> None:
+        if self._on_event is not None:
+            try:
+                self._on_event(event, self)
+            except Exception:  # noqa: BLE001 — accounting must never break a reply
+                logger.debug("HedgedStream on_event failed", exc_info=True)
+
+    # -- consumer side --------------------------------------------------------
+
+    def __iter__(self) -> Iterator[str]:
+        try:
+            yield from self._iterate()
+        finally:
+            self.close()
+
+    def _iterate(self) -> Iterator[str]:
+        t0 = self._clock()
+        self._start_attempt()
+        self._emit("start")
+        live = 1
+        last_error: BaseException | None = None
+        hedge_at = t0 + self._hedge_after_s if self._hedge_after_s > 0 else None
+        deadline_at = t0 + self._deadline_s if self._deadline_s > 0 else None
+
+        # Phase 1: wait for SOMEONE's first delta, hedging and bounding it.
+        while self._winner is None:
+            now = self._clock()
+            if hedge_at is not None and now >= hedge_at and not self.hedged:
+                self.hedged = True
+                live += 1
+                self._start_attempt()
+                logger.info(
+                    "LLM stream %s: no first token after %.0f ms — hedging with a "
+                    "second request", self._label, (now - t0) * 1000.0,
+                )
+                self._emit("hedged")
+            if deadline_at is not None and now >= deadline_at:
+                self.close()
+                self._emit("slow_llm")
+                logger.warning(
+                    "LLM stream %s: no first token from %d attempt(s) within "
+                    "%.0f ms — abandoning the call", self._label, self.attempts,
+                    self._deadline_s * 1000.0,
+                )
+                raise LLMFirstTokenTimeout(int(self._deadline_s * 1000), self.attempts)
+            pending = [deadline_at] + ([hedge_at] if not self.hedged else [])
+            pending = [x for x in pending if x is not None]
+            timeout = max(0.0, min(pending) - now) if pending else None
+            try:
+                attempt, kind, payload = self._q.get(timeout=timeout)
+            except queue.Empty:
+                continue
+            if attempt.cancel.is_set():
+                continue  # a straggler from an abandoned attempt
+            if kind == _ERROR:
+                live -= 1
+                last_error = payload  # type: ignore[assignment]
+                if live <= 0:
+                    self.close()
+                    raise last_error  # type: ignore[misc]
+                continue
+            # First delta (or an empty completion) — this attempt wins.
+            self._winner = attempt
+            self.first_token_ms = (self._clock() - t0) * 1000.0
+            self.hedge_won = self.hedged and attempt.index > 0
+            for other in self._attempts:
+                if other is not attempt:
+                    self._cancel(other)
+            if self.hedged:
+                logger.info(
+                    "LLM stream %s: hedge %s (first token at %.0f ms from attempt %d)",
+                    self._label, "won" if self.hedge_won else "lost",
+                    self.first_token_ms, attempt.index,
+                )
+            self._emit("first_token")
+            if kind == _DONE:
+                self._finish(payload)
+                return
+            yield payload  # type: ignore[misc]
+
+        # Phase 2: the winner's stream, to the end.
+        while True:
+            try:
+                attempt, kind, payload = self._q.get(timeout=_STREAM_STALL_LIMIT_S)
+            except queue.Empty as exc:
+                self.close()
+                raise TimeoutError(
+                    f"LLM stream {self._label}: winner produced nothing for "
+                    f"{_STREAM_STALL_LIMIT_S:.0f} s"
+                ) from exc
+            if attempt is not self._winner:
+                continue
+            if kind == _DELTA:
+                yield payload  # type: ignore[misc]
+            elif kind == _DONE:
+                self._finish(payload)
+                return
+            else:
+                raise payload  # type: ignore[misc]
+
+    def _finish(self, usage: object) -> None:
+        self.usage = usage
+        if self._on_usage is not None:
+            self._on_usage(usage)
+        self._emit("done")
 
 # Anthropic prompt caching: with ``MINDSHIFT_PROMPT_CACHE=1`` the system
 # prompt is sent as a content block carrying ``cache_control`` so a stable
@@ -121,6 +400,41 @@ class LLMClient:
                 totals[key] += value
             self.last_usage = snap
         logger.debug("LLM usage model=%s %s", self.model, snap)
+
+    @property
+    def hedge_totals(self) -> dict[str, int]:
+        """Running per-client hedged-streaming counters: ``streams`` (hedge-
+        capable streaming calls started), ``hedged`` (a second request was
+        fired), ``hedge_won`` (the second request was the one used),
+        ``slow_llm`` (abandoned at the first-token deadline) and
+        ``hedge_extra_input_tokens`` — the cost side: every hedged call
+        bills its loser's prompt too, which is byte-identical to the
+        winner's, so the winner's ``input_tokens`` is added here per hedged
+        call (a lower bound; the loser's few output tokens before its
+        close are not counted)."""
+        totals = self.__dict__.get("_hedge_totals")
+        if totals is None:
+            totals = {
+                "streams": 0, "hedged": 0, "hedge_won": 0, "slow_llm": 0,
+                "hedge_extra_input_tokens": 0,
+            }
+            self.__dict__["_hedge_totals"] = totals
+        return totals
+
+    def _on_hedge_event(self, event: str, stream: HedgedStream) -> None:
+        with _usage_lock:
+            totals = self.hedge_totals
+            if event == "start":
+                totals["streams"] += 1
+            elif event == "hedged":
+                totals["hedged"] += 1
+            elif event == "slow_llm":
+                totals["slow_llm"] += 1
+            elif event == "first_token" and stream.hedge_won:
+                totals["hedge_won"] += 1
+            elif event == "done" and stream.hedged:
+                extra = getattr(stream.usage, "input_tokens", 0)
+                totals["hedge_extra_input_tokens"] += extra if isinstance(extra, int) else 0
 
     # ------------------------------------------------------------------
     # Provider detection
@@ -285,14 +599,25 @@ class LLMClient:
 
         Blocking, like ``complete()``: callers on an event loop run the
         iteration in a thread (``asyncio.to_thread``) the same way.
+
+        Anthropic calls are HEDGED (see :class:`HedgedStream` and the
+        ``MINDSHIFT_LLM_HEDGE_AFTER_MS`` / ``MINDSHIFT_LLM_FIRST_TOKEN_DEADLINE_MS``
+        knobs): the returned iterator is the :class:`HedgedStream` itself,
+        so a caller can read ``hedged`` / ``hedge_won`` / ``first_token_ms``
+        off it after draining, and iteration raises
+        :class:`LLMFirstTokenTimeout` when no attempt produced a first token
+        by the deadline. Nothing is sent until iteration starts.
         """
         temp = self._resolve_temperature(temperature)
         if self._provider == "anthropic":
-            yield from self._stream_anthropic(
+            return self._stream_anthropic(
                 system, user, temp, max_tokens, response_schema,
             )
-            return
-        yield self.complete(system, user, temperature, max_tokens, response_schema)
+
+        def _one_chunk() -> Iterator[str]:
+            yield self.complete(system, user, temperature, max_tokens, response_schema)
+
+        return _one_chunk()
 
     # --- Anthropic Messages API ---
 
@@ -331,20 +656,22 @@ class LLMClient:
         temp: float | None,
         max_tokens: int,
         response_schema: dict | None = None,
-    ) -> Iterator[str]:
+    ) -> HedgedStream:
         kwargs = self._anthropic_kwargs(system, user, temp, max_tokens, response_schema)
-        # The context manager closes the SSE connection even if the consumer
-        # stops iterating early (e.g. the pipeline's worker is cancelled on
-        # a mid-generation stop) — a bare `stream=True` iterator would not.
-        with self._client.messages.stream(**kwargs) as stream:
-            for text in stream.text_stream:
-                yield text
-            # Only reached when the consumer drained the stream: the final
-            # message (and its usage — cache hits live there) is complete.
-            try:
-                self._record_usage(stream.get_final_message().usage)
-            except Exception:  # noqa: BLE001 — accounting must never break a reply
-                logger.debug("Could not read streamed usage", exc_info=True)
+        # Each attempt runs `with messages.stream(**kwargs)` on its own thread
+        # (HedgedStream._run): the context manager closes the SSE connection
+        # on every exit — drained, cancelled as the hedge's loser, or when the
+        # consumer stops iterating early (a mid-generation stop) — so an
+        # abandoned request never keeps generating. Usage (cache hits live in
+        # the final message) is recorded only for the winner, once drained.
+        return HedgedStream(
+            lambda: self._client.messages.stream(**kwargs),
+            hedge_after_ms=LLM_HEDGE_AFTER_MS,
+            deadline_ms=LLM_FIRST_TOKEN_DEADLINE_MS,
+            on_usage=self._record_usage,
+            on_event=self._on_hedge_event,
+            label=self.model,
+        )
 
     def _complete_anthropic(
         self,

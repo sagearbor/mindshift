@@ -3258,3 +3258,216 @@ class TestLocalFirstConcurrency:
             await asyncio.wait_for(job(None).wait_turn(), 1.0)
 
         asyncio.run(scenario())
+
+
+
+# --- Hedged streaming through the pipeline (perf/llm-hedging) ---------------
+
+class _FakeSSE:
+    """A scripted SDK-shaped streaming attempt (see test_llm_client.FakeSSE):
+    ``stall=True`` never produces a byte until released or closed."""
+
+    def __init__(self, deltas, *, stall=False):
+        self.deltas = list(deltas)
+        self.release = threading.Event()
+        if not stall:
+            self.release.set()
+        self.closed = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
+    def close(self):
+        self.closed = True
+        self.release.set()
+
+    @property
+    def text_stream(self):
+        def gen():
+            self.release.wait()
+            if self.closed:
+                return
+            yield from self.deltas
+        return gen()
+
+    def get_final_message(self):
+        return types.SimpleNamespace(usage=None)
+
+
+class HedgingLLM:
+    """LLM double whose ``stream_complete`` is a REAL ``llm_client.HedgedStream``
+    over scripted attempts — per call a list of ``"ok"`` / ``"stall"`` (an
+    unscripted attempt stalls) — so the pipeline runs the production hedging
+    code with only the network faked. Tiny real thresholds (ms), no sleeps:
+    a stalled attempt blocks until the hedge logic cancels it."""
+
+    def __init__(self, response: str = MOCK_LLM_JSON, calls=None, *,
+                 hedge_after_ms: int = 10, deadline_ms: int = 80, chunk: int = 7) -> None:
+        self._response = response
+        self._chunk = chunk
+        self._calls = [list(c) for c in (calls or [["ok"]])]
+        self._hedge_after_ms = hedge_after_ms
+        self._deadline_ms = deadline_ms
+        self.attempts: list[_FakeSSE] = []  # every attempt opened, in order
+        self.stream_calls: list[str] = []
+        self.complete_calls: list[str] = []
+        self._lock = threading.Lock()
+
+    def complete(self, system: str, user: str, **_) -> str:
+        self.complete_calls.append(user)
+        return self._response
+
+    def stream_complete(self, system: str, user: str, **_):
+        from llm_client import HedgedStream
+
+        self.stream_calls.append(user)
+        script = self._calls.pop(0) if self._calls else ["ok"]
+        chunks = [self._response[i:i + self._chunk]
+                  for i in range(0, len(self._response), self._chunk)]
+
+        def open_stream():
+            with self._lock:
+                kind = script.pop(0) if script else "stall"
+                sse = _FakeSSE(chunks, stall=(kind == "stall"))
+                self.attempts.append(sse)
+                return sse
+
+        return HedgedStream(open_stream, hedge_after_ms=self._hedge_after_ms,
+                            deadline_ms=self._deadline_ms)
+
+
+class TestHedgedStreamingPipeline:
+    def test_hedge_won_turn_keeps_partial_semantics_and_is_counted(self, local_first_env, caplog):
+        llm = HedgingLLM(calls=[["stall", "ok"]])
+        client = _inject(StoppableTranscriber())
+        app.state.llm_client = llm
+        with caplog.at_level(logging.INFO, logger="audio_pipeline"):
+            with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+                ws.send_text(json.dumps(_turn_local()))
+                partial = json.loads(ws.receive_text())
+                final = json.loads(ws.receive_text())
+                ws.send_text(json.dumps({"type": "stop"}))
+                done = json.loads(ws.receive_text())
+
+        assert partial["type"] == "suggestion" and partial["partial"] is True
+        assert partial["suggestions"] == ["I hear what you're saying."]
+        assert final["partial"] is False and len(final["suggestions"]) == 3
+        assert len(llm.attempts) == 2 and llm.attempts[0].closed  # loser cancelled
+        assert done["latency_summary"]["hedge"] == {
+            "n": 1, "hedged": 1, "hedge_won": 1, "slow_llm": 0,
+        }
+        lines = [r.getMessage() for r in caplog.records if "latency session=" in r.getMessage()]
+        assert lines and lines[-1].endswith("hedged=1 hedge_won=1")
+
+    def test_healthy_turn_is_counted_as_not_hedged(self, local_first_env, caplog):
+        llm = HedgingLLM(calls=[["ok"]])
+        client = _inject(StoppableTranscriber())
+        app.state.llm_client = llm
+        with caplog.at_level(logging.INFO, logger="audio_pipeline"):
+            with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+                ws.send_text(json.dumps(_turn_local()))
+                json.loads(ws.receive_text())
+                json.loads(ws.receive_text())
+                ws.send_text(json.dumps({"type": "stop"}))
+                done = json.loads(ws.receive_text())
+        assert len(llm.attempts) == 1
+        assert done["latency_summary"]["hedge"] == {
+            "n": 1, "hedged": 0, "hedge_won": 0, "slow_llm": 0,
+        }
+        lines = [r.getMessage() for r in caplog.records if "latency session=" in r.getMessage()]
+        assert lines[-1].endswith("hedged=0 hedge_won=0")
+
+    def test_slow_llm_turn_is_reported_and_does_not_block_the_next(self, local_first_env):
+        """Turn One never gets a first token (both attempts stall) → abandoned
+        at the deadline as suggestion_error slow_llm; turn Two, already
+        streaming on the second worker, is delivered right after it —
+        utterance order kept, queue not held for the SDK timeout."""
+        llm = HedgingLLM(calls=[["stall", "stall"], ["ok"]])
+        client = _inject(StoppableTranscriber())
+        app.state.llm_client = llm
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_text(json.dumps(_turn("One.", 0.0)))
+            ws.send_text(json.dumps(_turn("Two.", 2.0)))
+            events = [json.loads(ws.receive_text()) for _ in range(3)]
+            ws.send_text(json.dumps({"type": "stop"}))
+            done = json.loads(ws.receive_text())
+
+        errors = [e for e in events if e["type"] == "suggestion_error"]
+        assert errors == [{"type": "suggestion_error", "utterance_text": "One.", "reason": "slow_llm"}]
+        finals = [e for e in events if e["type"] == "suggestion" and not e.get("partial")]
+        assert [f["utterance_text"] for f in finals] == ["Two."]
+        assert events.index(errors[0]) < events.index(finals[0])  # order kept
+        # Both of One's attempts were cancelled at the deadline.
+        assert all(a.closed for a in llm.attempts[:2])
+        assert done["type"] == "session_complete" and "pending_dropped" not in done
+        assert done["latency_summary"]["hedge"] == {
+            "n": 1, "hedged": 0, "hedge_won": 0, "slow_llm": 1,
+        }
+
+    def test_local_first_nudge_goes_through_the_hedged_stream(self, local_first_env):
+        llm = HedgingLLM(response=NUDGE_LLM_JSON, calls=[["stall", "ok"]])
+        client = _inject(StoppableTranscriber())
+        app.state.llm_client = llm
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_text(json.dumps(_turn_local(is_self=True)))
+            resp = json.loads(ws.receive_text())
+            ws.send_text(json.dumps({"type": "stop"}))
+            done = json.loads(ws.receive_text())
+        assert resp["type"] == "suggestion" and resp["kind"] == "nudge"
+        assert resp["suggestions"] == ["ease up"] and resp["partial"] is False
+        assert llm.stream_calls and not llm.complete_calls
+        assert len(llm.attempts) == 2 and llm.attempts[0].closed
+        assert done["latency_summary"]["hedge"] == {
+            "n": 1, "hedged": 1, "hedge_won": 1, "slow_llm": 0,
+        }
+
+    @pytest.mark.anyio
+    async def test_stream_helper_fills_stats_and_maps_the_deadline(self):
+        from audio_pipeline import SuggestionUnavailable, _stream_with_first_suggestion
+
+        llm = HedgingLLM(calls=[["stall", "ok"]])
+        stats: dict = {}
+        raw = await _stream_with_first_suggestion(llm, "sys", "usr", None, stats=stats)
+        assert raw == MOCK_LLM_JSON
+        assert stats["hedged"] is True and stats["hedge_won"] is True
+        assert stats["first_token_ms"] is not None
+
+        llm = HedgingLLM(calls=[["stall", "stall"]])
+        stats = {}
+        with pytest.raises(SuggestionUnavailable) as info:
+            await _stream_with_first_suggestion(llm, "sys", "usr", None, stats=stats)
+        assert info.value.reason == "slow_llm"
+        assert stats == {"hedged": True, "hedge_won": False, "first_token_ms": None}
+
+    @pytest.mark.anyio
+    async def test_plain_generator_double_leaves_stats_empty(self):
+        from audio_pipeline import _stream_with_first_suggestion
+
+        stats: dict = {}
+        raw = await _stream_with_first_suggestion(
+            StreamingLLM(MOCK_LLM_JSON), "sys", "usr", None, stats=stats,
+        )
+        assert raw == MOCK_LLM_JSON and stats == {}
+
+    def test_recorder_hedge_accounting(self, caplog):
+        from audio_pipeline import LatencyRecorder
+
+        rec = LatencyRecorder(clock=SteppingClock(step=0.1))
+        with caplog.at_level(logging.INFO, logger="audio_pipeline"):
+            t = rec.start(frame_received=rec.now(), segment_finalized=rec.now())
+            t.enqueued = t.llm_start = t.llm_end = t.sent = rec.now()
+            rec.record(t, "s")  # a complete() turn: not hedge-capable
+        assert caplog.records[-1].getMessage().endswith("hedged=- hedge_won=-")
+        assert "hedge" not in rec.summary()  # legacy summary unchanged
+
+        t = rec.start(frame_received=rec.now(), segment_finalized=rec.now())
+        t.enqueued = t.llm_start = t.llm_end = t.sent = rec.now()
+        t.hedged, t.hedge_won = True, False
+        rec.record(t, "s")
+        rec.record_abandoned("slow_llm", "s")
+        rec.record_abandoned("llm_parse_error", "s")  # not a hedge outcome
+        assert rec.summary()["hedge"] == {"n": 1, "hedged": 1, "hedge_won": 0, "slow_llm": 1}
