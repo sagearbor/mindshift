@@ -2286,7 +2286,16 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
 
     call_endpoint = _CallSessionEndpoint()
 
+    # Wrong join codes presented on THIS socket (calls.JOIN_ATTEMPTS_MAX):
+    # the WebSocket has no per-request rate limiter, so the frame bounds
+    # itself — past the cap every further call_join is refused.
+    join_failures = 0
+
     async def handle_call_join(payload: dict) -> None:
+        nonlocal join_failures
+        if join_failures >= calls.JOIN_ATTEMPTS_MAX:
+            await send_json({"error": "call_join: too many failed attempts"})
+            return
         call_id = payload.get("call_id")
         if not isinstance(call_id, str) or not _is_valid_uuid(call_id):
             await send_json({"error": "call_join: invalid call_id"})
@@ -2298,6 +2307,16 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         display_name = calls.clean_display_name(payload.get("display_name"))
         try:
             if ctx.uid not in call.participants:
+                # The code is checked BEFORE the account (email) lookup so a
+                # guess never costs an upstream call.
+                try:
+                    calls.registry.authorize_join(
+                        call, ctx.uid, join_code=payload.get("join_code"), role=payload.get("role"),
+                    )
+                except calls.CallError as exc:
+                    if exc.status == 403:
+                        join_failures += 1
+                    raise
                 email = await calls.resolve_email(ctx.uid)
                 calls.registry.join(
                     call, ctx.uid, join_code=payload.get("join_code"),
@@ -2322,6 +2341,11 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             session_id, call.call_id, participant.slot, participant.label, participant.role,
         )
 
+    # Signaling frames this socket may relay per second (burst + refill):
+    # the relay copies each one to another member's socket, so the bound
+    # sits on the sender.
+    signal_bucket = calls.TokenBucket(rate_per_s=calls.RTC_SIGNAL_RATE_PER_S, burst=calls.RTC_SIGNAL_BURST)
+
     async def handle_rtc_signal(payload: dict, raw_len: int) -> None:
         call = ctx.call
         if call is None or payload.get("call_id") != call.call_id:
@@ -2329,6 +2353,9 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             return
         if raw_len > calls.RTC_PAYLOAD_MAX_BYTES:
             await send_json({"error": "rtc_signal: payload too large"})
+            return
+        if not signal_bucket.allow():
+            await send_json({"error": "rtc_signal: too many signals"})
             return
         signal = payload.get("payload")
         if not isinstance(signal, dict) or not signal:

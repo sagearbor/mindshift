@@ -250,6 +250,12 @@ async def join_call(
     call = calls.registry.get(call_id)
     if call is None:
         raise HTTPException(status_code=404, detail="no such call")
+    try:
+        # A wrong code is refused here — before the account lookup below
+        # (an upstream call a guesser must not be able to trigger).
+        calls.registry.authorize_join(call, uid, join_code=body.join_code, role=body.role)
+    except calls.CallError as exc:
+        _raise(exc)
     email = await calls.resolve_email(uid, main.resolve_email_by_uid)
     try:
         calls.registry.join(
@@ -270,7 +276,10 @@ async def end_call(
     uid: str = Depends(get_current_uid),
 ):
     call = _visible(call_id, uid)
-    if uid not in call.participants:
+    me = call.participant(uid)
+    if me is None or me.is_therapist:
+        # The invitee who never joined, and the observing therapist (a
+        # member, not a coached participant), may not hang up for everyone.
         raise HTTPException(status_code=403, detail="only a participant can end the call")
     await call.end(reason="ended", ended_by=uid, store=_store(request))
     return call.rest_view(uid)

@@ -87,9 +87,10 @@ from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
-# How long an OPEN call (nobody bound, or waiting for the second member)
-# stays joinable. An ACTIVE call never expires by clock — it ends when its
-# last socket leaves or a participant ends it.
+# How long a call with NO socket bound (nobody connected yet, or joined over
+# REST and never connected) stays joinable. A call with a live socket never
+# expires by clock — it ends when its last socket leaves or a participant
+# ends it.
 CALL_TTL_MINUTES = int(os.getenv("MINDSHIFT_CALL_TTL_MINUTES", "180"))
 CALL_TTL_MAX_MINUTES = 24 * 60
 # Ended calls are kept this long so GET /calls/{id} can still hand back the
@@ -103,9 +104,19 @@ CALL_MAX_TRANSCRIPT_CHARS = 60_000
 # far past any real signaling message and stops a client using the relay as
 # a free data channel through the server.
 RTC_PAYLOAD_MAX_BYTES = 64 * 1024
-# Bound on open + retained calls in this process (abuse guard; a real
-# deployment sees a handful at a time).
+# Per-socket bound on signaling frames: ICE gathering is bursty (a few
+# dozen candidates in the first second, one connection per peer), then
+# nearly silent. Past the burst a member's frames are refused with a
+# reason — one phone can't use the relay to flood the others' sockets.
+RTC_SIGNAL_RATE_PER_S = 20.0
+RTC_SIGNAL_BURST = 60
+# Bound on calls held in this process (abuse guard; a real deployment sees
+# a handful at a time). Retained ENDED calls are evicted early before a new
+# call is refused, so they can never crowd out live ones.
 MAX_CALLS = int(os.getenv("MINDSHIFT_MAX_CALLS", "500"))
+# Un-ended (open or active) calls ONE account may host at a time — a single
+# tenant creating calls in a loop hits 429 long before MAX_CALLS.
+MAX_OPEN_CALLS_PER_HOST = int(os.getenv("MINDSHIFT_MAX_OPEN_CALLS_PER_HOST", "3"))
 # How long a remote-turn delivery may block the sender's receive loop.
 DELIVERY_TIMEOUT_S = 2.0
 # Whether the persisted call episodes get the batch analysis + "what you
@@ -119,6 +130,14 @@ DISPLAY_NAME_MAX = 60
 JOIN_CODE_LEN = 6
 # No 0/O/1/I — the code is read out loud or typed from a text.
 JOIN_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+# Brute-force guards on the code (32^6 ≈ 1e9 codes; REST is IP-rate-limited,
+# the WebSocket `call_join` frame is not). Per SOCKET: wrong codes before
+# that socket's further call_join frames are refused (a new socket costs a
+# fresh token handshake). Per CALL: wrong codes from anyone before the code
+# is burned for good — the named invitee never needed it and is unaffected;
+# the host starts a new call. A mistyped code is a handful, never fifty.
+JOIN_ATTEMPTS_MAX = 8
+JOIN_CODE_FAILURES_MAX = 50
 
 ROLE_PARTICIPANT = "participant"
 ROLE_THERAPIST = "therapist"
@@ -202,6 +221,27 @@ def clean_role(raw: object) -> str:
     if isinstance(raw, str) and raw.strip().lower() in ROLES:
         return raw.strip().lower()
     raise CallError(422, "role must be 'participant' or 'therapist'")
+
+
+class TokenBucket:
+    """A plain token bucket: ``burst`` tokens to start, ``rate_per_s`` back
+    per second, never more than ``burst``. ``allow()`` spends one."""
+
+    def __init__(self, *, rate_per_s: float, burst: int, clock: Callable[[], float] = time.monotonic) -> None:
+        self.rate = float(rate_per_s)
+        self.burst = float(burst)
+        self._clock = clock
+        self._tokens = self.burst
+        self._last = clock()
+
+    def allow(self) -> bool:
+        now = self._clock()
+        self._tokens = min(self.burst, self._tokens + (now - self._last) * self.rate)
+        self._last = now
+        if self._tokens >= 1.0:
+            self._tokens -= 1.0
+            return True
+        return False
 
 
 class CallError(Exception):
@@ -307,6 +347,8 @@ class Call:
     ended_at: str | None = None
     ended_by: str | None = None
     end_reason: str | None = None
+    # Wrong join codes presented so far (see JOIN_CODE_FAILURES_MAX).
+    code_failures: int = 0
     store: Any = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)
     _t0: float = field(default_factory=time.monotonic, repr=False, compare=False)
@@ -360,8 +402,10 @@ class Call:
         return uid in self.participants or uid == self.invitee_uid
 
     def expired(self, now: datetime | None = None) -> bool:
-        """An OPEN call past its TTL (an active call never expires by clock)."""
-        if self.status != STATUS_OPEN or self.connected_participants():
+        """A call with NO socket bound past its TTL — open, or active only
+        through REST joins nobody ever connected to (a call with a live
+        socket never expires by clock; the last socket out ends it)."""
+        if self.ended or self.connected_participants():
             return False
         now = now or datetime.now(timezone.utc)
         return datetime.fromisoformat(self.expires_at) <= now
@@ -544,6 +588,12 @@ class Call:
             if p.endpoint is not None and p.endpoint is not endpoint:
                 with contextlib.suppress(Exception):
                     p.endpoint.detach()
+            if p.endpoint is not endpoint:
+                # A new socket is a new capture clock (the phone's session
+                # restarted at 0): re-fix the sender→call-timeline offset at
+                # its next turn, or its turns would land before the ones
+                # already merged.
+                p.offset_s = None
             p.endpoint = endpoint
             if store is not None:
                 self.store = store
@@ -732,7 +782,7 @@ class Call:
         await self._persist_episodes()
         for p in list(self.participants.values()):
             if p.connected:
-                await self._send(p, {
+                frame = {
                     "type": "call_ended",
                     "call_id": self.call_id,
                     "reason": reason,
@@ -740,10 +790,13 @@ class Call:
                     "episode_id": p.episode_id,
                     "recording_id": p.episode_id,
                     "shared_with": list(p.shared_with),
-                    # The observer's view: every participant's episode.
-                    "episodes": {q.uid: q.episode_id for q in self.coached()},
                     "turn_count": len(self.turns),
-                })
+                }
+                if p.is_therapist:
+                    # The observer's view: every participant's episode (she
+                    # was granted each). A participant learns only its own.
+                    frame["episodes"] = {q.uid: q.episode_id for q in self.coached()}
+                await self._send(p, frame)
         for p in list(self.participants.values()):
             ep, p.endpoint = p.endpoint, None
             if ep is not None:
@@ -872,8 +925,11 @@ class CallRegistry:
             if call.ended and call._ended_wall is not None and (
                 time.monotonic() - call._ended_wall > CALL_RETENTION_MINUTES * 60
             ):
-                self._calls.pop(call.call_id, None)
-                self._by_code.pop(call.join_code, None)
+                self._forget(call)
+
+    def _forget(self, call: Call) -> None:
+        self._calls.pop(call.call_id, None)
+        self._by_code.pop(call.join_code, None)
 
     def create(
         self,
@@ -887,6 +943,19 @@ class CallRegistry:
         max_participants: int | None = None,
     ) -> Call:
         self.sweep()
+        hosting = sum(1 for c in self._calls.values() if c.host_uid == host_uid and not c.ended)
+        if hosting >= MAX_OPEN_CALLS_PER_HOST:
+            raise CallError(429, "too many open calls for this account — end one first")
+        if len(self._calls) >= MAX_CALLS:
+            # Retained ended calls go first (oldest ended first), so one
+            # tenant's finished calls never crowd out another's live one.
+            for old in sorted(
+                (c for c in self._calls.values() if c.ended),
+                key=lambda c: c._ended_wall if c._ended_wall is not None else 0.0,
+            ):
+                if len(self._calls) < MAX_CALLS:
+                    break
+                self._forget(old)
         if len(self._calls) >= MAX_CALLS:
             raise CallError(503, "too many open calls")
         ttl = min(max(1, int(ttl_minutes or CALL_TTL_MINUTES)), CALL_TTL_MAX_MINUTES)
@@ -940,14 +1009,32 @@ class CallRegistry:
         code. Idempotent for a member (the role stays what it was)."""
         if uid in call.participants:
             return call.add_participant(uid, email=email, display_name=display_name)
+        role = self.authorize_join(call, uid, join_code=join_code, role=role)
+        return call.add_participant(uid, email=email, display_name=display_name, role=role)
+
+    def authorize_join(
+        self, call: Call, uid: str, *, join_code: str | None = None, role: str | None = None,
+    ) -> str:
+        """The cheap checks of :meth:`join` (role, ended, the code) with no
+        side effect but the wrong-code tally — so a handler can refuse a
+        guess BEFORE paying for an account lookup. Returns the clean role;
+        a member needs no authorization (returns its current role)."""
+        member = call.participants.get(uid)
+        if member is not None:
+            return member.role
         role = clean_role(role)
         if call.ended:
             raise CallError(410, "call has expired" if call.end_reason == "expired" else "call has ended")
         if uid != call.invitee_uid:
             code = normalize_join_code(join_code)
-            if code is None or code != call.join_code:
+            if code is None or code != call.join_code or call.code_failures >= JOIN_CODE_FAILURES_MAX:
+                call.code_failures += 1
+                if call.code_failures == JOIN_CODE_FAILURES_MAX:
+                    logger.warning(
+                        "call %s: %d wrong join codes — the code is burned", call.call_id, call.code_failures,
+                    )
                 raise CallError(403, "join code does not match")
-        return call.add_participant(uid, email=email, display_name=display_name, role=role)
+        return role
 
 
 registry = CallRegistry()

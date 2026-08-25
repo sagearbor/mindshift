@@ -1022,3 +1022,232 @@ class TestCallModel:
         assert calls.ice_servers() == [{"urls": [calls.DEFAULT_STUN_URL]}]
         monkeypatch.setenv("MINDSHIFT_CALL_JOIN_BASE", "mindshift://call/")
         assert calls.join_url("ABCDEF") == "mindshift://call/ABCDEF"
+
+
+# ---------------------------------------------------------------------------
+# Adversarial review (multi-tenant): registry growth, roles, brute force,
+# relay flooding, reconnect clocks
+# ---------------------------------------------------------------------------
+
+class TestRegistryBounds:
+    def test_active_call_nobody_ever_connected_expires_at_ttl(self, env):
+        """Host creates, the invitee joins over REST, no socket ever binds:
+        the call went ACTIVE and must still expire at its TTL — otherwise it
+        lives in the registry forever."""
+        created = _create(env, invitee_email=EMAILS[PEER], ttl_minutes=1)
+        assert _join(env, created["call_id"], PEER)[0] == 200
+        call = calls.registry.get(created["call_id"])
+        assert call.status == "active"
+        call.expires_at = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+        assert calls.registry.get(created["call_id"]).status == "ended"
+        assert call.end_reason == "expired"
+        assert _join(env, created["call_id"], THIRD, join_code=created["join_code"])[0] == 410
+
+    def test_active_call_with_a_socket_never_expires_by_clock(self, env):
+        created = _create(env, invitee_email=EMAILS[PEER], ttl_minutes=1)
+        cid = created["call_id"]
+        _join(env, cid, PEER)
+        with open_ws(env.client, f"/ws/session/{HOST_SID}", token=HOST_TOKEN) as host:
+            _bind(host, cid)
+            call = calls.registry.get(cid)
+            call.expires_at = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+            assert calls.registry.get(cid).status == "active"
+
+    def test_one_account_cannot_fill_the_registry(self, env, monkeypatch):
+        """Retained ENDED calls must not count against everyone else, and one
+        host has a cap on un-ended calls — a single tenant can't 503 the
+        rest by creating calls in a loop."""
+        monkeypatch.setattr(calls, "MAX_CALLS", 3)
+        monkeypatch.setattr(calls, "MAX_OPEN_CALLS_PER_HOST", 2)
+        c1 = _create(env)
+        c2 = _create(env)
+        res = env.client.post("/calls", json={}, headers=_h(HOST))
+        assert res.status_code == 429, res.text  # the host's own cap
+        # Ending one frees the seat.
+        env.client.post(f"/calls/{c1['call_id']}/end", headers=_h(HOST))
+        c3 = _create(env)
+        # Another tenant: the retained ended call (c1) is evicted before a
+        # live call is refused; two live calls (c2, c3) + this one = MAX_CALLS.
+        c4 = _create(env, uid=PEER)
+        assert calls.registry.get(c1["call_id"]) is None
+        assert {c["call_id"] for c in (c2, c3, c4)} <= set(calls.registry._calls)
+        # Only live calls are left and the global cap holds for a third tenant.
+        assert env.client.post("/calls", json={}, headers=_h(THIRD)).status_code == 503
+
+
+class TestRoleBoundaries:
+    def test_observer_cannot_end_the_call_and_participants_do_not_see_each_others_episode_ids(self, env):
+        cid = _open_three(env)
+        # The therapist is a member, not a coached participant: she may leave,
+        # but she cannot hang up for everyone.
+        res = env.client.post(f"/calls/{cid}/end", headers=_h(THER))
+        assert res.status_code == 403, res.text
+        assert calls.registry.get(cid).status == "active"
+        with open_ws(env.client, f"/ws/session/{HOST_SID}", token=HOST_TOKEN) as host, \
+                open_ws(env.client, f"/ws/session/{PEER_SID}", token=PEER_TOKEN) as peer, \
+                open_ws(env.client, f"/ws/session/{THER_SID}", token=THER_TOKEN) as ther:
+            _bind(host, cid)
+            _bind(peer, cid)
+            _bind(ther, cid)
+            _drain_state(host, 3)
+            _drain_state(peer, 3)
+            host.send_text(json.dumps(_turn(HOST_SID, "One.")))
+            recv_until(peer, lambda m: m.get("type") == "suggestion")
+            recv_until(host, lambda m: m.get("type") == "suggestion")
+            assert env.client.post(f"/calls/{cid}/end", headers=_h(PEER)).status_code == 200
+            ended_host, _ = recv_until(host, lambda m: m.get("type") == "call_ended")
+            ended_peer, _ = recv_until(peer, lambda m: m.get("type") == "call_ended")
+            ended_ther, _ = recv_until(ther, lambda m: m.get("type") == "call_ended")
+        # Each participant learns ITS episode; the map of everyone's is the observer's view only.
+        assert ended_host["episode_id"] in env.store._by_uid[HOST]
+        assert ended_peer["episode_id"] in env.store._by_uid[PEER]
+        assert "episodes" not in ended_host and "episodes" not in ended_peer
+        assert ended_ther["episodes"] == {HOST: ended_host["episode_id"], PEER: ended_peer["episode_id"]}
+
+
+class TestJoinCodeBruteForce:
+    def test_wrong_code_is_refused_before_any_account_lookup_and_capped_per_socket(self, env, monkeypatch):
+        created = _create(env)
+        cid, code = created["call_id"], created["join_code"]
+        resolved: list[str] = []
+        monkeypatch.setattr(main, "resolve_email_by_uid", lambda u: resolved.append(u) or EMAILS.get(u))
+        # REST: the code is checked before the (Firebase) email lookup — a
+        # guess must not cost an upstream call.
+        assert _join(env, cid, PEER, join_code="AAAAAA")[0] == 403
+        assert resolved == []
+        with open_ws(env.client, f"/ws/session/{PEER_SID}", token=PEER_TOKEN) as peer:
+            for _ in range(calls.JOIN_ATTEMPTS_MAX):
+                peer.send_text(json.dumps({"type": "call_join", "call_id": cid, "join_code": "AAAAAA"}))
+                assert json.loads(peer.receive_text()) == {"error": "call_join: join code does not match"}
+            assert resolved == []
+            # The per-socket cap: even the right code is refused on this socket now.
+            peer.send_text(json.dumps({"type": "call_join", "call_id": cid, "join_code": code}))
+            assert json.loads(peer.receive_text()) == {"error": "call_join: too many failed attempts"}
+            # …and the session itself lives on.
+            peer.send_text(json.dumps({"type": "config", "empathy_slider": 10}))
+            assert json.loads(peer.receive_text())["type"] == "config_ack"
+        assert calls.registry.get(cid).participant(PEER) is None
+        # A fresh socket (a new auth handshake) with the right code still joins.
+        with open_ws(env.client, f"/ws/session/{PEER_SID}", token=PEER_TOKEN) as peer:
+            assert _bind(peer, cid, join_code=code)["self_label"] == "Speaker B"
+        assert resolved == [PEER]
+
+    def test_too_many_wrong_guesses_burn_the_code_call_wide(self):
+        reg = calls.CallRegistry()
+        call = reg.create("host", invitee_uid="invitee")
+        for _ in range(calls.JOIN_CODE_FAILURES_MAX):
+            with pytest.raises(calls.CallError) as exc:
+                reg.join(call, "stranger", join_code="AAAAAA")
+            assert exc.value.status == 403
+        # The right code no longer admits anyone — the host starts a new call.
+        with pytest.raises(calls.CallError) as exc:
+            reg.join(call, "stranger", join_code=call.join_code)
+        assert exc.value.status == 403
+        # The named invitee never needed the code and is unaffected.
+        assert reg.join(call, "invitee").slot == "B"
+
+
+def _drain_until_ack(ws) -> list[dict]:
+    """Everything queued on ``ws`` up to a config_ack we ask for."""
+    ws.send_text(json.dumps({"type": "config", "empathy_slider": 1}))
+    seen: list[dict] = []
+    while True:
+        msg = json.loads(ws.receive_text())
+        if msg.get("type") == "config_ack":
+            return seen
+        seen.append(msg)
+
+
+class TestRelayFlood:
+    def test_rtc_signal_flood_is_bounded_per_socket(self, env):
+        cid = _open_pair(env)
+        with open_ws(env.client, f"/ws/session/{HOST_SID}", token=HOST_TOKEN) as host, \
+                open_ws(env.client, f"/ws/session/{PEER_SID}", token=PEER_TOKEN) as peer:
+            _bind(host, cid)
+            _bind(peer, cid)
+            recv_until(host, lambda m: m.get("type") == "call_state")
+            n = calls.RTC_SIGNAL_BURST * 3
+            for i in range(n):
+                host.send_text(json.dumps({"type": "rtc_signal", "call_id": cid, "payload": {"candidate": i}}))
+            refused = [m for m in _drain_until_ack(host) if m.get("error") == "rtc_signal: too many signals"]
+            relayed = [m for m in _drain_until_ack(peer) if m.get("type") == "rtc_signal"]
+            # The burst goes through (ICE gathering is bursty), the rest is
+            # refused with a reason — never silently, never all of it.
+            slack = 10
+            assert calls.RTC_SIGNAL_BURST <= len(relayed) <= calls.RTC_SIGNAL_BURST + slack
+            assert len(refused) == n - len(relayed)
+            # Order is preserved for what was delivered.
+            assert [m["payload"]["candidate"] for m in relayed] == list(range(len(relayed)))
+            # The session is still a session: a later single signal is fine.
+            host.send_text(json.dumps({"type": "rtc_signal", "call_id": cid, "payload": {"sdp": "later"}}))
+            later = _drain_until_ack(host)
+            assert later == [] or all(m.get("error") == "rtc_signal: too many signals" for m in later)
+
+    def test_token_bucket(self):
+        clock = [0.0]
+        bucket = calls.TokenBucket(rate_per_s=2.0, burst=3, clock=lambda: clock[0])
+        assert [bucket.allow() for _ in range(4)] == [True, True, True, False]
+        clock[0] += 0.5  # one token back
+        assert [bucket.allow() for _ in range(2)] == [True, False]
+        clock[0] += 100.0  # refills to the burst, never beyond
+        assert [bucket.allow() for _ in range(4)] == [True, True, True, False]
+
+
+class _Endpoint(calls.CallEndpoint):
+    def __init__(self, uid: str) -> None:
+        self.uid, self.session_id = uid, f"s-{uid}"
+        self.frames: list[dict] = []
+        self.turns: list[tuple[dict, str]] = []
+        self.detached = False
+
+    async def send_json(self, payload: dict) -> None:
+        self.frames.append(payload)
+
+    async def on_remote_turn(self, turn: dict, *, display_name: str) -> None:
+        self.turns.append((turn, display_name))
+
+    def set_peer_name(self, label: str, display_name: str) -> None:
+        pass
+
+    def detach(self) -> None:
+        self.detached = True
+
+
+class TestReconnectClock:
+    def test_a_new_socket_refixes_the_members_clock_offset(self, monkeypatch):
+        """The sender→call-timeline offset is fixed at a member's first turn.
+        A reconnect is a NEW capture clock (the phone's session restarted at
+        0): keeping the old offset would place its next turns before the
+        ones already merged."""
+        import asyncio
+        now = datetime.now(timezone.utc)
+        call = calls.Call(
+            call_id="c", host_uid="a", join_code="ABCDEF", created_at=now.isoformat(),
+            expires_at=(now + timedelta(hours=1)).isoformat(),
+        )
+        call.add_participant("a", email=None, display_name=None)
+        call.add_participant("b", email=None, display_name=None)
+        clock = [50.0]
+        monkeypatch.setattr(call, "elapsed_s", lambda: clock[0])
+
+        async def run():
+            a1, a2, b = _Endpoint("a"), _Endpoint("a"), _Endpoint("b")
+            await call.bind("a", a1)
+            await call.bind("b", b)
+            first = await call.push_turn("a", {"text": "first", "start_time": 0.0, "end_time": 1.0})
+            assert (first["start_time"], first["end_time"]) == (49.0, 50.0)
+            # Binding the SAME socket again (a repeated call_join) keeps the offset.
+            await call.bind("a", a1)
+            again = await call.push_turn("a", {"text": "again", "start_time": 1.0, "end_time": 2.0})
+            assert again["start_time"] == 50.0
+            clock[0] = 60.0
+            await call.bind("a", a2)  # the phone reconnected: its clock restarted
+            assert a1.detached and call.participant("a").endpoint is a2
+            second = await call.push_turn("a", {"text": "second", "start_time": 0.0, "end_time": 1.0})
+            assert second["start_time"] == 59.0 > again["end_time"]
+            # Arrival order and delivery to the peer are unaffected either way.
+            assert [t["seq"] for t in call.turns] == [1, 2, 3]
+            assert [t["text"] for t, _ in b.turns] == ["first", "again", "second"]
+            assert len(call.participants) == 2  # no duplicate seat
+
+        asyncio.run(run())

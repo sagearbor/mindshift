@@ -87,8 +87,10 @@ still answers (for `CALL_RETENTION_MINUTES`, default 60) so a reconnecting
 phone can read its `episode_id`.
 
 ### `POST /calls/{call_id}/end` → 200 `CallOut`
-Any member. Persists the episodes, sends `call_ended` to every bound socket,
-detaches them (each session keeps coaching solo). Idempotent.
+A coached participant (403 for the therapist — an observer may leave, not
+hang up for everyone — and for the never-joined invitee). Persists the
+episodes, sends `call_ended` to every bound socket, detaches them (each
+session keeps coaching solo). Idempotent.
 
 ### `CallOut` (the same body as the WS `call_state`, plus the join code/url)
 ```json
@@ -116,13 +118,22 @@ detaches them (each session keeps coaching solo). Idempotent.
   "shared_with": ["mom@example.com"] }        // who your episode was granted to
 ```
 `display_name` and `is_self` are relative to the caller. `status` is `open`
-until a second member joins, `active` after, `ended` at the end. An open call
-expires after `ttl_minutes` (410 on join, `end_reason: "expired"`); an active
-call never expires by clock — it ends when its last socket leaves.
+until a second member joins, `active` after, `ended` at the end. A call with
+no socket bound (open, or active only through REST joins nobody connected
+to) expires after `ttl_minutes` (410 on join, `end_reason: "expired"`); a
+call with a live socket never expires by clock — it ends when its last
+socket leaves.
 
 Errors: 404 unknown/foreign call or unknown invitee email · 400 calling
-yourself · 403 wrong code / non-member ending · 409 seat taken / full · 410
-ended or expired · 422 malformed (`role`, `max_participants`, email).
+yourself · 403 wrong code / therapist or non-member ending · 409 seat taken /
+full · 410 ended or expired · 422 malformed (`role`, `max_participants`,
+email) · 429 the host already has `MAX_OPEN_CALLS_PER_HOST` (3) un-ended
+calls · 503 the process holds `MAX_CALLS` live calls.
+
+Brute-force guards on the 6-char code (32^6 ≈ 1e9): REST is IP-rate-limited;
+a wrong code is refused BEFORE the account-email lookup; after 50 wrong
+codes on one call (`JOIN_CODE_FAILURES_MAX`) the code is burned (the named
+invitee never needed it; the host starts a new call).
 
 ICE: `stun:stun.l.google.com:19302` always; add TURN with
 `MINDSHIFT_TURN_URLS` (comma-separated), `MINDSHIFT_TURN_USERNAME`,
@@ -145,8 +156,11 @@ server frames:
 ```
 → answered with `call_state` (below) or `{"error": "call_join: <reason>"}`
 (`invalid call_id`, `no such call`, `join code does not match`, `call is
-full`, `call already has a therapist`, `call has ended`, …). A second socket
-for the same uid replaces the first (reconnect).
+full`, `call already has a therapist`, `call has ended`, …). After 8 wrong
+codes on one socket (`JOIN_ATTEMPTS_MAX`) every further `call_join` on it is
+`too many failed attempts` — a new socket costs a fresh token handshake. A
+second socket for the same uid replaces the first (reconnect; the member's
+clock offset is re-fixed at its next turn).
 
 ```json
 { "type": "rtc_signal", "call_id": "68da4269-…", "to": "uid-c",
@@ -161,7 +175,8 @@ and means "the other one". Errors: `rtc_signal: not in that call`, `'to' is
 required in a call with more than two members`, `peer has not joined`, `peer
 not connected` (wait for `call_state` to show `connected: true`, then
 (re)offer), `payload must be a non-empty object`, `payload too large`
-(64 KiB). Nothing is buffered server-side.
+(64 KiB), `too many signals` (per-socket token bucket: a burst of 60, then
+20/s — ICE gathering fits, a flood does not). Nothing is buffered server-side.
 
 `turn_local` — unchanged shape. In a call: relabelled to your slot label,
 `is_self: true`, appended to the shared transcript, pushed to every other
@@ -218,9 +233,10 @@ participant's wire stays byte-identical to a solo session.
   "ended_by": "uid-b" | null, "episode_id": "56b5ca5d-…" | null, "recording_id": "<same>",
   "shared_with": ["mom@example.com"], "episodes": { "uid-a": "56b5…", "uid-b": "205f…" }, "turn_count": 13 }
 ```
-`episode_id` is YOURS (null for the therapist, who gets `episodes` — every
-participant's — and a share grant of each). After this the session is solo
-again (no relay, still coached).
+`episode_id` is YOURS (null for the therapist). `episodes` — every
+participant's — is sent to the THERAPIST's socket only (she holds a share
+grant of each); a participant never learns the other's episode id. After
+this the session is solo again (no relay, still coached).
 
 ## What the server stores at the end
 
@@ -257,7 +273,9 @@ Caps: 400 merged turns / 60 000 transcript chars per episode (oldest
 dropped), the same as ingest. Registry: process-local like the watch relay;
 production runs Cloud Run `--max-instances 1` so every socket of a call
 lands on the same process. `MINDSHIFT_CALL_TTL_MINUTES` (180),
-`MINDSHIFT_CALL_RETENTION_MINUTES` (60), `MINDSHIFT_MAX_CALLS` (500).
+`MINDSHIFT_CALL_RETENTION_MINUTES` (60), `MINDSHIFT_MAX_CALLS` (500 — live
+calls; retained ended ones are evicted first, never crowding a live one out),
+`MINDSHIFT_MAX_OPEN_CALLS_PER_HOST` (3 un-ended calls per account, 429 beyond).
 
 ## Server-STT fallback
 
