@@ -540,6 +540,54 @@ class TestParseLlmJson:
         with pytest.raises(json.JSONDecodeError):
             parse_llm_json("not json")
 
+    # Tolerant extraction (perf/cloud-suggestion-latency): the ways a model
+    # wraps an otherwise-fine object must not become llm_parse_error.
+    def test_leading_prose_before_fence(self):
+        text = 'Here is the JSON you asked for:\n```json\n{"key": "value"}\n```'
+        assert parse_llm_json(text) == {"key": "value"}
+
+    def test_prose_around_bare_object(self):
+        text = 'Sure! {"suggestions": ["a", "b"], "importance": 3} Let me know if…'
+        assert parse_llm_json(text) == {"suggestions": ["a", "b"], "importance": 3}
+
+    def test_trailing_note_after_fence(self):
+        text = '```\n{"nudge": "ease up", "importance": 70}\n```\nNote: kept it short.'
+        assert parse_llm_json(text) == {"nudge": "ease up", "importance": 70}
+
+    def test_nested_braces_in_strings_survive_outer_span(self):
+        text = 'Answer: {"suggestions": ["Say {this} first", "then }that{"], "importance": 1}.'
+        assert parse_llm_json(text)["suggestions"] == ["Say {this} first", "then }that{"]
+
+    def test_truncated_object_still_raises_decode_error(self):
+        with pytest.raises(json.JSONDecodeError):
+            parse_llm_json('Here: {"suggestions": ["a", "b"')
+
+    def test_empty_raises_value_error(self):
+        with pytest.raises(ValueError):
+            parse_llm_json("")
+
+
+class TestLivePromptContract:
+    def test_live_prompt_drops_tone_score_and_orders_suggestions_first(self):
+        live = empathy_system_prompt(50, "Husband", live=True)
+        assert "tone_score" not in live
+        assert live.index('"suggestions"') < live.index('"importance"')
+        assert "at most 15 words" in live
+        assert "no code fences" in live
+
+    def test_default_prompt_is_unchanged_for_rest(self):
+        rest = empathy_system_prompt(50, "Husband")
+        assert "tone_score" in rest
+        assert rest == empathy_system_prompt(50, "Husband", live=False)
+
+    def test_live_prompt_keeps_stance_role_and_voice_profile(self):
+        profile = {"pairs": [{"suggestion": "Generic", "rephrase": "Mine"}]}
+        for slider in (0, 50, 100):
+            live = empathy_system_prompt(slider, "Therapist", profile, live=True)
+            rest = empathy_system_prompt(slider, "Therapist", profile)
+            assert live.split("\n\n")[0] == rest.split("\n\n")[0]  # same stance paragraph
+            assert "Therapist" in live and "They'd say: \"Mine\"" in live
+
 
 # ---------------------------------------------------------------------------
 # POST /session/{id}/turns — multi-turn sessions

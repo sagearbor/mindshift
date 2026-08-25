@@ -1069,8 +1069,23 @@ def _render_voice_profile(profile: dict | None) -> str:
 
 
 def empathy_system_prompt(
-    slider: int, role: str, voice_profile: dict | None = None,
+    slider: int, role: str, voice_profile: dict | None = None, *, live: bool = False,
 ) -> str:
+    """System prompt for coaching what to say to the OTHER person.
+
+    ``live=False`` (REST ``/respond``): the full contract — suggestions,
+    the five-dimension ``tone_score`` the endpoint returns, importance.
+    Byte-identical to before this flag existed.
+
+    ``live=True`` (the realtime WebSocket path): the same stance, a leaner
+    output contract. The live pipeline reads only ``suggestions`` and
+    ``importance``; ``tone_score`` was ~40 output tokens of dead weight on
+    every turn of a real-time coach (a third of the response), so it is
+    dropped, suggestions are bounded in length and asked for FIRST so the
+    streaming ``partial`` preview (the first complete suggestion string)
+    fires as early as possible, and the model is told not to wrap the JSON
+    in prose/fences (the one parse failure per ~40 turns in production).
+    """
     if slider <= 20:
         stance = (
             "You are an assertive communication coach. "
@@ -1096,17 +1111,31 @@ def empathy_system_prompt(
             "or challenge — only affirm and show deep understanding."
         )
 
-    prompt = (
-        f"{stance}\n\n"
-        f"The user's role in this conversation is: {role}.\n"
-        "Provide exactly 3 short suggested responses the user could say next. "
-        "Return ONLY a JSON object with key \"suggestions\" (a list of strings), "
-        "\"tone_score\" (an object with integer keys: warmth, defensiveness, "
-        "sarcasm, constructiveness, overall — each 0-100, scoring the transcript "
-        "turn), and \"importance\" (an integer 0-100: how much the user needs a "
-        "coaching interjection at THIS moment — high for emotionally charged, "
-        "high-stakes, or pivotal turns; low for small talk, filler, or logistics)."
-    )
+    if live:
+        prompt = (
+            f"{stance}\n\n"
+            f"The user's role in this conversation is: {role}.\n"
+            "Provide exactly 3 short suggested responses the user could say "
+            "next — each a single natural spoken sentence of at most 15 words, "
+            "the best one first. Respond with ONLY a JSON object (no prose, no "
+            "code fences) with keys in this order: \"suggestions\" (a list of "
+            "exactly 3 strings) and \"importance\" (an integer 0-100: how much "
+            "the user needs a coaching interjection at THIS moment — high for "
+            "emotionally charged, high-stakes, or pivotal turns; low for small "
+            "talk, filler, or logistics). No other keys."
+        )
+    else:
+        prompt = (
+            f"{stance}\n\n"
+            f"The user's role in this conversation is: {role}.\n"
+            "Provide exactly 3 short suggested responses the user could say next. "
+            "Return ONLY a JSON object with key \"suggestions\" (a list of strings), "
+            "\"tone_score\" (an object with integer keys: warmth, defensiveness, "
+            "sarcasm, constructiveness, overall — each 0-100, scoring the transcript "
+            "turn), and \"importance\" (an integer 0-100: how much the user needs a "
+            "coaching interjection at THIS moment — high for emotionally charged, "
+            "high-stakes, or pivotal turns; low for small talk, filler, or logistics)."
+        )
     # Append the voice-profile few-shot block AFTER the output contract so the
     # required JSON format stays stated last and authoritative. When there is
     # no profile (None) or it renders empty, the prompt is byte-identical to
@@ -1208,8 +1237,18 @@ class _LLMResponseError(Exception):
         self.detail = detail
 
 
+_FENCED_JSON_RE = re.compile(r"```(?:[a-zA-Z]+)?\s*(.*?)```", re.DOTALL)
+
+
 def parse_llm_json(text: str) -> dict:
-    """Extract JSON from LLM response, handling markdown fences.
+    """Extract JSON from an LLM response, tolerating the ways models wrap it.
+
+    Tried in order: the text as-is; a leading markdown fence stripped (the
+    original behaviour); a fenced block anywhere in the text (``Here is the
+    JSON:\\n```json ... ````); the outermost ``{...}`` span (leading/trailing
+    prose, a trailing note after the object). The FIRST attempt's
+    ``json.JSONDecodeError`` is re-raised when nothing parses, so callers'
+    existing ``except`` clauses see exactly what they always did.
 
     Raises ValueError when the provider returned no text at all (e.g. an
     OpenAI content-filter/refusal yields ``message.content is None``) so callers
@@ -1224,7 +1263,24 @@ def parse_llm_json(text: str) -> dict:
         if lines and lines[-1].strip() == "```":
             lines = lines[:-1]
         stripped = "\n".join(lines).strip()
-    return json.loads(stripped)
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError as first_error:
+        candidates: list[str] = []
+        fenced = _FENCED_JSON_RE.search(text)
+        if fenced:
+            candidates.append(fenced.group(1).strip())
+        start, end = stripped.find("{"), stripped.rfind("}")
+        if 0 <= start < end:
+            candidates.append(stripped[start:end + 1])
+        for candidate in candidates:
+            if not candidate:
+                continue
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+        raise first_error
 
 
 # ---------------------------------------------------------------------------

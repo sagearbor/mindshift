@@ -231,7 +231,7 @@ class BlockingLLM:
         self.started = threading.Event()
         self.release = threading.Event()
 
-    def complete(self, system: str, user: str) -> str:
+    def complete(self, system: str, user: str, **_) -> str:
         self.started.set()
         assert self.release.wait(timeout=10), "test never released the LLM"
         return self._response
@@ -774,7 +774,7 @@ class TestSuggestionWorker:
         """
         calls: list[str] = []
 
-        def slow_first(system: str, user: str) -> str:
+        def slow_first(system: str, user: str, **_) -> str:
             calls.append(user)
             if len(calls) == 1:
                 time.sleep(0.2)
@@ -1358,7 +1358,7 @@ class TestVoiceProfileWS:
             assert recv_skipping_transcripts(ws)["type"] == "suggestion"
 
         system = app.state.llm_client.complete.call_args.kwargs["system"]
-        assert system == empathy_system_prompt(50, "Husband")
+        assert system == empathy_system_prompt(50, "Husband", live=True)
 
     def test_ws_unknown_profile_falls_back_cleanly(self, fake_ws):
         """A relationship/participant with no stored profile → no block, no error."""
@@ -1388,7 +1388,7 @@ class TestVoiceProfileWS:
             assert recv_skipping_transcripts(ws)["type"] == "suggestion"
 
         system = app.state.llm_client.complete.call_args.kwargs["system"]
-        assert system == empathy_system_prompt(50, "Husband")
+        assert system == empathy_system_prompt(50, "Husband", live=True)
 
 
 # ---------------------------------------------------------------------------
@@ -1981,11 +1981,11 @@ class StreamingLLM:
         self.complete_calls: list[str] = []
         self.stream_calls: list[str] = []
 
-    def complete(self, system: str, user: str) -> str:
+    def complete(self, system: str, user: str, **_) -> str:
         self.complete_calls.append(user)
         return self._response
 
-    def stream_complete(self, system: str, user: str):
+    def stream_complete(self, system: str, user: str, **_):
         self.stream_calls.append(user)
         for i in range(0, len(self._response), self._chunk):
             yield self._response[i:i + self._chunk]
@@ -2888,3 +2888,373 @@ class TestStreamingCloudSuggestion:
             'Transcript turn: "hi"\n\nOn-device signals for this turn (measured by '
             "the phone; treat as hints, not facts):\n- text tone: sarcasm 90/100"
         )
+
+
+# ---------------------------------------------------------------------------
+# perf/cloud-suggestion-latency: output budget, parse repair, and bounded
+# concurrency for local-first sessions (finals stay in utterance order)
+# ---------------------------------------------------------------------------
+
+class ScriptedLLM:
+    """``complete()``-only double (no stream_complete on the class, so the
+    pipeline takes the plain path — no partial previews to interleave):
+    answers come from ``script`` in call order and every call's kwargs are
+    recorded, so a test can prove exactly what the repair call sent."""
+
+    def __init__(self, script: list[str]) -> None:
+        self._script = list(script)
+        self.calls: list[dict] = []
+
+    def complete(self, system: str, user: str, **kwargs) -> str:
+        self.calls.append({"system": system, "user": user, **kwargs})
+        return self._script.pop(0)
+
+
+def _utterance(text: str = "hi"):
+    from models.audio import Utterance
+    return Utterance(session_id="s", speaker="Speaker A", text=text,
+                     start_time=0.0, end_time=1.0)
+
+
+class TestOutputBudget:
+    @pytest.mark.anyio
+    async def test_suggestions_use_live_prompt_and_capped_max_tokens(self):
+        from audio_pipeline import SUGGESTION_MAX_TOKENS, _generate_suggestions
+        from main import empathy_system_prompt
+
+        llm = ScriptedLLM([MOCK_LLM_JSON])
+        await _generate_suggestions(llm, _utterance(), 50, "Husband")
+        call = llm.calls[0]
+        assert call["max_tokens"] == SUGGESTION_MAX_TOKENS == 200
+        assert call["system"] == empathy_system_prompt(50, "Husband", live=True)
+        # The lean contract: no tone_score, suggestions asked for first.
+        assert "tone_score" not in call["system"]
+        assert call["system"].index('"suggestions"') < call["system"].index('"importance"')
+
+    @pytest.mark.anyio
+    async def test_legacy_prompt_knob_restores_rest_contract(self, monkeypatch):
+        from audio_pipeline import _generate_suggestions
+        from main import empathy_system_prompt
+
+        monkeypatch.setattr(audio_pipeline, "LIVE_PROMPT", False)
+        llm = ScriptedLLM([MOCK_LLM_JSON])
+        await _generate_suggestions(llm, _utterance(), 50, "Husband")
+        assert llm.calls[0]["system"] == empathy_system_prompt(50, "Husband")
+        assert "tone_score" in llm.calls[0]["system"]
+
+    @pytest.mark.anyio
+    async def test_nudge_max_tokens_capped(self):
+        from audio_pipeline import NUDGE_MAX_TOKENS, _generate_nudge
+
+        llm = ScriptedLLM([NUDGE_LLM_JSON])
+        assert await _generate_nudge(llm, _utterance(), 50, "Husband") == ("ease up", 70)
+        assert llm.calls[0]["max_tokens"] == NUDGE_MAX_TOKENS == 60
+
+    def test_streaming_path_passes_max_tokens(self, local_first_env):
+        seen: list[int] = []
+
+        class RecordingStreamingLLM(StreamingLLM):
+            def stream_complete(self, system: str, user: str, **kw):
+                seen.append(kw.get("max_tokens"))
+                return super().stream_complete(system, user, **kw)
+
+        client = _inject(StoppableTranscriber())
+        app.state.llm_client = RecordingStreamingLLM(MOCK_LLM_JSON)
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_text(json.dumps(_turn_local()))
+            assert json.loads(ws.receive_text())["partial"] is True
+            assert json.loads(ws.receive_text())["partial"] is False
+        assert seen == [audio_pipeline.SUGGESTION_MAX_TOKENS]
+
+
+class TestParseRepair:
+    @pytest.mark.anyio
+    async def test_prose_wrapped_json_parses_without_a_repair_call(self):
+        from audio_pipeline import _generate_suggestions
+
+        llm = ScriptedLLM(["Here you go:\n```json\n" + MOCK_LLM_JSON + "\n```\nHope this helps!"])
+        suggestions, importance = await _generate_suggestions(llm, _utterance(), 50, "Husband")
+        assert suggestions == json.loads(MOCK_LLM_JSON)["suggestions"]
+        assert importance == 100  # MOCK_LLM_JSON carries no importance → fails open
+        assert len(llm.calls) == 1  # tolerant extraction, no second round-trip
+
+    @pytest.mark.anyio
+    async def test_garbage_is_repaired_once_and_never_surfaced_as_error(self):
+        from audio_pipeline import REPAIR_MAX_TOKENS, _generate_suggestions
+
+        garbage = '{"suggestions": ["I hear you.", "Tell me more." "importance": 40'
+        llm = ScriptedLLM([garbage, json.dumps({"suggestions": ["I hear you.", "Tell me more."],
+                                                 "importance": 40})])
+        suggestions, importance = await _generate_suggestions(llm, _utterance(), 50, "Husband")
+        assert suggestions == ["I hear you.", "Tell me more."] and importance == 40
+        assert len(llm.calls) == 2
+        repair = llm.calls[1]
+        assert repair["user"] == garbage                      # the model repairs ITS OWN answer
+        assert repair["temperature"] == 0.0 and repair["max_tokens"] == REPAIR_MAX_TOKENS
+        assert "repair malformed JSON" in repair["system"]
+        assert '"suggestions"' in repair["system"] and '"importance"' in repair["system"]
+
+    @pytest.mark.anyio
+    async def test_unrepairable_output_is_still_an_honest_parse_error(self):
+        from audio_pipeline import SuggestionUnavailable, _generate_suggestions
+
+        llm = ScriptedLLM(["no json", "still no json"])
+        with pytest.raises(SuggestionUnavailable) as excinfo:
+            await _generate_suggestions(llm, _utterance(), 50, "Husband")
+        assert excinfo.value.reason == "llm_parse_error"
+        assert len(llm.calls) == 2
+
+    @pytest.mark.anyio
+    async def test_repair_knob_off_fails_on_first_parse_error(self, monkeypatch):
+        from audio_pipeline import SuggestionUnavailable, _generate_suggestions
+
+        monkeypatch.setattr(audio_pipeline, "PARSE_REPAIR", False)
+        llm = ScriptedLLM(["no json", MOCK_LLM_JSON])
+        with pytest.raises(SuggestionUnavailable):
+            await _generate_suggestions(llm, _utterance(), 50, "Husband")
+        assert len(llm.calls) == 1
+
+    @pytest.mark.anyio
+    async def test_empty_answer_is_not_sent_for_repair(self):
+        from audio_pipeline import SuggestionUnavailable, _generate_suggestions
+
+        llm = ScriptedLLM(["", MOCK_LLM_JSON])
+        with pytest.raises(SuggestionUnavailable):
+            await _generate_suggestions(llm, _utterance(), 50, "Husband")
+        assert len(llm.calls) == 1  # nothing to repair
+
+    @pytest.mark.anyio
+    async def test_nudge_is_repaired_too(self):
+        from audio_pipeline import _generate_nudge
+
+        llm = ScriptedLLM(["Nudge: ease up (importance 70)", NUDGE_LLM_JSON])
+        assert await _generate_nudge(llm, _utterance(), 50, "Husband") == ("ease up", 70)
+        assert '"nudge"' in llm.calls[1]["system"]
+
+    @pytest.mark.anyio
+    async def test_provider_error_on_repair_propagates_as_itself(self):
+        """A rate limit on the repair call is a provider failure, not a parse
+        failure — the worker reports it under its own class name."""
+        from audio_pipeline import _generate_suggestions
+
+        class Boom(ScriptedLLM):
+            def complete(self, system, user, **kw):
+                if self.calls:
+                    raise RuntimeError("429")
+                return super().complete(system, user, **kw)
+
+        with pytest.raises(RuntimeError):
+            await _generate_suggestions(Boom(["no json"]), _utterance(), 50, "Husband")
+
+
+class GatedLLM:
+    """``complete()`` blocks per utterance until the test releases THAT
+    utterance; ``started`` says which utterances are inside the LLM right
+    now — the proof of how many jobs are in flight."""
+
+    def __init__(self, response: str = MOCK_LLM_JSON) -> None:
+        self._response = response
+        self.started: list[str] = []
+        self._gates: dict[str, threading.Event] = {}
+        self._lock = threading.Lock()
+
+    def gate(self, text: str) -> threading.Event:
+        with self._lock:
+            return self._gates.setdefault(text, threading.Event())
+
+    def complete(self, system: str, user: str, **_) -> str:
+        text = user.split('"')[1]
+        self.started.append(text)
+        assert self.gate(text).wait(timeout=10), f"test never released {text!r}"
+        return self._response
+
+    def wait_started(self, n: int, timeout: float = 5.0) -> bool:
+        deadline = time.monotonic() + timeout
+        while len(self.started) < n and time.monotonic() < deadline:
+            time.sleep(0.01)
+        return len(self.started) >= n
+
+
+def _turn(text: str, start: float) -> dict:
+    return _turn_local(text=text, start_time=start, end_time=start + 1.0)
+
+
+def _settle(seconds: float = 0.3) -> None:
+    """Give the pipeline time to (wrongly) send an out-of-order event. The
+    TestClient websocket is not thread-safe, so "nothing arrived" is proven
+    by the ORDER of what is received afterwards, not by a timed receive: an
+    event sent during this pause would be read first."""
+    time.sleep(seconds)
+
+
+class TestLocalFirstConcurrency:
+    def test_second_turn_starts_while_first_is_generating(self, local_first_env):
+        """Local-first: a turn arriving while the previous one is in the LLM
+        starts its own call immediately (two in flight) instead of queueing
+        behind it — the queue_wait stage goes to ~0."""
+        llm = GatedLLM()
+        client = _inject(StoppableTranscriber())
+        app.state.llm_client = llm
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_text(json.dumps(_turn("One.", 0.0)))
+            assert llm.wait_started(1)
+            ws.send_text(json.dumps(_turn("Two.", 2.0)))
+            assert llm.wait_started(2), "second turn never entered the LLM while the first was blocked"
+            assert llm.started == ["One.", "Two."]
+            llm.gate("One.").set()
+            llm.gate("Two.").set()
+            finals = [json.loads(ws.receive_text()) for _ in range(2)]
+        assert [f["utterance_text"] for f in finals] == ["One.", "Two."]
+        assert all(f["type"] == "suggestion" and f["partial"] is False for f in finals)
+
+    def test_final_events_keep_utterance_order_when_later_turn_finishes_first(self, local_first_env):
+        llm = GatedLLM()
+        client = _inject(StoppableTranscriber())
+        app.state.llm_client = llm
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_text(json.dumps(_turn("One.", 0.0)))
+            assert llm.wait_started(1)
+            ws.send_text(json.dumps(_turn("Two.", 2.0)))
+            assert llm.wait_started(2)
+            llm.gate("Two.").set()          # the LATER turn finishes first...
+            _settle()                       # ...but must not overtake "One."
+            llm.gate("One.").set()
+            finals = [json.loads(ws.receive_text()) for _ in range(2)]
+        assert [f["utterance_text"] for f in finals] == ["One.", "Two."]
+
+    def test_superseded_turn_does_not_break_the_ordering_chain(self, local_first_env):
+        """Both workers busy, "Three." queued, "Four." supersedes it: the
+        dropped slot resolves with its predecessor so "Four." still flows,
+        and finals arrive One, Two, Four."""
+        llm = GatedLLM()
+        client = _inject(StoppableTranscriber())
+        app.state.llm_client = llm
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_text(json.dumps(_turn("One.", 0.0)))
+            ws.send_text(json.dumps(_turn("Two.", 2.0)))
+            assert llm.wait_started(2)
+            ws.send_text(json.dumps(_turn("Three.", 4.0)))   # queued (both workers busy)
+            ws.send_text(json.dumps(_turn("Four.", 6.0)))    # latest-wins drops Three.
+            _settle(0.2)
+            assert llm.started == ["One.", "Two."]
+            llm.gate("Two.").set()
+            llm.gate("Four.").set()
+            _settle(0.2)                      # everything waits on One.
+            llm.gate("One.").set()
+            finals = [json.loads(ws.receive_text()) for _ in range(3)]
+            ws.send_text(json.dumps({"type": "stop"}))
+            done = json.loads(ws.receive_text())
+        assert [f["utterance_text"] for f in finals] == ["One.", "Two.", "Four."]
+        assert "Three." not in llm.started
+        assert done["type"] == "session_complete" and "pending_dropped" not in done
+        assert done["latency_summary"]["total"]["n"] == 3
+
+    def test_error_for_an_earlier_turn_is_reported_before_a_later_final(self, local_first_env):
+        class FailFirst(GatedLLM):
+            def complete(self, system, user, **kw):
+                out = super().complete(system, user, **kw)
+                if user.split('"')[1] == "One.":
+                    raise RuntimeError("provider down")
+                return out
+
+        llm = FailFirst()
+        client = _inject(StoppableTranscriber())
+        app.state.llm_client = llm
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_text(json.dumps(_turn("One.", 0.0)))
+            ws.send_text(json.dumps(_turn("Two.", 2.0)))
+            assert llm.wait_started(2)
+            llm.gate("Two.").set()
+            _settle()
+            llm.gate("One.").set()
+            first = json.loads(ws.receive_text())
+            second = json.loads(ws.receive_text())
+        assert first == {"type": "suggestion_error", "utterance_text": "One.", "reason": "RuntimeError"}
+        assert second["type"] == "suggestion" and second["utterance_text"] == "Two."
+
+    def test_legacy_client_keeps_a_single_worker(self, local_first_env):
+        """No turn_local → the extra worker never wakes: a second Deepgram
+        turn waits for the first exactly as before (TestLatestWinsQueue
+        pins the supersede side of that)."""
+        llm = GatedLLM()
+        t = SequentialSegmentTranscriber([
+            TranscriptSegment("One.", 0.0, 1.0, speaker=0),
+            TranscriptSegment("Two.", 1.0, 2.0, speaker=1),
+        ])
+        client = _inject(t)
+        app.state.llm_client = llm
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_bytes(b"\x00" * 50)
+            assert llm.wait_started(1)
+            ws.send_bytes(b"\x01" * 50)
+            transcripts = [json.loads(ws.receive_text()) for _ in range(2)]
+            assert not llm.wait_started(2, timeout=0.3)   # still only One. in the LLM
+            llm.gate("One.").set()
+            llm.gate("Two.").set()
+            finals = [recv_skipping_transcripts(ws) for _ in range(2)]
+        assert [tr["text"] for tr in transcripts] == ["One.", "Two."]
+        assert [f["utterance_text"] for f in finals] == ["One.", "Two."]
+
+    def test_concurrency_knob_of_one_serializes_local_first_too(self, local_first_env, monkeypatch):
+        monkeypatch.setattr(audio_pipeline, "LOCAL_FIRST_CONCURRENCY", 1)
+        llm = GatedLLM()
+        client = _inject(StoppableTranscriber())
+        app.state.llm_client = llm
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_text(json.dumps(_turn("One.", 0.0)))
+            assert llm.wait_started(1)
+            ws.send_text(json.dumps(_turn("Two.", 2.0)))
+            assert not llm.wait_started(2, timeout=0.3)
+            llm.gate("One.").set()
+            llm.gate("Two.").set()
+            finals = [json.loads(ws.receive_text()) for _ in range(2)]
+        assert [f["utterance_text"] for f in finals] == ["One.", "Two."]
+
+    def test_stop_drain_timeout_cancels_every_worker(self, local_first_env, monkeypatch):
+        """Both workers stuck in the LLM at stop: the bounded drain cancels
+        them all and reports the two in-flight turns as dropped."""
+        monkeypatch.setattr(audio_pipeline, "STOP_DRAIN_TIMEOUT_S", 0.2)
+        llm = GatedLLM()
+        client = _inject(StoppableTranscriber())
+        app.state.llm_client = llm
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_text(json.dumps(_turn("One.", 0.0)))
+            ws.send_text(json.dumps(_turn("Two.", 2.0)))
+            assert llm.wait_started(2)
+            ws.send_text(json.dumps({"type": "stop"}))
+            done = json.loads(ws.receive_text())
+        llm.gate("One.").set()
+        llm.gate("Two.").set()
+        assert done["type"] == "session_complete"
+        assert done["pending_dropped"] == 2
+
+    def test_job_chain_helpers(self):
+        """SuggestionJob's chain primitives, in isolation."""
+        from audio_pipeline import SuggestionJob
+
+        async def scenario():
+            loop = asyncio.get_running_loop()
+
+            def job(prev):
+                return SuggestionJob(
+                    utterance=_utterance(), empathy_slider=50, interject_level=0,
+                    role="Husband", self_speaker=None, timing=audio_pipeline.UtteranceTiming(),
+                    prev_done=prev.done if prev else None, done=loop.create_future(),
+                )
+
+            a = job(None)
+            b = job(a)
+            c = job(b)
+            b.release_when_predecessor_done()   # b dropped while a is in flight
+            assert not b.done.done()
+            waiter = asyncio.create_task(c.wait_turn())
+            await asyncio.sleep(0)
+            assert not waiter.done()
+            a.mark_done()
+            a.mark_done()                        # idempotent
+            await asyncio.wait_for(waiter, 1.0)  # b resolved with a → c may send
+            assert b.done.done()
+            # An unchained job never blocks.
+            await asyncio.wait_for(job(None).wait_turn(), 1.0)
+
+        asyncio.run(scenario())
