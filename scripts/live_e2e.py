@@ -35,6 +35,20 @@ What one run does, in order (each step is a ✅/⚠️/❌ line in the report):
                episode with its reflections + tone summary, and
                ``GET /recordings/{id}`` must be readable.
 
+  6. WATCH     (``--with-watch``) before step 2, pair a FAKE WATCH to the
+               patient the way a real Wear OS watch does — ``POST
+               /me/pair/start`` (no auth) -> the phone's ``POST
+               /me/pair/claim`` -> the watch's ``GET /me/pair/status`` hands
+               back the device token — and hold its ``/ws/live-session/{id}``
+               socket open (silent: no PCM, no HR) for the whole live
+               session. Then assert that the phone's SELF escalations reached
+               the wrist as ``vector_event``/``nudge`` frames exactly as the
+               shared relay + ``NudgePolicy`` predicts (same code, same
+               inputs), nothing for the other speaker, the scene's
+               ``expected_nudges`` spec is met, report turn_local -> wrist
+               timing, and check the watch's persisted live session carries
+               the relayed events. See "The paired watch" below.
+
 Exit status: 0 when no line is ❌, 1 otherwise (⚠️ lines are informational:
 an optional server capability that isn't deployed, never a broken path).
 
@@ -84,6 +98,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import io
 import json
 import math
@@ -688,6 +703,256 @@ async def wait_for_analysis(
 
 
 # ---------------------------------------------------------------------------
+# The paired watch (--with-watch): phone -> server -> wrist
+# ---------------------------------------------------------------------------
+#
+# The one production path nothing else exercises end to end: the phone's
+# turn_local -> audio_pipeline._enrich_turn_local -> watch.relay.push_turn_local
+# -> the uid's OPEN watch socket (watch/routers/ws.py) -> a `nudge` frame.
+# This section plays the WATCH: it pairs the way a real Wear OS watch does
+# (apps/watch/wearApp/.../auth/DevicePairingClient.kt + PairingPoller.kt,
+# with the phone's claim from apps/mobile/src/api/watchPairing.ts), opens
+# `/ws/live-session/{id}` with the device token it was handed, and only
+# LISTENS — no PCM windows, no HR — so every frame that comes down the socket
+# is the relay's doing and the watch's stream clock stays at 0 (no cooldown
+# ticks, so the shared NudgePolicy's answer is deterministic).
+#
+# Auth: the server's WS handshake (watch/auth.resolve_ws_principal) takes
+# `?token=<device token>` (what a paired watch holds) or the legacy
+# `?account=<uid>` (what the SHIPPED Wear app's EpisodeWsClient still sends;
+# on by default via MINDSHIFT_ALLOW_LEGACY_ACCOUNT). `--watch-auth` picks;
+# `token` is the default because it proves the whole pairing flow minted a
+# credential the server honours.
+
+WATCH_VECTOR_ORDER = {"yelling": 0, "aggressive_tone": 1}   # relay emission order
+WATCH_SPEC_LEVELS = {"mild": 1, "strong": 3}                 # scene meta `expected_nudges.level` -> min channel level
+
+
+class WatchPairingError(RuntimeError):
+    """The pairing handshake did not produce a device token — the message
+    says which step and what the server answered."""
+
+
+@dataclass
+class WatchRun:
+    live_session_id: str
+    auth_mode: str = "token"
+    pairing_id: str | None = None
+    code: str | None = None
+    account_id: str | None = None
+    device_token: str | None = None
+    frames: list[tuple[float, dict]] = field(default_factory=list)   # (wall time, frame)
+    opened_at: float | None = None
+    saved: dict | None = None
+    close_code: int | None = None
+    error: str | None = None
+
+    def of_type(self, kind: str) -> list[dict]:
+        return [f for _, f in self.frames if f.get("type") == kind]
+
+    @property
+    def headers(self) -> dict[str, str]:
+        """What the watch sends on REST (WatchApiClient.kt: Bearer device token)."""
+        return {"Authorization": f"Bearer {self.device_token}"} if self.device_token else {}
+
+    @property
+    def query(self) -> dict[str, str]:
+        return {} if self.auth_mode == "token" else {"account": self.account_id or ""}
+
+
+def watch_ws_url(base_url: str, live_session_id: str, *, token: str | None = None, account: str | None = None) -> str:
+    base = ws_url(base_url, "").rsplit("/ws/session/", 1)[0]
+    if token:
+        return f"{base}/ws/live-session/{live_session_id}?token={token}"
+    return f"{base}/ws/live-session/{live_session_id}?account={account}"
+
+
+async def pair_fake_watch(http: httpx.AsyncClient, base_url: str, patient: Account, watch: WatchRun) -> None:
+    """The real three-step pairing, headless. Fills ``watch`` in place;
+    raises WatchPairingError with the failing step on any deviation."""
+    base = base_url.rstrip("/")
+    # 1. the watch asks for a code (no auth — it has no identity yet):
+    #    DevicePairingClient.start()
+    res = await http.post(f"{base}/me/pair/start", timeout=30.0)
+    if res.status_code != 200:
+        raise WatchPairingError(f"POST /me/pair/start -> {res.status_code} {res.text[:200]}")
+    started = res.json()
+    watch.pairing_id, watch.code = started["pairing_id"], started["code"]
+    # 2. the signed-in phone types the code: watchPairing.ts claimWatchPairing()
+    res = await http.post(f"{base}/me/pair/claim", headers=patient.headers, json={"code": watch.code}, timeout=30.0)
+    if res.status_code != 200:
+        raise WatchPairingError(f"POST /me/pair/claim (as patient) -> {res.status_code} {res.text[:200]}")
+    claimed = res.json()
+    if claimed.get("status") != "claimed" or claimed.get("pairing_id") != watch.pairing_id:
+        raise WatchPairingError(f"POST /me/pair/claim answered {claimed}")
+    # 3. the watch polls for its credential: PairingPoller.poll()
+    res = await http.get(f"{base}/me/pair/status", params={"pairing_id": watch.pairing_id}, timeout=30.0)
+    if res.status_code != 200:
+        raise WatchPairingError(f"GET /me/pair/status -> {res.status_code} {res.text[:200]}")
+    status = res.json()
+    if status.get("status") != "claimed" or not status.get("device_token"):
+        raise WatchPairingError(f"GET /me/pair/status answered {status} (expected claimed + device_token)")
+    watch.account_id = status.get("account_id") or claimed.get("account_id")
+    watch.device_token = status["device_token"]
+    if patient.uid and watch.account_id != patient.uid:
+        raise WatchPairingError(f"device token bound to {watch.account_id!r}, patient uid is {patient.uid!r}")
+
+
+class FakeWatch:
+    """The wrist end of the relay: an open watch live-session socket that
+    records every frame with its arrival time, then ends the session the
+    way the watch does (``{"type": "end"}`` -> ``live_session_saved``)."""
+
+    def __init__(self, url: str, run: WatchRun) -> None:
+        self.url = url
+        self.run = run
+        self._ws = None
+        self._reader: asyncio.Task | None = None
+        self._saved = asyncio.Event()
+
+    async def open(self) -> None:
+        from websockets.asyncio.client import connect
+        from websockets.exceptions import ConnectionClosed
+
+        self._ws = await connect(self.url, max_size=None, open_timeout=30.0)
+        self.run.opened_at = time.monotonic()
+
+        async def reader() -> None:
+            try:
+                async for raw in self._ws:
+                    if isinstance(raw, bytes):
+                        continue
+                    try:
+                        msg = json.loads(raw)
+                    except json.JSONDecodeError:
+                        msg = {"type": "unparseable", "raw": raw[:200]}
+                    self.run.frames.append((time.monotonic(), msg))
+                    if msg.get("type") == "live_session_saved":
+                        self.run.saved = msg
+                        self._saved.set()
+            except ConnectionClosed:
+                pass
+            finally:
+                self._saved.set()
+
+        self._reader = asyncio.create_task(reader())
+
+    async def end(self, timeout_s: float = 30.0) -> None:
+        if self._ws is None:
+            return
+        try:
+            await self._ws.send(json.dumps({"type": "end"}))
+            try:
+                await asyncio.wait_for(self._saved.wait(), timeout=timeout_s)
+            except asyncio.TimeoutError:
+                self.run.error = self.run.error or f"no live_session_saved within {timeout_s:g}s of end"
+        finally:
+            await self.close()
+
+    async def close(self) -> None:
+        if self._ws is not None:
+            with contextlib.suppress(Exception):
+                await self._ws.close()
+            self.run.close_code = self._ws.close_code
+        if self._reader is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(self._reader, timeout=5.0)
+            if not self._reader.done():
+                self._reader.cancel()
+
+
+def expected_watch_relay(turn_locals: list[dict], *, baseline_rms_db: float | None = None) -> list[dict]:
+    """What the server's own relay + shared NudgePolicy must send a SILENT
+    paired watch for these phone turns, computed with the same code
+    (``watch.relay.turn_local_to_vector_events`` on the relay's phone-side
+    running-median loudness baseline, ``nudge_policy.NudgePolicy`` on the
+    account's default subscriptions, stream clock 0). One entry per self
+    turn that produced anything: ``{turn_index, events: [(vector, level)],
+    nudges: [(channel, level)], level_after}``. ``baseline_rms_db`` is the
+    account's watch ENROLLMENT baseline when it has one (a throwaway
+    account never does -> None -> running median of prior phone turns)."""
+    from models.audio import TurnLocalEvent
+    from nudge_policy import NudgePolicy
+    from watch import relay as watch_relay
+    from watch.models import EnrollmentBaseline, VectorSubscription
+    from watch.store import DEFAULT_VECTOR_NAMES
+    from watch.vectors import VectorEngine
+
+    baseline = None
+    if baseline_rms_db is not None:
+        baseline = EnrollmentBaseline(account_id="e2e", rms_db=baseline_rms_db, f0_median=120.0, updated_at="e2e")
+    session = watch_relay.LiveWatchSession(
+        account_id="e2e", live_session_id="e2e", engine=VectorEngine(baseline), emit=None, loop=None,  # type: ignore[arg-type]
+    )
+    policy = NudgePolicy([VectorSubscription(vector=v) for v in DEFAULT_VECTOR_NAMES])
+    out: list[dict] = []
+    for i, tl in enumerate(turn_locals):
+        ev = TurnLocalEvent.model_validate(tl)
+        if ev.is_self is not True:
+            continue
+        rms = ev.prosody.rms_dbfs if ev.prosody is not None else None
+        events = watch_relay.turn_local_to_vector_events(ev, t=0.0, baseline_rms_db=session.phone_baseline_rms_db())
+        session.observe_phone_rms(rms)
+        if not events:
+            continue
+        nudges = policy.on_events(events, 0.0)
+        out.append({
+            "turn_index": i,
+            "events": [(e.vector, e.level) for e in events],
+            "nudges": [(n.channel, n.level) for n in nudges],
+            "level_after": policy.current()["A"],
+        })
+    return out
+
+
+def group_watch_frames(frames: list[tuple[float, dict]]) -> list[dict]:
+    """Split the watch socket's frames into one group per relayed turn.
+
+    ws.py's ``emit`` sends a turn's vector_events (relay order: yelling,
+    then aggressive_tone) followed by that call's nudges, all from one
+    coroutine on one loop — so a turn's frames are contiguous. A new group
+    starts at a vector_event that follows a nudge, or whose vector does not
+    advance the relay order (a second ``aggressive_tone`` in a row is the
+    next turn). A nudge right after a group that already nudged (a cooldown
+    de-escalation from the watch's own clock — impossible for the silent
+    fake watch, whose clock never ticks) gets a group of its own."""
+    groups: list[dict] = []
+    cur: dict | None = None
+    for at, f in frames:
+        kind = f.get("type")
+        if kind == "vector_event":
+            order = WATCH_VECTOR_ORDER.get(f.get("vector"), 99)
+            last = cur["events"][-1][0] if cur and cur["events"] else None
+            if cur is None or cur["nudges"] or (last is not None and order <= WATCH_VECTOR_ORDER.get(last, 99)):
+                cur = {"at": at, "events": [], "nudges": [], "t": f.get("t")}
+                groups.append(cur)
+            cur["events"].append((f.get("vector"), f.get("level")))
+        elif kind == "nudge":
+            # NudgePolicy emits at most one nudge per channel per call and
+            # the relay only ever feeds channel A, so a second nudge in a
+            # group is the next policy call, not this one.
+            if cur is None or cur["nudges"]:
+                cur = {"at": at, "events": [], "nudges": [], "t": f.get("t")}
+                groups.append(cur)
+            cur["nudges"].append((f.get("channel"), f.get("level")))
+    return groups
+
+
+def _channel_a_after(groups: list[dict], upto: int) -> int:
+    level = 0
+    for g in groups[: upto + 1]:
+        for ch, lvl in g["nudges"]:
+            if ch == "A":
+                level = lvl
+    return level
+
+
+def _spec_level_ok(spec_level: str, level: int) -> bool:
+    need = WATCH_SPEC_LEVELS.get(str(spec_level))
+    return need is not None and level >= need
+
+
+# ---------------------------------------------------------------------------
 # The whole run
 # ---------------------------------------------------------------------------
 
@@ -705,6 +970,7 @@ async def run_e2e(
     speed: float = 1.0, mode: str = "earpiece", enroll: bool = True,
     analysis_timeout_s: float = 180.0, cleanup: bool = False,
     http: httpx.AsyncClient | None = None, session_id: str | None = None,
+    with_watch: bool = False, watch_auth: str = "token", watch_settle_s: float = 1.5,
 ) -> Report:
     report = Report(scene=scene.name, base_url=base_url, speed=speed, mode=mode)
     own_http = http is None
@@ -714,7 +980,47 @@ async def run_e2e(
     report.data["accounts"] = {"patient": patient.email, "therapist": therapist.email}
     report.add("accounts", True, f"patient {patient.email}" + (f" (uid {patient.uid})" if patient.uid else "")
                + f" | therapist {therapist.email}" + (f" (uid {therapist.uid})" if therapist.uid else ""))
+    watch: WatchRun | None = None
+    fake_watch: FakeWatch | None = None
     try:
+        # --- 1b. pair a watch to the patient's account --------------------
+        if with_watch:
+            watch = WatchRun(live_session_id=f"{session_id}-watch", auth_mode=watch_auth)
+            if not patient.uid:
+                # The watch domain's /me tells a signed-in caller its own uid.
+                code, me = await _req(http, "GET", base_url, "/me", patient)
+                if code == 200 and isinstance(me, dict) and me.get("account_id"):
+                    patient.uid = me["account_id"]
+            try:
+                await pair_fake_watch(http, base_url, patient, watch)
+                code, me_as_watch = await _req(http, "GET", base_url, "/me", Account(email="watch", ws_token="", headers=watch.headers))
+                code_p, me_as_patient = await _req(http, "GET", base_url, "/me", patient)
+                watch_sees_self = code == 200 and isinstance(me_as_watch, dict) and me_as_watch.get("account_id") == watch.account_id
+                phone_sees_watch = code_p == 200 and isinstance(me_as_patient, dict) and bool(me_as_patient.get("has_paired_watch"))
+                report.add("watch pairing", watch_sees_self and phone_sees_watch,
+                           f"POST /me/pair/start -> code {watch.code}; POST /me/pair/claim as patient -> claimed; "
+                           f"GET /me/pair/status -> device_token for account {watch.account_id}; "
+                           f"GET /me as the watch (Bearer device token) -> {code} account_id match={watch_sees_self}; "
+                           f"GET /me as patient has_paired_watch={me_as_patient.get('has_paired_watch') if isinstance(me_as_patient, dict) else me_as_patient}")
+            except WatchPairingError as exc:
+                report.add("watch pairing", False, str(exc))
+                watch = None
+            if watch is not None:
+                url = watch_ws_url(base_url, watch.live_session_id,
+                                   token=watch.device_token if watch_auth == "token" else None,
+                                   account=watch.account_id)
+                fake_watch = FakeWatch(url, watch)
+                try:
+                    await fake_watch.open()
+                    # ws.py registers the socket with the relay only after
+                    # its baseline/subscription reads; give it a beat.
+                    await asyncio.sleep(watch_settle_s)
+                except Exception as exc:  # noqa: BLE001 — reported below
+                    watch.error = f"{type(exc).__name__}: {exc}"
+                    report.add("watch ws", False, f"open {url.split('?')[0]}?{watch_auth}=… failed: {watch.error}")
+                    fake_watch = None
+            report.data["watch"] = {"auth_mode": watch_auth, "live_session_id": watch.live_session_id if watch else None,
+                                    "paired": watch is not None and watch.device_token is not None}
         # --- 2. voiceprint enrollment -----------------------------------
         enrolled = False
         if enroll:
@@ -852,6 +1158,80 @@ async def run_e2e(
                    f"{len(flags)} audio tone_flag events" + (f" {labels}" if labels else
                    " (none — MINDSHIFT_TONE_AUDIO defaults to 'dark': computed server-side, never surfaced)"))
 
+        # --- 3b. what reached the wrist -----------------------------------
+        if fake_watch is not None and watch is not None:
+            # Every enrichment task for the last turn_local lands before
+            # session_complete (audio_pipeline's graceful stop); one more
+            # beat covers the relay's hop onto the watch socket's loop.
+            await asyncio.sleep(1.0)
+            await fake_watch.end()
+            groups = group_watch_frames(watch.frames)
+            expected = expected_watch_relay([dict(ev) for _, ev in run.sent_turns])
+            observed_sig = [(g["events"], g["nudges"]) for g in groups]
+            expected_sig = [(e["events"], e["nudges"]) for e in expected]
+            match = observed_sig == expected_sig
+            # Timing: group k is the k-th relayed turn; ms from that
+            # turn_local leaving the phone to the first frame on the wrist.
+            timings = []
+            for k, g in enumerate(groups[: len(expected)]):
+                ti = expected[k]["turn_index"]
+                if ti < len(run.sent_turns):
+                    timings.append({"turn_index": ti, "ms": round((g["at"] - run.sent_turns[ti][0]) * 1000.0, 1),
+                                    "events": g["events"], "nudges": g["nudges"]})
+            other_frames = [f for _, f in watch.frames if f.get("type") not in ("vector_event", "nudge", "live_session_saved")]
+            self_turns = set(scene.self_turn_indexes)
+            spec = scene.meta.get("expected_nudges") or []
+            spec_rows = []
+            for entry in spec:
+                ti = int(entry.get("after_turn_index", -1))
+                k = next((k for k, e in enumerate(expected) if e["turn_index"] == ti), None)
+                got = k is not None and k < len(groups)
+                level = _channel_a_after(groups, k) if got else 0
+                spec_rows.append({"turn_index": ti, "spec": entry.get("level"), "relayed": got,
+                                  "level_after": level, "ok": got and _spec_level_ok(entry.get("level"), level)})
+            n_events = sum(len(e["events"]) for e in expected)
+            n_nudges = sum(len(e["nudges"]) for e in expected)
+            report.data["watch"].update({
+                "frames": len(watch.frames), "groups": observed_sig, "expected": expected,
+                "timing": timings, "timing_p50_ms": _median([t["ms"] for t in timings]),
+                "spec": spec_rows, "saved": watch.saved, "close_code": watch.close_code, "error": watch.error,
+            })
+            report.add("watch ws", watch.saved is not None and not watch.error,
+                       f"/ws/live-session/{watch.live_session_id}?{watch_auth}=… open {round(run.wall_seconds + watch_settle_s + 1.0, 1)}s "
+                       f"(silent: no PCM/HR), {len(watch.frames)} frames, end -> live_session_saved={watch.saved is not None} "
+                       f"status={(watch.saved or {}).get('status')} close={watch.close_code}"
+                       + (f" error={watch.error}" if watch.error else "")
+                       + (f"; unexpected frames {other_frames[:3]}" if other_frames else ""))
+            report.add("watch nudges", match and bool(expected),
+                       f"{len(groups)} relayed turns on the wrist vs {len(expected)} the shared relay+NudgePolicy predicts: "
+                       + ("MATCH" if match else "MISMATCH")
+                       + f" — per self turn {[(e['turn_index'], e['events'], e['nudges']) for e in expected]}; "
+                       f"observed {observed_sig}; {n_events} vector_event + {n_nudges} nudge frames expected; "
+                       f"other-speaker turns {sorted(set(range(len(scene.turns))) - self_turns)} produced nothing"
+                       + ("" if match else f" (identity verdicts disagreeing with the scene: {len(idents) - len(agree)})"))
+            report.add("watch nudge timing", True if timings else None,
+                       f"turn_local -> wrist frame: " + ", ".join(f"turn {t['turn_index']} {t['ms']:.0f} ms" for t in timings)
+                       + (f"; p50 {report.data['watch']['timing_p50_ms']} ms" if timings else "no relayed turn to time"))
+            if spec:
+                report.add("watch scene spec", all(r["ok"] for r in spec_rows),
+                           "expected_nudges: " + "; ".join(
+                               f"turn {r['turn_index']} {r['spec']} -> {'relayed' if r['relayed'] else 'NOT relayed'}, "
+                               f"channel A at {r['level_after']} (needs >= {WATCH_SPEC_LEVELS.get(str(r['spec']), '?')})"
+                               for r in spec_rows))
+            # Persisted: the watch's own live session must carry the relayed
+            # events with phone provenance (ws.py's emit appends before it sends).
+            code, saved_ls = await _req(http, "GET", base_url, f"/live-sessions/{watch.live_session_id}",
+                                        Account(email="watch", ws_token="", headers=watch.headers), params=watch.query)
+            if code == 200 and isinstance(saved_ls, dict):
+                phone_events = [e for e in saved_ls.get("vector_events") or [] if str(e.get("detail", "")).startswith("phone turn")]
+                saved_nudges = saved_ls.get("nudge_events") or []
+                report.add("watch session persisted", len(phone_events) == n_events and len(saved_nudges) == n_nudges,
+                           f"GET /live-sessions/{{id}} as the watch 200 status={saved_ls.get('status')} owner={saved_ls.get('owner_account')}: "
+                           f"{len(phone_events)} phone-provenance vector_events (expected {n_events}), "
+                           f"{len(saved_nudges)} nudge_events (expected {n_nudges})")
+            else:
+                report.add("watch session persisted", False, f"GET /live-sessions/{{id}} as the watch -> {code} {str(saved_ls)[:200]}")
+
         # --- 4. the episode ------------------------------------------------
         turns = [dict(ev) for _, ev in run.sent_turns] or build_turn_locals(scene, session_id)
         code, body = await post_live_session(
@@ -964,11 +1344,18 @@ async def run_e2e(
             if enrolled:
                 code, _ = await _req(http, "DELETE", base_url, "/voice/voiceprint", patient)
                 notes.append(f"voiceprint delete {code}")
+            if watch is not None:
+                code, _ = await _req(http, "DELETE", base_url, f"/live-sessions/{watch.live_session_id}", patient)
+                notes.append(f"watch live session delete {code}")
+                code, body = await _req(http, "DELETE", base_url, "/me/watch-pairing", patient)
+                notes.append(f"unpair watch {code} count={body.get('count') if isinstance(body, dict) else body}")
             for acct in (patient, therapist):
                 if acct.signed_up:
                     notes.append(f"firebase delete {acct.email}: {await firebase_delete_account(http, acct)}")
             report.add("cleanup", None, "; ".join(notes))
     finally:
+        if fake_watch is not None:
+            await fake_watch.close()
         if own_http:
             await http.aclose()
     return report
@@ -996,6 +1383,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--analysis-timeout", type=float, default=180.0, help="seconds to wait for the batch analysis")
     p.add_argument("--cleanup", action="store_true", help="delete the episode/voiceprint (+ --signup accounts) afterwards")
     p.add_argument("--json", action="store_true", help="also print the raw report dict")
+    # the watch
+    p.add_argument("--with-watch", action="store_true",
+                   help="pair a fake watch to the patient (POST /me/pair/start -> claim -> status), open its "
+                        "/ws/live-session socket, and assert the phone's self escalations reach it as nudges")
+    p.add_argument("--watch-auth", default="token", choices=["token", "account"],
+                   help="how the watch socket authenticates: ?token=<device token> (default) or the shipped Wear "
+                        "app's legacy ?account=<uid>")
     # patient auth
     p.add_argument("--id-token", help="patient Firebase ID token")
     p.add_argument("--email")
@@ -1042,6 +1436,7 @@ async def amain(argv: list[str] | None = None) -> int:
             base_url=args.base_url, patient=patient, therapist=therapist, scene=scene,
             speed=args.speed, mode=args.mode, enroll=not args.no_enroll,
             analysis_timeout_s=args.analysis_timeout, cleanup=args.cleanup, http=http,
+            with_watch=args.with_watch, watch_auth=args.watch_auth,
         )
     print(format_report(report))
     if args.json:

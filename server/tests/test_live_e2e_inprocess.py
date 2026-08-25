@@ -25,6 +25,17 @@ at their existing DI seams:
 
 Two scenes: the 2-voice self-escalation arc and the rapid 3-voice family
 scene. The assertion is the script's own: no ❌ in the report.
+
+``--with-watch`` (the phone -> server -> wrist path) runs here too, against
+the SAME ``main.app``: the real pairing routers (``/me/pair/*`` on the
+process's MemoryPairingStore, the real Firebase-then-DeviceToken verifier
+chain with only ``firebase_admin.auth.verify_id_token`` faked the way
+conftest fakes the main app's), the real ``/ws/live-session`` handler, the
+real ``watch.relay`` (``audio_pipeline.watch_relay`` restored from the
+None the other tests use), the real shared ``NudgePolicy``. Only the
+watch's post-session Whisper spawn is stubbed (``ws._spawn_live_session_analysis``
+— the suite's watch conftest disables it via env, but main's routers were
+already built by the time that runs).
 """
 
 from __future__ import annotations
@@ -376,6 +387,132 @@ async def test_live_e2e_inprocess(scene_name, live_server, e2e_env, monkeypatch)
     assert data["therapist_row"]["escalation_turns"] == scene.expected_self_escalations
     assert data["therapist_row"]["couldHaveSaid"] == len(scene.self_turn_indexes)
     assert data["growth_point"]["my_score"] == 64
+
+
+# ---------------------------------------------------------------------------
+# --with-watch: phone -> server -> wrist, in-process
+# ---------------------------------------------------------------------------
+
+WATCH_TOKENS = {"tok-user-a": PATIENT_UID, "tok-user-b": THERAPIST_UID}
+
+
+@pytest.fixture
+def watch_env(e2e_env, monkeypatch):
+    """On top of e2e_env: the real relay, the watch domain's Firebase
+    verifier faked to the suite's tokens (so POST /me/pair/claim can
+    authenticate the patient), no Whisper spawn on the watch's `end`."""
+    import firebase_admin.auth as fb_auth
+
+    from watch import relay
+    from watch.routers import ws as watch_ws
+
+    def _verify(token: str) -> dict:
+        try:
+            return {"uid": WATCH_TOKENS[token]}
+        except KeyError:
+            raise ValueError("invalid test token")
+
+    monkeypatch.setattr(fb_auth, "verify_id_token", _verify)
+    monkeypatch.setattr(audio_pipeline, "watch_relay", relay)
+    monkeypatch.setattr(watch_ws, "_spawn_live_session_analysis", lambda *a, **k: None)
+    relay._registry.clear()
+    yield e2e_env
+    relay._registry.clear()
+
+
+@pytest.mark.parametrize("watch_auth", ["token", "account"])
+async def test_live_e2e_inprocess_with_watch(watch_auth, live_server, watch_env, monkeypatch):
+    """The wrist hears the phone: pair, hold the watch socket open through
+    the couple scene, and get exactly the frames the shared relay +
+    NudgePolicy predict — nudge A1 after self turn 4 (tense_rising, tone
+    level 1), A3 after turn 6 (shout_angry, tone 3), a sustaining
+    aggressive_tone=3 vector_event and NO new nudge after turn 8
+    (cold_contempt: same level, hysteresis), nothing for Speaker B."""
+    scene_name = "scene_couple_escalation"
+    scene = live_e2e.load_scene(scene_name)
+    monkeypatch.setattr(audio_pipeline, "speaker_id", LabelEchoSpeakerId(scene.self_speaker))
+    watch_env.voiceprints[PATIENT_UID] = [
+        {"person_id": "self", "display_name": "You", "is_self": True, "embedding": [1.0, 0.0]},
+    ]
+    patient = _account(PATIENT_UID, PATIENT_EMAIL, "tok-user-a")
+    patient.headers["Authorization"] = "Bearer tok-user-a"   # the watch routers verify a real bearer
+    therapist = _account(THERAPIST_UID, THERAPIST_EMAIL, "tok-user-b")
+    report = await live_e2e.run_e2e(
+        base_url=live_server, patient=patient, therapist=therapist, scene=scene,
+        speed=25.0, mode="earpiece", enroll=False, analysis_timeout_s=30.0, cleanup=True,
+        session_id=f"e2e-{scene.name}-{int(time.time() * 1000)}",
+        with_watch=True, watch_auth=watch_auth, watch_settle_s=0.3,
+    )
+    text = live_e2e.format_report(report)
+    print("\n" + text)
+    assert not report.failures, text
+
+    w = report.data["watch"]
+    assert w["paired"] and w["auth_mode"] == watch_auth
+    assert [e["turn_index"] for e in w["expected"]] == [4, 6, 8]
+    assert w["groups"] == [
+        ([("aggressive_tone", 1)], [("A", 1)]),
+        ([("aggressive_tone", 3)], [("A", 3)]),
+        ([("aggressive_tone", 3)], []),
+    ]
+    assert [t["turn_index"] for t in w["timing"]] == [4, 6, 8]
+    assert all(0 < t["ms"] < 10_000 for t in w["timing"])
+    assert [r["ok"] for r in w["spec"]] == [True, True, True]
+    assert w["saved"]["status"] == "captured" and w["close_code"] == 1000
+    assert w["frames"] == 3 + 2 + 1   # vector_events + nudges + live_session_saved
+    names = [c.name for c in report.checks]
+    for name in ("watch pairing", "watch ws", "watch nudges", "watch nudge timing", "watch scene spec", "watch session persisted"):
+        assert name in names, name
+    cleanup = next(c for c in report.checks if c.name == "cleanup").detail
+    assert "watch live session delete 204" in cleanup and "unpair watch 200 count=1" in cleanup
+
+
+class TestWatchHelpers:
+    def test_expected_watch_relay_matches_the_scene_spec_through_the_policy(self):
+        scene = live_e2e.load_scene("scene_couple_escalation")
+        turns = live_e2e.build_turn_locals(scene, "s")
+        expected = live_e2e.expected_watch_relay(turns)
+        assert [e["turn_index"] for e in expected] == [n["after_turn_index"] for n in scene.meta["expected_nudges"]]
+        assert [e["events"] for e in expected] == [[("aggressive_tone", 1)], [("aggressive_tone", 3)], [("aggressive_tone", 3)]]
+        assert [e["nudges"] for e in expected] == [[("A", 1)], [("A", 3)], []]
+        assert [e["level_after"] for e in expected] == [1, 3, 3]
+        # An enrolled account whose baseline sits well under the scene's
+        # loudness yells too: both lanes, max wins, `vectors` names the winner.
+        loud = live_e2e.expected_watch_relay(turns, baseline_rms_db=-40.0)
+        assert loud[0]["events"][0][0] == "yelling" and loud[0]["nudges"] == [("A", 3)]
+
+    def test_group_watch_frames_splits_per_turn(self):
+        f = lambda i, **kw: (float(i), kw)  # noqa: E731
+        frames = [
+            f(1, type="vector_event", vector="yelling", level=2, t=0.0),
+            f(2, type="vector_event", vector="aggressive_tone", level=1, t=0.0),
+            f(3, type="nudge", channel="A", level=2, t=0.0, vectors=["yelling"]),
+            f(4, type="vector_event", vector="aggressive_tone", level=3, t=0.0),
+            f(5, type="nudge", channel="A", level=3, t=0.0, vectors=["aggressive_tone"]),
+            f(6, type="nudge", channel="A", level=2, t=30.0, vectors=[]),          # bare de-escalation (watch-clock tick)
+            f(7, type="vector_event", vector="aggressive_tone", level=3, t=30.0),  # escalates again
+            f(8, type="nudge", channel="A", level=3, t=30.0, vectors=["aggressive_tone"]),
+            f(9, type="vector_event", vector="aggressive_tone", level=3, t=30.0),  # sustain: no nudge
+            f(10, type="vector_event", vector="aggressive_tone", level=3, t=30.0),  # next turn, same vector
+            f(11, type="live_session_saved", live_session_id="x"),
+        ]
+        groups = live_e2e.group_watch_frames(frames)
+        assert [(g["events"], g["nudges"]) for g in groups] == [
+            ([("yelling", 2), ("aggressive_tone", 1)], [("A", 2)]),
+            ([("aggressive_tone", 3)], [("A", 3)]),
+            ([], [("A", 2)]),
+            ([("aggressive_tone", 3)], [("A", 3)]),
+            ([("aggressive_tone", 3)], []),
+            ([("aggressive_tone", 3)], []),
+        ]
+        assert [g["at"] for g in groups] == [1.0, 4.0, 6.0, 7.0, 9.0, 10.0]
+        assert live_e2e._channel_a_after(groups, 1) == 3 and live_e2e._channel_a_after(groups, 2) == 2
+
+    def test_watch_ws_url_and_spec_levels(self):
+        assert live_e2e.watch_ws_url("https://x.run.app/", "ls", token="tok") == "wss://x.run.app/ws/live-session/ls?token=tok"
+        assert live_e2e.watch_ws_url("http://127.0.0.1:8000", "ls", account="u") == "ws://127.0.0.1:8000/ws/live-session/ls?account=u"
+        assert live_e2e._spec_level_ok("mild", 1) and live_e2e._spec_level_ok("strong", 3)
+        assert not live_e2e._spec_level_ok("strong", 2) and not live_e2e._spec_level_ok("bogus", 3)
 
 
 class TestPureHelpers:
