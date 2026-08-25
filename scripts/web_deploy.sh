@@ -88,6 +88,10 @@ if [ -n "${CHROME:-}" ] || [ -x "/Applications/Google Chrome.app/Contents/MacOS/
 else
   echo "web_deploy: no Chrome found — skipping the headless smoke (set CHROME=/path/to/chrome to run it)"
 fi
+# WebKit (iPhone Safari's engine) is NOT exercised here — it needs Playwright's
+# WebKit build (~80 MB, fetched on first use). Run it by hand before/after a deploy:
+#   node scripts/web_smoke_webkit.mjs --signup                      # this export
+#   node scripts/web_smoke_webkit.mjs --signup --url https://arborfam-hub.web.app
 
 # 3. Deploy.
 if [ "$DRY_RUN" = "1" ]; then

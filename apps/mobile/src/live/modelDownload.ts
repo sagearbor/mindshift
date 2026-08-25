@@ -129,10 +129,13 @@ export async function resolveEcapaModel(opts: ResolveEcapaModelOptions): Promise
     }
   }
 
-  // 1. Revalidate (or discover) with HEAD.
+  // 1. Revalidate (or discover) with HEAD. Called through a local, not as
+  // `opts.fetch(...)`: a caller that passes the browser's bare `fetch`
+  // must not have it invoked with `opts` as `this` (WebKit throws).
+  const fetchImpl = opts.fetch;
   let head: HeadResponseLike;
   try {
-    head = await opts.fetch(opts.url, {
+    head = await fetchImpl(opts.url, {
       method: "HEAD",
       headers: { ...opts.headers, ...(etag ? { "If-None-Match": etag } : {}) },
     });
