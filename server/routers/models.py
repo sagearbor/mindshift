@@ -59,6 +59,7 @@ from fastapi.responses import FileResponse
 
 import ecapa_onnx
 import speaker_id
+import usage_meter
 from auth import get_current_uid
 
 logger = logging.getLogger(__name__)
@@ -224,9 +225,19 @@ async def get_ecapa_onnx(
     etag = ecapa_etag()
     headers = {"ETag": etag, "Cache-Control": CACHE_CONTROL}
     # Revalidation first, from the revision alone: the phone's launch
-    # re-check must never trigger (or wait on) an export.
+    # re-check must never trigger (or wait on) an export. A 304 costs
+    # nothing, so it is never counted and never quota-gated.
     if if_none_match_matches(request.headers.get("if-none-match"), etag):
         return Response(status_code=304, headers=headers)
+    # Cost guardrails: an ~80 MB body is real GCS/Cloud Run egress. The phone
+    # caches it for a day, so more than a handful of full downloads per
+    # account per day is a broken client or a scraper — 429 with the reset
+    # time, never a truncated or fabricated model. Speaker-ID then degrades
+    # to "off" on a phone that has no cached copy, exactly as it does when
+    # the export is unavailable (503).
+    exceeded = usage_meter.check(uid, "model_download")
+    if exceeded is not None:
+        raise usage_meter.quota_error(exceeded)
     try:
         path = ecapa_onnx.configured_onnx_path()
         if not _usable(path):
@@ -238,6 +249,20 @@ async def get_ecapa_onnx(
     except ModelUnavailable as exc:
         raise HTTPException(
             status_code=503, detail=str(exc), headers={"X-Model-Unavailable": str(exc)},
+        )
+    # Count the body we are about to serve. HEAD carries the headers with no
+    # body, so it is metadata, not egress — only a GET is counted.
+    if request.method == "GET":
+        try:
+            size = float(path.stat().st_size)
+        except OSError:  # pragma: no cover — the usable() check just passed
+            size = 0.0
+        usage_meter.record(
+            uid,
+            **{
+                usage_meter.KEY_MODEL_DOWNLOADS: 1,
+                usage_meter.KEY_MODEL_BYTES: size,
+            },
         )
     # FileResponse streams the file, sets Content-Length from stat, and
     # answers HEAD with headers only; our ETag/Cache-Control win over its

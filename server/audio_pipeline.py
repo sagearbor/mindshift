@@ -42,6 +42,7 @@ from pydantic import ValidationError
 
 import calls
 import llm_client
+import usage_meter
 from llm_client import LLMClient
 from models.audio import (
     DiarizationConfig,
@@ -207,6 +208,12 @@ ENRICHMENT_DRAIN_TIMEOUT_S = 5.0
 # few seconds and a task finishes in well under that, so 4 is never reached
 # in honest use.
 MAX_ENRICHMENT_INFLIGHT = int(os.getenv("MAX_ENRICHMENT_INFLIGHT", "4"))
+
+# Cost guardrails: cloud-STT seconds are accumulated in the receive loop and
+# handed to usage_meter a minute at a time (a phone sends ~10 frames/second;
+# metering each one would be pure overhead for no extra accuracy). The
+# remainder lands in the session's finally, so nothing is lost either way.
+STT_METER_FLUSH_SECONDS = float(os.getenv("MINDSHIFT_STT_METER_FLUSH_S", "60"))
 
 # Review 2026-08-24: the account's enrolled voiceprint documents are read
 # ONCE per session (then refreshed at most this often) instead of on every
@@ -1755,6 +1762,14 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
     if not await _authenticate(websocket, ctx, send_json):
         return
 
+    # Cost guardrails: refresh what OTHER server instances have already
+    # counted for this account today, ONCE, before any spend — so a second
+    # phone (or a second Cloud Run instance) starts the session with an
+    # accurate view of the daily budget. Best-effort: a store hiccup leaves
+    # this process's own counters in charge rather than failing the session.
+    with contextlib.suppress(Exception):
+        await usage_meter.prime(ctx.uid or "")
+
     # Resolve providers from app.state (tests inject doubles here), falling
     # back to the real, credential-gated implementations.
     state = websocket.app.state
@@ -1872,11 +1887,13 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             # (there is nothing to preview, but the first-token tail is the
             # same tail); a legacy client keeps the plain complete() call.
             timing.llm_start = ctx.latency.now()
-            nudge, importance = await _generate_nudge(
-                llm_client, utterance, job.empathy_slider, job.role,
-                ctx.voice_profile, job.tone_context, speaker_name=speaker_name,
-                stream=progressive, stats=hedge_stats,
-            )
+            with usage_meter.attribute(ctx.uid, usage_meter.SITE_LIVE_NUDGE):
+                nudge, importance = await _generate_nudge(
+                    llm_client, utterance, job.empathy_slider, job.role,
+                    ctx.voice_profile, job.tone_context,
+                    speaker_name=speaker_name,
+                    stream=progressive, stats=hedge_stats,
+                )
             timing.llm_end = ctx.latency.now()
             note_hedge()
             if not nudge:
@@ -1933,12 +1950,13 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 ))
 
         timing.llm_start = ctx.latency.now()
-        suggestion_texts, importance = await _generate_suggestions(
-            llm_client, utterance, job.empathy_slider, job.role,
-            ctx.voice_profile, job.tone_context,
-            on_first_suggestion=on_first_suggestion if progressive else None,
-            speaker_name=speaker_name, stats=hedge_stats,
-        )
+        with usage_meter.attribute(ctx.uid, usage_meter.SITE_LIVE_SUGGESTION):
+            suggestion_texts, importance = await _generate_suggestions(
+                llm_client, utterance, job.empathy_slider, job.role,
+                ctx.voice_profile, job.tone_context,
+                on_first_suggestion=on_first_suggestion if progressive else None,
+                speaker_name=speaker_name, stats=hedge_stats,
+            )
         timing.llm_end = ctx.latency.now()
         note_hedge()
 
@@ -2019,7 +2037,16 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 queue_stats["finished"] += 1
                 suggestion_queue.task_done()
 
+    # Cloud-STT seconds streamed but not yet handed to the meter (see the
+    # binary-frame branch) and the wall clock this session started on.
+    stt_seconds_pending = 0.0
+    session_started_at = time.monotonic()
+
     limit_notified = False
+    # One quota_notice per socket per limit kind — a per-turn repeat would be
+    # a flood, and silence would be a silent drop. See usage_meter.
+    quota_notified = False
+    stt_quota_notified = False
 
     async def enqueue_job(
         utterance: Utterance,
@@ -2028,10 +2055,28 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         is_self: bool | None = None,
         tone_context: dict | None = None,
     ) -> None:
-        """Hand one turn to the suggestion worker: utterance budget (P2-1),
-        latest-wins supersede, then put. Shared by the Deepgram path and the
-        turn_local path so the two can never drift apart on policy."""
-        nonlocal limit_notified
+        """Hand one turn to the suggestion worker: daily budget, per-session
+        utterance budget (P2-1), latest-wins supersede, then put. Shared by
+        the Deepgram path and the turn_local path so the two can never drift
+        apart on policy."""
+        nonlocal limit_notified, quota_notified
+        # Cost guardrails: the account's DAILY cloud-coaching budget. This is
+        # a degradation, not a failure — the transcript event for this turn
+        # has already gone out, the phone's on-device loop is untouched, and
+        # the session keeps running. The client is told ONCE what stopped and
+        # when it resets, then further turns are simply not coached.
+        exceeded = usage_meter.check(ctx.uid, "cloud_suggestions")
+        if exceeded is not None:
+            if not quota_notified:
+                quota_notified = True
+                logger.info(
+                    "Session %s hit the daily %s budget for uid — cloud "
+                    "suggestions paused until %s",
+                    session_id, exceeded.limit, exceeded.resets_at,
+                )
+                with contextlib.suppress(Exception):
+                    await send_json(exceeded.notice())
+            return
         if queue_stats["enqueued"] >= MAX_UTTERANCES:
             # P2-1: utterance budget exhausted — every suggestion is an
             # LLM + TTS spend. Say so ONCE, then drop further segments
@@ -2522,6 +2567,24 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                     continue
                 if not transcription_available:
                     continue
+                # Cost guardrails: the account's DAILY cloud-STT budget. Same
+                # degradation shape as the suggestion budget — the socket
+                # stays open, the ring buffer keeps filling, turn_local from
+                # the phone's own STT keeps producing transcript and coaching.
+                # Only the vendor stream stops, and the client is told once.
+                stt_exceeded = usage_meter.check(ctx.uid, "cloud_transcription")
+                if stt_exceeded is not None:
+                    if not stt_quota_notified:
+                        stt_quota_notified = True
+                        logger.info(
+                            "Session %s hit the daily %s budget — cloud "
+                            "transcription paused until %s",
+                            session_id, stt_exceeded.limit,
+                            stt_exceeded.resets_at,
+                        )
+                        with contextlib.suppress(Exception):
+                            await send_json(stt_exceeded.notice())
+                    continue
                 if len(audio_bytes) > MAX_AUDIO_FRAME_BYTES:
                     # P2-3: contract frames are ~3200 bytes — reject the
                     # anomaly honestly rather than forwarding it upstream.
@@ -2532,6 +2595,20 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                         )
                     })
                     continue
+
+                # Cost guardrails: what we are about to send the vendor,
+                # counted in audio seconds (PCM16 mono). Accumulated locally
+                # and handed to the meter a minute at a time — a per-frame
+                # meter call would be ~10/s per session for no extra
+                # accuracy, and the remainder is recorded at session end.
+                stt_seconds_pending += len(audio_bytes) / (
+                    2.0 * DEEPGRAM_SAMPLE_RATE
+                )
+                if stt_seconds_pending >= STT_METER_FLUSH_SECONDS:
+                    usage_meter.record(
+                        ctx.uid, **{usage_meter.KEY_STT_SECONDS: stt_seconds_pending},
+                    )
+                    stt_seconds_pending = 0.0
 
                 try:
                     result = await transcriber.stream(audio_bytes)
@@ -2712,6 +2789,16 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
     except WebSocketDisconnect:
         logger.info("Client disconnected from session %s", session_id)
     finally:
+        # Cost guardrails: land this session's remaining cloud-STT seconds and
+        # its wall-clock minutes. In the finally so an abrupt disconnect is
+        # counted exactly like a graceful stop — a session that "crashed" still
+        # spent the money. In-memory adds; the flusher persists them.
+        with contextlib.suppress(Exception):
+            live_minutes = max(0.0, (time.monotonic() - session_started_at) / 60.0)
+            usage_meter.record(ctx.uid, **{
+                usage_meter.KEY_STT_SECONDS: stt_seconds_pending,
+                usage_meter.KEY_LIVE_MINUTES: live_minutes,
+            })
         # Cleanup must never raise, whatever state the connection died in.
         # In-app call: an abrupt drop leaves the call (the peer's call_state
         # shows us disconnected and it keeps coaching solo; if we were the
@@ -3117,13 +3204,18 @@ async def _parse_or_repair(
         "LLM %s for %s was not valid JSON (%d chars) — asking for a repair",
         what, _redact(utterance_text), len(raw),
     )
-    repaired = await asyncio.to_thread(
-        llm.complete,
-        system=_REPAIR_SYSTEM.format(keys=keys),
-        user=raw,
-        temperature=0.0,
-        max_tokens=REPAIR_MAX_TOKENS,
-    )
+    # Cost guardrails: the repair retry is pure waste-we-had-to-pay-for, so it
+    # gets its OWN counter bucket (same uid as the turn that needed it) rather
+    # than hiding inside the suggestion's tokens.
+    repair_uid = (usage_meter.current_scope() or (None, None))[0]
+    with usage_meter.attribute(repair_uid, usage_meter.SITE_LIVE_REPAIR):
+        repaired = await asyncio.to_thread(
+            llm.complete,
+            system=_REPAIR_SYSTEM.format(keys=keys),
+            user=raw,
+            temperature=0.0,
+            max_tokens=REPAIR_MAX_TOKENS,
+        )
     try:
         return _parse(repaired)
     except (ValueError, KeyError, AttributeError, TypeError) as exc:

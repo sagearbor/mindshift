@@ -400,6 +400,16 @@ class LLMClient:
                 totals[key] += value
             self.last_usage = snap
         logger.debug("LLM usage model=%s %s", self.model, snap)
+        # Cost guardrails: attribute this call's tokens to the uid + call site
+        # bound by usage_meter.attribute()/usage_scope(). Imported lazily and
+        # failure-swallowing so a client built outside the server process (the
+        # bench scripts, the watch worker) keeps working untouched.
+        try:
+            import usage_meter
+
+            usage_meter.note_llm_usage(snap)
+        except Exception:  # noqa: BLE001 — accounting never breaks a call
+            logger.debug("usage_meter unavailable", exc_info=True)
 
     @property
     def hedge_totals(self) -> dict[str, int]:
@@ -434,7 +444,15 @@ class LLMClient:
                 totals["hedge_won"] += 1
             elif event == "done" and stream.hedged:
                 extra = getattr(stream.usage, "input_tokens", 0)
-                totals["hedge_extra_input_tokens"] += extra if isinstance(extra, int) else 0
+                extra = extra if isinstance(extra, int) else 0
+                totals["hedge_extra_input_tokens"] += extra
+                # Same surcharge, attributed per uid/site (cost guardrails).
+                try:
+                    import usage_meter
+
+                    usage_meter.note_hedge_extra(extra)
+                except Exception:  # noqa: BLE001
+                    logger.debug("usage_meter unavailable", exc_info=True)
 
     # ------------------------------------------------------------------
     # Provider detection

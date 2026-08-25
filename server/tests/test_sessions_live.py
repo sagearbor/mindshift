@@ -19,6 +19,7 @@ from httpx import ASGITransport, AsyncClient
 
 import live_sessions
 import main
+import usage_meter
 from main import app, init_db
 from routers import sessions as sessions_router
 
@@ -561,6 +562,86 @@ class TestIngest:
         assert sessions_router.LIVE_MAX_TRANSCRIPT_CHARS == main.ANALYZE_MAX_TRANSCRIPT_CHARS
         rid = sessions_router.live_recording_id("u", "s")
         assert uuid.UUID(rid) and rid == sessions_router.live_recording_id("u", "s")
+
+
+# ---------------------------------------------------------------------------
+# Cost guardrails — an exhausted daily budget must never cost a transcript
+# ---------------------------------------------------------------------------
+
+class TestQuotaDegradation:
+    async def test_ingest_keeps_the_transcript_and_skips_only_the_llm_tail(
+        self, client, store, mock_llm, monkeypatch,
+    ):
+        """The phone has ALREADY recorded this session. Over budget, ingest
+        still stores every turn and 201s; only the batch analysis and the
+        reflection are skipped, and the reason is recorded where Replay can
+        show it."""
+        monkeypatch.setattr(usage_meter, "DAILY_LLM_TOKEN_CAP", 100)
+        usage_meter.meter().reset()
+        usage_meter.record("test-user", **{
+            usage_meter.llm_key("batch_analysis", "input_tokens"): 5000,
+        })
+        try:
+            mock_llm.complete.side_effect = _llm_side_effect()
+            res = await client.post("/sessions/live", json=_body())
+            assert res.status_code == 201, res.text
+            rid = res.json()["episode_id"]
+            await _drain()
+
+            # Not one token was spent.
+            assert mock_llm.complete.call_count == 0
+            detail = (await client.get(f"/recordings/{rid}")).json()
+            # Every turn is still there — this is the part that would be
+            # data loss, so it is the part that must never degrade.
+            assert len(detail["turns"]) == 6
+            assert detail["turns"][0]["text"]
+            live = detail["analysis"]["live"]
+            notice = live["quota_notice"]
+            assert notice["type"] == "quota_notice"
+            assert notice["limit"] == "llm_tokens"
+            assert notice["resets_at"].endswith("T00:00:00Z")
+            assert "llm_tokens" in live["analysis_error"]
+        finally:
+            usage_meter.meter().reset()
+
+    async def test_cached_reflection_still_readable_over_budget(
+        self, client, store, mock_llm, monkeypatch,
+    ):
+        """A cached reflection costs nothing, so refusing it would be
+        theatre; a re-run (force) is what actually spends and is refused."""
+        mock_llm.complete.side_effect = _llm_side_effect()
+        res = await client.post("/sessions/live", json=_body(analyze=False, reflect=False))
+        rid = res.json()["episode_id"]
+        first = await client.post(f"/episodes/{rid}/reflect")
+        assert first.status_code == 200 and first.json()["cached"] is False
+
+        monkeypatch.setattr(usage_meter, "DAILY_LLM_TOKEN_CAP", 100)
+        usage_meter.meter().reset()
+        usage_meter.record("test-user", **{
+            usage_meter.llm_key("reflection", "input_tokens"): 5000,
+        })
+        try:
+            cached = await client.post(f"/episodes/{rid}/reflect")
+            assert cached.status_code == 200 and cached.json()["cached"] is True
+            refused = await client.post(f"/episodes/{rid}/reflect?force=true")
+            assert refused.status_code == 429
+            assert refused.json()["detail"]["limit"] == "llm_tokens"
+        finally:
+            usage_meter.meter().reset()
+
+    async def test_under_budget_ingest_is_unchanged(
+        self, client, store, mock_llm, monkeypatch,
+    ):
+        monkeypatch.setattr(usage_meter, "DAILY_LLM_TOKEN_CAP", 1_000_000)
+        usage_meter.meter().reset()
+        mock_llm.complete.side_effect = _llm_side_effect()
+        res = await client.post("/sessions/live", json=_body())
+        rid = res.json()["episode_id"]
+        await _drain()
+        assert mock_llm.complete.call_count == 2
+        live = (await client.get(f"/recordings/{rid}")).json()["analysis"]["live"]
+        assert live["analysis_status"] == "full"
+        assert "quota_notice" not in live
 
 
 # ---------------------------------------------------------------------------
