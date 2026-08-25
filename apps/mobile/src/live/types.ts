@@ -9,6 +9,15 @@ import type { TextTone } from "./localLlm";
 export interface TurnLocalEvent {
   type: "turn_local";
   session_id: string;
+  /**
+   * Session resume (server/session_resume.py): a client-generated id unique
+   * to this turn, stamped once when the turn is finalized. The phone buffers
+   * the turns it cannot send during a network drop and flushes them on
+   * reconnect; the server ignores any id it already processed, so a turn that
+   * was in flight when the socket died is never coached or merged twice.
+   * Optional on the wire — an older client simply gets no de-duplication.
+   */
+  turn_uid?: string;
   speaker: string;
   speaker_person_id: string | null;
   speaker_match_score: number | null;

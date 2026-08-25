@@ -3428,6 +3428,10 @@ export interface components {
             ts: string;
             /** Received At */
             received_at: string;
+            /** Data */
+            data?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** TelemetryEventIn */
         TelemetryEventIn: {
@@ -3441,6 +3445,10 @@ export interface components {
             stack?: string | null;
             /** Ts */
             ts: string;
+            /** Data */
+            data?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** TelemetryPost */
         TelemetryPost: {
@@ -3543,6 +3551,11 @@ export interface components {
             type: string;
             /** Session Id */
             session_id: string;
+            /**
+             * Turn Uid
+             * @description Client-generated unique id for this turn (resume de-duplication)
+             */
+            turn_uid?: string | null;
             /**
              * Speaker
              * @description Speaker label as the phone assigned it, e.g. 'Speaker A'

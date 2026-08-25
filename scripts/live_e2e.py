@@ -434,11 +434,15 @@ def build_turn_locals(scene: Scene, session_id: str) -> list[dict]:
     scene's ground truth (``is_self`` + the reserved ``self`` person id for
     the owner, unknown for everyone else)."""
     out = []
-    for t in scene.turns:
+    for i, t in enumerate(scene.turns):
         is_self = scene.is_self(t["speaker"])
         out.append({
             "type": "turn_local",
             "session_id": session_id,
+            # Session resume (server/session_resume.py): the phone's own id
+            # for the turn. Stable across a re-send, which is what lets the
+            # server ignore a copy that was in flight when the socket died.
+            "turn_uid": f"{session_id[-24:]}-{i}",
             "speaker": t["speaker"],
             "speaker_person_id": "self" if is_self else None,
             "speaker_match_score": 0.9 if is_self else None,
@@ -507,6 +511,16 @@ class WsRun:
     session_complete: dict | None = None
     close_code: int | None = None
     error: str | None = None
+    # Session resume (server/session_resume.py): how many times this run's
+    # socket was killed mid-session and resumed, and the turns re-sent after
+    # a drop (the phone is not sure they landed) — which the server must
+    # de-duplicate rather than coach twice.
+    drops: int = 0
+    turns_resent: list[str] = field(default_factory=list)
+    # Audio the SERVER had received when the socket died. The phone's clock
+    # runs on past it through the outage — the gap is exactly what
+    # ``last_local_time`` closes.
+    audio_at_drop: float | None = None
 
     def of_type(self, kind: str) -> list[dict]:
         return [e for _, e in self.events if e.get("type") == kind]
@@ -516,7 +530,8 @@ async def stream_live_session(
     base_url: str, account: Account, scene: Scene, *, session_id: str,
     speed: float = 1.0, config: dict | None = None, stop_timeout_s: float = 60.0,
     pcm: np.ndarray | None = None, turn_locals: list[dict] | None = None,
-    pre_stream=None, post_stream=None,
+    pre_stream=None, post_stream=None, drop_after_turns: int | None = None,
+    drop_seconds: float = 0.0, resend_last_turn: bool = True,
 ) -> WsRun:
     """Stream ``scene`` to the server the way the phone does; return every
     event. Never raises for a protocol-level failure — ``run.error`` says
@@ -528,7 +543,18 @@ async def stream_live_session(
     running, so a call participant can bind (``call_join``) and exchange
     signaling before the first frame; ``post_stream(ws, run)`` after the
     last turn_local and before ``stop`` (a call participant waits for the
-    others to finish talking rather than hanging up on them)."""
+    others to finish talking rather than hanging up on them).
+
+    ``drop_after_turns`` forces the thing a real phone call does: once that
+    many ``turn_local``s have gone out, the socket is KILLED mid-session (no
+    ``stop``, no close handshake), ``drop_seconds`` of audio are captured
+    with nowhere to send them, and a new socket resumes the session
+    (server/session_resume.py) — config, then ``{"type": "resume", …}``
+    carrying the phone's capture clock, then the turns that piled up. With
+    ``resend_last_turn`` the last turn of the dead socket is sent AGAIN (the
+    phone cannot know it landed); the server must ignore the repeat by its
+    ``turn_uid`` instead of coaching it twice. None = one socket, exactly the
+    behaviour every other caller has always had."""
     from websockets.asyncio.client import connect
     from websockets.exceptions import ConnectionClosed
 
@@ -549,14 +575,28 @@ async def stream_live_session(
     }
     url = ws_url(base_url, session_id)
     t_start = time.monotonic()
-    try:
+    pcm_bytes = pcm.astype("<i2").tobytes()
+    n_frames = math.ceil(len(pcm_bytes) / FRAME_BYTES)
+    pending = list(turn_locals)
+    # Session resume: how far the sender got, so the socket after a drop
+    # picks up exactly there. `capture_seconds` is the phone's own clock — it
+    # keeps counting through the outage, which is the whole point.
+    next_frame = 0
+    capture_seconds = 0.0
+    resend: list[dict] = []
+    dropped = False
+
+    async def one_connection(*, first: bool) -> bool:
+        """One socket's worth of the session. Returns True when the caller
+        should reconnect (the drop was forced), False when it is finished."""
+        nonlocal next_frame, capture_seconds, resend, dropped
         async with connect(url, max_size=None, open_timeout=30.0) as ws:
             await ws.send(json.dumps(cfg))
-            first = json.loads(await asyncio.wait_for(ws.recv(), timeout=30.0))
-            run.events.append((time.monotonic(), first))
-            if first.get("type") != "config_ack":
-                run.error = f"expected config_ack, got {first}"
-                return run
+            first_msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=30.0))
+            run.events.append((time.monotonic(), first_msg))
+            if first_msg.get("type") != "config_ack":
+                run.error = f"expected config_ack, got {first_msg}"
+                return False
             run.config_ack = True
 
             done = asyncio.Event()
@@ -581,37 +621,96 @@ async def stream_live_session(
 
             reader_task = asyncio.create_task(reader())
 
+            if not first:
+                # The resume handshake, in the order the phone sends it: the
+                # clock + what of the merged transcript we already have,
+                # BEFORE any buffered turn is flushed, so the server can
+                # de-duplicate the flush.
+                seqs = [
+                    e.get("seq") for _, e in run.events
+                    if e.get("type") == "transcript" and isinstance(e.get("seq"), int)
+                ]
+                await ws.send(json.dumps({
+                    "type": "resume",
+                    "session_id": session_id,
+                    "since_seq": max(seqs) if seqs else 0,
+                    "last_local_time": round(capture_seconds, 3),
+                }))
+
             if pre_stream is not None:
                 try:
                     await pre_stream(ws, run)
                 except Exception as exc:  # noqa: BLE001 — reported, never raised past the report
                     run.error = f"pre_stream: {type(exc).__name__}: {exc}"
                     reader_task.cancel()
-                    return run
+                    return False
+
+            # …and only now the buffered turns: in a call they must land
+            # after pre_stream's `call_join`, or the server would treat them
+            # as a solo session's and never merge them for the others.
+            for ev in resend:
+                await ws.send(json.dumps(ev))
+                run.turns_resent.append(ev["text"])
+            resend = []
 
             # Sender: frames on the (scaled) real-time clock; a turn_local as
             # soon as its audio (+ STT lag) has been streamed.
-            pcm_bytes = pcm.astype("<i2").tobytes()
-            n_frames = math.ceil(len(pcm_bytes) / FRAME_BYTES)
-            pending = list(turn_locals)
             t0 = time.monotonic()
-            for i in range(n_frames):
-                target = t0 + (i * FRAME_MS / 1000.0) / speed
+            frames_at_start = next_frame
+            for i in range(next_frame, n_frames):
+                target = t0 + ((i - frames_at_start) * FRAME_MS / 1000.0) / speed
                 delay = target - time.monotonic()
                 if delay > 0:
                     await asyncio.sleep(delay)
                 frame = pcm_bytes[i * FRAME_BYTES:(i + 1) * FRAME_BYTES]
                 await ws.send(frame)
+                next_frame = i + 1
                 run.frames_sent += 1
+                # The phone's capture clock (what `last_local_time` reports)
+                # vs the audio the SERVER actually received: identical until a
+                # drop, and the gap between them afterwards is exactly what
+                # the re-anchor exists to close.
+                capture_seconds = next_frame * FRAME_MS / 1000.0
                 run.audio_seconds = run.frames_sent * FRAME_MS / 1000.0
-                while pending and pending[0]["end_time"] + STT_LAG_S <= run.audio_seconds:
+                while pending and pending[0]["end_time"] + STT_LAG_S <= capture_seconds:
                     ev = pending.pop(0)
                     await ws.send(json.dumps(ev))
                     run.sent_turns.append((time.monotonic(), ev))
+                    if (
+                        drop_after_turns is not None and not dropped
+                        and len(run.sent_turns) >= drop_after_turns
+                    ):
+                        # The network dies here: no stop, no close frame —
+                        # the socket simply stops existing.
+                        dropped = True
+                        run.drops += 1
+                        run.audio_at_drop = run.audio_seconds
+                        if resend_last_turn:
+                            resend = [ev]
+                        reader_task.cancel()
+                        # A real drop is a TCP reset, not a close handshake:
+                        # abort the transport so the server sees the socket
+                        # vanish mid-conversation. (A close frame with 1006
+                        # is illegal on the wire, and 1000 would look like a
+                        # deliberate hang-up.)
+                        transport = getattr(ws, "transport", None)
+                        if transport is not None:
+                            transport.abort()
+                        else:  # pragma: no cover — older websockets builds
+                            await ws.close(code=1001)
+                        if drop_seconds > 0:
+                            # Audio captured with nowhere to send it: the
+                            # phone's clock moves on, the server's cannot.
+                            await asyncio.sleep(drop_seconds / speed)
+                            skipped = int(drop_seconds * 1000 / FRAME_MS)
+                            next_frame = min(n_frames, next_frame + skipped)
+                            capture_seconds = next_frame * FRAME_MS / 1000.0
+                        return True
                 if done.is_set():
                     break
             # Anything the tail of the audio didn't release (last turn).
-            for ev in pending:
+            for ev in list(pending):
+                pending.pop(0)
                 await asyncio.sleep(STT_LAG_S / speed)
                 await ws.send(json.dumps(ev))
                 run.sent_turns.append((time.monotonic(), ev))
@@ -636,6 +735,12 @@ async def stream_live_session(
             else:
                 reader_task.cancel()
             run.close_code = ws.close_code
+            return False
+
+    try:
+        first = True
+        while await one_connection(first=first):
+            first = False
     except Exception as exc:  # noqa: BLE001 — reported, never raised past the report
         run.error = run.error or f"{type(exc).__name__}: {exc}"
     run.wall_seconds = time.monotonic() - t_start
@@ -1010,6 +1115,7 @@ async def run_e2e(
     analysis_timeout_s: float = 180.0, cleanup: bool = False,
     http: httpx.AsyncClient | None = None, session_id: str | None = None,
     with_watch: bool = False, watch_auth: str = "token", watch_settle_s: float = 1.5,
+    drop_after_turns: int | None = None, drop_seconds: float = 8.0,
 ) -> Report:
     report = Report(scene=scene.name, base_url=base_url, speed=speed, mode=mode)
     own_http = http is None
@@ -1080,13 +1186,17 @@ async def run_e2e(
 
         # --- 3. the live WebSocket session --------------------------------
         started_at = _iso_now()
-        run = await stream_live_session(base_url, patient, scene, session_id=session_id, speed=speed)
+        run = await stream_live_session(
+            base_url, patient, scene, session_id=session_id, speed=speed,
+            drop_after_turns=drop_after_turns, drop_seconds=drop_seconds,
+        )
         ended_at = _iso_now()
         report.data["ws"] = {
             "frames_sent": run.frames_sent, "audio_seconds": run.audio_seconds,
             "wall_seconds": round(run.wall_seconds, 2), "turn_locals": len(run.sent_turns),
             "close_code": run.close_code, "error": run.error,
             "event_counts": _count_types(run),
+            "drops": run.drops,
         }
         if run.error or not run.config_ack or run.session_complete is None:
             report.add("live ws", False,
@@ -1101,6 +1211,33 @@ async def run_e2e(
         errors = [e for _, e in run.events if "error" in e and e.get("type") is None]
         if errors:
             report.add("ws protocol errors", False, f"{len(errors)} {{error}} frames: {errors[:3]}")
+
+        # Session resume (--drop-after-turns): the socket was killed
+        # mid-conversation and a new one resumed the session. Everything the
+        # phone reported must still have been coached exactly once.
+        if drop_after_turns is not None:
+            acks = run.of_type("resume_ack")
+            coached = [s["utterance_text"] for s in run.of_type("suggestion") if not s.get("partial")]
+            repeats = sorted({t for t in coached if coached.count(t) > 1})
+            report.data["resume"] = {
+                "drops": run.drops, "acks": acks,
+                "audio_at_drop": run.audio_at_drop,
+                "turns_resent": run.turns_resent,
+                "turns_sent": len(run.sent_turns),
+                "coached": len(coached), "coached_twice": repeats,
+            }
+            ok = (
+                run.drops == 1 and len(acks) == 1 and acks[0].get("resumed") is True
+                and not repeats and len(run.sent_turns) == len(scene.turns)
+            )
+            report.add("session resume", ok,
+                       f"socket killed after {drop_after_turns} turn(s) + {drop_seconds:g}s of audio the "
+                       f"server never got; resume_ack resumed={acks[0].get('resumed') if acks else None} "
+                       f"known_turns={acks[0].get('known_turns') if acks else None} "
+                       f"last_local_time={acks[0].get('last_local_time') if acks else None}; "
+                       f"{len(run.turns_resent)} turn(s) re-sent after the drop, "
+                       f"{len(run.sent_turns)}/{len(scene.turns)} reported in all, "
+                       f"{len(coached)} coached, {len(repeats)} coached twice{(' ' + str(repeats)) if repeats else ''}")
 
         # latency summary
         lat = (run.session_complete or {}).get("latency_summary")
@@ -2457,6 +2594,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-enroll", action="store_true", help="skip POST /voice/enroll-direct")
     p.add_argument("--analysis-timeout", type=float, default=180.0, help="seconds to wait for the batch analysis")
     p.add_argument("--cleanup", action="store_true", help="delete the episode/voiceprint (+ --signup accounts) afterwards")
+    # session resume (server/session_resume.py)
+    p.add_argument("--drop-after-turns", type=int, default=None, metavar="N",
+                   help="kill the WebSocket mid-session once N turn_locals have gone out, lose "
+                        "--drop-seconds of audio, then resume the session on a new socket (config -> resume -> "
+                        "the buffered turns) and assert nothing was lost or coached twice")
+    p.add_argument("--drop-seconds", type=float, default=8.0,
+                   help="with --drop-after-turns: seconds of audio the phone captures with nowhere to send it "
+                        "(default 8)")
     p.add_argument("--json", action="store_true", help="also print the raw report dict")
     # the watch
     p.add_argument("--with-watch", action="store_true",
@@ -2545,6 +2690,7 @@ async def amain(argv: list[str] | None = None) -> int:
             speed=args.speed, mode=args.mode, enroll=not args.no_enroll,
             analysis_timeout_s=args.analysis_timeout, cleanup=args.cleanup, http=http,
             with_watch=args.with_watch, watch_auth=args.watch_auth,
+            drop_after_turns=args.drop_after_turns, drop_seconds=args.drop_seconds,
         )
     print(format_report(report))
     if args.json:

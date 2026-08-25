@@ -329,6 +329,17 @@ const SAMPLES_PER_FRAME = 1600;
  * reconnect). Beyond that we drop the oldest audio rather than grow forever.
  */
 const MAX_PENDING_SAMPLES = TARGET_SAMPLE_RATE * 5;
+/**
+ * Session resume (server/session_resume.py). A real call drops WiFi/cellular
+ * for ten to thirty seconds; the turns the fast loop finalizes while the
+ * socket is down used to go nowhere (kept only for the end-of-session POST),
+ * so the cloud coach — and, in a call, everyone else's screen — silently
+ * missed them. They are queued here instead and flushed, in order, after the
+ * `resume` frame on the replacement socket. Bounded: past this many the
+ * OLDEST are dropped (the recent turns are the ones still worth coaching) and
+ * the count is logged and reported in the session's diagnostics.
+ */
+const MAX_PENDING_TURNS = 50;
 
 /**
  * Maps the empathy slider to the coaching stance label shown on each
@@ -518,6 +529,21 @@ export function useAudioStream(
   const recentLocalTurnsRef = useRef<{ text: string; hadSuggestion: boolean }[]>([]);
   /** Everything the phone told the server this session, for POST /sessions/live. */
   const localTurnsRef = useRef<TurnLocalEvent[]>([]);
+  /** Session resume: turns finalized while the socket was down, oldest first
+   *  (see MAX_PENDING_TURNS), plus how many the bound has dropped. */
+  const pendingTurnsRef = useRef<TurnLocalEvent[]>([]);
+  const droppedTurnsRef = useRef(0);
+  /** Session resume: 16 kHz samples captured since the session started —
+   *  the phone's capture clock, the one turn_local times are on. Minus what
+   *  is still queued in pendingRef it is the capture time of the NEXT byte
+   *  the server will receive, which is exactly what `last_local_time` means. */
+  const capturedSamplesRef = useRef(0);
+  /** Session resume: the highest merged-call `seq` this client has rendered;
+   *  the server replays the call turns after it. 0 = nothing seen yet. */
+  const lastCallSeqRef = useRef(0);
+  /** Session resume: set when a close schedules a reconnect, so the next
+   *  socket opens with a `resume` handshake instead of a bare config. */
+  const resumeOnOpenRef = useRef(false);
   const toneFlagsRef = useRef<ToneFlagEvent[]>([]);
   const identitiesRef = useRef<SpeakerIdentityEvent[]>([]);
   const sessionStartedAtRef = useRef("");
@@ -656,6 +682,54 @@ export function useAudioStream(
   );
 
   /**
+   * Send one finalized turn to the server, or hold it for the resume flush
+   * when the socket is down (session resume — see MAX_PENDING_TURNS).
+   *
+   * "Down" includes a socket that LOOKS open but throws on send: on a real
+   * network drop the WebSocket is still OPEN for a while before the stack
+   * notices, so the honest test is whether the send actually worked. The turn
+   * is on the session record either way — this is about the LIVE path (cloud
+   * coaching, and the other members of a call seeing it).
+   */
+  const sendOrQueueTurn = useCallback((event: TurnLocalEvent) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify(event));
+        return;
+      } catch {
+        // Fall through: the socket is dead, whatever readyState claims.
+      }
+    }
+    const queue = pendingTurnsRef.current;
+    queue.push(event);
+    if (queue.length > MAX_PENDING_TURNS) {
+      const dropped = queue.length - MAX_PENDING_TURNS;
+      queue.splice(0, dropped);
+      droppedTurnsRef.current += dropped;
+      console.warn(
+        `[useAudioStream] offline turn queue full — dropped ${droppedTurnsRef.current} oldest turn(s)`,
+      );
+    }
+  }, []);
+
+  /**
+   * Session resume: hand the server every turn buffered while the socket was
+   * down, in order. Safe to call on any open: an empty queue is a no-op, and
+   * a turn the server already has is ignored there by its `turn_uid` — so a
+   * turn that was half-sent when the socket died is coached exactly once.
+   * Anything that still fails to send goes back on the queue for the next
+   * reconnect rather than being lost here.
+   */
+  const flushPendingTurns = useCallback(() => {
+    const queued = pendingTurnsRef.current;
+    if (queued.length === 0) return;
+    pendingTurnsRef.current = [];
+    console.log(`[useAudioStream] resume: flushing ${queued.length} buffered turn(s)`);
+    for (const event of queued) sendOrQueueTurn(event);
+  }, [sendOrQueueTurn]);
+
+  /**
    * Stop the fast loop (if one is running), print its latency log, and hand
    * the session record to the server. Idempotent; never throws. Awaiting
    * loop.stop() lets an in-flight final turn finish so its turn_local goes
@@ -761,14 +835,7 @@ export function useAudioStream(
         speak: (text) => speakSuggestion(text),
         send: (event) => {
           localTurnsRef.current.push(event);
-          const ws = wsRef.current;
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            try {
-              ws.send(JSON.stringify(event));
-            } catch {
-              // Socket mid-close: the session record still has the turn.
-            }
-          }
+          sendOrQueueTurn(event);
         },
         onTurn: (turn) => {
           // A voiceprint match (pre-enrolled or learned mid-call) names the
@@ -900,7 +967,7 @@ export function useAudioStream(
         setLiveStatus(`On-device coaching unavailable (${msg}) — using the server.`);
       }
     },
-    [speakSuggestion],
+    [speakSuggestion, sendOrQueueTurn],
   );
 
   /**
@@ -952,6 +1019,11 @@ export function useAudioStream(
         samples = resampler.process(samples);
       }
       const int16 = float32ToInt16(samples);
+      // Session resume: the phone's own capture clock. Counted here, before
+      // anything can drop a frame, so a network outage moves this forward by
+      // the audio the server never received — which is exactly the number the
+      // server needs to re-anchor its timeline on reconnect.
+      capturedSamplesRef.current += int16.length;
       // The on-device fast loop (when running) hears exactly what the server
       // hears — one 16 kHz mono int16 conversion, two consumers.
       fastLoopRef.current?.pushSamples(int16);
@@ -1030,6 +1102,15 @@ export function useAudioStream(
     if (sttFailureRef.current) errors.push(`stt: ${sttFailureRef.current}`);
     if (transcriptionMessageRef.current) errors.push(`transcription: ${transcriptionMessageRef.current}`);
     if (wsReconnectsRef.current > 0) errors.push(`ws reconnects: ${wsReconnectsRef.current}`);
+    // Session resume: turns the offline queue had to drop never reached the
+    // cloud coach (or the other members of a call). They are still on the
+    // stored episode — say so rather than letting the gap look like silence.
+    if (droppedTurnsRef.current > 0) {
+      errors.push(`turns dropped while offline: ${droppedTurnsRef.current}`);
+    }
+    if (pendingTurnsRef.current.length > 0) {
+      errors.push(`turns never delivered live: ${pendingTurnsRef.current.length}`);
+    }
     if (/unavailable|failed/i.test(liveStatusRef.current)) errors.push(`live: ${liveStatusRef.current}`);
     if (lastEpisodeRef.current?.postStatus === "failed") errors.push("POST /sessions/live failed");
     if (call.status === "failed" && call.error) errors.push(`call: ${call.error}`);
@@ -1256,8 +1337,35 @@ export function useAudioStream(
             ...(idToken ? { id_token: idToken } : {}),
           }),
         );
+        // Session resume: this socket replaces one the network killed. Tell
+        // the server where the phone's capture clock is (so its session
+        // timeline re-anchors instead of restarting at 0) and how much of the
+        // merged call transcript we already have. Sent BEFORE call_join so
+        // the binding keeps our clock offset and knows what to replay, and
+        // before any turn flush so the server can de-duplicate it.
+        if (resumeOnOpenRef.current) {
+          resumeOnOpenRef.current = false;
+          ws.send(
+            JSON.stringify({
+              type: "resume",
+              session_id: sessionId,
+              since_seq: lastCallSeqRef.current,
+              // The capture time of the next byte the server will get: what
+              // we have captured, minus what is still queued here.
+              last_local_time:
+                Math.max(
+                  0,
+                  capturedSamplesRef.current - pendingRef.current.length,
+                ) / TARGET_SAMPLE_RATE,
+            }),
+          );
+        }
         // Call mode: (re)announce ourselves in the call on every (re)open.
         callRef.current?.onSocketOpen();
+        // …and only now the turns that piled up while we were down: in a
+        // call they must land after the rebinding, or the server would treat
+        // them as a solo session's and never merge them for the others.
+        flushPendingTurns();
       };
 
       ws.onmessage = (event) => {
@@ -1271,6 +1379,18 @@ export function useAudioStream(
         }
         try {
           const data = JSON.parse(event.data);
+
+          // Session resume: the high-water mark we hand back as `since_seq`,
+          // so a reconnect replays only what we actually missed. Only the
+          // merged CALL transcript carries a seq, and a replayed turn counts
+          // exactly like a live one — they arrive in order either way.
+          if (
+            data.type === "transcript" &&
+            typeof data.seq === "number" &&
+            data.seq > lastCallSeqRef.current
+          ) {
+            lastCallSeqRef.current = data.seq;
+          }
 
           // Call mode: call_state / rtc_signal / call_ended belong to the
           // call state machine (src/live/call/callSession.ts). call_ended
@@ -1509,6 +1629,27 @@ export function useAudioStream(
               );
               setSpeakerLabel((current) => (current === from ? to : current));
             }
+          } else if (data.type === "resume_ack") {
+            // Session resume: the server accepted the handshake. `resumed:
+            // false` means it had no memory of this session (a restart, or
+            // the state timed out) — the clock is still re-anchored and our
+            // own transcript is untouched, so the session simply carries on
+            // with the words we already have on screen.
+            console.log(
+              `[useAudioStream] resume_ack resumed=${data.resumed} ` +
+                `since_seq=${data.since_seq} known_turns=${data.known_turns}`,
+            );
+          } else if (data.type === "resume_replay") {
+            // The merged call turns we missed follow as `transcript` frames
+            // (flagged `replay: true`); they render through the same path as
+            // a live one. `dropped` is the server being honest about turns
+            // older than its replay cap.
+            const dropped = typeof data.dropped === "number" ? data.dropped : 0;
+            if (dropped > 0) {
+              setLiveStatus(
+                `Reconnected — ${dropped} earlier turn${dropped === 1 ? "" : "s"} could not be replayed.`,
+              );
+            }
           } else if (data.type === "transcription_unavailable") {
             // Be explicit instead of silently showing an empty live screen.
             setTranscriptionAvailable(false);
@@ -1554,6 +1695,9 @@ export function useAudioStream(
         ) {
           reconnectAttempts.current += 1;
           wsReconnectsRef.current += 1;
+          // The replacement socket resumes this session rather than starting
+          // a fresh one (session resume).
+          resumeOnOpenRef.current = true;
           setTimeout(() => {
             if (shouldReconnect.current) {
               connectWebSocket(sessionId);
@@ -1588,6 +1732,7 @@ export function useAudioStream(
       releaseCapture,
       stopFastLoop,
       recordSessionDiagnostics,
+      flushPendingTurns,
     ],
   );
 
@@ -1764,6 +1909,13 @@ export function useAudioStream(
       liveSttFailedRef.current = false;
       pendingRef.current = new Int16Array(0);
       resamplerRef.current = null;
+      // Session resume: a new session resumes nothing and starts its clock,
+      // its offline queue and its merged-transcript high-water mark at zero.
+      pendingTurnsRef.current = [];
+      droppedTurnsRef.current = 0;
+      capturedSamplesRef.current = 0;
+      lastCallSeqRef.current = 0;
+      resumeOnOpenRef.current = false;
       // Fresh session, fresh protocol detection: don't let the previous
       // server's transcript events silence a legacy server's fallback.
       sawTranscriptEventRef.current = false;

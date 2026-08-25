@@ -12,6 +12,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-1",
       "speaker": "Unknown",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -40,6 +41,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-2",
       "speaker": "Speaker A",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -68,6 +70,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-3",
       "speaker": "Speaker B",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -96,6 +99,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-4",
       "speaker": "Speaker B",
       "speaker_person_id": null,
       "speaker_match_score": 0.6491897257177087,
@@ -124,6 +128,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-5",
       "speaker": "Speaker C",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -152,6 +157,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-6",
       "speaker": "Speaker D",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -180,6 +186,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-7",
       "speaker": "Speaker E",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -208,6 +215,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-8",
       "speaker": "Unknown",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -236,6 +244,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-9",
       "speaker": "Speaker A",
       "speaker_person_id": null,
       "speaker_match_score": 0.579215531841209,
@@ -264,6 +273,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-10",
       "speaker": "Speaker A",
       "speaker_person_id": "p-Speaker A",
       "speaker_match_score": 0.8373330966633326,
@@ -292,6 +302,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-11",
       "speaker": "Unknown",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -320,6 +331,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-12",
       "speaker": "Speaker A",
       "speaker_person_id": null,
       "speaker_match_score": 0.602907970473476,
@@ -348,6 +360,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-13",
       "speaker": "Unknown",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -376,6 +389,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-14",
       "speaker": "Speaker C",
       "speaker_person_id": null,
       "speaker_match_score": 0.7536232186670985,
@@ -404,6 +418,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-15",
       "speaker": "Speaker B",
       "speaker_person_id": null,
       "speaker_match_score": 0.6799885944247235,
@@ -432,6 +447,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-16",
       "speaker": "Speaker B",
       "speaker_person_id": null,
       "speaker_match_score": 0.5536235873638702,
@@ -460,6 +476,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-17",
       "speaker": "Speaker A",
       "speaker_person_id": null,
       "speaker_match_score": 0.5837004656811309,
@@ -488,6 +505,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-18",
       "speaker": "Speaker A",
       "speaker_person_id": null,
       "speaker_match_score": 0.691889289042012,
@@ -516,6 +534,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-19",
       "speaker": "Speaker C",
       "speaker_person_id": null,
       "speaker_match_score": 0.7272607816304267,
@@ -544,6 +563,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-20",
       "speaker": "Speaker C",
       "speaker_person_id": null,
       "speaker_match_score": 0.6793682865358933,
@@ -572,6 +592,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-21",
       "speaker": "Speaker A",
       "speaker_person_id": "p-Speaker A",
       "speaker_match_score": 0.6814031137564718,
@@ -600,6 +621,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-22",
       "speaker": "Speaker A",
       "speaker_person_id": "p-Speaker A",
       "speaker_match_score": 0.7132251945089888,
@@ -628,6 +650,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-23",
       "speaker": "Speaker A",
       "speaker_person_id": null,
       "speaker_match_score": 0.753500119370187,
@@ -656,6 +679,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-24",
       "speaker": "Speaker F",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -684,6 +708,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-25",
       "speaker": "Unknown",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -712,6 +737,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-26",
       "speaker": "Unknown",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -740,6 +766,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-27",
       "speaker": "Speaker B",
       "speaker_person_id": null,
       "speaker_match_score": 0.582695383756837,
@@ -768,6 +795,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-28",
       "speaker": "Speaker B",
       "speaker_person_id": null,
       "speaker_match_score": 0.6830075656367601,
@@ -796,6 +824,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-29",
       "speaker": "Speaker B",
       "speaker_person_id": null,
       "speaker_match_score": 0.6201329261461157,
@@ -824,6 +853,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-30",
       "speaker": "Speaker G",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -852,6 +882,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-31",
       "speaker": "Speaker A",
       "speaker_person_id": "p-Speaker A",
       "speaker_match_score": 0.7212216087783353,
@@ -880,6 +911,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-32",
       "speaker": "Unknown",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -908,6 +940,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-33",
       "speaker": "Speaker A",
       "speaker_person_id": null,
       "speaker_match_score": 0.5832434590014436,
@@ -936,6 +969,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_meeting4-earpiece",
+      "turn_uid": "replay-scene_meeting4-earpiece-34",
       "speaker": "Speaker A",
       "speaker_person_id": null,
       "speaker_match_score": 0.5929737180977434,

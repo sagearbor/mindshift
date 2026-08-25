@@ -360,7 +360,8 @@ def _account(uid: str, email: str, token: str) -> live_e2e.Account:
     return live_e2e.Account(email=email, ws_token=token, headers={"X-Test-Uid": uid}, uid=uid)
 
 
-async def _run_scene(scene_name: str, base_url: str, store: MemoryStore, monkeypatch) -> live_e2e.Report:
+async def _run_scene(scene_name: str, base_url: str, store: MemoryStore, monkeypatch,
+                     **overrides) -> live_e2e.Report:
     scene = live_e2e.load_scene(scene_name)
     monkeypatch.setattr(audio_pipeline, "speaker_id", LabelEchoSpeakerId(scene.self_speaker))
     # The account "enrolled" earlier: one self voiceprint (the embedding is
@@ -374,6 +375,7 @@ async def _run_scene(scene_name: str, base_url: str, store: MemoryStore, monkeyp
         base_url=base_url, patient=patient, therapist=therapist, scene=scene,
         speed=25.0, mode="earpiece", enroll=False, analysis_timeout_s=30.0,
         session_id=f"e2e-{scene.name}-{int(time.time() * 1000)}",
+        **overrides,
     )
 
 
@@ -405,6 +407,50 @@ async def test_live_e2e_inprocess(scene_name, live_server, e2e_env, monkeypatch)
     assert data["therapist_row"]["escalation_turns"] == scene.expected_self_escalations
     assert data["therapist_row"]["couldHaveSaid"] == len(scene.self_turn_indexes)
     assert data["growth_point"]["my_score"] == 64
+
+
+async def test_live_e2e_inprocess_survives_a_mid_session_disconnect(
+    live_server, e2e_env, monkeypatch,
+):
+    """The same walk with the network dying in the middle of it
+    (server/session_resume.py).
+
+    After four turns the socket is killed outright — no ``stop``, no close
+    handshake — eight seconds of audio are captured with nowhere to send
+    them, and a new socket resumes the session: ``config``, then ``resume``
+    carrying the phone's capture clock, then the turn the phone is not sure
+    landed plus the ones it buffered while down. The conversation must come
+    out the other side whole: every scene turn reported, nothing coached
+    twice, and the stored episode identical to a clean run's.
+    """
+    scene_name = "scene_couple_escalation"
+    report = await _run_scene(
+        scene_name, live_server, e2e_env, monkeypatch,
+        drop_after_turns=4, drop_seconds=8.0,
+    )
+    text = live_e2e.format_report(report)
+    print("\n" + text)
+    assert not report.failures, text
+
+    scene = live_e2e.load_scene(scene_name)
+    data = report.data
+    resume = data["resume"]
+    assert data["ws"]["drops"] == 1 and data["ws"]["close_code"] == 1000
+    # The server remembered the session across the drop and said so.
+    [ack] = resume["acks"]
+    assert ack["resumed"] is True and ack["known_turns"] == 4
+    # …and re-anchored its clock to the phone's: the audio it had actually
+    # received when the socket died, plus the eight seconds it never got.
+    assert ack["last_local_time"] == pytest.approx(resume["audio_at_drop"] + 8.0, abs=0.11)
+    # The turn that was in flight when the socket died was sent again and
+    # ignored — every turn coached exactly once.
+    assert resume["turns_resent"] == [scene.turns[3]["text"]]
+    assert resume["coached_twice"] == []
+    assert data["ws"]["turn_locals"] == len(scene.turns)
+    assert data["suggestions"]["errors"] == 0
+    # The episode is the whole conversation, drop and all.
+    assert data["detail"]["escalation_turns"] == scene.expected_self_escalations
+    assert data["therapist_row"]["couldHaveSaid"] == len(scene.self_turn_indexes)
 
 
 # ---------------------------------------------------------------------------

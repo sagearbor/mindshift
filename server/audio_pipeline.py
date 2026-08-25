@@ -42,6 +42,7 @@ from pydantic import ValidationError
 
 import calls
 import llm_client
+import session_resume
 from llm_client import LLMClient
 from models.audio import (
     DiarizationConfig,
@@ -1002,6 +1003,30 @@ class PcmRingBuffer:
             del self._buf[:excess]
             self._dropped_bytes += excess
 
+    def rebase(self, seconds: float) -> None:
+        """Session resume: declare that the NEXT byte appended sits at
+        ``seconds`` on the session timeline (server/session_resume.py).
+
+        A reconnecting phone kept capturing through the drop, so its clock is
+        ahead of this buffer's "audio received" count by everything the dead
+        socket swallowed. Re-anchoring here keeps the phone's turn_local times
+        addressing the right audio instead of every later slice being wrong by
+        the length of the outage.
+
+        What is NOT recovered is the audio itself: the held bytes are dropped
+        (they belong to the pre-drop timeline) and the outage is a HOLE — a
+        slice over it comes back short or empty, and every consumer of a slice
+        already degrades to "no enrichment" rather than a confident wrong
+        answer. Going BACKWARDS is refused: a client may only tell us the
+        timeline moved on, never rewrite audio we already placed.
+        """
+        origin = int(max(0.0, seconds) * self.sample_rate) * 2
+        if origin <= self.total_bytes:
+            return
+        self._buf.clear()
+        self._dropped_bytes = origin
+        self.total_bytes = origin
+
     def slice(self, start_s: float, end_s: float) -> bytes:
         """Raw PCM16 bytes for ``[start_s, end_s)`` on the session timeline,
         clamped to what is still held. Empty when nothing usable remains
@@ -1296,6 +1321,52 @@ class SessionContext:
     # "participant" (coached) or "therapist" (observer: transcribed and
     # merged, never coached; receives the participants' coaching read-only).
     call_role: str | None = None
+    # Session resume (server/session_resume.py) — surviving a network drop.
+    # `resume_state` is this session's PROCESS-LOCAL, cross-connection memory
+    # (the turn_uids already processed); acquired right after auth, so the
+    # FIRST connection's turns are known to the second. `resumed` records that
+    # this connection presented a `resume` frame — it keeps a rebound call
+    # participant's clock offset (calls.Call.bind) and is reported in the ack.
+    # `replay_since_seq` holds a resume's since_seq until the socket is bound
+    # to its call (the client sends resume BEFORE call_join, so the replay can
+    # only happen once we know which call it means).
+    resume_state: "session_resume.ResumeState | None" = None
+    resumed: bool = False
+    replay_since_seq: int | None = None
+
+
+def _transcript_frame(
+    session_id: str, call: "calls.Call | None", turn: dict, *,
+    display_name: str, replay: bool = False,
+) -> dict:
+    """The ``transcript`` event for ONE merged call turn, as another member's
+    socket renders it. Shared by the live push (``on_remote_turn``) and the
+    resume replay so a replayed turn is byte-identical to the one the drop
+    swallowed — except for ``replay: true``, which is present ONLY on a replay
+    (a client that never resumes sees exactly the pre-resume wire)."""
+    frame = {
+        "type": "transcript",
+        "session_id": session_id,
+        "speaker": turn["speaker"],
+        "display_name": display_name,
+        "role": turn.get("role"),
+        "text": turn["text"],
+        "start_time": turn["start_time"],
+        "end_time": turn["end_time"],
+        "call_id": call.call_id if call is not None else None,
+        "participant_uid": turn.get("participant_uid"),
+        "is_self": False,
+        "seq": turn.get("seq"),
+        "local_start_time": turn.get("local_start_time"),
+        "local_end_time": turn.get("local_end_time"),
+        # The sender's on-device measurements, so an observer can
+        # run the scoreboard over the whole conversation.
+        "text_tone": turn.get("text_tone"),
+        "prosody": turn.get("prosody"),
+    }
+    if replay:
+        frame["replay"] = True
+    return frame
 
 
 def _remember_utterance(ctx: SessionContext, utterance: Utterance) -> None:
@@ -1632,6 +1703,57 @@ async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                                                — per-stage ms percentiles for
                                                  local-first / report_latency clients
 
+    Session resume (2026-08-25, server/session_resume.py) — a live session (or
+    call) survives a 10–30 s network drop. All session state is per-CONNECTION,
+    so without this a drop lost the turns produced while the socket was down,
+    restarted the server's session clock at 0 while the phone's capture clock
+    kept counting, and left a hole in the merged call transcript. On reconnect
+    the client re-authenticates with a ``config`` and then sends, BEFORE any
+    audio and before ``call_join``:
+    Client → Server (text):
+        {"type": "resume", "session_id", "since_seq": N,
+         "last_local_time": t}                 — N is the highest merged-call
+                                                 ``seq`` this client rendered
+                                                 (0 = nothing); t is the phone's
+                                                 capture-clock time of the NEXT
+                                                 audio byte it will send. The
+                                                 server re-anchors its session
+                                                 timeline (PCM ring buffer +
+                                                 transcriber offset) to t
+                                                 instead of restarting at 0.
+                                                 The dropped audio becomes a
+                                                 HOLE, never a shift.
+        turn_local + "turn_uid"                — every turn carries a
+                                                 client-generated id; the phone
+                                                 buffers the turns it could not
+                                                 send and flushes them in order
+                                                 after ``resume``. A turn_uid
+                                                 this session already processed
+                                                 (even on an earlier connection)
+                                                 is IGNORED entirely — silently,
+                                                 exactly once being the point.
+    Server → Client (text):
+        {"type": "resume_ack", "session_id", "resumed": bool, "since_seq",
+         "last_local_time", "known_turns"}     — ``resumed: false`` means the
+                                                 server had no memory of this
+                                                 session (restart / TTL sweep);
+                                                 the clock is still re-anchored.
+        {"type": "resume_replay", "call_id", "since_seq", "replayed",
+         "dropped"}                            — followed by ``replayed``
+                                                 ``transcript`` frames with
+                                                 ``"replay": true``: the merged
+                                                 call turns missed during the
+                                                 drop, oldest-dropped past
+                                                 RESUME_REPLAY_MAX. Replays
+                                                 RENDER only — a turn from
+                                                 twenty seconds ago is history,
+                                                 so none is re-coached. A SOLO
+                                                 session has nothing to replay
+                                                 (the server keeps no transcript
+                                                 for one — the phone holds it);
+                                                 it resumes for the clock and
+                                                 the de-duplication.
+
     In-app calls (2026-08-25, server/calls.py) — MindShift IS the call, so
     every side can be coached. Audio is peer-to-peer (WebRTC, full mesh);
     this socket carries the signaling and the merged transcript. Members
@@ -1754,6 +1876,14 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
     # 4401; just return (no worker task has been created yet, so nothing leaks).
     if not await _authenticate(websocket, ctx, send_json):
         return
+
+    # Session resume (server/session_resume.py): the cross-connection memory
+    # of which turns this session has already processed. Acquired for EVERY
+    # session, not just resumed ones — a first connection has to record its
+    # turn ids for the second one to be able to de-duplicate against them.
+    ctx.resume_state, resume_state_known = session_resume.registry.attach(
+        session_id, ctx.uid or "",
+    )
 
     # Resolve providers from app.state (tests inject doubles here), falling
     # back to the real, credential-gated implementations.
@@ -2244,26 +2374,9 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         async def on_remote_turn(self, turn: dict, *, display_name: str) -> None:
             received = ctx.latency.now()
             call = ctx.call
-            await send_json({
-                "type": "transcript",
-                "session_id": session_id,
-                "speaker": turn["speaker"],
-                "display_name": display_name,
-                "role": turn.get("role"),
-                "text": turn["text"],
-                "start_time": turn["start_time"],
-                "end_time": turn["end_time"],
-                "call_id": call.call_id if call is not None else None,
-                "participant_uid": turn.get("participant_uid"),
-                "is_self": False,
-                "seq": turn.get("seq"),
-                "local_start_time": turn.get("local_start_time"),
-                "local_end_time": turn.get("local_end_time"),
-                # The sender's on-device measurements, so an observer can
-                # run the scoreboard over the whole conversation.
-                "text_tone": turn.get("text_tone"),
-                "prosody": turn.get("prosody"),
-            })
+            await send_json(_transcript_frame(
+                session_id, call, turn, display_name=display_name,
+            ))
             utterance = Utterance(
                 session_id=session_id,
                 speaker=turn["speaker"],
@@ -2297,6 +2410,96 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             ctx.call = None
 
     call_endpoint = _CallSessionEndpoint()
+
+    async def replay_missed_call_turns() -> None:
+        """Hand a just-rebound socket the merged call turns it missed while it
+        was down (server/session_resume.py). Rendering only: a turn from
+        twenty seconds ago is history, not a coaching moment, so nothing is
+        enqueued for the LLM — replaying into the coach would spend tokens to
+        answer a question the conversation has already moved past (and would
+        double-coach every turn a client re-resumed over)."""
+        since = ctx.replay_since_seq
+        call = ctx.call
+        ctx.replay_since_seq = None
+        if call is None or since is None:
+            return
+        rows, dropped = call.turns_since(ctx.uid or "", since)
+        await send_json({
+            "type": "resume_replay",
+            "session_id": session_id,
+            "call_id": call.call_id,
+            "since_seq": since,
+            "replayed": len(rows),
+            "dropped": dropped,
+        })
+        for row in rows:
+            await send_json(_transcript_frame(
+                session_id, call, row, replay=True,
+                display_name=call.display_name_for(ctx.uid or "", row.get("participant_uid") or ""),
+            ))
+        logger.info(
+            "Session %s replayed %d call turn(s) after seq %d (%d dropped by the cap)",
+            session_id, len(rows), since, dropped,
+        )
+
+    async def handle_resume(payload: dict) -> None:
+        """A reconnecting client's ``resume`` frame — see session_resume.py.
+
+        Three things, none of which can fail the session: re-anchor the
+        session clock to the phone's capture clock, adopt the turn ids this
+        session already processed (so the flush that follows is de-duplicated
+        across the drop), and arrange for the merged call turns the client
+        missed to be replayed. The ack says exactly what was honoured — a
+        client whose state is gone (a server restart, a TTL sweep, a different
+        process) is told ``resumed: false`` rather than left to guess.
+        """
+        if payload.get("session_id") not in (None, session_id):
+            await send_json({"error": "resume session_id mismatch"})
+            return
+        since = session_resume.clean_since_seq(payload.get("since_seq"))
+        local_time = session_resume.clean_local_time(payload.get("last_local_time"))
+        # `known` is False when the server had no memory of this session
+        # before this socket (a restart, a TTL sweep, another process, or a
+        # first connection that resumed for no reason). The handshake still
+        # re-anchors the clock — that part needs nothing but the client's own
+        # number — and the turn ids from here on are still de-duplicated.
+        state = ctx.resume_state
+        known = resume_state_known
+        if state is None:  # defensive: auth always attaches one
+            state = session_resume.registry.acquire(session_id, ctx.uid or "")
+            ctx.resume_state = state
+            known = False
+        ctx.resumed = True
+        state.resumes += 1
+        if local_time is not None:
+            ctx.pcm.rebase(local_time)
+            # Deepgram stamps segments from the start of ITS connection's
+            # audio; the replacement transcriber's 0 is now this instant on
+            # the re-anchored session timeline (same reasoning as the
+            # mid-session transcriber reconnect below).
+            ctx.transcriber_offset_s = ctx.pcm.seconds_received
+            state.last_local_time = local_time
+        ctx.replay_since_seq = since
+        logger.info(
+            "Session %s resumed (known=%s, since_seq=%d, last_local_time=%s, "
+            "%d turn id(s) remembered)",
+            session_id, known, since, local_time, state.known_turns,
+        )
+        await send_json({
+            "type": "resume_ack",
+            "session_id": session_id,
+            # False = the server had no memory of this session; the client
+            # keeps its own transcript and simply carries on.
+            "resumed": known,
+            "since_seq": since,
+            "last_local_time": ctx.pcm.seconds_received if local_time is not None else None,
+            "known_turns": state.known_turns,
+        })
+        if ctx.call is not None:
+            # Already bound (the client resumed after call_join, or never
+            # dropped the binding): replay now. Otherwise the replay waits for
+            # the call_join that follows.
+            await replay_missed_call_turns()
 
     # Wrong join codes presented on THIS socket (calls.JOIN_ATTEMPTS_MAX):
     # the WebSocket has no per-request rate limiter, so the frame bounds
@@ -2338,6 +2541,10 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 await ctx.call.leave(ctx.uid, call_endpoint)
             participant = await call.bind(
                 ctx.uid, call_endpoint, store=recordings_store, display_name=display_name,
+                # A resumed socket is the SAME capture clock: keep the
+                # sender→call-timeline offset instead of re-fixing it (which
+                # would land the rest of this member's turns in the past).
+                resume=ctx.resumed,
             )
         except calls.CallError as exc:
             await send_json({"error": f"call_join: {exc.detail}"})
@@ -2352,6 +2559,9 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             "Session %s bound to call %s as %s (%s, %s)",
             session_id, call.call_id, participant.slot, participant.label, participant.role,
         )
+        # A resume that arrived before the binding: now we know which call the
+        # missed turns belong to.
+        await replay_missed_call_turns()
 
     # Signaling frames this socket may relay per second (burst + refill):
     # the relay copies each one to another member's socket, so the bound
@@ -2587,6 +2797,18 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                     if event.end_time < event.start_time:
                         await send_json({"error": "turn_local end_time before start_time"})
                         continue
+                    # Session resume: a turn this session already processed on
+                    # an earlier connection (the phone flushed its offline
+                    # queue and this one was in flight when the socket died).
+                    # Ignored ENTIRELY — no coaching, no enrichment, no merge,
+                    # no delivery to the other members — and silently: the
+                    # client asked for exactly-once and got it.
+                    turn_uid = session_resume.clean_turn_uid(event.turn_uid)
+                    if ctx.resume_state is not None and not ctx.resume_state.remember(turn_uid):
+                        logger.info(
+                            "Session %s ignoring re-sent turn %s", session_id, turn_uid,
+                        )
+                        continue
                     if ctx.call is not None:
                         # In a call the phone only ever hears its owner: the
                         # turn is this member's, whatever label its
@@ -2623,6 +2845,10 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                     )
                     await send_json(ack)
                     await apply_call_speaker_label(ack)
+                elif msg_type == "resume":
+                    # Reconnect after a network drop: re-anchor the clock,
+                    # adopt this session's turn ids, replay what was missed.
+                    await handle_resume(payload)
                 elif msg_type == "call_join":
                     await handle_call_join(payload)
                 elif msg_type == "rtc_signal":
@@ -2686,6 +2912,10 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                     # protocol (local_first); the legacy payload stays exact.
                     if ctx.local_first or ctx.report_latency:
                         completion["latency_summary"] = ctx.latency.summary()
+                    # A graceful stop is the end of the session: there is
+                    # nothing left to resume, so its cross-connection state
+                    # goes now rather than waiting out the TTL.
+                    session_resume.registry.forget(session_id)
                     # Bound the final send + close too — a connected-but-not-reading
                     # client must not hang the stop indefinitely.
                     with contextlib.suppress(Exception):

@@ -27,6 +27,10 @@ TtsSource = Literal["on-device", "server"]
 # inside the 60 000-char per-session cap the ingest endpoint enforces.
 TURN_TEXT_MAX = 8_000
 TURN_SPEAKER_MAX = 64
+# Session resume (server/session_resume.py, which imports this and pins the
+# id's SHAPE): the opaque client-generated turn id that lets the server ignore
+# a turn re-sent after a network drop.
+TURN_UID_MAX = 64
 TURN_LABEL_MAX = 64
 TURN_PERSON_ID_MAX = 200
 
@@ -186,6 +190,15 @@ class TurnLocalEvent(BaseModel):
     """
     type: str = Field(default="turn_local", description="Event type discriminator")
     session_id: str = Field(max_length=128)
+    # Session resume (server/session_resume.py): a client-generated id unique
+    # to this turn. The phone buffers turns it could not send during a network
+    # drop and re-sends them after the `resume` handshake; the server ignores
+    # any turn_uid it already processed on an earlier connection, so a turn
+    # that was in flight when the socket died is never coached, merged or
+    # delivered twice. Optional — a client that sends none behaves exactly as
+    # it did before resume existed (no de-duplication).
+    turn_uid: str | None = Field(default=None, max_length=TURN_UID_MAX,
+                                 description="Client-generated unique id for this turn (resume de-duplication)")
     speaker: str = Field(max_length=TURN_SPEAKER_MAX, description="Speaker label as the phone assigned it, e.g. 'Speaker A'")
     speaker_person_id: str | None = Field(default=None, max_length=TURN_PERSON_ID_MAX, description="Matched person/profile id, if any")
     speaker_match_score: float | None = Field(default=None, allow_inf_nan=False, description="Voiceprint similarity that produced the match")

@@ -12,6 +12,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_family3-earpiece",
+      "turn_uid": "replay-scene_family3-earpiece-1",
       "speaker": "Speaker A",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -40,6 +41,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_family3-earpiece",
+      "turn_uid": "replay-scene_family3-earpiece-2",
       "speaker": "Speaker A",
       "speaker_person_id": null,
       "speaker_match_score": 0.658026910138528,
@@ -68,6 +70,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_family3-earpiece",
+      "turn_uid": "replay-scene_family3-earpiece-3",
       "speaker": "Unknown",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -96,6 +99,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_family3-earpiece",
+      "turn_uid": "replay-scene_family3-earpiece-4",
       "speaker": "Speaker B",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -124,6 +128,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_family3-earpiece",
+      "turn_uid": "replay-scene_family3-earpiece-5",
       "speaker": "Unknown",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -152,6 +157,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_family3-earpiece",
+      "turn_uid": "replay-scene_family3-earpiece-6",
       "speaker": "Speaker C",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -180,6 +186,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_family3-earpiece",
+      "turn_uid": "replay-scene_family3-earpiece-7",
       "speaker": "Speaker B",
       "speaker_person_id": null,
       "speaker_match_score": 0.6619956624588799,
@@ -208,6 +215,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_family3-earpiece",
+      "turn_uid": "replay-scene_family3-earpiece-8",
       "speaker": "Speaker A",
       "speaker_person_id": "p-Speaker A",
       "speaker_match_score": 0.6953944184469381,
@@ -236,6 +244,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_family3-earpiece",
+      "turn_uid": "replay-scene_family3-earpiece-9",
       "speaker": "Speaker A",
       "speaker_person_id": null,
       "speaker_match_score": 0.7090467026654377,
@@ -264,6 +273,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_family3-earpiece",
+      "turn_uid": "replay-scene_family3-earpiece-10",
       "speaker": "Unknown",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -292,6 +302,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_family3-earpiece",
+      "turn_uid": "replay-scene_family3-earpiece-11",
       "speaker": "Unknown",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -320,6 +331,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_family3-earpiece",
+      "turn_uid": "replay-scene_family3-earpiece-12",
       "speaker": "Speaker C",
       "speaker_person_id": null,
       "speaker_match_score": 0.569019525716133,
@@ -348,6 +360,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_family3-earpiece",
+      "turn_uid": "replay-scene_family3-earpiece-13",
       "speaker": "Speaker A",
       "speaker_person_id": null,
       "speaker_match_score": 0.5807000148234822,
@@ -376,6 +389,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_family3-earpiece",
+      "turn_uid": "replay-scene_family3-earpiece-14",
       "speaker": "Speaker A",
       "speaker_person_id": null,
       "speaker_match_score": 0.6238123331384667,
@@ -404,6 +418,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_family3-earpiece",
+      "turn_uid": "replay-scene_family3-earpiece-15",
       "speaker": "Speaker D",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -432,6 +447,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_family3-earpiece",
+      "turn_uid": "replay-scene_family3-earpiece-16",
       "speaker": "Speaker A",
       "speaker_person_id": "p-Speaker A",
       "speaker_match_score": 0.7389379675155628,
@@ -460,6 +476,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_family3-earpiece",
+      "turn_uid": "replay-scene_family3-earpiece-17",
       "speaker": "Speaker E",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -488,6 +505,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_family3-earpiece",
+      "turn_uid": "replay-scene_family3-earpiece-18",
       "speaker": "Unknown",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -516,6 +534,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_family3-earpiece",
+      "turn_uid": "replay-scene_family3-earpiece-19",
       "speaker": "Speaker A",
       "speaker_person_id": "p-Speaker A",
       "speaker_match_score": 0.7019602143383891,
@@ -544,6 +563,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_family3-earpiece",
+      "turn_uid": "replay-scene_family3-earpiece-20",
       "speaker": "Speaker A",
       "speaker_person_id": "p-Speaker A",
       "speaker_match_score": 0.7442603932054985,
@@ -572,6 +592,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_family3-earpiece",
+      "turn_uid": "replay-scene_family3-earpiece-21",
       "speaker": "Speaker A",
       "speaker_person_id": null,
       "speaker_match_score": 0.5753312040402834,
@@ -600,6 +621,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_family3-earpiece",
+      "turn_uid": "replay-scene_family3-earpiece-22",
       "speaker": "Speaker A",
       "speaker_person_id": null,
       "speaker_match_score": 0.7550248331017279,
@@ -628,6 +650,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_family3-earpiece",
+      "turn_uid": "replay-scene_family3-earpiece-23",
       "speaker": "Speaker B",
       "speaker_person_id": null,
       "speaker_match_score": 0.6906074814965297,
@@ -656,6 +679,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_family3-earpiece",
+      "turn_uid": "replay-scene_family3-earpiece-24",
       "speaker": "Speaker A",
       "speaker_person_id": "p-Speaker A",
       "speaker_match_score": 0.6744347999128832,

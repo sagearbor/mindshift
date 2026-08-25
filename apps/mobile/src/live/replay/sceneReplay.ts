@@ -331,6 +331,10 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
     speakHoldMaxMs: opts.speakHoldMaxMs,
     speakQuietMs: opts.speakQuietMs,
     pollMs: 50,
+    // Deterministic turn ids: the replay is offline and its dumps are a
+    // committed cross-language fixture, so regenerating one must not churn
+    // every line. A real session draws a random prefix.
+    turnUidPrefix: `replay-${scene.name}-${opts.mode}`.slice(0, 40),
   });
 
   await loop.start({ sessionId: `replay-${scene.name}-${opts.mode}`, mode: opts.mode, empathy: opts.empathy });
