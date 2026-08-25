@@ -1022,3 +1022,54 @@ class TestCallModel:
         assert calls.ice_servers() == [{"urls": [calls.DEFAULT_STUN_URL]}]
         monkeypatch.setenv("MINDSHIFT_CALL_JOIN_BASE", "mindshift://call/")
         assert calls.join_url("ABCDEF") == "mindshift://call/ABCDEF"
+
+
+# ---------------------------------------------------------------------------
+# Adversarial review (multi-tenant): registry growth, roles, brute force,
+# relay flooding, reconnect clocks
+# ---------------------------------------------------------------------------
+
+class TestRegistryBounds:
+    def test_active_call_nobody_ever_connected_expires_at_ttl(self, env):
+        """Host creates, the invitee joins over REST, no socket ever binds:
+        the call went ACTIVE and must still expire at its TTL — otherwise it
+        lives in the registry forever."""
+        created = _create(env, invitee_email=EMAILS[PEER], ttl_minutes=1)
+        assert _join(env, created["call_id"], PEER)[0] == 200
+        call = calls.registry.get(created["call_id"])
+        assert call.status == "active"
+        call.expires_at = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+        assert calls.registry.get(created["call_id"]).status == "ended"
+        assert call.end_reason == "expired"
+        assert _join(env, created["call_id"], THIRD, join_code=created["join_code"])[0] == 410
+
+    def test_active_call_with_a_socket_never_expires_by_clock(self, env):
+        created = _create(env, invitee_email=EMAILS[PEER], ttl_minutes=1)
+        cid = created["call_id"]
+        _join(env, cid, PEER)
+        with open_ws(env.client, f"/ws/session/{HOST_SID}", token=HOST_TOKEN) as host:
+            _bind(host, cid)
+            call = calls.registry.get(cid)
+            call.expires_at = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+            assert calls.registry.get(cid).status == "active"
+
+    def test_one_account_cannot_fill_the_registry(self, env, monkeypatch):
+        """Retained ENDED calls must not count against everyone else, and one
+        host has a cap on un-ended calls — a single tenant can't 503 the
+        rest by creating calls in a loop."""
+        monkeypatch.setattr(calls, "MAX_CALLS", 3)
+        monkeypatch.setattr(calls, "MAX_OPEN_CALLS_PER_HOST", 2)
+        c1 = _create(env)
+        c2 = _create(env)
+        res = env.client.post("/calls", json={}, headers=_h(HOST))
+        assert res.status_code == 429, res.text  # the host's own cap
+        # Ending one frees the seat.
+        env.client.post(f"/calls/{c1['call_id']}/end", headers=_h(HOST))
+        c3 = _create(env)
+        # Another tenant: the retained ended call (c1) is evicted before a
+        # live call is refused; two live calls (c2, c3) + this one = MAX_CALLS.
+        c4 = _create(env, uid=PEER)
+        assert calls.registry.get(c1["call_id"]) is None
+        assert {c["call_id"] for c in (c2, c3, c4)} <= set(calls.registry._calls)
+        # Only live calls are left and the global cap holds for a third tenant.
+        assert env.client.post("/calls", json={}, headers=_h(THIRD)).status_code == 503

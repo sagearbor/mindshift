@@ -87,9 +87,10 @@ from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
-# How long an OPEN call (nobody bound, or waiting for the second member)
-# stays joinable. An ACTIVE call never expires by clock — it ends when its
-# last socket leaves or a participant ends it.
+# How long a call with NO socket bound (nobody connected yet, or joined over
+# REST and never connected) stays joinable. A call with a live socket never
+# expires by clock — it ends when its last socket leaves or a participant
+# ends it.
 CALL_TTL_MINUTES = int(os.getenv("MINDSHIFT_CALL_TTL_MINUTES", "180"))
 CALL_TTL_MAX_MINUTES = 24 * 60
 # Ended calls are kept this long so GET /calls/{id} can still hand back the
@@ -103,9 +104,13 @@ CALL_MAX_TRANSCRIPT_CHARS = 60_000
 # far past any real signaling message and stops a client using the relay as
 # a free data channel through the server.
 RTC_PAYLOAD_MAX_BYTES = 64 * 1024
-# Bound on open + retained calls in this process (abuse guard; a real
-# deployment sees a handful at a time).
+# Bound on calls held in this process (abuse guard; a real deployment sees
+# a handful at a time). Retained ENDED calls are evicted early before a new
+# call is refused, so they can never crowd out live ones.
 MAX_CALLS = int(os.getenv("MINDSHIFT_MAX_CALLS", "500"))
+# Un-ended (open or active) calls ONE account may host at a time — a single
+# tenant creating calls in a loop hits 429 long before MAX_CALLS.
+MAX_OPEN_CALLS_PER_HOST = int(os.getenv("MINDSHIFT_MAX_OPEN_CALLS_PER_HOST", "3"))
 # How long a remote-turn delivery may block the sender's receive loop.
 DELIVERY_TIMEOUT_S = 2.0
 # Whether the persisted call episodes get the batch analysis + "what you
@@ -360,8 +365,10 @@ class Call:
         return uid in self.participants or uid == self.invitee_uid
 
     def expired(self, now: datetime | None = None) -> bool:
-        """An OPEN call past its TTL (an active call never expires by clock)."""
-        if self.status != STATUS_OPEN or self.connected_participants():
+        """A call with NO socket bound past its TTL — open, or active only
+        through REST joins nobody ever connected to (a call with a live
+        socket never expires by clock; the last socket out ends it)."""
+        if self.ended or self.connected_participants():
             return False
         now = now or datetime.now(timezone.utc)
         return datetime.fromisoformat(self.expires_at) <= now
@@ -872,8 +879,11 @@ class CallRegistry:
             if call.ended and call._ended_wall is not None and (
                 time.monotonic() - call._ended_wall > CALL_RETENTION_MINUTES * 60
             ):
-                self._calls.pop(call.call_id, None)
-                self._by_code.pop(call.join_code, None)
+                self._forget(call)
+
+    def _forget(self, call: Call) -> None:
+        self._calls.pop(call.call_id, None)
+        self._by_code.pop(call.join_code, None)
 
     def create(
         self,
@@ -887,6 +897,19 @@ class CallRegistry:
         max_participants: int | None = None,
     ) -> Call:
         self.sweep()
+        hosting = sum(1 for c in self._calls.values() if c.host_uid == host_uid and not c.ended)
+        if hosting >= MAX_OPEN_CALLS_PER_HOST:
+            raise CallError(429, "too many open calls for this account — end one first")
+        if len(self._calls) >= MAX_CALLS:
+            # Retained ended calls go first (oldest ended first), so one
+            # tenant's finished calls never crowd out another's live one.
+            for old in sorted(
+                (c for c in self._calls.values() if c.ended),
+                key=lambda c: c._ended_wall if c._ended_wall is not None else 0.0,
+            ):
+                if len(self._calls) < MAX_CALLS:
+                    break
+                self._forget(old)
         if len(self._calls) >= MAX_CALLS:
             raise CallError(503, "too many open calls")
         ttl = min(max(1, int(ttl_minutes or CALL_TTL_MINUTES)), CALL_TTL_MAX_MINUTES)
