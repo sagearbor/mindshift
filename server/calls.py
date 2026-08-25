@@ -119,6 +119,14 @@ MAX_CALLS = int(os.getenv("MINDSHIFT_MAX_CALLS", "500"))
 MAX_OPEN_CALLS_PER_HOST = int(os.getenv("MINDSHIFT_MAX_OPEN_CALLS_PER_HOST", "3"))
 # How long a remote-turn delivery may block the sender's receive loop.
 DELIVERY_TIMEOUT_S = 2.0
+# A phone's turn_local whose padded range contains the midpoint of a CLOUD
+# row this member pushed earlier (the server's transcriber finalized the
+# span before the phone did) is the same words: it replaces that row in
+# place instead of appending. Same pad + midpoint rule as the pipeline's
+# local-range suppression (audio_pipeline.LOCAL_RANGE_PAD_S); only the last
+# few rows are candidates (the race is always between adjacent turns).
+CLOUD_DUP_PAD_S = 0.25
+CLOUD_DUP_LOOKBACK = 8
 # Whether the persisted call episodes get the batch analysis + "what you
 # could have said" reflection scheduled (the same two LLM passes a solo
 # session gets). Env-overridable like the other knobs; tests turn them off.
@@ -675,11 +683,32 @@ class Call:
             p.offset_s = max(0.0, self.elapsed_s() - end)
         return round(start + p.offset_s, 3), round(end + p.offset_s, 3)
 
+    def _cloud_duplicate(self, uid: str, local_start: float, local_end: float) -> dict | None:
+        """The recent CLOUD row of ``uid`` that a phone turn spanning
+        ``[local_start, local_end]`` (the member's own capture clock — the
+        same clock the server's transcriber stamps) duplicates, if any."""
+        lo, hi = local_start - CLOUD_DUP_PAD_S, local_end + CLOUD_DUP_PAD_S
+        for t in reversed(self.turns[-CLOUD_DUP_LOOKBACK:]):
+            if t.get("participant_uid") != uid or t.get("transcript_source") != "cloud":
+                continue
+            ls, le = t.get("local_start_time"), t.get("local_end_time")
+            if ls is None or le is None:
+                continue
+            if lo <= (float(ls) + float(le)) / 2.0 <= hi:
+                return t
+        return None
+
     async def push_turn(self, uid: str, event: Any) -> dict | None:
         """A member's own finalized turn (a validated ``TurnLocalEvent`` or
         an equivalent dict from the server-STT fallback): append it to the
         merged transcript and deliver it to every OTHER connected member as
-        an OTHER turn. Returns the merged row (None when the call is over)."""
+        an OTHER turn. Returns the merged row (None when the call is over).
+
+        A phone turn that duplicates a CLOUD row this member pushed just
+        before (the server's transcriber won the race for the phone's first
+        span) REPLACES that row in place — same ``seq``, same position, the
+        phone's text/tone/prosody — and is not delivered again: the others
+        already rendered (and were coached on) those words."""
         data = event.model_dump() if hasattr(event, "model_dump") else dict(event)
         async with self.lock:
             if self.ended:
@@ -687,10 +716,14 @@ class Call:
             p = self.participants.get(uid)
             if p is None:
                 raise CallError(403, "not a participant of this call")
-            start, end = self._timeline(p, float(data.get("start_time") or 0.0), float(data.get("end_time") or 0.0))
-            self.seq += 1
+            local_start, local_end = float(data.get("start_time") or 0.0), float(data.get("end_time") or 0.0)
+            start, end = self._timeline(p, local_start, local_end)
+            source = data.get("transcript_source") or "on-device"
+            dup = self._cloud_duplicate(uid, local_start, local_end) if source != "cloud" else None
+            if dup is None:
+                self.seq += 1
             row = {
-                "seq": self.seq,
+                "seq": dup["seq"] if dup is not None else self.seq,
                 "participant_uid": uid,
                 "slot": p.slot,
                 "role": p.role,
@@ -700,7 +733,7 @@ class Call:
                 "end_time": end,
                 "local_start_time": data.get("start_time"),
                 "local_end_time": data.get("end_time"),
-                "transcript_source": data.get("transcript_source") or "on-device",
+                "transcript_source": source,
                 "speaker_match_score": data.get("speaker_match_score"),
                 "prosody": data.get("prosody"),
                 "text_tone": data.get("text_tone"),
@@ -709,6 +742,14 @@ class Call:
                 "tts_source": data.get("tts_source"),
                 "received_at": now_iso(),
             }
+            if dup is not None:
+                logger.info(
+                    "call %s: %s's phone turn replaces its cloud duplicate seq %d",
+                    self.call_id, uid, dup["seq"],
+                )
+                dup.clear()
+                dup.update(row)
+                return dup
             self.turns.append(row)
             p.turn_count += 1
             if len(self.turns) > CALL_MAX_TURNS:

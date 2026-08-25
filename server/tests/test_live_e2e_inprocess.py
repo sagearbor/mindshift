@@ -292,9 +292,10 @@ class MemoryStore:
 # A real server on the loopback
 # ---------------------------------------------------------------------------
 
-PATIENT_UID, THERAPIST_UID = "user-a", "user-b"
+PATIENT_UID, THERAPIST_UID, PEER_UID = "user-a", "user-b", "test-user"
 PATIENT_EMAIL, THERAPIST_EMAIL = "patient-e2e@example.test", "therapist-e2e@example.test"
-ACCOUNTS = {PATIENT_EMAIL: PATIENT_UID, THERAPIST_EMAIL: THERAPIST_UID}
+PEER_EMAIL = "dad-e2e@example.test"   # the second participant of the three-way call
+ACCOUNTS = {PATIENT_EMAIL: PATIENT_UID, THERAPIST_EMAIL: THERAPIST_UID, PEER_EMAIL: PEER_UID}
 UID_TO_EMAIL = {v: k for k, v in ACCOUNTS.items()}
 
 
@@ -579,6 +580,71 @@ async def test_call_e2e_inprocess(live_server, e2e_env, monkeypatch):
     assert joiner_rec["analysis"]["live"]["self_speaker"] == "Speaker B"
     assert [t["call_seq"] for t in host_rec["turns"]] == list(range(1, len(scene.turns) + 1))
     assert joiner_rec["meta"]["title"] == "Call with Patient"
+
+
+async def test_call_e2e_inprocess_three_way(live_server, e2e_env, monkeypatch):
+    """``--call --participants 3``: the patient hosts (Sage, A), a second
+    account joins over REST as the invited participant (Dad, B), the
+    therapist joins on her socket with the code as the observer (Mom, C).
+    Full-mesh signaling, every phone's own turns merged for the others with
+    relative names, coaching per participant only (Mom gets read-only
+    ``for_uid`` copies, never a suggestion of her own), hang-up host → Dad →
+    Mom so HER socket ends the call, two episodes both granted to her."""
+    scene = live_e2e.load_scene("scene_couple_escalation")
+    monkeypatch.setattr(audio_pipeline, "speaker_id", None)
+    patient = _account(PATIENT_UID, PATIENT_EMAIL, "tok-user-a")
+    peer = _account(PEER_UID, PEER_EMAIL, "fake-id-token")
+    therapist = _account(THERAPIST_UID, THERAPIST_EMAIL, "tok-user-b")
+    report = await live_e2e.run_call_e2e_three_way(
+        base_url=live_server, patient=patient, peer=peer, therapist=therapist, scene=scene,
+        speed=4.0, analysis_timeout_s=30.0, cleanup=True,
+        session_id=f"e2e-call3-{int(time.time() * 1000)}",
+    )
+    text = live_e2e.format_report(report)
+    print("\n" + text)
+    assert not report.failures, text
+    data = report.data
+    n_a, n_b, n_c = len(scene.self_turn_indexes), len(scene.turns) - len(scene.self_turn_indexes), len(live_e2e.THERAPIST_LINES)
+    assert (data["ws_host"]["turn_locals"], data["ws_peer"]["turn_locals"], data["ws_therapist"]["turn_locals"]) == (n_a, n_b, n_c)
+    assert (data["ws_host"]["label"], data["ws_peer"]["label"], data["ws_therapist"]["label"]) == ("Speaker A", "Speaker B", "Speaker C")
+    assert all(data[f"ws_{r}"]["close_code"] == 1000 for r in ("host", "peer", "therapist"))
+    assert data["call_state"]["problems"] == [] and all(data["call_state"]["transitions"].values())
+    # Full mesh: two addressed offers in, one deliberate unaddressed error.
+    assert data["signaling"] == {"problems": [], "missing_to_error": live_e2e.MISSING_TO_ERROR,
+                                 "delivered": {"host": 2, "peer": 2, "therapist": 2}}
+    # Each viewer saw exactly the others' turns, named relative to itself, in scene order.
+    assert data["merged_host"] == {"count": n_b + n_c, "expected": n_b + n_c, "in_order": True, "names": ["Dad", "Mom (therapist)"]}
+    assert data["merged_peer"] == {"count": n_a + n_c, "expected": n_a + n_c, "in_order": True, "names": ["Mom (therapist)", "Sage"]}
+    assert data["merged_therapist"] == {"count": n_a + n_b, "expected": n_a + n_b, "in_order": True, "names": ["Dad", "Sage"]}
+    # Coaching: participants only (never tagged); the observer gets copies for both and nothing of her own.
+    for r in ("host", "peer"):
+        assert data[f"coaching_{r}"]["errors"] == 0 and data[f"coaching_{r}"]["tagged"] == 0
+        assert data[f"coaching_{r}"]["about"]["Speaker B" if r == "host" else "Speaker A"] >= 1
+    ther = data["coaching_therapist"]
+    assert ther["own_suggestions"] == 0 and ther["foreign"] == 0
+    assert ther["copies"]["host"] >= 1 and ther["copies"]["peer"] >= 1
+    assert ("suggestion", "response") in ther["copy_kinds"]["host"] and ("tone_flag", None) in ther["copy_kinds"]["host"]
+    # Relay latency over the loopback: every delivery timed, well under a second.
+    d = data["delivery"]
+    assert d["n"] == d["expected"] == 2 * (n_a + n_b + n_c) and d["p95_ms"] < 1000
+    # The last socket ended it; exactly two episodes, one per participant.
+    assert data["call_ended"]["reason"] == "all participants left" and data["call_ended"]["ended_by"] == THERAPIST_UID
+    assert data["call_ended"]["episode_id"] is None
+    assert sorted(data["call_ended"]["episodes"]) == sorted([PATIENT_UID, PEER_UID])
+    assert data["call_ended"]["turn_count"] == n_a + n_b + n_c
+    assert data["episodes"]["shared_with"] == [THERAPIST_EMAIL]
+    assert data["detail_host"]["labels"] == {"Speaker A": "You", "Speaker B": "Dad", "Speaker C": "Mom (therapist)"}
+    assert data["detail_host"]["title"] == "Call with Dad and Mom (therapist)"
+    assert data["detail_peer"]["labels"] == {"Speaker B": "You", "Speaker A": "Sage", "Speaker C": "Mom (therapist)"}
+    assert data["detail_peer"]["title"] == "Call with Sage and Mom (therapist)"
+    assert data["growth_point"]["mode"] == "call"
+    assert data["therapist_rows"]["host"]["role"] == PATIENT_EMAIL and data["therapist_rows"]["peer"]["role"] == PEER_EMAIL
+    assert data["therapist_rows"]["own_call_rows"] == 0 and data["therapist_rows"]["total"] == 2
+    # The observer never got an episode; cleanup removed both participants'.
+    assert THERAPIST_UID not in e2e_env._by_uid
+    assert e2e_env._by_uid[PATIENT_UID] == {} and e2e_env._by_uid[PEER_UID] == {}
+    cleanup = next(c for c in report.checks if c.name == "cleanup").detail
+    assert "delete 204" in cleanup and "rows left for the call: 0" in cleanup
 
 
 class TestPureHelpers:

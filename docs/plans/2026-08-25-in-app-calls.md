@@ -286,6 +286,20 @@ relayed the same way (not coached for the therapist). Voiceprint identity
 enrichment is skipped in a call (the speaker is known); audio tone
 enrichment still runs on your own audio.
 
+**Only while the phone has never sent `turn_local`.** A local-first phone
+still streams PCM (for tone enrichment), and the server's transcriber can
+finalize a span *before* the phone's `turn_local` for it — the pipeline's
+local-range suppression only drops the segments that land *after*. Such a
+segment used to be relayed and persisted as a second copy of the same words
+(found by the 3-way production e2e, 2026-08-25). Now: once a member is
+local-first its own cloud segments never enter the shared transcript (the
+phone is the authority for its own voice; spans its VAD misses are still
+surfaced and coached on its own socket, as in a solo session), and the one
+remaining race — the transcriber beating the phone's *first* `turn_local`,
+before the latch — is closed in `Call.push_turn`: a phone turn whose padded
+range contains the midpoint of that member's recent cloud row replaces it in
+place (same `seq`, the phone's text/tone/prosody) and is not relayed again.
+
 ## Tests
 
 * `server/tests/test_calls.py` — REST (create/join/code/seats/caps/expiry/end),
@@ -309,6 +323,25 @@ enrichment still runs on your own audio.
   (analysis, reflection, detail with scene-order turns + the expected self
   escalations, growth) → the therapist's `GET /sessions` lists the patient's
   episode (shared) and its own.
+* `server/tests/test_live_e2e_inprocess.py::test_call_e2e_inprocess_three_way`
+  and `scripts/live_e2e.py --call --participants 3` — the three-phone walk
+  (a third account: `--peer-*`, or a third `--signup` throwaway): `POST
+  /calls` (Dad invited) → Dad joins over REST without a code → three sockets
+  bind, Mom on hers with the code as `role: "therapist"` → `call_state`
+  roles/labels/relative names ("You" / "Dad" / "Sage" / "Mom (therapist)")
+  → full-mesh signaling (an unaddressed `rtc_signal` is refused with three
+  members; six addressed offers delivered verbatim with `from`) → host =
+  Speaker A turns, Dad = Speaker B turns, Mom three short lines in the gaps,
+  concurrently → merged `transcript` per viewer, coaching per participant
+  only (nudges on own turns, suggestions about both others), Mom's socket
+  gets every participant's `suggestion`/`tone_flag` copy tagged `for_uid`
+  and never a suggestion of her own → turn_local → other-viewer transcript
+  p50/p95 → hang-up host → Dad → Mom, so the participants leave an ACTIVE
+  call (no `call_ended`; episode via `GET /calls/{id}`) and Mom's socket ends
+  it (`call_ended` with `episodes` for exactly the two participants,
+  `episode_id: null`) → both episodes shared with her directly (no link),
+  both on her `GET /sessions`, none of her own → cleanup deletes both
+  episodes and the accounts.
 
 ## Decisions recorded
 

@@ -2147,7 +2147,19 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 await enqueue_job(utterance, ctx.latency.start(
                     frame_received=frame_received, segment_finalized=segment_finalized,
                 ), is_self=is_self)
-            if ctx.call is not None:
+            if ctx.call is not None and not ctx.local_first:
+                # The server-STT fallback merges into the call ONLY for a
+                # member whose phone does not transcribe itself. Once a phone
+                # has sent turn_local, its own voice is its phone's to report:
+                # a Deepgram segment that finalizes BEFORE the phone's
+                # turn_local for the same span (the local-range check above
+                # only catches the ones that land after) would otherwise be
+                # relayed to the others and persisted in every episode as a
+                # second copy of the same words. (Found by the 3-way
+                # production e2e, 2026-08-25.) The first-turn race — Deepgram
+                # beating the phone's very first turn_local, before the latch
+                # — is closed by calls.Call.push_turn, which lets the phone's
+                # turn replace that cloud row in place.
                 with contextlib.suppress(calls.CallError):
                     await ctx.call.push_turn(ctx.uid, {
                         "text": segment.text, "start_time": segment.start_time,
