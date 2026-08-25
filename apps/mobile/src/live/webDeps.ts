@@ -88,7 +88,14 @@ async function buildSpeakerId(
   onStatus: ((line: string) => void) | undefined,
 ): Promise<SpeakerIdBuild> {
   if (!ort) return speakerIdOff(ortReason ?? "ONNX Runtime (wasm) unavailable");
-  const fetchImpl = options.fetch ?? (fetch as unknown as FetchLike);
+  // Wrap the global, never hand it over bare: `resolveEcapaModel` calls
+  // `opts.fetch(...)` as a METHOD of its options object, and WebKit (iOS
+  // Safari) rejects `fetch` invoked with any `this` but the window — "Can
+  // only call Window.fetch on instances of Window" (Chrome: "Illegal
+  // invocation"). That one throw used to read as "offline and no cached
+  // model" and switched speaker-ID off in every browser.
+  const fetchImpl: FetchLike =
+    options.fetch ?? ((url, init) => (fetch as unknown as FetchLike)(url, init));
   const store =
     options.store ??
     webModelStore({
