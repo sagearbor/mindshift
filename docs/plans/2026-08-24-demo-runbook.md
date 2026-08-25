@@ -1,3 +1,10 @@
+> **SUPERSEDED (2026-08-25).** Use [2026-08-25-demo-runbook-in-app-call.md](2026-08-25-demo-runbook-in-app-call.md).
+> The "second device carries the call" advice below (§0 ranked setups a/b) is withdrawn — the owner
+> rejected any two-device setup. The demo is now an **in-app 3-way call** (Sage + Dad on the preview
+> APK, Mom as therapist observer in Safari): the app owns the mic, so the OS in-call restriction in
+> §0 no longer applies. §1 pre-flight rows, enrollment, §5 screenshots and the `adb logcat` tip were
+> carried over into the new runbook.
+
 # Demo runbook — Sage (Pixel 10) coaches a call with Mom (therapist, iPhone/Safari)
 
 > Checklists, not prose. Companion to the
