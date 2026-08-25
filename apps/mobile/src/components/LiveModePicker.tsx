@@ -2,8 +2,9 @@ import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import type { LiveMode } from "../live/localLlm";
 
-/** The three session shapes, with the one line each needs to be picked
- *  correctly. Exported so the screen's explainer and tests share the copy. */
+/** The four session shapes, with the one line each needs to be picked
+ *  correctly. Exported so the screen's explainer and tests share the copy.
+ *  "In person" keeps its original wire value `speaker` (see LiveMode). */
 export const LIVE_MODE_OPTIONS: readonly {
   mode: LiveMode;
   label: string;
@@ -16,13 +17,18 @@ export const LIVE_MODE_OPTIONS: readonly {
   },
   {
     mode: "speaker",
-    label: "Speaker-phone",
-    hint: "Both voices on one mic — the coach speaks only while you're both silent.",
+    label: "In person",
+    hint: "Both of you in the room, one mic — the coach speaks only while you're both silent.",
   },
   {
     mode: "therapist",
     label: "Therapist",
     hint: "You're observing two people — on-screen only, nothing is ever spoken.",
+  },
+  {
+    mode: "call",
+    label: "Call",
+    hint: "MindShift places the call itself — each phone coaches its own person.",
   },
 ];
 

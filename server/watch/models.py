@@ -197,6 +197,8 @@ class TelemetryEvent(BaseModel):
     stack: str | None = None
     ts: str             # device-side timestamp (ISO string as sent; opaque)
     received_at: str    # server-generated ISO-8601 UTC
+    # Structured payload (phone "Send diagnostics"); None for watch events.
+    data: dict | None = None
 
 
 class Capture(BaseModel):

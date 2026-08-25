@@ -23,10 +23,11 @@ describe("modePrefs", () => {
     expect(modeKey(null)).toBe("mindshift.liveMode.v1.anon");
   });
 
-  it("recognises only the three modes", () => {
+  it("recognises only the four modes", () => {
     expect(isLiveMode("earpiece")).toBe(true);
-    expect(isLiveMode("speaker")).toBe(true);
+    expect(isLiveMode("speaker")).toBe(true); // "In person" keeps its stored value
     expect(isLiveMode("therapist")).toBe(true);
+    expect(isLiveMode("call")).toBe(true);
     expect(isLiveMode("visual")).toBe(false);
     expect(isLiveMode(null)).toBe(false);
   });

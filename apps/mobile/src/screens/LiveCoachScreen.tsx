@@ -18,11 +18,14 @@ import LivePreflightPanel from "../components/LivePreflightPanel";
 import SessionSummaryCard from "../components/SessionSummaryCard";
 import ScoreboardPanel from "../components/ScoreboardPanel";
 import WhoIsThisSheet, { type LiveLabelChoice } from "../components/WhoIsThisSheet";
+import CallPanel from "../components/CallPanel";
+import { IDLE_CALL_VIEW } from "../live/call/types";
 import { useAudioStream, type TranscriptEntry } from "../hooks/useAudioStream";
 import { useAuthStore } from "../store/authStore";
 import { loadLiveMode, saveLiveMode } from "../live/modePrefs";
 import { loadScoreboardVisible, saveScoreboardVisible } from "../live/scoreboardPrefs";
 import type { LiveMode } from "../live/localLlm";
+import type { CallRole } from "../live/call/types";
 import { listVoicePeople, type VoicePerson } from "../api/liveSessions";
 import { getTherapistLink, type TherapistLink } from "../api/therapist";
 import * as apiClient from "../api/client";
@@ -52,11 +55,21 @@ interface LiveCoachScreenProps {
       end_time?: number;
     }[],
   ) => void;
+  /** A call code that arrived through an invite link (mindshift://call/<code>
+   *  or https://…/call/<code>): opens in Call mode with an Answer button. */
+  joinCode?: string | null;
+  /** The role that invite link encodes (a therapist link -> observer view). */
+  joinRole?: CallRole;
+  /** The Answer tap consumed the code (so a re-render doesn't re-offer it). */
+  onJoinCodeConsumed?: () => void;
 }
 
 export default function LiveCoachScreen({
   onBack,
   onReviewTranscript,
+  joinCode = null,
+  joinRole = "participant",
+  onJoinCodeConsumed,
 }: LiveCoachScreenProps = {}) {
   const {
     isRecording,
@@ -94,7 +107,15 @@ export default function LiveCoachScreen({
     displayNameOf,
     labelSpeaker,
     scoreboard,
+    call,
+    startCall,
+    joinCall,
+    hangUp,
+    setCallMuted,
+    callRoute,
+    setCallRoute,
   } = useAudioStream();
+  const callView = call ?? IDLE_CALL_VIEW;
 
   const userId = useAuthStore((s) => s.user?.uid ?? null);
   const [empathyLevel, setEmpathyLevel] = useState(50);
@@ -121,28 +142,33 @@ export default function LiveCoachScreen({
     return () => clearTimeout(timer);
   }, [nudgeFlash, clearNudgeFlash]);
 
-  // The mode decides whether the coach speaks: earpiece and speaker-phone do
-  // (free on-device TTS; the fast loop additionally holds speech until the
-  // room is quiet), therapist mode never does. The hook stops any in-flight
-  // utterance when this flips to false.
+  // The mode decides whether the coach speaks: earpiece, in person and call
+  // do (free on-device TTS; the fast loop additionally holds speech until
+  // the room is quiet), therapist mode never does. The hook stops any
+  // in-flight utterance when this flips to false.
   useEffect(() => {
     setSpeechEnabled(sessionMode !== "therapist");
   }, [sessionMode, setSpeechEnabled]);
 
-  // Remember the mode per account (Sage's phone opens on speaker-phone,
-  // Mom's on therapist) — loaded once, saved on every explicit change.
+  // Remember the mode per account (Sage's phone opens on the mode he used
+  // last, Mom's on therapist) — loaded once, saved on every explicit change.
+  // An invite link overrides it for this visit (Call mode, not persisted).
   useEffect(() => {
     let cancelled = false;
     void loadLiveMode(userId).then((mode) => {
       if (cancelled || modeLoadedRef.current) return;
       modeLoadedRef.current = true;
-      setSessionMode?.(mode);
+      setSessionMode?.(joinCode ? "call" : mode);
     });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
+  useEffect(() => {
+    if (joinCode) setSessionMode?.("call");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [joinCode]);
 
   const handleModeChange = useCallback(
     (mode: LiveMode) => {
@@ -258,6 +284,36 @@ export default function LiveCoachScreen({
     setSelfSpeaker(selfSpeaker === "Speaker B" ? "Speaker A" : "Speaker B");
   }, [selfSpeaker, setSelfSpeaker]);
 
+  // Call mode (src/live/call): every action here is one tap that does
+  // everything — on Safari the tap is what unlocks the mic and audio.
+  const handleStartCall = useCallback(() => {
+    void startCall?.(empathyLevel, interjectLevel);
+  }, [startCall, empathyLevel, interjectLevel]);
+  const handleJoinCall = useCallback(
+    (code: string) => {
+      void joinCall?.(code, empathyLevel, interjectLevel);
+    },
+    [joinCall, empathyLevel, interjectLevel],
+  );
+  const handleAnswerCall = useCallback(
+    (code: string) => {
+      onJoinCodeConsumed?.();
+      // The invite link's role decides the seat: a therapist link joins as
+      // the read-only observer (no TTS, no coaching for them).
+      void joinCall?.(code, empathyLevel, interjectLevel, joinRole);
+    },
+    [joinCall, onJoinCodeConsumed, empathyLevel, interjectLevel, joinRole],
+  );
+  const handleHangUp = useCallback(() => {
+    void hangUp?.();
+  }, [hangUp]);
+  const handleToggleMute = useCallback(() => {
+    setCallMuted?.(!callView.muted);
+  }, [setCallMuted, callView.muted]);
+  const handleToggleRoute = useCallback(() => {
+    setCallRoute?.(callRoute === "speaker" ? "earpiece" : "speaker");
+  }, [setCallRoute, callRoute]);
+
   const handleReview = useCallback(() => {
     onReviewTranscript?.(
       // Carry utterance timing through to review (camelCase hook fields →
@@ -293,7 +349,12 @@ export default function LiveCoachScreen({
 
   const statusColor = STATUS_COLORS[connectionStatus] || STATUS_COLORS.idle;
   const mode: LiveMode = sessionMode ?? "earpiece";
-  const isTherapist = mode === "therapist";
+  const isCall = mode === "call";
+  // A therapist observer (Therapist mode, or a therapist-role call) gets the
+  // two-column observer layout and never sees "speak"/nudge affordances
+  // aimed at themselves.
+  const isTherapistCall = isCall && callView.selfRole === "therapist";
+  const isTherapist = mode === "therapist" || isTherapistCall;
   const modeLabel = LIVE_MODE_OPTIONS.find((o) => o.mode === mode)?.label ?? mode;
   const idle = connectionStatus === "idle" && transcript.length === 0 && !sessionActive;
 
@@ -336,7 +397,7 @@ export default function LiveCoachScreen({
           be meaningless. Tapping flips A↔B; the hint reminds the "you speak
           first" convention while idle. Therapist mode has no "you" on the
           mic, so the chip is hidden there. */}
-      {!isTherapist && (sessionActive || transcript.length > 0) && (
+      {!isTherapist && !isCall && (sessionActive || transcript.length > 0) && (
         <View style={styles.identityRow}>
           <TouchableOpacity
             testID="self-speaker-chip"
@@ -373,6 +434,26 @@ export default function LiveCoachScreen({
           the coach speaks. Locked while a session runs (the loop reads it at
           start). Persisted per account. */}
       <LiveModePicker value={mode} onChange={handleModeChange} disabled={sessionActive} />
+
+      {/* Call mode: start / join / answer, then the in-call header and
+          controls. The transcript and suggestions below are shared with
+          every other mode — the other person's turns arrive as transcript
+          events with their name. */}
+      {isCall ? (
+        <CallPanel
+          call={callView}
+          sessionActive={sessionActive}
+          invitedCode={joinCode}
+          invitedRole={joinRole}
+          onStart={handleStartCall}
+          onJoin={handleJoinCall}
+          onAnswer={handleAnswerCall}
+          onHangUp={handleHangUp}
+          onToggleMute={handleToggleMute}
+          route={callRoute ?? "speaker"}
+          onToggleRoute={handleToggleRoute}
+        />
+      ) : null}
 
       {/* On-device fast loop (Track 3): only offered when the device can run
           it (on-device STT present). Off = the legacy server path. */}
@@ -521,11 +602,16 @@ export default function LiveCoachScreen({
                 Place the phone between the two of them and tap Start — you&apos;ll
                 see both sides labelled; nothing is spoken aloud.
               </Text>
+            ) : isCall ? (
+              <Text style={styles.explainerLine} testID="call-mode-explainer">
+                Start a call and share the code, or join theirs — only your voice is on
+                this mic, so the coach always knows which one is you.
+              </Text>
             ) : (
               <>
                 <Text style={styles.explainerLine}>
                   {mode === "speaker"
-                    ? "Put the call on speaker, place the phone between you."
+                    ? "Both of you in the room: place the phone between you."
                     : "Hold the phone to your ear as you normally would."}
                 </Text>
                 <Text style={styles.explainerLine}>
@@ -665,19 +751,22 @@ export default function LiveCoachScreen({
         </TouchableOpacity>
       )}
 
-      {/* Start/Stop button */}
-      <TouchableOpacity
-        testID="mic-toggle"
-        style={[
-          styles.micButton,
-          isRecording && styles.micButtonRecording,
-        ]}
-        onPress={handleToggle}
-      >
-        <Text style={styles.micButtonText}>
-          {sessionActive ? "Stop Listening" : "Start Listening"}
-        </Text>
-      </TouchableOpacity>
+      {/* Start/Stop button. Call mode starts from the call panel (Start a
+          call / Join / Answer) and stops by hanging up. */}
+      {isCall && !sessionActive ? null : (
+        <TouchableOpacity
+          testID="mic-toggle"
+          style={[
+            styles.micButton,
+            isRecording && styles.micButtonRecording,
+          ]}
+          onPress={isCall ? handleHangUp : handleToggle}
+        >
+          <Text style={styles.micButtonText}>
+            {isCall ? "Hang up" : sessionActive ? "Stop Listening" : "Start Listening"}
+          </Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }

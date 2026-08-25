@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@ai-sdk/provider": "3.0.15",
+    "@config-plugins/react-native-webrtc": "^15.0.2",
     "@expo/metro-runtime": "~57.0.3",
     "@react-native-community/slider": "5.2.0",
     "@react-native-google-signin/google-signin": "^16.1.2",
@@ -45,6 +46,7 @@
     "react-native-safe-area-context": "~5.7.0",
     "react-native-svg": "15.15.4",
     "react-native-web": "~0.21.0",
+    "react-native-webrtc": "^124.0.8",
     "zustand": "^4.5.0"
   },
   "devDependencies": {

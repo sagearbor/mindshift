@@ -63,6 +63,12 @@ class TelemetryEventIn(BaseModel):
     message: str
     stack: str | None = None
     ts: str
+    # Additive (2026-08-25, in-app calls PR): a structured payload the phone
+    # app's "Send diagnostics" attaches (tag ``client_diagnostics`` — see
+    # apps/mobile/src/diagnostics/diagnostics.ts and
+    # scripts/diagnostics_tail.py). The watch never sends it; None is stored
+    # as-is and older readers ignore the key.
+    data: dict | None = None
 
 
 class TelemetryPost(BaseModel):
@@ -99,6 +105,7 @@ def make_telemetry_router(
                 stack=e.stack,
                 ts=e.ts,
                 received_at=received_at,
+                data=e.data,
             )
             for e in accepted
         ]

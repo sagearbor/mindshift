@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, StyleSheet } from "react-native";
+import { ActivityIndicator, Linking, Platform, StyleSheet } from "react-native";
 // SafeAreaProvider/SafeAreaView come from react-native-safe-area-context (NOT
 // react-native): the RN SafeAreaView is a no-op on Android, so under Expo's
 // edge-to-edge every screen rendered its header UNDER the status bar — which not
@@ -37,6 +37,7 @@ import { useAvatarStore } from "./src/store/avatarStore";
 import { useSessionStore } from "./src/store/sessionStore";
 import { useRecorderStore } from "./src/store/recorderStore";
 import { getOnboardingSeen, setOnboardingSeen } from "./src/utils/onboardingStorage";
+import { parseCallLink, type ParsedCallLink } from "./src/nav/callLink";
 import type { AnalyzeResult } from "./src/api/client";
 
 // --- Two-mode navigation -----------------------------------------------------
@@ -76,7 +77,9 @@ type ReplayReturn =
 // see destinations.ts's DestScreen comment for how that guard works.
 export type Screen =
   | { name: "home" }
-  | { name: "live-coach" }
+  // `joinCode`: an in-app call invite (mindshift://call/<code>, or the web
+  // route /call/<code>) opens Live Coach in Call mode with an Answer button.
+  | { name: "live-coach"; joinCode?: string; joinRole?: "participant" | "therapist" }
   // The Analyze mode hub: record / upload / link + relationship context.
   | { name: "analyze" }
   // Everything that doesn't fit the two modes: Settings (dashboard, watch
@@ -260,8 +263,47 @@ function isPrimary(screen: Screen): boolean {
   );
 }
 
-export default function App() {
+/** The URL the app was opened with, for the web build (window.location) —
+ *  overridable by tests. Native reads Linking below. */
+function initialWebUrl(): string | null {
+  if (Platform.OS !== "web") return null;
+  const loc = (globalThis as { location?: { href?: string } }).location;
+  return loc?.href ?? null;
+}
+
+interface AppProps {
+  /** Test seam: the URL the app was launched with. */
+  initialUrl?: string | null;
+}
+
+export default function App({ initialUrl }: AppProps = {}) {
   const [screen, setScreen] = useState<Screen>({ name: "home" });
+
+  // In-app call invites (src/nav/callLink.ts). The code waits here until the
+  // auth + onboarding gates below let a screen render, then opens Live Coach
+  // in Call mode. Web: the path at load; native: the launch URL + later
+  // `url` events (the app already open when the link is tapped).
+  const [pendingCall, setPendingCall] = useState<ParsedCallLink | null>(() =>
+    parseCallLink(initialUrl !== undefined ? initialUrl : initialWebUrl()),
+  );
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    let cancelled = false;
+    Linking.getInitialURL()
+      .then((url) => {
+        const parsed = parseCallLink(url);
+        if (parsed && !cancelled) setPendingCall(parsed);
+      })
+      .catch(() => {});
+    const sub = Linking.addEventListener("url", ({ url }) => {
+      const parsed = parseCallLink(url);
+      if (parsed) setPendingCall(parsed);
+    });
+    return () => {
+      cancelled = true;
+      sub.remove();
+    };
+  }, []);
 
   // Task N3: AppChrome's hamburger catalog / account menu overlays own their
   // open/closed state internally (encapsulated, easier to test in
@@ -335,6 +377,26 @@ export default function App() {
       cancelled = true;
     };
   }, [user?.uid]);
+
+  // Once signed in and past onboarding, an invite opens Live Coach in Call
+  // mode. The web URL is cleaned so a reload doesn't re-offer the call.
+  const ready = Boolean(user) && onboardingSeen === true;
+  useEffect(() => {
+    if (!pendingCall || !ready) return;
+    setPendingCall(null);
+    setScreen({ name: "live-coach", joinCode: pendingCall.code, joinRole: pendingCall.role });
+    if (Platform.OS === "web") {
+      try {
+        (globalThis as { history?: { replaceState?: (a: unknown, b: string, c: string) => void } }).history?.replaceState?.(
+          {},
+          "",
+          "/",
+        );
+      } catch {
+        // No history API: the URL just stays.
+      }
+    }
+  }, [pendingCall, ready]);
 
   // Cold start: wait for the first auth-state resolution before deciding which
   // surface to show, so we never flash the wrong screen.
@@ -411,6 +473,9 @@ export default function App() {
         // dedicated back button here would just duplicate it.
         return (
           <LiveCoachScreen
+            joinCode={screen.joinCode ?? null}
+            joinRole={screen.joinRole ?? "participant"}
+            onJoinCodeConsumed={() => setScreen({ name: "live-coach" })}
             onReviewTranscript={(turns) => {
               // Hand the finished live conversation to the text tools, where
               // Get Suggestions / Analyze dynamics work off the loaded turns.

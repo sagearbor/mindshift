@@ -497,6 +497,18 @@ jest.mock("expo-haptics", () => ({
   NotificationFeedbackType: { Success: "success", Warning: "warning", Error: "error" },
 }));
 
+// Mock react-native-webrtc (in-app calls). Its index wires a
+// NativeEventEmitter at import time, which throws without the native module.
+// Call tests drive CallSession through a fake RtcAdapter instead; this stub
+// only keeps the lazy `require` in live/call/rtcNative.ts resolvable.
+jest.mock("react-native-webrtc", () => ({
+  __esModule: true,
+  RTCPeerConnection: jest.fn(() => {
+    throw new Error("no native WebRTC in tests");
+  }),
+  mediaDevices: { getUserMedia: jest.fn().mockRejectedValue(new Error("no native WebRTC in tests")) },
+}));
+
 jest.mock("expo-asset", () => ({
   __esModule: true,
   Asset: {

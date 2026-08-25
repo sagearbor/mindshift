@@ -62,6 +62,30 @@ def test_get_filters_by_device_and_limit():
     assert "message" in body[0] and "received_at" in body[0]
 
 
+def test_post_keeps_structured_data_for_client_diagnostics():
+    """The phone app's "Send diagnostics" attaches a structured ``data``
+    payload (additive field, 2026-08-25); the watch never sends one and
+    gets ``None`` back — both round-trip through the store and GET."""
+    ts, client = _client()
+    body = _post_body(1, device="phone:android:uid-1")
+    body["events"][0].update({
+        "tag": "client_diagnostics", "level": "info",
+        "message": "client_diagnostics dx-K7M2-PQ3A uid=uid-1 email=sage@example.com",
+        "data": {"diagnostics_id": "dx-K7M2-PQ3A", "uid": "uid-1", "email": "sage@example.com",
+                 "last_session": {"mode": "call", "errors": []}},
+    })
+    assert client.post("/telemetry", json=body).status_code == 200
+    assert client.post("/telemetry", json=_post_body(1, device="watch-1")).status_code == 200
+    events = asyncio.run(ts.list_events(None, None, 10))
+    by_device = {e.device: e for e in events}
+    assert by_device["phone:android:uid-1"].data["diagnostics_id"] == "dx-K7M2-PQ3A"
+    assert by_device["phone:android:uid-1"].data["last_session"]["mode"] == "call"
+    assert by_device["watch-1"].data is None
+    got = client.get("/telemetry", params={"device": "phone:android:uid-1"}).json()
+    assert got[0]["data"]["uid"] == "uid-1"
+    assert client.get("/telemetry", params={"device": "watch-1"}).json()[0]["data"] is None
+
+
 def test_get_all_devices_when_no_filter():
     ts, client = _client()
     client.post("/telemetry", json=_post_body(1, device="d1"))
