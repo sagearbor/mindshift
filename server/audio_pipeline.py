@@ -212,6 +212,33 @@ MAX_ENRICHMENT_INFLIGHT = int(os.getenv("MAX_ENRICHMENT_INFLIGHT", "4"))
 # an enrollment made mid-conversation is still picked up within a minute.
 VOICEPRINT_CACHE_TTL_S = float(os.getenv("VOICEPRINT_CACHE_TTL_S", "60"))
 
+# Cloud-suggestion latency knobs (perf/cloud-suggestion-latency). Each is
+# env-overridable so a regression can be rolled back with a config change,
+# and so scripts/bench_suggestions.py can A/B the legacy behaviour in-process.
+#
+# Output budget: a suggestion turn is 3 sentences + one integer (~80 output
+# tokens with the live prompt; ~130 with the legacy tone_score contract), a
+# nudge is ≤6 words + one integer. The caps bound the worst case (a model
+# that starts rambling) without ever cutting a normal answer short.
+SUGGESTION_MAX_TOKENS = int(os.getenv("MINDSHIFT_SUGGESTION_MAX_TOKENS", "200"))
+NUDGE_MAX_TOKENS = int(os.getenv("MINDSHIFT_NUDGE_MAX_TOKENS", "60"))
+# The lean live output contract (no tone_score, suggestions first, bounded
+# length) — see main.empathy_system_prompt(live=True). "0" restores the REST
+# contract for the WS path (the pre-perf behaviour).
+LIVE_PROMPT = os.getenv("MINDSHIFT_LIVE_PROMPT", "1") != "0"
+# When the model's answer is not parseable JSON, ask it once (tiny prompt,
+# temperature 0) to return the same content as valid JSON before giving up
+# with llm_parse_error. "0" restores fail-on-first-parse-error.
+PARSE_REPAIR = os.getenv("MINDSHIFT_PARSE_REPAIR", "1") != "0"
+REPAIR_MAX_TOKENS = 200
+# How many suggestion jobs may be in the LLM at once for a LOCAL-FIRST
+# session (a legacy client always gets exactly one worker — its server TTS
+# audio must play in strict order). Final events stay in utterance order
+# regardless (see the ordering chain in _run_session); what concurrency
+# buys is that a turn arriving while the previous one is still generating
+# starts its own LLM call immediately instead of waiting (queue_wait).
+LOCAL_FIRST_CONCURRENCY = max(1, int(os.getenv("MINDSHIFT_LOCAL_FIRST_CONCURRENCY", "2")))
+
 # P2-7: server-generated session/relationship ids are UUIDs. Path params that
 # reach routing and (for session_id) the export ``Content-Disposition``
 # filename header must be validated — a CR/LF/quote in a free-form id could
@@ -973,6 +1000,14 @@ class SuggestionJob:
     verdict from turn_local — when it is not None it WINS over the fragile
     ``self_speaker`` label comparison; None means "decide the legacy way".
     ``tone_context`` is the phone's text-tone/prosody for the prompt.
+
+    ``prev_done`` / ``done`` form the per-session ORDERING CHAIN that keeps
+    final events in utterance order when more than one job is in the LLM
+    at once (local-first concurrency): a job sends its final event only
+    after the previous job's ``done`` future resolved, and resolves its own
+    ``done`` when it finishes (delivered, errored, or dropped as superseded
+    — a dropped job's ``done`` resolves as soon as its predecessor's does,
+    so the chain never stalls on a turn nobody is generating).
     """
 
     utterance: Utterance
@@ -983,6 +1018,28 @@ class SuggestionJob:
     timing: UtteranceTiming
     is_self: bool | None = None
     tone_context: dict | None = None
+    prev_done: "asyncio.Future[None] | None" = field(default=None, repr=False, compare=False)
+    done: "asyncio.Future[None] | None" = field(default=None, repr=False, compare=False)
+
+    def mark_done(self) -> None:
+        """Resolve ``done`` (idempotent; a no-op for an unchained job)."""
+        if self.done is not None and not self.done.done():
+            self.done.set_result(None)
+
+    async def wait_turn(self) -> None:
+        """Block until every earlier job in the chain has finished — the
+        gate in front of a FINAL event (suggestion, nudge, or error)."""
+        if self.prev_done is not None and not self.prev_done.done():
+            await asyncio.shield(self.prev_done)
+
+    def release_when_predecessor_done(self) -> None:
+        """For a job dropped before it started (latest-wins): keep the chain
+        intact by resolving ``done`` exactly when the predecessor's resolves."""
+        prev = self.prev_done
+        if prev is None or prev.done():
+            self.mark_done()
+            return
+        prev.add_done_callback(lambda _fut: self.mark_done())
 
 
 # ---------------------------------------------------------------------------
@@ -1534,14 +1591,20 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         clock=getattr(state, "monotonic_clock", None) or time.monotonic,
     )
 
-    # Suggestion generation (LLM via thread + TTS HTTP, up to ~15s) runs on a
-    # single background worker so it never stalls the audio receive loop —
-    # audio keeps flowing to Deepgram while a suggestion is being generated.
-    # One worker (not a pool) keeps SuggestionEvents in utterance order.
+    # Suggestion generation (LLM via thread + TTS HTTP, up to ~15s) runs on
+    # background workers so it never stalls the audio receive loop — audio
+    # keeps flowing to Deepgram while a suggestion is being generated.
+    # A legacy client gets exactly ONE worker (its server-TTS audio plays in
+    # arrival order); a local-first client unlocks LOCAL_FIRST_CONCURRENCY
+    # workers once it has proven itself with a turn_local, and the ordering
+    # chain on SuggestionJob (prev_done/done) keeps FINAL events in utterance
+    # order even then — a later turn's answer never overtakes an earlier one.
     # Queue items are SuggestionJobs carrying the (empathy, interject, role,
     # self_speaker) snapshot at enqueue time — self_speaker is snapshotted too
     # so a mid-flight config change never retypes a queued turn (SELF vs OTHER).
     suggestion_queue: "asyncio.Queue[SuggestionJob]" = asyncio.Queue()
+    concurrency_unlocked = asyncio.Event()
+    chain_tail: list[SuggestionJob | None] = [None]  # the newest chained job
     # enqueued-vs-finished counters let the stop handler report honestly how
     # many suggestions were dropped when draining times out (P1-8) — qsize()
     # alone would miss the item the worker is currently processing.
@@ -1621,6 +1684,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 timing.tts_start = ctx.latency.now()
                 tts_audio = await tts.synthesize(nudge)
                 timing.tts_end = ctx.latency.now()
+            await job.wait_turn()  # final events go out in utterance order
             await send_event(SuggestionEvent(
                 session_id=session_id,
                 utterance_text=utterance.text,
@@ -1682,6 +1746,12 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             tts_audio = await tts.synthesize(suggestion_texts[0])
             timing.tts_end = ctx.latency.now()
 
+        # Ordering chain: with more than one job in flight (local-first
+        # concurrency) this turn's FINAL event waits for the previous turn's
+        # to be on the wire. The partial preview above is deliberately NOT
+        # gated — it is a best-effort glimpse, keyed by utterance_text, and
+        # gating it would give back the time-to-first-partial we bought.
+        await job.wait_turn()
         await send_event(SuggestionEvent(
             session_id=session_id,
             utterance_text=utterance.text,
@@ -1695,7 +1765,12 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         timing.sent = ctx.latency.now()
         ctx.latency.record(timing, session_id)
 
-    async def suggestion_worker() -> None:
+    async def suggestion_worker(index: int = 0) -> None:
+        if index > 0:
+            # Extra workers only serve a session that has proven local-first
+            # (see handle_turn_local); until then this is exactly the
+            # single-worker pipeline a legacy client has always had.
+            await concurrency_unlocked.wait()
         while True:
             job = await suggestion_queue.get()
             try:
@@ -1717,12 +1792,14 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 )
                 # Suppress send failures — the socket may already be gone.
                 with contextlib.suppress(Exception):
+                    await job.wait_turn()  # errors keep utterance order too
                     await send_json({
                         "type": "suggestion_error",
                         "utterance_text": job.utterance.text,
                         "reason": reason,
                     })
             finally:
+                job.mark_done()  # release the next turn in the chain
                 queue_stats["finished"] += 1
                 suggestion_queue.task_done()
 
@@ -1763,15 +1840,19 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         # remain in the transcript and the utterance buffer above.
         while not suggestion_queue.empty():
             with contextlib.suppress(asyncio.QueueEmpty):
-                suggestion_queue.get_nowait()
+                dropped = suggestion_queue.get_nowait()
                 suggestion_queue.task_done()
                 queue_stats["finished"] += 1
                 queue_stats["superseded"] += 1
+                # Keep the ordering chain intact without the dropped turn:
+                # its slot resolves the moment its predecessor's does.
+                dropped.release_when_predecessor_done()
 
         queue_stats["enqueued"] += 1
         timing.enqueued = ctx.latency.now()
         timing.queue_depth = suggestion_queue.qsize()
-        suggestion_queue.put_nowait(SuggestionJob(
+        previous = chain_tail[0]
+        job = SuggestionJob(
             utterance=utterance,
             empathy_slider=ctx.empathy_slider,
             interject_level=ctx.interject_level,
@@ -1780,7 +1861,11 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             timing=timing,
             is_self=is_self,
             tone_context=tone_context,
-        ))
+            prev_done=previous.done if previous is not None else None,
+            done=asyncio.get_running_loop().create_future(),
+        )
+        chain_tail[0] = job
+        suggestion_queue.put_nowait(job)
 
     async def enqueue_segments(result, frame_received: float | None = None) -> None:
         segment_finalized = ctx.latency.now()
@@ -1851,11 +1936,16 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         """
         if not ctx.local_first:
             ctx.local_first = True
+            # Unlock the extra suggestion worker(s): the phone voices its
+            # own suggestions and reads partial previews, so overlapping
+            # LLM calls (finals still in order) are pure latency win here.
+            concurrency_unlocked.set()
             logger.info(
                 "Session %s is local-first: the phone orchestrates capture/STT/"
-                "speech; server TTS %s",
+                "speech; server TTS %s; suggestion concurrency %d",
                 session_id,
                 "on (config tts=server)" if ctx.tts_mode == "server" else "off",
+                LOCAL_FIRST_CONCURRENCY,
             )
         _remember_local_range(ctx.local_ranges, event.start_time, event.end_time)
         utterance = Utterance(
@@ -1896,8 +1986,19 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             tone_context=_tone_context_from_event(event),
         )
 
-    worker_task = asyncio.create_task(suggestion_worker())
-    # P1-7: this try must start IMMEDIATELY after the worker task is created.
+    worker_tasks = [
+        asyncio.create_task(suggestion_worker(i))
+        for i in range(LOCAL_FIRST_CONCURRENCY)
+    ]
+
+    async def cancel_workers() -> None:
+        for task in worker_tasks:
+            task.cancel()
+        for task in worker_tasks:
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    # P1-7: this try must start IMMEDIATELY after the worker tasks are created.
     # The initial connect + notify below can raise (e.g. the client
     # disconnects before we get a word in); without the try/finally around
     # them, each such occurrence would leak one forever-pending worker task.
@@ -2100,9 +2201,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                         # be holding send_lock (a large TTS frame to a non-reading
                         # client), which would otherwise deadlock the send on the
                         # same lock — and it can't deliver a late suggestion after.
-                        worker_task.cancel()
-                        with contextlib.suppress(asyncio.CancelledError):
-                            await worker_task
+                        await cancel_workers()
                         completion["pending_dropped"] = pending
                         logger.warning(
                             "Graceful stop drain timed out after %.0fs with %d "
@@ -2137,9 +2236,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         logger.info("Client disconnected from session %s", session_id)
     finally:
         # Cleanup must never raise, whatever state the connection died in.
-        worker_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await worker_task
+        await cancel_workers()
         # Enrichment tasks may still be inside a model call (to_thread) — the
         # thread finishes on its own; the task just stops mattering.
         for task in list(enrichment_tasks):
@@ -2480,8 +2577,72 @@ def _first_suggestion_in(buffer: str) -> str | None:
     return text if isinstance(text, str) and text.strip() else None
 
 
+_REPAIR_SYSTEM = (
+    "You repair malformed JSON. The user message is a model response that "
+    "was supposed to be ONLY a JSON object with these keys: {keys}. Return "
+    "that same content as one valid, complete JSON object with exactly those "
+    "keys — no prose, no code fences, nothing else."
+)
+
+
+async def _parse_or_repair(
+    llm, raw: str, *, keys: str, what: str, utterance_text: str,
+) -> dict:
+    """Parse the model's JSON, tolerantly; on failure ask the model ONCE to
+    repair its own answer (tiny prompt, temperature 0, bounded tokens);
+    raise :class:`SuggestionUnavailable` ("llm_parse_error") only when the
+    repaired answer is unparseable too.
+
+    A repaired result is a real model answer for this turn — it is never
+    surfaced as an error. What the repair call cannot fix (a provider error
+    on the repair call itself) propagates as its own exception, exactly as a
+    provider error on the primary call does.
+    """
+    from main import parse_llm_json
+
+    def _parse(text: str) -> dict:
+        data = parse_llm_json(text)
+        if not isinstance(data, dict):
+            # Valid JSON of the wrong shape (list, string, number…).
+            raise TypeError(f"expected a JSON object, got {type(data).__name__}")
+        return data
+
+    try:
+        return _parse(raw)
+    # ValueError covers json.JSONDecodeError and the empty-content case.
+    except (ValueError, KeyError, AttributeError, TypeError) as exc:
+        first_error = exc
+
+    if not PARSE_REPAIR or not raw or not raw.strip():
+        # P1-4: log a redacted marker, never the transcript text itself.
+        logger.warning(
+            "LLM returned unparseable %s for %s", what, _redact(utterance_text),
+        )
+        raise SuggestionUnavailable("llm_parse_error") from first_error
+
+    logger.info(
+        "LLM %s for %s was not valid JSON (%d chars) — asking for a repair",
+        what, _redact(utterance_text), len(raw),
+    )
+    repaired = await asyncio.to_thread(
+        llm.complete,
+        system=_REPAIR_SYSTEM.format(keys=keys),
+        user=raw,
+        temperature=0.0,
+        max_tokens=REPAIR_MAX_TOKENS,
+    )
+    try:
+        return _parse(repaired)
+    except (ValueError, KeyError, AttributeError, TypeError) as exc:
+        logger.warning(
+            "LLM %s for %s still unparseable after repair", what,
+            _redact(utterance_text),
+        )
+        raise SuggestionUnavailable("llm_parse_error") from exc
+
+
 async def _stream_with_first_suggestion(
-    llm, system: str, user: str, on_first_suggestion,
+    llm, system: str, user: str, on_first_suggestion, *, max_tokens: int = 512,
 ) -> str:
     """Consume ``llm.stream_complete`` in a thread; fire ``on_first_suggestion``
     (a coroutine function) exactly once, as soon as the first suggestion
@@ -2498,7 +2659,9 @@ async def _stream_with_first_suggestion(
     def run() -> str:
         parts: list[str] = []
         notified = False
-        for delta in llm.stream_complete(system=system, user=user):
+        for delta in llm.stream_complete(
+            system=system, user=user, max_tokens=max_tokens,
+        ):
             parts.append(delta)
             if not notified:
                 first = _first_suggestion_in("".join(parts))
@@ -2552,28 +2715,29 @@ async def _generate_suggestions(
     suggestion string while the rest is still streaming. Both None → the
     prompt and the ``complete()`` call are byte-identical to before.
     """
-    from main import empathy_system_prompt, parse_llm_json
+    from main import empathy_system_prompt
 
-    system = empathy_system_prompt(empathy_slider, role, voice_profile)
+    system = empathy_system_prompt(
+        empathy_slider, role, voice_profile, live=LIVE_PROMPT,
+    )
     user_content = _turn_prompt(utterance, tone_context)
 
     if on_first_suggestion is not None and _supports_streaming(llm):
         raw = await _stream_with_first_suggestion(
             llm, system, user_content, on_first_suggestion,
+            max_tokens=SUGGESTION_MAX_TOKENS,
         )
     else:
-        raw = await asyncio.to_thread(llm.complete, system=system, user=user_content)
-
-    try:
-        data = parse_llm_json(raw)
-        suggestions = data.get("suggestions", [])
-    # AttributeError/TypeError: valid JSON of the wrong shape (list, string…).
-    except (json.JSONDecodeError, KeyError, AttributeError, TypeError) as exc:
-        # P1-4: log length/hash, never the transcript text itself.
-        logger.warning(
-            "LLM returned unparseable response for %s", _redact(utterance.text)
+        raw = await asyncio.to_thread(
+            llm.complete, system=system, user=user_content,
+            max_tokens=SUGGESTION_MAX_TOKENS,
         )
-        raise SuggestionUnavailable("llm_parse_error") from exc
+
+    data = await _parse_or_repair(
+        llm, raw, keys='"suggestions" (list of strings), "importance" (integer)',
+        what="response", utterance_text=utterance.text,
+    )
+    suggestions = data.get("suggestions", [])
     if not isinstance(suggestions, list):
         logger.warning(
             "LLM returned non-list suggestions for %s", _redact(utterance.text)
@@ -2621,7 +2785,7 @@ async def _generate_nudge(
     output cannot be parsed (P0-3), with PII-safe logging via :func:`_redact` —
     it never fabricates a nudge.
     """
-    from main import parse_llm_json, self_feedback_prompt
+    from main import self_feedback_prompt
 
     system = self_feedback_prompt(empathy_slider, role, voice_profile)
     # tone_context renders the phone's measurements as hints (Track 3-server);
@@ -2629,17 +2793,15 @@ async def _generate_nudge(
     # it is one short phrase, there is nothing to preview.
     user_content = _turn_prompt(utterance, tone_context)
 
-    raw = await asyncio.to_thread(llm.complete, system=system, user=user_content)
+    raw = await asyncio.to_thread(
+        llm.complete, system=system, user=user_content, max_tokens=NUDGE_MAX_TOKENS,
+    )
 
-    try:
-        data = parse_llm_json(raw)
-        nudge = data.get("nudge", "")
-    # AttributeError/TypeError: valid JSON of the wrong shape (list, string…).
-    except (json.JSONDecodeError, KeyError, AttributeError, TypeError) as exc:
-        logger.warning(
-            "LLM returned unparseable nudge for %s", _redact(utterance.text)
-        )
-        raise SuggestionUnavailable("llm_parse_error") from exc
+    data = await _parse_or_repair(
+        llm, raw, keys='"nudge" (string), "importance" (integer)',
+        what="nudge", utterance_text=utterance.text,
+    )
+    nudge = data.get("nudge", "")
     if not isinstance(nudge, str):
         logger.warning(
             "LLM returned non-string nudge for %s", _redact(utterance.text)

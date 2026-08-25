@@ -158,6 +158,24 @@ class TestTemperatureRules:
     def test_claude_passes_temperature(self):
         c = self._make_client("claude-3-haiku-20240307")
         assert c._resolve_temperature(0.7) == 0.7
+        assert self._make_client("claude-haiku-4-5-20251001")._resolve_temperature(0.7) == 0.7
+        assert self._make_client("claude-sonnet-4-6")._resolve_temperature(0.7) == 0.7
+        assert self._make_client("claude-opus-4-6")._resolve_temperature(0.7) == 0.7
+
+    def test_claude_5_family_omits_temperature(self):
+        # The API rejects `temperature` on these with a 400 ("deprecated for
+        # this model") — found by scripts/bench_suggestions.py --model claude-sonnet-5.
+        for model in ("claude-sonnet-5", "claude-opus-5", "claude-fable-5",
+                      "claude-mythos-5", "claude-opus-4-7", "claude-opus-4-8"):
+            assert self._make_client(model)._resolve_temperature(0.7) is None, model
+
+    def test_anthropic_omitted_temperature_is_not_sent(self):
+        underlying = MagicMock()
+        underlying.messages.create.return_value.content = [MagicMock(text="{}")]
+        c = self._make_client("claude-sonnet-5")
+        c._client = underlying
+        c.complete(system="s", user="u")
+        assert "temperature" not in underlying.messages.create.call_args.kwargs
 
     def test_gpt4o_passes_temperature(self):
         c = self._make_client("gpt-4o-mini")
@@ -212,8 +230,142 @@ class TestCompleteAnthropic:
         assert result == "Hello from Claude"
         call_kwargs = mock_sdk.messages.create.call_args.kwargs
         assert call_kwargs["model"] == "claude-3-haiku-20240307"
+        # Prompt caching is OFF by default (see llm_client.PROMPT_CACHE_ENABLED):
+        # the request is byte-identical to before — a plain system string.
         assert call_kwargs["system"] == "Be helpful"
         assert "temperature" in call_kwargs
+        assert "output_config" not in call_kwargs
+
+
+# ---------------------------------------------------------------------------
+# Prompt caching flags + usage accounting (perf/cloud-suggestion-latency)
+# ---------------------------------------------------------------------------
+
+class _Usage:
+    def __init__(self, **kw):
+        self.input_tokens = kw.get("input_tokens", 0)
+        self.output_tokens = kw.get("output_tokens", 0)
+        self.cache_creation_input_tokens = kw.get("cache_creation_input_tokens", 0)
+        self.cache_read_input_tokens = kw.get("cache_read_input_tokens", 0)
+
+
+class TestPromptCaching:
+    def _make_client(self, underlying, *, cache_system_prompt: bool = True) -> LLMClient:
+        client = LLMClient.__new__(LLMClient)
+        client.model = "claude-haiku-4-5-20251001"
+        client._provider = "anthropic"
+        client._api_key = None
+        client._client = underlying
+        client.cache_system_prompt = cache_system_prompt
+        return client
+
+    def test_default_is_off_unless_env_opts_in(self, monkeypatch):
+        import importlib
+
+        import llm_client
+
+        monkeypatch.delenv("MINDSHIFT_PROMPT_CACHE", raising=False)
+        assert importlib.reload(llm_client).PROMPT_CACHE_ENABLED is False
+        monkeypatch.setenv("MINDSHIFT_PROMPT_CACHE", "1")
+        assert importlib.reload(llm_client).PROMPT_CACHE_ENABLED is True
+        monkeypatch.delenv("MINDSHIFT_PROMPT_CACHE", raising=False)
+        importlib.reload(llm_client)
+
+    def test_anthropic_system_blocks_helper(self):
+        from llm_client import anthropic_system_blocks
+
+        assert anthropic_system_blocks("sys", cache=False) == "sys"
+        assert anthropic_system_blocks("sys", cache=True) == [
+            {"type": "text", "text": "sys", "cache_control": {"type": "ephemeral"}},
+        ]
+
+    def test_cache_flag_off_sends_plain_string(self):
+        underlying = MagicMock()
+        underlying.messages.create.return_value.content = [MagicMock(text="{}")]
+        c = self._make_client(underlying, cache_system_prompt=False)
+        c.complete(system="sys", user="usr")
+        assert underlying.messages.create.call_args.kwargs["system"] == "sys"
+
+    def test_constructor_flag_overrides_env_default(self):
+        from llm_client import PROMPT_CACHE_ENABLED
+
+        with patch("anthropic.Anthropic"):
+            default = LLMClient(model="claude-haiku-4-5-20251001", api_key="k")
+            on = LLMClient(
+                model="claude-haiku-4-5-20251001", api_key="k", cache_system_prompt=True,
+            )
+            off = LLMClient(
+                model="claude-haiku-4-5-20251001", api_key="k", cache_system_prompt=False,
+            )
+        assert default.cache_system_prompt is PROMPT_CACHE_ENABLED
+        assert on.cache_system_prompt is True
+        assert off.cache_system_prompt is False
+
+    def test_stream_puts_cache_marker_on_system_block(self):
+        underlying = MagicMock()
+        stream = underlying.messages.stream.return_value.__enter__.return_value
+        stream.text_stream = iter(["a", "b"])
+        stream.get_final_message.return_value.usage = _Usage(
+            input_tokens=12, output_tokens=2, cache_read_input_tokens=100,
+        )
+        c = self._make_client(underlying)
+        assert "".join(c.stream_complete(system="sys", user="usr")) == "ab"
+        kwargs = underlying.messages.stream.call_args.kwargs
+        assert kwargs["system"][0]["cache_control"] == {"type": "ephemeral"}
+        assert kwargs["system"][0]["text"] == "sys"
+
+    def test_usage_is_accumulated_from_streamed_and_plain_calls(self):
+        underlying = MagicMock()
+        stream = underlying.messages.stream.return_value.__enter__.return_value
+        stream.text_stream = iter(["x"])
+        stream.get_final_message.return_value.usage = _Usage(
+            input_tokens=10, output_tokens=5,
+            cache_creation_input_tokens=1500, cache_read_input_tokens=0,
+        )
+        msg = MagicMock()
+        msg.content = [MagicMock(text="{}")]
+        msg.usage = _Usage(
+            input_tokens=10, output_tokens=7,
+            cache_creation_input_tokens=0, cache_read_input_tokens=1500,
+        )
+        underlying.messages.create.return_value = msg
+        c = self._make_client(underlying)
+
+        list(c.stream_complete(system="sys", user="usr"))
+        c.complete(system="sys", user="usr")
+
+        assert c.usage_totals == {
+            "calls": 2, "input_tokens": 20, "output_tokens": 12,
+            "cache_creation_input_tokens": 1500, "cache_read_input_tokens": 1500,
+        }
+        assert c.last_usage["cache_read_input_tokens"] == 1500
+
+    def test_usage_read_failure_never_breaks_a_reply(self):
+        underlying = MagicMock()
+        stream = underlying.messages.stream.return_value.__enter__.return_value
+        stream.text_stream = iter(["ok"])
+        stream.get_final_message.side_effect = RuntimeError("no final message")
+        c = self._make_client(underlying)
+        assert list(c.stream_complete(system="sys", user="usr")) == ["ok"]
+        assert c.usage_totals["calls"] == 0
+
+    def test_response_schema_becomes_output_config(self):
+        underlying = MagicMock()
+        underlying.messages.create.return_value.content = [MagicMock(text="{}")]
+        c = self._make_client(underlying)
+        schema = {"type": "object", "properties": {}, "additionalProperties": False}
+        c.complete(system="sys", user="usr", response_schema=schema)
+        assert underlying.messages.create.call_args.kwargs["output_config"] == {
+            "format": {"type": "json_schema", "schema": schema},
+        }
+
+    def test_response_schema_is_ignored_by_other_providers(self):
+        underlying = MagicMock()
+        underlying.chat.completions.create.return_value.choices[0].message.content = "{}"
+        c = LLMClient.__new__(LLMClient)
+        c.model, c._provider, c._api_key, c._client = "gpt-4o-mini", "openai", None, underlying
+        c.complete(system="sys", user="usr", response_schema={"type": "object"})
+        assert "output_config" not in underlying.chat.completions.create.call_args.kwargs
 
 
 class TestCompleteOpenAIChat:
@@ -338,7 +490,7 @@ class TestStreamComplete:
 
         assert deltas == ['{"sugg', 'estions": ["Hi."]}']
         kwargs = underlying.messages.stream.call_args.kwargs
-        assert kwargs["system"] == "sys"
+        assert kwargs["system"] == "sys"  # caching off by default — see TestPromptCaching
         assert kwargs["messages"] == [{"role": "user", "content": "usr"}]
         assert kwargs["temperature"] == 0.7 and kwargs["max_tokens"] == 512
         # The context manager is exited so the SSE connection is released.
