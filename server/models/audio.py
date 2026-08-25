@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_serializer
 
 # Where a piece of the realtime pipeline ran. "on-device" is the phone doing
 # the work itself (Foundation A's hybrid on-device/cloud path); "cloud" is
@@ -50,6 +50,26 @@ class Utterance(BaseModel):
     confidence: float = Field(ge=0, le=1, default=1.0)
 
 
+class ObserverTagged(BaseModel):
+    """Mixin for the coaching events an in-app call's THERAPIST socket
+    receives as a read-only copy (server/calls.py ``fan_out``): ``for_uid``
+    names the participant the event was for. It is serialized ONLY when
+    set — on your own events the key is absent, so every pre-call wire
+    payload stays byte-identical."""
+
+    for_uid: str | None = Field(
+        default=None,
+        description="In-app calls: the participant this event was coaching (observer copies only)",
+    )
+
+    @model_serializer(mode="wrap")
+    def _drop_absent_for_uid(self, handler, info):
+        data = handler(self)
+        if isinstance(data, dict) and data.get("for_uid") is None:
+            data.pop("for_uid", None)
+        return data
+
+
 class TranscriptEvent(BaseModel):
     """A finalized transcript line, sent immediately on utterance end.
 
@@ -66,7 +86,7 @@ class TranscriptEvent(BaseModel):
     end_time: float = Field(ge=0)
 
 
-class SuggestionEvent(BaseModel):
+class SuggestionEvent(ObserverTagged):
     """A coaching suggestion sent back over WebSocket."""
     type: str = Field(default="suggestion", description="Event type discriminator")
     # Which coaching mode produced this: "response" (suggest what to say to the
@@ -189,7 +209,7 @@ class TurnLocalEvent(BaseModel):
     tts_source: TtsSource | None = None
 
 
-class ToneFlagEvent(BaseModel):
+class ToneFlagEvent(ObserverTagged):
     """Server→client: the server noticed a tone worth surfacing on a turn.
 
     ``source`` says which analysis raised it — "text" (LLM/lexical tone over
@@ -209,7 +229,7 @@ class ToneFlagEvent(BaseModel):
     confidence: float = Field(ge=0, le=1)
 
 
-class SpeakerIdentityEvent(BaseModel):
+class SpeakerIdentityEvent(ObserverTagged):
     """Server→client: the server's (possibly revised) identity for a speaker
     label — who "Speaker A" turned out to be once a voiceprint matched.
 

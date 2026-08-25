@@ -95,7 +95,10 @@ LIVE_SESSION_ID_MAX = 128
 # ``/recordings/{id}`` route accepts it.
 _LIVE_NAMESPACE = uuid.UUID("6f1c2f2e-3b3a-4c6e-9d8e-7a5b2c1d0e9f")
 
-LiveMode = Literal["earpiece", "speaker", "therapist"]
+# "call" (2026-08-25): an in-app call — the merged two-participant transcript
+# persisted by server/calls.py at call end, one episode per participant. The
+# phone never POSTs a call session itself.
+LiveMode = Literal["earpiece", "speaker", "therapist", "call"]
 
 # Background post-ingest tasks (batch analysis + reflection), strong-ref'd
 # like main._JOB_TASKS so the event loop never garbage-collects one mid-run.
@@ -472,20 +475,33 @@ async def _post_ingest(
 # POST /sessions/live
 # ---------------------------------------------------------------------------
 
-@router.post("/sessions/live", response_model=LiveSessionOut, status_code=201)
-async def ingest_live_session(
-    body: LiveSessionIn,
-    request: Request,
-    uid: str = Depends(get_current_uid),
-    _rl: None = Depends(_rate_limit),
-):
-    store = _require_store(request)
-    recording_id = live_recording_id(uid, body.session_id)
-    turn_events = [t.model_dump() for t in body.turns]
+async def ingest_live(
+    store: "recordings_store.RecordingsStore",
+    uid: str,
+    *,
+    session_id: str,
+    started_at: str,
+    ended_at: str,
+    mode: str,
+    turn_events: list[dict],
+    tone_flags: list[dict],
+    identities: list[dict],
+    speaker_labels: dict[str, dict],
+    title: str | None,
+    context: str,
+    analyze: bool,
+    reflect: bool,
+) -> LiveSessionOut:
+    """Store one finished live session for ``uid`` and schedule its
+    post-ingest analysis — the body of ``POST /sessions/live``, callable
+    without HTTP (server/calls.py persists one episode per call
+    participant through it, mode ``"call"``). ``turn_events`` are
+    ``TurnLocalEvent`` dumps (validated by the caller); extra per-turn keys
+    survive into turns.json when ``live_sessions.storage_turns`` knows them.
+    Raises HTTPException(503) when the store write fails."""
+    recording_id = live_recording_id(uid, session_id)
     turns = live_sessions.storage_turns(turn_events)
-    tone_flags = [f.model_dump() for f in body.tone_flags]
-    identities = [s.model_dump() for s in body.speaker_identities]
-    title = (body.title or "").strip() or f"Live session · {body.mode}"
+    title = (title or "").strip() or f"Live session · {mode}"
 
     # Foundation B: the phone's speaker_person_id values are the account's
     # voiceprint person ids — resolve their display names from the enrolled
@@ -500,10 +516,10 @@ async def ingest_live_session(
             logger.warning("Voiceprint listing failed for uid=%s", uid, exc_info=True)
 
     analysis = live_sessions.lite_analysis(
-        session_id=body.session_id,
-        mode=body.mode,
-        started_at=body.started_at,
-        ended_at=body.ended_at,
+        session_id=session_id,
+        mode=mode,
+        started_at=started_at,
+        ended_at=ended_at,
         turns=turns,
         tone_flags=tone_flags,
         speaker_identities=identities,
@@ -524,8 +540,7 @@ async def ingest_live_session(
     # A person id is attached only when that person exists on this account
     # ("self" always does) — never a dangling reference.
     manual_names, manual_people = live_sessions.manual_labels_from_live(
-        {sp: lbl.model_dump() for sp, lbl in body.speaker_labels.items()},
-        turns, known_people,
+        speaker_labels, turns, known_people,
         existing_names=(existed or {}).get("manual_speaker_labels"),
         existing_people=(existed or {}).get("manual_speaker_people"),
     )
@@ -534,14 +549,14 @@ async def ingest_live_session(
         "id": recording_id,
         # created_at is WHEN THE CONVERSATION HAPPENED (the phone's
         # started_at), not when it reached us — YourDay buckets by it.
-        "created_at": body.started_at,
+        "created_at": started_at,
         "ingested_at": now,
         "filename": "live-session",
         "title": title,
         # No audio on the server: "none" so the client never asks for media.
         "media_type": "none",
         "duration_seconds": live_sessions.duration_seconds(
-            turns, body.started_at, body.ended_at,
+            turns, started_at, ended_at,
         ),
         "size_bytes": 0,
         "stored_variants": [],
@@ -550,9 +565,9 @@ async def ingest_live_session(
         "original_filename": None,
         "original_content_type": None,
         "source": {"type": "live", "url": None, "original_filename": None},
-        "mode": body.mode,
-        "session_id": body.session_id,
-        "ended_at": body.ended_at,
+        "mode": mode,
+        "session_id": session_id,
+        "ended_at": ended_at,
     }
     if manual_names:
         meta["manual_speaker_labels"] = manual_names
@@ -578,25 +593,25 @@ async def ingest_live_session(
     self_label = analysis["live"]["self_speaker"]
     # Nothing is scheduled that the carried-over analysis already holds.
     analysis_scheduled = bool(
-        body.analyze
+        analyze
         and len(turns) >= main.ANALYZE_MIN_TURNS
         and analysis["live"]["analysis_status"] != live_sessions.ANALYSIS_FULL
     )
     reflect_scheduled = bool(
-        body.reflect
+        reflect
         and self_label is not None
         and analysis["live"].get("could_have_said") is None
     )
     if analysis_scheduled or reflect_scheduled:
         _schedule(_post_ingest(
             store, uid, recording_id,
-            context=body.context, analyze=analysis_scheduled,
+            context=context, analyze=analysis_scheduled,
             reflect=reflect_scheduled,
         ))
     return LiveSessionOut(
         episode_id=recording_id,
         recording_id=recording_id,
-        session_id=body.session_id,
+        session_id=session_id,
         created=existed is None,
         turn_count=len(turns),
         self_speaker=self_label,
@@ -604,6 +619,31 @@ async def ingest_live_session(
         analysis_scheduled=analysis_scheduled,
         reflect_scheduled=reflect_scheduled,
         shared_with=shared_with,
+    )
+
+
+@router.post("/sessions/live", response_model=LiveSessionOut, status_code=201)
+async def ingest_live_session(
+    body: LiveSessionIn,
+    request: Request,
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    store = _require_store(request)
+    return await ingest_live(
+        store, uid,
+        session_id=body.session_id,
+        started_at=body.started_at,
+        ended_at=body.ended_at,
+        mode=body.mode,
+        turn_events=[t.model_dump() for t in body.turns],
+        tone_flags=[f.model_dump() for f in body.tone_flags],
+        identities=[s.model_dump() for s in body.speaker_identities],
+        speaker_labels={sp: lbl.model_dump() for sp, lbl in body.speaker_labels.items()},
+        title=body.title,
+        context=body.context,
+        analyze=body.analyze,
+        reflect=body.reflect,
     )
 
 

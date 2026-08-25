@@ -1,7 +1,8 @@
 """Live-session analysis — the PURE half of Track 2 ("how you're doing over
 time" + "what you could have said").
 
-A live coaching session (earpiece / speaker / therapist mode) ends on the
+A live coaching session (earpiece / speaker / therapist mode, or "call" —
+an in-app call's merged two-participant transcript, server/calls.py) ends on the
 phone with a list of ``TurnLocalEvent`` reports (words + the phone's own tone
 and identity verdicts) and no audio on the server. This module turns that
 into the SAME episode record an uploaded recording gets — meta + turns +
@@ -623,7 +624,7 @@ def storage_turns(turn_events: list[dict]) -> list[dict]:
     re-aggregation never needs the phone again."""
     out: list[dict] = []
     for ev in turn_events:
-        out.append({
+        row = {
             "speaker": ev.get("speaker"),
             "text": ev.get("text"),
             "start_time": ev.get("start_time"),
@@ -636,8 +637,18 @@ def storage_turns(turn_events: list[dict]) -> list[dict]:
             "prosody": ev.get("prosody"),
             "suggestion": ev.get("suggestion"),
             "suggestion_source": ev.get("suggestion_source"),
-        })
+        }
+        # In-app calls (server/calls.py): the merged transcript's arrival
+        # order and provenance, plus the SENDER's own clock next to the
+        # call-timeline start/end above. Only present on call episodes.
+        for key in CALL_TURN_KEYS:
+            if key in ev:
+                row[key] = ev.get(key)
+        out.append(row)
     return out
+
+
+CALL_TURN_KEYS = ("call_seq", "participant_uid", "local_start_time", "local_end_time")
 
 
 def turns_hash(turns: list[dict]) -> str:
