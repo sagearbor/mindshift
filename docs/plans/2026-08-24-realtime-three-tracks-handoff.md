@@ -391,3 +391,52 @@ What it adds, on top of the tracks above (decisions are in the PR body):
   (5 s × 12) until the reflection lands.
 - Jest note: `jest-setup.ts` re-mocks RN's ScrollView so a `refreshControl`
   element never lands in host props (it broke snapshots + `JSON.stringify`).
+
+## 11. Wave 2 (evening of 2026-08-24) — what changed since §2–§10
+
+Everything below is merged to `main` (final `main` = #157) and DEPLOYED:
+server Cloud Run revision from image `mindshift-api:564cd67` (see the
+deploy log at the end of this section), web at https://arborfam-hub.web.app,
+and JS published to the EAS `preview` channel (runtime 1.17.0).
+
+| PR | What | Measured |
+|---|---|---|
+| #141 | iOS build fixes (workspace-hoisted ORT pod, static frameworks); app boots on the iPhone 17 Pro simulator | — |
+| #143 | Dockerfile pre-exports ECAPA ONNX; deploy script forwards `MINDSHIFT_TONE_AUDIO` (prod = `off`) | rev 00050 |
+| #144 | EAS `preview` APK for the Pixel 10 (runtime 1.17.0, vc 32); OTA dry-run/channel flags; iOS prep | install link: https://expo.dev/accounts/sagearbor/projects/mindshift/builds/555b04e3-9a28-4efb-8bbf-e9a63e2dcac7 |
+| #145 | `scripts/live_e2e.py` — phone-shaped client vs PRODUCTION | identity 13/13; cloud suggestion p50 1.1 s; reflections; therapist share ✅ |
+| #146 | People labeling: enroll a voice from a recording, `PeopleScreen`, "Who is this?" sheet, manual-person rung | cross-scene self match ✅ |
+| #147 | Two-sided therapist: mode picker, pre-flight, session summary, `/therapist/link` + auto-share, dashboard + private notes | — |
+| #148 | Deepgram no longer double-coaches local-first turns (found by #145) | 37 dup transcripts → 0 |
+| #149 | Scene replay harness (`npx tsx src/live/replay/cli.ts <scene>`), fixed short-fragment cluster explosion, haptics-on-decay | couple 84.6% attribution, nudges 3/3; family3 60%, 1/1; poker6 6 clusters for 6 voices |
+| #150 | Play **production AAB** built (vc 33) — submit needs a Google service-account key (owner) | https://expo.dev/accounts/sagearbor/projects/mindshift/builds/7e08138d-86d3-4d53-8d44-7ed6e035f926 |
+| #151 | Server adversarial review: 9 confirmed fixes (bounded `turn_local`, enrichment cap, reconnect clock, re-POST re-billing, manual label precedence, ONNX stampede, rate limit, lock leak, deploy default) | rev 00053, `--max-instances 1` (watch relay is process-local) |
+| #152 | **Safari/web fast loop** for Mom (onnxruntime-web VAD + ECAPA, Web Speech API, cloud suggestions, speechSynthesis), `scripts/web_deploy.sh` | headless-Chrome smoke ✅; real iPhone unverified |
+| #153 | Mobile adversarial review: 9 confirmed fixes — **STT died at the first pause** (restart-on-`end`), ghost `turn_local`s, LLM deadlines, VAD fallback, cloud-voicing rules | — |
+| #154 | Tone round 2: per-speaker escalation delta, MIT WavLM backend (`MINDSHIFT_TONE_BACKEND=odyssey_dim`) | 83% escalation acc vs text-tone 86% → **still dark** |
+| #155 | `.gcloudignore` excludes the 2.9 GB model caches (builds were timing out) | — |
+| #156 | Cloud suggestion latency: lean live prompt, output caps, parse repair, 2 workers | first words p50 1358 → **903 ms**, worst 11 s → 2.2 s |
+| #157 | **Mid-call naming** (tap a speaker → "Mom", voice remembered, therapist sees it) + **kindness scoreboard** (opt-in, PRD §6 weights, shared golden vectors TS/Python) | — |
+
+Suites at #157: pytest 1694 · Jest 147 suites / 1599 · tsc clean.
+
+### Owner-only items (updated)
+1. **Pixel 10 install**: the `preview` APK link above. If Android says "The
+   app wasn't installed": Settings → Apps → search MindShift → ⋮ →
+   *Uninstall for all users* (old Play copy = different signing key), check
+   ~600 MB free, Play Protect "install anyway", then open the APK from the
+   Files app. After install it pulls the latest JS from the `preview`
+   channel on launch.
+2. **Enroll your voice right before the demo, in the same room/phone**
+   (#149: cross-recording prints on real audio don't match; same-setting
+   prints do). Then name Mom mid-call by tapping her speaker chip.
+3. **Mom on iPhone — two options**: (a) Safari at https://arborfam-hub.web.app
+   (works today; foreground-only; the one unverified thing is whether iOS
+   Safari allows speech recognition + mic capture at once — if not, she
+   still gets the server transcript with a banner), or (b) native via
+   TestFlight after joining the Apple Developer Program (§8).
+4. **Play Store**: create the service-account key (§9) → `eas submit` lands
+   1.17.0 on Internal testing; until then Play users stay on 1.16.0.
+5. **Biggest demo risk (#153 PLAUSIBLE)**: Android may silence the mic for
+   third-party apps during a cellular call on the same phone. Rehearse
+   once; fallback is speaker-phone on a *second* device or a VoIP call.
