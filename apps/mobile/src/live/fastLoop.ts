@@ -44,7 +44,7 @@ import type { SegmenterConfig, Span } from "./segmenter";
 import { DEFAULT_SEGMENTER_CONFIG, StreamingSegmenter } from "./segmenter";
 import type { TurnProsody } from "./prosody";
 import { LIVE_MAX_PITCH_SECONDS, turnProsodyAsync } from "./prosody";
-import type { Embedder, SpeakerLabeler, SpeakerVerdict } from "./speakerId";
+import type { Embedder, EnrolledPerson, SpeakerLabeler, SpeakerVerdict } from "./speakerId";
 import type { SpeechRecognizer } from "./stt";
 import { TranscriptAligner } from "./stt";
 import type { LiveMode, ProviderChain, TextTone } from "./localLlm";
@@ -59,6 +59,21 @@ export type SuggestionKind = "response" | "nudge";
  *  60 s only for enrollment); an unbounded monologue would ship megabytes
  *  of samples across the native bridge per turn. */
 export const MAX_EMBED_SECONDS = 10;
+/**
+ * Mid-call naming (cluster → person binding): "that Speaker B is Mom". Set
+ * through `FastLoop.bindSpeaker`; from then on every turn the labeler puts
+ * on that raw label carries the person (id / display name / is_self) while
+ * the WIRE label stays the raw cluster label, so the session record keeps
+ * one stable key per voice.
+ */
+export interface SpeakerBinding {
+  personId: string;
+  displayName: string;
+  isSelf: boolean;
+}
+
+/** Seconds of each speaker's VAD-cut speech kept for a mid-call enrollment. */
+export const DEFAULT_SPEAKER_AUDIO_SECONDS = 20;
 
 export interface TurnLatency {
   turn: number;
@@ -84,6 +99,9 @@ export interface LocalTurn {
   endTime: number;
   isSelf: boolean | null;
   personId: string | null;
+  /** The person's name when identified (a voiceprint match or a mid-call
+   *  binding); null for an unknown cluster. `speaker` stays the raw label. */
+  displayName: string | null;
   matchScore: number | null;
   prosody: TurnProsody;
   textTone: TextTone | null;
@@ -139,6 +157,9 @@ export interface FastLoopDeps {
   maxEmbedSeconds?: number;
   /** Cap on the pitch-analysis window (see prosody.LIVE_MAX_PITCH_SECONDS). */
   maxPitchSeconds?: number;
+  /** Seconds of each speaker's finalized-turn PCM pooled for a mid-call
+   *  "remember this voice" (most recent kept). 0 disables pooling. */
+  speakerAudioSeconds?: number;
 }
 
 export interface FastLoopSession {
@@ -187,6 +208,14 @@ export class FastLoop {
   private vad: FrameVad;
   private vadDegraded = false;
   private selfSpeakerFallback: string | null;
+  private readonly speakerAudioSamples: number;
+  /** Mid-call naming: raw cluster label → person, and the reverse (so a
+   *  later voiceprint match on that person maps back to the same raw
+   *  label the session has been using). */
+  private bindings = new Map<string, SpeakerBinding>();
+  private boundLabelOfPerson = new Map<string, string>();
+  /** Per raw label: the most recent `speakerAudioSamples` of turn PCM. */
+  private speakerPools = new Map<string, { chunks: Float32Array[]; samples: number }>();
 
   private session: FastLoopSession | null = null;
   private running = false;
@@ -225,6 +254,132 @@ export class FastLoop {
     this.vad = deps.vad;
     this.selfSpeakerFallback =
       deps.selfSpeakerFallback === undefined ? "Speaker A" : deps.selfSpeakerFallback;
+    this.speakerAudioSamples = Math.round(
+      (deps.speakerAudioSeconds ?? DEFAULT_SPEAKER_AUDIO_SECONDS) * SILERO_SAMPLE_RATE,
+    );
+  }
+
+  // --- Mid-call naming hooks (cluster → person binding) ---------------------
+
+  /**
+   * Bind a raw speaker label ("Speaker B") to a person for the rest of the
+   * session. Past turns are re-attributed in the session summary; future
+   * turns on that label carry the person while keeping the raw wire label.
+   * `print` (the person's voiceprint — e.g. embedded from this session's
+   * pooled audio via `embedSpeaker`) is added to the labeler so a later
+   * turn that matches by VOICE also lands on this binding.
+   */
+  bindSpeaker(label: string, binding: SpeakerBinding, print?: EnrolledPerson | null): void {
+    // One raw label per person: re-binding a person to a new label frees
+    // the old one (the user corrected themselves).
+    const previous = this.boundLabelOfPerson.get(binding.personId);
+    if (previous !== undefined && previous !== label) this.bindings.delete(previous);
+    this.bindings.set(label, { ...binding });
+    this.boundLabelOfPerson.set(binding.personId, label);
+    if (print && this.deps.labeler) {
+      this.deps.labeler.addPerson({ ...print, personId: binding.personId, displayName: binding.displayName, isSelf: binding.isSelf });
+    }
+    for (const turn of this.turns) {
+      if (turn.speaker !== label) continue;
+      turn.personId = binding.personId;
+      turn.displayName = binding.displayName;
+      turn.isSelf = binding.isSelf;
+    }
+  }
+
+  /** The person bound to a raw label, if any. */
+  bindingOf(label: string): SpeakerBinding | null {
+    return this.bindings.get(label) ?? null;
+  }
+
+  /** What to call a raw label in prompts: the bound/matched name, else the label. */
+  displayNameOf(label: string): string {
+    return this.bindings.get(label)?.displayName ?? label;
+  }
+
+  /** Seconds of pooled speech held for a raw label. */
+  speakerAudioSeconds(label: string): number {
+    return (this.speakerPools.get(label)?.samples ?? 0) / SILERO_SAMPLE_RATE;
+  }
+
+  /** The pooled PCM (16 kHz float32) of a raw label's finalized turns —
+   *  the input for a mid-call enrollment. Empty when nothing was pooled. */
+  speakerAudio(label: string): Float32Array {
+    const pool = this.speakerPools.get(label);
+    if (!pool || pool.samples === 0) return new Float32Array(0);
+    const out = new Float32Array(pool.samples);
+    let offset = 0;
+    for (const chunk of pool.chunks) {
+      out.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return out;
+  }
+
+  /** Embed a raw label's pooled audio with the session's ECAPA embedder;
+   *  null when speaker-ID is off, the pool is empty, or embedding fails. */
+  async embedSpeaker(label: string): Promise<Float32Array | null> {
+    const pcm = this.speakerAudio(label);
+    if (!this.deps.embedder || pcm.length === 0) return null;
+    try {
+      return await this.deps.embedder.embed(pcm, SILERO_SAMPLE_RATE);
+    } catch {
+      return null;
+    }
+  }
+
+  private poolSpeakerAudio(label: string, pcm: Float32Array) {
+    if (this.speakerAudioSamples <= 0 || pcm.length === 0) return;
+    const pool = this.speakerPools.get(label) ?? { chunks: [], samples: 0 };
+    pool.chunks.push(pcm);
+    pool.samples += pcm.length;
+    while (pool.samples > this.speakerAudioSamples && pool.chunks.length > 1) {
+      const dropped = pool.chunks.shift() as Float32Array;
+      pool.samples -= dropped.length;
+    }
+    if (pool.samples > this.speakerAudioSamples) {
+      // A single oversized turn: keep its most recent tail.
+      const only = pool.chunks[0];
+      pool.chunks[0] = only.subarray(only.length - this.speakerAudioSamples);
+      pool.samples = this.speakerAudioSamples;
+    }
+    this.speakerPools.set(label, pool);
+  }
+
+  /** Apply the mid-call bindings to a labeler verdict (pure w.r.t. state). */
+  private applyBindings(verdict: SpeakerVerdict): SpeakerVerdict {
+    // A voiceprint match on a person bound to a raw label → keep the raw
+    // label on the wire (one key per voice for the whole session).
+    if (verdict.personId !== null) {
+      const raw = this.boundLabelOfPerson.get(verdict.personId);
+      if (raw !== undefined) {
+        const b = this.bindings.get(raw);
+        return {
+          ...verdict,
+          speaker: raw,
+          displayName: b?.displayName ?? verdict.displayName,
+          isSelf: b ? b.isSelf : verdict.isSelf,
+        };
+      }
+      return verdict;
+    }
+    const bound = this.bindings.get(verdict.speaker);
+    if (bound) {
+      return {
+        ...verdict,
+        personId: bound.personId,
+        displayName: bound.displayName,
+        isSelf: bound.isSelf,
+      };
+    }
+    // Someone bound as "me" makes every other unidentified voice honestly
+    // not-me (the same rule an enrolled self print gives the labeler).
+    if (verdict.isSelf === null) {
+      for (const b of this.bindings.values()) {
+        if (b.isSelf) return { ...verdict, isSelf: false };
+      }
+    }
+    return verdict;
   }
 
   get isRunning() {
@@ -258,6 +413,9 @@ export class FastLoop {
     this.lastSpeechEnd = -Infinity;
     this.lastFrameEnd = 0;
     this.latencyLog.length = 0;
+    this.bindings = new Map();
+    this.boundLabelOfPerson = new Map();
+    this.speakerPools = new Map();
     this.segmenter.reset();
     this.aligner.reset();
     this.vad = this.deps.vad;
@@ -494,7 +652,10 @@ export class FastLoop {
       return { verdict, ms: this.now() - t0 };
     })();
     const textPromise = this.waitForText(span);
-    const [{ verdict, ms: speakerMs }, aligned] = await Promise.all([speakerPromise, textPromise]);
+    const [{ verdict: rawVerdict, ms: speakerMs }, aligned] = await Promise.all([speakerPromise, textPromise]);
+    // Mid-call naming: a bound cluster carries its person from here on.
+    const verdict = this.applyBindings(rawVerdict);
+    this.poolSpeakerAudio(verdict.speaker, pcm);
 
     const tp0 = this.now();
     const prosody = await turnProsodyAsync(pcm, SILERO_SAMPLE_RATE, aligned.text, duration, {
@@ -517,13 +678,15 @@ export class FastLoop {
     let llmMs = 0;
     if (aligned.text) {
       const tl0 = this.now();
+      // The prompt names people the way the user does ("Mom", not
+      // "Speaker B") once a binding or a voiceprint match says who they are.
       const context = this.turns
         .slice(-this.contextTurns)
-        .map((t) => ({ speaker: t.speaker, text: t.text }))
+        .map((t) => ({ speaker: t.displayName ?? this.displayNameOf(t.speaker), text: t.text }))
         .filter((t) => t.text);
       const result = await this.deps.llm.suggest({
         text: aligned.text,
-        speaker: verdict.speaker,
+        speaker: verdict.displayName ?? this.displayNameOf(verdict.speaker),
         isSelf: coachedAsSelf,
         empathy: session.empathy,
         context,
@@ -558,6 +721,7 @@ export class FastLoop {
       endTime: span.end,
       isSelf: verdict.isSelf,
       personId: verdict.personId,
+      displayName: verdict.displayName,
       matchScore: verdict.score,
       prosody,
       textTone,

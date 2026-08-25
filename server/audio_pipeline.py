@@ -1131,10 +1131,19 @@ def _render_tone_context(tone_context: dict | None) -> str:
     )
 
 
-def _turn_prompt(utterance: Utterance, tone_context: dict | None = None) -> str:
+def _turn_prompt(
+    utterance: Utterance,
+    tone_context: dict | None = None,
+    speaker_name: str | None = None,
+) -> str:
     """The user-turn content for both coaching prompts. Byte-identical to the
-    pre-Track-3 prompt when there is no tone context."""
-    content = f'Transcript turn: "{utterance.text}"'
+    pre-Track-3 prompt when there is no tone context and no name.
+    ``speaker_name`` (mid-call naming — see ``apply_speaker_label``) tells
+    the coach WHO said it ("Mom"), so the suggestion is for that person."""
+    if speaker_name:
+        content = f'Transcript turn from {speaker_name}: "{utterance.text}"'
+    else:
+        content = f'Transcript turn: "{utterance.text}"'
     block = _render_tone_context(tone_context)
     if block:
         content += "\n\n" + block
@@ -1186,6 +1195,12 @@ class SessionContext:
     # Snapshotted at ENQUEUE time (like empathy/interject/role) so a mid-flight
     # config change never retypes an already-queued turn.
     self_speaker: str | None = None
+    # Mid-call naming: raw diarized label → {person_id, display_name,
+    # is_self} the user asserted via a `speaker_label` frame. Applied to the
+    # RUNNING session only (the coach's prompts name the person; `is_self`
+    # sets self_speaker); persistence rides the phone's POST /sessions/live
+    # `speaker_labels` at session end — this server keeps no transcript.
+    speaker_labels: dict[str, dict] = field(default_factory=dict)
     # Track 3-server — local-first (phone-orchestrated) sessions. Latched
     # True by the FIRST turn_local frame and never reset: a client that has
     # proven it segments/transcribes/speaks on-device keeps that role for
@@ -1347,6 +1362,61 @@ async def _apply_config(ctx: SessionContext, payload: dict) -> None:
             )
 
 
+# Mid-call naming (`speaker_label` frames). Same slug rule as
+# speaker_id.PERSON_ID_PATTERN / DISPLAY_NAME_MAX, kept as literals here so
+# the pipeline never needs the (optional) voice deps to validate a name.
+_PERSON_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
+_DISPLAY_NAME_MAX = 60
+_SPEAKER_LABEL_MAX = 64
+
+
+def apply_speaker_label(ctx: SessionContext, payload: dict) -> dict | None:
+    """Validate + apply a client ``speaker_label`` frame to the running
+    session. Returns the ack dict to send, or ``None`` when the frame is
+    malformed (the caller answers ``{"error": …}``).
+
+    ``speaker`` is the raw label being named; ``display_name`` the name;
+    ``person_id`` an optional enrolled-person slug (null = name only);
+    ``is_self`` (bool) marks the coached user — and, when the label is a
+    diarizer-shaped "Speaker X", also sets ``self_speaker`` so side-aware
+    coaching switches to that voice without a separate config frame.
+    Naming a label as someone ELSE clears a stale self claim on it."""
+    speaker = payload.get("speaker")
+    name = payload.get("display_name")
+    if not isinstance(speaker, str) or not speaker.strip() or len(speaker) > _SPEAKER_LABEL_MAX:
+        return None
+    if not isinstance(name, str) or not name.strip() or len(name) > _DISPLAY_NAME_MAX:
+        return None
+    person_id = payload.get("person_id")
+    if person_id is not None and not (isinstance(person_id, str) and _PERSON_ID_RE.match(person_id)):
+        return None
+    is_self = payload.get("is_self", False)
+    if not isinstance(is_self, bool):
+        return None
+    speaker = speaker.strip()
+    entry = {"person_id": person_id, "display_name": name.strip(), "is_self": is_self}
+    # One label per person: a person re-bound to another label frees the old one.
+    if person_id is not None:
+        for other, existing in list(ctx.speaker_labels.items()):
+            if other != speaker and existing.get("person_id") == person_id:
+                del ctx.speaker_labels[other]
+    ctx.speaker_labels[speaker] = entry
+    if is_self:
+        if _SELF_SPEAKER_RE.match(speaker):
+            ctx.self_speaker = speaker
+    elif ctx.self_speaker == speaker:
+        ctx.self_speaker = None
+    return {"type": "speaker_label_ack", "speaker": speaker, **entry}
+
+
+def display_speaker(ctx: SessionContext, speaker: str) -> str:
+    """What the coach's prompt calls a raw label: its mid-call name, else
+    the label itself."""
+    entry = ctx.speaker_labels.get(speaker)
+    name = entry.get("display_name") if isinstance(entry, dict) else None
+    return name if isinstance(name, str) and name else speaker
+
+
 async def _session_owner_ok(session_id: str, uid: str) -> bool:
     """Whether ``uid`` may open a live WS on ``session_id``.
 
@@ -1480,6 +1550,16 @@ async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                                                  a reported turn are dropped.
         config keys ``tts`` ("server" | "on-device" | null) and
         ``report_latency`` (bool) — see ``_apply_config``.
+        {"type": "speaker_label", "speaker": "Speaker B",
+         "display_name": "Mom", "person_id": "mom" | null,
+         "is_self": false}                    — mid-call naming: the coach's
+                                                 prompts use the name from the
+                                                 next turn on; ``is_self`` sets
+                                                 the coached voice. Answered
+                                                 with ``speaker_label_ack`` (or
+                                                 ``{"error": "invalid
+                                                 speaker_label"}``). See
+                                                 ``apply_speaker_label``.
     Server → Client (text):
         {"type": "suggestion", "suggestion_source": "cloud", "partial": bool}
                                                — the cloud suggestion for a
@@ -1630,6 +1710,11 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
 
     async def process_segment(job: SuggestionJob) -> None:
         utterance, timing = job.utterance, job.timing
+        # Mid-call naming: the LLM is told the turn came from "Mom"; the wire
+        # keeps the raw label (events are built from the original utterance,
+        # so the phone's per-label bookkeeping and self_speaker stay exact).
+        named = display_speaker(ctx, utterance.speaker)
+        speaker_name = named if named != utterance.speaker else None
 
         def server_owns_tts() -> bool:
             # Who voices this suggestion. Decided at the moment we would
@@ -1666,7 +1751,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             timing.llm_start = ctx.latency.now()
             nudge, importance = await _generate_nudge(
                 llm_client, utterance, job.empathy_slider, job.role,
-                ctx.voice_profile, job.tone_context,
+                ctx.voice_profile, job.tone_context, speaker_name=speaker_name,
             )
             timing.llm_end = ctx.latency.now()
             if not nudge:
@@ -1727,6 +1812,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             llm_client, utterance, job.empathy_slider, job.role,
             ctx.voice_profile, job.tone_context,
             on_first_suggestion=on_first_suggestion if progressive else None,
+            speaker_name=speaker_name,
         )
         timing.llm_end = ctx.latency.now()
 
@@ -2176,6 +2262,18 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                         await send_json({"error": "turn_local end_time before start_time"})
                         continue
                     await handle_turn_local(event, frame_received)
+                elif msg_type == "speaker_label":
+                    # Mid-call naming ("Speaker B is Mom"): applied to this
+                    # running session; the phone persists it at session end.
+                    ack = apply_speaker_label(ctx, payload)
+                    if ack is None:
+                        await send_json({"error": "invalid speaker_label"})
+                        continue
+                    logger.info(
+                        "Session %s: speaker %r named (person=%s, self=%s)",
+                        session_id, ack["speaker"], ack["person_id"], ack["is_self"],
+                    )
+                    await send_json(ack)
                 elif msg_type == "stop":
                     # Graceful stop: flush the transcriber so the FINAL
                     # utterance is delivered, wait (bounded — P1-8) for the
@@ -2692,6 +2790,7 @@ async def _generate_suggestions(
     tone_context: dict | None = None,
     *,
     on_first_suggestion=None,
+    speaker_name: str | None = None,
 ) -> tuple[list[str], int]:
     """Call LLMClient.complete(); parse suggestions + moment importance.
 
@@ -2720,7 +2819,7 @@ async def _generate_suggestions(
     system = empathy_system_prompt(
         empathy_slider, role, voice_profile, live=LIVE_PROMPT,
     )
-    user_content = _turn_prompt(utterance, tone_context)
+    user_content = _turn_prompt(utterance, tone_context, speaker_name)
 
     if on_first_suggestion is not None and _supports_streaming(llm):
         raw = await _stream_with_first_suggestion(
@@ -2766,6 +2865,7 @@ async def _generate_nudge(
     role: str,
     voice_profile: dict | None = None,
     tone_context: dict | None = None,
+    speaker_name: str | None = None,
 ) -> tuple[str, int]:
     """Call the LLM for a SELF turn; parse the single delivery nudge + urgency.
 
@@ -2791,7 +2891,7 @@ async def _generate_nudge(
     # tone_context renders the phone's measurements as hints (Track 3-server);
     # None keeps the prompt byte-identical. No streaming preview for a nudge:
     # it is one short phrase, there is nothing to preview.
-    user_content = _turn_prompt(utterance, tone_context)
+    user_content = _turn_prompt(utterance, tone_context, speaker_name)
 
     raw = await asyncio.to_thread(
         llm.complete, system=system, user=user_content, max_tokens=NUDGE_MAX_TOKENS,

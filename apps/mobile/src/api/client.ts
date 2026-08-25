@@ -1397,6 +1397,22 @@ export interface RecordingTurn {
   text: string;
   start_time: number;
   end_time: number;
+  // Live sessions only (turns.json keeps the phone's per-turn facts): the
+  // on-device tone read and prosody the scoreboard re-scores from. Absent
+  // on uploads and older servers.
+  text_tone?: {
+    warmth?: number | null;
+    defensiveness?: number | null;
+    sarcasm?: number | null;
+    sadness?: number | null;
+    frustration?: number | null;
+    label?: string | null;
+  } | null;
+  prosody?: {
+    rms_dbfs?: number | null;
+    pitch_hz?: number | null;
+    speech_rate?: number | null;
+  } | null;
 }
 
 /** Provenance of a stored recording. `upload` = we hold the only copy;
@@ -2410,6 +2426,25 @@ export interface DashboardSpeaker {
   personId?: string | null;
 }
 
+/** PRD §6 scoreboard for a stored session (server: pleasantness.py, the
+ *  twin of the phone's live/pleasantness.ts): per raw speaker the current
+ *  score + the last turns' scores, and who leads (null when even). Null on
+ *  the wire when no turn scored (uploads). */
+export interface DashboardScoreboardPerson {
+  speaker: string;
+  display: string;
+  current: number | null;
+  series: number[];
+  scored_turns: number;
+}
+
+export interface DashboardScoreboard {
+  people: DashboardScoreboardPerson[];
+  lead: { speaker: string; display: string; margin: number } | null;
+  // Index-aligned with `turns`; null for an unscored turn.
+  turns: (number | null)[];
+}
+
 export interface DashboardSession {
   id: string;
   recordingId?: string;
@@ -2432,6 +2467,8 @@ export interface DashboardSession {
   toneSummary?: ToneSummary | null;
   couldHaveSaid?: CouldHaveSaid[] | null;
   analysisStatus?: string | null;
+  // PRD §6 scoreboard (newer servers; null when nothing scored).
+  scoreboard?: DashboardScoreboard | null;
 }
 
 /**

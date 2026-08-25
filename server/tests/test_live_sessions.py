@@ -365,9 +365,20 @@ class TestAggregates:
         assert row["avgPleasantness"] == 70
         first = row["turns"][0]
         assert first["speaker"] == "You" and first["isSelf"] is True
-        assert first["toneScores"] == {"pleasantness": 70, "warmth": 80}
+        # pleasantness = 100 − heat; the PRD §6 dimensions the scoreboard
+        # could measure ride along (calmness = 100 − frustration 10; a first
+        # turn has no loudness baseline and no balance window yet).
+        assert first["toneScores"] == {"pleasantness": 70, "warmth": 80, "calmness": 90}
         assert first["toneLabel"] == "warm" and first["withPerson"] == "Speaker B"
-        assert row["turns"][1]["speaker"] == "Mom" and row["turns"][1]["toneScores"] == {"pleasantness": 70}
+        # Mom's turn carries no tone: only the balance dimension is measured
+        # (never a fabricated warmth), and it can't score the turn on its own.
+        assert row["turns"][1]["speaker"] == "Mom"
+        assert row["turns"][1]["toneScores"] == {"pleasantness": 70, "engagement": 100}
+        board = row["scoreboard"]
+        assert [p["display"] for p in board["people"]] == ["You", "Mom"]
+        assert board["people"][0]["scored_turns"] == 3 and board["people"][1]["current"] is None
+        assert board["turns"] == [84, None, 30, None, 66, None]
+        assert board["lead"] is None
         assert row["turns"][2]["escalated"] is True
         assert row["couldHaveSaid"][0]["turn_index"] == 2
         assert row["toneSummary"]["self"]["escalation_count"] == 2

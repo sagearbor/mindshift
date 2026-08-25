@@ -37,6 +37,16 @@ export async function authHeaders(json = true): Promise<Record<string, string>> 
 
 export type LiveSessionMode = "earpiece" | "speaker" | "therapist";
 
+/** A speaker the user NAMED during (or right after) the session — stored
+ *  server-side as the human-assertion rung (manual / manual-person), the
+ *  same one "Who is this?" writes on a stored recording. */
+export interface LiveSpeakerLabel {
+  display_name: string;
+  /** An enrolled person id (or "self"); null for a name-only label. */
+  person_id: string | null;
+  is_self: boolean;
+}
+
 export interface LiveSessionBody {
   session_id: string;
   started_at: string;
@@ -45,6 +55,9 @@ export interface LiveSessionBody {
   turns: TurnLocalEvent[];
   tone_flags?: ToneFlagEvent[];
   speaker_identities?: SpeakerIdentityEvent[];
+  /** Raw wire label → the name/person the user gave it mid-call. Omitted
+   *  when nobody was named (older servers ignore the key). */
+  speaker_labels?: Record<string, LiveSpeakerLabel>;
 }
 
 export type PostLiveSessionResult =

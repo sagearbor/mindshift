@@ -1,0 +1,221 @@
+{
+  "_schema": {
+    "version": 1,
+    "subject": "Pleasantness scoreboard — PRD §6 per-turn score (0–100) from what the phone already measured. Reference: server/pleasantness.py; mirror: apps/mobile/src/live/pleasantness.ts. Both replay every case here.",
+    "turn": {
+      "speaker": "raw speaker label (string). Turns are fed in session order to a FRESH tracker per case.",
+      "text_tone": "{warmth, defensiveness, sarcasm, sadness, frustration: 0–100 | null, label: string | null} | null — the on-device classifier's tone for the turn. A missing key reads as null.",
+      "prosody": "{rms_dbfs: float | null, pitch_hz: float | null, speech_rate: float | null} | null — the phone's measurements for the turn."
+    },
+    "dimensions": {
+      "warmth": "= text_tone.warmth. null when absent.",
+      "constructiveness": "= 100 − text_tone.defensiveness (blame/defending is the anti-constructive signal). null when absent.",
+      "calmness": "base = 100 − frustration when frustration is present; else the NEUTRAL_PRIOR (70) when a prosody penalty is measurable (rms with a baseline, or speech_rate present); else null. Then minus loud_penalty and fast_penalty, clamped 0–100. loud_penalty = 0 when db_over ≤ 3 else min(30, round_half_up(4 × (db_over − 3))), where db_over = rms_dbfs − baseline and baseline is the mean rms_dbfs of this speaker's PRIOR turns that carried rms (no prior sample → no loud penalty). fast_penalty = 10 when speech_rate > 3.5 words/s.",
+      "respect": "= 100 − text_tone.sarcasm; null when sarcasm is absent. A contempt label (one of contempt_labels) caps respect at 20 (and supplies 20 when sarcasm is absent).",
+      "engagement": "turn balance: share = this speaker's turns in the window of the last 6 turns (including this one) ÷ turns in that window; engagement = clamp(round_half_up(100 − 200 × |share − 0.5|), 0, 100). Measured only when the window holds ≥ 2 turns from ≥ 2 distinct speakers; otherwise null (a monologue has no balance to score)."
+    },
+    "score": "weighted mean over the PRESENT dimensions, weights renormalized (warmth .30, constructiveness .25, calmness .20, respect .15, engagement .10), rounded half-up. null when none of warmth/constructiveness/calmness/respect is present — engagement alone never scores a turn. sadness is not a PRD dimension and is ignored.",
+    "people": "one entry per speaker seen, in first-appearance order: current = mean of that speaker's last 5 SCORED turns (half-up; null when none), series = that speaker's last 10 scored turns' scores, oldest first.",
+    "lead": "{speaker, margin} when ≥ 2 people have a current score and the top score beats the runner-up by ≥ 3 points; null otherwise (fewer than two scored people, or 'even').",
+    "rounding": "half-up on non-negative values (floor(x + 0.5)) — NOT banker's rounding."
+  },
+  "constants": {
+    "weights": {"warmth": 0.3, "constructiveness": 0.25, "calmness": 0.2, "respect": 0.15, "engagement": 0.1},
+    "neutral_calm_prior": 70,
+    "loud_db_free": 3,
+    "loud_penalty_per_db": 4,
+    "loud_penalty_max": 30,
+    "fast_rate_wps": 3.5,
+    "fast_penalty": 10,
+    "contempt_respect_cap": 20,
+    "contempt_labels": ["contempt", "contemptuous", "dismissive", "hostile", "mocking"],
+    "balance_window": 6,
+    "current_window": 5,
+    "series_length": 10,
+    "lead_min_margin": 3
+  },
+  "cases": [
+    {
+      "name": "warm_then_defensive_two_people",
+      "description": "Every dimension exercised across two speakers: a loud, fast turn earns loudness + speed penalties against the speaker's own earlier baseline; a turn with no tone still scores from prosody + balance; a dismissive label caps respect.",
+      "turns": [
+        {"speaker": "Speaker A", "text_tone": {"warmth": 80, "defensiveness": 10, "sarcasm": 5, "sadness": 0, "frustration": 10, "label": "warm"}, "prosody": {"rms_dbfs": -20.0, "pitch_hz": 180.0, "speech_rate": 2.5}},
+        {"speaker": "Speaker B", "text_tone": {"warmth": 20, "defensiveness": 70, "sarcasm": 40, "sadness": 10, "frustration": 60, "label": "defensive"}, "prosody": {"rms_dbfs": -18.0, "pitch_hz": 120.0, "speech_rate": 3.0}},
+        {"speaker": "Speaker A", "text_tone": {"warmth": 60, "defensiveness": 30, "sarcasm": 0, "sadness": 0, "frustration": 30, "label": null}, "prosody": {"rms_dbfs": -12.0, "pitch_hz": null, "speech_rate": 4.0}},
+        {"speaker": "Speaker B", "text_tone": null, "prosody": {"rms_dbfs": -18.0, "pitch_hz": null, "speech_rate": 2.0}},
+        {"speaker": "Speaker B", "text_tone": {"warmth": 30, "label": "dismissive"}, "prosody": null}
+      ],
+      "expected": {
+        "per_turn": [
+          {"dims": {"warmth": 80, "constructiveness": 90, "calmness": 90, "respect": 95, "engagement": null}, "score": 88},
+          {"dims": {"warmth": 20, "constructiveness": 30, "calmness": 40, "respect": 60, "engagement": 100}, "score": 41},
+          {"dims": {"warmth": 60, "constructiveness": 70, "calmness": 40, "respect": 100, "engagement": 67}, "score": 65},
+          {"dims": {"warmth": null, "constructiveness": null, "calmness": 70, "respect": null, "engagement": 100}, "score": 80},
+          {"dims": {"warmth": 30, "constructiveness": null, "calmness": null, "respect": 20, "engagement": 80}, "score": 36}
+        ],
+        "people": [
+          {"speaker": "Speaker A", "current": 77, "series": [88, 65]},
+          {"speaker": "Speaker B", "current": 52, "series": [41, 80, 36]}
+        ],
+        "lead": {"speaker": "Speaker A", "margin": 25}
+      }
+    },
+    {
+      "name": "no_tone_no_prosody_is_unscored",
+      "description": "A turn with nothing measured is null, never 0 — and turn balance alone can never score a turn.",
+      "turns": [
+        {"speaker": "Speaker A", "text_tone": null, "prosody": null},
+        {"speaker": "Speaker B", "text_tone": null, "prosody": null}
+      ],
+      "expected": {
+        "per_turn": [
+          {"dims": {"warmth": null, "constructiveness": null, "calmness": null, "respect": null, "engagement": null}, "score": null},
+          {"dims": {"warmth": null, "constructiveness": null, "calmness": null, "respect": null, "engagement": 100}, "score": null}
+        ],
+        "people": [
+          {"speaker": "Speaker A", "current": null, "series": []},
+          {"speaker": "Speaker B", "current": null, "series": []}
+        ],
+        "lead": null
+      }
+    },
+    {
+      "name": "single_speaker_engagement_unmeasured",
+      "description": "One voice in the room: balance is not a thing, so engagement stays null and the score comes from warmth alone. One person is never a lead.",
+      "turns": [
+        {"speaker": "Speaker A", "text_tone": {"warmth": 50}, "prosody": null},
+        {"speaker": "Speaker A", "text_tone": {"warmth": 50}, "prosody": null},
+        {"speaker": "Speaker A", "text_tone": {"warmth": 50}, "prosody": null}
+      ],
+      "expected": {
+        "per_turn": [
+          {"dims": {"warmth": 50, "constructiveness": null, "calmness": null, "respect": null, "engagement": null}, "score": 50},
+          {"dims": {"warmth": 50, "constructiveness": null, "calmness": null, "respect": null, "engagement": null}, "score": 50},
+          {"dims": {"warmth": 50, "constructiveness": null, "calmness": null, "respect": null, "engagement": null}, "score": 50}
+        ],
+        "people": [
+          {"speaker": "Speaker A", "current": 50, "series": [50, 50, 50]}
+        ],
+        "lead": null
+      }
+    },
+    {
+      "name": "contempt_label_caps_respect",
+      "description": "Identical scores except a 'contempt' label: respect is capped at 20 even though sarcasm scored low.",
+      "turns": [
+        {"speaker": "Speaker A", "text_tone": {"warmth": 70, "sarcasm": 10}, "prosody": null},
+        {"speaker": "Speaker B", "text_tone": {"warmth": 70, "sarcasm": 10, "label": "contempt"}, "prosody": null}
+      ],
+      "expected": {
+        "per_turn": [
+          {"dims": {"warmth": 70, "constructiveness": null, "calmness": null, "respect": 90, "engagement": null}, "score": 77},
+          {"dims": {"warmth": 70, "constructiveness": null, "calmness": null, "respect": 20, "engagement": 100}, "score": 62}
+        ],
+        "people": [
+          {"speaker": "Speaker A", "current": 77, "series": [77]},
+          {"speaker": "Speaker B", "current": 62, "series": [62]}
+        ],
+        "lead": {"speaker": "Speaker A", "margin": 15}
+      }
+    },
+    {
+      "name": "even_when_margin_below_three",
+      "description": "Two people within 2 points of each other: no lead is declared (the copy says 'neck and neck'), so the board never crowns a winner over noise.",
+      "turns": [
+        {"speaker": "Speaker A", "text_tone": {"warmth": 60}, "prosody": null},
+        {"speaker": "Speaker B", "text_tone": {"warmth": 60}, "prosody": null},
+        {"speaker": "Speaker A", "text_tone": {"warmth": 60}, "prosody": null},
+        {"speaker": "Speaker B", "text_tone": {"warmth": 40}, "prosody": null}
+      ],
+      "expected": {
+        "per_turn": [
+          {"dims": {"warmth": 60, "constructiveness": null, "calmness": null, "respect": null, "engagement": null}, "score": 60},
+          {"dims": {"warmth": 60, "constructiveness": null, "calmness": null, "respect": null, "engagement": 100}, "score": 70},
+          {"dims": {"warmth": 60, "constructiveness": null, "calmness": null, "respect": null, "engagement": 67}, "score": 62},
+          {"dims": {"warmth": 40, "constructiveness": null, "calmness": null, "respect": null, "engagement": 100}, "score": 55}
+        ],
+        "people": [
+          {"speaker": "Speaker A", "current": 61, "series": [60, 62]},
+          {"speaker": "Speaker B", "current": 63, "series": [70, 55]}
+        ],
+        "lead": null
+      }
+    },
+    {
+      "name": "loud_penalty_capped_and_series_window_ten",
+      "description": "Twelve turns from one speaker at a steady −30 dBFS, then a shout at 0 dBFS: +30 dB over the running baseline is capped at a 30-point loudness penalty. The series keeps only the last 10 scores and 'current' the last 5.",
+      "turns": [
+        {"speaker": "Speaker A", "text_tone": {"warmth": 50, "frustration": 0}, "prosody": {"rms_dbfs": -30.0, "speech_rate": 2.0}},
+        {"speaker": "Speaker A", "text_tone": {"warmth": 50, "frustration": 0}, "prosody": {"rms_dbfs": -30.0, "speech_rate": 2.0}},
+        {"speaker": "Speaker A", "text_tone": {"warmth": 50, "frustration": 0}, "prosody": {"rms_dbfs": -30.0, "speech_rate": 2.0}},
+        {"speaker": "Speaker A", "text_tone": {"warmth": 50, "frustration": 0}, "prosody": {"rms_dbfs": -30.0, "speech_rate": 2.0}},
+        {"speaker": "Speaker A", "text_tone": {"warmth": 50, "frustration": 0}, "prosody": {"rms_dbfs": -30.0, "speech_rate": 2.0}},
+        {"speaker": "Speaker A", "text_tone": {"warmth": 50, "frustration": 0}, "prosody": {"rms_dbfs": -30.0, "speech_rate": 2.0}},
+        {"speaker": "Speaker A", "text_tone": {"warmth": 50, "frustration": 0}, "prosody": {"rms_dbfs": -30.0, "speech_rate": 2.0}},
+        {"speaker": "Speaker A", "text_tone": {"warmth": 50, "frustration": 0}, "prosody": {"rms_dbfs": -30.0, "speech_rate": 2.0}},
+        {"speaker": "Speaker A", "text_tone": {"warmth": 50, "frustration": 0}, "prosody": {"rms_dbfs": -30.0, "speech_rate": 2.0}},
+        {"speaker": "Speaker A", "text_tone": {"warmth": 50, "frustration": 0}, "prosody": {"rms_dbfs": -30.0, "speech_rate": 2.0}},
+        {"speaker": "Speaker A", "text_tone": {"warmth": 50, "frustration": 0}, "prosody": {"rms_dbfs": -30.0, "speech_rate": 2.0}},
+        {"speaker": "Speaker A", "text_tone": {"warmth": 50, "frustration": 0}, "prosody": {"rms_dbfs": 0.0, "speech_rate": 2.0}}
+      ],
+      "expected": {
+        "per_turn": [
+          {"dims": {"warmth": 50, "constructiveness": null, "calmness": 100, "respect": null, "engagement": null}, "score": 70},
+          {"dims": {"warmth": 50, "constructiveness": null, "calmness": 100, "respect": null, "engagement": null}, "score": 70},
+          {"dims": {"warmth": 50, "constructiveness": null, "calmness": 100, "respect": null, "engagement": null}, "score": 70},
+          {"dims": {"warmth": 50, "constructiveness": null, "calmness": 100, "respect": null, "engagement": null}, "score": 70},
+          {"dims": {"warmth": 50, "constructiveness": null, "calmness": 100, "respect": null, "engagement": null}, "score": 70},
+          {"dims": {"warmth": 50, "constructiveness": null, "calmness": 100, "respect": null, "engagement": null}, "score": 70},
+          {"dims": {"warmth": 50, "constructiveness": null, "calmness": 100, "respect": null, "engagement": null}, "score": 70},
+          {"dims": {"warmth": 50, "constructiveness": null, "calmness": 100, "respect": null, "engagement": null}, "score": 70},
+          {"dims": {"warmth": 50, "constructiveness": null, "calmness": 100, "respect": null, "engagement": null}, "score": 70},
+          {"dims": {"warmth": 50, "constructiveness": null, "calmness": 100, "respect": null, "engagement": null}, "score": 70},
+          {"dims": {"warmth": 50, "constructiveness": null, "calmness": 100, "respect": null, "engagement": null}, "score": 70},
+          {"dims": {"warmth": 50, "constructiveness": null, "calmness": 70, "respect": null, "engagement": null}, "score": 58}
+        ],
+        "people": [
+          {"speaker": "Speaker A", "current": 68, "series": [70, 70, 70, 70, 70, 70, 70, 70, 70, 58]}
+        ],
+        "lead": null
+      }
+    },
+    {
+      "name": "fast_speech_penalty_with_neutral_prior",
+      "description": "No frustration score but a measurable speech rate: calmness starts from the neutral prior (70) and loses 10 for talking faster than 3.5 words/s. The first turn has no loudness baseline yet, so no loudness penalty can apply.",
+      "turns": [
+        {"speaker": "Speaker A", "text_tone": {"warmth": 40}, "prosody": {"rms_dbfs": -20.0, "speech_rate": 4.5}},
+        {"speaker": "Speaker A", "text_tone": {"warmth": 40}, "prosody": {"rms_dbfs": -20.0, "speech_rate": 4.5}}
+      ],
+      "expected": {
+        "per_turn": [
+          {"dims": {"warmth": 40, "constructiveness": null, "calmness": 60, "respect": null, "engagement": null}, "score": 48},
+          {"dims": {"warmth": 40, "constructiveness": null, "calmness": 60, "respect": null, "engagement": null}, "score": 48}
+        ],
+        "people": [
+          {"speaker": "Speaker A", "current": 48, "series": [48, 48]}
+        ],
+        "lead": null
+      }
+    },
+    {
+      "name": "clamps_and_missing_keys",
+      "description": "A turn whose frustration is 100 and whose loudness jumps still clamps calmness at 0 (never negative); prosody with only a null rms and no rate leaves calmness null; a sarcasm of 100 gives respect 0.",
+      "turns": [
+        {"speaker": "Speaker A", "text_tone": {"frustration": 100, "sarcasm": 100}, "prosody": {"rms_dbfs": -40.0}},
+        {"speaker": "Speaker A", "text_tone": {"frustration": 100, "sarcasm": 100}, "prosody": {"rms_dbfs": -10.0}},
+        {"speaker": "Speaker A", "text_tone": {"defensiveness": 0}, "prosody": {"rms_dbfs": null}}
+      ],
+      "expected": {
+        "per_turn": [
+          {"dims": {"warmth": null, "constructiveness": null, "calmness": 0, "respect": 0, "engagement": null}, "score": 0},
+          {"dims": {"warmth": null, "constructiveness": null, "calmness": 0, "respect": 0, "engagement": null}, "score": 0},
+          {"dims": {"warmth": null, "constructiveness": 100, "calmness": null, "respect": null, "engagement": null}, "score": 100}
+        ],
+        "people": [
+          {"speaker": "Speaker A", "current": 33, "series": [0, 0, 100]}
+        ],
+        "lead": null
+      }
+    }
+  ]
+}

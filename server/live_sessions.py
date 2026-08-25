@@ -39,6 +39,7 @@ from datetime import datetime
 from typing import Iterable
 
 import episodes as episodes_mod
+import pleasantness as pleasantness_mod
 import speaker_id  # pure constants/report readers only; no torch at import
 import word_metrics as word_metrics_mod
 
@@ -986,6 +987,61 @@ def manual_overlay(rec: dict) -> dict[str, dict]:
     return out
 
 
+def manual_labels_from_live(
+    speaker_labels: dict[str, dict],
+    turns: list[dict],
+    known_people: Iterable[dict] | None,
+    *,
+    existing_names: dict | None = None,
+    existing_people: dict | None = None,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """The meta.json manual maps a live session's mid-call names produce —
+    ``(manual_speaker_labels, manual_speaker_people)`` — merged over the
+    episode's existing manual maps (the phone's names win per label).
+
+    Only labels that appear in ``turns`` count (a name for an absent voice
+    is dropped, as PATCH …/speaker-labels would 422 it). A ``person_id`` is
+    attached only when it is ``"self"`` or one of ``known_people`` (the
+    account's enrolled voiceprints) — a person the mid-call enrollment
+    failed to create is a name-only label, never a dangling id. ``is_self``
+    with no person id resolves to the owner ("self" / "You")."""
+    speakers = {
+        t.get("speaker") for t in turns
+        if isinstance(t, dict) and isinstance(t.get("speaker"), str)
+    }
+    known_ids = {
+        d.get("person_id") for d in (known_people or ())
+        if isinstance(d, dict) and isinstance(d.get("person_id"), str)
+    }
+    names: dict[str, str] = {
+        sp: nm for sp, nm in (existing_names or {}).items()
+        if isinstance(sp, str) and isinstance(nm, str) and nm.strip()
+    }
+    people: dict[str, str] = {
+        sp: pid for sp, pid in (existing_people or {}).items()
+        if isinstance(sp, str) and isinstance(pid, str) and pid.strip()
+    }
+    for speaker, label in (speaker_labels or {}).items():
+        if speaker not in speakers or not isinstance(label, dict):
+            continue
+        name = label.get("display_name")
+        if not isinstance(name, str) or not name.strip():
+            continue
+        is_self = label.get("is_self") is True
+        pid = label.get("person_id")
+        if is_self:
+            pid = SELF_PERSON_ID
+            name = ENROLLED_DISPLAY_LABEL
+        names[speaker] = name.strip()[:60]
+        if isinstance(pid, str) and (pid == SELF_PERSON_ID or pid in known_ids):
+            people[speaker] = pid
+        else:
+            people.pop(speaker, None)
+    # A person can only hang off a speaker that has a name.
+    people = {sp: pid for sp, pid in people.items() if sp in names}
+    return names, people
+
+
 def _person_row_with_manual(p: dict, overlay: dict[str, dict]) -> dict:
     """A tone-summary person bucket with the recording's manual label for
     that speaker applied: a manual-person label supplies the cross-session
@@ -1111,6 +1167,10 @@ def dashboard_session(rec: dict, *, patient: str, shared: bool) -> dict:
     turns = rec.get("turns") or []
     rows = (live or {}).get("turn_tone") or []
     by_index = {r.get("index"): r for r in rows if isinstance(r, dict)}
+    # PRD §6 scoreboard over the stored per-turn tone + prosody — the SAME
+    # arithmetic the phone ran live (server/pleasantness.py), so the
+    # post-session board matches what the couple watched.
+    scored = pleasantness_mod.score_session(list(turns))
     out_turns: list[dict] = []
     pleasantness: list[float] = []
     speakers_out: list[dict] = []
@@ -1136,6 +1196,11 @@ def dashboard_session(rec: dict, *, patient: str, shared: bool) -> dict:
         warmth = _num(tone.get("warmth")) if tone else None
         if warmth is not None:
             scores["warmth"] = warmth
+        # The five PRD dimensions the scoreboard measured for this turn
+        # (only those it could — a missing input stays absent, never 0).
+        for dim, val in (scored["per_turn"][i]["dims"] if i < len(scored["per_turn"]) else {}).items():
+            if val is not None:
+                scores[dim] = float(val)
         row = by_index.get(i) or {}
         out_turns.append({
             "speaker": display if isinstance(display, str) and display.strip() else speaker,
@@ -1155,6 +1220,24 @@ def dashboard_session(rec: dict, *, patient: str, shared: bool) -> dict:
         })
     avg = (sum(pleasantness) / len(pleasantness)) if pleasantness else None
     summary = (live or {}).get("tone_summary") if live else None
+    # The board itself: per raw speaker, current score + sparkline series,
+    # each carrying the speaker's effective display name; None when no turn
+    # scored (an upload has no per-turn tone — nothing to show, honestly).
+    display_of = {s["id"]: s["display"] for s in speakers_out}
+    scoreboard = None
+    if any(p.get("scored_turns") for p in scored["people"]):
+        lead = scored["lead"]
+        scoreboard = {
+            "people": [
+                {**p, "display": display_of.get(p["speaker"], p["speaker"])}
+                for p in scored["people"]
+            ],
+            "lead": (
+                {**lead, "display": display_of.get(lead["speaker"], lead["speaker"])}
+                if lead else None
+            ),
+            "turns": [t["score"] for t in scored["per_turn"]],
+        }
     return {
         "id": rec.get("id"),
         "recordingId": rec.get("id"),
@@ -1175,6 +1258,8 @@ def dashboard_session(rec: dict, *, patient: str, shared: bool) -> dict:
         # is media_type "none").
         "hasAudio": rec.get("media_type") not in (None, "none"),
         "avgPleasantness": avg,
+        # PRD §6 scoreboard (see above); absent-as-None for uploads.
+        "scoreboard": scoreboard,
         "toneSummary": summary,
         "couldHaveSaid": (live or {}).get("could_have_said") if live else None,
         "analysisStatus": (live or {}).get("analysis_status") if live else ("full" if per_turn else None),

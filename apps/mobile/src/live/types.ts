@@ -24,6 +24,24 @@ export interface TurnLocalEvent {
   tts_source: "on-device";
 }
 
+/**
+ * Client -> server `speaker_label`: the user named a speaker mid-call
+ * ("Speaker B is Mom"). The server applies it to the RUNNING session (the
+ * cloud coach's prompts name the person; `is_self` fixes side-aware
+ * coaching) and answers `speaker_label_ack`. The finished session carries
+ * the same map in `POST /sessions/live` `speaker_labels` so the stored
+ * episode (and the therapist's view of it) shows the name.
+ */
+export interface SpeakerLabelMessage {
+  type: "speaker_label";
+  session_id: string;
+  /** The raw wire label being named ("Speaker B"). */
+  speaker: string;
+  person_id: string | null;
+  display_name: string;
+  is_self: boolean;
+}
+
 /** Server -> client `tone_flag` (ToneFlagEvent). */
 export interface ToneFlagEvent {
   type: "tone_flag";

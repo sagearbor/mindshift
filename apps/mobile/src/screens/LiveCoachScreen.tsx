@@ -16,12 +16,17 @@ import TherapistTranscript from "../components/TherapistTranscript";
 import LiveModePicker, { LIVE_MODE_OPTIONS } from "../components/LiveModePicker";
 import LivePreflightPanel from "../components/LivePreflightPanel";
 import SessionSummaryCard from "../components/SessionSummaryCard";
-import { useAudioStream } from "../hooks/useAudioStream";
+import ScoreboardPanel from "../components/ScoreboardPanel";
+import WhoIsThisSheet, { type LiveLabelChoice } from "../components/WhoIsThisSheet";
+import { useAudioStream, type TranscriptEntry } from "../hooks/useAudioStream";
 import { useAuthStore } from "../store/authStore";
 import { loadLiveMode, saveLiveMode } from "../live/modePrefs";
+import { loadScoreboardVisible, saveScoreboardVisible } from "../live/scoreboardPrefs";
 import type { LiveMode } from "../live/localLlm";
 import { listVoicePeople, type VoicePerson } from "../api/liveSessions";
 import { getTherapistLink, type TherapistLink } from "../api/therapist";
+import * as apiClient from "../api/client";
+import type { VoicePerson as ApiVoicePerson } from "../api/client";
 
 const STATUS_COLORS: Record<string, string> = {
   idle: "#9CA3AF",
@@ -85,11 +90,22 @@ export default function LiveCoachScreen({
     escalationCount,
     sessionSummary,
     lastEpisode,
+    speakerNames,
+    displayNameOf,
+    labelSpeaker,
+    scoreboard,
   } = useAudioStream();
 
   const userId = useAuthStore((s) => s.user?.uid ?? null);
   const [empathyLevel, setEmpathyLevel] = useState(50);
   const [interjectLevel, setInterjectLevel] = useState(0);
+  // Scoreboard (opt-in, remembered per account) + mid-call naming state.
+  const [scoreboardOn, setScoreboardOn] = useState(false);
+  const scoreboardLoadedRef = useRef(false);
+  const [who, setWho] = useState<{ speaker: string; label: string } | null>(null);
+  const [sheetPeople, setSheetPeople] = useState<ApiVoicePerson[]>([]);
+  const names = speakerNames ?? {};
+  const nameOf = displayNameOf ?? ((s: string) => s);
   // "Who's here" (enrolled people, read-only) and the therapist link (for the
   // end-of-session share affordance). null = still loading / unavailable.
   const [people, setPeople] = useState<VoicePerson[] | null>(null);
@@ -134,6 +150,70 @@ export default function LiveCoachScreen({
       void saveLiveMode(userId, mode);
     },
     [setSessionMode, userId],
+  );
+
+  // The scoreboard is a game two people opt into — off until this account
+  // turned it on, then remembered like the mode.
+  useEffect(() => {
+    let cancelled = false;
+    void loadScoreboardVisible(userId).then((on) => {
+      if (cancelled || scoreboardLoadedRef.current) return;
+      scoreboardLoadedRef.current = true;
+      setScoreboardOn(on);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  const handleScoreboardToggle = useCallback(
+    (on: boolean) => {
+      setScoreboardOn(on);
+      void saveScoreboardVisible(userId, on);
+    },
+    [userId],
+  );
+
+  // Mid-call naming: tap a speaker (chip, transcript label or therapist
+  // column) → "Who is this?" over the enrolled people. The people list is
+  // fetched when the sheet opens so a person enrolled a moment ago shows.
+  const openWho = useCallback(
+    (entry: Pick<TranscriptEntry, "speaker" | "speakerId">) => {
+      const raw = entry.speakerId ?? entry.speaker;
+      setWho({ speaker: raw, label: entry.speaker });
+      void Promise.resolve()
+        .then(() => apiClient.listVoicePeople())
+        .then((res) => setSheetPeople(Array.isArray(res?.people) ? res.people : []))
+        .catch(() => {
+          // No people list (older server / offline): the sheet still offers
+          // "New person…" — naming this call never depends on it.
+        });
+    },
+    [],
+  );
+
+  const handleLiveLabel = useCallback(
+    async (choice: LiveLabelChoice) => {
+      if (!who || !labelSpeaker) return { text: "Naming isn’t available right now." };
+      const outcome = await labelSpeaker(who.speaker, choice);
+      return { text: outcome.text };
+    },
+    [who, labelSpeaker],
+  );
+
+  // Every distinct voice heard so far (raw label → shown name), for the chips.
+  const speakerChips = React.useMemo(() => {
+    const seen: { speaker: string; label: string; named: boolean }[] = [];
+    for (const t of transcript) {
+      const raw = t.speakerId ?? t.speaker;
+      if (seen.some((s) => s.speaker === raw)) continue;
+      seen.push({ speaker: raw, label: t.speaker, named: Boolean(names[raw]) });
+    }
+    return seen;
+  }, [transcript, names]);
+  const isNamed = useCallback(
+    (entry: TranscriptEntry) => Boolean(names[entry.speakerId ?? entry.speaker]),
+    [names],
   );
 
   // Pre-flight: probe what the on-device loop would load, once per mount
@@ -318,6 +398,55 @@ export default function LiveCoachScreen({
         </Text>
       ) : null}
 
+      {/* Pleasantness scoreboard (PRD §6): opt-in, off by default, remembered
+          per account. A race to be nicer — both lines climbing is the win. */}
+      <View style={styles.modeRow} testID="scoreboard-row">
+        <Text style={styles.modeLabel}>Scoreboard</Text>
+        <Switch
+          testID="scoreboard-switch"
+          value={scoreboardOn}
+          onValueChange={handleScoreboardToggle}
+        />
+        <Text style={styles.modeHint} numberOfLines={1}>
+          {scoreboardOn ? "who's being nicer — a race to be kind" : "off"}
+        </Text>
+      </View>
+      {scoreboardOn ? (
+        <ScoreboardPanel
+          board={scoreboard ?? null}
+          nameOf={nameOf}
+          emptyText={
+            !liveCapable
+              ? "Scores need on-device coaching, which this device can't run yet."
+              : !liveMode
+                ? "Scores need on-device coaching — switch it on above, then start."
+                : undefined
+          }
+        />
+      ) : null}
+
+      {/* Who's talking: one chip per voice heard. Tap to name them ("Who is
+          this?") — the name applies for the rest of the call at once. */}
+      {speakerChips.length > 0 ? (
+        <View style={styles.chipRow} testID="speaker-chips">
+          {speakerChips.map((c) => (
+            <TouchableOpacity
+              key={c.speaker}
+              testID={`speaker-chip-${c.speaker}`}
+              accessibilityRole="button"
+              accessibilityLabel={`Who is ${c.label}?`}
+              style={[styles.speakerChip, c.named && styles.speakerChipNamed]}
+              onPress={() => openWho({ speaker: c.label, speakerId: c.speaker })}
+            >
+              <Text style={[styles.speakerChipText, c.named && styles.speakerChipTextNamed]}>
+                {c.label}
+                {c.named ? "" : " · who?"}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      ) : null}
+
       {/* Session strip: mode + escalation count while live. */}
       {sessionActive ? (
         <View style={styles.sessionStrip} testID="session-strip">
@@ -418,10 +547,23 @@ export default function LiveCoachScreen({
 
       {/* Live transcript: two labelled columns in therapist mode. */}
       {isTherapist ? (
-        <TherapistTranscript entries={transcript} />
+        <TherapistTranscript entries={transcript} onSpeakerPress={openWho} isNamed={isNamed} />
       ) : (
-        <LiveTranscript entries={transcript} />
+        <LiveTranscript entries={transcript} onSpeakerPress={openWho} isNamed={isNamed} />
       )}
+
+      {who ? (
+        <WhoIsThisSheet
+          visible
+          speaker={who.speaker}
+          currentLabel={nameOf(who.speaker)}
+          currentPersonId={names[who.speaker]?.personId ?? null}
+          people={sheetPeople}
+          hasAudio={false}
+          onClose={() => setWho(null)}
+          onLiveLabel={handleLiveLabel}
+        />
+      ) : null}
 
       {/* Suggestion feed: newest first, older entries faded so the eye lands
           on the latest. Nudges (about the user's OWN turn) render as a compact
@@ -621,6 +763,33 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#6B7280",
     fontStyle: "italic",
+  },
+  chipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingBottom: 6,
+  },
+  speakerChip: {
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#FFFFFF",
+  },
+  speakerChipNamed: {
+    borderColor: "#10B981",
+    backgroundColor: "#ECFDF5",
+  },
+  speakerChipText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  speakerChipTextNamed: {
+    color: "#047857",
   },
   explainerCard: {
     backgroundColor: "#FFFFFF",

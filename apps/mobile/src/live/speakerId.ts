@@ -168,7 +168,7 @@ export function unknownLabel(index: number): string {
 
 export class SpeakerLabeler {
   private readonly people: { person: EnrolledPerson; vec: Float32Array }[];
-  private readonly hasSelf: boolean;
+  private hasSelf: boolean;
   private centroids: Float32Array[] = [];
   private counts: number[] = [];
 
@@ -187,6 +187,21 @@ export class SpeakerLabeler {
 
   get enrolledCount() {
     return this.people.length;
+  }
+
+  /**
+   * Add (or replace, by personId) an enrolled person MID-SESSION — the
+   * mid-call "that's Mom" flow learns a voice from the session's own pooled
+   * audio and hands the print here so later turns match by voiceprint, not
+   * just by cluster. `isSelf` on the new person makes unmatched clusters
+   * honestly "not self" from now on, exactly as a pre-enrolled self would.
+   */
+  addPerson(person: EnrolledPerson): void {
+    const idx = this.people.findIndex((p) => p.person.personId === person.personId);
+    const entry = { person, vec: l2Normalize(person.embedding) };
+    if (idx >= 0) this.people[idx] = entry;
+    else this.people.push(entry);
+    if (person.isSelf) this.hasSelf = true;
   }
 
   /** `seconds` is the segment's audio length; omit it to disable the

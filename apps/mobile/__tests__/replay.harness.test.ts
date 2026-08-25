@@ -343,6 +343,7 @@ function turn(i: number, start: number, end: number, speaker: string, extra: Par
     startTime: start,
     endTime: end,
     isSelf: extra.isSelf ?? null,
+    displayName: extra.displayName ?? null,
     personId,
     matchScore: extra.matchScore ?? null,
     prosody: { rms_dbfs: -20, pitch_hz: null, speech_rate: null },
