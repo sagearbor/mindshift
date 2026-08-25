@@ -142,7 +142,7 @@ class FakeStore:
         return self._links.pop(patient_uid, None) is not None
 
     async def list_therapist_patients(self, therapist_uid):
-        return [l for l in self._links.values() if l.get("therapist_uid") == therapist_uid]
+        return [link for link in self._links.values() if link.get("therapist_uid") == therapist_uid]
 
 
 class RoutingLLM:
@@ -1420,8 +1420,16 @@ class TestRelayFlood:
             slack = 10
             assert calls.RTC_SIGNAL_BURST <= len(relayed) <= calls.RTC_SIGNAL_BURST + slack
             assert len(refused) == n - len(relayed)
-            # Order is preserved for what was delivered.
-            assert [m["payload"]["candidate"] for m in relayed] == list(range(len(relayed)))
+            # Order is preserved for what was delivered. Not necessarily a
+            # contiguous prefix: the bucket refills on the wall clock, so a
+            # slow run can refuse a stretch in the middle and then let a much
+            # later candidate through. What must hold is that nothing is
+            # invented, nothing is duplicated, and nothing arrives out of order.
+            delivered = [m["payload"]["candidate"] for m in relayed]
+            assert delivered == sorted(delivered)
+            assert len(set(delivered)) == len(delivered)
+            assert set(delivered) <= set(range(n))
+            assert delivered[: calls.RTC_SIGNAL_BURST] == list(range(calls.RTC_SIGNAL_BURST))
             # The session is still a session: a later single signal is fine.
             host.send_text(json.dumps({"type": "rtc_signal", "call_id": cid, "payload": {"sdp": "later"}}))
             later = _drain_until_ack(host)

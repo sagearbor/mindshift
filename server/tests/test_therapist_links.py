@@ -180,8 +180,8 @@ class FakeStore:
         return self._links.pop(patient_uid, None) is not None
 
     async def list_therapist_patients(self, therapist_uid):
-        out = [l for l in self._links.values() if l.get("therapist_uid") == therapist_uid]
-        out.sort(key=lambda l: l.get("created_at") or "")
+        out = [link for link in self._links.values() if link.get("therapist_uid") == therapist_uid]
+        out.sort(key=lambda link: link.get("created_at") or "")
         return out
 
     # -- notes --
@@ -550,7 +550,7 @@ async def test_real_store_link_layout_and_reverse_index():
     await st.write_therapist_link("p1", link)
     assert set(bucket.objects) == {"therapist_links/p1/link.json", "therapist_patients/t1/p1.json"}
     assert (await st.read_therapist_link("p1"))["therapist_uid"] == "t1"
-    assert [l["patient_uid"] for l in await st.list_therapist_patients("t1")] == ["p1"]
+    assert [link["patient_uid"] for link in await st.list_therapist_patients("t1")] == ["p1"]
     # Re-pointing to another therapist drops the old reverse-index entry.
     link2 = therapist_links.new_link(patient_uid="p1", patient_email="p@x", therapist_uid="t2", therapist_email="t2@x")
     await st.write_therapist_link("p1", link2)

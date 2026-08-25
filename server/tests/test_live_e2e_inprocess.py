@@ -346,7 +346,7 @@ class MemoryStore:
         return self._links.pop(patient_uid, None) is not None
 
     async def list_therapist_patients(self, therapist_uid):
-        return [l for l in self._links.values() if l.get("therapist_uid") == therapist_uid]
+        return [link for link in self._links.values() if link.get("therapist_uid") == therapist_uid]
 
 
 # ---------------------------------------------------------------------------
