@@ -124,6 +124,14 @@ DISPLAY_NAME_MAX = 60
 JOIN_CODE_LEN = 6
 # No 0/O/1/I — the code is read out loud or typed from a text.
 JOIN_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+# Brute-force guards on the code (32^6 ≈ 1e9 codes; REST is IP-rate-limited,
+# the WebSocket `call_join` frame is not). Per SOCKET: wrong codes before
+# that socket's further call_join frames are refused (a new socket costs a
+# fresh token handshake). Per CALL: wrong codes from anyone before the code
+# is burned for good — the named invitee never needed it and is unaffected;
+# the host starts a new call. A mistyped code is a handful, never fifty.
+JOIN_ATTEMPTS_MAX = 8
+JOIN_CODE_FAILURES_MAX = 50
 
 ROLE_PARTICIPANT = "participant"
 ROLE_THERAPIST = "therapist"
@@ -312,6 +320,8 @@ class Call:
     ended_at: str | None = None
     ended_by: str | None = None
     end_reason: str | None = None
+    # Wrong join codes presented so far (see JOIN_CODE_FAILURES_MAX).
+    code_failures: int = 0
     store: Any = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)
     _t0: float = field(default_factory=time.monotonic, repr=False, compare=False)
@@ -966,14 +976,32 @@ class CallRegistry:
         code. Idempotent for a member (the role stays what it was)."""
         if uid in call.participants:
             return call.add_participant(uid, email=email, display_name=display_name)
+        role = self.authorize_join(call, uid, join_code=join_code, role=role)
+        return call.add_participant(uid, email=email, display_name=display_name, role=role)
+
+    def authorize_join(
+        self, call: Call, uid: str, *, join_code: str | None = None, role: str | None = None,
+    ) -> str:
+        """The cheap checks of :meth:`join` (role, ended, the code) with no
+        side effect but the wrong-code tally — so a handler can refuse a
+        guess BEFORE paying for an account lookup. Returns the clean role;
+        a member needs no authorization (returns its current role)."""
+        member = call.participants.get(uid)
+        if member is not None:
+            return member.role
         role = clean_role(role)
         if call.ended:
             raise CallError(410, "call has expired" if call.end_reason == "expired" else "call has ended")
         if uid != call.invitee_uid:
             code = normalize_join_code(join_code)
-            if code is None or code != call.join_code:
+            if code is None or code != call.join_code or call.code_failures >= JOIN_CODE_FAILURES_MAX:
+                call.code_failures += 1
+                if call.code_failures == JOIN_CODE_FAILURES_MAX:
+                    logger.warning(
+                        "call %s: %d wrong join codes — the code is burned", call.call_id, call.code_failures,
+                    )
                 raise CallError(403, "join code does not match")
-        return call.add_participant(uid, email=email, display_name=display_name, role=role)
+        return role
 
 
 registry = CallRegistry()

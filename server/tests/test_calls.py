@@ -1103,3 +1103,45 @@ class TestRoleBoundaries:
         assert ended_peer["episode_id"] in env.store._by_uid[PEER]
         assert "episodes" not in ended_host and "episodes" not in ended_peer
         assert ended_ther["episodes"] == {HOST: ended_host["episode_id"], PEER: ended_peer["episode_id"]}
+
+
+class TestJoinCodeBruteForce:
+    def test_wrong_code_is_refused_before_any_account_lookup_and_capped_per_socket(self, env, monkeypatch):
+        created = _create(env)
+        cid, code = created["call_id"], created["join_code"]
+        resolved: list[str] = []
+        monkeypatch.setattr(main, "resolve_email_by_uid", lambda u: resolved.append(u) or EMAILS.get(u))
+        # REST: the code is checked before the (Firebase) email lookup — a
+        # guess must not cost an upstream call.
+        assert _join(env, cid, PEER, join_code="AAAAAA")[0] == 403
+        assert resolved == []
+        with open_ws(env.client, f"/ws/session/{PEER_SID}", token=PEER_TOKEN) as peer:
+            for _ in range(calls.JOIN_ATTEMPTS_MAX):
+                peer.send_text(json.dumps({"type": "call_join", "call_id": cid, "join_code": "AAAAAA"}))
+                assert json.loads(peer.receive_text()) == {"error": "call_join: join code does not match"}
+            assert resolved == []
+            # The per-socket cap: even the right code is refused on this socket now.
+            peer.send_text(json.dumps({"type": "call_join", "call_id": cid, "join_code": code}))
+            assert json.loads(peer.receive_text()) == {"error": "call_join: too many failed attempts"}
+            # …and the session itself lives on.
+            peer.send_text(json.dumps({"type": "config", "empathy_slider": 10}))
+            assert json.loads(peer.receive_text())["type"] == "config_ack"
+        assert calls.registry.get(cid).participant(PEER) is None
+        # A fresh socket (a new auth handshake) with the right code still joins.
+        with open_ws(env.client, f"/ws/session/{PEER_SID}", token=PEER_TOKEN) as peer:
+            assert _bind(peer, cid, join_code=code)["self_label"] == "Speaker B"
+        assert resolved == [PEER]
+
+    def test_too_many_wrong_guesses_burn_the_code_call_wide(self):
+        reg = calls.CallRegistry()
+        call = reg.create("host", invitee_uid="invitee")
+        for _ in range(calls.JOIN_CODE_FAILURES_MAX):
+            with pytest.raises(calls.CallError) as exc:
+                reg.join(call, "stranger", join_code="AAAAAA")
+            assert exc.value.status == 403
+        # The right code no longer admits anyone — the host starts a new call.
+        with pytest.raises(calls.CallError) as exc:
+            reg.join(call, "stranger", join_code=call.join_code)
+        assert exc.value.status == 403
+        # The named invitee never needed the code and is unaffected.
+        assert reg.join(call, "invitee").slot == "B"

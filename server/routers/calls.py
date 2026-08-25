@@ -250,6 +250,12 @@ async def join_call(
     call = calls.registry.get(call_id)
     if call is None:
         raise HTTPException(status_code=404, detail="no such call")
+    try:
+        # A wrong code is refused here — before the account lookup below
+        # (an upstream call a guesser must not be able to trigger).
+        calls.registry.authorize_join(call, uid, join_code=body.join_code, role=body.role)
+    except calls.CallError as exc:
+        _raise(exc)
     email = await calls.resolve_email(uid, main.resolve_email_by_uid)
     try:
         calls.registry.join(

@@ -2286,7 +2286,16 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
 
     call_endpoint = _CallSessionEndpoint()
 
+    # Wrong join codes presented on THIS socket (calls.JOIN_ATTEMPTS_MAX):
+    # the WebSocket has no per-request rate limiter, so the frame bounds
+    # itself — past the cap every further call_join is refused.
+    join_failures = 0
+
     async def handle_call_join(payload: dict) -> None:
+        nonlocal join_failures
+        if join_failures >= calls.JOIN_ATTEMPTS_MAX:
+            await send_json({"error": "call_join: too many failed attempts"})
+            return
         call_id = payload.get("call_id")
         if not isinstance(call_id, str) or not _is_valid_uuid(call_id):
             await send_json({"error": "call_join: invalid call_id"})
@@ -2298,6 +2307,16 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         display_name = calls.clean_display_name(payload.get("display_name"))
         try:
             if ctx.uid not in call.participants:
+                # The code is checked BEFORE the account (email) lookup so a
+                # guess never costs an upstream call.
+                try:
+                    calls.registry.authorize_join(
+                        call, ctx.uid, join_code=payload.get("join_code"), role=payload.get("role"),
+                    )
+                except calls.CallError as exc:
+                    if exc.status == 403:
+                        join_failures += 1
+                    raise
                 email = await calls.resolve_email(ctx.uid)
                 calls.registry.join(
                     call, ctx.uid, join_code=payload.get("join_code"),
