@@ -24,3 +24,11 @@ __pycache__/
 *.db
 *.db-wal
 *.db-shm
+
+# Local model caches (gitignored; several GB after the tone evals). The image
+# re-downloads the pinned ECAPA checkpoint and pre-exports the ONNX at build
+# time (Dockerfile), and tone models are fetched only if MINDSHIFT_TONE_AUDIO
+# is ever turned on — uploading these just made `gcloud builds submit` take
+# minutes and time out (2026-08-24).
+server/.ecapa_cache/
+server/.tone_cache/
