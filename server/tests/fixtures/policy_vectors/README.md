@@ -12,6 +12,7 @@ without reading the Python driver.
 | `nudge_policy.json` | `server/nudge_policy.py` `NudgePolicy` (mirror: `apps/watch/shared/.../NudgeStateMachine.kt`) | `server/tests/test_nudge_policy_vectors.py` |
 | `vad_segments.json` | `server/watch/diarize.py` `speech_segments` (energy VAD + merge/drop) | `server/tests/test_vad_vectors.py` |
 | `tone_escalation.json` | `server/watch/relay.py` phone turn -> `VectorEvent`s -> `NudgePolicy` (tone + loudness, max-combined) | `server/tests/watch/test_tone_escalation_vectors.py` |
+| `pleasantness.json` | `server/pleasantness.py` PRD §6 scoreboard: per-turn score from text tone + prosody + turn balance, per-person current/series, lead (mirror: `apps/mobile/src/live/pleasantness.ts`, `apps/mobile/__tests__/livePleasantness.test.ts`) | `server/tests/test_pleasantness_vectors.py` |
 
 The Kotlin watch consumes `nudge_policy.json` too: `apps/watch/shared/build.gradle.kts`'s
 `syncPolicyVectors` task copies this directory into the `:shared` JVM test
@@ -62,6 +63,17 @@ resources at build time (never a hand-maintained copy), and
 - An empty conversion (`events: []`) does NOT call the policy — the watch's
   own 1 s windows own cooldown de-escalation, so `levels` must hold across
   such a step even when `t` has moved past `cooldown_s`.
+
+## `pleasantness.json` specifics
+
+- Turns are fed IN ORDER to a fresh tracker per case; the loudness baseline
+  and the 6-turn balance window are state, so a case's turns can't be
+  reordered. `_schema` spells out every dimension's rule; `constants` are
+  asserted equal to the module constants on both runtimes.
+- Missing inputs are `null` and stay `null` in `expected.dims` — a turn is
+  never scored from nothing, and turn balance alone never scores a turn.
+- Rounding is half-up (`floor(x + 0.5)`), pinned because Python's `round`
+  is banker's and the phone's `Math.round` is not.
 
 ## `vad_segments.json` specifics
 

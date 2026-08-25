@@ -409,6 +409,69 @@ class TestIngest:
         assert growth["points"][0]["partner_names"] == ["Mum"]
         assert growth["people"][0]["display_name"] == "Mum"
 
+    async def test_mid_call_names_land_as_manual_labels(self, client, store, mock_llm):
+        """Mid-call naming: the phone's ``speaker_labels`` become the
+        human-assertion rung on the stored episode (the same maps "Who is
+        this?" writes), so the therapist's dashboard row shows the
+        patient's own name for the person at once. A person id is attached
+        only when that person exists on the account; "this is me" resolves
+        to the owner."""
+        mock_llm.complete.side_effect = _llm_side_effect()
+        store.voiceprints["test-user"] = [
+            {"person_id": "self", "display_name": "You", "is_self": True},
+            {"person_id": "mom", "display_name": "Mom", "is_self": False},
+        ]
+        turns = [dict(t, speaker_person_id=None, is_self=None) for t in TURNS]
+        body = _body(
+            turns=turns, speaker_identities=[], analyze=False, reflect=False,
+            speaker_labels={
+                "Speaker B": {"display_name": "Mom", "person_id": "mom", "is_self": False},
+                "Speaker A": {"display_name": "Sage", "person_id": None, "is_self": True},
+                "Speaker Z": {"display_name": "Nobody", "person_id": None, "is_self": False},
+            },
+        )
+        res = await client.post("/sessions/live", json=body)
+        assert res.status_code == 201, res.text
+        rid = res.json()["episode_id"]
+        rec = await store.get_recording("test-user", rid)
+        # Only voices in the transcript; "me" is the owner ("self"/"You").
+        assert rec["manual_speaker_labels"] == {"Speaker B": "Mom", "Speaker A": "You"}
+        assert rec["manual_speaker_people"] == {"Speaker B": "mom", "Speaker A": "self"}
+        detail = (await client.get(f"/recordings/{rid}")).json()
+        assert detail["speaker_labels"]["Speaker B"] == {
+            "display_label": "Mom", "label_source": "manual-person", "person_id": "mom",
+        }
+        rows = (await client.get("/sessions")).json()["sessions"]
+        mine = next(s for s in rows if s["id"] == rid)
+        assert [sp["display"] for sp in mine["speakers"]] == ["You", "Mom"]
+        assert mine["turns"][1]["speaker"] == "Mom" and mine["turns"][1]["personId"] == "mom"
+        assert mine["scoreboard"]["people"][1]["display"] == "Mom"
+
+        # A name for a person the account doesn't know stays a NAME (the
+        # manual rung), never a dangling person id; re-POSTing keeps a name
+        # given later in Replay for a label the phone didn't send.
+        await store.update_manual_speaker_labels(
+            "test-user", rid, {**rec["manual_speaker_labels"], "Speaker A": "Me later"},
+        )
+        res = await client.post("/sessions/live", json=_body(
+            turns=turns, speaker_identities=[], analyze=False, reflect=False,
+            speaker_labels={"Speaker B": {"display_name": "Mum", "person_id": "aunt", "is_self": False}},
+        ))
+        assert res.status_code == 201
+        rec = await store.get_recording("test-user", rid)
+        assert rec["manual_speaker_labels"] == {"Speaker B": "Mum", "Speaker A": "Me later"}
+        assert rec["manual_speaker_people"] == {"Speaker A": "self"}
+
+    async def test_speaker_labels_validation(self, client, store):
+        for bad in (
+            {"Speaker B": {"display_name": ""}},
+            {"Speaker B": {"display_name": "x" * 61}},
+            {"Speaker B": {"display_name": "Mom", "person_id": "Not Slug"}},
+            {"Speaker B": "Mom"},
+        ):
+            res = await client.post("/sessions/live", json=_body(speaker_labels=bad))
+            assert res.status_code == 422, bad
+
     async def test_ids_are_per_user(self, client, store):
         a = (await client.post(
             "/sessions/live", json=_body(analyze=False, reflect=False),
@@ -693,7 +756,14 @@ class TestDashboardList:
         assert theirs["turns"][0]["speaker"] == "You" and theirs["turns"][0]["isSelf"] is True
         assert theirs["turns"][1]["speaker"] == "Mom"
         assert theirs["turns"][2]["toneLabel"] == "frustrated" and theirs["turns"][2]["escalated"] is True
-        assert theirs["turns"][0]["toneScores"] == {"pleasantness": 85, "warmth": 80}
+        # pleasantness = 100 − heat; warmth from the phone's tone; calmness
+        # (100 − frustration 10, no loudness baseline on a first turn) from
+        # the PRD §6 scoreboard — only dimensions that were measured appear.
+        assert theirs["turns"][0]["toneScores"] == {"pleasantness": 85, "warmth": 80, "calmness": 90}
+        board = theirs["scoreboard"]
+        assert [p["display"] for p in board["people"]] == ["You", "Mom"]
+        assert board["people"][0]["current"] is not None
+        assert len(board["turns"]) == len(theirs["turns"])
         assert [r["turn_index"] for r in theirs["couldHaveSaid"]] == [0, 2, 4]
         assert theirs["toneSummary"]["people"][0]["display_name"] == "Mom"
 

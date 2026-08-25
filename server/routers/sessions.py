@@ -60,6 +60,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 import live_sessions
 import recordings_store
+import speaker_id
 import therapist_links
 from audio_pipeline import UUID_PATTERN
 from auth import get_current_uid
@@ -135,6 +136,18 @@ def live_recording_id(uid: str, session_id: str) -> str:
 # Request / response models
 # ---------------------------------------------------------------------------
 
+class LiveSpeakerLabelIn(BaseModel):
+    """A speaker the user NAMED mid-call (raw label → person). Stored as the
+    human-assertion rung (meta.json ``manual_speaker_labels`` /
+    ``manual_speaker_people``), exactly what "Who is this?" writes on a
+    stored recording — so the therapist's view shows the patient's own name
+    for the person the moment the session lands."""
+    display_name: str = Field(min_length=1, max_length=speaker_id.DISPLAY_NAME_MAX)
+    # An enrolled person id ("self" for the owner); null = name only.
+    person_id: Optional[str] = Field(default=None, pattern=speaker_id.PERSON_ID_PATTERN)
+    is_self: bool = False
+
+
 class LiveSessionIn(BaseModel):
     """The seam contract with Track 3-mobile (see the module docstring)."""
     session_id: str = Field(min_length=1, max_length=LIVE_SESSION_ID_MAX)
@@ -144,6 +157,8 @@ class LiveSessionIn(BaseModel):
     turns: list[TurnLocalEvent] = Field(min_length=1, max_length=LIVE_MAX_TURNS)
     tone_flags: list[ToneFlagEvent] = Field(default_factory=list)
     speaker_identities: list[SpeakerIdentityEvent] = Field(default_factory=list)
+    # Mid-call naming: raw wire label → the name/person the user gave it.
+    speaker_labels: dict[str, LiveSpeakerLabelIn] = Field(default_factory=dict)
     # Optional user-facing title; absent → "Live session · <mode>".
     title: Optional[str] = Field(default=None, max_length=120)
     # Free-text context forwarded to the batch analysis + reflection prompts.
@@ -503,6 +518,17 @@ async def ingest_live_session(
         analysis, (existed or {}).get("analysis"), turns,
         gap_seconds=_EPISODE_GAP_SECONDS,
     )
+    # Mid-call naming → the manual rung, merged OVER whatever manual labels
+    # the episode already carries (a name given later in Replay survives a
+    # phone re-POST; the phone's own names win for the labels it sent).
+    # A person id is attached only when that person exists on this account
+    # ("self" always does) — never a dangling reference.
+    manual_names, manual_people = live_sessions.manual_labels_from_live(
+        {sp: lbl.model_dump() for sp, lbl in body.speaker_labels.items()},
+        turns, known_people,
+        existing_names=(existed or {}).get("manual_speaker_labels"),
+        existing_people=(existed or {}).get("manual_speaker_people"),
+    )
     now = _now_iso()
     meta = {
         "id": recording_id,
@@ -528,6 +554,10 @@ async def ingest_live_session(
         "session_id": body.session_id,
         "ended_at": body.ended_at,
     }
+    if manual_names:
+        meta["manual_speaker_labels"] = manual_names
+    if manual_people:
+        meta["manual_speaker_people"] = manual_people
     try:
         await store.save_live_session(
             uid, recording_id, meta=meta, turns=turns, analysis=analysis,

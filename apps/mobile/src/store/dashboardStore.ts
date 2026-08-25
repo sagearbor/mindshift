@@ -3,6 +3,7 @@ import { create } from "zustand";
 import {
   listDashboardSessions,
   type CouldHaveSaid,
+  type DashboardScoreboard,
   type DashboardSpeaker,
   type ToneSummary,
 } from "../api/client";
@@ -65,6 +66,8 @@ export interface SavedSession {
   // whether the server kept audio ("Remember this voice" needs it).
   speakers?: DashboardSpeaker[];
   hasAudio?: boolean;
+  // PRD §6 scoreboard over the stored per-turn tone (newer servers).
+  scoreboard?: DashboardScoreboard | null;
 }
 
 interface DashboardState {

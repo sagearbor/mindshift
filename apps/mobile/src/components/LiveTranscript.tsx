@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from "react";
-import { View, Text, ScrollView, StyleSheet } from "react-native";
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from "react-native";
 import type { TranscriptEntry } from "../hooks/useAudioStream";
 // getSpeakerColor now lives in a shared util so the HeatChart keys speakers to
 // the same hues as the live transcript. Behavior here is unchanged.
@@ -7,9 +7,15 @@ import { getSpeakerColor } from "../utils/speakerColors";
 
 interface LiveTranscriptProps {
   entries: TranscriptEntry[];
+  /** Mid-call naming: tapping a speaker label opens "Who is this?" for that
+   *  voice. Absent → labels are plain text, exactly as before. */
+  onSpeakerPress?: (entry: TranscriptEntry) => void;
+  /** Whether the entry's speaker already has a name (then no "who?" hint —
+   *  the label stays tappable to correct it). Default: unnamed. */
+  isNamed?: (entry: TranscriptEntry) => boolean;
 }
 
-export default function LiveTranscript({ entries }: LiveTranscriptProps) {
+export default function LiveTranscript({ entries, onSpeakerPress, isNamed }: LiveTranscriptProps) {
   const scrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
@@ -42,9 +48,24 @@ export default function LiveTranscript({ entries }: LiveTranscriptProps) {
             key={i}
             style={[styles.entry, isLatest && styles.latestEntry]}
           >
-            <Text style={[styles.speaker, { color }]}>
-              {entry.speaker}
-            </Text>
+            {onSpeakerPress ? (
+              <TouchableOpacity
+                testID={`live-transcript-speaker-${i}`}
+                accessibilityRole="button"
+                accessibilityLabel={`Who is ${entry.speaker}?`}
+                onPress={() => onSpeakerPress(entry)}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+              >
+                <Text style={[styles.speaker, { color }]}>
+                  {entry.speaker}
+                  {isNamed?.(entry) ? null : <Text style={styles.speakerHint}> · who?</Text>}
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <Text style={[styles.speaker, { color }]}>
+                {entry.speaker}
+              </Text>
+            )}
             <Text style={[styles.text, isLatest && styles.latestText]}>
               {entry.text}
             </Text>
@@ -88,6 +109,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginBottom: 2,
     textTransform: "uppercase",
+  },
+  speakerHint: {
+    fontSize: 10,
+    fontWeight: "500",
+    color: "#9CA3AF",
+    textTransform: "none",
   },
   text: {
     fontSize: 15,

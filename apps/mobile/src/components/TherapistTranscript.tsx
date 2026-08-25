@@ -1,10 +1,15 @@
 import React, { useRef, useEffect, useMemo } from "react";
-import { View, Text, ScrollView, StyleSheet } from "react-native";
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from "react-native";
 import type { TranscriptEntry } from "../hooks/useAudioStream";
 import { getSpeakerColor } from "../utils/speakerColors";
 
 interface Props {
   entries: TranscriptEntry[];
+  /** Mid-call naming: tapping a column header or a bubble's speaker opens
+   *  "Who is this?" for that voice. Absent → plain text, as before. */
+  onSpeakerPress?: (entry: TranscriptEntry) => void;
+  /** Whether the entry's speaker already has a name (no "who?" hint then). */
+  isNamed?: (entry: TranscriptEntry) => boolean;
 }
 
 /** Left/right column assignment: the first two voices heard, in order; any
@@ -33,9 +38,17 @@ export function columnOf(entries: TranscriptEntry[]): {
  * columns (bubbles left/right), so the observer can follow who said what at a
  * glance. Nothing is spoken in this mode; this view is the whole output.
  */
-export default function TherapistTranscript({ entries }: Props) {
+export default function TherapistTranscript({ entries, onSpeakerPress, isNamed }: Props) {
   const scrollRef = useRef<ScrollView>(null);
   const columns = useMemo(() => columnOf(entries), [entries]);
+  // The first entry for a column's speaker — what a header tap names.
+  const entryFor = (speaker: string | null) =>
+    speaker === null ? undefined : entries.find((e) => e.speaker === speaker);
+  const hintFor = (speaker: string | null) => {
+    if (!onSpeakerPress || speaker === null) return false;
+    const e = entryFor(speaker);
+    return e ? !isNamed?.(e) : false;
+  };
 
   useEffect(() => {
     if (scrollRef.current && entries.length > 0) {
@@ -54,18 +67,40 @@ export default function TherapistTranscript({ entries }: Props) {
   return (
     <View style={styles.wrap} testID="therapist-transcript">
       <View style={styles.headerRow}>
-        <Text
-          style={[styles.headerLeft, { color: getSpeakerColor(columns.left ?? "") }]}
-          testID="therapist-column-left"
+        <TouchableOpacity
+          testID="therapist-column-left-tap"
+          accessibilityRole="button"
+          disabled={!onSpeakerPress || columns.left === null}
+          onPress={() => {
+            const e = entryFor(columns.left);
+            if (e) onSpeakerPress?.(e);
+          }}
         >
-          {columns.left ?? "—"}
-        </Text>
-        <Text
-          style={[styles.headerRight, { color: getSpeakerColor(columns.right ?? "") }]}
-          testID="therapist-column-right"
+          <Text
+            style={[styles.headerLeft, { color: getSpeakerColor(columns.left ?? "") }]}
+            testID="therapist-column-left"
+          >
+            {columns.left ?? "—"}
+            {hintFor(columns.left) ? <Text style={styles.headerHint}> · who?</Text> : null}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          testID="therapist-column-right-tap"
+          accessibilityRole="button"
+          disabled={!onSpeakerPress || columns.right === null}
+          onPress={() => {
+            const e = entryFor(columns.right);
+            if (e) onSpeakerPress?.(e);
+          }}
         >
-          {columns.right ?? "…"}
-        </Text>
+          <Text
+            style={[styles.headerRight, { color: getSpeakerColor(columns.right ?? "") }]}
+            testID="therapist-column-right"
+          >
+            {hintFor(columns.right) ? <Text style={styles.headerHint}>who? · </Text> : null}
+            {columns.right ?? "…"}
+          </Text>
+        </TouchableOpacity>
       </View>
       <ScrollView ref={scrollRef} style={styles.scroll}>
         {entries.map((entry, i) => {
@@ -85,7 +120,18 @@ export default function TherapistTranscript({ entries }: Props) {
                   isLatest && { borderColor: color },
                 ]}
               >
-                <Text style={[styles.speaker, { color }]}>{entry.speaker}</Text>
+                {onSpeakerPress ? (
+                  <TouchableOpacity
+                    testID={`therapist-turn-${i}-speaker`}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Who is ${entry.speaker}?`}
+                    onPress={() => onSpeakerPress(entry)}
+                  >
+                    <Text style={[styles.speaker, { color }]}>{entry.speaker}</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <Text style={[styles.speaker, { color }]}>{entry.speaker}</Text>
+                )}
                 <Text style={styles.text}>{entry.text}</Text>
               </View>
             </View>
@@ -119,6 +165,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textTransform: "uppercase",
     textAlign: "right",
+  },
+  headerHint: {
+    fontSize: 10,
+    fontWeight: "500",
+    color: "#9CA3AF",
+    textTransform: "none",
   },
   scroll: {
     flex: 1,

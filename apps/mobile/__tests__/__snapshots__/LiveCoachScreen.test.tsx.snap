@@ -302,6 +302,56 @@ exports[`LiveCoachScreen renders disconnected state 1`] = `
   <View
     style={
       {
+        "alignItems": "center",
+        "flexDirection": "row",
+        "gap": 8,
+        "paddingHorizontal": 16,
+        "paddingVertical": 6,
+      }
+    }
+    testID="scoreboard-row"
+  >
+    <Text
+      style={
+        {
+          "color": "#374151",
+          "fontSize": 14,
+          "fontWeight": "600",
+          "marginRight": 4,
+        }
+      }
+    >
+      Scoreboard
+    </Text>
+    <RCTSwitch
+      accessibilityRole="switch"
+      onChange={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "alignSelf": "flex-start",
+        }
+      }
+      testID="scoreboard-switch"
+      value={false}
+    />
+    <Text
+      numberOfLines={1}
+      style={
+        {
+          "color": "#6B7280",
+          "flex": 1,
+          "fontSize": 12,
+        }
+      }
+    >
+      off
+    </Text>
+  </View>
+  <View
+    style={
+      {
         "marginVertical": 12,
         "paddingHorizontal": 16,
       }
@@ -787,6 +837,56 @@ exports[`LiveCoachScreen renders initial idle state 1`] = `
       testID="session-mode-hint"
     >
       Phone to your ear or on a call — the coach whispers to you privately.
+    </Text>
+  </View>
+  <View
+    style={
+      {
+        "alignItems": "center",
+        "flexDirection": "row",
+        "gap": 8,
+        "paddingHorizontal": 16,
+        "paddingVertical": 6,
+      }
+    }
+    testID="scoreboard-row"
+  >
+    <Text
+      style={
+        {
+          "color": "#374151",
+          "fontSize": 14,
+          "fontWeight": "600",
+          "marginRight": 4,
+        }
+      }
+    >
+      Scoreboard
+    </Text>
+    <RCTSwitch
+      accessibilityRole="switch"
+      onChange={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "alignSelf": "flex-start",
+        }
+      }
+      testID="scoreboard-switch"
+      value={false}
+    />
+    <Text
+      numberOfLines={1}
+      style={
+        {
+          "color": "#6B7280",
+          "flex": 1,
+          "fontSize": 12,
+        }
+      }
+    >
+      off
     </Text>
   </View>
   <View
@@ -1610,6 +1710,187 @@ exports[`LiveCoachScreen renders recording state with transcript and suggestions
   <View
     style={
       {
+        "alignItems": "center",
+        "flexDirection": "row",
+        "gap": 8,
+        "paddingHorizontal": 16,
+        "paddingVertical": 6,
+      }
+    }
+    testID="scoreboard-row"
+  >
+    <Text
+      style={
+        {
+          "color": "#374151",
+          "fontSize": 14,
+          "fontWeight": "600",
+          "marginRight": 4,
+        }
+      }
+    >
+      Scoreboard
+    </Text>
+    <RCTSwitch
+      accessibilityRole="switch"
+      onChange={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "alignSelf": "flex-start",
+        }
+      }
+      testID="scoreboard-switch"
+      value={false}
+    />
+    <Text
+      numberOfLines={1}
+      style={
+        {
+          "color": "#6B7280",
+          "flex": 1,
+          "fontSize": 12,
+        }
+      }
+    >
+      off
+    </Text>
+  </View>
+  <View
+    style={
+      {
+        "flexDirection": "row",
+        "flexWrap": "wrap",
+        "gap": 6,
+        "paddingBottom": 6,
+        "paddingHorizontal": 16,
+      }
+    }
+    testID="speaker-chips"
+  >
+    <View
+      accessibilityLabel="Who is Speaker A?"
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": undefined,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#FFFFFF",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 14,
+          "borderWidth": 1,
+          "opacity": 1,
+          "paddingHorizontal": 10,
+          "paddingVertical": 4,
+        }
+      }
+      testID="speaker-chip-Speaker A"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#374151",
+              "fontSize": 12,
+              "fontWeight": "600",
+            },
+            false,
+          ]
+        }
+      >
+        Speaker A
+         · who?
+      </Text>
+    </View>
+    <View
+      accessibilityLabel="Who is Speaker B?"
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": undefined,
+          "expanded": undefined,
+          "selected": undefined,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#FFFFFF",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 14,
+          "borderWidth": 1,
+          "opacity": 1,
+          "paddingHorizontal": 10,
+          "paddingVertical": 4,
+        }
+      }
+      testID="speaker-chip-Speaker B"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#374151",
+              "fontSize": 12,
+              "fontWeight": "600",
+            },
+            false,
+          ]
+        }
+      >
+        Speaker B
+         · who?
+      </Text>
+    </View>
+  </View>
+  <View
+    style={
+      {
         "flexDirection": "row",
         "justifyContent": "space-between",
         "paddingBottom": 4,
@@ -1781,23 +2062,81 @@ exports[`LiveCoachScreen renders recording state with transcript and suggestions
           ]
         }
       >
-        <Text
-          style={
-            [
-              {
-                "fontSize": 12,
-                "fontWeight": "700",
-                "marginBottom": 2,
-                "textTransform": "uppercase",
-              },
-              {
-                "color": "#4A90D9",
-              },
-            ]
+        <View
+          accessibilityLabel="Who is Speaker A?"
+          accessibilityRole="button"
+          accessibilityState={
+            {
+              "busy": undefined,
+              "checked": undefined,
+              "disabled": undefined,
+              "expanded": undefined,
+              "selected": undefined,
+            }
           }
+          accessibilityValue={
+            {
+              "max": undefined,
+              "min": undefined,
+              "now": undefined,
+              "text": undefined,
+            }
+          }
+          accessible={true}
+          collapsable={false}
+          focusable={true}
+          hitSlop={
+            {
+              "bottom": 6,
+              "left": 6,
+              "right": 6,
+              "top": 6,
+            }
+          }
+          onClick={[Function]}
+          onResponderGrant={[Function]}
+          onResponderMove={[Function]}
+          onResponderRelease={[Function]}
+          onResponderTerminate={[Function]}
+          onResponderTerminationRequest={[Function]}
+          onStartShouldSetResponder={[Function]}
+          style={
+            {
+              "opacity": 1,
+            }
+          }
+          testID="live-transcript-speaker-0"
         >
-          Speaker A
-        </Text>
+          <Text
+            style={
+              [
+                {
+                  "fontSize": 12,
+                  "fontWeight": "700",
+                  "marginBottom": 2,
+                  "textTransform": "uppercase",
+                },
+                {
+                  "color": "#4A90D9",
+                },
+              ]
+            }
+          >
+            Speaker A
+            <Text
+              style={
+                {
+                  "color": "#9CA3AF",
+                  "fontSize": 10,
+                  "fontWeight": "500",
+                  "textTransform": "none",
+                }
+              }
+            >
+               · who?
+            </Text>
+          </Text>
+        </View>
         <Text
           style={
             [
@@ -1831,23 +2170,81 @@ exports[`LiveCoachScreen renders recording state with transcript and suggestions
           ]
         }
       >
-        <Text
-          style={
-            [
-              {
-                "fontSize": 12,
-                "fontWeight": "700",
-                "marginBottom": 2,
-                "textTransform": "uppercase",
-              },
-              {
-                "color": "#E85D75",
-              },
-            ]
+        <View
+          accessibilityLabel="Who is Speaker B?"
+          accessibilityRole="button"
+          accessibilityState={
+            {
+              "busy": undefined,
+              "checked": undefined,
+              "disabled": undefined,
+              "expanded": undefined,
+              "selected": undefined,
+            }
           }
+          accessibilityValue={
+            {
+              "max": undefined,
+              "min": undefined,
+              "now": undefined,
+              "text": undefined,
+            }
+          }
+          accessible={true}
+          collapsable={false}
+          focusable={true}
+          hitSlop={
+            {
+              "bottom": 6,
+              "left": 6,
+              "right": 6,
+              "top": 6,
+            }
+          }
+          onClick={[Function]}
+          onResponderGrant={[Function]}
+          onResponderMove={[Function]}
+          onResponderRelease={[Function]}
+          onResponderTerminate={[Function]}
+          onResponderTerminationRequest={[Function]}
+          onStartShouldSetResponder={[Function]}
+          style={
+            {
+              "opacity": 1,
+            }
+          }
+          testID="live-transcript-speaker-1"
         >
-          Speaker B
-        </Text>
+          <Text
+            style={
+              [
+                {
+                  "fontSize": 12,
+                  "fontWeight": "700",
+                  "marginBottom": 2,
+                  "textTransform": "uppercase",
+                },
+                {
+                  "color": "#E85D75",
+                },
+              ]
+            }
+          >
+            Speaker B
+            <Text
+              style={
+                {
+                  "color": "#9CA3AF",
+                  "fontSize": 10,
+                  "fontWeight": "500",
+                  "textTransform": "none",
+                }
+              }
+            >
+               · who?
+            </Text>
+          </Text>
+        </View>
         <Text
           style={
             [

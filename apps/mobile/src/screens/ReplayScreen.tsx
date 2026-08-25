@@ -32,6 +32,8 @@ import type {
 import * as apiClient from "../api/client";
 import ToneSummaryCard from "../components/ToneSummaryCard";
 import CouldHaveSaidList from "../components/CouldHaveSaidList";
+import ScoreboardPanel from "../components/ScoreboardPanel";
+import { scoreSession } from "../live/pleasantness";
 import { modeLabel } from "./toneTrends";
 import HeatChart from "../components/HeatChart";
 import MediaPlayer, { MediaPlayerHandle } from "../components/MediaPlayer";
@@ -789,6 +791,15 @@ export default function ReplayScreen({
   // has 404'd this session.
   const namingSupported =
     detail?.manual_speaker_labels !== undefined && !namingUnsupported;
+  // PRD §6 scoreboard for a live session, re-scored on the phone from the
+  // stored per-turn tone + prosody with the SAME arithmetic the live board
+  // used (live/pleasantness.ts ≡ server/pleasantness.py). Null for an
+  // upload — no per-turn tone, nothing honest to show.
+  const liveScoreboard = React.useMemo(() => {
+    if (!turns.some((t) => t.text_tone || t.prosody)) return null;
+    const { board } = scoreSession(turns);
+    return board.people.some((p) => p.scoredTurns > 0) ? board : null;
+  }, [turns]);
 
   const chart = hasChart ? (
     <HeatChart
@@ -1222,6 +1233,14 @@ export default function ReplayScreen({
           {/* Track 2 — "Your tone": the live session's self / per-person tone
               summary from the phone's per-turn tone + identity. Only live
               sessions carry it; uploads render nothing here. */}
+          {liveScoreboard ? (
+            <ScoreboardPanel
+              board={liveScoreboard}
+              nameOf={(raw) => speakerLabel(raw, effectiveLabels)}
+              testID="replay-scoreboard"
+            />
+          ) : null}
+
           {detail.analysis?.live?.tone_summary ? (
             <ToneSummaryCard
               summary={detail.analysis.live.tone_summary}

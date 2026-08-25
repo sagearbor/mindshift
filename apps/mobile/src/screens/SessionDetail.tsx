@@ -16,6 +16,8 @@ import ToneSummaryCard from "../components/ToneSummaryCard";
 import CouldHaveSaidList from "../components/CouldHaveSaidList";
 import WhoIsThisSheet from "../components/WhoIsThisSheet";
 import TherapistSessionPanel from "../components/TherapistSessionPanel";
+import ScoreboardPanel from "../components/ScoreboardPanel";
+import type { Scoreboard } from "../live/pleasantness";
 import * as apiClient from "../api/client";
 import type { PatchSpeakerLabelsResult, VoicePerson } from "../api/client";
 import { isEnrolledPersonLabel } from "../utils/people";
@@ -51,6 +53,32 @@ export function applyLabelsToSession(
     };
   });
   return { ...session, turns, speakers };
+}
+
+/**
+ * The server's scoreboard block as the panel reads it, with the session's
+ * CURRENT display names (a "Who is this?" save relabels the board too).
+ * Null when the server sent none (an upload / older server). Pure;
+ * exported for tests.
+ */
+export function scoreboardOf(
+  session: SavedSession,
+): { board: Scoreboard; nameOf: (speaker: string) => string } | null {
+  const sb = session.scoreboard;
+  if (!sb || !Array.isArray(sb.people) || sb.people.length === 0) return null;
+  const names = new Map<string, string>();
+  for (const p of sb.people) names.set(p.speaker, p.display || p.speaker);
+  for (const s of session.speakers ?? []) if (s.display) names.set(s.id, s.display);
+  const board: Scoreboard = {
+    people: sb.people.map((p) => ({
+      speaker: p.speaker,
+      current: typeof p.current === "number" ? p.current : null,
+      series: Array.isArray(p.series) ? p.series.filter((v): v is number => typeof v === "number") : [],
+      scoredTurns: typeof p.scored_turns === "number" ? p.scored_turns : 0,
+    })),
+    lead: sb.lead ? { speaker: sb.lead.speaker, margin: sb.lead.margin } : null,
+  };
+  return { board, nameOf: (speaker) => names.get(speaker) ?? speaker };
 }
 
 interface SessionDetailProps {
@@ -148,6 +176,7 @@ export default function SessionDetail({
         .filter((v): v is number => typeof v === "number")
     : [];
   const modeText = modeLabel(session?.mode);
+  const scoreboard = useMemo(() => (session ? scoreboardOf(session) : null), [session]);
 
   const handleExport = async () => {
     let text = "";
@@ -240,6 +269,19 @@ export default function SessionDetail({
           />
         </View>
       )}
+
+      {/* PRD §6 scoreboard — the same board the couple watched live,
+          recomputed by the server from the stored per-turn tone. */}
+      {scoreboard ? (
+        <View style={styles.scoreboardSection}>
+          <ScoreboardPanel
+            board={scoreboard.board}
+            nameOf={scoreboard.nameOf}
+            title={session.shared ? "Kindness scoreboard (patient's session)" : "Kindness scoreboard"}
+            testID="session-scoreboard"
+          />
+        </View>
+      ) : null}
 
       {/* Track 2: the user's own tone + per-person split, same card as
           Replay/Dynamics so a therapist and a patient read the same thing. */}
@@ -488,6 +530,12 @@ const styles = StyleSheet.create({
   },
   section: {
     marginBottom: 24,
+  },
+  scoreboardSection: {
+    // The panel carries its own 16 px side margins (it sits edge-aligned on
+    // the live screen); the detail's content already pads 16, so pull back.
+    marginHorizontal: -16,
+    marginBottom: 18,
   },
   sectionTitle: {
     fontSize: 16,

@@ -20,8 +20,16 @@ import {
 } from "../utils/webAudioCapture";
 import { unlockWebSpeechSynthesis, webSpeechSynthesisAvailable } from "../utils/webSpeech";
 import { getCachedToken } from "../auth/authToken";
-import type { FastLoop } from "../live/fastLoop";
+import type { FastLoop, SpeakerBinding } from "../live/fastLoop";
 import { formatLatencyLog } from "../live/fastLoop";
+import { PleasantnessTracker, type Scoreboard } from "../live/pleasantness";
+import {
+  enrollSpeakerAudio,
+  MIN_ENROLL_SECONDS,
+  type EnrollFromSessionResult,
+} from "../live/enrollFromSession";
+import { patchSpeakerLabels } from "../api/client";
+import { SELF_PERSON_ID } from "../utils/people";
 import type {
   FastLoopBuild,
   FastLoopCapabilities,
@@ -44,6 +52,7 @@ import type {
 import {
   postLiveSession,
   type LiveSessionBody,
+  type LiveSpeakerLabel,
   type PostLiveSessionResult,
 } from "../api/liveSessions";
 
@@ -53,7 +62,11 @@ const API_URL =
 const WS_BASE = API_URL.replace(/^http/, "ws");
 
 export interface TranscriptEntry {
+  /** What the line SHOWS: the person's name once known, else the raw label. */
   speaker: string;
+  /** The raw wire label behind `speaker` ("Speaker B") — the key mid-call
+   *  naming binds. Absent on legacy-path lines that were never relabeled. */
+  speakerId?: string;
   text: string;
   timestamp: number;
   /** Utterance boundaries in seconds (from the server's transcript events).
@@ -106,6 +119,36 @@ export interface UseAudioStreamOptions {
   postSession?: (body: LiveSessionBody) => Promise<PostLiveSessionResult>;
   /** Pre-flight capability probe (what the loop would load right now). */
   probeCapabilities?: () => Promise<FastLoopCapabilities>;
+  /** Mid-call naming: upload a speaker's pooled session audio as a new
+   *  person's voiceprint (production: live/enrollFromSession.ts). */
+  enrollSpeaker?: (
+    pcm: Float32Array,
+    person: { personId: string; displayName: string },
+  ) => Promise<EnrollFromSessionResult>;
+  /** Post-session naming once the episode exists on the server: the same
+   *  PATCH "Who is this?" makes on a stored recording. */
+  patchLabels?: (
+    recordingId: string,
+    labels: Record<string, string>,
+    people?: Record<string, string>,
+  ) => Promise<unknown>;
+}
+
+/** What the sheet is told after a mid-call "that's Mom". */
+export interface LabelSpeakerOutcome {
+  /** Human sentence for the sheet's done stage. */
+  text: string;
+  /** A voiceprint sample was stored for a new person. */
+  enrolled: boolean;
+  /** Seconds of the speaker's pooled audio available at the time. */
+  seconds: number | null;
+}
+
+export interface LabelSpeakerChoice {
+  personId: string;
+  displayName: string;
+  isSelf: boolean;
+  isNew: boolean;
 }
 
 /** The pre-session capability check, as the screen shows it. */
@@ -195,6 +238,18 @@ interface UseAudioStreamReturn {
   /** The server's record of the last finished session (null until then, and
    *  null on the legacy path where nothing is POSTed). */
   lastEpisode: LastEpisode | null;
+  /** Mid-call naming: raw wire label → the person the user (or a voiceprint
+   *  match) says it is. Reset per session. */
+  speakerNames: Record<string, SpeakerBinding>;
+  /** What to show for a raw label: its bound name, else the label itself. */
+  displayNameOf: (speaker: string) => string;
+  /** Name a speaker for the rest of the session (and, when the session
+   *  is already stored, on its episode). Never throws — the outcome text
+   *  says what happened. */
+  labelSpeaker: (speaker: string, choice: LabelSpeakerChoice) => Promise<LabelSpeakerOutcome>;
+  /** The pleasantness scoreboard over this session's on-device turns,
+   *  keyed by raw label (see live/pleasantness.ts). Null before any turn. */
+  scoreboard: Scoreboard | null;
 }
 
 const RECONNECT_DELAY_MS = 2000;
@@ -349,6 +404,22 @@ export function useAudioStream(
   const [escalationCount, setEscalationCount] = useState(0);
   const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(null);
   const [lastEpisode, setLastEpisode] = useState<LastEpisode | null>(null);
+  const [speakerNames, setSpeakerNames] = useState<Record<string, SpeakerBinding>>({});
+  const [scoreboard, setScoreboard] = useState<Scoreboard | null>(null);
+  /** Mirrors speakerNames for the long-lived callbacks (onTurn, onmessage). */
+  const speakerNamesRef = useRef<Record<string, SpeakerBinding>>({});
+  /** Labels the USER gave this session (not voiceprint matches) — what
+   *  POST /sessions/live carries as `speaker_labels`. */
+  const speakerLabelsRef = useRef<Record<string, LiveSpeakerLabel>>({});
+  const trackerRef = useRef(new PleasantnessTracker());
+  /** The loop of the session that just ended, kept for post-session naming
+   *  (its pooled speaker audio + embedder outlive the session). */
+  const lastLoopRef = useRef<FastLoop | null>(null);
+  const lastEpisodeRef = useRef<LastEpisode | null>(null);
+  const enrollRef = useRef(options.enrollSpeaker ?? enrollSpeakerAudio);
+  enrollRef.current = options.enrollSpeaker ?? enrollSpeakerAudio;
+  const patchLabelsRef = useRef(options.patchLabels ?? patchSpeakerLabels);
+  patchLabelsRef.current = options.patchLabels ?? patchSpeakerLabels;
   /** Session-end inputs kept outside React state so finishDrain (which runs
    *  from timers / socket callbacks) reads the final values. */
   const transcriptRef = useRef<TranscriptEntry[]>([]);
@@ -512,6 +583,7 @@ export function useAudioStream(
     const loop = fastLoopRef.current;
     if (!loop) return;
     fastLoopRef.current = null;
+    lastLoopRef.current = loop;
     liveActiveRef.current = false;
     let summary: Awaited<ReturnType<FastLoop["stop"]>> | null = null;
     try {
@@ -533,6 +605,11 @@ export function useAudioStream(
       turns: localTurnsRef.current,
       tone_flags: toneFlagsRef.current,
       speaker_identities: identitiesRef.current,
+      // Names the user gave mid-call ride along so the stored episode (and
+      // the therapist's auto-shared view of it) shows them at once.
+      ...(Object.keys(speakerLabelsRef.current).length > 0
+        ? { speaker_labels: { ...speakerLabelsRef.current } }
+        : {}),
     };
     localTurnsRef.current = [];
     toneFlagsRef.current = [];
@@ -543,15 +620,18 @@ export function useAudioStream(
     const result = await postSessionRef.current(body);
     if (result.status === "failed") {
       console.warn("[useAudioStream] POST /sessions/live failed:", result.error);
-      setLastEpisode({ episodeId: null, postStatus: "failed", sharedWith: [] });
+      lastEpisodeRef.current = { episodeId: null, postStatus: "failed", sharedWith: [] };
+      setLastEpisode(lastEpisodeRef.current);
     } else if (result.status === "unsupported") {
-      setLastEpisode({ episodeId: null, postStatus: "unsupported", sharedWith: [] });
+      lastEpisodeRef.current = { episodeId: null, postStatus: "unsupported", sharedWith: [] };
+      setLastEpisode(lastEpisodeRef.current);
     } else {
-      setLastEpisode({
+      lastEpisodeRef.current = {
         episodeId: result.episodeId || null,
         postStatus: "created",
         sharedWith: result.sharedWith ?? [],
-      });
+      };
+      setLastEpisode(lastEpisodeRef.current);
       if (result.episodeId) {
         // Confirmed by the server: Your Day can show it right away.
         useLiveEpisodeStore.getState().remember({
@@ -597,12 +677,27 @@ export function useAudioStream(
           }
         },
         onTurn: (turn) => {
-          setSpeakerLabel(turn.speaker);
+          // A voiceprint match (pre-enrolled or learned mid-call) names the
+          // raw label for every later line; the wire label stays raw.
+          if (turn.displayName && turn.personId && !speakerNamesRef.current[turn.speaker]) {
+            speakerNamesRef.current = {
+              ...speakerNamesRef.current,
+              [turn.speaker]: {
+                personId: turn.personId,
+                displayName: turn.displayName,
+                isSelf: turn.isSelf === true,
+              },
+            };
+            setSpeakerNames(speakerNamesRef.current);
+          }
+          const display = speakerNamesRef.current[turn.speaker]?.displayName ?? turn.speaker;
+          setSpeakerLabel(display);
           if (turn.text) {
             setTranscript((prev) => [
               ...prev,
               {
-                speaker: turn.speaker,
+                speaker: display,
+                speakerId: turn.speaker,
                 text: turn.text,
                 timestamp: Date.now(),
                 startTime: turn.startTime,
@@ -613,6 +708,10 @@ export function useAudioStream(
           const recent = recentLocalTurnsRef.current;
           recent.push({ text: turn.text, hadSuggestion: turn.suggestion !== null });
           if (recent.length > MAX_SUGGESTION_FEED) recent.splice(0, recent.length - MAX_SUGGESTION_FEED);
+          // Scoreboard: every on-device turn scores from what it carries
+          // (tone, prosody, balance) — null inputs are honest gaps.
+          trackerRef.current.observe(turn.speaker, turn.textTone, turn.prosody);
+          setScoreboard(trackerRef.current.board());
           if (turn.suggestion) {
             const id = (suggestionIdRef.current += 1);
             const text = turn.suggestion;
@@ -674,6 +773,7 @@ export function useAudioStream(
           empathy,
         });
         fastLoopRef.current = build.loop;
+        lastLoopRef.current = null;
         liveActiveRef.current = true;
         sessionStartedAtRef.current = new Date().toISOString();
         setLiveStatus(
@@ -1144,12 +1244,27 @@ export function useAudioStream(
             if (
               typeof identity.speaker === "string" &&
               typeof identity.display_name === "string" &&
-              identity.display_name
+              identity.display_name &&
+              // A name the user gave mid-call beats the server's guess.
+              !speakerLabelsRef.current[identity.speaker]
             ) {
               const from = identity.speaker;
               const to = identity.display_name;
+              speakerNamesRef.current = {
+                ...speakerNamesRef.current,
+                [from]: {
+                  personId: identity.person_id ?? "",
+                  displayName: to,
+                  isSelf: identity.is_self === true,
+                },
+              };
+              setSpeakerNames(speakerNamesRef.current);
               setTranscript((prev) =>
-                prev.map((t) => (t.speaker === from ? { ...t, speaker: to } : t)),
+                prev.map((t) =>
+                  t.speaker === from || t.speakerId === from
+                    ? { ...t, speaker: to, speakerId: t.speakerId ?? from }
+                    : t,
+                ),
               );
               setSpeakerLabel((current) => (current === from ? to : current));
             }
@@ -1363,6 +1478,13 @@ export function useAudioStream(
       setNudgeFlash(null);
       setSessionSummary(null);
       setLastEpisode(null);
+      lastEpisodeRef.current = null;
+      lastLoopRef.current = null;
+      speakerNamesRef.current = {};
+      setSpeakerNames({});
+      speakerLabelsRef.current = {};
+      trackerRef.current = new PleasantnessTracker();
+      setScoreboard(null);
       setEscalationCount(0);
       escalationRef.current = 0;
       latencyLogRef.current = [];
@@ -1530,6 +1652,161 @@ export function useAudioStream(
 
   const clearNudgeFlash = useCallback(() => setNudgeFlash(null), []);
 
+  const displayNameOf = useCallback(
+    (speaker: string) => speakerNames[speaker]?.displayName ?? speaker,
+    [speakerNames],
+  );
+
+  /**
+   * Mid-call naming: "that Speaker B is Mom".
+   *
+   * Immediately (synchronously, before any network): the transcript
+   * relabels, the fast loop binds the cluster to the person (later turns
+   * carry `speaker_person_id`/`is_self`; the prompt says "Mom"), the
+   * session record rewrites earlier turns on that label, and the server is
+   * told (`speaker_label`) so its coach uses the name and its side-aware
+   * coaching knows who "me" is. Then, best-effort: a NEW person is created
+   * on the server and their voice learned from the session's pooled audio
+   * (≥ 3 s) through the existing enroll endpoint, and the print is added to
+   * the on-device labeler so the rest of the call matches by voice too.
+   * After the session, once the episode exists, the name is PATCHed onto
+   * it exactly as "Who is this?" does on a stored recording.
+   */
+  const labelSpeaker = useCallback(
+    async (speaker: string, choice: LabelSpeakerChoice): Promise<LabelSpeakerOutcome> => {
+      const binding: SpeakerBinding = {
+        personId: choice.personId,
+        displayName: choice.displayName,
+        isSelf: choice.isSelf,
+      };
+      // A person can be one voice: naming a second label as the same person
+      // releases the first (the user corrected themselves).
+      const names: Record<string, SpeakerBinding> = {};
+      for (const [label, b] of Object.entries(speakerNamesRef.current)) {
+        if (b.personId !== binding.personId || label === speaker) names[label] = b;
+      }
+      names[speaker] = binding;
+      speakerNamesRef.current = names;
+      setSpeakerNames(names);
+      speakerLabelsRef.current = {
+        ...speakerLabelsRef.current,
+        [speaker]: {
+          display_name: choice.displayName,
+          person_id: choice.isNew ? null : choice.personId,
+          is_self: choice.isSelf,
+        },
+      };
+      setTranscript((prev) =>
+        prev.map((t) =>
+          (t.speakerId ?? t.speaker) === speaker
+            ? { ...t, speaker: choice.displayName, speakerId: speaker }
+            : t,
+        ),
+      );
+      setSpeakerLabel((current) => (current === speaker ? choice.displayName : current));
+      if (choice.isSelf) {
+        selfSpeakerRef.current = speaker;
+        setSelfSpeakerState(speaker);
+      }
+      // The record carries the person id the user chose (the loop's later
+      // turns do too); the stored episode attaches it only once that person
+      // exists on the server (see manual_labels_from_live) — the wire is
+      // honest about what the USER said, the store about what exists.
+      for (const ev of localTurnsRef.current) {
+        if (ev.speaker !== speaker) continue;
+        ev.speaker_person_id = choice.personId;
+        ev.is_self = choice.isSelf;
+      }
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(
+            JSON.stringify({
+              type: "speaker_label",
+              session_id: sessionIdRef.current,
+              speaker,
+              person_id: choice.isNew ? null : choice.personId,
+              display_name: choice.displayName,
+              is_self: choice.isSelf,
+            }),
+          );
+        } catch {
+          // Socket mid-close: the session record still carries the label.
+        }
+      }
+
+      const loop = fastLoopRef.current ?? lastLoopRef.current;
+      const seconds = loop ? Math.round(loop.speakerAudioSeconds(speaker) * 10) / 10 : null;
+      let enrolled = false;
+      let text = `${choice.displayName} is labeled for the rest of this call.`;
+      if (loop) {
+        // Bind first (instant), then learn the voice when there is one.
+        loop.bindSpeaker(speaker, binding);
+        if (choice.isNew) {
+          const pcm = loop.speakerAudio(speaker);
+          if (pcm.length / 16000 >= MIN_ENROLL_SECONDS) {
+            try {
+              const result = await enrollRef.current(pcm, {
+                personId: choice.personId,
+                displayName: choice.displayName,
+              });
+              enrolled = true;
+              // Now a real person on the server: the stored label may
+              // attach the id (the manual-person rung).
+              speakerLabelsRef.current = {
+                ...speakerLabelsRef.current,
+                [speaker]: { ...speakerLabelsRef.current[speaker], person_id: choice.personId },
+              };
+              const embedding = await loop.embedSpeaker(speaker);
+              if (embedding) {
+                loop.bindSpeaker(speaker, binding, {
+                  personId: choice.personId,
+                  displayName: choice.displayName,
+                  isSelf: choice.isSelf,
+                  embedding,
+                });
+              }
+              text +=
+                ` Learned ${result.seconds} s of ${choice.displayName}’s voice — they’ll be ` +
+                "recognized next time. Stored as a numeric signature, not the audio.";
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              text += ` Couldn’t remember the voice yet (${msg}). You can add ${choice.displayName} under People later.`;
+            }
+          } else {
+            text +=
+              ` Only ${seconds ?? 0} s of ${choice.displayName}’s voice so far — ` +
+              `after ${MIN_ENROLL_SECONDS} s you can name them again to remember the voice.`;
+          }
+        } else if (choice.personId === SELF_PERSON_ID || choice.isSelf) {
+          text += " The coach now knows this voice is you.";
+        } else {
+          text += ` The app already knows ${choice.displayName}’s voice.`;
+        }
+      } else if (choice.isNew) {
+        text += " No on-device audio was kept, so the voice can’t be learned from this session.";
+      }
+
+      // Post-session: the episode already exists — put the name on it.
+      const episodeId = lastEpisodeRef.current?.episodeId;
+      if (!sessionActiveRef.current && episodeId) {
+        const personId = speakerLabelsRef.current[speaker]?.person_id ?? null;
+        try {
+          await patchLabelsRef.current(
+            episodeId,
+            { [speaker]: choice.displayName },
+            personId ? { [speaker]: personId } : undefined,
+          );
+          text += " Saved to the session record.";
+        } catch {
+          text += " (Couldn’t save the name to the stored session — check your connection.)";
+        }
+      }
+      return { text, enrolled, seconds };
+    },
+    [],
+  );
+
   const runPreflight = useCallback(async () => {
     if (!liveCapability.capable || preflightInFlightRef.current) return;
     preflightInFlightRef.current = true;
@@ -1582,5 +1859,9 @@ export function useAudioStream(
     escalationCount,
     sessionSummary,
     lastEpisode,
+    speakerNames,
+    displayNameOf,
+    labelSpeaker,
+    scoreboard,
   };
 }
