@@ -84,6 +84,67 @@ class NullTranscriber:
         pass
 
 
+class FirstTurnRaceTranscriber:
+    """Deepgram stand-in that WINS the first-turn race, the way production
+    does (3-way call e2e, 2026-08-25): it finalizes a member's OPENING
+    utterance before that phone's first ``turn_local`` has latched the
+    session local-first, so the cloud copy — no ``text_tone``, no sender
+    clock, Deepgram's own wording — is what the other viewers render first.
+
+    It hears only what this member's phone sends (``call_side_pcm`` silences
+    everyone else), so the first scene turn whose window carries sound is
+    this member's own opening line. It is emitted a fraction of a second
+    into that window, i.e. seconds of scene time before the phone reports
+    it, and nothing is emitted after: once the session is local-first the
+    pipeline drops this transcriber's segments anyway (a member with silent
+    audio — the observer — never emits at all).
+
+    The fix under test is ``calls.Call.push_turn`` replacing that row in
+    place and RE-RELAYING it tagged ``replaces_seq``; without it every
+    viewer keeps a tone-less line for that turn.
+    """
+
+    SAMPLE_RATE = 16000
+    # How far into the utterance it finalizes. Scene turns run ~4-6 s, so
+    # this beats the phone's turn_local by seconds of scene time.
+    LEAD_S = 0.15
+
+    def __init__(self, turns: list[dict]) -> None:
+        self._turns = turns
+        self._heard = np.zeros(0, dtype=np.int16)
+        self._done = False
+
+    async def connect(self) -> None:
+        pass
+
+    async def stream(self, audio_bytes: bytes):
+        if self._done:
+            return []
+        self._heard = np.concatenate([self._heard, np.frombuffer(audio_bytes, dtype=np.int16)])
+        heard_s = self._heard.shape[0] / self.SAMPLE_RATE
+        for t in self._turns:
+            start, end = float(t["start_time"]), float(t["end_time"])
+            judge_at = min(end, start + self.LEAD_S)
+            if heard_s < judge_at:
+                return []  # not enough audio to tell whose turn this is yet
+            window = self._heard[int(start * self.SAMPLE_RATE):int(judge_at * self.SAMPLE_RATE)]
+            if not np.any(window):
+                continue  # somebody else's turn: silence on this member's stream
+            self._done = True
+            # Deepgram-shaped: lower-cased and unpunctuated, so a row that
+            # never gets corrected stands out in the merged transcript.
+            return [audio_pipeline.TranscriptSegment(
+                t["text"].lower().replace(".", "").replace(",", ""), start, end, speaker=1,
+            )]
+        return []
+
+    async def finish(self):
+        return []
+
+    async def close(self) -> None:
+        pass
+
+
 class FakeTTS:
     async def synthesize(self, text: str):
         return "ZmFrZS1hdWRpbw=="
@@ -589,9 +650,16 @@ async def test_call_e2e_inprocess_three_way(live_server, e2e_env, monkeypatch):
     Full-mesh signaling, every phone's own turns merged for the others with
     relative names, coaching per participant only (Mom gets read-only
     ``for_uid`` copies, never a suggestion of her own), hang-up host → Dad →
-    Mom so HER socket ends the call, two episodes both granted to her."""
+    Mom so HER socket ends the call, two episodes both granted to her.
+
+    The server's transcriber here BEATS each phone to that member's opening
+    line (FirstTurnRaceTranscriber) — last night's production failure — so
+    the run also proves the correction path: the cloud row is replaced in
+    place and re-relayed tagged ``replaces_seq``, and every viewer ends up
+    with one line per turn, all of them carrying the sender's tone."""
     scene = live_e2e.load_scene("scene_couple_escalation")
     monkeypatch.setattr(audio_pipeline, "speaker_id", None)
+    app.state.transcriber_factory = lambda: FirstTurnRaceTranscriber(scene.turns)
     patient = _account(PATIENT_UID, PATIENT_EMAIL, "tok-user-a")
     peer = _account(PEER_UID, PEER_EMAIL, "fake-id-token")
     therapist = _account(THERAPIST_UID, THERAPIST_EMAIL, "tok-user-b")
@@ -612,10 +680,27 @@ async def test_call_e2e_inprocess_three_way(live_server, e2e_env, monkeypatch):
     # Full mesh: two addressed offers in, one deliberate unaddressed error.
     assert data["signaling"] == {"problems": [], "missing_to_error": live_e2e.MISSING_TO_ERROR,
                                  "delivered": {"host": 2, "peer": 2, "therapist": 2}}
-    # Each viewer saw exactly the others' turns, named relative to itself, in scene order.
-    assert data["merged_host"] == {"count": n_b + n_c, "expected": n_b + n_c, "in_order": True, "names": ["Dad", "Mom (therapist)"]}
-    assert data["merged_peer"] == {"count": n_a + n_c, "expected": n_a + n_c, "in_order": True, "names": ["Mom (therapist)", "Sage"]}
-    assert data["merged_therapist"] == {"count": n_a + n_b, "expected": n_a + n_b, "in_order": True, "names": ["Dad", "Sage"]}
+    # Each viewer saw exactly the others' turns, named relative to itself, in
+    # scene order — and NOT ONE of them tone-less. A rendered row with no
+    # text_tone is the server transcriber's copy of a member's own words that
+    # the member's phone also reported: the first-turn race (Deepgram
+    # finalizing before the phone's first turn_local latches the session
+    # local-first) that calls.Call.push_turn corrects by re-relaying the row
+    # tagged replaces_seq. `frames` counts what arrived, `count` what a
+    # client renders after folding by seq: a correction must never add a line.
+    for role, expected in (("host", n_b + n_c), ("peer", n_a + n_c), ("therapist", n_a + n_b)):
+        merged = data[f"merged_{role}"]
+        assert merged["toneless"] == 0, (role, merged)
+        assert merged["count"] == merged["expected"] == expected
+        assert merged["frames"] == expected + merged["corrected"]
+    # Both coached members lost the race on their opening line, so every
+    # viewer of them got exactly one correction — and rendered one line.
+    assert data["merged_host"]["corrected"] == 1      # Dad's opener (Mom is silent)
+    assert data["merged_peer"]["corrected"] == 1      # the host's opener
+    assert data["merged_therapist"]["corrected"] == 2  # both participants'
+    assert data["merged_host"]["names"] == ["Dad", "Mom (therapist)"] and data["merged_host"]["in_order"]
+    assert data["merged_peer"]["names"] == ["Mom (therapist)", "Sage"] and data["merged_peer"]["in_order"]
+    assert data["merged_therapist"]["names"] == ["Dad", "Sage"] and data["merged_therapist"]["in_order"]
     # Coaching: participants only (never tagged); the observer gets copies for both and nothing of her own.
     for r in ("host", "peer"):
         assert data[f"coaching_{r}"]["errors"] == 0 and data[f"coaching_{r}"]["tagged"] == 0

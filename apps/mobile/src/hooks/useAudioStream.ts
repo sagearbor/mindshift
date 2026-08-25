@@ -75,6 +75,11 @@ export interface TranscriptEntry {
   /** The raw wire label behind `speaker` ("Speaker B") — the key mid-call
    *  naming binds. Absent on legacy-path lines that were never relabeled. */
   speakerId?: string;
+  /** In a CALL: the row's position in the server's merged transcript
+   *  (`transcript.seq`). The identity of the line — a later frame carrying
+   *  this seq (directly, or as its `replaces_seq`) corrects it in place
+   *  rather than appending a second copy. Absent outside a call. */
+  callSeq?: number;
   text: string;
   timestamp: number;
   /** Utterance boundaries in seconds (from the server's transcript events).
@@ -1330,7 +1335,11 @@ export function useAudioStream(
             setSpeakerLabel(speaker);
             if (remoteTurn) {
               // The sender's own on-device measurements ride along so an
-              // observer can score everyone (honest nulls otherwise).
+              // observer can score everyone (honest nulls otherwise). A
+              // corrected row (`replaces_seq`) is scored here and not before:
+              // the cloud copy it replaces carried neither tone nor prosody,
+              // so it contributed no score — only a slot in the rolling
+              // who-spoke balance window.
               trackerRef.current.observe(
                 rawLabel,
                 data.text_tone && typeof data.text_tone === "object" ? data.text_tone : null,
@@ -1338,11 +1347,21 @@ export function useAudioStream(
               );
               setScoreboard(trackerRef.current.board());
             }
-            setTranscript((prev) => [
-              ...prev,
-              {
+            // In a call every relayed row is keyed by its merged-transcript
+            // `seq`. A row whose seq (or whose `replaces_seq`) we already
+            // rendered REPLACES that line in place — the server corrects the
+            // first turn of each member, whose words the cloud transcriber
+            // finalized before that phone's own turn_local latched the
+            // session local-first, and a naive append would show it twice.
+            const rowSeq = typeof data.seq === "number" ? data.seq : null;
+            const replacesSeq =
+              typeof data.replaces_seq === "number" ? data.replaces_seq : null;
+            const targetSeq = remoteTurn ? replacesSeq ?? rowSeq : null;
+            setTranscript((prev) => {
+              const entry: TranscriptEntry = {
                 speaker,
                 ...(remoteTurn ? { speakerId: rawLabel } : {}),
+                ...(rowSeq !== null && remoteTurn ? { callSeq: rowSeq } : {}),
                 text: data.text,
                 timestamp: Date.now(),
                 // Utterance timing (seconds) when the server provides it —
@@ -1355,8 +1374,18 @@ export function useAudioStream(
                 ...(typeof data.end_time === "number"
                   ? { endTime: data.end_time }
                   : {}),
-              },
-            ]);
+              };
+              const at =
+                targetSeq === null
+                  ? -1
+                  : prev.findIndex((t) => t.callSeq === targetSeq);
+              if (at < 0) return [...prev, entry];
+              const next = prev.slice();
+              // Keep the original arrival timestamp: the line stays where the
+              // reader saw it, only its words/timing are corrected.
+              next[at] = { ...entry, timestamp: prev[at].timestamp };
+              return next;
+            });
           } else if (data.type === "suggestion") {
             // The server bundles the transcribed utterance and its coaching
             // suggestions in one event (see server SuggestionEvent).

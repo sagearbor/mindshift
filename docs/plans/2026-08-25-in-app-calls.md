@@ -211,6 +211,7 @@ on every bind, leave, join, name change, and end.
   "text": "You never call me back.", "start_time": 3.0, "end_time": 4.5,      // call clock
   "local_start_time": 3.0, "local_end_time": 4.5,                            // sender's clock
   "call_id": "68da4269-…", "participant_uid": "uid-a", "is_self": false, "seq": 1,
+  "replaces_seq": null,                                                      // or 1: this row CORRECTS seq 1
   "text_tone": { "warmth": null, …, "frustration": 70, "label": "angry" } | null,   // sender's on-device measurements
   "prosody": { "rms_dbfs": -12.0, "pitch_hz": null, "speech_rate": null } | null }
 ```
@@ -218,6 +219,18 @@ a turn another member's phone finalized. Your own turns are never echoed
 (you rendered them locally). A participant gets a `suggestion`
 (`kind: "response"`, `speaker` = that label) for it; the therapist just sees
 it. `text_tone`/`prosody` let an observer run the scoreboard over everyone.
+
+**`seq` is the row's identity, and a client MUST key its call transcript by
+it.** `seq` is the row's position in the shared merged transcript, and the
+same `seq` can arrive twice: the second frame carries `replaces_seq` (equal
+to its own `seq`) and is the *corrected* copy of a line you already
+rendered — the sender's phone reporting words the server's transcriber had
+merged for it first (see **Server-STT fallback** below). Swap that line in
+place; never append it. `replaces_seq` is `null` on every ordinary turn. A
+correction brings the sender's wording, `text_tone`, `prosody` and
+`local_start_time`/`local_end_time`; it is deliberately **not** coached a
+second time (same words — the first copy already produced a `suggestion`),
+so no new `suggestion` follows it.
 
 ```json
 { "type": "suggestion", …, "for_uid": "uid-a" }        // THERAPIST sockets only
@@ -298,7 +311,32 @@ surfaced and coached on its own socket, as in a solo session), and the one
 remaining race — the transcriber beating the phone's *first* `turn_local`,
 before the latch — is closed in `Call.push_turn`: a phone turn whose padded
 range contains the midpoint of that member's recent cloud row replaces it in
-place (same `seq`, the phone's text/tone/prosody) and is not relayed again.
+place (same `seq`, the phone's text/tone/prosody).
+
+That replacement is **re-relayed**, tagged `replaces_seq`. The persisted
+episodes were always right (they are built from `call.turns` at the end),
+but the other members had already *rendered* the transcriber's copy —
+different wording, no `text_tone`, no sender clock — and only a second
+delivery corrects the line on their screens. Because every member's FIRST
+utterance is finalized before anything has latched that phone local-first,
+this hit once per member per call: the 3-way production e2e of 2026-08-25
+showed the host's opening line reaching both other viewers as the cloud
+copy (`"merged transcript (per viewer)"` ❌, and 30/32 relay deliveries
+timed because the phone's wording never arrived).
+
+**Why the correction and not a hold-back.** The alternative considered was
+queueing a member's cloud rows for ~3 s while it has sent no `turn_local`,
+so the phone usually wins outright. Rejected: (a) it is a guess about a
+race the phone loses *hardest* on its first turn, when its STT/LLM models
+are still warming — the very case it must cover; (b) a member with no
+on-device STT at all never latches local-first, so every one of its rows
+would sit in the queue, adding ~3 s to the transcript and to the others'
+coaching for exactly the users the cloud path exists for; (c) it needs a
+timer, a flush on `turn_local`/hang-up/end, and ordering across the two
+paths, against one extra frame here. The correction is deterministic — it
+lands however late the phone is — and costs one frame per member per call.
+`Call.push_turn` logs how far the phone trailed (`… replaces its cloud
+duplicate seq N (X ms later)`), so the size of the race stays visible.
 
 ## Tests
 
@@ -433,7 +471,10 @@ in `src/hooks/useAudioStream.ts` and `src/screens/LiveCoachScreen.tsx`,
    `speaker_label {speaker: "Speaker B", …}` = call-wide naming). The phone's
    own turns render as "You", keyed by `call_state.self_label`. The sender's
    `text_tone`/`prosody` feed the local scoreboard, so an observer scores
-   everyone.
+   everyone. Relayed lines are stored by `seq` (`TranscriptEntry.callSeq`):
+   a frame whose `seq`/`replaces_seq` is already on screen replaces that
+   line in place — a member's first turn arrives twice when the server's
+   transcriber beat that phone to it, and must show once.
 7. **Coaching**: a participant's wire is byte-identical to a solo session.
    Events carrying `for_uid` (therapist sockets) render as read-only cards
    tagged *"for Dad"*, are never voiced and never counted as escalations.

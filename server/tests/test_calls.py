@@ -476,6 +476,7 @@ class TestMergedTranscript:
                 "display_name": EMAILS[HOST], "role": "participant", "text": "You never call me back.",
                 "start_time": transcript["start_time"], "end_time": transcript["end_time"],
                 "call_id": cid, "participant_uid": HOST, "is_self": False, "seq": 1,
+                "replaces_seq": None,
                 "local_start_time": 3.0, "local_end_time": 4.5,
                 "text_tone": {"warmth": None, "defensiveness": None, "sarcasm": None, "sadness": None,
                               "frustration": 70, "label": "angry"},
@@ -609,7 +610,12 @@ class TestMergedTranscript:
         turn_local (nothing has latched the session local-first yet), so
         the span is merged as a cloud row; the phone's turn for the same
         span then replaces it in place — same seq, the phone's text and
-        tone — instead of appending, and is not relayed a second time."""
+        tone — instead of appending.
+
+        The replacement IS relayed again, tagged ``replaces_seq``: the peer
+        already rendered the transcriber's wording, and only a second
+        delivery corrects the line on its screen. Exactly once, with no
+        second row in ``call.turns`` and no second coaching pass."""
         cid = _open_pair(env)
         app.state.transcriber_factory = lambda: StoppableTranscriber(
             live=[TranscriptSegment("server heard this", 1.0, 2.0, speaker=1)],
@@ -623,6 +629,8 @@ class TestMergedTranscript:
             recv_until(host, lambda m: m.get("type") == "suggestion")
             first, _ = recv_until(peer, lambda m: m.get("type") == "transcript")
             assert first["text"] == "server heard this" and first["seq"] == 1
+            assert first["replaces_seq"] is None and first["text_tone"] is None
+            n_suggestions = len(env.llm.user_prompts)
             recv_until(peer, lambda m: m.get("type") == "suggestion")
             # The phone's own report of the same words, a hair wider.
             host.send_text(json.dumps(_turn(
@@ -630,12 +638,23 @@ class TestMergedTranscript:
                 text_tone={"frustration": 70, "label": "angry"},
             )))
             recv_until(host, lambda m: m.get("type") == "suggestion")
+            # The peer gets the corrected row: SAME seq, tagged replaces_seq,
+            # now carrying the phone's wording, tone and sender clock.
+            fixed, between = recv_until(peer, lambda m: m.get("type") == "transcript")
+            assert (fixed["seq"], fixed["replaces_seq"]) == (1, 1)
+            assert fixed["text"] == "Server heard this." and fixed["speaker"] == "Speaker A"
+            assert fixed["text_tone"]["frustration"] == 70
+            assert (fixed["local_start_time"], fixed["local_end_time"]) == (0.9, 2.1)
+            assert [m for m in between if m.get("type") == "transcript"] == [fixed]  # relayed once
+            # Nothing further: the correction is one frame, not a re-run.
             peer.send_text(json.dumps({"type": "config", "empathy_slider": 42}))
-            assert json.loads(peer.receive_text())["type"] == "config_ack"  # no second transcript
-            # A genuinely new turn still appends.
+            _, quiet = recv_until(peer, lambda m: m.get("type") == "config_ack")
+            assert not [m for m in quiet if m.get("type") == "transcript"]
+            # A genuinely new turn still appends under the next seq.
             host.send_text(json.dumps(_turn(HOST_SID, "Two.", start=5.0, end=6.0)))
-            second, _ = recv_until(peer, lambda m: m.get("type") == "transcript")
-            assert second["text"] == "Two." and second["seq"] == 2
+            second, seen = recv_until(peer, lambda m: m.get("type") == "transcript")
+            assert second["text"] == "Two." and second["seq"] == 2 and second["replaces_seq"] is None
+            assert [m for m in seen if m.get("type") == "transcript"] == [second]
         call = calls.registry.get(cid)
         assert [(t["seq"], t["text"], t["transcript_source"]) for t in call.turns] == [
             (1, "Server heard this.", "on-device"), (2, "Two.", "on-device"),
@@ -643,6 +662,40 @@ class TestMergedTranscript:
         assert call.turns[0]["text_tone"]["frustration"] == 70 and call.turns[0]["local_start_time"] == 0.9
         assert call.participant(HOST).turn_count == 2
         assert [t["call_seq"] for t in call.turns_for(HOST, "s")] == [1, 2]
+        # The peer was coached on those words once (by the cloud copy): the
+        # correction says the same thing, so it must not spend a second pass.
+        assert len([p for p in env.llm.user_prompts[n_suggestions:]
+                    if p.startswith(f'Transcript turn from {EMAILS[HOST]}: "Server heard this."')]) == 0
+
+    def test_replacement_keeps_the_peers_row_order(self, env):
+        """The correction arrives AFTER later turns have been relayed; it
+        still belongs where seq 1 was. The wire carries `seq` on every row
+        so the client can put it back in place — and the merged transcript
+        the episodes are built from never reorders."""
+        cid = _open_pair(env)
+        app.state.transcriber_factory = lambda: StoppableTranscriber(
+            live=[TranscriptSegment("server heard this", 1.0, 2.0, speaker=1)],
+        )
+        with open_ws(env.client, f"/ws/session/{HOST_SID}", token=HOST_TOKEN) as host, \
+                open_ws(env.client, f"/ws/session/{PEER_SID}", token=PEER_TOKEN) as peer:
+            _bind(host, cid)
+            _bind(peer, cid)
+            recv_until(host, lambda m: m.get("type") == "call_state")
+            host.send_bytes(b"\x00" * 3200)
+            recv_until(peer, lambda m: m.get("type") == "transcript")
+            # The peer speaks (seq 2) before the host's phone catches up.
+            peer.send_text(json.dumps(_turn(PEER_SID, "I hear you.", start=0.0, end=1.0)))
+            recv_until(host, lambda m: m.get("type") == "transcript")
+            host.send_text(json.dumps(_turn(
+                HOST_SID, "Server heard this.", start=0.9, end=2.1,
+                text_tone={"frustration": 70, "label": "angry"},
+            )))
+            fixed, _ = recv_until(peer, lambda m: m.get("type") == "transcript")
+            assert (fixed["seq"], fixed["replaces_seq"], fixed["text"]) == (1, 1, "Server heard this.")
+        call = calls.registry.get(cid)
+        assert [(t["seq"], t["text"]) for t in call.turns] == [
+            (1, "Server heard this."), (2, "I hear you."),
+        ]
 
 
 # ---------------------------------------------------------------------------
