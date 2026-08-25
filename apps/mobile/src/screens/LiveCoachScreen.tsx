@@ -492,7 +492,7 @@ export default function LiveCoachScreen({
           {scoreboardOn ? "who's being nicer — a race to be kind" : "off"}
         </Text>
       </View>
-      {scoreboardOn ? (
+      {scoreboardOn || isTherapistCall ? (
         <ScoreboardPanel
           board={scoreboard ?? null}
           nameOf={nameOf}
@@ -677,8 +677,13 @@ export default function LiveCoachScreen({
                 ]}
                 testID={`suggestion-source-${entry.id}`}
               >
+                {entry.forName ? `for ${entry.forName} · ` : ""}
                 {entry.source === "on-device" ? "on-device" : "cloud"}
                 {entry.partial ? " · writing…" : ""}
+              </Text>
+            ) : entry.forName ? (
+              <Text style={[styles.sourceTag, styles.sourceTagCloud]} testID={`suggestion-for-${entry.id}`}>
+                for {entry.forName}
               </Text>
             ) : null;
             if (entry.kind === "nudge") {

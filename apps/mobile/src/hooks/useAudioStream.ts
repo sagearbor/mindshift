@@ -109,6 +109,10 @@ export interface SuggestionEntry {
    *  first suggestion string while the model is still writing. Never voiced;
    *  replaced by the final event for the same turn. */
   partial?: boolean;
+  /** In-app call, therapist view: this is a read-only copy of coaching meant
+   *  for another participant (`for_uid`), shown with their name. Never
+   *  voiced, never counted as one of the viewer's own escalations. */
+  forName?: string;
 }
 
 type ConnectionStatus = "idle" | "connecting" | "live" | "disconnected";
@@ -631,6 +635,8 @@ export function useAudioStream(
       // Therapist mode is on-screen only, by contract — the fast loop never
       // asks to speak in it, and neither may the cloud's suggestion event.
       if (liveActiveRef.current && loopModeRef.current === "therapist") return;
+      // A therapist observing a call is never spoken to either.
+      if (callRef.current?.selfRole === "therapist") return;
       try {
         // Unconditional stop guarantees most-recent-wins without tracking
         // speaking state (Speech.stop() is a no-op when nothing is speaking,
@@ -674,6 +680,16 @@ export function useAudioStream(
       setLatencySummary(report.split("\n")[0]);
       latencyLogRef.current = summary.latencyLog;
       sttRestartsRef.current = summary.sttRestarts ?? 0;
+    }
+    if (sessionModeRef.current === "call") {
+      // An in-app call is persisted by the SERVER (one episode per
+      // participant at call end — see call_ended below); a phone that POSTed
+      // its half again would store it twice. The record was already handed
+      // to lastEpisode from the call_ended frame.
+      localTurnsRef.current = [];
+      toneFlagsRef.current = [];
+      identitiesRef.current = [];
+      return;
     }
     const body: LiveSessionBody = {
       session_id: sessionIdRef.current,
@@ -768,14 +784,21 @@ export function useAudioStream(
             };
             setSpeakerNames(speakerNamesRef.current);
           }
-          const display = speakerNamesRef.current[turn.speaker]?.displayName ?? turn.speaker;
+          // In a call this phone hears only its owner: every local turn is
+          // "You", keyed by the slot label the server relabels it with
+          // (call_state.self_label) so naming/scoreboard/episodes line up.
+          const inCall = callRef.current !== null;
+          const rawLabel = inCall ? (callViewRef.current.selfLabel ?? turn.speaker) : turn.speaker;
+          const display = inCall
+            ? "You"
+            : (speakerNamesRef.current[turn.speaker]?.displayName ?? turn.speaker);
           setSpeakerLabel(display);
           if (turn.text) {
             setTranscript((prev) => [
               ...prev,
               {
                 speaker: display,
-                speakerId: turn.speaker,
+                speakerId: rawLabel,
                 text: turn.text,
                 timestamp: Date.now(),
                 startTime: turn.startTime,
@@ -788,9 +811,12 @@ export function useAudioStream(
           if (recent.length > MAX_SUGGESTION_FEED) recent.splice(0, recent.length - MAX_SUGGESTION_FEED);
           // Scoreboard: every on-device turn scores from what it carries
           // (tone, prosody, balance) — null inputs are honest gaps.
-          trackerRef.current.observe(turn.speaker, turn.textTone, turn.prosody);
+          trackerRef.current.observe(rawLabel, turn.textTone, turn.prosody);
           setScoreboard(trackerRef.current.board());
-          if (turn.suggestion) {
+          // A therapist observing a call is never coached: the loop runs in
+          // "therapist" (no local LLM speech) and a stray local suggestion
+          // is dropped here rather than shown as advice to her.
+          if (turn.suggestion && callRef.current?.selfRole !== "therapist") {
             const id = (suggestionIdRef.current += 1);
             const text = turn.suggestion;
             setSuggestions((prev) => {
@@ -1247,21 +1273,36 @@ export function useAudioStream(
           const data = JSON.parse(event.data);
 
           // Call mode: call_state / rtc_signal / call_ended belong to the
-          // call state machine (src/live/call/callSession.ts).
+          // call state machine (src/live/call/callSession.ts). call_ended
+          // also carries THIS participant's episode (the server persisted
+          // it) — the record a solo session would have POSTed itself.
+          if (callRef.current && data.type === "call_ended") {
+            const episodeId = typeof data.episode_id === "string" ? data.episode_id : null;
+            const sharedWith: string[] = Array.isArray(data.shared_with)
+              ? data.shared_with.filter((e: unknown): e is string => typeof e === "string")
+              : [];
+            if (episodeId) {
+              lastEpisodeRef.current = { episodeId, postStatus: "created", sharedWith };
+              setLastEpisode(lastEpisodeRef.current);
+              useLiveEpisodeStore.getState().remember({
+                episodeId,
+                sessionId: sessionIdRef.current,
+                startedAt: sessionStartedAtRef.current,
+                mode: "call",
+                title: "Live session · call",
+                turnCount: typeof data.turn_count === "number" ? data.turn_count : transcriptRef.current.length,
+                sharedWith,
+              });
+            }
+          }
           if (callRef.current?.handleServerMessage(data)) return;
 
-          // In a call, the OTHER person's turns arrive as ordinary transcript
-          // events (their phone sent turn_local; the server relays them with
-          // a label relative to us). The phone's own turns are never echoed
-          // back on the local-first path, but a Deepgram segment of our own
-          // voice the VAD missed can be — anything matching a recent local
-          // turn's words is ours and already on screen.
+          // In a call, every OTHER member's turns arrive as transcript events
+          // (their phone sent turn_local; the server relabels them with their
+          // slot label and a display_name relative to us) and our own turns
+          // are never echoed — so in a call every transcript event is remote.
           const inCall = callRef.current !== null;
-          const remoteTurn =
-            inCall &&
-            data.type === "transcript" &&
-            (data.remote === true ||
-              !recentLocalTurnsRef.current.some((t) => t.text === data.text));
+          const remoteTurn = inCall && data.type === "transcript";
           if (
             data.type === "transcript" &&
             (!liveActiveRef.current || liveSttFailedRef.current || remoteTurn)
@@ -1273,29 +1314,35 @@ export function useAudioStream(
             // ARE the transcript; the server's copy is only used again if
             // on-device STT died mid-session.)
             sawTranscriptEventRef.current = true;
-            // Map a turn to a participant name: the server labels each
-            // person's turns, but a for_uid/from can also point at a known
-            // peer (a mesh has several). Fall back to the first peer's name
-            // only when there is exactly one other person.
+            // In a call: `speaker` is the sender's slot label ("Speaker A")
+            // and `display_name` their name relative to us ("Dad", "Mom
+            // (therapist)"); the slot label stays the key (naming, scoreboard,
+            // the episode's label ladder all use it).
             const peers = callViewRef.current.peers;
-            const forUid =
-              typeof data.for_uid === "string"
-                ? data.for_uid
-                : typeof data.from === "string"
-                  ? data.from
-                  : null;
-            const peerName =
-              (forUid ? peers.find((pr) => pr.uid === forUid)?.displayName : undefined) ??
-              (peers.length === 1 ? peers[0].displayName : undefined);
-            const speaker =
-              remoteTurn && !data.speaker && peerName
-                ? peerName
-                : data.speaker || peerName || "Unknown";
+            const senderUid = typeof data.participant_uid === "string" ? data.participant_uid : null;
+            const peer = senderUid ? peers.find((pr) => pr.uid === senderUid) : undefined;
+            const rawLabel: string =
+              (typeof data.speaker === "string" && data.speaker) || peer?.label || "Unknown";
+            const speaker: string = remoteTurn
+              ? speakerNamesRef.current[rawLabel]?.displayName ??
+                ((typeof data.display_name === "string" && data.display_name) || peer?.displayName || rawLabel)
+              : rawLabel;
             setSpeakerLabel(speaker);
+            if (remoteTurn) {
+              // The sender's own on-device measurements ride along so an
+              // observer can score everyone (honest nulls otherwise).
+              trackerRef.current.observe(
+                rawLabel,
+                data.text_tone && typeof data.text_tone === "object" ? data.text_tone : null,
+                data.prosody && typeof data.prosody === "object" ? data.prosody : null,
+              );
+              setScoreboard(trackerRef.current.board());
+            }
             setTranscript((prev) => [
               ...prev,
               {
                 speaker,
+                ...(remoteTurn ? { speakerId: rawLabel } : {}),
                 text: data.text,
                 timestamp: Date.now(),
                 // Utterance timing (seconds) when the server provides it —
@@ -1319,6 +1366,13 @@ export function useAudioStream(
             // on every legacy event) or our own turn echoed back.
             const source: "on-device" | "cloud" =
               data.suggestion_source === "on-device" ? "on-device" : "cloud";
+            // Therapist sockets in a call get every participant's coaching as
+            // a read-only copy tagged for_uid: shown with that person's name,
+            // never voiced, never one of the viewer's own escalations.
+            const forUid = typeof data.for_uid === "string" ? data.for_uid : null;
+            const forName: string | undefined = forUid
+              ? (callViewRef.current.peers.find((pr) => pr.uid === forUid)?.displayName ?? forUid)
+              : undefined;
             if (
               data.utterance_text &&
               !sawTranscriptEventRef.current &&
@@ -1351,7 +1405,7 @@ export function useAudioStream(
               // kind may be absent on older servers → a normal "response".
               const kind: SuggestionKind =
                 data.kind === "nudge" ? "nudge" : "response";
-              if (kind === "nudge" && data.speak !== false && !liveActiveRef.current) {
+              if (kind === "nudge" && data.speak !== false && !liveActiveRef.current && !forName) {
                 // Legacy path: the server's delivery nudge is the only
                 // escalation signal (the fast loop counts its own).
                 escalationRef.current += 1;
@@ -1375,6 +1429,7 @@ export function useAudioStream(
                   timestamp: Date.now(),
                   source,
                   ...(partial ? { partial: true } : {}),
+                  ...(forName ? { forName } : {}),
                 };
                 const kept = partial ? prev : prev.filter((e) => !e.partial);
                 const next = [entry, ...kept];
@@ -1394,6 +1449,7 @@ export function useAudioStream(
               const loop = fastLoopRef.current;
               const voiceIt =
                 !muted &&
+                !forName &&
                 (!liveActiveRef.current ||
                   liveSttFailedRef.current ||
                   (source === "cloud" &&
@@ -2059,6 +2115,11 @@ export function useAudioStream(
     ) => {
       const role: CallRole = how.kind === "join" ? how.role : "participant";
       if (sessionActiveRef.current && !drainingRef.current) return;
+      // How the others see us: the account's name, else the email's local
+      // part (the server falls back to the email itself, then the slot).
+      const me = useAuthStore.getState().user;
+      const displayName =
+        (me?.displayName && me.displayName.trim()) || (me?.email ? me.email.split("@")[0] : "") || undefined;
       if (callRef.current) {
         callRef.current.hangUp();
         callRef.current = null;
@@ -2079,6 +2140,7 @@ export function useAudioStream(
       const session = new CallSession({
         adapter,
         role,
+        displayName,
         send: (message: CallClientMessage) => {
           const ws = wsRef.current;
           if (!ws || ws.readyState !== WebSocket.OPEN) return false;
@@ -2109,8 +2171,8 @@ export function useAudioStream(
       try {
         created =
           how.kind === "create"
-            ? await callApiRef.current.create()
-            : await callApiRef.current.join(how.code, how.role);
+            ? await callApiRef.current.create({ displayName, maxParticipants: 3 })
+            : await callApiRef.current.join(how.code, how.role, displayName);
       } catch (err) {
         const prepared = preparedWebRef.current;
         preparedWebRef.current = null;

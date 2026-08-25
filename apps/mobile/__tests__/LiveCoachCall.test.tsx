@@ -172,7 +172,7 @@ describe("Live Coach — Call mode", () => {
     act(() => root.root.findByProps({ testID: "mic-toggle" }).props.onPress());
     expect(hangUp).toHaveBeenCalledTimes(1);
 
-    const connected: CallView = { ...waiting, status: "connected", peers: [{ uid: "b", displayName: "Mom", role: "participant", connected: true, iceRestarts: 0 }], connectedAt: Date.now() - 192_000 };
+    const connected: CallView = { ...waiting, status: "connected", peers: [{ uid: "b", label: "Speaker B", displayName: "Mom", role: "participant", connected: true, iceRestarts: 0 }], connectedAt: Date.now() - 192_000 };
     mockUseAudioStream.mockReturnValue({ ...base, sessionActive: true, isRecording: true, connectionStatus: "live", call: connected, hangUp, setCallMuted, setCallRoute });
     act(() => root.update(<LiveCoachScreen />));
     expect(root.root.findByProps({ testID: "call-header" }).props.children).toMatch(/^You · connected · 03:1[0-9]$/);
@@ -204,7 +204,7 @@ describe("Live Coach — Call mode", () => {
     act(() => {
       root = renderer.create(
         <CallPanel
-          call={{ ...IDLE_CALL_VIEW, status: "reconnecting", peers: [{ uid: "b", displayName: "Mom", role: "participant", connected: false, iceRestarts: 1 }], connectedAt: 5 }}
+          call={{ ...IDLE_CALL_VIEW, status: "reconnecting", peers: [{ uid: "b", label: "Speaker B", displayName: "Mom", role: "participant", connected: false, iceRestarts: 1 }], connectedAt: 5 }}
           sessionActive
           onStart={jest.fn()}
           onJoin={jest.fn()}

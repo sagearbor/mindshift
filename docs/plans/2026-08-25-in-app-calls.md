@@ -311,3 +311,122 @@ enrichment still runs on your own audio.
 ---
 
 _Client half (appended by the client agent):_
+
+## Client half (PR `feat/calls-client`, 2026-08-25)
+
+Files: `apps/mobile/src/live/call/` (`types.ts` wire types, `callSession.ts`
+the mesh state machine, `callApi.ts` REST, `rtcNative.ts` react-native-webrtc
+adapter, `callWeb.ts` browser adapter, `invite.ts` share sheet / Web Share /
+clipboard, `rtc.ts` the adapter interface), `src/nav/callLink.ts` (invite
+links), `src/components/CallPanel.tsx` (the Call-mode UI), the Call branches
+in `src/hooks/useAudioStream.ts` and `src/screens/LiveCoachScreen.tsx`,
+`App.tsx` (routes). Tests: `__tests__/callSession.test.ts`,
+`callLink.test.ts`, `useAudioStreamCall.test.tsx`, `LiveCoachCall.test.tsx`,
+`AppCallRoute.test.tsx`, `diagnostics.test.ts`.
+
+### Modes
+* **"Speaker-phone" is now "In person"** (both people in the room, one
+  mic). The wire/stored value stays `speaker` so `POST /sessions/live`,
+  episodes and the per-account mode pref (`modePrefs.ts`) are unchanged.
+* **"Call"** is new (`LiveMode = "call"`): MindShift places the call. The
+  pre-flight explainer reads *"Your phone can't listen during a normal phone
+  call — MindShift places the call itself."*
+
+### What the client does, in order
+1. **Start a call** (host): `POST /calls {display_name, max_participants: 3}`
+   → the `CallOut` (`self_label` "Speaker A", `ice_servers`, `join_code`,
+   `join_url`). The session starts in Call mode (`session_id =
+   "call-<call_id>"`, the same fast loop + WebSocket as any live session,
+   `config … tts: "on-device"`), and on every socket open sends
+   `call_join {call_id, join_code, display_name, role}`.
+   *Share invite*: "Invite a participant" → `https://arborfam-hub.web.app/call/<code>`;
+   "Invite my therapist" → the same link with `?role=therapist`. Both also
+   appear as `mindshift://call/<code>[?role=therapist]` for the app.
+2. **Join** (Dad, Mom): the link opens the app (`mindshift://call/…`) or the
+   web app (`/call/<code>[?role=…]`) on Live Coach in Call mode with ONE
+   **Answer** button; typing a code under "Join with code" does the same
+   (participant). Answer → `POST /calls/join {join_code, display_name,
+   role}` → session start → `call_join`. On Safari everything the tap must
+   unlock (AudioContext, SpeechRecognition, getUserMedia, the remote
+   `<audio autoplay playsinline>` elements) happens synchronously inside the
+   Answer tap, before the REST round-trip (#152's findings).
+3. **Mesh**: `call_state` is the roster. `CallSession` keeps one
+   `RTCPeerConnection` per OTHER member (peer map by uid). On each link the
+   **lexicographically-lower uid offers**, the other answers — symmetric,
+   glare-free, and independent of who joined first. Every `rtc_signal` is
+   addressed (`to` always set); `payload` is the W3C init dict verbatim
+   (`{type, sdp}` / `{candidate, sdpMid, sdpMLineIndex}`). Candidates that
+   beat the remote description are queued per link. The server buffers
+   nothing, so the offerer re-offers when `call_state` shows a peer
+   `connected: true` and the link still has no remote description. ICE
+   `failed` (or `disconnected` > 4 s) → the offerer sends an `iceRestart`
+   offer, up to 4 per link; the answerer just reports "reconnecting". A member
+   leaving tears down only their link; a returning member gets a fresh one.
+4. **Mic**: WebRTC sends the phone's mic at 16 kHz mono with echo
+   cancellation ON. On the Pixel that is a SECOND `AudioRecord`
+   (react-native-webrtc's) next to expo-audio's — the fast loop keeps
+   consuming expo-audio's frames exactly as before, because react-native-webrtc
+   exposes no PCM tap on its track; Android allows concurrent capture within
+   one app. On the web the call sends the SAME `MediaStream` the fast loop
+   already captures (`WebAudioCapture.mediaStream`) — one getUserMedia.
+   Mute flips only the WebRTC track (the coach keeps hearing you).
+5. **Remote audio**: native — react-native-webrtc renders and mixes every
+   remote track itself; the output route is expo-audio's audio mode
+   (`setCallAudioRoute`: speaker by default, Earpiece/Speaker toggle in the
+   call panel; Android only). Web — one `<audio autoplay playsinline>`
+   element per peer. The remote voices are NEVER run through STT or
+   speaker-ID: the other members' turns arrive as `transcript` events.
+6. **Transcript**: in a call every `transcript` event is another member's
+   turn — shown under `display_name` ("Dad", "Mom (therapist)"), keyed by
+   their slot `speaker` label (so tapping the chip → "Who is this?" sends
+   `speaker_label {speaker: "Speaker B", …}` = call-wide naming). The phone's
+   own turns render as "You", keyed by `call_state.self_label`. The sender's
+   `text_tone`/`prosody` feed the local scoreboard, so an observer scores
+   everyone.
+7. **Coaching**: a participant's wire is byte-identical to a solo session.
+   Events carrying `for_uid` (therapist sockets) render as read-only cards
+   tagged *"for Dad"*, are never voiced and never counted as escalations.
+   A therapist-role client runs the fast loop in `therapist` mode (STT +
+   `turn_local`, no local LLM speech, any local suggestion dropped) and
+   `speakSuggestion` is a no-op for her — nothing is ever spoken to the
+   therapist. She always sees the scoreboard.
+8. **End**: Hang up → `POST /calls/{id}/end` + the normal `stop` drain; the
+   other side's `call_ended` (or the server's) stops the session too.
+   **The phone does NOT `POST /sessions/live` for a call** — `call_ended`
+   carries this participant's `episode_id` + `shared_with`, which land in
+   `lastEpisode` (the summary card's "shared with…") and Your Day.
+9. **No TURN configured** (`ice_servers` has no `turn:`) → the panel says two
+   phones on mobile data may not connect; Wi-Fi usually works.
+
+### Send diagnostics (bonus item)
+Settings → *Diagnostics* → **Send diagnostics** (and automatically when a
+session ended with errors: mic/STT/transcription failures, WS reconnects, a
+failed `POST /sessions/live`, a failed call or ICE restarts) POSTs one
+`client_diagnostics` event to the existing `/telemetry` with a structured
+`data` payload (additive `TelemetryEvent.data`): the capability probe, the
+last session's latency summary (median/p90 segment-end→speak, per-provider
+counts, held), STT restarts + failure, WS reconnects, mic error, live status,
+POST outcome, call outcome, app version / build / runtime / OTA update id /
+channel, platform / OS / device model (or UA). The screen shows the id —
+**`dx-XXXX-XXXX`** (Crockford-ish, no 0/O/1/I) — for the owner to read out;
+`python scripts/diagnostics_tail.py --email … | --uid … | --id dx-…` prints
+the latest record(s). Note `GET /telemetry` is unauthenticated (inherited),
+so the payload carries uid + email in the clear.
+
+### Decisions recorded (client)
+* Offerer = lower uid (not "who joined second"): reconnect-safe and needs
+  no server hint.
+* `to` always sent, even in a two-member call.
+* Native remote audio via react-native-webrtc's own rendering; route via
+  expo-audio (`shouldRouteThroughEarpiece`) — no react-native-incall-manager.
+  Unverified on hardware until the new build is installed.
+* The therapist's own client never speaks and drops local suggestions; the
+  server already never generates for her — belt and braces.
+* `app.json`: `@config-plugins/react-native-webrtc` added, `expo.version`
+  1.17.0 → **1.18.0**, `versionCode` 33 → **34** (a NEW NATIVE MODULE:
+  the next Play/preview build must be an `eas build`, not an OTA; the 1.17.0
+  runtime keeps taking its own OTAs).
+* Android App Links (`https://arborfam-hub.web.app/call/…` opening the app
+  directly) need `assetlinks.json` with the signing cert on the site — an
+  owner item; until then the web page shows the `mindshift://` link.
+

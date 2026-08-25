@@ -6,9 +6,45 @@
 > [live e2e](2026-08-24-live-e2e.md). UI labels below are the exact strings in
 > `apps/mobile/src` at #157. Research date 2026-08-24.
 
-## 0. The verdict on "mic during a call" (read first — it changes the setup)
+## 0. In-app calls (2026-08-25) — the setup that works: **MindShift IS the call**
 
-**Same-phone cellular speaker-phone does NOT work. The Pixel 10 must not be the phone on the call.**
+> The "second device" advice below (§0 verdict, ranked setups a/b/c) is **superseded**. Since
+> #164 (server) + `feat/calls-client`, Live Coach has a **Call** mode: the Pixel places a WebRTC
+> call itself, so the OS never silences the mic — each phone coaches its own person, and Mom
+> watches from Safari as the therapist. Keep the old setups only as a fallback if the new
+> build isn't installed (Call mode needs the 1.18.0 build — react-native-webrtc is a new native
+> module; an OTA can't add it).
+
+**Sage (Pixel 10, participant, host):** Live Coach → mode **Call** → **Start a call** →
+(mic/camera prompts once) → the panel shows *Code: XXXXXX* → **Invite a participant** (share
+sheet → text it to Dad) and **Invite my therapist** (→ Mom). Header reads *You · waiting for
+them*, then *You · connected · 00:12* with one row per person (*Dad · connected*,
+*Mom · connected · therapist*). Talk as usual. Your lines show as *You*, Dad's as *Dad*,
+Mom's as *Mom (therapist)*; suggestions/nudges are yours only. **Mute**, **Speaker/Earpiece**
+(speaker by default — use earbuds or the earpiece so the coach's voice stays off the call),
+**Hang up** ends it for everyone; the summary card + "shared with mom@…" appear (the server
+stores the episode — nothing to POST). Settings → **Send diagnostics** if anything was off;
+read the `dx-XXXX-XXXX` id out.
+
+**Dad (Pixel/Android app, participant):** tap the link (`mindshift://call/<code>`) → the app
+opens Live Coach in Call mode with **Answer** → tap it (prompts once). Or: Live Coach →
+**Call** → type the code under *Join with code* → **Join**. Same screen as Sage's, his own
+coach.
+
+**Mom (iPhone Safari, therapist):** tap the therapist link (`https://arborfam-hub.web.app/call/<code>?role=therapist`)
+→ signed in → **Answer** (one tap: mic + speech permission prompts) → she hears both, both hear
+her, the transcript shows *Sage* / *Dad* / her own lines as *You*, both men's suggestions and
+nudges appear read-only tagged *for Sage* / *for Dad*, the scoreboard is always on, nothing is
+ever spoken to her. Keep the tab in the foreground, screen unlocked. No episode of her own —
+she gets both participants' shared to her dashboard.
+
+If two phones on mobile data never reach *connected*: no TURN server is configured (the panel
+says so) — put one side on Wi-Fi, or set `MINDSHIFT_TURN_URLS/USERNAME/CREDENTIAL` on Cloud Run.
+
+## 0-old. The verdict on "mic during a call" (why Call mode exists — fallback setups only)
+
+**Same-phone cellular speaker-phone does NOT work. The Pixel 10 must not be the phone on the call**
+— unless MindShift is the call (§0 above).
 
 - Since **Android 10 (API 29)** the framework shares the mic by *silencing*, not blocking: an ordinary
   app's `AudioRecord` opens fine and delivers **zeros**. While a voice call is active — defined as
@@ -56,7 +92,7 @@ nothing is coached anyway → screen shows "live", transcript frozen. After hang
 
 ### Ranked setups
 1. **(a) Second device carries the call; Pixel only listens — use this.** Son's phone (or any spare)
-   calls Mom on cellular speaker, volume high, lying next to the Pixel. Pixel: DND on, *Speaker-phone*
+   calls Mom on cellular speaker, volume high, lying next to the Pixel. Pixel: DND on, *In person*
    mode, Start Listening before dialing. Most robust: no OS policy involved, Mom's voice is plain room
    audio.
 2. **(b) VoIP from the Mac** (Google Meet link; Mom joins from Safari or the Meet app on her iPhone,
@@ -88,7 +124,7 @@ runs on a second Apple device, foreground only, screen unlocked.
 - [ ] Enroll YOUR voice on the Pixel, in the demo room, phone where it will lie: Settings → Voice →
       *Voice profile* → train (4 phrases, tap **Record** each). #149: same-room/same-phone prints match;
       old prints from another device don't. Do NOT pre-enroll Mom — name her mid-call (below).
-- [ ] Live Coach: pick **Speaker-phone** mode (remembered per account), **On-device coaching** on,
+- [ ] Live Coach: pick **In person** mode (remembered per account; called "Speaker-phone" before 2026-08-25) — or **Call** for the in-app call (§0), **On-device coaching** on,
       **Scoreboard** on if you want the kindness race in the demo (it needs on-device coaching).
 - [ ] 60-s solo rehearsal: Start Listening, talk to yourself in two voices for a minute, Stop. Expect:
       transcript lines labelled, ≥1 suggestion tagged *on-device* or *cloud*, session summary card,
@@ -117,7 +153,7 @@ runs on a second Apple device, foreground only, screen unlocked.
 ## 3. During the call
 
 Sage (Pixel):
-1. Live Coach → mode **Speaker-phone** → **Start Listening**. Status dot green, "On-device: …" line
+1. Live Coach → mode **In person** (fallback setup) → **Start Listening**. Status dot green, "On-device: …" line
    lists what loaded. Say a full sentence *before* dialing.
 2. Dial Mom from the second device; put it on speaker next to the Pixel.
 3. Good looks like: your lines labelled *You*, hers *Speaker B*; a suggestion card within ~1–3 s of

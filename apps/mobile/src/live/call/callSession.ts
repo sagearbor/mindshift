@@ -23,11 +23,18 @@
  * coaching loop keeps its own capture (useAudioStream) — on the phone a
  * second AudioRecord alongside react-native-webrtc's; on the web the SAME
  * MediaStream.
+ *
+ * The server relays `rtc_signal.payload` verbatim and buffers nothing: an
+ * offer to a member whose socket isn't bound yet is answered with an error
+ * frame, so the offerer (re)sends its offer whenever `call_state` shows the
+ * peer `connected: true` and the link still has no remote description.
  */
 import type { RtcAdapter, RtcPeerLike, RtcStreamLike, RtcTrackLike } from "./rtc";
 import { candidateToJson, sdpToJson } from "./rtc";
 import {
+  hasTurnServer,
   IDLE_CALL_VIEW,
+  isSdpPayload,
   type CallClientMessage,
   type CallCreated,
   type CallParticipant,
@@ -38,6 +45,7 @@ import {
   type CallView,
   type IceCandidateInit,
   type IceServer,
+  type RtcSignalPayload,
   type SdpInit,
 } from "./types";
 
@@ -46,6 +54,8 @@ export interface CallSessionDeps {
   /** This client's role (drives call_join and, upstream, whether the loop
    *  coaches). Default "participant". */
   role?: CallRole;
+  /** How the others should see this client ("Sage"); rides call_join. */
+  displayName?: string;
   /** Send a signaling frame; false when the socket is down (retried by the
    *  next roster update). */
   send: (message: CallClientMessage) => boolean;
@@ -83,6 +93,8 @@ export class CallSession {
   private localPromise: Promise<RtcStreamLike> | null = null;
   private iceServers: IceServer[] = [];
   private selfUid: string | null = null;
+  private selfLabel: string | null = null;
+  private joinCode: string | null = null;
   /** uid -> mesh link. */
   private links = new Map<string, PeerLink>();
   private connectedAt: number | null = null;
@@ -119,9 +131,14 @@ export class CallSession {
 
   /** The call exists on the server (created or joined): wait for the roster. */
   begin(created: CallCreated): void {
+    this.selfLabel = created.selfLabel;
+    this.joinCode = created.joinCode;
+    if (created.iceServers.length > 0) this.iceServers = created.iceServers;
     this.view = {
       ...IDLE_CALL_VIEW,
       selfRole: this.role,
+      selfLabel: created.selfLabel,
+      hasTurn: hasTurnServer(this.iceServers),
       status: "waiting",
       callId: created.callId,
       joinCode: created.joinCode,
@@ -135,11 +152,19 @@ export class CallSession {
     this.deps.adapter.prime?.();
   }
 
-  /** The session socket (re)opened: (re)announce ourselves with our role. */
+  /** The session socket (re)opened: (re)announce ourselves with our role
+   *  (+ the code and name, so a socket that raced the REST join still
+   *  binds — the server's call_join accepts a non-member with the code). */
   onSocketOpen(): void {
     const callId = this.view.callId;
     if (!callId || this.closed) return;
-    this.deps.send({ type: "call_join", call_id: callId, role: this.role });
+    this.deps.send({
+      type: "call_join",
+      call_id: callId,
+      role: this.role,
+      ...(this.joinCode ? { join_code: this.joinCode } : {}),
+      ...(this.deps.displayName ? { display_name: this.deps.displayName } : {}),
+    });
   }
 
   /**
@@ -180,16 +205,23 @@ export class CallSession {
 
   private onCallState(msg: CallServerMessage & { type: "call_state" }) {
     if (this.closed) return;
-    if (Array.isArray(msg.ice_servers)) this.iceServers = msg.ice_servers;
+    if (Array.isArray(msg.ice_servers) && msg.ice_servers.length > 0) this.iceServers = msg.ice_servers;
+    if (typeof msg.self_label === "string") this.selfLabel = msg.self_label;
     const participants: CallParticipant[] = (msg.participants ?? []).map((p) => ({
       uid: String(p.uid),
-      displayName: (p.display_name && String(p.display_name)) || "Someone",
+      label: (p.label && String(p.label)) || (p.slot ? `Speaker ${p.slot}` : "Speaker ?"),
+      displayName: (p.display_name && String(p.display_name)) || (p.label && String(p.label)) || "Someone",
       role: p.role === "therapist" ? "therapist" : "participant",
       isSelf: p.is_self === true,
       connected: p.connected !== false,
     }));
     const self = participants.find((p) => p.isSelf) ?? null;
-    if (self) this.selfUid = self.uid;
+    if (self) {
+      this.selfUid = self.uid;
+      if (!this.selfLabel) this.selfLabel = self.label;
+    } else if (typeof msg.self_uid === "string") {
+      this.selfUid = msg.self_uid;
+    }
     const others = participants.filter((p) => !p.isSelf);
     const seen = new Set<string>();
     for (const p of others) {
@@ -207,6 +239,18 @@ export class CallSession {
         if (this.selfUid) void this.connectLink(p.uid);
       } else {
         existing.participant = p;
+        // The server buffers nothing: an offer sent before their socket was
+        // bound was refused. Now that they are connected, offer again if
+        // this link never got a remote description.
+        if (
+          this.selfUid &&
+          isOfferer(this.selfUid, p.uid) &&
+          !existing.remoteDescriptionSet &&
+          !existing.negotiating &&
+          existing.iceState === "new"
+        ) {
+          void this.sendOffer(p.uid, existing.pc, false).catch(() => {});
+        }
       }
     }
     // Someone left the roster entirely: tear their link down.
@@ -242,7 +286,7 @@ export class CallSession {
       link.pendingCandidates = [];
       pc.onicecandidate = (e) => {
         const c = candidateToJson(e.candidate);
-        if (c && c.candidate) this.signal(uid, { candidate: c });
+        if (c && c.candidate) this.signal(uid, c);
       };
       pc.ontrack = (e) => {
         this.deps.adapter.playRemote(uid, e.streams[0] ?? null, e.track);
@@ -270,22 +314,27 @@ export class CallSession {
     const offer = await pc.createOffer(iceRestart ? { iceRestart: true } : undefined);
     await pc.setLocalDescription(offer);
     const sdp = sdpToJson(offer);
-    if (sdp) this.signal(uid, { sdp });
+    if (sdp) this.signal(uid, sdp);
   }
 
   private async onRtcSignal(msg: CallServerMessage & { type: "rtc_signal" }) {
     if (this.closed) return;
     const from = msg.from ? String(msg.from) : null;
     if (!from) return;
-    const payload = msg.payload ?? {};
+    const payload: RtcSignalPayload | null =
+      msg.payload && typeof msg.payload === "object" ? (msg.payload as RtcSignalPayload) : null;
+    if (!payload) return;
+    const sdp: SdpInit | null = isSdpPayload(payload) ? payload : null;
+    const candidate: IceCandidateInit | null =
+      !sdp && typeof (payload as IceCandidateInit).candidate === "string" ? (payload as IceCandidateInit) : null;
     let link = this.links.get(from);
     if (!link || !link.pc) {
       // A signal can beat the roster: build the link from what we know and
       // negotiate. Only an OFFER can bootstrap it (a candidate/answer with
       // no link is a stale straggler).
-      if (!payload.sdp || payload.sdp.type !== "offer") return;
+      if (!sdp || sdp.type !== "offer") return;
       if (!link) {
-        link = this.freshLink({ uid: from, displayName: "Someone", role: "participant", isSelf: false, connected: true });
+        link = this.freshLink({ uid: from, label: "Speaker ?", displayName: "Someone", role: "participant", isSelf: false, connected: true });
         this.links.set(from, link);
       }
       await this.connectLink(from);
@@ -294,8 +343,7 @@ export class CallSession {
     }
     const pc = link.pc;
     try {
-      if (payload.sdp) {
-        const sdp: SdpInit = payload.sdp;
+      if (sdp) {
         if (sdp.type === "offer") {
           if (this.selfUid && isOfferer(this.selfUid, from)) {
             // By construction only the lower uid offers a given link; ignore
@@ -308,16 +356,16 @@ export class CallSession {
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           const out = sdpToJson(answer);
-          if (out) this.signal(from, { sdp: out });
+          if (out) this.signal(from, out);
         } else if (sdp.type === "answer") {
           await pc.setRemoteDescription(sdp);
           link.remoteDescriptionSet = true;
           await this.flushCandidates(link);
         }
       }
-      if (payload.candidate) {
-        if (link.remoteDescriptionSet) await pc.addIceCandidate(payload.candidate);
-        else link.pendingCandidates.push(payload.candidate);
+      if (candidate) {
+        if (link.remoteDescriptionSet) await pc.addIceCandidate(candidate);
+        else link.pendingCandidates.push(candidate);
       }
     } catch (err) {
       this.fail(`signaling failed (${err instanceof Error ? err.message : String(err)})`);
@@ -395,7 +443,7 @@ export class CallSession {
 
   // --- plumbing -------------------------------------------------------------------
 
-  private signal(to: string, payload: { sdp?: SdpInit; candidate?: IceCandidateInit }) {
+  private signal(to: string, payload: RtcSignalPayload) {
     const callId = this.view.callId;
     if (!callId) return;
     this.deps.send({ type: "rtc_signal", call_id: callId, to, payload });
@@ -462,6 +510,7 @@ export class CallSession {
     if (this.closed) return;
     const peers: CallPeer[] = [...this.links.values()].map((l) => ({
       uid: l.participant.uid,
+      label: l.participant.label,
       displayName: l.participant.displayName,
       role: l.participant.role,
       connected: l.iceState === "connected" || l.iceState === "completed",
@@ -480,7 +529,9 @@ export class CallSession {
       ...this.view,
       status,
       selfRole: this.role,
+      selfLabel: this.selfLabel,
       peers,
+      hasTurn: hasTurnServer(this.iceServers),
       connectedAt: this.connectedAt,
       muted: this.muted,
       iceRestarts: [...this.links.values()].reduce((n, l) => n + l.iceRestarts, 0),

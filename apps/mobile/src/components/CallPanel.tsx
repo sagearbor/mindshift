@@ -258,6 +258,12 @@ export default function CallPanel({
           A connection dropped — trying to recover it.
         </Text>
       ) : null}
+      {!call.hasTurn && call.status !== "connected" ? (
+        <Text style={styles.muted} testID="call-turn-note">
+          No relay (TURN) server is configured — two phones on mobile data may not connect; Wi-Fi
+          usually works.
+        </Text>
+      ) : null}
       <View style={styles.controls}>
         <TouchableOpacity
           testID="call-mute"

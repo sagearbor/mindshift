@@ -125,6 +125,8 @@ function harness(opts: HarnessOpts = {}) {
   const selfUid = opts.selfUid ?? "a-sage";
   const p = (uid: string, name: string, connected = true, role: "participant" | "therapist" = "participant") => ({
     uid,
+    slot: uid[0].toUpperCase(),
+    label: `Speaker ${uid[0].toUpperCase()}`,
     display_name: name,
     role,
     is_self: uid === selfUid,
@@ -151,6 +153,15 @@ function harness(opts: HarnessOpts = {}) {
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
+/** A REST create/join result with the new required fields. */
+const created = (callId: string, joinCode = "K7", joinUrl = "") => ({
+  callId,
+  joinCode,
+  joinUrl,
+  selfLabel: "Speaker A",
+  selfRole: "participant" as const,
+  iceServers: [],
+});
 
 beforeEach(() => {
   FakePeer.all = [];
@@ -166,10 +177,10 @@ describe("isOfferer", () => {
 describe("CallSession — 2 party", () => {
   it("creates the call, joins with role on socket open, and (as the lower uid) offers, then connects", async () => {
     const h = harness();
-    h.session.begin({ callId: "c1", joinCode: "K7", joinUrl: "https://x/call/K7" });
+    h.session.begin(created("c1", "K7", "https://x/call/K7"));
     expect(h.last()).toMatchObject({ status: "waiting", callId: "c1", selfRole: "participant" });
     h.session.onSocketOpen();
-    expect(h.sent[0]).toEqual({ type: "call_join", call_id: "c1", role: "participant" });
+    expect(h.sent[0]).toEqual({ type: "call_join", call_id: "c1", role: "participant", join_code: "K7" });
 
     h.session.handleServerMessage(h.roster(h.p("a-sage", "Sage"), h.p("b-mom", "Mom")));
     await flush();
@@ -179,16 +190,17 @@ describe("CallSession — 2 party", () => {
     expect(h.last().status).toBe("connecting");
     expect(h.peerNames()).toEqual(["Mom"]);
     // Offer went out, addressed to the peer (required `to`).
+    // Payload is the SDP init itself (the server relays it verbatim).
     expect(h.sig()[0]).toEqual({
       type: "rtc_signal",
       call_id: "c1",
       to: "b-mom",
-      payload: { sdp: { type: "offer", sdp: "offer-1" } },
+      payload: { type: "offer", sdp: "offer-1" },
     });
 
     pc.onicecandidate?.({ candidate: { candidate: "cand-1", sdpMid: "0", sdpMLineIndex: 0 } });
-    expect(h.sig()[h.sig().length - 1]).toMatchObject({ to: "b-mom", payload: { candidate: { candidate: "cand-1" } } });
-    h.session.handleServerMessage({ type: "rtc_signal", from: "b-mom", payload: { sdp: { type: "answer", sdp: "ans" } } });
+    expect(h.sig()[h.sig().length - 1]).toMatchObject({ to: "b-mom", payload: { candidate: "cand-1", sdpMid: "0" } });
+    h.session.handleServerMessage({ type: "rtc_signal", from: "b-mom", payload: { type: "answer", sdp: "ans" } });
     await flush();
     expect(pc.remote).toEqual([{ type: "answer", sdp: "ans" }]);
     pc.ice("connected");
@@ -210,21 +222,21 @@ describe("CallSession — 2 party", () => {
 
   it("as the higher uid, waits and answers; candidates before the offer are queued", async () => {
     const h = harness({ selfUid: "b-mom" });
-    h.session.begin({ callId: "c1", joinCode: "K7", joinUrl: "" });
+    h.session.begin(created("c1", "K7", ""));
     h.session.handleServerMessage(h.roster(h.p("b-mom", "Mom"), h.p("a-sage", "Sage")));
     await flush();
     const pc = FakePeer.all[0];
     expect(pc.offers).toHaveLength(0);
     expect(h.sig()).toHaveLength(0);
-    h.session.handleServerMessage({ type: "rtc_signal", from: "a-sage", payload: { candidate: { candidate: "early" } } });
+    h.session.handleServerMessage({ type: "rtc_signal", from: "a-sage", payload: { candidate: "early", sdpMid: "0" } });
     await flush();
     expect(pc.candidates).toEqual([]);
-    h.session.handleServerMessage({ type: "rtc_signal", from: "a-sage", payload: { sdp: { type: "offer", sdp: "o" } } });
+    h.session.handleServerMessage({ type: "rtc_signal", from: "a-sage", payload: { type: "offer", sdp: "o" } });
     await flush();
     expect(pc.remote).toEqual([{ type: "offer", sdp: "o" }]);
-    expect(pc.candidates).toEqual([{ candidate: "early" }]);
+    expect(pc.candidates).toEqual([{ candidate: "early", sdpMid: "0" }]);
     expect(pc.answers).toBe(1);
-    expect(h.sig()[h.sig().length - 1]).toEqual({ type: "rtc_signal", call_id: "c1", to: "a-sage", payload: { sdp: { type: "answer", sdp: "answer-1" } } });
+    expect(h.sig()[h.sig().length - 1]).toEqual({ type: "rtc_signal", call_id: "c1", to: "a-sage", payload: { type: "answer", sdp: "answer-1" } });
     pc.ice("completed");
     expect(h.last().status).toBe("connected");
   });
@@ -234,7 +246,7 @@ describe("CallSession — 3 party mesh with roles", () => {
   it("holds one link per peer: offers to the higher uid, answers the lower, therapist included", async () => {
     // self is the middle uid: it offers to "c-dad" and answers "a-...".
     const h = harness({ selfUid: "b-sage" });
-    h.session.begin({ callId: "c1", joinCode: "K7", joinUrl: "" });
+    h.session.begin(created("c1", "K7", ""));
     h.session.handleServerMessage(
       h.roster(h.p("b-sage", "Sage"), h.p("a-dad", "Dad"), h.p("c-mom", "Mom", true, "therapist")),
     );
@@ -243,14 +255,14 @@ describe("CallSession — 3 party mesh with roles", () => {
     expect(FakePeer.all).toHaveLength(2);
     expect(h.peerNames()).toEqual(["Dad", "Mom"]);
     // We offer to c-mom (higher uid) but NOT to a-dad (lower — they offer us).
-    const offers = h.sig().filter((m) => m.payload.sdp?.type === "offer");
+    const offers = h.sig().filter((m) => (m.payload as { type?: string }).type === "offer");
     expect(offers).toHaveLength(1);
     expect(offers[0].to).toBe("c-mom");
     // The therapist peer is a normal audio peer (role is view-only metadata).
     expect(h.last().peers.find((pr) => pr.uid === "c-mom")?.role).toBe("therapist");
 
     // Dad (lower uid) offers us; we answer.
-    h.session.handleServerMessage({ type: "rtc_signal", from: "a-dad", payload: { sdp: { type: "offer", sdp: "od" } } });
+    h.session.handleServerMessage({ type: "rtc_signal", from: "a-dad", payload: { type: "offer", sdp: "od" } });
     await flush();
     const dadPc = FakePeer.all.find((pc) => pc.remote.some((d) => (d as { sdp?: string }).sdp === "od"))!;
     expect(dadPc.answers).toBe(1);
@@ -268,15 +280,15 @@ describe("CallSession — 3 party mesh with roles", () => {
 
   it("a therapist joins with its role in call_join", () => {
     const h = harness({ role: "therapist" });
-    h.session.begin({ callId: "c1", joinCode: "K7", joinUrl: "" });
+    h.session.begin(created("c1", "K7", ""));
     expect(h.last().selfRole).toBe("therapist");
     h.session.onSocketOpen();
-    expect(h.sent[0]).toEqual({ type: "call_join", call_id: "c1", role: "therapist" });
+    expect(h.sent[0]).toEqual({ type: "call_join", call_id: "c1", role: "therapist", join_code: "K7" });
   });
 
   it("one peer leaving tears down only that link; the other survives", async () => {
     const h = harness({ selfUid: "a-sage" });
-    h.session.begin({ callId: "c1", joinCode: "K7", joinUrl: "" });
+    h.session.begin(created("c1", "K7", ""));
     h.session.handleServerMessage(h.roster(h.p("a-sage", "Sage"), h.p("b-dad", "Dad"), h.p("c-mom", "Mom", true, "therapist")));
     await flush();
     for (const pc of FakePeer.all) pc.ice("connected");
@@ -293,11 +305,11 @@ describe("CallSession — 3 party mesh with roles", () => {
 
   it("restarts ICE on the offerer's link only, per link, and mutes across all links", async () => {
     const h = harness({ selfUid: "a-sage" });
-    h.session.begin({ callId: "c1", joinCode: "K7", joinUrl: "" });
+    h.session.begin(created("c1", "K7", ""));
     h.session.handleServerMessage(h.roster(h.p("a-sage", "Sage"), h.p("b-dad", "Dad"), h.p("c-mom", "Mom")));
     await flush();
     // We are the lowest uid: we offer BOTH links.
-    expect(h.sig().filter((m) => m.payload.sdp?.type === "offer")).toHaveLength(2);
+    expect(h.sig().filter((m) => (m.payload as { type?: string }).type === "offer")).toHaveLength(2);
     for (const pc of FakePeer.all) pc.ice("connected");
     // One link fails → a restart offer on THAT peer connection only.
     const dadPc = FakePeer.all[0];
@@ -317,7 +329,7 @@ describe("CallSession — 3 party mesh with roles", () => {
 describe("CallSession — misc", () => {
   it("ends on call_ended and reports a failed local stream honestly", async () => {
     const h = harness();
-    h.session.begin({ callId: "c1", joinCode: "K7", joinUrl: "" });
+    h.session.begin(created("c1", "K7", ""));
     h.session.handleServerMessage({ type: "call_ended", call_id: "c1" });
     expect(h.last().status).toBe("ended");
 
@@ -325,7 +337,7 @@ describe("CallSession — misc", () => {
     broken.adapter.getLocalStream = async () => {
       throw new Error("mic denied");
     };
-    broken.session.begin({ callId: "c2", joinCode: "Q", joinUrl: "" });
+    broken.session.begin(created("c2", "Q", ""));
     broken.session.handleServerMessage(broken.roster(broken.p("a-sage", "Sage"), broken.p("b-mom", "Mom")));
     await flush();
     await flush();

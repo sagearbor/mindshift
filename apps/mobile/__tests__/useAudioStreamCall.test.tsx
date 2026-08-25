@@ -66,7 +66,14 @@ const adapter = {
   },
 };
 
-const created = { callId: "call-uuid-1", joinCode: "K7M2PQ", joinUrl: "https://arborfam-hub.web.app/call/K7M2PQ" };
+const created = {
+  callId: "call-uuid-1",
+  joinCode: "K7M2PQ",
+  joinUrl: "https://arborfam-hub.web.app/call/K7M2PQ",
+  selfLabel: "Speaker A",
+  selfRole: "participant" as const,
+  iceServers: [{ urls: ["stun:stun.l.google.com:19302"] }],
+};
 const api: CallApi = {
   create: jest.fn().mockResolvedValue(created),
   join: jest.fn().mockResolvedValue(created),
@@ -106,7 +113,10 @@ describe("useAudioStream — Call mode", () => {
     });
     const frames = ws.json();
     expect(frames[0]).toMatchObject({ type: "config", empathy_slider: 70, interject_level: 20 });
-    expect(frames[1]).toEqual({ type: "call_join", call_id: "call-uuid-1", role: "participant" });
+    expect(frames[1]).toEqual({ type: "call_join", call_id: "call-uuid-1", role: "participant", join_code: "K7M2PQ", display_name: "sage" });
+    expect(api.create).toHaveBeenCalledWith({ displayName: "sage", maxParticipants: 3 });
+    // No TURN in the list: the screen warns (carrier NAT).
+    expect(result.current.call.hasTurn).toBe(false);
   });
 
   it("joinCall passes the invite role and announces it (therapist observer)", async () => {
@@ -115,13 +125,13 @@ describe("useAudioStream — Call mode", () => {
     await act(async () => {
       await result.current.joinCall("K7M2PQ", 50, 0, "therapist");
     });
-    expect(api.join).toHaveBeenCalledWith("K7M2PQ", "therapist");
+    expect(api.join).toHaveBeenCalledWith("K7M2PQ", "therapist", "sage");
     expect(result.current.call.selfRole).toBe("therapist");
     const ws = WS.i[0];
     await act(() => {
       ws.onopen?.({});
     });
-    expect(ws.json().find((f) => f.type === "call_join")).toEqual({ type: "call_join", call_id: "call-uuid-1", role: "therapist" });
+    expect(ws.json().find((f) => f.type === "call_join")).toMatchObject({ type: "call_join", call_id: "call-uuid-1", role: "therapist" });
   });
 
   it("a failed create/join opens no session and says why", async () => {

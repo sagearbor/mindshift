@@ -1,48 +1,66 @@
 /**
- * In-app calls — the client half of the wire vocabulary shared with the
- * server (docs/plans/2026-08-25-in-app-calls.md). Field names on the wire
- * are snake_case on purpose; the view types the UI reads are camelCase.
+ * In-app calls — the client half of the wire vocabulary. The server half
+ * (server/calls.py, server/routers/calls.py, server/audio_pipeline.py) is the
+ * contract; docs/plans/2026-08-25-in-app-calls.md has the exact JSON. Field
+ * names on the wire are snake_case on purpose; the view types the UI reads
+ * are camelCase.
  *
- * A call has up to `max_participants` (default 3) people with a ROLE:
- *   - "participant" — on the phone app, coached (Sage, his dad)
- *   - "therapist"   — an observer (Safari): sees the merged transcript,
- *                     both participants' suggestions/nudges read-only, and
- *                     the scoreboard; their own speech is transcribed and
- *                     merged but never coached, and nothing is spoken to
- *                     them (no TTS).
+ * A call has up to `max_participants` (2 or 3, default 3) MEMBERS with a
+ * ROLE and a SLOT label:
+ *   - "participant" — coached (the host is slot A "Speaker A", the second
+ *                     participant slot B "Speaker B"): Sage, his dad
+ *   - "therapist"   — the observer (slot C "Speaker C"; Mom in Safari): sees
+ *                     the merged transcript, every participant's coaching
+ *                     read-only (tagged `for_uid`), and the scoreboard; her
+ *                     own speech is transcribed + merged but never coached
+ *                     and nothing is spoken to her.
  *
  * Audio is a FULL MESH: each client holds one RTCPeerConnection per OTHER
- * participant, so everyone hears everyone (CallSession keeps a peer map
- * keyed by uid). Signaling is addressed: `rtc_signal.to` is REQUIRED.
+ * member (CallSession keeps a peer map keyed by uid). Signaling is
+ * addressed: `rtc_signal.to` is REQUIRED once the call has three members
+ * (this client always sends it). The server relays `payload` VERBATIM, so
+ * it is the W3C init dict itself: `{type:"offer"|"answer", sdp}` or
+ * `{candidate, sdpMid, sdpMLineIndex}`.
  *
  * REST (src/live/call/callApi.ts):
- *   POST /calls {max_participants?} -> {call_id, join_code, join_url}
- *   POST /calls/{id}/join {role?}   -> {call_id, join_code, join_url}
- *   GET  /calls/{id}
- *   POST /calls/{id}/end
+ *   POST /calls        {display_name?, max_participants?}       -> CallOut (201)
+ *   POST /calls/join   {join_code, display_name?, role?}        -> CallOut
+ *   GET  /calls/{id}                                            -> CallOut
+ *   POST /calls/{id}/end                                        -> CallOut
  *
  * Over the existing session WebSocket (/ws/session/{session_id}):
- *   client -> server  call_join   {call_id, role?}
- *   client -> server  rtc_signal  {call_id, to, payload:{sdp|candidate}}
- *   server -> client  call_state  {call_id, participants:[{uid, display_name,
- *                                   role, is_self, connected}], ice_servers}
- *   server -> client  rtc_signal  {from, payload}
- *   server -> client  call_ended  {call_id, reason?}
- *   ... plus every participant's turns as ordinary `transcript` events, and
- *   suggestion/nudge/tone events carrying `for_uid` when they concern
- *   another participant (the therapist renders those read-only).
+ *   client -> server  call_join   {call_id, join_code?, display_name?, role?}
+ *   client -> server  rtc_signal  {call_id, to, payload}
+ *   server -> client  call_state  CallOut minus join_code/join_url/invitee_*
+ *   server -> client  rtc_signal  {call_id, from, payload}
+ *   server -> client  call_ended  {call_id, reason, ended_by, episode_id,
+ *                                  shared_with, episodes, turn_count}
+ *   ... plus every other member's turns as `transcript` events (with
+ *   `speaker` = their slot label, `display_name` relative to us, `role`,
+ *   `participant_uid`, `text_tone`, `prosody`), and — therapist sockets only
+ *   — read-only copies of each participant's `suggestion` / `tone_flag` /
+ *   `speaker_identity` tagged `for_uid`.
+ *
+ * A phone must NOT `POST /sessions/live` for a call: the server persists one
+ * episode per participant itself and hands the id back in `call_ended`.
  */
 
 export type CallRole = "participant" | "therapist";
 
+/** What the REST create/join hands back that the client keeps. */
 export interface CallCreated {
   callId: string;
   joinCode: string;
   joinUrl: string;
+  selfLabel: string | null;
+  selfRole: CallRole;
+  iceServers: IceServer[];
 }
 
 export interface CallParticipant {
   uid: string;
+  /** The slot label the server relabels their turns with ("Speaker B"). */
+  label: string;
   displayName: string;
   role: CallRole;
   isSelf: boolean;
@@ -68,9 +86,12 @@ export interface IceCandidateInit {
   usernameFragment?: string | null;
 }
 
-export interface RtcSignalPayload {
-  sdp?: SdpInit;
-  candidate?: IceCandidateInit | null;
+/** Relayed verbatim: the SDP init or the candidate init itself. */
+export type RtcSignalPayload = SdpInit | IceCandidateInit;
+
+export function isSdpPayload(p: RtcSignalPayload): p is SdpInit {
+  const t = (p as SdpInit).type;
+  return t === "offer" || t === "answer" || t === "pranswer" || t === "rollback";
 }
 
 // --- server -> client -------------------------------------------------------
@@ -78,14 +99,21 @@ export interface RtcSignalPayload {
 export interface CallStateMessage {
   type: "call_state";
   call_id: string;
+  status?: string;
+  self_uid?: string;
+  self_role?: CallRole | null;
+  self_label?: string | null;
   participants: {
     uid: string;
+    slot?: string;
+    label?: string | null;
     display_name?: string | null;
     role?: CallRole | null;
     is_self?: boolean;
     connected?: boolean;
   }[];
   ice_servers?: IceServer[] | null;
+  max_participants?: number;
 }
 
 export interface RtcSignalMessage {
@@ -99,6 +127,13 @@ export interface CallEndedMessage {
   type: "call_ended";
   call_id?: string;
   reason?: string | null;
+  ended_by?: string | null;
+  /** YOUR episode (null for the therapist). */
+  episode_id?: string | null;
+  shared_with?: string[];
+  /** Every participant's episode, by uid (the therapist gets these). */
+  episodes?: Record<string, string>;
+  turn_count?: number;
 }
 
 export type CallServerMessage = CallStateMessage | RtcSignalMessage | CallEndedMessage;
@@ -108,13 +143,15 @@ export type CallServerMessage = CallStateMessage | RtcSignalMessage | CallEndedM
 export interface CallJoinMessage {
   type: "call_join";
   call_id: string;
+  join_code?: string;
+  display_name?: string;
   role?: CallRole;
 }
 
 export interface RtcSignalOut {
   type: "rtc_signal";
   call_id: string;
-  /** REQUIRED in the mesh: the peer this frame is for. */
+  /** The peer this frame is for. Required in a 3-member mesh; always sent. */
   to: string;
   payload: RtcSignalPayload;
 }
@@ -128,7 +165,7 @@ export type CallClientMessage = CallJoinMessage | RtcSignalOut;
  * idle        no call
  * creating    the REST create/join is in flight
  * waiting     the call exists; nobody else has joined yet (share the code)
- * connecting  another participant is present; a mesh link is negotiating
+ * connecting  another member is present; a mesh link is negotiating
  * connected   at least one peer's audio is flowing
  * reconnecting a peer's ICE dropped; a restart is in progress
  * ended       hung up / the server ended it
@@ -144,9 +181,12 @@ export type CallStatus =
   | "ended"
   | "failed";
 
-/** One other person in the call, from this client's point of view. */
+/** One other member of the call, from this client's point of view. */
 export interface CallPeer {
   uid: string;
+  /** Their slot label ("Speaker A") — the `speaker` of their transcript events. */
+  label: string;
+  /** Their name as the server shows it to US ("Dad", "Mom (therapist)"). */
   displayName: string;
   role: CallRole;
   /** Whether this specific mesh link is carrying audio. */
@@ -160,10 +200,14 @@ export interface CallView {
   callId: string | null;
   joinCode: string | null;
   joinUrl: string | null;
-  /** This client's role in the call. */
+  /** This client's role and slot label in the call. */
   selfRole: CallRole;
-  /** Every OTHER participant, newest-joined last. */
+  selfLabel: string | null;
+  /** Every OTHER member, in the server's order. */
   peers: CallPeer[];
+  /** Whether the server handed us a TURN server (without one, two phones on
+   *  carrier NAT may never connect — the UI says so). */
+  hasTurn: boolean;
   /** Wall-clock ms at which the FIRST peer connected; null before then. */
   connectedAt: number | null;
   /** Mutes this client's OWN microphone track on every mesh link. */
@@ -179,9 +223,19 @@ export const IDLE_CALL_VIEW: CallView = {
   joinCode: null,
   joinUrl: null,
   selfRole: "participant",
+  selfLabel: null,
   peers: [],
+  hasTurn: false,
   connectedAt: null,
   muted: false,
   iceRestarts: 0,
   error: null,
 };
+
+/** Whether an ICE server list includes a TURN relay. */
+export function hasTurnServer(servers: readonly IceServer[]): boolean {
+  return servers.some((s) => {
+    const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
+    return urls.some((u) => /^turns?:/i.test(u));
+  });
+}

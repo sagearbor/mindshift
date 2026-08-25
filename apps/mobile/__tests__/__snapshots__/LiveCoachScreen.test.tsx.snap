@@ -225,7 +225,7 @@ exports[`LiveCoachScreen renders disconnected state 1`] = `
             ]
           }
         >
-          Speaker-phone
+          In person
         </Text>
       </View>
       <View
@@ -283,6 +283,63 @@ exports[`LiveCoachScreen renders disconnected state 1`] = `
           }
         >
           Therapist
+        </Text>
+      </View>
+      <View
+        accessibilityRole="button"
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": false,
+            "expanded": undefined,
+            "selected": false,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={true}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
+        style={
+          {
+            "backgroundColor": "#FFFFFF",
+            "borderColor": "#D1D5DB",
+            "borderRadius": 16,
+            "borderWidth": 1,
+            "opacity": 1,
+            "paddingHorizontal": 14,
+            "paddingVertical": 6,
+          }
+        }
+        testID="session-mode-call"
+      >
+        <Text
+          style={
+            [
+              {
+                "color": "#6B7280",
+                "fontSize": 13,
+                "fontWeight": "500",
+              },
+              false,
+            ]
+          }
+        >
+          Call
         </Text>
       </View>
     </View>
@@ -765,7 +822,7 @@ exports[`LiveCoachScreen renders initial idle state 1`] = `
             ]
           }
         >
-          Speaker-phone
+          In person
         </Text>
       </View>
       <View
@@ -823,6 +880,63 @@ exports[`LiveCoachScreen renders initial idle state 1`] = `
           }
         >
           Therapist
+        </Text>
+      </View>
+      <View
+        accessibilityRole="button"
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": false,
+            "expanded": undefined,
+            "selected": false,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={true}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
+        style={
+          {
+            "backgroundColor": "#FFFFFF",
+            "borderColor": "#D1D5DB",
+            "borderRadius": 16,
+            "borderWidth": 1,
+            "opacity": 1,
+            "paddingHorizontal": 14,
+            "paddingVertical": 6,
+          }
+        }
+        testID="session-mode-call"
+      >
+        <Text
+          style={
+            [
+              {
+                "color": "#6B7280",
+                "fontSize": 13,
+                "fontWeight": "500",
+              },
+              false,
+            ]
+          }
+        >
+          Call
         </Text>
       </View>
     </View>
@@ -1633,7 +1747,7 @@ exports[`LiveCoachScreen renders recording state with transcript and suggestions
             ]
           }
         >
-          Speaker-phone
+          In person
         </Text>
       </View>
       <View
@@ -1691,6 +1805,63 @@ exports[`LiveCoachScreen renders recording state with transcript and suggestions
           }
         >
           Therapist
+        </Text>
+      </View>
+      <View
+        accessibilityRole="button"
+        accessibilityState={
+          {
+            "busy": undefined,
+            "checked": undefined,
+            "disabled": true,
+            "expanded": undefined,
+            "selected": false,
+          }
+        }
+        accessibilityValue={
+          {
+            "max": undefined,
+            "min": undefined,
+            "now": undefined,
+            "text": undefined,
+          }
+        }
+        accessible={true}
+        collapsable={false}
+        focusable={false}
+        onClick={[Function]}
+        onResponderGrant={[Function]}
+        onResponderMove={[Function]}
+        onResponderRelease={[Function]}
+        onResponderTerminate={[Function]}
+        onResponderTerminationRequest={[Function]}
+        onStartShouldSetResponder={[Function]}
+        style={
+          {
+            "backgroundColor": "#FFFFFF",
+            "borderColor": "#D1D5DB",
+            "borderRadius": 16,
+            "borderWidth": 1,
+            "opacity": 0.6,
+            "paddingHorizontal": 14,
+            "paddingVertical": 6,
+          }
+        }
+        testID="session-mode-call"
+      >
+        <Text
+          style={
+            [
+              {
+                "color": "#6B7280",
+                "fontSize": 13,
+                "fontWeight": "500",
+              },
+              false,
+            ]
+          }
+        >
+          Call
         </Text>
       </View>
     </View>
