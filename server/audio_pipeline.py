@@ -2341,6 +2341,11 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             session_id, call.call_id, participant.slot, participant.label, participant.role,
         )
 
+    # Signaling frames this socket may relay per second (burst + refill):
+    # the relay copies each one to another member's socket, so the bound
+    # sits on the sender.
+    signal_bucket = calls.TokenBucket(rate_per_s=calls.RTC_SIGNAL_RATE_PER_S, burst=calls.RTC_SIGNAL_BURST)
+
     async def handle_rtc_signal(payload: dict, raw_len: int) -> None:
         call = ctx.call
         if call is None or payload.get("call_id") != call.call_id:
@@ -2348,6 +2353,9 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             return
         if raw_len > calls.RTC_PAYLOAD_MAX_BYTES:
             await send_json({"error": "rtc_signal: payload too large"})
+            return
+        if not signal_bucket.allow():
+            await send_json({"error": "rtc_signal: too many signals"})
             return
         signal = payload.get("payload")
         if not isinstance(signal, dict) or not signal:

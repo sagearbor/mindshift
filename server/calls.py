@@ -104,6 +104,12 @@ CALL_MAX_TRANSCRIPT_CHARS = 60_000
 # far past any real signaling message and stops a client using the relay as
 # a free data channel through the server.
 RTC_PAYLOAD_MAX_BYTES = 64 * 1024
+# Per-socket bound on signaling frames: ICE gathering is bursty (a few
+# dozen candidates in the first second, one connection per peer), then
+# nearly silent. Past the burst a member's frames are refused with a
+# reason — one phone can't use the relay to flood the others' sockets.
+RTC_SIGNAL_RATE_PER_S = 20.0
+RTC_SIGNAL_BURST = 60
 # Bound on calls held in this process (abuse guard; a real deployment sees
 # a handful at a time). Retained ENDED calls are evicted early before a new
 # call is refused, so they can never crowd out live ones.
@@ -215,6 +221,27 @@ def clean_role(raw: object) -> str:
     if isinstance(raw, str) and raw.strip().lower() in ROLES:
         return raw.strip().lower()
     raise CallError(422, "role must be 'participant' or 'therapist'")
+
+
+class TokenBucket:
+    """A plain token bucket: ``burst`` tokens to start, ``rate_per_s`` back
+    per second, never more than ``burst``. ``allow()`` spends one."""
+
+    def __init__(self, *, rate_per_s: float, burst: int, clock: Callable[[], float] = time.monotonic) -> None:
+        self.rate = float(rate_per_s)
+        self.burst = float(burst)
+        self._clock = clock
+        self._tokens = self.burst
+        self._last = clock()
+
+    def allow(self) -> bool:
+        now = self._clock()
+        self._tokens = min(self.burst, self._tokens + (now - self._last) * self.rate)
+        self._last = now
+        if self._tokens >= 1.0:
+            self._tokens -= 1.0
+            return True
+        return False
 
 
 class CallError(Exception):

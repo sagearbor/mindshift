@@ -1145,3 +1145,49 @@ class TestJoinCodeBruteForce:
         assert exc.value.status == 403
         # The named invitee never needed the code and is unaffected.
         assert reg.join(call, "invitee").slot == "B"
+
+
+def _drain_until_ack(ws) -> list[dict]:
+    """Everything queued on ``ws`` up to a config_ack we ask for."""
+    ws.send_text(json.dumps({"type": "config", "empathy_slider": 1}))
+    seen: list[dict] = []
+    while True:
+        msg = json.loads(ws.receive_text())
+        if msg.get("type") == "config_ack":
+            return seen
+        seen.append(msg)
+
+
+class TestRelayFlood:
+    def test_rtc_signal_flood_is_bounded_per_socket(self, env):
+        cid = _open_pair(env)
+        with open_ws(env.client, f"/ws/session/{HOST_SID}", token=HOST_TOKEN) as host, \
+                open_ws(env.client, f"/ws/session/{PEER_SID}", token=PEER_TOKEN) as peer:
+            _bind(host, cid)
+            _bind(peer, cid)
+            recv_until(host, lambda m: m.get("type") == "call_state")
+            n = calls.RTC_SIGNAL_BURST * 3
+            for i in range(n):
+                host.send_text(json.dumps({"type": "rtc_signal", "call_id": cid, "payload": {"candidate": i}}))
+            refused = [m for m in _drain_until_ack(host) if m.get("error") == "rtc_signal: too many signals"]
+            relayed = [m for m in _drain_until_ack(peer) if m.get("type") == "rtc_signal"]
+            # The burst goes through (ICE gathering is bursty), the rest is
+            # refused with a reason — never silently, never all of it.
+            slack = 10
+            assert calls.RTC_SIGNAL_BURST <= len(relayed) <= calls.RTC_SIGNAL_BURST + slack
+            assert len(refused) == n - len(relayed)
+            # Order is preserved for what was delivered.
+            assert [m["payload"]["candidate"] for m in relayed] == list(range(len(relayed)))
+            # The session is still a session: a later single signal is fine.
+            host.send_text(json.dumps({"type": "rtc_signal", "call_id": cid, "payload": {"sdp": "later"}}))
+            later = _drain_until_ack(host)
+            assert later == [] or all(m.get("error") == "rtc_signal: too many signals" for m in later)
+
+    def test_token_bucket(self):
+        clock = [0.0]
+        bucket = calls.TokenBucket(rate_per_s=2.0, burst=3, clock=lambda: clock[0])
+        assert [bucket.allow() for _ in range(4)] == [True, True, True, False]
+        clock[0] += 0.5  # one token back
+        assert [bucket.allow() for _ in range(2)] == [True, False]
+        clock[0] += 100.0  # refills to the burst, never beyond
+        assert [bucket.allow() for _ in range(4)] == [True, True, True, False]
