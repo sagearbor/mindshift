@@ -180,6 +180,18 @@ describe("resolveEcapaModel", () => {
     expect(off).toMatchObject({ status: "unavailable", code: "network", reason: expect.stringContaining("Network request failed") });
   });
 
+  it("accepts a gzip-decompressed download larger than the wire Content-Length", async () => {
+    // Firebase Hosting gzips the .onnx: HEAD Content-Length is the compressed
+    // wire size, the file on disk is the larger decompressed size. `>= expected`
+    // must accept it (real Pixel 10 rejected it under the old `=== expected`).
+    const store = new MemoryStore();
+    store.nextDownload = GOOD + 500; // decompressed file > compressed wire size
+    const { fetch } = scripted([head(200, { ETag: ETAG_A, "Content-Length": String(GOOD) })]);
+    const res = await resolveEcapaModel({ url: URL, headers: AUTH, fetch, store, minBytes: MIN });
+    expect(res).toMatchObject({ status: "ready" });
+    expect(store.files.get(ECAPA_FILENAME)?.size).toBe(GOOD + 500);
+  });
+
   it("a truncated download is discarded and never replaces a good model", async () => {
     const store = new MemoryStore();
     withCache(store);

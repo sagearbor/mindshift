@@ -185,8 +185,16 @@ export async function resolveEcapaModel(opts: ResolveEcapaModelOptions): Promise
     const msg = err instanceof Error ? err.message : String(err);
     return { status: "unavailable", code: "network", reason: `model download failed (${msg})` };
   }
+  // `expected` is the HEAD Content-Length = the WIRE size. When the host
+  // gzips the response (Firebase Hosting does for the ECAPA .onnx: wire
+  // ~78 MB, file 84 MB), the downloader writes the DECOMPRESSED bytes, so an
+  // exact `=== expected` check wrongly rejects a perfectly good download
+  // (real Pixel 10, 2026-08-26). A decompressed file is always >= its gzip
+  // wire size, and == it when uncompressed, so `>= expected` is correct in
+  // both cases and still catches a truncated transfer. ORT failing to load a
+  // corrupt file is the real integrity backstop (loadEcapaSession).
   const sizeOk =
-    got.exists && got.size >= minBytes && (!(expected > 0) || got.size === expected);
+    got.exists && got.size >= minBytes && (!(expected > 0) || got.size >= expected);
   if (!sizeOk) {
     await store.remove(tmp).catch(() => {});
     if (haveFile) {
@@ -196,7 +204,7 @@ export async function resolveEcapaModel(opts: ResolveEcapaModelOptions): Promise
     return {
       status: "unavailable",
       code: "bad-download",
-      reason: `model download was ${got.size} bytes (expected ${expected > 0 ? expected : `≥ ${minBytes}`})`,
+      reason: `model download was ${got.size} bytes (expected >= ${expected > 0 ? expected : minBytes})`,
     };
   }
   try {
