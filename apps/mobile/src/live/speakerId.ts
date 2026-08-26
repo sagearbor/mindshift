@@ -23,7 +23,17 @@ import type { OnnxSession } from "./ort";
 import { float32Tensor } from "./ort";
 
 export const MATCH_THRESHOLD = 0.65;
-export const CLUSTER_THRESHOLD = 0.55;
+// Merge threshold for the ONLINE (live, on-device) unknown-speaker clustering.
+// LOWER than the server/batch value (server/watch/diarize.py keeps 0.55) on
+// purpose: live turns are short and the on-device ECAPA embedding of the SAME
+// voice only reaches cosine ~0.43 @ 1.5 s / ~0.54 @ 2.0 s against the running
+// centroid (the p10 numbers documented below), while a DIFFERENT voice stays
+// < 0.31 at any length. At 0.55 the same person kept scoring below threshold
+// and founding fresh clusters — a real 2-voice therapist session split into
+// 5 speakers (dx-45DS-H9DP, Pixel 10, 2026-08-26). 0.40 sits in the gap:
+// it merges ~90% of same-voice turns while keeping the <0.31 other voice
+// apart. Batch diarization runs on longer, cleaner segments and keeps 0.55.
+export const CLUSTER_THRESHOLD = 0.4;
 export const ECAPA_DIM = 192;
 /**
  * Below this much audio an ECAPA embedding is too unstable to FOUND a new

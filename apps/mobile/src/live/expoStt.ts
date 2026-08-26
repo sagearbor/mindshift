@@ -94,9 +94,20 @@ export function onDeviceSttAvailable(): boolean {
   }
 }
 
-/** Best-effort: kick off the Android offline model download (13+). */
+// Fire the offline-model trigger AT MOST ONCE per app run. It surfaces
+// Android's own "Download English (US) update (146 MB)" system dialog, and
+// createDefaultFastLoop calls this on every session start — so without this
+// guard the dialog nagged the user before every single session (Pixel 10,
+// 2026-08-26). On-device recognition already works with the base model (live
+// sessions transcribe fine); the 146 MB pack is the optional enhanced model,
+// so prompting once is plenty.
+const triggeredLocales = new Set<string>();
+
+/** Best-effort: kick off the Android offline model download (13+), once. */
 export async function ensureOfflineModel(lang = "en-US"): Promise<void> {
   if (Platform.OS !== "android") return;
+  if (triggeredLocales.has(lang)) return;
+  triggeredLocales.add(lang);
   try {
     await speechModule()?.androidTriggerOfflineModelDownload({ locale: lang });
   } catch {
