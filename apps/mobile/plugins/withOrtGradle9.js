@@ -85,19 +85,47 @@ const SNIPPET = `allprojects {
   ext.VersionNumber = org.gradle.util.internal.VersionNumber
 }`;
 
-// Appended to onnxruntime-react-native's CMake arguments so the JSI shim it
-// builds from source gets 16 KB-aligned LOAD segments. `+=` on the existing
+// Appended to onnxruntime-react-native's CMake arguments. `+=` on the existing
 // list, never a replacement: ORT's build.gradle already passes ANDROID_STL,
-// NODE_MODULES_DIR, USE_NNAPI and friends there.
+// NODE_MODULES_DIR, USE_NNAPI and friends there, and CMake honours the LAST
+// `-D` for a given variable, so our appended entries win.
+//
+// Two fixes:
+//
+// (4) 16 KB pages — libonnxruntimejsi.so was the single 4 KB-aligned library
+//     in the AAB and Play blocks the release for it.
+//
+// (6) JSI ABI. This repo is an npm WORKSPACE with TWO react-native copies:
+//     0.86.0 under apps/mobile (what the app runs) and a stray 0.76.6 hoisted
+//     to the workspace-root node_modules by a transitive `*` peer. ORT's
+//     build.gradle finds react-native by walking UP from its own location
+//     (root node_modules) and so compiled the JSI shim against 0.76.6's
+//     headers, while the app runs Hermes from 0.86.0. The jsi::Runtime layout
+//     differs between the two, so onnxruntimejsi::install() crashed with
+//     SIGBUS / BUS_ADRALN the moment it was called on device (v1.18.0 vc 37,
+//     Pixel 10, 2026-08-26 — after the (5) registration fix made install()
+//     reachable). Overriding NODE_MODULES_DIR to the app's node_modules makes
+//     the shim's JSI headers (and the jsi.cpp it compiles) match the runtime.
+//     Resolved at Gradle time from the same react-native the app links, so it
+//     tracks whatever version apps/mobile actually uses.
 const PAGE_SIZE_SNIPPET = `subprojects { sub ->
-  // See plugins/withOrtGradle9.js (4): libonnxruntimejsi.so was the single
-  // 4 KB-aligned library in the AAB and Play blocks the release for it.
   if (sub.name == "onnxruntime-react-native") {
     sub.afterEvaluate {
       if (sub.extensions.findByName("android") != null) {
-        sub.android.defaultConfig.externalNativeBuild.cmake.arguments +=
+        def appNodeModules = ["node", "--print",
+          "require('path').dirname(require('path').dirname(require.resolve('react-native/package.json')))"
+        ].execute(null, sub.rootDir).text.trim()
+        def extraArgs =
           ["-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
            "-DCMAKE_SHARED_LINKER_FLAGS_INIT=-Wl,-z,max-page-size=16384"]
+        if (appNodeModules && new File(appNodeModules, "react-native").exists()) {
+          // JSI headers must match the runtime react-native (see (6)).
+          extraArgs += "-DNODE_MODULES_DIR=\${appNodeModules}"
+        } else {
+          throw new GradleException(
+            "withOrtGradle9 (6): could not resolve the app's react-native for ONNX Runtime")
+        }
+        sub.android.defaultConfig.externalNativeBuild.cmake.arguments += extraArgs
       }
     }
   }
