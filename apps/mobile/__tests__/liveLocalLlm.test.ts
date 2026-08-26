@@ -104,6 +104,26 @@ describe("ProviderChain", () => {
     expect(r.attempts).toEqual([expect.objectContaining({ provider: "os", outcome: "ok" })]);
   });
 
+  it("prewarm kicks isAvailable on every non-cloud provider, skips cloud, never throws", async () => {
+    const warmed: string[] = [];
+    const chain = new ProviderChain(
+      [
+        provider("os", { isAvailable: async () => (warmed.push("os"), true) }),
+        provider("bundled", {
+          isAvailable: async () => {
+            warmed.push("bundled");
+            throw new Error("download boom"); // must be swallowed
+          },
+        }),
+        cloudProvider(),
+      ],
+      ["os", "bundled", "cloud"],
+    );
+    expect(() => chain.prewarm()).not.toThrow();
+    await new Promise((r) => setTimeout(r, 0)); // let the fire-and-forget settle
+    expect(warmed.sort()).toEqual(["bundled", "os"]); // cloud never probed
+  });
+
   it("falls through unavailable → refused → unparseable → error to the cloud", async () => {
     const chain = new ProviderChain([
       provider("os", { isAvailable: async () => false }),

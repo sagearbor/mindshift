@@ -257,6 +257,27 @@ export class ProviderChain {
     return this.ordered.map((p) => p.name);
   }
 
+  /**
+   * Kick each on-device provider's `isAvailable()` — which for the `os` rung
+   * triggers Android's first-use AICore download of Gemini Nano — WITHOUT
+   * blocking. Call it when Live Coach mounts so the model is downloading while
+   * the user reads the pre-flight, instead of starting only on the first
+   * suggestion mid-session (which made the first ~9 turns fall through to cloud
+   * at ~9 s latency, then Gemini Nano fired once at the end — dx-6CY7-R9B4,
+   * 2026-08-26). Each provider memoizes its preparation, so `suggest()` reuses
+   * whatever this started. The `cloud` rung has a trivial `isAvailable()`, so
+   * skip it. Fire-and-forget: failures are the chain's problem at suggest time,
+   * not here.
+   */
+  prewarm(): void {
+    for (const p of this.ordered) {
+      if (p.name === "cloud") continue;
+      void Promise.resolve()
+        .then(() => p.isAvailable())
+        .catch(() => {});
+    }
+  }
+
   async suggest(input: SuggestInput): Promise<ChainResult> {
     const attempts: ChainAttempt[] = [];
     for (const p of this.ordered) {
