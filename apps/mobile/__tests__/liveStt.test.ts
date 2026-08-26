@@ -39,6 +39,31 @@ describe("TranscriptAligner", () => {
     expect(a.textForSpan(2.1, 3.9).text).toBe("five six");
   });
 
+  it("de-duplicates a cumulative recognizer that re-sends the whole utterance (Android)", () => {
+    // Real Pixel 10 bug (2026-08-26): Android's SpeechRecognizer re-emits the
+    // entire utterance-so-far on each final, re-punctuating as it grows, so the
+    // coach fired again on the same sentence. Only the NEW words should count.
+    const a = new TranscriptAligner();
+    a.markRecognizerStart(0);
+    a.push({ text: "Um, the house is dirty and.", isFinal: true }, 2.0);
+    a.push({ text: "Um, the house is dirty, and I do all the work.", isFinal: true }, 4.0);
+    expect(a.textForSpan(0.0, 1.6).text).toBe("Um, the house is dirty and.");
+    expect(a.textForSpan(2.0, 3.9).text).toBe("I do all the work."); // delta only, not the whole thing
+    // A fresh recognizer session (restart) resets the cumulative baseline.
+    a.markRecognizerStart(5);
+    a.push({ text: "Um, the house is clean now.", isFinal: true }, 7.0);
+    expect(a.textForSpan(5.0, 6.9).text).toBe("Um, the house is clean now."); // not deduped against the old session
+  });
+
+  it("keeps a genuinely repeated identical phrase (not treated as a re-emission)", () => {
+    const a = new TranscriptAligner();
+    a.markRecognizerStart(0);
+    a.push({ text: "stop doing that", isFinal: true }, 2.0);
+    a.push({ text: "stop doing that", isFinal: true }, 4.0); // said again, no growth
+    expect(a.textForSpan(0.0, 1.6).text).toBe("stop doing that");
+    expect(a.textForSpan(2.0, 3.9).text).toBe("stop doing that"); // NOT dropped as duplicate
+  });
+
   it("falls back to an overlapping interim result, flagged non-final", () => {
     const a = new TranscriptAligner();
     a.markRecognizerStart(0);
