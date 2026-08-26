@@ -54,6 +54,10 @@ export interface LatencySummary {
   medianSttWaitMs: number | null;
   /** Which provider answered how many turns ("os", "bundled", "cloud", …). */
   byProvider: Record<string, number>;
+  /** Per-provider attempt outcomes across all turns, e.g. {"os:refused": 12,
+   *  "bundled:unavailable": 12}. Answers WHY a local provider isn't carrying
+   *  turns (Gemini Nano refusing coaching text vs timing out vs unavailable). */
+  byOutcome: Record<string, number>;
   held: number;
 }
 
@@ -69,6 +73,13 @@ export function summarizeLatency(log: readonly TurnLatency[]): LatencySummary {
   const stt = log.map((l) => l.sttWaitMs).sort((a, b) => a - b);
   const byProvider: Record<string, number> = {};
   for (const l of log) byProvider[l.provider] = (byProvider[l.provider] ?? 0) + 1;
+  const byOutcome: Record<string, number> = {};
+  for (const l of log) {
+    for (const a of l.attempts ?? []) {
+      const key = `${a.provider}:${a.outcome}`;
+      byOutcome[key] = (byOutcome[key] ?? 0) + 1;
+    }
+  }
   return {
     turns: log.length,
     spoken: toSpeak.length,
@@ -77,6 +88,7 @@ export function summarizeLatency(log: readonly TurnLatency[]): LatencySummary {
     medianLlmMs: percentile(llm, 0.5),
     medianSttWaitMs: percentile(stt, 0.5),
     byProvider,
+    byOutcome,
     held: log.filter((l) => l.held).length,
   };
 }

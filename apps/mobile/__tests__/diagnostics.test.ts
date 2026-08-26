@@ -67,9 +67,22 @@ describe("diagnostics", () => {
       medianLlmMs: 402,
       medianSttWaitMs: 102,
       byProvider: { os: 1, cloud: 2 },
+      byOutcome: {},
       held: 1,
     });
     expect(summarizeLatency([])).toMatchObject({ turns: 0, spoken: 0, medianToSpeakMs: null, byProvider: {} });
+  });
+
+  it("aggregates per-provider attempt outcomes (why a local rung didn't answer)", () => {
+    const withAttempts = (turn: number, attempts: { provider: string; outcome: string }[]) => ({
+      ...lat(turn, null, "cloud"),
+      attempts,
+    });
+    const s = summarizeLatency([
+      withAttempts(1, [{ provider: "os", outcome: "refused" }, { provider: "bundled", outcome: "unavailable" }, { provider: "cloud", outcome: "cloud" }]),
+      withAttempts(2, [{ provider: "os", outcome: "refused" }, { provider: "cloud", outcome: "cloud" }]),
+    ]);
+    expect(s.byOutcome).toEqual({ "os:refused": 2, "bundled:unavailable": 1, "cloud:cloud": 2 });
   });
 
   it("reads the device model from Platform.constants (Android) and the UA on the web", () => {
