@@ -392,6 +392,18 @@ export default function LiveCoachScreen({
 
   return (
     <View style={styles.container}>
+      {/* Everything above the Start/Stop button scrolls: the setup content
+          (mode, toggles, sliders, pre-flight card, tips) is taller than the
+          screen on a phone, and before this it was clipped under the tab bar
+          with no way to reach it (regression found on a Pixel 10, 2026-08-26).
+          The Start/Stop button stays OUTSIDE the ScrollView as a fixed footer
+          so the primary action is always reachable. */}
+      <ScrollView
+        style={styles.scrollArea}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        testID="live-coach-scroll"
+      >
       {/* Header with connection status. The heading takes the flexible space
           and the status pins to the right at a fixed width, so a long status
           word ("disconnected") can never overlap the title (a real Pixel bug). */}
@@ -791,7 +803,10 @@ export default function LiveCoachScreen({
         </TouchableOpacity>
       )}
 
-      {/* Start/Stop button. Call mode starts from the call panel (Start a
+      </ScrollView>
+
+      {/* Start/Stop button — fixed footer, outside the ScrollView so it is
+          always reachable. Call mode starts from the call panel (Start a
           call / Join / Answer) and stops by hanging up. */}
       {isCall && !sessionActive ? null : (
         <TouchableOpacity
@@ -815,6 +830,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#F9FAFB",
+  },
+  scrollArea: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 8,
   },
   header: {
     flexDirection: "row",
