@@ -25,10 +25,14 @@ __pycache__/
 *.db-wal
 *.db-shm
 
-# Local model caches (gitignored; several GB after the tone evals). The image
-# re-downloads the pinned ECAPA checkpoint and pre-exports the ONNX at build
-# time (Dockerfile), and tone models are fetched only if MINDSHIFT_TONE_AUDIO
-# is ever turned on — uploading these just made `gcloud builds submit` take
-# minutes and time out (2026-08-24).
-server/.ecapa_cache/
+# Local model caches (gitignored; several GB after the tone evals). We DO ship
+# the 84 MB ECAPA ONNX export (the phone's speaker-ID download, served by
+# GET /models/ecapa.onnx) so the image is self-sufficient: the Dockerfile only
+# pre-exports it when built with the optional torch build-arg, and a plain
+# `gcloud builds submit` build has no torch — leaving GET /models/ecapa.onnx to
+# 500 and speaker-ID off on the phone (real failure, 2026-08-26). Uploading
+# just the .onnx (not the hundreds-of-MB speechbrain checkpoint, nor the 2.9 GB
+# tone cache) keeps `gcloud builds submit` fast while making the model present.
+server/.ecapa_cache/*
+!server/.ecapa_cache/*.onnx
 server/.tone_cache/
