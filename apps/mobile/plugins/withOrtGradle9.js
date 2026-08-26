@@ -36,9 +36,32 @@
 //    React Native and Expo modules set for themselves. Pass it explicitly
 //    (plus the raw linker flag, so this holds on an NDK that doesn't know
 //    the option). Verify after a build with scripts/check_16kb_alignment.py.
+//
+// 5. onnxruntime-react-native is COMPILED but never REGISTERED on Android, so
+//    `NativeModules.Onnxruntime` is null at runtime and the package's own
+//    lib/binding.ts calls `Module.install()` on it unconditionally at import:
+//
+//      TypeError: Cannot read property 'install' of null
+//        tryRequire -> ortNative -> buildVad -> probeFastLoopCapabilities
+//
+//    Live Coach probes fast-loop capabilities on mount, so opening it killed
+//    the app instantly (v1.18.0 vc 37 on a Pixel 10, 2026-08-26 — found in
+//    `dumpsys dropbox`, six recorded crashes).
+//
+//    Why it compiles but never registers: ORT's own app.plugin.js adds ONLY
+//    the Gradle dependency (`implementation project(':onnxruntime-react-native')`),
+//    which is why the classes and .so files are in the APK. For registration
+//    it relies on autolinking, and neither path picks it up — it ships a
+//    LEGACY `unimodule.json` (modern Expo uses expo-module.config.json) and no
+//    `react-native.config.js`, so it is absent from
+//    `expo-modules-autolinking react-native-config --platform android`.
+//    Registering it by hand in MainApplication's documented escape hatch is
+//    exact and does not depend on discovery. `OnnxruntimePackage` is a plain
+//    ReactPackage; RN 0.76 bridgeless reaches it through the legacy interop.
 const path = require("path");
 const {
   withGradleProperties,
+  withMainApplication,
   withPodfile,
   withProjectBuildGradle,
 } = require("expo/config-plugins");
@@ -113,6 +136,29 @@ const withOrtGradle9 = (config) => {
       value: "ML Kit genai-prompt (expo-ai-kit / Gemini Nano) declares minSdk 26 — see plugins/withOrtGradle9.js",
     });
     mod.modResults.push({ type: "property", key: "android.minSdkVersion", value: MIN_SDK });
+    return mod;
+  });
+
+  config = withMainApplication(config, (mod) => {
+    if (mod.modResults.language !== "kt") {
+      throw new Error("withOrtGradle9: MainApplication is not Kotlin");
+    }
+    const src = mod.modResults.contents;
+    if (src.includes("OnnxruntimePackage()")) return mod;
+    // The generated hook is exactly:
+    //   PackageList(this).packages.apply {
+    //     // Packages that cannot be autolinked yet can be added manually here...
+    //   }
+    const anchor = "PackageList(this).packages.apply {";
+    if (!src.includes(anchor)) {
+      throw new Error(
+        "withOrtGradle9: MainApplication has no PackageList(...).apply hook to register ORT into",
+      );
+    }
+    mod.modResults.contents = src.replace(
+      anchor,
+      `${anchor}\n          // onnxruntime-react-native ships no working autolinking on Android —\n          // see plugins/withOrtGradle9.js (5). Without this the fast loop's\n          // ORT import throws and Live Coach crashes on mount.\n          add(ai.onnxruntime.reactnative.OnnxruntimePackage())`,
+    );
     return mod;
   });
 
