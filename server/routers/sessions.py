@@ -423,9 +423,18 @@ async def _post_ingest(
 
     if analyze and len(turns) >= main.ANALYZE_MIN_TURNS:
         try:
+            # Empty-text turns (short VAD fragments the on-device loop still
+            # emits for structure) fail AnalyzeTurn.text's min_length — a single
+            # one raised ValidationError and killed the WHOLE batch analysis, so
+            # a real session showed "Couldn't analyze this one" (uid ...446cc7,
+            # 2026-08-26). The per-turn analysis is INDEX-aligned to `turns`
+            # (live_sessions line ~1202), so we cannot drop them; give an empty
+            # turn a neutral placeholder instead. It scores as a low-content
+            # line and keeps every downstream index intact.
             analyze_turns = [
                 main.AnalyzeTurn(
-                    speaker=str(t.get("speaker")), text=str(t.get("text") or ""),
+                    speaker=str(t.get("speaker")),
+                    text=(str(t.get("text") or "").strip() or "(inaudible)"),
                     start_time=t.get("start_time"), end_time=t.get("end_time"),
                 )
                 for t in turns
