@@ -58,6 +58,10 @@ export interface LatencySummary {
    *  "bundled:unavailable": 12}. Answers WHY a local provider isn't carrying
    *  turns (Gemini Nano refusing coaching text vs timing out vs unavailable). */
   byOutcome: Record<string, number>;
+  /** One representative error/refusal detail per "provider:outcome", so the
+   *  actual on-device error text is visible (e.g. the Gemini Nano exception),
+   *  not just the count. Truncated. */
+  outcomeSamples: Record<string, string>;
   held: number;
 }
 
@@ -74,10 +78,12 @@ export function summarizeLatency(log: readonly TurnLatency[]): LatencySummary {
   const byProvider: Record<string, number> = {};
   for (const l of log) byProvider[l.provider] = (byProvider[l.provider] ?? 0) + 1;
   const byOutcome: Record<string, number> = {};
+  const outcomeSamples: Record<string, string> = {};
   for (const l of log) {
     for (const a of l.attempts ?? []) {
       const key = `${a.provider}:${a.outcome}`;
       byOutcome[key] = (byOutcome[key] ?? 0) + 1;
+      if (a.detail && !outcomeSamples[key]) outcomeSamples[key] = a.detail.slice(0, 200);
     }
   }
   return {
@@ -89,6 +95,7 @@ export function summarizeLatency(log: readonly TurnLatency[]): LatencySummary {
     medianSttWaitMs: percentile(stt, 0.5),
     byProvider,
     byOutcome,
+    outcomeSamples,
     held: log.filter((l) => l.held).length,
   };
 }

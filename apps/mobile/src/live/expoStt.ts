@@ -23,6 +23,7 @@
  * continuous mode can emit a `client` error on Android — it is swallowed
  * here after stop because the session is over anyway.
  */
+import { Directory, File, Paths } from "expo-file-system";
 import { Platform } from "react-native";
 import type { SpeechRecognizer, SttResultEvent } from "./stt";
 
@@ -94,24 +95,46 @@ export function onDeviceSttAvailable(): boolean {
   }
 }
 
-// Fire the offline-model trigger AT MOST ONCE per app run. It surfaces
-// Android's own "Download English (US) update (146 MB)" system dialog, and
-// createDefaultFastLoop calls this on every session start — so without this
-// guard the dialog nagged the user before every single session (Pixel 10,
-// 2026-08-26). On-device recognition already works with the base model (live
-// sessions transcribe fine); the 146 MB pack is the optional enhanced model,
-// so prompting once is plenty.
+// Fire the offline-model trigger AT MOST ONCE EVER (persisted to disk). It
+// surfaces Android's own "Download English (US) update (146 MB)" system dialog,
+// and createDefaultFastLoop calls this on every session start — so without a
+// guard the dialog nagged before every session, and a per-run guard still
+// re-fired after each app restart (which the user does to apply OTAs). On-device
+// recognition already works with the base model (live sessions transcribe
+// fine); the 146 MB pack is the optional enhanced model, so ONE prompt per
+// install is plenty. A marker file records that we've asked.
 const triggeredLocales = new Set<string>();
 
-/** Best-effort: kick off the Android offline model download (13+), once. */
+function offlineMarker(lang: string): File | null {
+  try {
+    return new File(new Directory(Paths.document, "stt"), `offline-${lang}.asked`);
+  } catch {
+    return null; // web / no document dir — fall back to the in-memory guard
+  }
+}
+
+/** Best-effort: kick off the Android offline model download (13+), once ever. */
 export async function ensureOfflineModel(lang = "en-US"): Promise<void> {
   if (Platform.OS !== "android") return;
   if (triggeredLocales.has(lang)) return;
   triggeredLocales.add(lang);
+  const marker = offlineMarker(lang);
+  try {
+    if (marker?.exists) return; // already asked on a previous run
+  } catch {
+    // fall through — an unreadable marker shouldn't block the base flow
+  }
   try {
     await speechModule()?.androidTriggerOfflineModelDownload({ locale: lang });
   } catch {
     // Older Android or no on-device service: start() reports its own error.
+  }
+  try {
+    const dir = new Directory(Paths.document, "stt");
+    if (!dir.exists) dir.create({ intermediates: true, idempotent: true });
+    marker?.write(new Date().toISOString());
+  } catch {
+    // Couldn't persist the marker — the in-memory guard still holds this run.
   }
 }
 

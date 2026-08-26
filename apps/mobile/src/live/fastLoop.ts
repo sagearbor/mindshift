@@ -88,10 +88,10 @@ export interface TurnLatency {
   provider: string;
   held: boolean;
   /** Per-provider outcome for THIS turn's suggestion attempt (os/bundled/cloud
-   *  × ok/refused/timeout/unavailable/error/cloud). Lets diagnostics show WHY a
-   *  local provider didn't answer — e.g. Gemini Nano refusing coaching text and
-   *  falling through to cloud. Absent when no suggestion was attempted. */
-  attempts?: { provider: string; outcome: string }[];
+   *  × ok/refused/timeout/unavailable/error/cloud), with the error/refusal
+   *  detail so diagnostics can show WHY a local provider didn't answer — e.g.
+   *  the exact Gemini Nano error. Absent when no suggestion was attempted. */
+  attempts?: { provider: string; outcome: string; detail?: string }[];
 }
 
 export interface LocalTurn {
@@ -710,7 +710,11 @@ export class FastLoop {
       });
       llmMs = this.now() - tl0;
       provider = result.provider;
-      attempts = result.attempts.map((a) => ({ provider: a.provider, outcome: a.outcome }));
+      attempts = result.attempts.map((a) => ({
+        provider: a.provider,
+        outcome: a.outcome,
+        ...(a.detail ? { detail: a.detail } : {}),
+      }));
       if (result.output) {
         suggestion = result.output.suggestion;
         textTone = result.output.textTone;

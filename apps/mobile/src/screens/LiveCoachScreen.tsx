@@ -122,6 +122,12 @@ export default function LiveCoachScreen({
   const userId = useAuthStore((s) => s.user?.uid ?? null);
   const [empathyLevel, setEmpathyLevel] = useState(50);
   const [interjectLevel, setInterjectLevel] = useState(0);
+  // Speak the coach's suggestions aloud (default on). Off = on-screen only,
+  // for when you have no earbud — which also stops the phone's own TTS from
+  // playing on the speaker, being re-heard by the mic, and showing up as a
+  // phantom extra speaker (a real feedback loop on a Pixel 10). Therapist mode
+  // is always silent regardless.
+  const [speakAloud, setSpeakAloud] = useState(true);
   // Scoreboard (opt-in, remembered per account) + mid-call naming state.
   const [scoreboardOn, setScoreboardOn] = useState(false);
   const scoreboardLoadedRef = useRef(false);
@@ -152,8 +158,8 @@ export default function LiveCoachScreen({
   // the room is quiet), therapist mode never does. The hook stops any
   // in-flight utterance when this flips to false.
   useEffect(() => {
-    setSpeechEnabled(sessionMode !== "therapist");
-  }, [sessionMode, setSpeechEnabled]);
+    setSpeechEnabled(sessionMode !== "therapist" && speakAloud);
+  }, [sessionMode, speakAloud, setSpeechEnabled]);
 
   // Remember the mode per account (Sage's phone opens on the mode he used
   // last, Mom's on therapist) — loaded once, saved on every explicit change.
@@ -525,6 +531,21 @@ export default function LiveCoachScreen({
 
       {/* Pleasantness scoreboard (PRD §6): opt-in, off by default, remembered
           per account. A race to be nicer — both lines climbing is the win. */}
+      {/* Speak aloud — only meaningful in a mode that would speak (therapist
+          is always silent). Off keeps nudges on screen without any TTS. */}
+      {sessionMode !== "therapist" ? (
+        <View style={styles.modeRow} testID="speak-aloud-row">
+          <Text style={styles.modeLabel}>Speak aloud</Text>
+          <Switch
+            testID="speak-aloud-switch"
+            value={speakAloud}
+            onValueChange={setSpeakAloud}
+          />
+          <Text style={styles.modeHint} numberOfLines={1}>
+            {speakAloud ? "coach speaks — use an earbud" : "silent — nudges on screen"}
+          </Text>
+        </View>
+      ) : null}
       <View style={styles.modeRow} testID="scoreboard-row">
         <Text style={styles.modeLabel}>Scoreboard</Text>
         <Switch

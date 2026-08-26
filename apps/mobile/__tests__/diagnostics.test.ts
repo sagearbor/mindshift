@@ -68,6 +68,7 @@ describe("diagnostics", () => {
       medianSttWaitMs: 102,
       byProvider: { os: 1, cloud: 2 },
       byOutcome: {},
+      outcomeSamples: {},
       held: 1,
     });
     expect(summarizeLatency([])).toMatchObject({ turns: 0, spoken: 0, medianToSpeakMs: null, byProvider: {} });
