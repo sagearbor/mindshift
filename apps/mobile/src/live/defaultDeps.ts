@@ -239,6 +239,10 @@ export async function probeFastLoopCapabilities(
         ),
   ]);
   const llm = buildLlm(options.providerOrder);
+  // Start the on-device model (Gemini Nano's AICore download) NOW, while the
+  // user is still on the pre-flight — not on the first suggestion mid-session.
+  // Fire-and-forget; each provider memoizes the preparation. See ProviderChain.prewarm.
+  llm.prewarm();
   return {
     vad: vad instanceof SileroVad ? "silero" : "energy",
     speakerId: speaker.capability,

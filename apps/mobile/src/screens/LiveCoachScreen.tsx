@@ -122,6 +122,12 @@ export default function LiveCoachScreen({
   const userId = useAuthStore((s) => s.user?.uid ?? null);
   const [empathyLevel, setEmpathyLevel] = useState(50);
   const [interjectLevel, setInterjectLevel] = useState(0);
+  // Speak the coach's suggestions aloud (default on). Off = on-screen only,
+  // for when you have no earbud — which also stops the phone's own TTS from
+  // playing on the speaker, being re-heard by the mic, and showing up as a
+  // phantom extra speaker (a real feedback loop on a Pixel 10). Therapist mode
+  // is always silent regardless.
+  const [speakAloud, setSpeakAloud] = useState(true);
   // Scoreboard (opt-in, remembered per account) + mid-call naming state.
   const [scoreboardOn, setScoreboardOn] = useState(false);
   const scoreboardLoadedRef = useRef(false);
@@ -152,8 +158,8 @@ export default function LiveCoachScreen({
   // the room is quiet), therapist mode never does. The hook stops any
   // in-flight utterance when this flips to false.
   useEffect(() => {
-    setSpeechEnabled(sessionMode !== "therapist");
-  }, [sessionMode, setSpeechEnabled]);
+    setSpeechEnabled(sessionMode !== "therapist" && speakAloud);
+  }, [sessionMode, speakAloud, setSpeechEnabled]);
 
   // Remember the mode per account (Sage's phone opens on the mode he used
   // last, Mom's on therapist) — loaded once, saved on every explicit change.
@@ -392,6 +398,18 @@ export default function LiveCoachScreen({
 
   return (
     <View style={styles.container}>
+      {/* Everything above the Start/Stop button scrolls: the setup content
+          (mode, toggles, sliders, pre-flight card, tips) is taller than the
+          screen on a phone, and before this it was clipped under the tab bar
+          with no way to reach it (regression found on a Pixel 10, 2026-08-26).
+          The Start/Stop button stays OUTSIDE the ScrollView as a fixed footer
+          so the primary action is always reachable. */}
+      <ScrollView
+        style={styles.scrollArea}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        testID="live-coach-scroll"
+      >
       {/* Header with connection status. The heading takes the flexible space
           and the status pins to the right at a fixed width, so a long status
           word ("disconnected") can never overlap the title (a real Pixel bug). */}
@@ -513,6 +531,21 @@ export default function LiveCoachScreen({
 
       {/* Pleasantness scoreboard (PRD §6): opt-in, off by default, remembered
           per account. A race to be nicer — both lines climbing is the win. */}
+      {/* Speak aloud — only meaningful in a mode that would speak (therapist
+          is always silent). Off keeps nudges on screen without any TTS. */}
+      {sessionMode !== "therapist" ? (
+        <View style={styles.modeRow} testID="speak-aloud-row">
+          <Text style={styles.modeLabel}>Speak aloud</Text>
+          <Switch
+            testID="speak-aloud-switch"
+            value={speakAloud}
+            onValueChange={setSpeakAloud}
+          />
+          <Text style={styles.modeHint} numberOfLines={1}>
+            {speakAloud ? "coach speaks — use an earbud" : "silent — nudges on screen"}
+          </Text>
+        </View>
+      ) : null}
       <View style={styles.modeRow} testID="scoreboard-row">
         <Text style={styles.modeLabel}>Scoreboard</Text>
         <Switch
@@ -791,7 +824,10 @@ export default function LiveCoachScreen({
         </TouchableOpacity>
       )}
 
-      {/* Start/Stop button. Call mode starts from the call panel (Start a
+      </ScrollView>
+
+      {/* Start/Stop button — fixed footer, outside the ScrollView so it is
+          always reachable. Call mode starts from the call panel (Start a
           call / Join / Answer) and stops by hanging up. */}
       {isCall && !sessionActive ? null : (
         <TouchableOpacity
@@ -815,6 +851,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#F9FAFB",
+  },
+  scrollArea: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 8,
   },
   header: {
     flexDirection: "row",

@@ -64,7 +64,16 @@ export interface SuggestionProvider {
   /** A parsed suggestion; `null` means "nothing local — the cloud will
    *  answer" (only the cloud provider does that). Throws on model failure. */
   suggest(input: SuggestInput): Promise<SuggestOutput | null>;
+  /** Optional per-provider `suggest()` budget (ms). On-device inference
+   *  (Gemini Nano) is far slower than a cloud call, so `os` overrides the
+   *  chain default here; unset providers use ChainTimeouts.suggestMs. */
+  readonly suggestTimeoutMs?: number;
 }
+
+/** Verbose on-device-LLM tracing to the console (adb logcat), gated so it is
+ *  fully off in normal builds. Flip on by baking EXPO_PUBLIC_DEBUG_LLM=1 into
+ *  the OTA/build env, then read it with `adb logcat | grep "[llm]"`. */
+export const LLM_DEBUG = process.env.EXPO_PUBLIC_DEBUG_LLM === "1";
 
 // ---------------------------------------------------------------------------
 // The one prompt template every provider shares.
@@ -257,6 +266,27 @@ export class ProviderChain {
     return this.ordered.map((p) => p.name);
   }
 
+  /**
+   * Kick each on-device provider's `isAvailable()` — which for the `os` rung
+   * triggers Android's first-use AICore download of Gemini Nano — WITHOUT
+   * blocking. Call it when Live Coach mounts so the model is downloading while
+   * the user reads the pre-flight, instead of starting only on the first
+   * suggestion mid-session (which made the first ~9 turns fall through to cloud
+   * at ~9 s latency, then Gemini Nano fired once at the end — dx-6CY7-R9B4,
+   * 2026-08-26). Each provider memoizes its preparation, so `suggest()` reuses
+   * whatever this started. The `cloud` rung has a trivial `isAvailable()`, so
+   * skip it. Fire-and-forget: failures are the chain's problem at suggest time,
+   * not here.
+   */
+  prewarm(): void {
+    for (const p of this.ordered) {
+      if (p.name === "cloud") continue;
+      void Promise.resolve()
+        .then(() => p.isAvailable())
+        .catch(() => {});
+    }
+  }
+
   async suggest(input: SuggestInput): Promise<ChainResult> {
     const attempts: ChainAttempt[] = [];
     for (const p of this.ordered) {
@@ -276,33 +306,34 @@ export class ProviderChain {
         continue;
       }
       try {
-        const out = await withTimeout(p.suggest(input), this.timeouts.suggestMs, "suggest");
+        const budget = p.suggestTimeoutMs ?? this.timeouts.suggestMs;
+        const out = await withTimeout(p.suggest(input), budget, "suggest");
         const ms = this.now() - t0;
         if (out === null) {
           attempts.push({ provider: p.name, outcome: "cloud", ms });
+          if (LLM_DEBUG) console.log(`[llm] ${p.name}: cloud (${Math.round(ms)}ms)`);
           return { output: null, provider: p.name, attempts };
         }
         if (isRefusal(out.suggestion)) {
           attempts.push({ provider: p.name, outcome: "refused", ms, detail: out.suggestion });
+          if (LLM_DEBUG) console.log(`[llm] ${p.name}: refused (${Math.round(ms)}ms) ${out.suggestion.slice(0, 120)}`);
           continue;
         }
         attempts.push({ provider: p.name, outcome: "ok", ms });
+        if (LLM_DEBUG) console.log(`[llm] ${p.name}: ok (${Math.round(ms)}ms)`);
         return { output: out, provider: p.name, attempts };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        attempts.push({
-          provider: p.name,
-          outcome:
-            err instanceof ChainTimeoutError
-              ? "timeout"
-              : isRefusal(msg)
-                ? "refused"
-                : msg.startsWith("unparseable")
-                  ? "unparseable"
-                  : "error",
-          ms: this.now() - t0,
-          detail: msg,
-        });
+        const outcome =
+          err instanceof ChainTimeoutError
+            ? "timeout"
+            : isRefusal(msg)
+              ? "refused"
+              : msg.startsWith("unparseable")
+                ? "unparseable"
+                : "error";
+        attempts.push({ provider: p.name, outcome, ms: this.now() - t0, detail: msg });
+        if (LLM_DEBUG) console.log(`[llm] ${p.name}: ${outcome} (${Math.round(this.now() - t0)}ms) ${msg.slice(0, 200)}`);
       }
     }
     return { output: null, provider: "none", attempts };
@@ -350,6 +381,11 @@ export function osModelProvider(ai: ExpoAiKitLike, builtInId: "mlkit" | "apple-f
   let prepared: Promise<boolean> | null = null;
   return {
     name: "os",
+    // On-device inference (Gemini Nano / Apple FM) is much slower than a cloud
+    // call. A real Pixel 10 hit the old 4 s budget every turn (os:timeout),
+    // never answering; give it 8 s so a genuinely-working-but-slow model can
+    // land before we fall through to cloud (dx-7XJB-GDR9, 2026-08-26).
+    suggestTimeoutMs: 8000,
     isAvailable() {
       if (!prepared) {
         prepared = (async () => {

@@ -23,7 +23,26 @@ import type { OnnxSession } from "./ort";
 import { float32Tensor } from "./ort";
 
 export const MATCH_THRESHOLD = 0.65;
-export const CLUSTER_THRESHOLD = 0.55;
+// Merge threshold for the ONLINE (live, on-device) unknown-speaker clustering.
+// LOWER than the server/batch value (server/watch/diarize.py keeps 0.55) on
+// purpose: live turns are short and the on-device ECAPA embedding of the SAME
+// voice only reaches cosine ~0.43 @ 1.5 s / ~0.54 @ 2.0 s against the running
+// centroid (the p10 numbers documented below), while a DIFFERENT voice stays
+// < 0.31 in the clean two-party case. At 0.55 the same person kept scoring
+// below threshold and founding fresh clusters — a real 2-voice therapist
+// session split into 5 speakers (dx-45DS-H9DP, Pixel 10, 2026-08-26); the
+// scene_couple_escalation fixture split 2 voices into 3.
+//
+// 0.48 is the tuned compromise, validated on the fixture pack: it merges the
+// couple's stray fragment (2 speakers, 12/13 attribution, was 3/11) and drops
+// a family_real cluster, WHILE keeping poker6's six distinct voices as six and
+// leaving the 3-party family scene unchanged. The one cost is scene_meeting4
+// (a 4-party business meeting, not the couples/family product core), whose
+// speakers sit unusually close (0.48-0.55) and lose some separation
+// (14->11/17). Batch diarization runs on longer, cleaner segments and keeps
+// 0.55. Lower this further only with fresh fixture evidence (harness rule:
+// investigate a regression, don't just lower).
+export const CLUSTER_THRESHOLD = 0.48;
 export const ECAPA_DIM = 192;
 /**
  * Below this much audio an ECAPA embedding is too unstable to FOUND a new

@@ -152,8 +152,22 @@ export async function fetchVoiceprints(path = VOICEPRINTS_PATH): Promise<Voicepr
   }
 }
 
+// The pinned ECAPA revision the server exports and the phone's voiceprints are
+// tied to (server: speaker_id.ECAPA_REVISION). Bump BOTH this and the uploaded
+// file when the pin changes.
+const ECAPA_REVISION = "0f99f2d0ebe89ac095bcc5903c4dd8f72b367286";
+
 export function ecapaModelUrl(): string {
-  return `${API_URL}/models/ecapa.onnx`;
+  // Served from Firebase Hosting (public CDN), NOT the Cloud Run API. The API's
+  // GET /models/ecapa.onnx returned 500 on the 84 MB body from a real Pixel 10
+  // (HEAD 200 / GET 500, deterministic — Cloud-Run-specific, the route serves
+  // fine locally, 2026-08-26), which left speaker-ID off and every voice
+  // labelled "Unknown". Hosting handles the large file with Range support and
+  // an ETag, so modelDownload.ts's download-once + revalidate works unchanged;
+  // the revision in the path versions it. Overridable for tests/self-host.
+  const override = process.env.EXPO_PUBLIC_ECAPA_URL;
+  if (override) return override;
+  return `https://arborfam-hub.web.app/models/ecapa_${ECAPA_REVISION}.onnx`;
 }
 
 /** One enrolled person, as the pre-session "who's here" strip shows it

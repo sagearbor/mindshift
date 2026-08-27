@@ -87,6 +87,11 @@ export interface TurnLatency {
   toSpeakMs: number | null;
   provider: string;
   held: boolean;
+  /** Per-provider outcome for THIS turn's suggestion attempt (os/bundled/cloud
+   *  × ok/refused/timeout/unavailable/error/cloud), with the error/refusal
+   *  detail so diagnostics can show WHY a local provider didn't answer — e.g.
+   *  the exact Gemini Nano error. Absent when no suggestion was attempted. */
+  attempts?: { provider: string; outcome: string; detail?: string }[];
 }
 
 export interface LocalTurn {
@@ -685,6 +690,7 @@ export class FastLoop {
     let textTone: TextTone | null = null;
     let provider = "none";
     let llmMs = 0;
+    let attempts: { provider: string; outcome: string }[] | undefined;
     if (aligned.text) {
       const tl0 = this.now();
       // The prompt names people the way the user does ("Mom", not
@@ -704,6 +710,11 @@ export class FastLoop {
       });
       llmMs = this.now() - tl0;
       provider = result.provider;
+      attempts = result.attempts.map((a) => ({
+        provider: a.provider,
+        outcome: a.outcome,
+        ...(a.detail ? { detail: a.detail } : {}),
+      }));
       if (result.output) {
         suggestion = result.output.suggestion;
         textTone = result.output.textTone;
@@ -720,6 +731,7 @@ export class FastLoop {
       toSpeakMs: null,
       provider,
       held: false,
+      attempts,
     };
     const turn: LocalTurn = {
       index,

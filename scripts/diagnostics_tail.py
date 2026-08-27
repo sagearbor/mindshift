@@ -104,6 +104,12 @@ def summarize(event: dict) -> str:
             f"spoken {lat.get('spoken')}/{lat.get('turns')} held {lat.get('held')} "
             f"providers={json.dumps(lat.get('byProvider') or {})}"
         )
+        if lat.get("byOutcome"):
+            # WHY each local rung did/didn't answer, e.g. {"os:refused": 12}.
+            lines.append(f"   attempt outcomes={json.dumps(lat.get('byOutcome'))}")
+        for key, sample in (lat.get("outcomeSamples") or {}).items():
+            # The actual error/refusal text (e.g. the Gemini Nano exception).
+            lines.append(f"     {key}: {sample}")
         lines.append(
             f"   stt restarts={s.get('sttRestarts')} failure={s.get('sttFailure') or '-'} | "
             f"ws reconnects={s.get('wsReconnects')} | mic={s.get('micError') or '-'}"

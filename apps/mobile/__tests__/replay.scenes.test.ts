@@ -99,9 +99,11 @@ maybe("scene pack replay (real Silero + ECAPA, scripted STT/LLM, virtual clock)"
     expect(r.capability.enrolled).toHaveLength(1);
     expect(r.capability.enrolled[0]).toMatchObject({ displayName: "Speaker A", isSelf: true, crossScene: true, fromScene: "scene_family3", turnsUsed: [2, 5, 9, 11, 14] });
     // Attribution: the print is from ANOTHER scene; 6 of 7 self turns match
-    // it (the miss is the closing 1.3 s fragment), the partner is one unknown
-    // cluster, plus one stray cluster from a 1.3 s partner fragment.
-    expect(r.attribution).toMatchObject({ correct: 11, total: 13, selfCorrect: 6, selfTotal: 7, speakersDetected: 3, unknownClusters: 2 });
+    // it (the miss is the closing 1.3 s fragment), and the partner is now ONE
+    // clean unknown cluster. With the live CLUSTER_THRESHOLD lowered to 0.40
+    // (real short-turn same-voice similarity), the partner's fragments no
+    // longer split off a stray cluster: 2 speakers, correct 12/13 (was 3/11).
+    expect(r.attribution).toMatchObject({ correct: 12, total: 13, selfCorrect: 6, selfTotal: 7, speakersDetected: 2, unknownClusters: 1 });
     const selfScores = r.turns.filter((t) => t.isSelf).map((t) => t.matchScore as number);
     expect(Math.min(...selfScores)).toBeGreaterThanOrEqual(MATCH_THRESHOLD);
     // Fragmentation: 30 loop turns, 12 of 13 scripted turns split, none merged.
@@ -131,7 +133,7 @@ maybe("scene pack replay (real Silero + ECAPA, scripted STT/LLM, virtual clock)"
   it("scene_couple_escalation / speaker: identical to earpiece (both voice; the mode only changes the audio route)", async () => {
     const r = await run("scene_couple_escalation", { mode: "speaker" });
     expectInvariants(r);
-    expect(r.attribution.correct).toBe(11);
+    expect(r.attribution.correct).toBe(12);
     expect(r.speaking.spoken).toBe(29);
     expect(r.latency.toSpeakMedianMs).toBe(1600);
   }, 60_000);
@@ -181,7 +183,7 @@ maybe("scene pack replay (real Silero + ECAPA, scripted STT/LLM, virtual clock)"
     expect(r.speaking).toMatchObject({ spoken: 10, held: 29, dropped: 20, overVadSpeech: 0, overScriptedSpeech: 8 });
     expect(r.latency.toSpeakMedianMs).toBe(2050);
     // Coaching itself is unchanged: same turns, same nudges.
-    expect(r.attribution.correct).toBe(11);
+    expect(r.attribution.correct).toBe(12);
     expect(r.nudgeScore).toMatchObject({ hits: 3, misses: 0, falsePositives: 0 });
   }, 60_000);
 
@@ -224,12 +226,12 @@ maybe("scene pack replay (real Silero + ECAPA, scripted STT/LLM, virtual clock)"
     expectInvariants(t);
   }, 90_000);
 
-  it("scene_meeting4 / earpiece: 14/17 attribution but self only 2/5 — the shout and the apology don't match the calm print, so the strong nudge is MISSED (documented ceiling)", async () => {
+  it("scene_meeting4 / earpiece: 11/17 attribution, self 2/5 — the shout/apology don't match the calm print (missed nudge), and this 4-party meeting is where the live CLUSTER_THRESHOLD=0.48 costs some separation (its voices sit unusually close); documented trade-off for the couples/family core", async () => {
     const r = await run("scene_meeting4", { mode: "earpiece" });
     console.log(formatReport(r));
     console.log(summaryLine(r));
     expectInvariants(r);
-    expect(r.attribution).toMatchObject({ correct: 14, total: 17, selfCorrect: 2, selfTotal: 5, speakersDetected: 8, unknownClusters: 7 });
+    expect(r.attribution).toMatchObject({ correct: 11, total: 17, selfCorrect: 2, selfTotal: 5, speakersDetected: 7, unknownClusters: 6 });
     expect(r.turns).toHaveLength(34);
     expect(r.boundaries).toMatchObject({ split: 14, merged: 0, unmatched: 0 });
     // mild@11 hit; strong@13 missed: the 2 s shouted fragment scored below
