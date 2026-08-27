@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 import { File as FSFile, FileMode } from "expo-file-system";
 import type { Suggestion } from "../components/SuggestionCard";
+import type { Dimension } from "../live/pleasantness";
 import { getFreshToken } from "../auth/authToken";
 
 const API_URL =
@@ -93,6 +94,16 @@ export interface AnalyzePerTurn {
   // Optional so a pre-voice server (or the text-only /analyze path) simply omits
   // it; `null` when audio was present but prosody couldn't be measured.
   voice?: Voice | null;
+  // The FIVE PRD §6 pleasantness dimensions for this turn (warmth,
+  // constructiveness, calmness, respect, engagement), each 0–100 or `null`
+  // when the batch pass could not measure it — the SAME numbers the live
+  // on-device coach computes, from the ONE shared scorer (server/
+  // pleasantness.py ↔ live/pleasantness.ts). `pleasantness` is the weighted
+  // composite (0–100), `null` when no content dimension scored. Both optional
+  // so an old server / stored analysis simply omits them and the new
+  // breakdown falls back to heat.
+  dims?: Partial<Record<Dimension, number | null>> | null;
+  pleasantness?: number | null;
 }
 
 export interface HorsemenCounts {
