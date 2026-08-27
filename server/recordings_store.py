@@ -755,6 +755,41 @@ class RecordingsStore:
         )
         return meta
 
+    # -- raw transcript (STT output, incl. word timings) --------------------
+    # transcript.json is the transcriber's RAW utterances for the recording —
+    # pre-diarization labels, per-word timings and all — saved at first
+    # analysis so a re-analysis can skip STT yet still re-run every later
+    # stage exactly as the first pass did (the local-diarization cross-check
+    # needs the word timings to split a welded multi-voice utterance;
+    # turns.json is the POST-diarization transcript without them). Absent on
+    # recordings analyzed before this existed; re-analysis then transcribes
+    # once more and writes it.
+    async def save_transcript(
+        self, uid: str, recording_id: str, transcript: list[dict],
+    ) -> None:
+        await asyncio.to_thread(
+            self._save_transcript_sync, uid, recording_id, transcript,
+        )
+
+    def _save_transcript_sync(self, uid, recording_id, transcript) -> None:
+        prefix = self._prefix(uid, recording_id)
+        self._bucket.blob(prefix + "transcript.json").upload_from_string(
+            json.dumps(transcript), content_type="application/json",
+        )
+
+    async def get_transcript(
+        self, uid: str, recording_id: str,
+    ) -> list[dict] | None:
+        """The raw STT transcript, or ``None`` when none was stored."""
+        return await asyncio.to_thread(self._get_transcript_sync, uid, recording_id)
+
+    def _get_transcript_sync(self, uid, recording_id) -> list[dict] | None:
+        blob = self._bucket.blob(self._prefix(uid, recording_id) + "transcript.json")
+        if not blob.exists():
+            return None
+        data = json.loads(blob.download_as_bytes())
+        return data if isinstance(data, list) else None
+
     # -- live sessions (Track 2) -------------------------------------------
     # A live coaching session has NO audio on the server (the phone did the
     # listening) — so it is stored as meta + turns + analysis ONLY, under the

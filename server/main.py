@@ -511,10 +511,12 @@ class AnalyzeUploadResponse(AnalyzeResponse):
     # every turn) rather than a hard failure or fabricated labels. None when
     # prosody ran normally.
     voice_analysis: Optional[str] = None
-    # Non-None ONLY when the transcription provider switched mid-request (the
-    # Deepgram→local-Whisper fallback in audio_ingest.transcribe_upload) —
-    # states plainly which engine transcribed and why. A silent vendor swap is
-    # a house-rule violation; None means the configured primary ran normally.
+    # Non-None ONLY when the transcript did NOT come from the configured primary
+    # engine running normally: the Deepgram→local-Whisper fallback in
+    # audio_ingest.transcribe_upload (states plainly which engine transcribed
+    # and why — a silent vendor swap is a house-rule violation), or a
+    # re-analysis that reused the recording's stored transcript instead of
+    # transcribing again. None means the primary ran normally.
     transcription_note: Optional[str] = None
     # Consent-gated persistence outcome (defaults keep the /analyze response
     # byte-compatible for callers that ignore them). ``stored`` is True only
@@ -2566,6 +2568,8 @@ async def _analyze_recording_bytes(
     source: dict,
     title: str | None = None,
     progress: "JobProgressFn | None" = None,
+    stored_transcript: list[dict] | None = None,
+    on_transcribed: "Callable[[list[dict]], Awaitable[None]] | None" = None,
 ) -> AnalyzeUploadResponse:
     """Analyze one recording's raw bytes and optionally persist the result.
 
@@ -2585,48 +2589,121 @@ async def _analyze_recording_bytes(
     progress (transcribing → analyzing → storing) as it goes; it is None on the
     synchronous paths, which then run exactly as before.
 
+    ``stored_transcript`` (re-analysis only) is the recording's stored RAW STT
+    transcript (transcript.json: the transcriber's own utterances, per-word
+    timings included). When it is a non-empty list that passes the same
+    AnalyzeRequest validation, STT is SKIPPED and those utterances feed every
+    downstream stage exactly as a fresh transcription would (decode, the
+    local-diarization cross-check — word timings and all — prosody, LLM,
+    enrollment identity, episodes): the user neither waits for nor pays for a
+    second transcription pass, and ``transcription_note`` says so. Empty/None,
+    or a stored transcript that fails validation, falls back to transcribing
+    exactly as before; ``on_transcribed`` (when given) then receives the fresh
+    raw transcript so the caller can store it for next time — best-effort, a
+    failure there is logged and never sinks the analysis.
+
     Honest failures throughout: transcription unconfigured → 503, undecodable or
     speechless → 422, over the duration cap → 413. A storage failure never sinks
     the analysis — the response returns with stored=false and a note carrying the
     failure's class name.
     """
-    # 1) Transcribe the recording. transcribe_upload picks the provider
-    #    (MINDSHIFT_UPLOAD_STT: deepgram default, whisper local) — the Deepgram
-    #    path downmixes to 16 kHz mono for reliable diarization, the Whisper
-    #    path decodes locally; a Deepgram→Whisper fallback comes back with a
-    #    non-None note surfaced as transcription_note (never a silent swap).
-    #    to_thread: both are blocking calls. NOTE: the progress note is
-    #    deliberately NOT a byte size — len(data) is the DOWNLOAD size (a 116MB
-    #    video), not the amount transcribed, and surfacing it here read as
-    #    "116 MB to transcribe" on the client (Bug 4).
-    await _emit_progress(progress, "transcribing", "transcribing audio")
-    try:
-        raw_turns, stt_note = await asyncio.to_thread(
-            transcribe_upload, data, content_type, filename or "",
-        )
-    except TranscriptionUnavailable as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
-    except NoSpeechFound as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    except AudioDecodeError as exc:
-        # Whisper-path only: no local decode means nothing to transcribe (the
-        # Deepgram path instead falls back to sending the raw container).
-        raise HTTPException(status_code=422, detail=str(exc))
+    # 0) Re-analysis with a stored transcript in hand: validate it up front and
+    #    reuse it instead of re-transcribing. Same empty-text tolerance as the
+    #    live-session batch path (routers/sessions.py, 0cb8d3b): a turn whose text
+    #    is blank gets the neutral "(inaudible)" placeholder rather than failing
+    #    AnalyzeTurn.text's min_length and sinking the whole list — per-turn
+    #    analysis is INDEX-aligned, so empties can't simply be dropped. Anything
+    #    else out of bounds is logged and falls through to STT (never a 500).
+    analyze_req: AnalyzeRequest | None = None
+    raw_turns: list = []
+    stt_note: str | None = None
+    if stored_transcript:
+        try:
+            # Two views of the same rows: ``reused`` is the 4-key shape
+            # AnalyzeTurn validates; ``reused_raw`` keeps everything else the
+            # transcriber recorded (the ``words`` timings the cross-check
+            # re-attaches below) exactly like a fresh transcription's rows.
+            reused_raw = [
+                dict(
+                    t,
+                    speaker=str(t.get("speaker") or ""),
+                    text=(str(t.get("text") or "").strip() or "(inaudible)"),
+                )
+                for t in stored_transcript
+                if isinstance(t, dict)
+            ]
+            if len(reused_raw) != len(stored_transcript):
+                raise ValueError("stored transcript has non-object rows")
+            reused = [
+                {k: t.get(k) for k in ("speaker", "text", "start_time", "end_time")}
+                for t in reused_raw
+            ]
+            analyze_req = AnalyzeRequest(turns=reused, context=context)
+        except (ValidationError, ValueError, TypeError) as exc:
+            logger.warning(
+                "stored transcript (%d turn(s)) is out of bounds for analysis "
+                "— falling back to re-transcription: %s",
+                len(stored_transcript), exc,
+            )
+            analyze_req = None
+        else:
+            raw_turns = reused_raw
+            stt_note = "reused the stored transcript (no re-transcription)"
+            logger.info(
+                "Re-analysis reusing the stored transcript (%d turns) — "
+                "skipping STT for uid=%s", len(reused_raw), uid,
+            )
+            # The client's stage vocabulary is queued/transcribing/analyzing/
+            # storing; there is no "transcribing" to report, so go straight to
+            # "analyzing" with an honest note (the later "analyzing" emit at
+            # step 4 adds the decoded duration and leaves this note in place).
+            await _emit_progress(progress, "analyzing", "reusing stored transcript")
 
-    # 2) The recovered conversation must satisfy the same shape rules as text
-    #    /analyze (2-10 speakers, 4-400 turns, per-turn length). Reuse the
-    #    AnalyzeRequest validators; a violation is an honest 422.
-    try:
-        analyze_req = AnalyzeRequest(turns=raw_turns, context=context)
-    except ValidationError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "transcribed conversation is out of bounds for analysis "
-                f"({exc.error_count()} issue(s)): "
-                + "; ".join(e["msg"] for e in exc.errors()[:3])
-            ),
-        )
+    if analyze_req is None:
+        # 1) Transcribe the recording. transcribe_upload picks the provider
+        #    (MINDSHIFT_UPLOAD_STT: deepgram default, whisper local) — the
+        #    Deepgram path downmixes to 16 kHz mono for reliable diarization,
+        #    the Whisper path decodes locally; a Deepgram→Whisper fallback comes
+        #    back with a non-None note surfaced as transcription_note (never a
+        #    silent swap). to_thread: both are blocking calls. NOTE: the
+        #    progress note is deliberately NOT a byte size — len(data) is the
+        #    DOWNLOAD size (a 116MB video), not the amount transcribed, and
+        #    surfacing it here read as "116 MB to transcribe" on the client
+        #    (Bug 4).
+        await _emit_progress(progress, "transcribing", "transcribing audio")
+        try:
+            raw_turns, stt_note = await asyncio.to_thread(
+                transcribe_upload, data, content_type, filename or "",
+            )
+        except TranscriptionUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except NoSpeechFound as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        except AudioDecodeError as exc:
+            # Whisper-path only: no local decode means nothing to transcribe
+            # (the Deepgram path instead falls back to sending the raw
+            # container).
+            raise HTTPException(status_code=422, detail=str(exc))
+        if on_transcribed is not None:
+            try:
+                await on_transcribed(raw_turns)
+            except Exception as exc:  # noqa: BLE001 — caching must not fail analysis
+                logger.warning("storing the raw transcript failed (ignored): %s", exc)
+
+        # 2) The recovered conversation must satisfy the same shape rules as
+        #    text /analyze (1-10 speakers, 4-400 turns, per-turn length). Reuse
+        #    the AnalyzeRequest validators; a violation is an honest 422.
+        try:
+            analyze_req = AnalyzeRequest(turns=raw_turns, context=context)
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "transcribed conversation is out of bounds for analysis "
+                    f"({exc.error_count()} issue(s)): "
+                    + "; ".join(e["msg"] for e in exc.errors()[:3])
+                ),
+            )
     turns = analyze_req.turns
 
     # 3) Decode to PCM for prosody. If decoding fails we DEGRADE HONESTLY:
@@ -2907,6 +2984,17 @@ async def _analyze_recording_bytes(
                     storage_note=response.storage_note,
                 )
                 response.recording_id = recording_id
+                # The RAW transcript (word timings included) rides alongside so
+                # a later re-analysis can skip STT without losing the
+                # cross-check's word-level splitting. Best-effort: the
+                # recording IS stored even if this blob fails.
+                try:
+                    await store_backend.save_transcript(uid, recording_id, raw_turns)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "raw transcript persistence failed for uid=%s rid=%s: %s",
+                        uid, recording_id, exc,
+                    )
             except Exception as exc:  # noqa: BLE001 — persistence must not fail analysis
                 logger.warning("Recording persistence failed for uid=%s: %s", uid, exc)
                 response.stored = False
@@ -4357,6 +4445,8 @@ async def _run_analysis_job(
     title: str | None = None,
     cleanup: "Callable[[], Awaitable[None]] | None" = None,
     on_success: "Callable[[AnalyzeUploadResponse, JobProgressFn], Awaitable[None]] | None" = None,
+    stored_transcript: list[dict] | None = None,
+    on_transcribed: "Callable[[list[dict]], Awaitable[None]] | None" = None,
 ) -> None:
     """Run one analysis job to a terminal state, writing staged progress.
 
@@ -4364,7 +4454,10 @@ async def _run_analysis_job(
     download, the upload reassembly, or (re-analysis) the stored audio bytes —
     reporting its own "downloading" stage via the passed hook. The shared
     :func:`_analyze_recording_bytes` then runs with that same hook (transcribing →
-    analyzing → storing). ``on_success`` is an optional hook run with the finished
+    analyzing → storing). ``stored_transcript`` / ``on_transcribed``
+    (re-analysis) are passed straight through so the pipeline can reuse the
+    stored raw transcript and skip STT — or store a fresh one for next time
+    (see :func:`_analyze_recording_bytes`); None for the link/upload paths. ``on_success`` is an optional hook run with the finished
     response + the stage hook BEFORE the done-state is written — re-analysis uses
     it to overwrite the existing recording in place (the pipeline itself runs with
     ``store=False``, so nothing new is persisted); it may raise an HTTPException to
@@ -4408,6 +4501,8 @@ async def _run_analysis_job(
                     source=source,
                     title=title,
                     progress=set_stage,
+                    stored_transcript=stored_transcript,
+                    on_transcribed=on_transcribed,
                 )
                 if on_success is not None:
                     await on_success(response, set_stage)
@@ -4593,13 +4688,19 @@ async def reanalyze_recording(
     submit-and-poll background job → 202 {job_id}. Poll GET /analyze/jobs/{job_id}
     for staged progress and the final result.
 
-    "Re-analyze" means re-running from the stored AUDIO derivative (audio.m4a),
-    NOT merely re-scoring the old transcript: transcription + diarization +
-    prosody + voice-enrollment matching + episodes + word metrics ALL re-run, so a
+    "Re-analyze" means re-running the pipeline from the stored AUDIO derivative
+    (audio.m4a): local-diarization cross-check + prosody + LLM analysis +
+    voice-enrollment matching + episodes + word metrics ALL re-run, so a
     recording benefits from every pipeline improvement made since it was first
-    analyzed. The result OVERWRITES analysis.json + turns.json in place and stamps
-    meta.reanalyzed_at; the recording's id, title, source, and stored derivatives
-    are preserved (recordings_store.overwrite_analysis).
+    analyzed. The one stage NOT repeated is STT: the recording's stored
+    transcript (turns.json) is reused as-is when it passes analysis validation —
+    no second "Transcribing…" wait and no second Deepgram charge — and the
+    pipeline falls back to re-transcribing only when there is no usable stored
+    transcript (an old recording without turns.json, or one below the turn
+    minimum). The result OVERWRITES analysis.json + turns.json in place and
+    stamps meta.reanalyzed_at; the recording's id, title, source, manual speaker
+    labels, and stored derivatives are preserved
+    (recordings_store.overwrite_analysis).
 
     503 when storage is disabled (a job has nowhere to live); uid-scoped 404 for
     an unknown/foreign recording (never confirming another user's); 422 when the
@@ -4627,6 +4728,13 @@ async def reanalyze_recording(
     # the pipeline so no NEW title is requested; source is stamped back verbatim).
     preserved_title = rec.get("title")
     preserved_source = rec.get("source")
+    # The stored RAW transcript (transcript.json) rides along so the pipeline can
+    # skip STT; None for recordings analyzed before it existed — the pipeline
+    # then transcribes once more and _cache_transcript stores it for next time.
+    stored_transcript = await store_backend.get_transcript(uid, recording_id)
+
+    async def _cache_transcript(raw: list[dict]) -> None:
+        await store_backend.save_transcript(uid, recording_id, raw)
 
     job_id = str(uuid.uuid4())
     state = _new_job_state()
@@ -4635,8 +4743,10 @@ async def reanalyze_recording(
     async def _prepare(set_stage: "JobProgressFn") -> tuple:
         # Audio already in hand — hand it straight to the shared pipeline. The
         # filename/content-type describe the stored AAC derivative so decode +
-        # transcription treat it correctly.
-        await set_stage("transcribing", "re-analyzing recording", None)
+        # transcription treat it correctly. The pipeline emits the first real
+        # stage itself ("analyzing" when it reuses the stored transcript,
+        # "transcribing" when it has to fall back), so nothing is reported here —
+        # reporting "transcribing" up front would be a lie on the reuse path.
         return audio_bytes, "audio.m4a", "audio/mp4", preserved_source
 
     async def _persist(
@@ -4666,6 +4776,8 @@ async def reanalyze_recording(
         store=False,
         title=preserved_title,
         on_success=_persist,
+        stored_transcript=stored_transcript,
+        on_transcribed=_cache_transcript,
     ))
     return JobCreatedResponse(job_id=job_id)
 
