@@ -31,7 +31,8 @@ MEASURED 2026-08-24 (current pipeline, pinned ECAPA revision, 16 kHz):
   meeting4           onyx + marin/ballad/nova  num_speakers=2  11/17 = 0.647
                      SELF isolated on all 6 of its turns; the three
                      colleagues merged into one cluster (k=3 rejected at
-                     marginal cosine 0.339 vs STRONG_SEPARATION_COSINE 0.32).
+                     marginal cosine 0.339 vs STRONG_SEPARATION_COSINE 0.33 —
+                     0.32 at the time; recalibrated 2026-08-27).
 
 The meeting4 number is a REAL LIMIT, not a lazy pin. Four different 4-voice
 sets were generated and measured before settling on this one:
@@ -361,8 +362,8 @@ def test_scene_family3_pinned():
 def test_scene_meeting4_pinned():
     """4 voices (onyx self + marin/ballad/nova). Measured 2026-08-24:
     num_speakers=2, 11/17 = 0.647 — SELF isolated on all 6 of its turns, the
-    three colleagues merged (k=3 rejected: marginal cosine 0.339 vs the 0.32
-    STRONG_SEPARATION bar; k=4 never came close). See the module docstring
+    three colleagues merged (k=3 rejected: marginal cosine 0.339 vs the
+    STRONG_SEPARATION bar — 0.32 then, 0.33 since 2026-08-27, still under 0.339; k=4 never came close). See the module docstring
     for the four voice sets tried before accepting this as a real ceiling.
 
     Pinned EXACTLY at the measured value in both directions: a drop means a

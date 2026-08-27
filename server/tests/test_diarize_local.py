@@ -910,6 +910,54 @@ class TestKSelection:
         assert got["num_speakers"] == 2
         assert _by_k(got)[3]["ok"] is False
 
+    @pytest.mark.parametrize(
+        "split_cos, expect_third",
+        [
+            # The 3-person family recording's genuine third voice: marginal
+            # split 0.325 on its 7-utterance transcript (2026-08-27). Under
+            # the old 0.32 bar it was rejected and the son merged into the
+            # owner — the reason the bar moved to 0.33.
+            (0.325, True),
+            # family_real's one-voice-two-registers split (the son, calm vs
+            # shouting): 0.337. The bar must stay UNDER this or the owner's
+            # own calibration fixture grows a phantom third speaker.
+            (0.337, False),
+        ],
+    )
+    def test_strong_separation_bar_brackets_the_real_measurements(
+        self, split_cos, expect_third,
+    ):
+        """STRONG_SEPARATION_COSINE sits between the closest genuine and
+        spurious marginal splits measured on real audio (0.325 vs 0.337).
+        Both halves anchor clearly (cos 0.05 to the third voice, well under
+        NEW_VOICE_ANCHOR_COSINE) and every cluster has plenty of speech, so
+        the marginal-pair bar is the ONLY rule deciding k=3 here."""
+        gram = np.array([
+            [1.0, split_cos, 0.05],
+            [split_cos, 1.0, 0.05],
+            [0.05, 0.05, 1.0],
+        ])
+        vecs = np.linalg.cholesky(gram)
+        fills = (-1.0, 0.0, 1.0)
+
+        def blend_embed(pcm_slice: np.ndarray, sr: int) -> np.ndarray:
+            w = np.array([
+                float(np.mean(np.abs(pcm_slice - f) < 0.05)) for f in fills
+            ])
+            v = w @ vecs
+            return (v / np.linalg.norm(v)).astype(np.float32)
+
+        turns = [
+            _turn(0.0, 4.0), _turn(4.0, 8.0),      # voice 1 (fill -1)
+            _turn(8.0, 12.0), _turn(12.0, 16.0),   # voice 2 / register (fill 0)
+            _turn(16.0, 20.0), _turn(20.0, 24.0),  # voice 3 (fill +1)
+        ]
+        pcm = _voiced_pcm(turns, [-1.0, -1.0, 0.0, 0.0, 1.0, 1.0], 25.0)
+        got = diarize_local.diarize_turns(pcm, SR, turns, embed_fn=blend_embed)
+        assert got is not None
+        assert (got["num_speakers"] == 3) is expect_third, _by_k(got)[3]
+        assert _by_k(got)[3]["ok"] is expect_third
+
     def test_select_k_respects_max_k(self):
         """The post-split re-selection cap: candidate ks stop at max_k."""
         turns = [_turn(2.0 * i, 2.0 * (i + 1)) for i in range(6)]

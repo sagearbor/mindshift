@@ -138,9 +138,45 @@ MIN_CLUSTER_SECONDS = 3.0
 # fixture server/tests/fixtures/audio/README.md explicitly says NOT to use
 # for diarization (physics-modulated single voice, not real acted speech) —
 # both were repaired to use real fixtures instead of retired outright.
-# Env-overridable for recalibration.
+#
+# RECALIBRATED 0.32 -> 0.33 (2026-08-27) with a FOURTH real recording, the
+# owner's 3-person family clip ("maggiano's", 42s, owner + wife + son, NOT
+# checked in — private family audio; see tests/test_diarize_private.py for
+# the opt-in local regression). The owner reported his son merged into HIS
+# speaker on the app. Reproduced: Deepgram returns two transcript variants
+# for that file run to run, and on the 7-utterance variant (two welded
+# multi-voice utterances covering 27 of 42s) the genuine third voice's
+# marginal split measures 0.325 — rejected by 0.32 by 0.005, so k=2 won and
+# the son's turns landed in the owner's cluster (time-weighted owner-turn
+# purity 0.52). At 0.33 k=3 validates (purity 0.79) and the welded first
+# utterance splits owner/son at the word level. (On the 8-utterance variant
+# the same split measures 0.199 and validates at either bar.)
+#
+# THIS IS THE CEILING OF THE SINGLE-THRESHOLD INSTRUMENT, measured, not
+# assumed: family_real's one-voice-two-registers split (the son, calm vs
+# shouting, 3.4s) measures 0.337 — a bar of 0.34 mints a phantom third
+# speaker on the owner's own calibration fixture (7/8) — while the scene
+# pack's meeting4 genuine third voice measures 0.339 (unreachable without
+# breaking family_real). Genuine splits on record: 0.199/0.267/0.301/0.325/
+# 0.339; spurious: 0.337/0.359/0.391/0.402. The 0.33 placement keeps the
+# full real-fixture ladder green (openai, gptaudio, family_real, poker6, the
+# three scenes) — but the margin on either side is now ~0.005-0.007, inside
+# the +/-0.02 run-to-run variance noted below for the anchor. Do NOT nudge
+# this further; the next gain needs a second discriminator (e.g. within-
+# cluster coherence of a NEW cluster's pieces), not a threshold.
+#
+# KNOWN REMAINING FAILURE on that same recording (not fixable here): the
+# child's QUIET register ("Because I wanna do my Duolingo, dad") embeds at
+# cosine ~0.0 to EVERY centroid — including his own loud register ("Woah,
+# dude, you're a jerk": 0.01 pooled) — while being self-consistent
+# (0.33-0.53 among its own segments). The per-word smoother has no
+# confident word to inherit from, so those words fall to the surrounding
+# owner speech. Marking such "unclaimed" runs as their own pieces was tried
+# (2026-08-27) and minted a phantom 4th cluster out of OVERLAPPED speech
+# ("I don't wanna go" / "I wanna go") — the exact phantom the round-2 k cap
+# in diarize_turns exists for — so it was not shipped.
 STRONG_SEPARATION_COSINE = float(
-    os.getenv("MINDSHIFT_DIARIZE_STRONG_SEPARATION_COSINE", "0.32")
+    os.getenv("MINDSHIFT_DIARIZE_STRONG_SEPARATION_COSINE", "0.33")
 )
 MIN_CLUSTER_SECONDS_STRONG = 1.5
 
