@@ -322,14 +322,13 @@ export default function GrowthScreen({
               width={chartWidth}
               height={220}
               dotRadius={4}
+              axes
               onPressPoint={(p) => onOpenRecording(p.recording_id)}
             />
           )}
-          <View style={styles.axisRow}>
-            <Text style={styles.axisText}>older</Text>
-            <Text style={styles.axisText}>score 0–100 · tap a dot to open it</Text>
-            <Text style={styles.axisText}>newer</Text>
-          </View>
+          <Text style={styles.axisHint} testID="growth-axis-hint">
+            tap a dot to open it
+          </Text>
         </View>
 
         <Text style={styles.footer} testID="growth-footer">
@@ -593,14 +592,11 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingVertical: 48,
   },
-  axisRow: {
+  axisHint: {
     marginTop: 6,
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  axisText: {
     fontSize: 11,
     color: "#9CA3AF",
+    textAlign: "right",
   },
   footer: {
     marginTop: 12,

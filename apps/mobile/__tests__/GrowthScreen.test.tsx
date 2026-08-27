@@ -347,6 +347,32 @@ describe("GrowthScreen — chart", () => {
     act(() => comp.unmount());
   });
 
+  it("draws real axes: a labeled 0–100 y axis and date ticks on the x axis", async () => {
+    mockGetGrowth.mockResolvedValueOnce(
+      result({
+        points: series(3),
+        total_recordings: 3,
+        identified_recordings: 3,
+      }),
+    );
+    const comp = await render();
+    expect(textOf(queryId(comp, "growth-axis-y-label")!)).toBe("Score (0–100) ↑");
+    for (const v of [0, 25, 50, 75, 100]) {
+      expect(textOf(queryId(comp, `growth-axis-y-tick-${v}`)!)).toBe(String(v));
+      expect(queryId(comp, `growth-axis-y-grid-${v}`)).toBeTruthy();
+    }
+    const xTicks = comp.root.findAll(
+      (n) => typeof n.type === "string" && n.props?.testID === "growth-axis-x-tick",
+    );
+    expect(xTicks.length).toBeGreaterThanOrEqual(1);
+    // Day-scale window (Jul 1–3) → day labels, first and last dates present.
+    const labels = xTicks.map(textOf);
+    expect(labels[0]).toMatch(/^Jul \d+$/);
+    expect(labels[labels.length - 1]).toMatch(/^Jul \d+$/);
+    expect(queryId(comp, "growth-axis-hint")).toBeTruthy();
+    act(() => comp.unmount());
+  });
+
   it("many points: the moving-average trend appears at ≥5 scored points", async () => {
     mockGetGrowth.mockResolvedValueOnce(
       result({
