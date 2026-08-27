@@ -935,12 +935,45 @@ async def catch_up_voice(
 
         checked += 1
         try:
-            audio = await store.get_audio_bytes(uid, recording_id)
-            if not audio:
-                raise AudioDecodeError("no stored audio for this recording")
-            pcm, sr = await asyncio.to_thread(decode_to_pcm, audio, "audio.m4a")
-            turns = [main.AnalyzeTurn(**t) for t in (rec.get("turns") or [])]
-            report = await main._identify_enrolled_speakers(uid, pcm, sr, turns)
+            # FAST PATH — the stored analysis already carries every speaker's
+            # pooled ECAPA embedding (written by a previous audio pass): re-score
+            # those against the CURRENT prints in memory. No download, no
+            # decode, no re-embed — the whole batch runs in milliseconds, which
+            # is what lets a print that just grew a second setting re-check
+            # every past recording without the phone waiting on a cold
+            # instance. Otherwise (older analyses) do the audio pass once and
+            # persist the embeddings it computed so the NEXT catch-up is fast.
+            turn_speakers = {
+                t.get("speaker") for t in (rec.get("turns") or [])
+                if isinstance(t, dict) and t.get("speaker")
+            }
+            stored_embs = speaker_id.stored_speaker_embeddings(
+                analysis.get("speaker_identity")
+            )
+            if turn_speakers and turn_speakers <= set(stored_embs):
+                report = await main._identify_enrolled_speakers_from_embeddings(
+                    uid, {sp: stored_embs[sp] for sp in turn_speakers},
+                )
+            else:
+                audio = await store.get_audio_bytes(uid, recording_id)
+                if not audio:
+                    raise AudioDecodeError("no stored audio for this recording")
+                pcm, sr = await asyncio.to_thread(decode_to_pcm, audio, "audio.m4a")
+                turns = [main.AnalyzeTurn(**t) for t in (rec.get("turns") or [])]
+                report = await main._identify_enrolled_speakers(uid, pcm, sr, turns)
+                if isinstance(report, dict) and speaker_id.stored_speaker_embeddings(report):
+                    # Persist the embeddings (and fresh scores) even on a
+                    # no-match, so this recording never needs audio again.
+                    # Labels are NOT touched here — _label_enrolled_and_persist
+                    # below is the only writer of speaker_labels/matched.
+                    existing = analysis.get("speaker_identity")
+                    identity = dict(existing) if isinstance(existing, dict) else {}
+                    identity["speakers"] = report["speakers"]
+                    identity["model"] = report.get("model")
+                    identity["match_threshold"] = report.get("match_threshold")
+                    analysis = {**analysis, "speaker_identity": identity}
+                    await store.update_analysis(uid, recording_id, analysis)
+                    rec = {**rec, "analysis": analysis}
         except Exception:  # noqa: BLE001 — one bad recording must not sink the batch
             logger.warning(
                 "Catch-up: match failed uid=%s recording=%s",
