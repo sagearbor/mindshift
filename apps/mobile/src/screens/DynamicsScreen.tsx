@@ -19,6 +19,7 @@ import type {
 } from "../api/client";
 import HeatChart from "../components/HeatChart";
 import GlanceSummary from "../components/GlanceSummary";
+import PleasantnessBreakdown from "../components/PleasantnessBreakdown";
 import WordPatternsPanel from "../components/WordPatternsPanel";
 import ToneSummaryCard from "../components/ToneSummaryCard";
 import { getSpeakerColor } from "../utils/speakerColors";
@@ -353,9 +354,23 @@ export default function DynamicsScreen({
             </TouchableOpacity>
           )}
 
-          {/* §1 — Glanceable summary: the headline act. A warm one-line verdict
-              and big per-speaker bars so a fresh-eyes user reads the outcome in
-              one look, before (and above) the detailed time-axis chart. */}
+          {/* Pleasantness — the NEW headline. The five PRD §6 dimensions
+              (warmth, constructiveness, calmness, respect, engagement) per
+              speaker, from the same shared scorer the live coach uses. This
+              replaces heat as the lead read: heat was measured to be a weak
+              signal (the five dimensions explain only ~56% of it). Rendered
+              only when the analysis actually carries per-turn dims (a new
+              server); an old analysis simply shows the heat sections below. */}
+          {data.per_turn.some((pt) => pt.dims) && (
+            <PleasantnessBreakdown
+              perTurn={data.per_turn}
+              speakerLabels={speakerLabels}
+            />
+          )}
+
+          {/* §1 — Glanceable summary: a warm one-line verdict and big
+              per-speaker bars so a fresh-eyes user reads the outcome in one
+              look, before the detailed time-axis chart. */}
           <GlanceSummary
             perSpeaker={data.per_speaker}
             perTurn={data.per_turn}
@@ -379,6 +394,10 @@ export default function DynamicsScreen({
               rather than something between the verdict and the chart. */}
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Heat over the conversation</Text>
+            <Text style={styles.sectionNote} testID="heat-secondary-note">
+              A secondary signal — the pleasantness dimensions above are the
+              primary read of how this conversation went.
+            </Text>
             <HeatChart
               perTurn={data.per_turn}
               turns={analyzedTurns}
@@ -792,6 +811,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
     color: INK,
+    marginBottom: 12,
+  },
+  sectionNote: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: MUTED,
+    marginTop: -6,
     marginBottom: 12,
   },
   analysisTitle: {

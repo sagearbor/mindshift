@@ -626,3 +626,109 @@ async def test_upload_requires_auth_401(client, monkeypatch):
         files={"file": ("clip.wav", FIXTURE_WAV, "audio/wav")},
     )
     assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Pleasantness — the batch path computes the FIVE PRD §6 dimensions per turn
+# from the ONE shared scorer (server/pleasantness.py), index-aligned to turns,
+# so an upload ends up with the same five-dimension data a live session has.
+# ---------------------------------------------------------------------------
+
+def _analyze_llm_json_with_tone(n_turns: int) -> str:
+    """Like _analyze_llm_json but every per-turn entry also carries the four
+    tone dimensions the pleasantness scorer reads (warmth/defensiveness/
+    sarcasm/frustration). Warm, open turns everywhere except index 3 — a
+    defensive, frustrated turn with a contempt marker so respect gets capped."""
+    per_turn = []
+    for i in range(n_turns):
+        if i == 3:
+            per_turn.append({
+                "heat": 55, "markers": ["contempt"], "trigger_phrase": "not fair",
+                "tone": {"warmth": 10, "defensiveness": 80, "sarcasm": 70,
+                         "frustration": 75},
+            })
+        else:
+            per_turn.append({
+                "heat": 20, "markers": [], "trigger_phrase": None,
+                "tone": {"warmth": 70, "defensiveness": 10, "sarcasm": 5,
+                         "frustration": 10},
+            })
+    return json.dumps({
+        "per_turn": per_turn,
+        "requests": [],
+        "narrative": "You both keep showing up and trying to reconnect.",
+        "report_cards": {
+            sp: {
+                "score": 70,
+                "headline": f"{sp} stayed engaged",
+                "did_well": "Kept trying to reconnect.",
+                "work_on": "Pause before answering criticism.",
+            }
+            for sp in _SPEAKERS
+        },
+    })
+
+
+@pytest.mark.anyio
+async def test_upload_per_turn_carries_five_pleasantness_dims(client):
+    import pleasantness
+
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS, None)), \
+         patch("main.get_llm_client",
+               return_value=_mock_llm(_analyze_llm_json_with_tone(len(MOCK_TURNS)))):
+        resp = await client.post(
+            "/analyze/upload",
+            files={"file": ("clip.wav", FIXTURE_WAV, "audio/wav")},
+        )
+    assert resp.status_code == 200, resp.text
+    per_turn = resp.json()["per_turn"]
+    assert len(per_turn) == len(MOCK_TURNS)
+
+    # Every turn carries the five named dimensions + a composite pleasantness.
+    for pt in per_turn:
+        assert set(pt["dims"]) == set(pleasantness.DIMENSIONS)
+        # A tone read was present, so the composite scored (0-100), never null.
+        assert isinstance(pt["pleasantness"], int)
+        assert 0 <= pt["pleasantness"] <= 100
+
+    # The dims are the SINGLE-SOURCE math: warmth = tone.warmth,
+    # constructiveness = 100 - defensiveness, respect = 100 - sarcasm,
+    # calmness = 100 - frustration (prosody None → no loudness penalty).
+    warm_turn = per_turn[0]["dims"]
+    assert warm_turn["warmth"] == 70
+    assert warm_turn["constructiveness"] == 90  # 100 - 10
+    assert warm_turn["respect"] == 95           # 100 - 5
+    assert warm_turn["calmness"] == 90          # 100 - frustration(10)
+
+    # The contempt-marked turn (idx 3) has respect capped at 20 by the label the
+    # scorer derived from the "contempt" marker, and no fabricated loudness.
+    hot_turn = per_turn[3]["dims"]
+    assert hot_turn["respect"] == 20
+    assert hot_turn["constructiveness"] == 20   # 100 - 80
+    assert hot_turn["calmness"] == 25           # 100 - 75, no loudness penalty
+    # The warm turns score higher than the hostile one — the whole point.
+    assert per_turn[0]["pleasantness"] > per_turn[3]["pleasantness"]
+
+
+@pytest.mark.anyio
+async def test_upload_missing_tone_leaves_dims_null_not_502(client):
+    """A server/LLM that omits per-turn tone (older prompt, partial reply) must
+    NOT 502 — heat stays the one required per-turn field, and the pleasantness
+    content dims are honest nulls, never a fabricated 0."""
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS, None)), \
+         patch("main.get_llm_client",
+               return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))):
+        resp = await client.post(
+            "/analyze/upload",
+            files={"file": ("clip.wav", FIXTURE_WAV, "audio/wav")},
+        )
+    assert resp.status_code == 200, resp.text
+    per_turn = resp.json()["per_turn"]
+    for pt in per_turn:
+        # The composite is null (no content dimension measured).
+        assert pt["pleasantness"] is None
+        # warmth/constructiveness/respect are all null; engagement may be a real
+        # turn-balance number (it needs no tone) and is never a 0-guess.
+        assert pt["dims"]["warmth"] is None
+        assert pt["dims"]["constructiveness"] is None
+        assert pt["dims"]["respect"] is None

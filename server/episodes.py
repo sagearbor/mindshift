@@ -160,19 +160,28 @@ def segment_episodes(
         {index, start_time, end_time, duration_seconds,
          first_turn_index, last_turn_index, turn_count,
          speakers, participants, mean_heat, peak_heat,
+         mean_pleasantness, low_pleasantness,
          summary, summary_source}
     """
     if not turns:
         return []
 
-    # Heats only when the analysis aligns with the transcript; else null.
+    # Heats — and the composite PLEASANTNESS score (the five-dimension board's
+    # per-turn number, server/pleasantness.py) — only when the analysis aligns
+    # with the transcript; else null. Pleasantness is the primary signal now
+    # (heat measured as a weak one); both are carried so YourDay/Growth can
+    # colour episodes by conduct, not just escalation. Honest nulls throughout.
     heats: list[int | None] = [None] * len(turns)
+    pleasantnesses: list[int | None] = [None] * len(turns)
     if isinstance(per_turn, list) and len(per_turn) == len(turns):
         for i, entry in enumerate(per_turn):
             if isinstance(entry, dict):
                 heat = entry.get("heat")
                 if isinstance(heat, (int, float)) and not isinstance(heat, bool):
                     heats[i] = int(heat)
+                pleasant = entry.get("pleasantness")
+                if isinstance(pleasant, (int, float)) and not isinstance(pleasant, bool):
+                    pleasantnesses[i] = int(pleasant)
 
     enrolled = _enrolled_labels(speaker_identity)
     starts = _boundaries(turns, gap_seconds)
@@ -206,6 +215,15 @@ def segment_episodes(
         mean_heat = round(sum(ep_heats) / len(ep_heats), 1) if ep_heats else None
         peak_heat = max(ep_heats) if ep_heats else None
 
+        # Pleasantness stats (composite five-dim score; higher = kinder). "low"
+        # is the worst moment — pleasantness's analogue of peak heat. Null when
+        # no turn in this episode carried a composite score.
+        ep_pleasant = [p for p in pleasantnesses[first: last + 1] if p is not None]
+        mean_pleasantness = (
+            round(sum(ep_pleasant) / len(ep_pleasant), 1) if ep_pleasant else None
+        )
+        low_pleasantness = min(ep_pleasant) if ep_pleasant else None
+
         # Summary: the existing LLM title covers a whole-recording episode; a
         # multi-episode recording gets a verbatim opening-turn excerpt each.
         cleaned_title = (title or "").strip() or None
@@ -227,6 +245,8 @@ def segment_episodes(
             "participants": participants,
             "mean_heat": mean_heat,
             "peak_heat": peak_heat,
+            "mean_pleasantness": mean_pleasantness,
+            "low_pleasantness": low_pleasantness,
             "summary": summary,
             "summary_source": summary_source,
         })

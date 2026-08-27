@@ -385,3 +385,41 @@ class TestAggregates:
         # No heats at all → no pleasantness, honest None average.
         rec["analysis"]["per_turn"] = []
         assert ls.dashboard_session(rec, patient="You", shared=False)["avgPleasantness"] is None
+
+    def test_dashboard_session_upload_uses_stored_per_turn_dims(self):
+        """An UPLOAD's turns carry no text_tone, so score_session over them
+        yields all-null dims. The batch analysis already computed the five
+        dimensions and stored them on per_turn — dashboard_session must fall
+        back to those so an upload surfaces the same five-dimension toneScores a
+        live session does (Growth trend data present for uploads too)."""
+        turns = [
+            {"speaker": "Speaker A", "text": "Let's figure this out together."},
+            {"speaker": "Speaker B", "text": "You never listen to me."},
+        ]
+        per_turn = [
+            {"index": 0, "speaker": "Speaker A", "heat": 15,
+             "dims": {"warmth": 70, "constructiveness": 90, "calmness": 90,
+                      "respect": 95, "engagement": None},
+             "pleasantness": 84},
+            {"index": 1, "speaker": "Speaker B", "heat": 55,
+             "dims": {"warmth": 20, "constructiveness": 20, "calmness": 25,
+                      "respect": 20, "engagement": 100},
+             "pleasantness": 27},
+        ]
+        rec = {
+            "id": "up", "created_at": "2026-08-24T10:00:00+00:00",
+            "source": {"type": "upload"}, "turns": turns,
+            "analysis": {"per_turn": per_turn, "speaker_labels": {}},
+        }
+        row = ls.dashboard_session(rec, patient="You", shared=False)
+        # The five dims ride along from the stored per_turn (engagement absent
+        # on the first turn stays absent — never a fabricated 0), plus the
+        # pleasantness = 100 − heat legacy field.
+        assert row["turns"][0]["toneScores"] == {
+            "pleasantness": 85, "warmth": 70, "constructiveness": 90,
+            "calmness": 90, "respect": 95,
+        }
+        assert row["turns"][1]["toneScores"] == {
+            "pleasantness": 45, "warmth": 20, "constructiveness": 20,
+            "calmness": 25, "respect": 20, "engagement": 100,
+        }

@@ -1207,10 +1207,24 @@ def dashboard_session(rec: dict, *, patient: str, shared: bool) -> dict:
         warmth = _num(tone.get("warmth")) if tone else None
         if warmth is not None:
             scores["warmth"] = warmth
-        # The five PRD dimensions the scoreboard measured for this turn
-        # (only those it could — a missing input stays absent, never 0).
-        for dim, val in (scored["per_turn"][i]["dims"] if i < len(scored["per_turn"]) else {}).items():
-            if val is not None:
+        # The five PRD dimensions for this turn from the ONE scorer. A LIVE
+        # turn carries text_tone (+ prosody), so score_session over the stored
+        # turns is authoritative (prosody-aware) and is used as-is. An UPLOAD's
+        # turns carry no text_tone, so score_session can only ever recover the
+        # turn-balance engagement — for those turns we overlay the five
+        # dimensions the batch analysis already computed and stored on per_turn
+        # (the SAME server/pleasantness.py math, run at analysis time with
+        # prosody=None). Either way a missing input stays absent, never 0.
+        live_dims = dict(scored["per_turn"][i]["dims"]) if i < len(scored["per_turn"]) else {}
+        if not tone:
+            stored = per_turn[i] if i < len(per_turn) and isinstance(per_turn[i], dict) else {}
+            stored_dims = stored.get("dims")
+            if isinstance(stored_dims, dict):
+                for dim, val in stored_dims.items():
+                    if _num(val) is not None:
+                        live_dims[dim] = val
+        for dim, val in live_dims.items():
+            if _num(val) is not None:
                 scores[dim] = float(val)
         row = by_index.get(i) or {}
         out_turns.append({

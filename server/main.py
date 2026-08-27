@@ -48,6 +48,7 @@ import dynamics
 import episodes
 import link_fetch
 import live_sessions
+import pleasantness
 import prosody
 import recordings_store
 import therapist_links
@@ -386,6 +387,17 @@ class PerTurnOut(BaseModel):
     # here as an Optional default keeps the /analyze response byte-compatible
     # (voice is simply null), while /analyze/upload fills it when prosody ran.
     voice: Optional[VoiceOut] = None
+    # The FIVE PRD §6 pleasantness dimensions (warmth, constructiveness,
+    # calmness, respect, engagement), computed for THIS turn from the LLM's
+    # per-turn tone read through the ONE shared scorer, server/pleasantness.py
+    # — the exact arithmetic the phone runs live. Each value is 0-100 or an
+    # honest null (a dimension the batch pass could not measure: engagement in
+    # a one-voice window, or any dim the LLM omitted). ``pleasantness`` is the
+    # weighted composite (0-100, null when no content dimension scored). Both
+    # default to None so an old stored analysis / a caller that omits tone
+    # stays backward-compatible — never a fabricated 0.
+    dims: Optional[dict[str, Optional[int]]] = None
+    pleasantness: Optional[int] = None
 
 
 class HorsemenOut(BaseModel):
@@ -1774,7 +1786,15 @@ ANALYZE_SYSTEM_PROMPT = (
     "contempt, defensiveness, stonewalling, repair_attempt, validation. Label "
     "a marker only when it is clearly present; use [] when none apply.\n"
     "- trigger_phrase: the short phrase within THIS turn most likely to have "
-    "provoked the other party, or null if none.\n\n"
+    "provoked the other party, or null if none.\n"
+    "- tone: a small object of four integers 0-100 rating HOW this turn was "
+    "delivered, each independent of the others: warmth (0 cold/hostile, 100 "
+    "affectionate and kind), defensiveness (0 open and accountable, 100 "
+    "deflecting/counter-attacking/making excuses), sarcasm (0 sincere, 100 "
+    "mocking or contemptuous), frustration (0 calm and even, 100 exasperated "
+    "or angry). Rate every turn — a plain, neutral turn is warmth ~50, the "
+    "other three ~10-20. These are the SAME four tone dimensions the live "
+    "on-device coach scores, so keep them consistent with the words spoken.\n\n"
     "Then, across the whole conversation, produce:\n"
     "- speaker_names: for EACH speaker label, infer that speaker's real name "
     "ONLY from DIRECT evidence in the transcript — being addressed by name "
@@ -1809,7 +1829,9 @@ ANALYZE_SYSTEM_PROMPT = (
     "Return ONLY a JSON object of exactly this shape, with per_turn holding "
     "one entry per input turn in the SAME order and length, and report_cards "
     "holding one card per distinct speaker:\n"
-    '{"per_turn": [{"heat": 0, "markers": [], "trigger_phrase": null}], '
+    '{"per_turn": [{"heat": 0, "markers": [], "trigger_phrase": null, '
+    '"tone": {"warmth": 50, "defensiveness": 10, "sarcasm": 0, '
+    '"frustration": 10}}], '
     '"speaker_names": {"Alice": {"name": "", "confidence": "low"}}, '
     '"requests": [{"speaker": "", "request": "", "outcome": "unclear"}], '
     '"narrative": "", '
@@ -1903,6 +1925,40 @@ def _clean_trigger_phrase(value: object) -> str | None:
     if isinstance(value, str) and value.strip():
         return value
     return None
+
+
+# The four per-turn tone dimensions the batch LLM rates — the SAME vocabulary
+# the live on-device coach emits (warmth/defensiveness/sarcasm/frustration),
+# so both feed the ONE pleasantness scorer. Deliberately NOT the divergent
+# text-tools set (warmth/defensiveness/sarcasm/constructiveness/overall) — we
+# unify toward what pleasantness.py reads.
+ANALYZE_TONE_DIMS = ("warmth", "defensiveness", "sarcasm", "frustration")
+
+
+def _clean_tone(value: object, markers: list[str]) -> dict | None:
+    """One turn's LLM tone → a ``text_tone`` dict server/pleasantness.py reads,
+    or ``None`` when nothing usable was measured.
+
+    Each of the four dimensions is clamped to 0-100 (whole-or-fractional
+    floats accepted, bool rejected) or dropped when absent/non-numeric — a
+    tone the LLM omitted stays an honest gap, never a fabricated 0. ``label``
+    is DERIVED from the turn's own markers ("contempt" → the contempt/respect
+    cap in pleasantness), reusing the marker vocabulary rather than asking the
+    model for a fourth, divergent label field."""
+    tone = value if isinstance(value, dict) else {}
+    out: dict[str, object] = {}
+    for dim in ANALYZE_TONE_DIMS:
+        raw = tone.get(dim)
+        if isinstance(raw, bool):
+            continue
+        if isinstance(raw, (int, float)):
+            out[dim] = max(0, min(100, int(round(raw))))
+    if "contempt" in markers:
+        out["label"] = "contempt"
+    # Only the derived label and no score is not a tone read the scorer can use
+    # for warmth/constructiveness/etc.; but a label alone still legitimately
+    # caps respect, so keep it. Return None only when truly empty.
+    return out or None
 
 
 def _clean_requests(value: object) -> list[dict[str, str]]:
@@ -2345,6 +2401,7 @@ async def _run_analysis(
     heats: list[int] = []
     markers: list[list[str]] = []
     trigger_phrases: list[str | None] = []
+    text_tones: list[dict | None] = []
     bad_heat_indices: list[int] = []
     for i, entry in enumerate(llm_per_turn):
         entry = entry if isinstance(entry, dict) else {}
@@ -2353,8 +2410,13 @@ async def _run_analysis(
             bad_heat_indices.append(i)
             heat = 0  # placeholder; request is about to 502 anyway
         heats.append(heat)
-        markers.append(_clean_markers(entry.get("markers")))
+        turn_markers = _clean_markers(entry.get("markers"))
+        markers.append(turn_markers)
         trigger_phrases.append(_clean_trigger_phrase(entry.get("trigger_phrase")))
+        # The per-turn tone read the pleasantness scorer needs. Best-effort: a
+        # missing/malformed tone is an honest gap (dims come back null), NEVER a
+        # 502 — heat above stays the one required per-turn field.
+        text_tones.append(_clean_tone(entry.get("tone"), turn_markers))
 
     if bad_heat_indices:
         raise HTTPException(
@@ -2391,6 +2453,18 @@ async def _run_analysis(
     deescalation = dynamics.compute_deescalation(speakers, heats)
     triggers = dynamics.extract_triggers(speakers, heats, trigger_phrases)
 
+    # The FIVE pleasantness dimensions + composite, index-aligned to the turns,
+    # from the ONE shared scorer (server/pleasantness.py — the same arithmetic
+    # the phone runs live). Prosody is None here: an upload/text analysis has no
+    # per-turn loudness or rate baseline, and pleasantness.py handles that
+    # honestly (NEUTRAL_CALM_PRIOR, no fabricated loudness penalty). So an
+    # uploaded conversation ends up with the same five-dimension data a live
+    # session has — never the single "heat" number alone.
+    tone_scored = pleasantness.score_session([
+        {"speaker": speakers[i], "text_tone": text_tones[i], "prosody": None}
+        for i in range(len(turns))
+    ])["per_turn"]
+
     per_turn = [
         PerTurnOut(
             index=i,
@@ -2407,6 +2481,8 @@ async def _run_analysis(
                     rate_label=voice_labels[i]["rate_label"],
                 )
             ),
+            dims=tone_scored[i]["dims"],
+            pleasantness=tone_scored[i]["score"],
         )
         for i in range(len(turns))
     ]
