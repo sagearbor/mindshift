@@ -2502,6 +2502,52 @@ async def _emit_progress(
         await progress(status, note, duration_seconds)
 
 
+async def _load_voiceprints(uid: str) -> tuple[dict, dict] | None:
+    """Every voiceprint the user enrolled — ``({person_id: blend}, {person_id:
+    {display_name, is_self, settings}})`` — or ``None`` when storage is off,
+    the read failed, or nobody is enrolled. ``settings`` is the number of
+    distinct recordings pooled into the print (speaker_id.profile_settings),
+    which gates the cross-recording contrast match."""
+    store_backend = get_recordings_store()
+    if store_backend is None:
+        return None
+    try:
+        profiles = await store_backend.list_voiceprints(uid)
+    except Exception:  # noqa: BLE001 — a read failure must not sink analysis
+        logger.warning("Voiceprint read failed for uid=%s", uid, exc_info=True)
+        return None
+    import numpy as np
+
+    voiceprints: dict[str, "np.ndarray"] = {}
+    people: dict[str, dict] = {}
+    for profile in profiles or []:
+        if not isinstance(profile, dict) or not isinstance(profile.get("embedding"), list):
+            continue
+        pid = profile.get("person_id") or speaker_id.SELF_PERSON_ID
+        # Blend from the stored per-sample vectors when they exist, so the
+        # CURRENT blend rule (one centroid per recording) applies to prints
+        # written under an older rule without waiting for a rewrite; the
+        # stored blend is the fallback (v1 prints carry no samples).
+        samples = profile.get("samples")
+        try:
+            blend = (
+                speaker_id.blend_samples(samples)
+                if isinstance(samples, list) and samples
+                else np.asarray(profile["embedding"], dtype=np.float32)
+            )
+        except (KeyError, TypeError, ValueError):
+            blend = np.asarray(profile["embedding"], dtype=np.float32)
+        voiceprints[pid] = blend
+        people[pid] = {
+            "display_name": profile.get("display_name"),
+            "is_self": bool(profile.get("is_self", pid == speaker_id.SELF_PERSON_ID)),
+            "settings": speaker_id.profile_settings(profile),
+        }
+    if not voiceprints:
+        return None
+    return voiceprints, people
+
+
 async def _identify_enrolled_speakers(
     uid: str,
     pcm,
@@ -2520,32 +2566,16 @@ async def _identify_enrolled_speakers(
     On success returns :func:`speaker_id.identify_speakers_multi`'s report; the
     top rung of the label ladder reads its ``matched``/``people`` maps (and the
     legacy ``matched_speaker`` = the self match) via :func:`_enrolled_labels`,
-    and the per-speaker cosine scores are retained for debugging."""
+    the per-speaker cosine scores are retained for debugging, and the
+    per-speaker embeddings ride along so a later re-match (the print grew,
+    /voice/catch-up) needs no audio — see
+    :func:`_identify_enrolled_speakers_from_embeddings`."""
     if pcm is None or sr is None or not speaker_id.is_available():
         return None
-    store_backend = get_recordings_store()
-    if store_backend is None:
+    loaded = await _load_voiceprints(uid)
+    if loaded is None:
         return None
-    try:
-        profiles = await store_backend.list_voiceprints(uid)
-    except Exception:  # noqa: BLE001 — a read failure must not sink analysis
-        logger.warning("Voiceprint read failed for uid=%s", uid, exc_info=True)
-        return None
-    import numpy as np
-
-    voiceprints: dict[str, "np.ndarray"] = {}
-    people: dict[str, dict] = {}
-    for profile in profiles or []:
-        if not isinstance(profile, dict) or not isinstance(profile.get("embedding"), list):
-            continue
-        pid = profile.get("person_id") or speaker_id.SELF_PERSON_ID
-        voiceprints[pid] = np.asarray(profile["embedding"], dtype=np.float32)
-        people[pid] = {
-            "display_name": profile.get("display_name"),
-            "is_self": bool(profile.get("is_self", pid == speaker_id.SELF_PERSON_ID)),
-        }
-    if not voiceprints:
-        return None
+    voiceprints, people = loaded
     try:
         return await asyncio.to_thread(
             speaker_id.identify_speakers_multi,
@@ -2553,6 +2583,31 @@ async def _identify_enrolled_speakers(
         )
     except Exception:  # noqa: BLE001 — matching is optional; degrade to no label
         logger.warning("Speaker identification failed for uid=%s", uid, exc_info=True)
+        return None
+
+
+async def _identify_enrolled_speakers_from_embeddings(
+    uid: str, speaker_embeddings: dict,
+) -> dict | None:
+    """The audio-free twin of :func:`_identify_enrolled_speakers`: re-score a
+    recording's STORED per-speaker embeddings (speaker_identity.speakers[*]
+    .embedding, written by the audio pass) against the user's current prints.
+    Pure math — no decode, no torch — so catch-up can re-check every past
+    recording in milliseconds after the print improves. Same honest ``None``
+    on storage-off / nobody-enrolled / failure."""
+    loaded = await _load_voiceprints(uid)
+    if loaded is None:
+        return None
+    voiceprints, people = loaded
+    try:
+        return speaker_id.identify_from_embeddings(
+            speaker_embeddings, voiceprints, people=people,
+        )
+    except Exception:  # noqa: BLE001 — matching is optional; degrade to no label
+        logger.warning(
+            "Speaker identification (stored embeddings) failed for uid=%s",
+            uid, exc_info=True,
+        )
         return None
 
 

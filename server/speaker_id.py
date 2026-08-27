@@ -79,6 +79,40 @@ ECAPA_REVISION = os.getenv(
 # speaker keeps its generic label; we NEVER force a match. Overridable via env.
 MATCH_THRESHOLD = float(os.getenv("MINDSHIFT_VOICE_MATCH_THRESHOLD", "0.65"))
 
+# CROSS-RECORDING (contrast) match — a second, narrower way to clear the bar.
+#
+# MEASURED 2026-08-27 on the owner's REAL recordings (pinned ECAPA; the
+# family_real + poker6 fixtures and the private 3-person family clip): the
+# same person's clean voice across DIFFERENT settings scores only 0.24-0.45
+# against a print built from ONE other setting (restaurant vs kitchen vs
+# poker table — room, mic distance and register all move the embedding),
+# while different people score 0.11-0.28. The 0.65 bar above was calibrated
+# on a same-setting pair (0.727) and is simply never reached across settings
+# — the owner's own voice scored 0.36 (poker night) and 0.36 (family clip)
+# against the print he enrolled from the restaurant clip. No single absolute
+# threshold separates 0.24-0.45 from 0.11-0.28.
+#
+# Two things DO separate them, and both are required here:
+#   1. a print pooled from at least CROSS_MATCH_MIN_SETTINGS distinct
+#      recordings (see blend_samples — one centroid per recording, so three
+#      taps on the same clip don't outvote a different room). A 2-setting
+#      print lifted the owner's out-of-sample poker score 0.36 -> 0.39 and
+#      the family clip to 0.55; non-owners stayed <= 0.22.
+#   2. CONTRAST inside the recording: the matched speaker must beat every
+#      OTHER speaker's score for that person by CROSS_MATCH_MARGIN. Measured
+#      owner-vs-runner-up gaps: 0.16 (poker), 0.37 (family), 0.63
+#      (restaurant); different-people gaps sit within ~0.1 of each other.
+#      A solo recording has no contrast and stays on the 0.65 bar.
+# CROSS_MATCH_THRESHOLD (0.40) sits above every different-person score on
+# record (max 0.28, n≈12 voices) with a margin the +/-0.05 run-to-run
+# variance needs; the owner's single-setting misses below it (0.24-0.39) are
+# the honest failure direction — a false "You" is still the cardinal sin.
+# Every match records its ``match_basis`` ("absolute" | "contrast") so a
+# contrast match is never mistaken for a 0.65 one. All env-overridable.
+CROSS_MATCH_THRESHOLD = float(os.getenv("MINDSHIFT_VOICE_CROSS_MATCH_THRESHOLD", "0.40"))
+CROSS_MATCH_MARGIN = float(os.getenv("MINDSHIFT_VOICE_CROSS_MATCH_MARGIN", "0.15"))
+CROSS_MATCH_MIN_SETTINGS = int(os.getenv("MINDSHIFT_VOICE_CROSS_MATCH_MIN_SETTINGS", "2"))
+
 # "Learn this voice from a recording" guard (people labeling). Before a pooled
 # speaker embedding is appended to person P's print, it is scored against
 # EVERY other enrolled person. If it clears MATCH_THRESHOLD against someone
@@ -481,25 +515,66 @@ def identify_speakers_multi(
 ) -> dict:
     """Match every diarized speaker against EVERY enrolled person (blocking).
 
-    ``voiceprints`` maps ``person_id`` -> blended embedding (the account owner
-    is :data:`SELF_PERSON_ID`); ``people`` optionally carries each person's
-    ``{display_name, is_self}`` so the report is self-describing for the label
-    ladder. Each speaker is embedded ONCE (pooled turns, the expensive step)
-    and scored against all prints.
+    Embeds each speaker ONCE (pooled turns — the expensive step) and hands the
+    embeddings to :func:`identify_from_embeddings` for the scoring, which is
+    pure and documents the report shape. ``voiceprints`` maps ``person_id`` ->
+    blended embedding (the account owner is :data:`SELF_PERSON_ID`);
+    ``people`` optionally carries each person's ``{display_name, is_self,
+    settings}`` (``settings`` = distinct recordings pooled into the print —
+    see :func:`profile_settings`; it gates the contrast match).
+    """
+    speakers: list[str] = []
+    for t in turns:
+        s = t.get("speaker")
+        if s is not None and s not in speakers:
+            speakers.append(s)
+    embeddings: dict[str, np.ndarray] = {}
+    for speaker in speakers:
+        emb = embed_speaker(pcm, sr, turns, speaker)
+        if emb is None:
+            continue  # too little audio — no score, honestly omitted
+        embeddings[speaker] = emb
+    return identify_from_embeddings(
+        embeddings, voiceprints, threshold=threshold, people=people,
+    )
 
-    Assignment is a greedy one-to-one matching, highest score first: a
-    (speaker, person) pair is accepted only if its cosine clears ``threshold``
-    AND neither side is already taken. So each speaker gets at most one person
-    (a voice is one person), each person wins at most one speaker (a person is
-    one voice — two diarized clusters can't both be "Alex"; if the diarizer
-    split one voice in two, only the stronger half is labeled and the other
-    stays generic, honestly). Ties break deterministically (speaker id, then
-    person id). Below threshold → no label, ever; the scores are always kept
-    so a near-miss is inspectable::
+
+def identify_from_embeddings(
+    speaker_embeddings: dict[str, np.ndarray],
+    voiceprints: dict[str, np.ndarray],
+    *,
+    threshold: float = MATCH_THRESHOLD,
+    people: dict[str, dict] | None = None,
+) -> dict:
+    """Score already-computed per-speaker embeddings against every enrolled
+    person (pure — no audio, no torch). Also what ``/voice/catch-up`` runs
+    over the embeddings a stored analysis carries, so re-matching a past
+    recording after the print improves costs a few dot products, not a
+    decode + re-embed.
+
+    Two ways a (speaker, person) pair clears the bar:
+
+    * ABSOLUTE — cosine ≥ ``threshold`` (:data:`MATCH_THRESHOLD`).
+    * CONTRAST — cosine ≥ :data:`CROSS_MATCH_THRESHOLD`, AND the person's
+      print pools ≥ :data:`CROSS_MATCH_MIN_SETTINGS` distinct recordings
+      (``people[pid]["settings"]``; unknown counts as 1), AND at least two
+      speakers were scored, AND this speaker beats every other speaker's
+      score for that person by ≥ :data:`CROSS_MATCH_MARGIN`. See the
+      constants' calibration note for the real-recording numbers.
+
+    Assignment is a greedy one-to-one matching, highest score first: each
+    speaker gets at most one person (a voice is one person), each person wins
+    at most one speaker (a person is one voice — two diarized clusters can't
+    both be "Alex"; if the diarizer split one voice in two, only the stronger
+    half is labeled and the other stays generic, honestly). Ties break
+    deterministically (speaker id, then person id). Below both bars → no
+    label, ever; the scores are always kept so a near-miss is inspectable::
 
         {
           "matched_speaker": "Speaker A" | None,      # the SELF match (legacy key)
           "match_threshold": 0.65,
+          "cross_match_threshold": 0.40,
+          "cross_match_margin": 0.15,
           "model": "speechbrain/spkrec-ecapa-voxceleb@<rev>",
           "matched": {"Speaker A": "self", "Speaker B": "alex"},
           "people": {"self": {"display_name": "You", "is_self": true},
@@ -507,56 +582,66 @@ def identify_speakers_multi(
           "speakers": {
             "Speaker A": {"scores": {"self": 0.71, "alex": 0.12},
                           "matched_person_id": "self", "is_self": true,
-                          "display_name": "You",
+                          "display_name": "You", "match_basis": "absolute",
+                          "embedding": [...192 floats...],
                           "score": 0.71, "is_you": true},   # legacy self keys
-            "Speaker B": {"scores": {"self": 0.09, "alex": 0.80},
+            "Speaker B": {"scores": {"self": 0.09, "alex": 0.45},
                           "matched_person_id": "alex", "is_self": false,
-                          "display_name": "Alex",
+                          "display_name": "Alex", "match_basis": "contrast",
+                          "embedding": [...],
                           "score": 0.09, "is_you": false},
           },
         }
 
-    ``matched_speaker`` / per-speaker ``score`` + ``is_you`` are kept so every
-    pre-existing reader of the single-voiceprint report (stored analyses,
-    Growth, the catch-up endpoint) keeps working unchanged; they describe the
-    SELF person only and are omitted/None when no self print was supplied.
+    ``embedding`` is the speaker's pooled ECAPA vector (unit norm) — stored
+    with the analysis so a later re-match needs no audio. ``matched_speaker``
+    / per-speaker ``score`` + ``is_you`` are kept so every pre-existing reader
+    of the single-voiceprint report keeps working unchanged; they describe
+    the SELF person only and are omitted/None when no self print was supplied.
     """
     prints = {pid: l2_normalize(vec) for pid, vec in voiceprints.items()}
     meta = {pid: _person_meta(pid, people) for pid in prints}
     has_self = SELF_PERSON_ID in prints
 
-    speakers: list[str] = []
-    for t in turns:
-        s = t.get("speaker")
-        if s is not None and s not in speakers:
-            speakers.append(s)
-
     scored: dict[str, dict] = {}
-    candidates: list[tuple[float, str, str]] = []
-    for speaker in speakers:
-        emb = embed_speaker(pcm, sr, turns, speaker)
-        if emb is None:
-            continue  # too little audio — no score, honestly omitted
+    for speaker, emb in speaker_embeddings.items():
+        emb = l2_normalize(np.asarray(emb, dtype=np.float32))
         scores = {pid: round(cosine(emb, vec), 4) for pid, vec in prints.items()}
         entry: dict = {
             "scores": scores,
             "matched_person_id": None,
             "is_self": False,
             "display_name": None,
+            "match_basis": None,
+            "embedding": [float(x) for x in emb.tolist()],
         }
         if has_self:
             entry["score"] = scores[SELF_PERSON_ID]
             entry["is_you"] = False
         scored[speaker] = entry
-        for pid, score in scores.items():
+
+    candidates: list[tuple[float, str, str, str]] = []
+    for speaker, entry in scored.items():
+        for pid, score in entry["scores"].items():
             if score >= threshold:
-                candidates.append((score, speaker, pid))
+                candidates.append((score, speaker, pid, "absolute"))
+                continue
+            if score < CROSS_MATCH_THRESHOLD or len(scored) < 2:
+                continue
+            settings = int(((people or {}).get(pid) or {}).get("settings") or 1)
+            if settings < CROSS_MATCH_MIN_SETTINGS:
+                continue
+            runner_up = max(
+                other["scores"][pid] for sp, other in scored.items() if sp != speaker
+            )
+            if score - runner_up >= CROSS_MATCH_MARGIN:
+                candidates.append((score, speaker, pid, "contrast"))
 
     # Greedy one-to-one: best pair first; a taken speaker or person is skipped.
     candidates.sort(key=lambda c: (-c[0], c[1], c[2]))
     matched: dict[str, str] = {}
     taken_people: set[str] = set()
-    for _score, speaker, pid in candidates:
+    for _score, speaker, pid, basis in candidates:
         if speaker in matched or pid in taken_people:
             continue
         matched[speaker] = pid
@@ -565,6 +650,7 @@ def identify_speakers_multi(
         entry["matched_person_id"] = pid
         entry["is_self"] = meta[pid]["is_self"]
         entry["display_name"] = meta[pid]["display_name"]
+        entry["match_basis"] = basis
         if has_self:
             entry["is_you"] = pid == SELF_PERSON_ID
 
@@ -574,11 +660,36 @@ def identify_speakers_multi(
     return {
         "matched_speaker": self_speaker,
         "match_threshold": threshold,
+        "cross_match_threshold": CROSS_MATCH_THRESHOLD,
+        "cross_match_margin": CROSS_MATCH_MARGIN,
         "model": f"{ECAPA_SOURCE}@{ECAPA_REVISION}",
         "matched": matched,
         "people": meta,
         "speakers": scored,
     }
+
+
+def stored_speaker_embeddings(speaker_identity: object) -> dict[str, np.ndarray]:
+    """Pure reader: the per-speaker ``embedding`` vectors a stored identity
+    report carries (``{speaker: unit vector}``); empty for the legacy shape
+    or anything malformed — a caller then falls back to the audio."""
+    if not isinstance(speaker_identity, dict):
+        return {}
+    speakers = speaker_identity.get("speakers")
+    if not isinstance(speakers, dict):
+        return {}
+    out: dict[str, np.ndarray] = {}
+    for speaker, entry in speakers.items():
+        vec = entry.get("embedding") if isinstance(entry, dict) else None
+        if not (isinstance(speaker, str) and isinstance(vec, list) and vec):
+            continue
+        try:
+            arr = np.asarray(vec, dtype=np.float32)
+        except (TypeError, ValueError):
+            continue
+        if arr.ndim == 1 and arr.size == EMBEDDING_DIM and np.isfinite(arr).all():
+            out[speaker] = l2_normalize(arr)
+    return out
 
 
 def identify_speakers(
@@ -729,15 +840,44 @@ def enrollment_conflict(
     }
 
 
+def sample_setting_key(sample: dict) -> str:
+    """Which RECORDING a sample came from — the unit :func:`blend_samples`
+    averages over. Samples with no source recording (guided enrollment) are
+    each their own setting, keyed by sample id."""
+    rid = sample.get("recording_id")
+    if isinstance(rid, str) and rid.strip():
+        return f"rec:{rid.strip()}"
+    return f"sample:{sample.get('id')}"
+
+
 def blend_samples(samples: list[dict]) -> np.ndarray:
-    """The blended voiceprint for a v2 sample list: the L2-normalized mean of
-    the (normalized) per-sample embeddings. With per-sample storage the blend is
-    always recomputable, so deleting a sample simply re-runs this."""
-    vecs = [
-        l2_normalize(np.asarray(s["embedding"], dtype=np.float32))
-        for s in samples
-    ]
-    return l2_normalize(np.mean(vecs, axis=0))
+    """The blended voiceprint for a v2 sample list: one centroid PER RECORDING
+    (the normalized mean of that recording's samples), then the L2-normalized
+    mean of those centroids. Per-recording, not per-sample, so three "This is
+    me" taps on one clip don't outvote a single clip from a different room —
+    what the cross-setting match (see :data:`CROSS_MATCH_THRESHOLD`) needs is
+    breadth of SETTINGS, and the owner's real print had 3 of 5 samples from
+    the same restaurant clip. With per-sample storage the blend is always
+    recomputable, so deleting a sample simply re-runs this."""
+    groups: dict[str, list[np.ndarray]] = {}
+    for s in samples:
+        groups.setdefault(sample_setting_key(s), []).append(
+            l2_normalize(np.asarray(s["embedding"], dtype=np.float32))
+        )
+    centroids = [l2_normalize(np.mean(vecs, axis=0)) for vecs in groups.values()]
+    return l2_normalize(np.mean(centroids, axis=0))
+
+
+def profile_settings(profile: dict | None) -> int:
+    """How many distinct recordings a print pools (≥1 for any usable print;
+    a v1 print with no samples counts as one setting). Gates the contrast
+    match — see :data:`CROSS_MATCH_MIN_SETTINGS`."""
+    if not isinstance(profile, dict):
+        return 0
+    samples = profile.get("samples")
+    if not isinstance(samples, list) or not samples:
+        return 1 if isinstance(profile.get("embedding"), list) else 0
+    return len({sample_setting_key(s) for s in samples if isinstance(s, dict)})
 
 
 def as_v2(profile: dict | None) -> dict | None:
