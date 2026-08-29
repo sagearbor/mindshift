@@ -4280,9 +4280,29 @@ async def put_upload_chunk(
     return {"index": index, "received_bytes": len(body)}
 
 
-@app.post("/uploads/{upload_id}/complete", response_model=AnalyzeUploadResponse)
+class UploadCompleteRequest(BaseModel):
+    """OPTIONAL JSON body of POST /uploads/{id}/complete. Absent (or every
+    field null) → the original behaviour: analyze the reassembled bytes.
+
+    ``attach_to_recording_id`` is the live-session audio path for a session
+    too long for the direct POST /sessions/{id}/audio (25MB ≈ 13 min of 16 kHz
+    WAV): the phone streams the WAV through this chunked session and names
+    the episode here; complete() then ATTACHES the bytes to that episode
+    (routers.sessions.attach_live_audio — transcode to audio.m4a, flip
+    media_type) instead of running the analysis pipeline. No analysis job,
+    no new recording; the response is the attach's own body."""
+    attach_to_recording_id: Optional[str] = Field(
+        default=None, pattern=UUID_PATTERN,
+    )
+
+
+@app.post(
+    "/uploads/{upload_id}/complete",
+    response_model=AnalyzeUploadResponse | _sessions_router.SessionAudioAttachResponse,
+)
 async def complete_upload(
     upload_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    body: Optional[UploadCompleteRequest] = None,
     uid: str = Depends(get_current_uid),
     _rl: None = Depends(_rate_limit),
 ):
@@ -4294,7 +4314,14 @@ async def complete_upload(
     :func:`_analyze_recording_bytes` honoring the manifest's consent/store/
     context. The parts + manifest are cleaned up best-effort afterward. Returns
     the same AnalyzeUploadResponse as the direct path. Long-running: transcribing
-    a 200MB video can take minutes (Deepgram pre-recorded timeout is 600s)."""
+    a 200MB video can take minutes (Deepgram pre-recorded timeout is 600s).
+
+    With a JSON body naming ``attach_to_recording_id`` (see
+    :class:`UploadCompleteRequest`) the bytes are instead ATTACHED as that live
+    episode's audio: 200 with the same ``SessionAudioAttachResponse`` as
+    POST /sessions/{id}/audio (404 for a missing/foreign/non-live episode, 422
+    for undecodable bytes) — no analysis, no job. The parts are cleaned up the
+    same way."""
     store_backend = _require_store_for_uploads()
     manifest = await _validate_upload_complete(store_backend, uid, upload_id)
     expected_chunks = manifest["expected_chunks"]
@@ -4302,6 +4329,24 @@ async def complete_upload(
     data = await store_backend.assemble_upload(uid, upload_id, expected_chunks)
     if not data:
         raise HTTPException(status_code=400, detail="assembled upload is empty")
+
+    attach_to = body.attach_to_recording_id if body is not None else None
+    if attach_to is not None:
+        try:
+            return await _sessions_router.attach_live_audio(
+                store_backend, uid, attach_to, data,
+            )
+        finally:
+            # Same best-effort cleanup as the analysis path below: the bytes
+            # are either attached (audio.m4a) or refused; the parts are dead
+            # weight either way and a cleanup failure never masks the result.
+            try:
+                await store_backend.cleanup_upload(uid, upload_id)
+            except Exception as exc:  # noqa: BLE001 — cleanup is best-effort
+                logger.warning(
+                    "Upload cleanup failed for uid=%s upload_id=%s: %s",
+                    uid, upload_id, exc,
+                )
 
     try:
         response = await _analyze_recording_bytes(

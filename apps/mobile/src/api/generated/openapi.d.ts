@@ -349,6 +349,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/{recording_id}/audio": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attach Session Audio
+         * @description Attach the phone's mic recording (multipart ``file``, a WAV) to the
+         *     live episode ``recording_id`` — the ``episode_id`` POST /sessions/live
+         *     returned. Direct path, capped at main.MAX_UPLOAD_BYTES (413 above it —
+         *     the phone then streams the WAV through /uploads/start → chunks →
+         *     /uploads/{id}/complete with ``attach_to_recording_id``). 404 for a
+         *     missing / foreign / non-live episode, 422 for undecodable bytes;
+         *     re-attaching overwrites (idempotent).
+         */
+        post: operations["attach_session_audio_sessions__recording_id__audio_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/episodes/{episode_id}/reflect": {
         parameters: {
             query?: never;
@@ -1656,6 +1682,13 @@ export interface paths {
          *     context. The parts + manifest are cleaned up best-effort afterward. Returns
          *     the same AnalyzeUploadResponse as the direct path. Long-running: transcribing
          *     a 200MB video can take minutes (Deepgram pre-recorded timeout is 600s).
+         *
+         *     With a JSON body naming ``attach_to_recording_id`` (see
+         *     :class:`UploadCompleteRequest`) the bytes are instead ATTACHED as that live
+         *     episode's audio: 200 with the same ``SessionAudioAttachResponse`` as
+         *     POST /sessions/{id}/audio (404 for a missing/foreign/non-live episode, 422
+         *     for undecodable bytes) — no analysis, no job. The parts are cleaned up the
+         *     same way.
          */
         post: operations["complete_upload_uploads__upload_id__complete_post"];
         delete?: never;
@@ -1751,13 +1784,19 @@ export interface paths {
          *     submit-and-poll background job → 202 {job_id}. Poll GET /analyze/jobs/{job_id}
          *     for staged progress and the final result.
          *
-         *     "Re-analyze" means re-running from the stored AUDIO derivative (audio.m4a),
-         *     NOT merely re-scoring the old transcript: transcription + diarization +
-         *     prosody + voice-enrollment matching + episodes + word metrics ALL re-run, so a
+         *     "Re-analyze" means re-running the pipeline from the stored AUDIO derivative
+         *     (audio.m4a): local-diarization cross-check + prosody + LLM analysis +
+         *     voice-enrollment matching + episodes + word metrics ALL re-run, so a
          *     recording benefits from every pipeline improvement made since it was first
-         *     analyzed. The result OVERWRITES analysis.json + turns.json in place and stamps
-         *     meta.reanalyzed_at; the recording's id, title, source, and stored derivatives
-         *     are preserved (recordings_store.overwrite_analysis).
+         *     analyzed. The one stage NOT repeated is STT: the recording's stored
+         *     transcript (turns.json) is reused as-is when it passes analysis validation —
+         *     no second "Transcribing…" wait and no second Deepgram charge — and the
+         *     pipeline falls back to re-transcribing only when there is no usable stored
+         *     transcript (an old recording without turns.json, or one below the turn
+         *     minimum). The result OVERWRITES analysis.json + turns.json in place and
+         *     stamps meta.reanalyzed_at; the recording's id, title, source, manual speaker
+         *     labels, and stored derivatives are preserved
+         *     (recordings_store.overwrite_analysis).
          *
          *     503 when storage is disabled (a job has nowhere to live); uid-scoped 404 for
          *     an unknown/foreign recording (never confirming another user's); 422 when the
@@ -2141,6 +2180,11 @@ export interface components {
              * @default
              */
             title: string;
+        };
+        /** Body_attach_session_audio_sessions__recording_id__audio_post */
+        Body_attach_session_audio_sessions__recording_id__audio_post: {
+            /** File */
+            file: string;
         };
         /** Body_enroll_voice_direct_voice_enroll_direct_post */
         Body_enroll_voice_direct_voice_enroll_direct_post: {
@@ -3406,6 +3450,34 @@ export interface components {
             /** Overall */
             overall: number;
         };
+        /**
+         * SessionAudioAttachResponse
+         * @description 200 body of POST /sessions/{id}/audio — and of a chunked
+         *     ``/uploads/{id}/complete`` that named ``attach_to_recording_id``. The
+         *     meta fields the attach flipped, so the phone can update its local row
+         *     without a second GET.
+         */
+        SessionAudioAttachResponse: {
+            /** Recording Id */
+            recording_id: string;
+            /**
+             * Media Type
+             * @default audio
+             * @constant
+             */
+            media_type: "audio";
+            /** Duration Seconds */
+            duration_seconds: number;
+            /** Size Bytes */
+            size_bytes: number;
+            /**
+             * Stored Variants
+             * @default [
+             *       "audio.m4a"
+             *     ]
+             */
+            stored_variants: string[];
+        };
         /** SessionCreate */
         SessionCreate: {
             /** Turns */
@@ -3754,6 +3826,23 @@ export interface components {
              * @description Free-text tone label from the on-device classifier
              */
             label?: string | null;
+        };
+        /**
+         * UploadCompleteRequest
+         * @description OPTIONAL JSON body of POST /uploads/{id}/complete. Absent (or every
+         *     field null) → the original behaviour: analyze the reassembled bytes.
+         *
+         *     ``attach_to_recording_id`` is the live-session audio path for a session
+         *     too long for the direct POST /sessions/{id}/audio (25MB ≈ 13 min of 16 kHz
+         *     WAV): the phone streams the WAV through this chunked session and names
+         *     the episode here; complete() then ATTACHES the bytes to that episode
+         *     (routers.sessions.attach_live_audio — transcode to audio.m4a, flip
+         *     media_type) instead of running the analysis pipeline. No analysis job,
+         *     no new recording; the response is the attach's own body.
+         */
+        UploadCompleteRequest: {
+            /** Attach To Recording Id */
+            attach_to_recording_id?: string | null;
         };
         /** UploadStartRequest */
         UploadStartRequest: {
@@ -4463,6 +4552,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LiveSessionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    attach_session_audio_sessions__recording_id__audio_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                recording_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_attach_session_audio_sessions__recording_id__audio_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionAudioAttachResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6941,7 +7067,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UploadCompleteRequest"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -6949,7 +7079,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AnalyzeUploadResponse"];
+                    "application/json": components["schemas"]["AnalyzeUploadResponse"] | components["schemas"]["SessionAudioAttachResponse"];
                 };
             };
             /** @description Validation Error */
