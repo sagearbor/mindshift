@@ -124,6 +124,43 @@ transcript never covered, and sub-second interjections ("See", "Okay",
 "No.") that inherit a neighbour. Oracle attribution on OUR pieces reaches
 0.83 / 0.79, so segmentation is no longer the bottleneck.
 
+2026-08-29 ROUND 2 — attacking exactly that list (constants under
+"Round 2"; nothing above changed value):
+
+1. Scan floor 3.0 → SCAN_MIN_UTTERANCE_SECONDS 2.0 for the per-word AND
+   window-proposal passes, and a per-word piece may be as short as
+   CONFIRMED_PIECE_MIN_SECONDS 0.8 when the window pass's pooled spectral
+   centroids independently confirm it (:meth:`_WindowPass.confirms_two_voices`;
+   one source → the MIN_SECONDS floor as before). Such a piece, and every
+   uncovered turn, is attributed by its OWN embedding against the final
+   centroids (measured: the nearest-window spectral label — the obvious
+   alternative — is right on 1 of the fixtures' 11 sub-second turns vs 4
+   for the neighbour rule and 5 for the own embedding; transcript short
+   turns keep the neighbour rule).
+2. Speech no utterance covers becomes "(untranscribed)" turns
+   (:func:`_uncovered_speech`; capped, never overlapping, labelled by own
+   embedding, NEVER part of k-selection — see diarize_turns for the
+   measured reason).
+
+Measured: 7-utterance 0.687 → 0.702 (purity 0.79 → 0.80): the 5.44-8.02 s
+weld now splits at the "What|do" gap (rubric 6-9 s dad 4 % → 42 %) and a
+confirmed 0.89 s piece ("Hey. Settle", 22.63-23.52 s) lands on dad by its
+own embedding (margin 0.31). 8-utterance 0.671 → 0.671, unchanged: against
+THAT variant's round-1 centroids the per-word pass confidently labels all
+ten words of the same weld one voice (margins 0.15-0.29, so a conclusive
+"no split"), and a 2.58 s utterance holds 5 windows — under
+WINDOW_PASS_MIN_WINDOWS (6) — so the proposal pass is structurally silent
+below 2.75 s; the 8.88-10.74 s weld (1.86 s) is under the new floor on
+both variants, and its "Come on" is a lone confident word ("Come" is
+ambiguous at margin 0.07 and inherits the earlier confident word) that
+WORD_MIN_RUN rightly rejects. Rubric boundaries 0.833 (held), every
+checked-in fixture unchanged (family_real 8/8, poker6 6/6, openai/gptaudio
+10/10, couple 13/13, family3 15/15, meeting4 11/17); wall time within
++0.3 s of round 1 on every fixture (the post-split re-embedding now reuses
+cached turn embeddings). Uncovered turns on the transcripts: none — the
+gaps Deepgram left are quiet under the gate; the rubric's "Whoa"/"See" lie
+inside its utterances. The 41.9 s "No." is wrong under every rule.
+
 Cost (this Mac, torch at 4 threads, back-to-back against the pre-change
 code): the window pass embeds ~15 ms per 1.5 s window whatever the batch
 size (1-15 windows per call all measure 14-18 ms/window; 16+ per call hits a
@@ -346,7 +383,9 @@ SPLIT_MIN_MARGIN = float(os.getenv("MINDSHIFT_DIARIZE_SPLIT_MIN_MARGIN", "0.15")
 
 # Word-timed utterances longer than this get the per-word scan. Lower than
 # SPLIT_MIN_UTTERANCE_SECONDS because two ~1.5s sides are not required —
-# each piece only needs MIN_SECONDS to be attributable.
+# each piece only needs MIN_SECONDS to be attributable. SUPERSEDED as the
+# applied floor by SCAN_MIN_UTTERANCE_SECONDS (round 2, 2026-08-29); the
+# value is kept as the documented round-1 calibration.
 WORD_SPLIT_MIN_UTTERANCE_SECONDS = 3.0
 
 # Audio window centered on each word's midpoint (clamped to the utterance).
@@ -417,6 +456,79 @@ BOUNDARY_DEDUPE_SECONDS = 0.3
 # Each candidate cut is then CONFIRMED the way the per-word pass confirms a
 # word: the pieces on its two sides are embedded and must land on DIFFERENT
 # pooled spectral centroids, each with margin ≥ WORD_MIN_MARGIN.
+
+# --- Round 2 (2026-08-29): lower scan floors + uncovered speech ---------------
+# With the window pass as a second, transcript-free cut source (above), the
+# scan floors the per-word pass shipped with can come down — the two
+# constants above (WORD_SPLIT_MIN_UTTERANCE_SECONDS 3.0, MIN_SECONDS 1.0)
+# keep their values and meaning; these are the NEW floors the split pass
+# actually applies. Driven by maggiano3's per-segment loss after round 1:
+# two welded utterances UNDER the 3 s scan floor (5.44-8.02 s asher→dad,
+# 8.88-10.74 s dad→mom, 12 % of the rubric's speech) that no instrument
+# even looked at, and the mom piece of the second (0.82 s) under MIN_SECONDS.
+
+# Utterances at least this long get the per-word pass AND the window-pass
+# proposals (was 3.0 via WORD_SPLIT_MIN_UTTERANCE_SECONDS). Two 1 s pieces
+# are the least a split can yield, so 2.0 is the floor at which a scan can
+# still say anything. The window pass needs WINDOW_PASS_MIN_WINDOWS (6)
+# windows fully inside an utterance — 2.75 s at the dense grid — so on the
+# shortest scanned utterances only the per-word pass can speak.
+SCAN_MIN_UTTERANCE_SECONDS = 2.0
+
+# A split piece may be this short (instead of MIN_SECONDS) ONLY when BOTH
+# instruments confirm it: the per-word label run says it is a different
+# voice (confident words, margin ≥ WORD_MIN_MARGIN against the chosen pooled
+# centroids) AND the window pass's pooled SPECTRAL centroids place the piece
+# and the neighbour it would otherwise merge into on DIFFERENT centroids,
+# each with margin ≥ WORD_MIN_MARGIN (the same confirmation
+# _WindowPass.propose_boundaries applies to its own cuts). A piece confirmed
+# by ONE source keeps the MIN_SECONDS floor. Such a piece is still under
+# MIN_SECONDS, so it is NOT embedded for clustering (MIN_SECONDS is
+# unchanged for that); it is attributed by its own embedding against the
+# final pooled centroids (margin ≥ WORD_MIN_MARGIN) — the very measurement
+# that confirmed it — else it inherits like any short turn. 0.8 s is where
+# WORD_WINDOW_SECONDS' calibration says ECAPA still carries voice.
+CONFIRMED_PIECE_MIN_SECONDS = 0.8
+
+# Speech the transcript never covered: after the utterances (and their
+# pieces) are placed, runs of window-VAD speech (speaker_id.speech_mask —
+# the same noise-relative gate the window pass uses) outside EVERY utterance
+# for at least UNCOVERED_MIN_SECONDS become their own turns with the text
+# UNTRANSCRIBED_TEXT. maggiano3's rubric holds ~7 % of speech Deepgram
+# returned no utterance for ("Whoa" 18.0-18.4, "See" 21.0-21.6); nothing can
+# be labelled where no turn exists. Sub-gate holes up to
+# UNCOVERED_BRIDGE_SECONDS inside a run (unvoiced consonants) are bridged; a
+# run may never overlap an existing utterance by more than
+# UNCOVERED_MAX_OVERLAP_SECONDS (built from frames outside every utterance,
+# so in practice 0); and at most UNCOVERED_MAX_FRACTION x the transcript's
+# turn count + UNCOVERED_MAX_EXTRA such turns are created (longest first) so
+# a bad VAD cannot flood a transcript. Uncovered turns never take part in
+# k-selection (measured: they flipped maggiano3's rubric-boundary partition
+# 0.833 → 0.562 — see diarize_turns); each is labelled by its own embedding
+# against the final pooled centroids.
+UNCOVERED_MIN_SECONDS = 0.4
+UNCOVERED_BRIDGE_SECONDS = 0.15
+UNCOVERED_MAX_OVERLAP_SECONDS = 0.1
+UNCOVERED_MAX_FRACTION = 0.2
+UNCOVERED_MAX_EXTRA = 3
+UNTRANSCRIBED_TEXT = "(untranscribed)"
+
+# How the turns that are NOT embedded for clustering (under MIN_SECONDS)
+# get a label. Measured 2026-08-29 on every sub-second turn of the eight
+# fixtures (11 turns; truth from the fixtures' own boundaries / the rubric):
+# nearest embedded neighbour by midpoint (the shipped rule) 4/11; the
+# nearest WINDOW's spectral label 1/11 — a 1.5 s window centred on a
+# half-second interjection is two-thirds neighbour audio, and the mode
+# filter makes it more so; the turn's OWN embedding against the final
+# pooled centroids 5/11 (margins 0.01-0.18). No rule resolves "No." at
+# 41.9 s on maggiano3. So: a transcript short turn keeps the neighbour rule
+# (unchanged behaviour); an UNCOVERED turn (its neighbours are other
+# utterances across a gap — the rubric's "Whoa"/"See" both embed nearest
+# their real speaker while both neighbours are wrong) and a both-source-
+# CONFIRMED split piece (one neighbour is the very voice it was cut from,
+# so inheriting is at least half wrong by construction) take the nearest
+# final centroid by their own embedding. Window labels are not used for
+# attribution.
 
 
 def partition_agreement(a: list, b: list) -> float:
@@ -686,9 +798,23 @@ def _run_pieces(
     return list(zip(bounds[:-1], bounds[1:]))
 
 
+def _merge_target(idx: int, pieces: list[tuple[float, float]]) -> int:
+    """The neighbour run ``idx`` would merge into: its longer-piece
+    neighbour (tie → the earlier one)."""
+    if idx == 0:
+        return 1
+    if idx == len(pieces) - 1:
+        return idx - 1
+    prev_d = pieces[idx - 1][1] - pieces[idx - 1][0]
+    next_d = pieces[idx + 1][1] - pieces[idx + 1][0]
+    return idx - 1 if prev_d >= next_d else idx + 1
+
+
 def _collapse_word_runs(
     words: list[dict], labels: list[int], start: float, end: float,
     *, min_run: int = WORD_MIN_RUN, min_seconds: float = MIN_SECONDS,
+    min_seconds_confirmed: float | None = None, confirm=None,
+    confirmed_out: set[tuple[float, float]] | None = None,
 ) -> list[int]:
     """Merge untrustworthy label runs into their surrounding dominant voice.
 
@@ -697,29 +823,48 @@ def _collapse_word_runs(
     signal to attribute honestly). The weakest such run (fewest words, then
     shortest) inherits the label of its longer-piece neighbor (tie → the
     earlier neighbor) until every surviving run is trustworthy.
+
+    Round 2 (2026-08-29): a run with enough words whose piece lasts at
+    least ``min_seconds_confirmed`` (but under ``min_seconds``) SURVIVES when
+    ``confirm(p0, p1, q0, q1)`` — the piece and the neighbour piece it would
+    otherwise merge into — says a second, independent instrument also hears
+    two voices there (the window pass's pooled spectral centroids; see
+    CONFIRMED_PIECE_MIN_SECONDS). Without ``confirm`` the old floor applies
+    unchanged. Every confirmed sub-``min_seconds`` piece's ``(p0, p1)`` is
+    added to ``confirmed_out`` when given.
     """
     labels = list(labels)
+    verdict: dict[tuple[int, int], bool] = {}
     while True:
         runs = _word_runs(labels)
         if len(runs) == 1:
             return labels
         pieces = _run_pieces(words, runs, start, end)
-        bad = [
-            (r[2] - r[1] + 1, p1 - p0, idx)
-            for idx, (r, (p0, p1)) in enumerate(zip(runs, pieces))
-            if (r[2] - r[1] + 1) < min_run or (p1 - p0) < min_seconds
-        ]
+        bad: list[tuple[int, float, int]] = []
+        for idx, (r, (p0, p1)) in enumerate(zip(runs, pieces)):
+            n_words = r[2] - r[1] + 1
+            d = p1 - p0
+            if n_words >= min_run and d >= min_seconds:
+                continue
+            if (
+                n_words >= min_run and confirm is not None
+                and min_seconds_confirmed is not None and d >= min_seconds_confirmed
+            ):
+                key = (r[1], r[2])
+                if key not in verdict:
+                    q0, q1 = pieces[_merge_target(idx, pieces)]
+                    verdict[key] = bool(confirm(p0, p1, q0, q1))
+                if verdict[key]:
+                    continue
+            bad.append((n_words, d, idx))
         if not bad:
+            if confirmed_out is not None:
+                for r, (p0, p1) in zip(runs, pieces):
+                    if p1 - p0 < min_seconds and verdict.get((r[1], r[2])):
+                        confirmed_out.add((p0, p1))
             return labels
         idx = min(bad)[2]
-        if idx == 0:
-            tgt = 1
-        elif idx == len(runs) - 1:
-            tgt = idx - 1
-        else:
-            prev_d = pieces[idx - 1][1] - pieces[idx - 1][0]
-            next_d = pieces[idx + 1][1] - pieces[idx + 1][0]
-            tgt = idx - 1 if prev_d >= next_d else idx + 1
+        tgt = _merge_target(idx, pieces)
         for i in range(runs[idx][1], runs[idx][2] + 1):
             labels[i] = runs[tgt][0]
 
@@ -889,6 +1034,37 @@ class _WindowPass:
         self._centroids_at[k] = out
         return out
 
+    def _score_piece(
+        self, lo: float, hi: float, cents: dict[int, np.ndarray],
+    ) -> tuple[int, float]:
+        """``(best spectral centroid, best-minus-second-best cosine)`` of the
+        pooled audio in [lo, hi] — one short embed."""
+        v = speaker_id.l2_normalize(self.embed(
+            np.ascontiguousarray(self.pcm[int(lo * self.sr):int(hi * self.sr)]), self.sr,
+        ))
+        scored = sorted((float(np.dot(v, cents[c])), c) for c in sorted(cents))
+        margin = scored[-1][0] - (scored[-2][0] if len(scored) > 1 else -1.0)
+        return scored[-1][1], margin
+
+    def confirms_two_voices(
+        self, p0: float, p1: float, q0: float, q1: float,
+        *, min_margin: float = WORD_MIN_MARGIN,
+    ) -> bool:
+        """Does the window pass's instrument hear DIFFERENT voices in the
+        pieces [p0, p1] and [q0, q1]? Both are embedded against the pooled
+        spectral centroids at the eigengap k and must land on different
+        centroids, each with margin ≥ ``min_margin`` — the same confirmation
+        :meth:`propose_boundaries` applies to its own cuts. The second
+        source behind CONFIRMED_PIECE_MIN_SECONDS. ``False`` whenever the
+        spectral pass has nothing (no eigengap, < k populated clusters)."""
+        k = self.k_eigengap
+        cents = self.pooled_centroids(k) if k is not None else None
+        if not cents or len(cents) < 2:
+            return False
+        lab_p, m_p = self._score_piece(p0, p1, cents)
+        lab_q, m_q = self._score_piece(q0, q1, cents)
+        return lab_p != lab_q and min(m_p, m_q) >= min_margin
+
     # -- boundary proposals inside one utterance -----------------------------
 
     def propose_boundaries(self, lo: float, hi: float) -> tuple[list[float], dict]:
@@ -942,16 +1118,12 @@ class _WindowPass:
         if not cuts:
             return [], info
         bounds = [lo, *cuts, hi]
-        keys = sorted(cents)
         piece_label: list[int] = []
         piece_margin: list[float] = []
         for b, e in zip(bounds[:-1], bounds[1:]):
-            v = speaker_id.l2_normalize(self.embed(
-                np.ascontiguousarray(self.pcm[int(b * self.sr):int(e * self.sr)]), self.sr,
-            ))
-            scored = sorted((float(np.dot(v, cents[c])), c) for c in keys)
-            piece_label.append(scored[-1][1])
-            piece_margin.append(scored[-1][0] - (scored[-2][0] if len(scored) > 1 else -1.0))
+            lab, margin = self._score_piece(b, e, cents)
+            piece_label.append(lab)
+            piece_margin.append(margin)
         kept = [
             cuts[i] for i in range(len(cuts))
             if piece_label[i] != piece_label[i + 1]
@@ -991,20 +1163,39 @@ def _snap_to_word_gaps(words: list[dict], boundaries: list[float]) -> list[float
 def _enforce_min_pieces(
     start: float, end: float, boundaries: list[float], *,
     min_seconds: float = MIN_SECONDS, primary: list[float] | None = None,
+    confirmed: set[tuple[float, float]] | None = None,
+    min_seconds_confirmed: float | None = None,
 ) -> list[float]:
     """Drop boundaries until every piece of [start, end] lasts at least
     ``min_seconds``. For the shortest sliver piece, the boundary dropped is a
     NON-``primary`` one when the sliver has one on each kind of side (a
     word-pass cut outranks a window-pass proposal), else the one whose
     removal merges the sliver into its shorter neighbour — so a sliver never
-    survives as its own piece."""
+    survives as its own piece.
+
+    A piece whose ``(start, end)`` is in ``confirmed`` (both-source-confirmed
+    by the per-word pass — see :func:`_collapse_word_runs`) is held to
+    ``min_seconds_confirmed`` instead; a piece that merely happens to be
+    short — bounded by a window proposal, or by a word cut that was not
+    confirmed — still faces the full floor."""
     prim = set(primary or [])
+    conf = confirmed or set()
     bounds = [start, *sorted(b for b in boundaries if start < b < end), end]
+
+    def floor_of(a: float, b: float) -> float:
+        if min_seconds_confirmed is not None and (a, b) in conf:
+            return min_seconds_confirmed
+        return min_seconds
+
     while len(bounds) > 2:
         lens = [bounds[i + 1] - bounds[i] for i in range(len(bounds) - 1)]
-        i = int(np.argmin(lens))
-        if lens[i] >= min_seconds:
+        short = [
+            i for i in range(len(lens))
+            if lens[i] < floor_of(bounds[i], bounds[i + 1])
+        ]
+        if not short:
             break
+        i = min(short, key=lambda j: lens[j])
         left_ok = i > 0
         right_ok = i < len(lens) - 1
         if left_ok and right_ok and (bounds[i] in prim) != (bounds[i + 1] in prim):
@@ -1066,6 +1257,7 @@ def split_long_utterances(
     centroids: tuple[np.ndarray, np.ndarray],
     word_centroids: list[np.ndarray] | None = None,
     *, proposals: dict[int, list[float]] | None = None,
+    confirm=None,
 ) -> tuple[list[dict], dict]:
     """Split long word-timed utterances at voice changes.
 
@@ -1096,16 +1288,26 @@ def split_long_utterances(
        is divided proportionally to the pieces' durations (approximate —
        logged).
 
+    Round 2 (2026-08-29): utterances of SCAN_MIN_UTTERANCE_SECONDS or more
+    are scanned by passes 1 and 3 (was WORD_SPLIT_MIN_UTTERANCE_SECONDS),
+    and a per-word piece as short as CONFIRMED_PIECE_MIN_SECONDS survives
+    when ``confirm(p0, p1, q0, q1)`` (the window pass's
+    :meth:`_WindowPass.confirms_two_voices`) independently hears two voices
+    in the piece and the neighbour it would otherwise merge into — both
+    sources, or the MIN_SECONDS floor.
+
     Returns ``(finer_turns, stats)`` where stats counts ``scanned``,
     ``split``, ``skipped_short`` (too short for any instrument — bounded
     compute, by design), ``skipped_no_words`` (long enough for the sustained
     scan but no word timings AND no window proposal — logged, never hidden)
-    and ``window_boundaries`` (cuts that came from the window pass alone).
-    Turns that yield no trustworthy change pass through unchanged.
+    and ``window_boundaries`` (cuts that came from the window pass alone),
+    and lists ``confirmed_short_pieces`` (the ``(start, end)`` of every
+    both-source-confirmed piece under MIN_SECONDS that survived). Turns that
+    yield no trustworthy change pass through unchanged.
     """
-    stats = {
+    stats: dict = {
         "scanned": 0, "split": 0, "skipped_short": 0, "skipped_no_words": 0,
-        "window_boundaries": 0,
+        "window_boundaries": 0, "confirmed_short_pieces": [],
     }
     cents = list(word_centroids) if word_centroids is not None else list(centroids)
     proposals = proposals or {}
@@ -1115,17 +1317,24 @@ def split_long_utterances(
         end = float(t.get("end_time") or 0.0)
         words = t.get("words")
         has_words = isinstance(words, list) and len(words) >= 2
-        long_enough = end - start > WORD_SPLIT_MIN_UTTERANCE_SECONDS
+        long_enough = end - start >= SCAN_MIN_UTTERANCE_SECONDS
         scanned = False
         conclusive = False
         word_bounds: list[float] = []
+        confirmed: set[tuple[float, float]] = set()
         if has_words and long_enough:
             scanned = True
             labels, margins = _label_words(pcm, sr, t, embed, cents)
             smoothed = _smooth_word_labels(labels, margins)
             if smoothed is not None:
                 conclusive = True
-                runs = _word_runs(_collapse_word_runs(words, smoothed, start, end))
+                runs = _word_runs(_collapse_word_runs(
+                    words, smoothed, start, end,
+                    min_seconds_confirmed=(
+                        CONFIRMED_PIECE_MIN_SECONDS if confirm is not None else None
+                    ),
+                    confirm=confirm, confirmed_out=confirmed,
+                ))
                 if len(runs) >= 2:
                     word_bounds = [
                         p1 for _, p1 in _run_pieces(words, runs, start, end)[:-1]
@@ -1138,7 +1347,8 @@ def split_long_utterances(
                 win_bounds = _snap_to_word_gaps(words, win_bounds)
         bounds = _enforce_min_pieces(
             start, end, _dedupe_boundaries(word_bounds, win_bounds),
-            primary=word_bounds,
+            primary=word_bounds, confirmed=confirmed,
+            min_seconds_confirmed=CONFIRMED_PIECE_MIN_SECONDS,
         )
         if (
             not bounds and not conclusive
@@ -1174,15 +1384,24 @@ def split_long_utterances(
             1 for b in bounds
             if all(abs(b - w) > BOUNDARY_DEDUPE_SECONDS for w in word_bounds)
         )
+        kept_short = [
+            (float(p["start_time"]), float(p["end_time"])) for p in pieces
+            if (float(p["start_time"]), float(p["end_time"])) in confirmed
+        ]
         stats["split"] += 1
         stats["window_boundaries"] += from_windows
+        stats["confirmed_short_pieces"].extend(kept_short)
         logger.info(
             "split %.1fs utterance at %.2fs into %d pieces (boundaries %s; "
-            "%d from the window pass%s)",
+            "%d from the window pass%s%s)",
             end - start, start, len(pieces),
             ", ".join(f"{p['end_time']:.2f}" for p in pieces[:-1]),
             from_windows,
             "" if has_words else "; no word timings — text divided by duration",
+            (
+                f"; {len(kept_short)} piece(s) under {MIN_SECONDS:.1f}s kept on "
+                "both-source confirmation" if kept_short else ""
+            ),
         )
         out.extend(pieces)
     return out, stats
@@ -1197,20 +1416,32 @@ def _speaker_name(index: int) -> str:
 
 def _embed_turns(
     pcm: np.ndarray, sr: int, turns: list[dict], embed, min_seconds: float,
+    *, cache: dict[tuple[int, int], np.ndarray] | None = None,
+    exclude: set[tuple[float, float]] | None = None,
 ) -> tuple[list[int], list[np.ndarray]] | None:
     """Embed every turn long enough to carry voice signal.
 
     Returns ``(order, embs)`` — the embeddable turn indices and their
     normalized embeddings — or ``None`` with fewer than two embeddable turns
-    (nothing trustworthy to cluster).
+    (nothing trustworthy to cluster). ``cache`` (keyed by the slice's sample
+    bounds) lets the post-split re-embedding reuse every unchanged turn's
+    embedding instead of running the model on it twice. Turns whose
+    ``(start, end)`` is in ``exclude`` (the uncovered-speech turns) are left
+    out of the clustering set whatever their length.
     """
     embedded: dict[int, np.ndarray] = {}
     for idx, t in enumerate(turns):
         start = float(t.get("start_time") or 0.0)
         end = float(t.get("end_time") or 0.0)
-        if end - start < min_seconds:
+        if end - start < min_seconds or (exclude and (start, end) in exclude):
+            continue
+        key = (max(0, int(start * sr)), min(pcm.size, int(end * sr)))
+        if cache is not None and key in cache:
+            embedded[idx] = cache[key]
             continue
         embedded[idx] = speaker_id.l2_normalize(embed(_slice(pcm, sr, t), sr))
+        if cache is not None:
+            cache[key] = embedded[idx]
 
     if len(embedded) < 2:
         return None
@@ -1541,6 +1772,111 @@ def _spectral_route(
     return entry, (labels_s, cents_s)
 
 
+# --- Uncovered speech + window-label inheritance (round 2, 2026-08-29) -------
+
+def _uncovered_speech(
+    mask: np.ndarray, frame_s: float, turns: list[dict], duration: float,
+    *, min_seconds: float = UNCOVERED_MIN_SECONDS,
+    bridge: float = UNCOVERED_BRIDGE_SECONDS,
+) -> list[tuple[float, float]]:
+    """``(start, end)`` runs of speech frames (``mask``, one bool per
+    ``frame_s``) that lie OUTSIDE every turn for at least ``min_seconds``.
+
+    Pure numpy. A frame touching any turn counts as covered, so a run never
+    overlaps a turn; sub-gate holes up to ``bridge`` seconds between speech
+    frames of the same gap are bridged (a covered frame always ends a run).
+    """
+    n = int(mask.size)
+    if n == 0 or duration <= 0:
+        return []
+    covered = np.zeros(n, dtype=bool)
+    for t in turns:
+        s = float(t.get("start_time") or 0.0)
+        e = float(t.get("end_time") or 0.0)
+        if e <= s:
+            continue
+        a = max(0, int(np.floor(s / frame_s)))
+        b = min(n, int(np.ceil(e / frame_s)))
+        covered[a:b] = True
+    speech = np.asarray(mask, dtype=bool) & ~covered
+    max_hole = int(round(bridge / frame_s))
+    out: list[tuple[float, float]] = []
+    i = 0
+    while i < n:
+        if not speech[i]:
+            i += 1
+            continue
+        j = i
+        last = i
+        while j < n and not covered[j]:
+            if speech[j]:
+                last = j
+            elif j - last > max_hole:
+                break
+            j += 1
+        s, e = i * frame_s, (last + 1) * frame_s
+        if e - s >= min_seconds:
+            out.append((round(s, 3), round(min(e, duration), 3)))
+        i = max(last + 1, j)
+    return out
+
+
+def _overlap_seconds(a0: float, a1: float, b0: float, b1: float) -> float:
+    return max(0.0, min(a1, b1) - max(a0, b0))
+
+
+def _uncovered_turn_dicts(
+    candidates: list[tuple[float, float]], turns: list[dict], *, cap: int,
+    max_overlap: float = UNCOVERED_MAX_OVERLAP_SECONDS,
+) -> list[dict]:
+    """Turn dicts (text UNTRANSCRIBED_TEXT, the nearest utterance's input
+    speaker) for the ``cap`` LONGEST candidate runs that overlap no existing
+    turn by more than ``max_overlap`` seconds. Pure Python."""
+    if cap <= 0 or not candidates:
+        return []
+    spans = [
+        (float(t.get("start_time") or 0.0), float(t.get("end_time") or 0.0), t)
+        for t in turns
+    ]
+    ok = [
+        (s, e) for s, e in candidates
+        if e > s and all(_overlap_seconds(s, e, a, b) <= max_overlap for a, b, _ in spans)
+    ]
+    ok.sort(key=lambda se: (-(se[1] - se[0]), se[0]))
+    out: list[dict] = []
+    for s, e in sorted(ok[:cap]):
+        mid = (s + e) / 2
+        nearest = (
+            min(spans, key=lambda sp: abs((sp[0] + sp[1]) / 2 - mid))[2]
+            if spans else {}
+        )
+        out.append({
+            "speaker": nearest.get("speaker") or "Speaker A",
+            "text": UNTRANSCRIBED_TEXT,
+            "start_time": s, "end_time": e,
+        })
+    return out
+
+
+def _insert_chronological(
+    turns: list[dict], extras: list[dict],
+) -> tuple[list[dict], list[int]]:
+    """``turns`` with ``extras`` merged in by start time (existing order kept;
+    an extra goes before the first turn starting at or after it). Returns
+    ``(merged, new_index_of_old)``."""
+    merged: list[dict] = []
+    index_map: list[int] = []
+    pending = sorted(extras, key=lambda t: float(t.get("start_time") or 0.0))
+    for t in turns:
+        start = float(t.get("start_time") or 0.0)
+        while pending and float(pending[0].get("start_time") or 0.0) < start:
+            merged.append(pending.pop(0))
+        index_map.append(len(merged))
+        merged.append(t)
+    merged.extend(pending)
+    return merged, index_map
+
+
 def diarize_turns(
     pcm: np.ndarray,
     sr: int,
@@ -1570,6 +1906,12 @@ def diarize_turns(
           "segments_total": int,       # after any word-level splitting
           "segments_embedded": int,
           "split_utterances": int,     # utterances split at a voice change
+          "confirmed_short_pieces": int,   # pieces under MIN_SECONDS kept on
+                                       # both-source confirmation
+          "uncovered_turns": int,      # "(untranscribed)" turns added for
+                                       # speech no utterance covered
+          "short_turn_attribution": {self, neighbour},  # how the
+                                       # un-embedded turns got their label
           "pooled_cosine": float,      # WORST (highest) pairwise centroid
                                        # cosine of the chosen k (low=distinct)
           "k_evaluated": [...],        # every k tried: {k, ok,
@@ -1599,8 +1941,10 @@ def diarize_turns(
             return [embed_fn(c, sr_) for c in chunks]
     else:
         embed_batch = speaker_id.embed_pcm_batch
+    n_transcript = len(turns)
+    embed_cache: dict[tuple[int, int], np.ndarray] = {}
     try:
-        embedded = _embed_turns(pcm, sr, turns, embed, min_seconds)
+        embedded = _embed_turns(pcm, sr, turns, embed, min_seconds, cache=embed_cache)
         if embedded is None:
             return None
         order, embs = embedded
@@ -1639,7 +1983,7 @@ def diarize_turns(
         for idx, t in enumerate(turns):
             start = float(t.get("start_time") or 0.0)
             end = float(t.get("end_time") or 0.0)
-            if end - start <= WORD_SPLIT_MIN_UTTERANCE_SECONDS:
+            if end - start < SCAN_MIN_UTTERANCE_SECONDS:
                 continue
             bounds, info = window_pass.propose_boundaries(start, end)
             logger.info(
@@ -1661,9 +2005,47 @@ def diarize_turns(
         turns, split_stats = split_long_utterances(
             pcm, sr, turns, embed, (pass1[1][0], pass1[1][1]),
             word_centroids=word_centroids, proposals=proposals,
+            confirm=window_pass.confirms_two_voices,
         )
+        confirmed_short = set(split_stats["confirmed_short_pieces"])
+
+        # Speech the transcript never covered (round 2, 2026-08-29; see the
+        # UNCOVERED_* constants): runs of window-VAD speech outside every
+        # utterance become their own "(untranscribed)" turns — nothing can
+        # be attributed where no turn exists. Capped, never overlapping,
+        # inserted chronologically. They are NOT part of k-selection:
+        # measured on maggiano3's rubric boundaries, letting the two runs
+        # over MIN_SECONDS (35.5-37.0 s and 39.0-41.0 s, real speech the
+        # rubric's slop leaves outside its segments) into the re-selection
+        # let the LINKAGE k=3 partition validate (min cluster 2.0 s) ahead
+        # of the spectral route — the old mom-inside-dad partition, 0.833 →
+        # 0.562. Whole transcript utterances decide HOW MANY voices and how
+        # they partition; uncovered speech only gets labelled (by its own
+        # embedding against the final centroids — see the attribution rule
+        # below).
+        duration = pcm.size / sr
+        uncovered = _uncovered_turn_dicts(
+            _uncovered_speech(window_pass.mask, window_pass.frame_s, turns, duration),
+            turns,
+            cap=int(UNCOVERED_MAX_FRACTION * n_transcript) + UNCOVERED_MAX_EXTRA,
+        )
+        if uncovered:
+            logger.info(
+                "uncovered speech: %d run(s) outside every utterance become "
+                "%r turns (%s)",
+                len(uncovered), UNTRANSCRIBED_TEXT,
+                ", ".join(f"{t['start_time']:.2f}-{t['end_time']:.2f}" for t in uncovered),
+            )
+            turns, index_map = _insert_chronological(turns, uncovered)
+            order = [index_map[i] for i in order]
+        uncovered_spans = {
+            (float(t["start_time"]), float(t["end_time"])) for t in uncovered
+        }
         if split_stats["split"]:
-            embedded = _embed_turns(pcm, sr, turns, embed, min_seconds)
+            embedded = _embed_turns(
+                pcm, sr, turns, embed, min_seconds, cache=embed_cache,
+                exclude=uncovered_spans,
+            )
             if embedded is None:
                 return None
             order, embs = embedded
@@ -1711,16 +2093,39 @@ def diarize_turns(
 
     cluster_of = dict(zip(order, labels))
 
-    # Un-embedded (too-short) turns inherit the nearest embedded turn's
-    # cluster, nearest by utterance midpoint.
+    # Un-embedded (too-short) turns (round 2, 2026-08-29 — see the
+    # attribution comment above CONFIRMED_PIECE_MIN_SECONDS): a both-source-
+    # confirmed split piece or an uncovered turn takes the nearest final
+    # pooled centroid by its OWN embedding; every other short turn inherits
+    # the nearest embedded turn's cluster, by utterance midpoint.
     def midpoint(t: dict) -> float:
         return (float(t.get("start_time") or 0.0) + float(t.get("end_time") or 0.0)) / 2
 
+    cids = sorted(centroids)
+    attributed = {"self": 0, "neighbour": 0}
     for idx, t in enumerate(turns):
         if idx in cluster_of:
             continue
+        span = (float(t.get("start_time") or 0.0), float(t.get("end_time") or 0.0))
+        if span in confirmed_short or span in uncovered_spans:
+            try:
+                v = speaker_id.l2_normalize(embed(_slice(pcm, sr, t), sr))
+            except speaker_id.SpeakerIdUnavailable:
+                v = None
+            if v is not None:
+                scored = sorted((float(np.dot(v, centroids[c])), c) for c in cids)
+                cluster_of[idx] = scored[-1][1]
+                attributed["self"] += 1
+                logger.info(
+                    "%s %.2f-%.2fs attributed by its own embedding (margin %.3f)",
+                    "uncovered turn" if span in uncovered_spans else "confirmed piece",
+                    span[0], span[1],
+                    scored[-1][0] - (scored[-2][0] if len(scored) > 1 else -1.0),
+                )
+                continue
         nearest = min(order, key=lambda e: abs(midpoint(turns[e]) - midpoint(t)))
         cluster_of[idx] = cluster_of[nearest]
+        attributed["neighbour"] += 1
 
     # Name clusters in order of first appearance across the full transcript.
     name_of: dict[int, str] = {}
@@ -1744,6 +2149,9 @@ def diarize_turns(
         "segments_total": len(turns),
         "segments_embedded": len(order),
         "split_utterances": split_stats["split"],
+        "confirmed_short_pieces": len(confirmed_short),
+        "uncovered_turns": len(uncovered),
+        "short_turn_attribution": attributed,
         "pooled_cosine": pooled_cosine,
         "k_evaluated": k_evaluated,
         "agreement_with_input": partition_agreement(

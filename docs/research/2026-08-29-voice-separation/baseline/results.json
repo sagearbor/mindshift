@@ -15,7 +15,7 @@
    },
    "owner_purity": 1.0,
    "fixture": "family_real",
-   "runtime_s": 4.5,
+   "runtime_s": 4.1,
    "k_evaluated": [
     {
      "k": 2,
@@ -88,7 +88,7 @@
    },
    "owner_purity": 1.0,
    "fixture": "poker6",
-   "runtime_s": 3.4,
+   "runtime_s": 3.5,
    "k_evaluated": [
     {
      "k": 2,
@@ -152,7 +152,7 @@
    },
    "owner_purity": null,
    "fixture": "openai",
-   "runtime_s": 7.4,
+   "runtime_s": 7.5,
    "k_evaluated": [
     {
      "k": 2,
@@ -216,7 +216,7 @@
    },
    "owner_purity": null,
    "fixture": "gptaudio",
-   "runtime_s": 7.9,
+   "runtime_s": 8.0,
    "k_evaluated": [
     {
      "k": 2,
@@ -280,7 +280,7 @@
    },
    "owner_purity": 1.0,
    "fixture": "scene_couple",
-   "runtime_s": 7.5,
+   "runtime_s": 7.6,
    "k_evaluated": [
     {
      "k": 2,
@@ -489,7 +489,7 @@
    },
    "owner_purity": 0.84,
    "fixture": "maggiano3",
-   "runtime_s": 5.0,
+   "runtime_s": 5.3,
    "k_evaluated": [
     {
      "k": 2,
@@ -556,7 +556,7 @@
   "transcript_7utt": {
    "k_true": 3,
    "k_pred": 3,
-   "frame_accuracy": 0.687,
+   "frame_accuracy": 0.702,
    "unlabelled_frac": 0.07,
    "mapping": {
     "Speaker A": "dad",
@@ -564,28 +564,28 @@
     "Speaker C": "mom"
    },
    "per_gt_recall": {
-    "asher": 0.74,
-    "dad": 0.614,
+    "asher": 0.742,
+    "dad": 0.648,
     "mom": 0.744
    },
-   "owner_purity": 0.787,
+   "owner_purity": 0.796,
    "fixture": "maggiano3",
-   "runtime_s": 7.3,
+   "runtime_s": 7.6,
    "k_evaluated": [
     {
      "k": 2,
      "ok": true,
-     "max_pairwise_cosine": 0.158,
-     "min_cluster_seconds": 11.25,
+     "max_pairwise_cosine": 0.138,
+     "min_cluster_seconds": 11.14,
      "route": "linkage"
     },
     {
      "k": 3,
      "ok": true,
-     "max_pairwise_cosine": 0.187,
+     "max_pairwise_cosine": 0.15,
      "min_cluster_seconds": 11.05,
-     "marginal_pair_cosine": 0.187,
-     "split_anchor_cosine": 0.101,
+     "marginal_pair_cosine": 0.15,
+     "split_anchor_cosine": 0.084,
      "route": "linkage"
     }
    ]
@@ -607,7 +607,7 @@
    },
    "owner_purity": 0.792,
    "fixture": "maggiano3",
-   "runtime_s": 7.1,
+   "runtime_s": 7.3,
    "k_evaluated": [
     {
      "k": 2,

@@ -19,6 +19,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 import audio_ingest
+import diarize_local
 import main
 from auth import get_current_uid
 from main import app, init_db
@@ -499,6 +500,44 @@ async def test_upload_crosscheck_adopts_changed_labels_with_note(client, monkeyp
     ]
     # Never silent: the relabeling is surfaced.
     assert "cross-check" in (data["voice_analysis"] or "")
+
+
+@pytest.mark.anyio
+async def test_upload_crosscheck_untranscribed_gap_turn_passes_validation(client, monkeypatch):
+    """diarize_local (round 2, 2026-08-29) may ADD a turn for speech the
+    transcript never covered, with the placeholder text "(untranscribed)".
+    It must pass AnalyzeTurn validation, stay index-aligned through the
+    per-turn analysis, and be surfaced in the note — never silent."""
+    monkeypatch.setenv("MINDSHIFT_DIARIZE_CROSSCHECK", "1")
+    # The transcript leaves a gap at 2.0-3.0 s (MOCK_TURNS[2] never came back).
+    gappy = [dict(t) for i, t in enumerate(MOCK_TURNS) if i != 2]
+    gap_turn = {
+        "speaker": "Speaker A", "text": diarize_local.UNTRANSCRIBED_TEXT,
+        "start_time": 2.0, "end_time": 3.0,
+    }
+    with_gap = gappy[:2] + [gap_turn] + gappy[2:]
+    payload = dict(
+        _crosscheck_payload(with_gap, agreement=1.0),
+        uncovered_turns=1, segments_embedded=len(gappy),
+    )
+    with patch("main.transcribe_upload", return_value=(gappy, None)), \
+         patch("main.get_llm_client",
+               return_value=_mock_llm(_analyze_llm_json(len(with_gap)))), \
+         patch("diarize_local.diarize_turns", return_value=payload) as dz:
+        resp = await client.post(
+            "/analyze/upload",
+            files={"file": ("clip.wav", FIXTURE_WAV, "audio/wav")},
+        )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    dz.assert_called_once()
+    assert len(data["turns"]) == len(with_gap) == 6
+    assert data["turns"][2]["text"] == diarize_local.UNTRANSCRIBED_TEXT
+    assert data["turns"][2]["speaker"] == "Speaker A"
+    assert (data["turns"][2]["start_time"], data["turns"][2]["end_time"]) == (2.0, 3.0)
+    # Per-turn analysis stays index-aligned with the 6 turns the LLM saw.
+    assert len(data["per_turn"]) == 6
+    assert "untranscribed" in (data["voice_analysis"] or "")
 
 
 @pytest.mark.anyio

@@ -2879,10 +2879,21 @@ async def _analyze_recording_bytes(
                 else:
                     turns = analyze_req.turns
                     n_split = local.get("split_utterances", 0)
-                    split_note = (
-                        f" ({n_split} long utterance(s) split at a "
-                        "voice change)" if n_split else ""
-                    )
+                    n_uncovered = local.get("uncovered_turns", 0)
+                    notes = []
+                    if n_split:
+                        notes.append(
+                            f"{n_split} long utterance(s) split at a voice change"
+                        )
+                    if n_uncovered:
+                        # diarize_local adds a turn per stretch of speech the
+                        # transcript never covered, text "(untranscribed)" —
+                        # a valid AnalyzeTurn, index-aligned like any other.
+                        notes.append(
+                            f"{n_uncovered} untranscribed stretch(es) of "
+                            "speech labelled"
+                        )
+                    split_note = f" ({'; '.join(notes)})" if notes else ""
                     if transcript_speakers < 2:
                         voice_note = (
                             "speakers relabeled by local voice diarization — "

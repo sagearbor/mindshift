@@ -369,8 +369,9 @@ class TestSplitLongUtterances:
         assert any("word timings" in r.message for r in caplog.records)
 
     def test_short_utterance_is_not_scanned(self):
-        """Compute bound: only utterances over the length floor get windowed."""
-        turns = [dict(_turn(3.0, 5.8), words=_words(3.0, 5.8, ["a", "b", "c", "d"]))]
+        """Compute bound: only utterances at or over the length floor
+        (SCAN_MIN_UTTERANCE_SECONDS, 2.0 since round 2) get windowed."""
+        turns = [dict(_turn(3.0, 4.8), words=_words(3.0, 4.8, ["a", "b", "c", "d"]))]
         pcm = _mixed_scenario_pcm()
         calls = []
 
@@ -579,7 +580,7 @@ class TestRapidExchangeSplitting:
         )
         assert stats == {
             "scanned": 1, "split": 1, "skipped_short": 0, "skipped_no_words": 0,
-            "window_boundaries": 0,
+            "window_boundaries": 0, "confirmed_short_pieces": [],
         }
         assert [(p["start_time"], p["end_time"]) for p in got] == [
             (3.0, 5.0), (5.0, 7.0), (7.0, 9.0), (9.0, 11.0), (11.0, 13.0),
@@ -1256,3 +1257,288 @@ class TestNoiseFloorSpeechGate:
         assert speaker_id.speech_seconds(tone, SR) == pytest.approx(4.0, abs=0.1)
         _, gate, _ = speaker_id.speech_mask(tone, SR)
         assert gate == speaker_id.SPEECH_RMS_GATE_CEILING
+
+
+# ---------------------------------------------------------------------------
+# Round 2 (2026-08-29): lower scan floors (SCAN_MIN_UTTERANCE_SECONDS 2.0),
+# both-source-confirmed pieces down to CONFIRMED_PIECE_MIN_SECONDS (0.8),
+# speech the transcript never covered becoming "(untranscribed)" turns.
+# ---------------------------------------------------------------------------
+
+# Words a-f cover 3.0-9.0 (one per second); g/h cover 9.0-9.85 — a 2-word
+# run whose piece lasts 0.85 s: over CONFIRMED_PIECE_MIN_SECONDS, under
+# MIN_SECONDS.
+_SHORT_TAIL_WORDS = [
+    {"word": w, "start_time": s, "end_time": e}
+    for w, s, e in [
+        ("a", 3.0, 4.0), ("b", 4.0, 5.0), ("c", 5.0, 6.0), ("d", 6.0, 7.0),
+        ("e", 7.0, 8.0), ("f", 8.0, 9.0), ("g", 9.0, 9.4), ("h", 9.4, 9.85),
+    ]
+]
+_SHORT_TAIL_LABELS = [0, 0, 0, 0, 0, 0, 1, 1]
+
+
+def _short_tail_pcm(tail_end: float = 9.85) -> np.ndarray:
+    """Voice A fills 3.0-9.0, voice B fills 9.0-``tail_end``; silence around."""
+    pcm = np.zeros(int(12.0 * SR), dtype=np.float32)
+    pcm[int(3.0 * SR):int(9.0 * SR)] = VOICE_A
+    pcm[int(9.0 * SR):int(tail_end * SR)] = VOICE_B
+    return pcm
+
+
+class TestConfirmedShortPieces:
+    def test_single_source_short_run_still_merges(self):
+        """The per-word pass alone (no second instrument, or one that
+        disagrees) keeps the MIN_SECONDS floor: a 0.85 s run merges."""
+        assert diarize_local._collapse_word_runs(
+            _SHORT_TAIL_WORDS, _SHORT_TAIL_LABELS, 3.0, 9.85,
+        ) == [0] * 8
+        assert diarize_local._collapse_word_runs(
+            _SHORT_TAIL_WORDS, _SHORT_TAIL_LABELS, 3.0, 9.85,
+            min_seconds_confirmed=diarize_local.CONFIRMED_PIECE_MIN_SECONDS,
+            confirm=lambda p0, p1, q0, q1: False,
+        ) == [0] * 8
+
+    def test_both_source_confirmed_short_run_survives(self):
+        calls = []
+
+        def confirm(p0, p1, q0, q1):
+            calls.append((p0, p1, q0, q1))
+            return True
+
+        confirmed: set = set()
+        got = diarize_local._collapse_word_runs(
+            _SHORT_TAIL_WORDS, _SHORT_TAIL_LABELS, 3.0, 9.85,
+            min_seconds_confirmed=diarize_local.CONFIRMED_PIECE_MIN_SECONDS,
+            confirm=confirm, confirmed_out=confirmed,
+        )
+        assert got == _SHORT_TAIL_LABELS
+        # Asked once, about the piece and the neighbour it would merge into.
+        assert calls == [(9.0, 9.85, 3.0, 9.0)]
+        assert confirmed == {(9.0, 9.85)}
+
+    def test_piece_under_the_confirmed_floor_merges_without_asking(self):
+        words = [dict(w) for w in _SHORT_TAIL_WORDS]
+        words[6]["end_time"], words[7]["start_time"], words[7]["end_time"] = 9.3, 9.3, 9.7
+        calls = []
+        got = diarize_local._collapse_word_runs(
+            words, _SHORT_TAIL_LABELS, 3.0, 9.7,
+            min_seconds_confirmed=diarize_local.CONFIRMED_PIECE_MIN_SECONDS,
+            confirm=lambda *a: calls.append(a) or True,
+        )
+        assert got == [0] * 8
+        assert calls == []
+
+    def test_enforce_min_pieces_honours_the_confirmed_floor_only(self):
+        kw = dict(min_seconds_confirmed=diarize_local.CONFIRMED_PIECE_MIN_SECONDS)
+        assert diarize_local._enforce_min_pieces(
+            3.0, 9.85, [9.0], confirmed={(9.0, 9.85)}, **kw,
+        ) == [9.0]
+        # The same 0.85 s piece from a cut NOBODY confirmed (a window
+        # proposal, or an unconfirmed word cut) is still a sliver.
+        assert diarize_local._enforce_min_pieces(3.0, 9.85, [9.0], confirmed=set(), **kw) == []
+        assert diarize_local._enforce_min_pieces(3.0, 9.85, [9.0]) == []
+
+    def test_split_pass_keeps_confirmed_short_piece_and_reports_it(self):
+        turns = [dict(_turn(3.0, 9.85, text="welded"), words=_SHORT_TAIL_WORDS)]
+        got, stats = diarize_local.split_long_utterances(
+            _short_tail_pcm(), SR, turns, _mean_angle_embed, _CENTROIDS_AB,
+            confirm=lambda p0, p1, q0, q1: True,
+        )
+        assert [(p["start_time"], p["end_time"], p["text"]) for p in got] == [
+            (3.0, 9.0, "a b c d e f"), (9.0, 9.85, "g h"),
+        ]
+        assert stats["split"] == 1
+        assert stats["confirmed_short_pieces"] == [(9.0, 9.85)]
+        # One source only → no split, nothing confirmed.
+        got, stats = diarize_local.split_long_utterances(
+            _short_tail_pcm(), SR, turns, _mean_angle_embed, _CENTROIDS_AB,
+        )
+        assert len(got) == 1 and stats["split"] == 0
+        assert stats["confirmed_short_pieces"] == []
+
+    def test_two_second_utterance_is_scanned_and_split(self):
+        """SCAN_MIN_UTTERANCE_SECONDS (2.0, was 3.0): a 2.2 s weld of two
+        1.1 s voices — each piece over MIN_SECONDS — is now split."""
+        words = [
+            {"word": w, "start_time": s, "end_time": e}
+            for w, s, e in [("a", 3.0, 3.55), ("b", 3.55, 4.1), ("c", 4.1, 4.65), ("d", 4.65, 5.2)]
+        ]
+        turns = [dict(_turn(3.0, 5.2), words=words)]
+        pcm = np.zeros(int(8.0 * SR), dtype=np.float32)
+        pcm[int(3.0 * SR):int(4.1 * SR)] = VOICE_A
+        pcm[int(4.1 * SR):int(5.2 * SR)] = VOICE_B
+        got, stats = diarize_local.split_long_utterances(
+            pcm, SR, turns, _mean_angle_embed, _CENTROIDS_AB,
+        )
+        assert stats["scanned"] == 1 and stats["split"] == 1
+        assert [(p["start_time"], p["end_time"]) for p in got] == [(3.0, 4.1), (4.1, 5.2)]
+
+    def test_window_pass_confirms_two_voices_against_spectral_centroids(self):
+        """The second source: both pieces embedded against the pooled
+        spectral centroids must land on DIFFERENT centroids with margin ≥
+        WORD_MIN_MARGIN each."""
+        pcm = _short_tail_pcm()
+
+        def embed_batch(chunks, sr):
+            return [_mean_angle_embed(c, sr) for c in chunks]
+
+        wp = diarize_local._WindowPass(pcm, SR, embed_batch, _mean_angle_embed)
+        wp.k_eigengap = 2
+        wp._centroids_at[2] = {0: _fake_centroid(VOICE_A), 1: _fake_centroid(VOICE_B)}
+        assert wp.confirms_two_voices(9.0, 9.85, 3.0, 9.0) is True
+        assert wp.confirms_two_voices(3.0, 6.0, 6.0, 9.0) is False   # same voice
+        wp._centroids_at[2] = None                                    # no spectral pass
+        assert wp.confirms_two_voices(9.0, 9.85, 3.0, 9.0) is False
+        wp.k_eigengap = None
+        assert wp.confirms_two_voices(9.0, 9.85, 3.0, 9.0) is False
+
+    def test_confirmed_piece_attributed_by_its_own_voice_end_to_end(self, monkeypatch):
+        """Through diarize_turns: a 6.85 s weld whose second voice lasts
+        0.85 s. The per-word run hears voice B there and the window pass's
+        verdict (stubbed — the 2-D fake embedder's spectral clusters are
+        boundary blends, see the test above for the real verdict) agrees,
+        so the piece survives under MIN_SECONDS and — never embedded for
+        clustering — takes the centroid its own embedding is nearest to
+        (B), not the neighbour it was cut from (A)."""
+        asked = []
+
+        def stub_confirm(self, p0, p1, q0, q1, *, min_margin=None):
+            asked.append((p0, p1, q0, q1))
+            return True
+
+        monkeypatch.setattr(diarize_local._WindowPass, "confirms_two_voices", stub_confirm)
+        words = [
+            {"word": w, "start_time": 9.0 + i, "end_time": 10.0 + i}
+            for i, w in enumerate(["a", "b", "c", "d", "e", "f"])
+        ] + [
+            {"word": "g", "start_time": 15.0, "end_time": 15.4},
+            {"word": "h", "start_time": 15.4, "end_time": 15.85},
+        ]
+        turns = [
+            _turn(0.0, 3.0, text="aa"), _turn(3.0, 6.0, text="bb"),
+            _turn(6.0, 9.0, text="aa"),
+            dict(_turn(9.0, 15.85, text="welded"), words=words),
+        ]
+        pcm = np.zeros(int(17.0 * SR), dtype=np.float32)
+        for lo, hi, fill in [(0, 3, VOICE_A), (3, 6, VOICE_B), (6, 9, VOICE_A),
+                             (9, 15, VOICE_A), (15, 15.85, VOICE_B)]:
+            pcm[int(lo * SR):int(hi * SR)] = fill
+        got = diarize_local.diarize_turns(pcm, SR, turns, embed_fn=_mean_angle_embed)
+        assert got is not None and got["num_speakers"] == 2
+        assert asked == [(15.0, 15.85, 9.0, 15.0)]
+        assert got["split_utterances"] == 1
+        assert got["confirmed_short_pieces"] == 1
+        assert got["short_turn_attribution"] == {"self": 1, "neighbour": 0}
+        assert [(t["start_time"], t["end_time"], t["speaker"]) for t in got["turns"]] == [
+            (0.0, 3.0, "Speaker A"), (3.0, 6.0, "Speaker B"), (6.0, 9.0, "Speaker A"),
+            (9.0, 15.0, "Speaker A"), (15.0, 15.85, "Speaker B"),
+        ]
+        # The 0.85 s piece was NOT part of the clustering set.
+        assert got["segments_embedded"] == 4
+
+
+class TestUncoveredSpeech:
+    FRAME = 0.03
+
+    def _mask(self, seconds: float, speech: list[tuple[float, float]]) -> np.ndarray:
+        n = int(round(seconds / self.FRAME))
+        mask = np.zeros(n, dtype=bool)
+        for s, e in speech:
+            mask[int(round(s / self.FRAME)):int(round(e / self.FRAME))] = True
+        return mask
+
+    def test_runs_outside_every_turn(self):
+        mask = self._mask(10.0, [(0.0, 10.0)])
+        turns = [_turn(0.0, 3.0), _turn(4.0, 6.0)]
+        got = diarize_local._uncovered_speech(mask, self.FRAME, turns, 10.0)
+        assert len(got) == 2
+        assert got[0] == pytest.approx((3.0, 4.0), abs=0.05)
+        assert got[1] == pytest.approx((6.0, 10.0), abs=0.05)
+        # Nothing overlaps a turn.
+        for s, e in got:
+            for t in turns:
+                assert diarize_local._overlap_seconds(s, e, t["start_time"], t["end_time"]) == 0.0
+
+    def test_short_run_ignored_and_holes_bridged(self):
+        turns = [_turn(0.0, 1.0)]
+        # 0.3 s of speech: under UNCOVERED_MIN_SECONDS.
+        assert diarize_local._uncovered_speech(
+            self._mask(6.0, [(3.0, 3.3)]), self.FRAME, turns, 6.0,
+        ) == []
+        # Two bursts with a 0.09 s hole (≤ UNCOVERED_BRIDGE_SECONDS) → one run.
+        got = diarize_local._uncovered_speech(
+            self._mask(6.0, [(3.0, 3.3), (3.39, 3.7)]), self.FRAME, turns, 6.0,
+        )
+        assert len(got) == 1 and got[0] == pytest.approx((3.0, 3.7), abs=0.05)
+        # A 0.3 s hole is NOT bridged → two sub-floor bursts, nothing kept.
+        assert diarize_local._uncovered_speech(
+            self._mask(6.0, [(3.0, 3.3), (3.6, 3.9)]), self.FRAME, turns, 6.0,
+        ) == []
+
+    def test_turn_dicts_overlap_guard_and_cap(self):
+        turns = [_turn(0.0, 1.05, speaker="Speaker Q"), _turn(6.9, 7.3, speaker="Speaker R")]
+        candidates = [(1.0, 1.5), (3.0, 5.0), (7.0, 7.6), (8.0, 8.5)]
+        got = diarize_local._uncovered_turn_dicts(candidates, turns, cap=10)
+        # (7.0, 7.6) overlaps the 6.9-7.3 turn by 0.3 s > 0.1 → dropped;
+        # (1.0, 1.5) overlaps 0.05 s → allowed.
+        assert [(t["start_time"], t["end_time"]) for t in got] == [(1.0, 1.5), (3.0, 5.0), (8.0, 8.5)]
+        assert all(t["text"] == diarize_local.UNTRANSCRIBED_TEXT for t in got)
+        assert got[0]["speaker"] == "Speaker Q" and got[2]["speaker"] == "Speaker R"
+        # The cap keeps the LONGEST runs, in time order.
+        got = diarize_local._uncovered_turn_dicts(candidates, turns, cap=2)
+        assert [(t["start_time"], t["end_time"]) for t in got] == [(1.0, 1.5), (3.0, 5.0)]
+        assert diarize_local._uncovered_turn_dicts(candidates, turns, cap=0) == []
+
+    def test_insert_chronological_maps_old_indices(self):
+        turns = [_turn(0.0, 1.0, text="t0"), _turn(2.0, 3.0, text="t1")]
+        extras = [_turn(1.2, 1.6, text="x0"), _turn(3.5, 4.0, text="x1")]
+        merged, index_map = diarize_local._insert_chronological(turns, extras)
+        assert [t["text"] for t in merged] == ["t0", "x0", "t1", "x1"]
+        assert index_map == [0, 2]
+
+    def _four_turns(self):
+        turns = [_turn(3.0 * i, 3.0 * (i + 1)) for i in range(4)]
+        return turns, [VOICE_A, VOICE_B, VOICE_A, VOICE_B]
+
+    def test_uncovered_speech_becomes_a_turn_labelled_by_its_own_voice(self):
+        turns, fills = self._four_turns()
+        pcm = _voiced_pcm(turns, fills, 18.0)
+        pcm[int(13.0 * SR):int(13.7 * SR)] = VOICE_B   # 0.7 s, voice B, no utterance
+        pcm[int(15.0 * SR):int(16.2 * SR)] = VOICE_A   # 1.2 s, voice A, no utterance
+        got = diarize_local.diarize_turns(pcm, SR, turns, embed_fn=_mean_angle_embed)
+        assert got is not None and got["num_speakers"] == 2
+        assert got["uncovered_turns"] == 2
+        assert len(got["turns"]) == 6
+        extra = [t for t in got["turns"] if t["text"] == diarize_local.UNTRANSCRIBED_TEXT]
+        assert [(t["start_time"], t["end_time"], t["speaker"]) for t in extra] == [
+            (pytest.approx(13.0, abs=0.05), pytest.approx(13.7, abs=0.05), "Speaker B"),
+            (pytest.approx(15.0, abs=0.05), pytest.approx(16.2, abs=0.05), "Speaker A"),
+        ]
+        # Chronological, and never part of the clustering set (even the
+        # 1.2 s one): the transcript's own utterances decide the partition.
+        assert [t["start_time"] for t in got["turns"]] == sorted(t["start_time"] for t in got["turns"])
+        assert got["segments_embedded"] == 4
+        assert got["short_turn_attribution"] == {"self": 2, "neighbour": 0}
+
+    def test_uncovered_turns_are_capped_longest_first(self):
+        turns, fills = self._four_turns()
+        pcm = _voiced_pcm(turns, fills, 30.0)
+        # Five uncovered bursts of 0.5 .. 0.9 s; the cap for 4 transcript
+        # turns is int(0.2 * 4) + 3 = 3 → the three longest survive.
+        bursts = [(13.0, 13.5), (15.0, 15.6), (17.0, 17.7), (19.0, 19.8), (21.0, 21.9)]
+        for s, e in bursts:
+            pcm[int(s * SR):int(e * SR)] = VOICE_A
+        got = diarize_local.diarize_turns(pcm, SR, turns, embed_fn=_mean_angle_embed)
+        assert got is not None
+        assert got["uncovered_turns"] == 3
+        extra = [t for t in got["turns"] if t["text"] == diarize_local.UNTRANSCRIBED_TEXT]
+        assert [round(t["start_time"]) for t in extra] == [17, 19, 21]
+
+    def test_no_uncovered_turn_when_utterances_cover_all_speech(self):
+        turns, fills = self._four_turns()
+        got = diarize_local.diarize_turns(
+            _voiced_pcm(turns, fills, 12.0), SR, turns, embed_fn=_mean_angle_embed,
+        )
+        assert got is not None
+        assert got["uncovered_turns"] == 0 and len(got["turns"]) == 4
