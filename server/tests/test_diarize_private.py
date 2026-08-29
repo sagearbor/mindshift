@@ -10,11 +10,17 @@ point ``MINDSHIFT_PRIVATE_FIXTURES`` at a directory holding ``maggiano3/``):
     audio.m4a             the stored derivative (GCS recordings/<uid>/<id>/audio.m4a)
     transcript_7utt.json  the Deepgram transcript variant with word timings
                           (7 utterances, 2 speakers) that exposed the merge
+    rubric.json           the OWNER'S per-second listen-through (dad/mom/asher,
+                          overlap segments list both) — the ground truth
 
-Ground truth is the owner's report ("my son was merged into my speaker")
-plus in-recording reference-voice affinity — approximate interval labels
-below, used only for a time-weighted owner-turn PURITY check, never exact
-per-turn accuracy. Skipped whenever the private files are absent.
+Measured against that rubric (2026-08-29): the shipped pipeline scores
+frame accuracy 0.64 on this transcript with dad-cluster purity 0.76 — it
+finds three voices but mixes them (dad's "Hey hey hey, settle down" lands
+on mom; "What do you think, mom?" on the son). This test pins only the
+narrow thing the 0.33 recalibration fixed (k=3 found, the welded first
+utterance split, dad-cluster purity not collapsing back to ~0.5); the
+research bake-off in docs/research/2026-08-29-voice-separation/ is where
+the real fix is being worked out. Skipped whenever the private files are absent.
 """
 
 from __future__ import annotations
@@ -42,15 +48,21 @@ try:  # voice deps are optional
 except Exception:  # noqa: BLE001
     _VOICE_OK = False
 
-# Best-estimate speaker intervals (seconds): owner / wife / son.
-_GT = [
-    (0.8, 2.9, "owner"), (2.9, 4.98, "son"), (5.44, 6.5, "son"),
-    (6.6, 8.02, "owner"), (8.88, 9.8, "owner"), (9.8, 10.74, "wife"),
-    (11.04, 12.97, "wife"), (13.36, 17.61, "owner"), (18.39, 21.9, "son"),
-    (21.9, 23.6, "owner"), (23.9, 25.1, "wife"), (25.2, 29.2, "son"),
-    (29.2, 33.7, "wife"), (34.0, 36.2, "son"), (36.2, 36.8, "owner"),
-    (36.8, 37.5, "son"), (38.0, 40.8, "owner"),
-]
+_RUBRIC = _PRIVATE / "maggiano3" / "rubric.json"
+
+
+def _gt() -> list[tuple[float, float, tuple[str, ...]]]:
+    """The OWNER'S per-second listen-through rubric (v2, 2026-08-15; ±1 s
+    boundary slop; overlap segments list every speaker — either credited).
+    Labels: dad / mom / asher. Kept as the single source of truth — the
+    research scorer (docs/research/2026-08-29-voice-separation/score.py)
+    reads the same file."""
+    rub = json.loads(_RUBRIC.read_text())
+    out = []
+    for seg in rub["segments"]:
+        sp = seg["speaker"]
+        out.append((float(seg["start"]), float(seg["end"]), tuple(sp) if isinstance(sp, list) else (sp,)))
+    return out
 
 
 def _overlap(a: float, b: float, c: float, d: float) -> float:
@@ -58,39 +70,45 @@ def _overlap(a: float, b: float, c: float, d: float) -> float:
 
 
 def owner_purity(turns: list[dict]) -> tuple[float, int]:
-    """Best-permutation time-weighted mapping; returns (owner-cluster purity,
-    number of predicted speakers)."""
+    """Best one-to-one time-weighted mapping of predicted labels onto the
+    rubric's speakers; returns (purity of the cluster mapped to dad, number
+    of predicted speakers). An overlap second credits either speaker."""
+    gt = _gt()
     labels = sorted({t["speaker"] for t in turns})
-    people = ["owner", "wife", "son"]
-    conf = {
-        (lab, p): sum(
+    people = ["dad", "mom", "asher"]
+
+    def credit(lab: str, person: str) -> float:
+        return sum(
             _overlap(t["start_time"], t["end_time"], a, b)
             for t in turns if t["speaker"] == lab
-            for a, b, who in _GT if who == p
+            for a, b, who in gt if person in who
         )
-        for lab in labels for p in people
-    }
+
     best, best_map = -1.0, {}
     for perm in itertools.permutations(people, min(len(labels), 3)):
         m = dict(zip(labels, perm))
-        s = sum(conf[(lab, m[lab])] for lab in m)
-        if s > best:
-            best, best_map = s, m
-    owner_label = next(lab for lab, p in best_map.items() if p == "owner")
-    total = sum(conf[(owner_label, p)] for p in people)
-    return (conf[(owner_label, "owner")] / total if total else 0.0), len(labels)
+        sc = sum(credit(lab, m[lab]) for lab in m)
+        if sc > best:
+            best, best_map = sc, m
+    dad_label = next((lab for lab, p in best_map.items() if p == "dad"), None)
+    if dad_label is None:
+        return 0.0, len(labels)
+    claimed = sum(
+        _overlap(t["start_time"], t["end_time"], a, b)
+        for t in turns if t["speaker"] == dad_label for a, b, _ in gt
+    )
+    return (credit(dad_label, "dad") / claimed if claimed else 0.0), len(labels)
 
 
 @pytest.mark.skipif(not _VOICE_OK, reason="voice deps (torch + speechbrain) not installed")
 @pytest.mark.skipif(
-    not (_AUDIO.exists() and _TRANSCRIPT.exists()),
-    reason="private maggiano3 fixture absent (tmp/private_fixtures/maggiano3/)",
+    not (_AUDIO.exists() and _TRANSCRIPT.exists() and _RUBRIC.exists()),
+    reason="private maggiano3 fixture absent (tmp/private_fixtures/maggiano3/ incl. rubric.json)",
 )
 def test_maggiano3_owner_and_son_are_not_one_speaker():
-    """Measured 2026-08-27 at STRONG_SEPARATION_COSINE=0.33: k=3, owner-turn
-    purity 0.79, welded first utterance split owner/son at the word level.
-    At the old 0.32 bar the genuine third voice's marginal split (0.325) was
-    rejected: k=2, purity 0.52, son folded into the owner."""
+    """Against the owner's rubric: k=3 and dad-cluster purity 0.76 at
+    STRONG_SEPARATION_COSINE=0.33 (vs k=2 / ~0.5 at the old 0.32 bar, son
+    folded into dad). Floor set at 0.70 — a regression, not a target."""
     import audio_ingest
 
     data = _AUDIO.read_bytes()
@@ -104,8 +122,8 @@ def test_maggiano3_owner_and_son_are_not_one_speaker():
         for t in got["turns"]
     )
     assert k == 3, f"maggiano3: heard {k} speakers, expected 3\n{detail}"
-    assert purity >= 0.75, (
-        f"maggiano3: owner-turn purity {purity:.2f} < 0.75 — the son is being "
+    assert purity >= 0.70, (
+        f"maggiano3: dad-cluster purity {purity:.2f} < 0.70 — the son is being "
         f"merged into the owner again\n{detail}"
     )
     first = got["turns"][0]

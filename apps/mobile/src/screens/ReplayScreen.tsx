@@ -45,8 +45,8 @@ import {
 import { speakerLabel } from "../utils/speakerLabels";
 import { getCachedMediaUri, cacheMediaInBackground } from "../utils/mediaCache";
 import RecordingShareManager from "../components/RecordingShareManager";
-import SpeakerEnrollment from "../components/SpeakerEnrollment";
 import SpeakerNaming from "../components/SpeakerNaming";
+import SpeakerEnrollment, { useSpeakerEnrollment } from "../components/SpeakerEnrollment";
 import PulseDot from "../components/PulseDot";
 import { summarizeReanalyze, type ReanalyzeSummary } from "./reanalyzeDelta";
 import { setPlaybackMode } from "../utils/audioMode";
@@ -791,6 +791,11 @@ export default function ReplayScreen({
   // has 404'd this session.
   const namingSupported =
     detail?.manual_speaker_labels !== undefined && !namingUnsupported;
+  // "This is me" state, shared by the inline rows (current servers) and the
+  // standalone fallback card (older servers without speaker naming).
+  const enrollment = useSpeakerEnrollment(
+    recordingId, !isShared && turns.length > 0 && !noMedia,
+  );
   // PRD §6 scoreboard for a live session, re-scored on the phone from the
   // stored per-turn tone + prosody with the SAME arithmetic the live board
   // used (live/pleasantness.ts ≡ server/pleasantness.py). Null for an
@@ -1445,14 +1450,15 @@ export default function ReplayScreen({
               people={people ?? undefined}
               hasAudio={!noMedia}
               onPeopleChanged={() => void refreshPeople()}
+              enrollment={noMedia ? undefined : enrollment}
             />
           ) : null}
 
-          {/* "This is me" — enroll a speaker's voice so they're labeled "You"
-              in future recordings. Self-hides when the server can't do voice ID
-              or there are no diarized turns to choose from. Owner-only:
-              enrolling from someone else's shared recording is meaningless. */}
-          {!isShared && turns.length > 0 && !noMedia ? (
+          {/* "This is me" standalone card — ONLY the fallback for an older
+              server without speaker naming; otherwise it lives inline in the
+              rows above. Self-hides when the server can't do voice ID or there
+              are no diarized turns. Owner-only. */}
+          {!isShared && turns.length > 0 && !noMedia && !namingSupported ? (
             <SpeakerEnrollment
               recordingId={recordingId}
               turns={turns}

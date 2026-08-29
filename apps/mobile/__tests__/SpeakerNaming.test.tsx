@@ -87,3 +87,72 @@ describe("SpeakerNaming color/speaker-mismatch fix (matches HeatChart's resolveS
     act(() => comp.unmount());
   });
 });
+
+// ---------------------------------------------------------------------------
+// "This is me" inline — one speaker list, not two cards
+// ---------------------------------------------------------------------------
+
+describe("SpeakerNaming — inline enrollment", () => {
+  const turns: RecordingTurn[] = [
+    { speaker: "Speaker A", text: "hi", start_time: 0, end_time: 2 },
+    { speaker: "Speaker B", text: "hey", start_time: 2, end_time: 4 },
+  ];
+  const base = {
+    recordingId: "rec-1",
+    turns,
+    manualLabels: {},
+    onSaved: jest.fn(),
+  };
+  function enrollmentState(over: Partial<import("../src/components/SpeakerEnrollment").SpeakerEnrollmentState> = {}) {
+    return {
+      available: true,
+      profile: { available: true, storage_enabled: true, enrolled: true, enroll_count: 5 },
+      enrollingSpeaker: null,
+      enrolledSpeaker: null,
+      error: null,
+      enroll: jest.fn().mockResolvedValue(undefined),
+      ...over,
+    } as import("../src/components/SpeakerEnrollment").SpeakerEnrollmentState;
+  }
+
+  it("puts 'This is me' on every speaker row and says the print will be refined", () => {
+    const st = enrollmentState();
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(<SpeakerNaming {...base} enrollment={st} />);
+    });
+    expect(queryId(comp, "enroll-Speaker A")).not.toBeNull();
+    expect(queryId(comp, "enroll-Speaker B")).not.toBeNull();
+    expect(queryId(comp, "speaker-enrollment-note")).not.toBeNull();
+    act(() => queryId(comp, "enroll-Speaker B")!.props.onPress());
+    expect(st.enroll).toHaveBeenCalledWith("Speaker B");
+  });
+
+  it("shows no 'This is me' when the server can't do voice ID, and no second card is needed", () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(
+        <SpeakerNaming {...base} enrollment={enrollmentState({ available: false, profile: null })} />,
+      );
+    });
+    expect(queryId(comp, "enroll-Speaker A")).toBeNull();
+    expect(queryId(comp, "name-edit-Speaker A")).not.toBeNull();
+  });
+
+  it("confirms an enrollment inline and surfaces enrollment errors under the list", () => {
+    let comp!: renderer.ReactTestRenderer;
+    act(() => {
+      comp = renderer.create(
+        <SpeakerNaming {...base} enrollment={enrollmentState({ enrolledSpeaker: "Speaker A" })} />,
+      );
+    });
+    expect(queryId(comp, "speaker-enrollment-manage-hint")).not.toBeNull();
+    expect(queryId(comp, "speaker-enrollment-note")).toBeNull();
+    act(() => {
+      comp = renderer.create(
+        <SpeakerNaming {...base} enrollment={enrollmentState({ error: "Couldn’t save your voice. Please try again." })} />,
+      );
+    });
+    expect(queryId(comp, "enroll-error")).not.toBeNull();
+  });
+});
