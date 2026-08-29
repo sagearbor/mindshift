@@ -13,8 +13,13 @@ export interface AvatarCaptureDeps {
    *  document directory), overwriting any previously saved one — a retake
    *  always overwrites the same fixed filename rather than accumulating
    *  stale files. Returns the final persisted uri to save in avatarStore. */
-  persistPhoto: (capturedUri: string) => Promise<string>;
+  persistPhoto: (capturedUri: string, source?: PhotoSource) => Promise<string>;
 }
+
+/** Where the photo came from — decides move vs copy in persistPhoto: a
+ *  camera capture is a temp file we MOVE; a photo chosen from the user's
+ *  library is THEIRS and is COPIED, never taken out of their camera roll. */
+export type PhotoSource = "camera" | "library";
 
 export interface AvatarCaptureScreenProps {
   /** Cancel — back to wherever the avatar menu / Settings row launched from,
