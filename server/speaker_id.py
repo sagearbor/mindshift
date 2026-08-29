@@ -143,6 +143,37 @@ MIN_ENROLL_SECONDS = 3.0
 # and above room-tone/handling noise on phone mics.
 SPEECH_FRAME_MS = 30.0
 SPEECH_RMS_THRESHOLD = 0.01
+
+# NOISE-FLOOR-RELATIVE speech gate (2026-08-29, voice-separation bake-off,
+# docs/research/2026-08-29-voice-separation/B-sliding-window/README.md):
+# the effective gate is ``max(absolute floor, SPEECH_RMS_FLOOR_MULT x the
+# SPEECH_NOISE_FLOOR_PERCENTILE-th percentile of frame RMS)``. Measured: the
+# real 6-speaker poker clip's quietest player has a MEDIAN frame RMS of
+# 0.0036 against a room floor of 0.0032, so any absolute gate near 0.01 (or a
+# peak-relative one) silently drops a whole real speaker, while the TTS
+# fixtures' gaps are digital silence (RMS ~0, p10 ~0 → the absolute floor
+# rules) and family_real's gaps sit at 0.0035-0.005 against the child's
+# 0.012 median, so 1.5 x floor still separates them. With this gate every
+# speaker on every fixture keeps >= 76 % of his 1.5 s windows.
+#   * :func:`speech_seconds` (enrollment) keeps SPEECH_RMS_THRESHOLD (0.01)
+#     as its absolute floor — the relative term only RAISES the gate in a
+#     noisy room (room tone no longer counts as speech); a silent upload
+#     still measures 0 s.
+#   * The diarizer's window pass (``diarize_local``) uses the lower
+#     SPEECH_RMS_FLOOR (0.003, B's calibration) as its absolute floor so a
+#     quiet-but-present speaker is windowed, not gated out.
+#   * The relative term is capped at SPEECH_RMS_GATE_CEILING: p10 is only a
+#     NOISE-floor estimate while at least a tenth of the clip is quiet; a
+#     clip with no pauses at all (a sustained tone, wall-to-wall speech) has
+#     a p10 at speech level and must not gate itself out. 0.03 is the bottom
+#     of the "quiet speech" range in the comment above. Measured 2026-08-29:
+#     every fixture's gate lands at 0.003-0.005 (p10 0.0003-0.0035), and even
+#     the frames INSIDE continuous-speech utterances have p10 <= 0.004, so
+#     the cap is never reached on real speech.
+SPEECH_RMS_FLOOR = 0.003
+SPEECH_RMS_FLOOR_MULT = 1.5
+SPEECH_NOISE_FLOOR_PERCENTILE = 10.0
+SPEECH_RMS_GATE_CEILING = 0.03
 # Cap pooled audio per speaker so a very long recording can't make one embed call
 # unbounded; the first ~60s of a voice is more than enough identity signal.
 MAX_POOL_SECONDS = 60.0
@@ -421,34 +452,87 @@ def pool_speaker_pcm(
     return np.ascontiguousarray(pooled, dtype=np.float32)
 
 
+def frame_rms(pcm: np.ndarray, sr: int, *, frame_ms: float = SPEECH_FRAME_MS) -> np.ndarray:
+    """RMS of each full ``frame_ms`` frame of ``pcm`` (pure numpy). The
+    partial tail frame is dropped; empty audio → an empty array."""
+    pcm = np.asarray(pcm, dtype=np.float32)
+    if pcm.size == 0 or sr <= 0:
+        return np.zeros(0, dtype=np.float64)
+    frame = max(1, int(sr * frame_ms / 1000.0))
+    usable = (pcm.size // frame) * frame
+    if usable == 0:
+        return np.zeros(0, dtype=np.float64)
+    frames = pcm[:usable].reshape(-1, frame)
+    return np.sqrt(np.mean(frames.astype(np.float64) ** 2, axis=1))
+
+
+def speech_rms_threshold(
+    rms: np.ndarray, *, rms_floor: float,
+    floor_mult: float = SPEECH_RMS_FLOOR_MULT,
+    floor_percentile: float = SPEECH_NOISE_FLOOR_PERCENTILE,
+    ceiling: float = SPEECH_RMS_GATE_CEILING,
+) -> float:
+    """The NOISE-FLOOR-RELATIVE speech gate for a clip whose frame RMS values
+    are ``rms``: ``max(rms_floor, min(ceiling, floor_mult x percentile(rms,
+    floor_percentile)))``. A silent clip (p10 ~ 0) is gated by the absolute
+    ``rms_floor`` alone; a noisy room raises the gate above its own floor;
+    a clip with no quiet frames at all is capped at ``ceiling`` (see the
+    SPEECH_RMS_FLOOR comment for the measurements)."""
+    rms = np.asarray(rms, dtype=np.float64)
+    if rms.size == 0:
+        return float(rms_floor)
+    relative = floor_mult * float(np.percentile(rms, floor_percentile))
+    return max(float(rms_floor), min(float(ceiling), relative))
+
+
+def speech_mask(
+    pcm: np.ndarray, sr: int, *,
+    frame_ms: float = SPEECH_FRAME_MS,
+    rms_floor: float = SPEECH_RMS_FLOOR,
+    floor_mult: float = SPEECH_RMS_FLOOR_MULT,
+) -> tuple[np.ndarray, float, float]:
+    """``(mask, threshold, frame_seconds)`` — one bool per ``frame_ms`` frame
+    saying whether it clears the noise-floor-relative gate
+    (:func:`speech_rms_threshold` with ``rms_floor`` as the absolute floor).
+    Pure numpy; the diarizer's window pass gates its windows with this."""
+    rms = frame_rms(pcm, sr, frame_ms=frame_ms)
+    thr = speech_rms_threshold(rms, rms_floor=rms_floor, floor_mult=floor_mult)
+    return rms >= thr, thr, frame_ms / 1000.0
+
+
 def speech_seconds(
     pcm: np.ndarray,
     sr: int,
     *,
     frame_ms: float = SPEECH_FRAME_MS,
     rms_threshold: float = SPEECH_RMS_THRESHOLD,
+    floor_mult: float = SPEECH_RMS_FLOOR_MULT,
 ) -> float:
     """Seconds of ACTUAL speech-level audio in ``pcm`` (pure numpy, no torch).
 
     A simple energy gate: the clip is cut into ``frame_ms`` frames and every
-    frame whose RMS clears ``rms_threshold`` counts as speech. Deliberately
-    conservative and honest — it distinguishes "a long clip" from "a long clip
-    with enough speech in it", so a silent upload can never enroll. Returns 0.0
-    for empty audio or a nonsensical sample rate rather than guessing."""
+    frame whose RMS clears the gate counts as speech. The gate is
+    NOISE-FLOOR-RELATIVE (2026-08-29): ``max(rms_threshold, floor_mult x the
+    clip's 10th-percentile frame RMS)`` — ``rms_threshold`` is the absolute
+    floor (a silent clip, p10 ~ 0, is still gated at it, so a silent upload
+    can never enroll), and in a noisy room the gate rises above the room's
+    own floor so room tone no longer counts as speech. Pass
+    ``floor_mult=0`` for the old purely absolute gate. Deliberately
+    conservative and honest — it distinguishes "a long clip" from "a long
+    clip with enough speech in it". Returns 0.0 for empty audio or a
+    nonsensical sample rate rather than guessing."""
     pcm = np.asarray(pcm, dtype=np.float32)
     if pcm.size == 0 or sr <= 0:
         return 0.0
     frame = max(1, int(sr * frame_ms / 1000.0))
     usable = (pcm.size // frame) * frame
-    voiced_s = 0.0
-    if usable > 0:
-        frames = pcm[:usable].reshape(-1, frame)
-        rms = np.sqrt(np.mean(frames.astype(np.float64) ** 2, axis=1))
-        voiced_s = float(np.count_nonzero(rms >= rms_threshold)) * frame / sr
+    rms = frame_rms(pcm, sr, frame_ms=frame_ms)
+    gate = speech_rms_threshold(rms, rms_floor=rms_threshold, floor_mult=floor_mult)
+    voiced_s = float(np.count_nonzero(rms >= gate)) * frame / sr if rms.size else 0.0
     tail = pcm[usable:]
     if tail.size > 0:
         tail_rms = float(np.sqrt(np.mean(tail.astype(np.float64) ** 2)))
-        if tail_rms >= rms_threshold:
+        if tail_rms >= gate:
             voiced_s += tail.size / sr
     return voiced_s
 

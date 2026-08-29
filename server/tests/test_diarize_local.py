@@ -579,6 +579,7 @@ class TestRapidExchangeSplitting:
         )
         assert stats == {
             "scanned": 1, "split": 1, "skipped_short": 0, "skipped_no_words": 0,
+            "window_boundaries": 0,
         }
         assert [(p["start_time"], p["end_time"]) for p in got] == [
             (3.0, 5.0), (5.0, 7.0), (7.0, 9.0), (9.0, 11.0), (11.0, 13.0),
@@ -717,9 +718,15 @@ class TestDiarizeTurnsRapidExchange:
             (9.0, 12.0), (12.0, 15.0), (15.0, 18.0),
         ]
         # Pieces may not mint NEW speakers: the post-split re-selection is
-        # capped at round 1's validated k (3 here), so k=4 is never tried
-        # even though six embeddable segments now exist.
-        assert [e["k"] for e in got["k_evaluated"]] == [2, 3]
+        # capped at round 1's validated k (3 here) OR the window pass's
+        # eigengap count, whichever is higher (2026-08-29). On this fake the
+        # windows straddling a voice change embed as blends the eigengap
+        # counts as a 4th "voice", so k=4 IS tried — by both routes — and
+        # rejected by validation; k=5/6 stay untried.
+        ks = [(e["k"], e["route"], e["ok"]) for e in got["k_evaluated"]]
+        assert ks[:2] == [(2, "linkage", True), (3, "linkage", True)]
+        assert {k for k, _, _ in ks} <= {2, 3, 4}
+        assert all(not ok for k, _, ok in ks if k == 4)
         # Attribution is balanced — no 89%-style single-speaker pile-up.
         share: dict[str, float] = {}
         for t in got["turns"]:
@@ -1020,3 +1027,232 @@ class TestKSelectionFourVoices:
         # leaving the genuine k=4 split as the chosen result.
         assert [e["k"] for e in got["k_evaluated"]] == [2, 3, 4, 5, 6]
         assert diarize_local.MAX_SPEAKERS_LOCAL == 6
+
+
+# ---------------------------------------------------------------------------
+# 2026-08-29: the transcript-free WINDOW PASS (voice-separation bake-off,
+# docs/research/2026-08-29-voice-separation/): spectral fallback partition
+# in k-selection, the eigengap count as a lower bound that never raises k
+# past validation, window-pass boundary proposals inside a welded utterance
+# WITHOUT word timings, and the noise-floor-relative speech gate.
+# ---------------------------------------------------------------------------
+
+
+def _gram_embed(fills: tuple[float, ...], gram) -> "callable":
+    """Fake embedder whose voices are unit vectors with the given Gram
+    matrix (via Cholesky); a slice embeds to the fill-fraction-weighted
+    blend of the voices it contains, so pooled audio behaves like pooled
+    ECAPA."""
+    vecs = np.linalg.cholesky(np.asarray(gram, dtype=np.float64))
+
+    def embed(pcm_slice: np.ndarray, sr: int) -> np.ndarray:
+        w = np.array([float(np.mean(np.abs(pcm_slice - f) < 0.05)) for f in fills])
+        v = w @ vecs
+        n = float(np.linalg.norm(v))
+        return (v / n if n else vecs[0]).astype(np.float32)
+
+    return embed
+
+
+class _StubWindowPass:
+    """Stands in for diarize_local._WindowPass in _select_k tests: a fixed
+    eigengap count and fixed pooled spectral centroids per k."""
+
+    def __init__(self, k_eigengap: int, centroids: dict[int, dict[int, np.ndarray]]):
+        self.k_eigengap = k_eigengap
+        self._centroids = centroids
+
+    def pooled_centroids(self, k: int):
+        return self._centroids.get(k)
+
+
+class TestSpectralRoute:
+    def test_spectral_partition_rescues_k_where_linkage_peels_a_sliver(self):
+        """The maggiano3 shape: three real voices, but average linkage's
+        3-way split carves a 1 s outlier off instead of separating the two
+        similar adults, and the duration floor rightly rejects that sliver.
+        The spectral centroids from the window pass seed a DIFFERENT 3-way
+        partition of the same turns; it passes the same validation."""
+        # A and B adults at cosine 0.30 (past the accept gate, under the
+        # marginal bar); C orthogonal to both; D a 1.0 s outlier at 0.30 to C.
+        gram = [[1, .3, 0, 0], [.3, 1, 0, 0], [0, 0, 1, .3], [0, 0, .3, 1]]
+        fills = (-1.0, -1 / 3, 1 / 3, 1.0)
+        embed = _gram_embed(fills, gram)
+        turns = [
+            _turn(0.0, 2.0), _turn(2.0, 4.0), _turn(4.0, 6.0),      # A
+            _turn(6.0, 8.0), _turn(8.0, 10.0), _turn(10.0, 12.0),   # B
+            _turn(12.0, 14.0), _turn(14.0, 16.0),                   # C
+            _turn(16.0, 17.0),                                      # D sliver
+        ]
+        pcm = _voiced_pcm(
+            turns, [fills[0]] * 3 + [fills[1]] * 3 + [fills[2]] * 2 + [fills[3]], 18.0,
+        )
+        order, embs = diarize_local._embed_turns(pcm, SR, turns, embed, 1.0)
+
+        def unit(i: int) -> np.ndarray:
+            return embed(np.full(SR, fills[i], dtype=np.float32), SR)
+
+        stub = _StubWindowPass(3, {3: {0: unit(0), 1: unit(1), 2: unit(2)}})
+        k_eval, chosen = diarize_local._select_k(
+            pcm, SR, turns, embed, order, embs, diarize_local.MAX_POOLED_COSINE,
+            window_pass=stub,
+        )
+        by = {(e["k"], e["route"]): e for e in k_eval}
+        assert by[(3, "linkage")]["ok"] is False
+        assert by[(3, "linkage")]["failed"] == "duration_floor"
+        assert by[(3, "spectral")]["ok"] is True
+        assert chosen is not None and len(chosen[1]) == 3
+        assert chosen[2]["route"] == "spectral"
+        # Without the window pass the same audio honestly stops at k=2.
+        _, chosen_plain = diarize_local._select_k(
+            pcm, SR, turns, embed, order, embs, diarize_local.MAX_POOLED_COSINE,
+        )
+        assert chosen_plain is not None and len(chosen_plain[1]) == 2
+
+    def test_eigengap_lower_bound_never_raises_k_past_validation(self):
+        """An eigengap count of 3 on a 2-voice recording only makes k=3 get
+        TRIED via the spectral route; the partition still fails the same
+        validation and k stays at 2."""
+        turns = [_turn(2.0 * i, 2.0 * (i + 1)) for i in range(6)]
+        fills = [VOICE_A, VOICE_A, VOICE_A_TWIN, VOICE_A_TWIN, VOICE_B, VOICE_B]
+        pcm = _voiced_pcm(turns, fills, 12.0)
+        order, embs = diarize_local._embed_turns(pcm, SR, turns, _mean_angle_embed, 1.0)
+        stub = _StubWindowPass(3, {3: {
+            0: _fake_centroid(VOICE_A), 1: _fake_centroid(VOICE_A_TWIN),
+            2: _fake_centroid(VOICE_B),
+        }})
+        k_eval, chosen = diarize_local._select_k(
+            pcm, SR, turns, _mean_angle_embed, order, embs,
+            diarize_local.MAX_POOLED_COSINE, window_pass=stub,
+        )
+        assert chosen is not None and len(chosen[1]) == 2
+        assert chosen[2]["route"] == "linkage"
+        spectral = [e for e in k_eval if e["route"] == "spectral"]
+        assert [e["k"] for e in spectral] == [3]
+        assert spectral[0]["ok"] is False
+        assert spectral[0]["failed"] == "centroids"
+        # No spectral attempt above the eigengap count.
+        assert all(e["route"] == "linkage" for e in k_eval if e["k"] > 3)
+
+
+class TestWindowBoundaryProposals:
+    def test_proposal_splits_no_words_utterance_and_divides_text_by_duration(self):
+        turns = [_turn(3.0, 11.0, text="a b c d")]
+        got, stats = diarize_local.split_long_utterances(
+            _mixed_scenario_pcm(), SR, turns, _mean_angle_embed, _CENTROIDS_AB,
+            proposals={0: [7.0]},
+        )
+        assert [(p["start_time"], p["end_time"], p["text"]) for p in got] == [
+            (3.0, 7.0, "a b"), (7.0, 11.0, "c d"),
+        ]
+        assert stats["split"] == 1 and stats["window_boundaries"] == 1
+        assert stats["skipped_no_words"] == 0
+
+    def test_proposal_near_a_word_cut_is_the_same_cut(self):
+        """A window proposal within BOUNDARY_DEDUPE_SECONDS of the per-word
+        cut is deduplicated; the word-aligned cut wins."""
+        turns = [dict(_turn(3.0, 11.0), words=_MIXED_WORDS)]
+        got, stats = diarize_local.split_long_utterances(
+            _mixed_scenario_pcm(), SR, turns, _mean_angle_embed, _CENTROIDS_AB,
+            proposals={0: [6.8]},
+        )
+        assert [(p["start_time"], p["end_time"]) for p in got] == [(3.0, 7.0), (7.0, 11.0)]
+        assert stats["split"] == 1 and stats["window_boundaries"] == 0
+
+    def test_window_pass_splits_welded_three_voice_utterance_without_words(self):
+        """End to end through the real window pass (fake embedders): a
+        9 s utterance welding three voices, NO word timings — the per-word
+        pass cannot touch it, the window pass proposes both cuts, the
+        pieces are re-embedded and attributed to all three voices."""
+        fills = (-1.0, 1 / 3, 1.0)  # three orthogonal, non-silent voices
+        embed = _gram_embed(fills, np.eye(3))
+
+        def embed_batch(chunks, sr):
+            return [embed(c, sr) for c in chunks]
+
+        turns = [
+            _turn(0.0, 3.0, text="pp"), _turn(3.0, 6.0, text="qq"),
+            _turn(6.0, 9.0, text="rr"), _turn(9.0, 18.0, text="w1 w2 w3"),
+        ]
+        pcm = np.zeros(int(18.0 * SR), dtype=np.float32)
+        for lo, hi, f in [(0, 3, fills[0]), (3, 6, fills[1]), (6, 9, fills[2]),
+                          (9, 12, fills[0]), (12, 15, fills[1]), (15, 18, fills[2])]:
+            pcm[int(lo * SR):int(hi * SR)] = f
+        got = diarize_local.diarize_turns(
+            pcm, SR, turns, embed_fn=embed, embed_batch_fn=embed_batch,
+        )
+        assert got is not None
+        assert got["num_speakers"] == 3
+        assert got["split_utterances"] == 1
+        assert got["window_pass"]["k_eigengap"] == 3
+        assert got["window_pass"]["window_boundaries_used"] == 2
+        assert [t["speaker"] for t in got["turns"]] == [
+            "Speaker A", "Speaker B", "Speaker C",
+        ] * 2
+        pieces = got["turns"][3:]
+        assert abs(pieces[0]["end_time"] - 12.0) <= 0.5
+        assert abs(pieces[1]["end_time"] - 15.0) <= 0.5
+        assert [p["text"] for p in pieces] == ["w1", "w2", "w3"]
+        assert all("words" not in t for t in got["turns"])
+
+    def test_pure_utterances_get_no_proposals(self):
+        """Two clean alternating voices: the window pass must not cut a
+        single-voice utterance (the regression ladder pins turn counts)."""
+        turns = [_turn(4.0 * i, 4.0 * (i + 1)) for i in range(4)]
+        pcm = _voiced_pcm(turns, [VOICE_A, VOICE_B, VOICE_A, VOICE_B], 16.0)
+
+        def embed_batch(chunks, sr):
+            return [_mean_angle_embed(c, sr) for c in chunks]
+
+        got = diarize_local.diarize_turns(
+            pcm, SR, turns, embed_fn=_mean_angle_embed, embed_batch_fn=embed_batch,
+        )
+        assert got is not None and got["num_speakers"] == 2
+        assert got["split_utterances"] == 0
+        assert got["window_pass"]["proposed_boundaries"] == 0
+        assert len(got["turns"]) == 4
+
+
+class TestNoiseFloorSpeechGate:
+    def test_relative_gate_keeps_quiet_speaker_and_rejects_silence(self):
+        rng = np.random.default_rng(0)
+        room = (0.001 * rng.standard_normal(SR * 6)).astype(np.float32)  # floor RMS 0.001
+        pcm = room.copy()
+        pcm[SR * 2:SR * 4] += (0.005 * rng.standard_normal(SR * 2)).astype(np.float32)
+        # The enrollment gate (absolute 0.01) hears nothing in a 0.005 RMS voice...
+        assert speaker_id.speech_seconds(pcm, SR) == 0.0
+        # ...the diarizer's noise-floor-relative gate keeps the 2 s: gate =
+        # max(0.003, 1.5 x p10 ~ 0.0015) = 0.003 < 0.005.
+        quiet = speaker_id.speech_seconds(pcm, SR, rms_threshold=speaker_id.SPEECH_RMS_FLOOR)
+        assert quiet == pytest.approx(2.0, abs=0.15)
+        mask, gate, frame_s = speaker_id.speech_mask(pcm, SR)
+        assert speaker_id.SPEECH_RMS_FLOOR <= gate < 0.005
+        assert float(mask.sum()) * frame_s == pytest.approx(2.0, abs=0.15)
+        # Silence is still silence.
+        silence = np.zeros(SR * 4, dtype=np.float32)
+        assert speaker_id.speech_seconds(
+            silence, SR, rms_threshold=speaker_id.SPEECH_RMS_FLOOR,
+        ) == 0.0
+        assert speaker_id.speech_mask(silence, SR)[0].sum() == 0
+
+    def test_relative_gate_rejects_steady_room_tone_above_the_floor(self):
+        """Room tone at RMS 0.008 everywhere sits above the absolute floor;
+        the relative term (1.5 x p10 = 0.012) rejects all of it."""
+        rng = np.random.default_rng(1)
+        tone = (0.008 * rng.standard_normal(SR * 6)).astype(np.float32)
+        assert speaker_id.speech_seconds(
+            tone, SR, rms_threshold=speaker_id.SPEECH_RMS_FLOOR,
+        ) == 0.0
+        # The purely absolute gate would have counted every second.
+        assert speaker_id.speech_seconds(
+            tone, SR, rms_threshold=speaker_id.SPEECH_RMS_FLOOR, floor_mult=0.0,
+        ) == pytest.approx(6.0, abs=0.1)
+
+    def test_gate_is_capped_for_a_clip_with_no_quiet_frames(self):
+        """A sustained tone has p10 at speech level; the cap keeps the gate
+        under it instead of gating the whole clip out."""
+        t = np.arange(SR * 4, dtype=np.float32) / SR
+        tone = (0.3 * np.sin(2 * np.pi * 220.0 * t)).astype(np.float32)
+        assert speaker_id.speech_seconds(tone, SR) == pytest.approx(4.0, abs=0.1)
+        _, gate, _ = speaker_id.speech_mask(tone, SR)
+        assert gate == speaker_id.SPEECH_RMS_GATE_CEILING

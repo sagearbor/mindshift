@@ -1,6 +1,16 @@
-"""EXPERIMENTAL — sliding-window voice-change-point detection (round 3).
+"""Sliding-window voice-change-point detection (round 3) + the spectral
+window-clustering tools ``diarize_local`` uses in production (2026-08-29).
 
-NOT wired into production. Standalone module answering one question: can a
+The round-2/3 change-point DETECTORS below (:func:`window_pair_distances`,
+:func:`centroid_margin_change_points`, :func:`detect_turns_from_audio`) are
+still experimental and NOT wired into production. What IS production since
+the 2026-08-29 voice-separation bake-off (docs/research/2026-08-29-voice-
+separation/, approach B) is the last section of this module — the refined
+cosine affinity, eigengap speaker count, spectral labels and run smoothing
+over window embeddings — which ``diarize_local``'s window pass calls for its
+boundary proposals, eigengap lower bound and spectral fallback partition.
+
+The original round-3 question: can a
 speaker-change detector that works directly on RAW AUDIO via a sliding
 window (no transcript turns, no silence/gap requirement) recover MORE real
 speakers than the current transcript-turn-relabeling architecture in
@@ -410,3 +420,174 @@ def detect_turns_from_audio_legacy(
         "boundaries": boundaries,
         "curve": {"times": times, "distances": dists},
     }
+
+
+# ---------------------------------------------------------------------------
+# 2026-08-29: spectral clustering of window embeddings (bake-off approach B,
+# docs/research/2026-08-29-voice-separation/B-sliding-window/). PRODUCTION
+# code now — ``diarize_local`` uses these pure-math pieces for (1) boundary
+# proposals inside long utterances, (2) the eigengap speaker-count lower
+# bound and (3) the spectral fallback partition in its k-selection. Every
+# function below is torch-free numpy; the only model calls stay in the
+# embedding passes above.
+# ---------------------------------------------------------------------------
+
+# Row-wise percentile of the affinity refinement (Wang et al. 2018, "Speaker
+# diarization with LSTM"): entries under each row's p-quantile are damped
+# x0.01 before symmetrizing + diffusing. Swept 0.95/0.90/0.80/0.70 on eight
+# fixtures (2026-08-29): 0.80 was the only setting that found the right k on
+# every 2-3-voice fixture (family_real 2, maggiano3 3, family3 3, the TTS
+# pairs 2) — 0.95 shattered family_real into 8 and collapsed maggiano3 to 1.
+SPECTRAL_PERCENTILE = 0.80
+
+# Mode filter over +/- this many HOPS of temporal neighbours, then label runs
+# shorter than SPECTRAL_MIN_RUN_SECONDS are absorbed into the longer
+# neighbour (B's smoothing; a 1.5 s window cannot honestly resolve a shorter
+# voice run anyway).
+SPECTRAL_SMOOTH_HOPS = 2
+SPECTRAL_MIN_RUN_SECONDS = 0.5
+
+# k-means restarts for the spectral embedding (seeded, so results are
+# deterministic run to run).
+_KMEANS_RESTARTS = 10
+
+
+def refine_affinity(embs: np.ndarray, p: float = SPECTRAL_PERCENTILE) -> np.ndarray:
+    """Refined cosine affinity of L2-normalized window embeddings.
+
+    Wang et al. 2018: diagonal = row max, row-wise percentile thresholding
+    (entries under the row's ``p``-quantile are damped x0.01), symmetrize by
+    max, diffusion ``A @ A.T``, row-max normalization. The Gaussian blur
+    step is skipped — windows overlap heavily already. Pure numpy.
+    """
+    embs = np.asarray(embs, dtype=np.float64)
+    a = embs @ embs.T
+    np.fill_diagonal(a, 0.0)
+    np.fill_diagonal(a, a.max(axis=1))
+    thr = np.percentile(a, p * 100.0, axis=1, keepdims=True)
+    a = np.where(a >= thr, a, a * 0.01)
+    a = np.maximum(a, a.T)
+    a = a @ a.T
+    a = a / np.maximum(a.max(axis=1, keepdims=True), 1e-9)
+    return a
+
+
+def eigengap_k(affinity: np.ndarray, max_k: int) -> tuple[int, list[float]]:
+    """``(k, eigenvalues)`` — k = argmax over 1..max_k of lambda_k / lambda_{k+1}
+    on the symmetrized refined affinity's descending eigenvalues (clipped at
+    1e-9 so a rank-deficient affinity — every window the same voice — yields
+    k=1 rather than a division by zero)."""
+    w = np.linalg.eigvalsh((affinity + affinity.T) / 2.0)[::-1]
+    w = np.clip(w, 1e-9, None)
+    max_k = max(1, min(int(max_k), len(w) - 1))
+    ratios = [float(w[i] / w[i + 1]) for i in range(max_k)]
+    return int(np.argmax(ratios)) + 1, [round(float(x), 6) for x in w[: max_k + 1]]
+
+
+def _kmeans(feats: np.ndarray, k: int, *, restarts: int = _KMEANS_RESTARTS,
+            seed: int = 0, iters: int = 100) -> np.ndarray:
+    """Seeded k-means++ (best of ``restarts`` by inertia). Pure numpy — the
+    production image has no scikit-learn."""
+    n = feats.shape[0]
+    k = max(1, min(int(k), n))
+    rng = np.random.default_rng(seed)
+    best_labels = np.zeros(n, dtype=int)
+    best_inertia = np.inf
+    for _ in range(restarts):
+        centers = np.empty((k, feats.shape[1]), dtype=np.float64)
+        centers[0] = feats[rng.integers(n)]
+        d2 = np.sum((feats - centers[0]) ** 2, axis=1)
+        for j in range(1, k):
+            tot = float(d2.sum())
+            idx = rng.integers(n) if tot <= 0 else rng.choice(n, p=d2 / tot)
+            centers[j] = feats[idx]
+            d2 = np.minimum(d2, np.sum((feats - centers[j]) ** 2, axis=1))
+        labels = np.zeros(n, dtype=int)
+        for _ in range(iters):
+            dist = ((feats[:, None, :] - centers[None, :, :]) ** 2).sum(axis=2)
+            new = dist.argmin(axis=1)
+            if np.array_equal(new, labels) and _ > 0:
+                break
+            labels = new
+            for j in range(k):
+                members = feats[labels == j]
+                if members.size:
+                    centers[j] = members.mean(axis=0)
+        dist = ((feats[:, None, :] - centers[None, :, :]) ** 2).sum(axis=2)
+        inertia = float(dist[np.arange(n), labels].sum())
+        if inertia < best_inertia:
+            best_inertia, best_labels = inertia, labels.copy()
+    return best_labels
+
+
+def spectral_labels(affinity: np.ndarray, k: int) -> np.ndarray:
+    """k-way spectral clustering of a refined affinity: k-means on the
+    row-normalized top-k eigenvectors. ``k <= 1`` → every window label 0."""
+    n = affinity.shape[0]
+    k = max(1, min(int(k), n))
+    if k == 1:
+        return np.zeros(n, dtype=int)
+    _, v = np.linalg.eigh((affinity + affinity.T) / 2.0)
+    feats = v[:, ::-1][:, :k]
+    feats = feats / np.maximum(np.linalg.norm(feats, axis=1, keepdims=True), 1e-9)
+    return _kmeans(feats, k)
+
+
+def mode_filter(labels: np.ndarray, starts: list[float] | np.ndarray, hop: float,
+                *, radius: int = SPECTRAL_SMOOTH_HOPS) -> np.ndarray:
+    """Mode over each window's TEMPORAL neighbours within ``radius`` hops (a
+    VAD gap breaks the neighbourhood). Ties keep the window's own label."""
+    labels = np.asarray(labels)
+    starts = np.asarray(starts, dtype=np.float64)
+    out = labels.copy()
+    for i in range(len(labels)):
+        nb = labels[np.abs(starts - starts[i]) <= radius * hop + 1e-6]
+        vals, cnt = np.unique(nb, return_counts=True)
+        best = vals[cnt == cnt.max()]
+        out[i] = labels[i] if labels[i] in best else best[0]
+    return out
+
+
+def window_label_runs(
+    labels: np.ndarray, starts: list[float] | np.ndarray, window: float,
+    lo: float, hi: float, *, min_run: float = SPECTRAL_MIN_RUN_SECONDS,
+    step: float = 0.01,
+) -> list[list]:
+    """Window labels → ``[[start, end, label], ...]`` runs covering [lo, hi].
+
+    Every ``step`` frame takes the label of the nearest window CENTRE (gaps
+    inherit, nothing is left unlabelled); adjacent same-label frames merge;
+    runs shorter than ``min_run`` are absorbed into the longer neighbour,
+    shortest first, until every run is at least ``min_run`` (or one run is
+    left). No windows → one run.
+    """
+    labels = np.asarray(labels)
+    starts = np.asarray(starts, dtype=np.float64)
+    n = max(1, int(round((hi - lo) / step)))
+    if len(starts) == 0:
+        return [[lo, hi, 0]]
+    centres = starts + window / 2.0
+    t = lo + (np.arange(n) + 0.5) * step
+    frame_labels = labels[np.abs(t[:, None] - centres[None, :]).argmin(axis=1)]
+    runs: list[list] = []
+    s = 0
+    for i in range(1, n + 1):
+        if i == n or frame_labels[i] != frame_labels[s]:
+            runs.append([lo + s * step, hi if i == n else lo + i * step, int(frame_labels[s])])
+            s = i
+    while len(runs) > 1:
+        lens = [e - b for b, e, _ in runs]
+        i = int(np.argmin(lens))
+        if lens[i] >= min_run:
+            break
+        cand = [j for j in (i - 1, i + 1) if 0 <= j < len(runs)]
+        j = max(cand, key=lambda j: runs[j][1] - runs[j][0])
+        runs[i][2] = runs[j][2]
+        merged: list[list] = []
+        for b, e, lab in runs:
+            if merged and merged[-1][2] == lab:
+                merged[-1][1] = e
+            else:
+                merged.append([b, e, lab])
+        runs = merged
+    return runs

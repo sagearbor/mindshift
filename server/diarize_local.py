@@ -65,7 +65,77 @@ Scope + honesty:
   :func:`diarize_turns` returns ``None`` and the caller keeps the transcript's
   labels.
 * Pure math (merging, agreement) is torch-free; the orchestrator takes an
-  injectable ``embed_fn(pcm_slice, sr)`` so the unit suite runs without torch.
+  injectable ``embed_fn(pcm_slice, sr)`` (and ``embed_batch_fn(chunks, sr)``
+  for the window pass) so the unit suite runs without torch.
+
+2026-08-29 — the transcript-free WINDOW PASS (voice-separation bake-off,
+docs/research/2026-08-29-voice-separation/; the ``WINDOW_PASS_*`` constants
+and :class:`_WindowPass`). The owner's private 3-person restaurant clip
+("maggiano3", scored against his own per-second rubric) showed the shipped
+pipeline "finds three voices but mixes them" (0.64 / 0.57 frame accuracy on
+its two Deepgram transcripts) and, fed the rubric's own boundaries, collapsed
+to k=2 (0.52): all three pooled voiceprints are ≤0.24 apart, yet average
+linkage's 3-way split peeled a 1 s sliver and the duration floor rightly
+rejected it. Four bake-off approaches later (pyannote, acoustic features,
+sliding windows + spectral clustering, coherence), the ECAPA model and the
+validation rules stay; what was added is approach B's window pass, used as
+EVIDENCE, never as the final attribution (1.5 s windows in a noisy room carry
+too little voice — maggiano3's window-level ceiling is 0.84):
+
+1. 1.5 s / 0.25 s windows over the clip's SPEECH (noise-floor-relative gate,
+   :func:`speaker_id.speech_mask`: max(0.003, 1.5 x p10 frame RMS); measured
+   gates 0.003-0.005 on every fixture, and poker6's quietest player — median
+   RMS 0.0036 — is no longer gated out) embedded in one pass, refined cosine
+   affinity (Wang et al. 2018, row percentile 0.80), EIGENGAP speaker count.
+   Measured: family_real 2, poker6 4 (six similar men; B's max-8 sweep said
+   7), openai/gptaudio/couple 2, family3 3, meeting4 3 (D absorbed into B,
+   pooled 0.32 — the documented ceiling), maggiano3 3. Never over-counted.
+2. The eigengap count is a LOWER BOUND on what :func:`_select_k` TRIES: when
+   a k-way linkage partition fails on a duration floor (a sliver), or k is
+   the eigengap count, the SPECTRAL route (:func:`_spectral_route`: every
+   turn to the nearest pooled spectral centroid, then the usual pooled
+   refinement) proposes an alternative k-way partition of the same turns,
+   validated by the same rules. maggiano3 on the rubric's boundaries: the
+   linkage k=3 sliver (1.0 s) fails, the spectral k=3 partition validates
+   (min cluster 8.1 s, marginal 0.222, anchor 0.136) → k=3, 0.52 → 0.83.
+   The post-split re-selection cap is likewise lifted to the eigengap count.
+   meeting4: the spectral k=3 partition is the identical 0.339 pair — no
+   change (still 2/4, 0.597), as predicted by the bake-off.
+3. Boundary PROPOSALS inside every utterance over
+   WORD_SPLIT_MIN_UTTERANCE_SECONDS, with or without word timings: the
+   utterance's windows carry the whole-clip spectral labels; smoothed label
+   runs → candidate cuts (pieces ≥ one window); each cut confirmed by
+   embedding its two sides against the pooled spectral centroids (different
+   centroids, margins ≥ WORD_MIN_MARGIN). Union'd with the per-word cuts.
+   Zero cuts on the 83 pure single-voice utterances of the seven checked-in
+   fixtures (ladder + scenes pins unchanged: family_real 8/8, poker6 6/6,
+   openai/gptaudio 10/10, couple 13/13, family3 15/15, meeting4 11/17).
+   Costs no extra window embeddings (re-used from the whole-clip pass) and
+   one short embed per candidate piece.
+
+Result on maggiano3 (frame accuracy vs the rubric; dad-cluster purity):
+rubric boundaries 0.519/k=2 → 0.833/k=3 (purity 0.47 → 0.84); Deepgram
+7-utterance transcript 0.644 → 0.687 (0.76 → 0.79); 8-utterance 0.574 →
+0.671 (0.59 → 0.79). The transcript variants sit below B's transcript-free
+0.76 for reasons the constants forbid fixing: two welded utterances under
+the 3 s scan floor (5.44-8.02 s asher→dad, 8.88-10.74 s dad→mom: 4.4 s,
+12 %) whose other voice lasts under MIN_SECONDS, 7-8 % of rubric speech the
+transcript never covered, and sub-second interjections ("See", "Okay",
+"No.") that inherit a neighbour. Oracle attribution on OUR pieces reaches
+0.83 / 0.79, so segmentation is no longer the bottleneck.
+
+Cost (this Mac, torch at 4 threads, back-to-back against the pre-change
+code): the window pass embeds ~15 ms per 1.5 s window whatever the batch
+size (1-15 windows per call all measure 14-18 ms/window; 16+ per call hits a
+torch path 10x slower — WINDOW_PASS_BATCH), i.e. ≈ 60 ms per second of
+speech at the 0.25 s hop. Whole pipeline: family_real 0.9 → 3.1 s, poker6
+1.2 → 3.4 s, openai (70 s) 2.4 → 7.4 s, meeting4 (83 s) 2.8 → 9.5 s,
+maggiano3 transcripts 3.5 → 7.4 s, a 4.7-minute concatenation (48 turns,
+hop widened to 0.5 s by WINDOW_PASS_MAX_WINDOWS) 6.5 → 16.3 s — 2.1-3.4x.
+A 1.5 s / 0.5 s grid halves the pass but was measured and rejected: the
+eigengap over-counted openai (3; its lambda_2/lambda_3 and lambda_3/lambda_4
+ratios are 2.82 vs 2.83 at that hop) and minted a phantom cut there, and
+maggiano3's 8-utterance transcript fell back to 0.574.
 """
 
 from __future__ import annotations
@@ -75,6 +145,7 @@ import os
 
 import numpy as np
 
+import diarize_sliding_window as _dsw
 import speaker_id
 
 logger = logging.getLogger(__name__)
@@ -292,6 +363,60 @@ WORD_MIN_MARGIN = float(os.getenv("MINDSHIFT_DIARIZE_WORD_MIN_MARGIN", "0.10"))
 # A label run must carry at least this many words — a single flipped word is
 # noise, not a voice change.
 WORD_MIN_RUN = 2
+
+# --- Transcript-free window pass (2026-08-29) --------------------------------
+# From the voice-separation bake-off (docs/research/2026-08-29-voice-
+# separation/, approach B): 1.5 s windows every 0.25 s over the SPEECH of the
+# clip (noise-floor-relative gate, speaker_id.speech_mask), embedded in
+# batches, clustered spectrally with an eigengap speaker count. Used three
+# ways — never as the final word on WHO said what (1.5 s windows in a noisy
+# room carry too little voice: maggiano3's window-level ceiling is 0.84):
+#   1. boundary PROPOSALS inside long utterances (with or without word
+#      timings) — union'd with the per-word pass;
+#   2. the eigengap k as a LOWER BOUND on the speaker count that _select_k
+#      must at least TRY (never accepted without validating);
+#   3. spectral centroids as an ALTERNATIVE k-way partition when average
+#      linkage peels a sliver (the maggiano3 failure).
+WINDOW_PASS_SECONDS = 1.5
+WINDOW_PASS_HOP_SECONDS = 0.25
+
+# Cap on windows embedded for the whole-clip pass; beyond it the hop is
+# widened in 0.25 s steps (logged). 600 windows = 150 s of speech at the
+# dense grid; the affinity math is O(n^2) memory / O(n^3) eigensolve, both
+# trivial at this size.
+WINDOW_PASS_MAX_WINDOWS = 600
+
+# A window counts as speech when at least this fraction of its 30 ms frames
+# clear the speech gate (B's calibration: every speaker keeps >= 76 % of his
+# windows; the TTS fixtures' digital-silence gaps are dropped).
+WINDOW_PASS_MIN_SPEECH_FRAC = 0.3
+
+# Windows per model call. Measured 2026-08-29 (this Mac, torch 4 threads):
+# 8-15 windows of 1.5 s embed at ~15 ms each, but a batch of 16+ hits a
+# pathological torch path (16 windows: 7 s; 162: 69 s) — 10x SLOWER than
+# one call per window. 12 keeps every call on the fast path.
+WINDOW_PASS_BATCH = 12
+
+# Fewer speech windows than this inside an utterance → no spectral pass
+# (an eigengap over 3-4 windows is noise, not evidence).
+WINDOW_PASS_MIN_WINDOWS = 6
+
+# Boundaries proposed by the window pass and by the per-word pass that fall
+# within this many seconds of each other are the same boundary.
+BOUNDARY_DEDUPE_SECONDS = 0.3
+
+# How a boundary is PROPOSED inside an utterance (measured 2026-08-29): the
+# utterance's windows carry the labels of the WHOLE-CLIP spectral partition
+# (eigengap k), smoothed; a label change is a candidate cut. Running the
+# eigengap on the utterance's own 7-27 windows instead was tried first and
+# is useless — it returned k=4-6 on 80 of 83 PURE single-voice utterances
+# across the fixtures (a percentile-thresholded affinity over that few
+# windows is a chain, and every link is an "eigengap") — and a pooled-
+# cosine check of a cut's two 1-1.5 s sides cannot rescue it (same-voice
+# pools that short measure 0.0-0.4, indistinguishable from two voices).
+# Each candidate cut is then CONFIRMED the way the per-word pass confirms a
+# word: the pieces on its two sides are embedded and must land on DIFFERENT
+# pooled spectral centroids, each with margin ≥ WORD_MIN_MARGIN.
 
 
 def partition_agreement(a: list, b: list) -> float:
@@ -624,10 +749,323 @@ def split_turn_at_word_runs(turn: dict, labels: list[int]) -> list[dict] | None:
     ]
 
 
+class _WindowPass:
+    """Speech-gated window embeddings over the clip + the spectral tools on
+    them (see the WINDOW_PASS_* constants). One instance per recording.
+
+    ``embed_batch(chunks, sr) -> [emb, ...]`` embeds a list of PCM chunks
+    (injectable for the torch-free unit suite; production uses
+    :func:`speaker_id.embed_pcm_batch` in WINDOW_PASS_BATCH-sized calls).
+    ``embed(pcm_slice, sr)`` embeds the POOLED audio of a window cluster.
+    Every embedded window is cached by its start sample, so the windows of a
+    long utterance are re-used from the whole-clip pass rather than
+    embedded twice; ``embedded`` counts model work actually done.
+    """
+
+    def __init__(
+        self, pcm: np.ndarray, sr: int, embed_batch, embed, *,
+        window: float = WINDOW_PASS_SECONDS, hop: float = WINDOW_PASS_HOP_SECONDS,
+        max_windows: int = WINDOW_PASS_MAX_WINDOWS,
+    ):
+        self.pcm, self.sr = pcm, sr
+        self.embed_batch, self.embed = embed_batch, embed
+        self.window, self.hop = window, hop
+        self.win_samples = int(round(window * sr))
+        self.hop_samples = int(round(hop * sr))
+        self.mask, self.gate, self.frame_s = speaker_id.speech_mask(pcm, sr)
+        self._speech: dict[int, bool] = {}
+        self._cache: dict[int, np.ndarray] = {}
+        self.embedded = 0
+        self.global_hop = hop
+        self.starts: list[float] = []
+        self.embs = np.zeros((0, 0), dtype=np.float32)
+        self.affinity: np.ndarray | None = None
+        self.k_eigengap: int | None = None
+        self.eigenvalues: list[float] = []
+        self._labels_at: dict[int, np.ndarray] = {}
+        self._centroids_at: dict[int, dict[int, np.ndarray] | None] = {}
+        self.max_windows = max_windows
+
+    # -- windows -------------------------------------------------------------
+
+    def _is_speech(self, start_sample: int) -> bool:
+        a = int(start_sample / self.sr / self.frame_s)
+        b = max(a + 1, int((start_sample + self.win_samples) / self.sr / self.frame_s))
+        seg = self.mask[a:b]
+        return bool(seg.size) and float(seg.mean()) >= WINDOW_PASS_MIN_SPEECH_FRAC
+
+    def _grid(self, lo: float, hi: float, hop_samples: int) -> list[int]:
+        """Start samples of every window on the clip-anchored grid that lies
+        fully inside [lo, hi]."""
+        lo_s = max(0, int(round(lo * self.sr)))
+        hi_s = min(self.pcm.size, int(round(hi * self.sr)))
+        first = -(-lo_s // hop_samples) * hop_samples
+        return list(range(first, hi_s - self.win_samples + 1, hop_samples))
+
+    def windows(self, lo: float, hi: float, *, hop_samples: int | None = None,
+                ) -> tuple[list[float], np.ndarray]:
+        """``(starts, embeddings)`` of the SPEECH windows inside [lo, hi],
+        embedding only the ones not already cached."""
+        grid = self._grid(lo, hi, hop_samples or self.hop_samples)
+        keep: list[int] = []
+        for s in grid:
+            if s not in self._speech:
+                self._speech[s] = self._is_speech(s)
+            if self._speech[s]:
+                keep.append(s)
+        missing = [s for s in keep if s not in self._cache]
+        for i in range(0, len(missing), WINDOW_PASS_BATCH):
+            batch = missing[i:i + WINDOW_PASS_BATCH]
+            chunks = [np.ascontiguousarray(self.pcm[s:s + self.win_samples]) for s in batch]
+            vecs = self.embed_batch(chunks, self.sr)
+            for s, v in zip(batch, vecs):
+                self._cache[s] = speaker_id.l2_normalize(np.asarray(v, dtype=np.float32))
+            self.embedded += len(batch)
+        starts = [s / self.sr for s in keep]
+        embs = (
+            np.stack([self._cache[s] for s in keep]).astype(np.float32)
+            if keep else np.zeros((0, 0), dtype=np.float32)
+        )
+        return starts, embs
+
+    def run_global(self) -> None:
+        """Embed the whole clip's speech windows (hop widened past
+        WINDOW_PASS_MAX_WINDOWS) and compute the eigengap speaker count."""
+        duration = self.pcm.size / self.sr
+        hop_samples = self.hop_samples
+        n = len(self._grid(0.0, duration, hop_samples))
+        if n > self.max_windows:
+            factor = -(-n // self.max_windows)
+            hop_samples *= factor
+            logger.info(
+                "window pass: %d windows at %.2fs hop exceed the %d cap — "
+                "widening the hop to %.2fs",
+                n, self.hop, self.max_windows, hop_samples / self.sr,
+            )
+        self.global_hop = hop_samples / self.sr
+        self.starts, self.embs = self.windows(0.0, duration, hop_samples=hop_samples)
+        if len(self.starts) >= 3:
+            self.affinity = _dsw.refine_affinity(self.embs)
+            k, self.eigenvalues = _dsw.eigengap_k(self.affinity, MAX_SPEAKERS_LOCAL)
+            self.k_eigengap = max(2, min(MAX_SPEAKERS_LOCAL, k))
+        logger.info(
+            "window pass: %d speech windows (%.1fs grid, gate %.4f RMS, %d embedded), "
+            "eigengap k=%s (raw eigenvalues %s)",
+            len(self.starts), self.global_hop, self.gate, self.embedded,
+            self.k_eigengap, self.eigenvalues,
+        )
+
+    # -- spectral partition of the whole clip --------------------------------
+
+    def labels_at(self, k: int) -> np.ndarray | None:
+        if self.affinity is None or k > len(self.starts):
+            return None
+        if k not in self._labels_at:
+            self._labels_at[k] = _dsw.spectral_labels(self.affinity, k)
+        return self._labels_at[k]
+
+    def pooled_centroids(self, k: int) -> dict[int, np.ndarray] | None:
+        """Pooled-audio centroid per spectral cluster at ``k`` (the union of
+        each cluster's window intervals, capped at MAX_POOL_SECONDS, embedded
+        with ``embed``) — ``None`` when the spectral pass has fewer than k
+        populated clusters."""
+        if k in self._centroids_at:
+            return self._centroids_at[k]
+        labels = self.labels_at(k)
+        out: dict[int, np.ndarray] | None = None
+        if labels is not None and len(set(labels.tolist())) == k:
+            out = {}
+            cap = int(MAX_POOL_SECONDS * self.sr)
+            for c in sorted(set(labels.tolist())):
+                spans: list[list[int]] = []
+                for s in sorted(int(round(st * self.sr)) for st, lab in zip(self.starts, labels) if lab == c):
+                    e = s + self.win_samples
+                    if spans and s <= spans[-1][1]:
+                        spans[-1][1] = max(spans[-1][1], e)
+                    else:
+                        spans.append([s, e])
+                pooled = np.concatenate([self.pcm[a:b] for a, b in spans])[:cap]
+                out[c] = speaker_id.l2_normalize(self.embed(np.ascontiguousarray(pooled), self.sr))
+        self._centroids_at[k] = out
+        return out
+
+    # -- boundary proposals inside one utterance -----------------------------
+
+    def propose_boundaries(self, lo: float, hi: float) -> tuple[list[float], dict]:
+        """Voice-change times inside [lo, hi] from the WHOLE-CLIP spectral
+        partition (eigengap k) restricted to that span's windows: the
+        windows' cluster labels are mode-filtered, turned into runs (runs
+        under SPECTRAL_MIN_RUN_SECONDS absorbed), every piece is held to
+        MIN_SECONDS, and each remaining cut is CONFIRMED at the pooled level:
+        the pieces on its two sides are embedded and must land on DIFFERENT
+        pooled spectral centroids, each with margin ≥ WORD_MIN_MARGIN (the
+        per-word pass's confidence bar). The 1.5 s windows FIND a candidate;
+        pooled embeddings — the instrument production trusts — CONFIRM it.
+        Costs no window embeddings (the whole-clip pass already holds them)
+        and one short embed per piece. Returns ``(boundaries, info)``."""
+        info: dict = {"windows": 0, "k": self.k_eigengap, "raw": 0, "kept": 0}
+        k = self.k_eigengap
+        if k is None or self.affinity is None:
+            return [], info
+        labels_all = self.labels_at(k)
+        cents = self.pooled_centroids(k)
+        if labels_all is None or cents is None:
+            return [], info
+        idx = [i for i, s in enumerate(self.starts) if s >= lo and s + self.window <= hi]
+        info["windows"] = len(idx)
+        if len(idx) < WINDOW_PASS_MIN_WINDOWS:
+            return [], info
+        starts = [self.starts[i] for i in idx]
+        labels = _dsw.mode_filter(labels_all[idx], starts, self.global_hop)
+        runs = _dsw.window_label_runs(labels, starts, self.window, lo, hi)
+        info["raw"] = len(runs) - 1
+        if len(runs) < 2:
+            return [], info
+        # A run boundary is a cut only where two ADJACENT windows disagree —
+        # a label change across a speech gap (the timeline inherits the
+        # nearest window on either side of it) is not a place to cut.
+        centres = np.asarray(starts, dtype=np.float64) + self.window / 2.0
+        cuts = []
+        for t in (r[0] for r in runs[1:]):
+            left = centres[centres < t]
+            right = centres[centres >= t]
+            if left.size and right.size and right.min() - left.max() <= 2 * self.global_hop + 1e-6:
+                cuts.append(t)
+        # Pieces must be at least one WINDOW long: the window pass cannot
+        # resolve a shorter piece (its timeline there is inherited from
+        # windows that straddle the neighbour). Measured 2026-08-29: at
+        # MIN_SECONDS (1.0) the pass cut a 1.13 s sliver off poker6's third
+        # turn and a 1.13 s sliver off maggiano3's rubric turn at 9 s — both
+        # inside the fixtures' own +/-1-2 s boundary slop, but slivers the
+        # word pass (0.9 s word windows) is the right instrument for.
+        cuts = _enforce_min_pieces(lo, hi, cuts, min_seconds=self.window)
+        if not cuts:
+            return [], info
+        bounds = [lo, *cuts, hi]
+        keys = sorted(cents)
+        piece_label: list[int] = []
+        piece_margin: list[float] = []
+        for b, e in zip(bounds[:-1], bounds[1:]):
+            v = speaker_id.l2_normalize(self.embed(
+                np.ascontiguousarray(self.pcm[int(b * self.sr):int(e * self.sr)]), self.sr,
+            ))
+            scored = sorted((float(np.dot(v, cents[c])), c) for c in keys)
+            piece_label.append(scored[-1][1])
+            piece_margin.append(scored[-1][0] - (scored[-2][0] if len(scored) > 1 else -1.0))
+        kept = [
+            cuts[i] for i in range(len(cuts))
+            if piece_label[i] != piece_label[i + 1]
+            and min(piece_margin[i], piece_margin[i + 1]) >= WORD_MIN_MARGIN
+        ]
+        info["pieces"] = [
+            (round(m, 3), int(lab)) for m, lab in zip(piece_margin, piece_label)
+        ]
+        info["kept"] = len(kept)
+        return kept, info
+
+
+def _dedupe_boundaries(
+    primary: list[float], secondary: list[float], *, tol: float = BOUNDARY_DEDUPE_SECONDS,
+) -> list[float]:
+    """Sorted union of two boundary lists; a ``secondary`` boundary within
+    ``tol`` of a kept one is the same boundary and is dropped."""
+    out = sorted(set(primary))
+    for b in sorted(secondary):
+        if all(abs(b - o) > tol for o in out):
+            out.append(b)
+    return sorted(out)
+
+
+def _snap_to_word_gaps(words: list[dict], boundaries: list[float]) -> list[float]:
+    """Each boundary → the midpoint of the nearest inter-word gap (duplicates
+    collapse)."""
+    if not isinstance(words, list) or len(words) < 2:
+        return list(boundaries)
+    gaps = [
+        (float(words[i]["end_time"]) + float(words[i + 1]["start_time"])) / 2
+        for i in range(len(words) - 1)
+    ]
+    return sorted({min(gaps, key=lambda g: abs(g - b)) for b in boundaries})
+
+
+def _enforce_min_pieces(
+    start: float, end: float, boundaries: list[float], *,
+    min_seconds: float = MIN_SECONDS, primary: list[float] | None = None,
+) -> list[float]:
+    """Drop boundaries until every piece of [start, end] lasts at least
+    ``min_seconds``. For the shortest sliver piece, the boundary dropped is a
+    NON-``primary`` one when the sliver has one on each kind of side (a
+    word-pass cut outranks a window-pass proposal), else the one whose
+    removal merges the sliver into its shorter neighbour — so a sliver never
+    survives as its own piece."""
+    prim = set(primary or [])
+    bounds = [start, *sorted(b for b in boundaries if start < b < end), end]
+    while len(bounds) > 2:
+        lens = [bounds[i + 1] - bounds[i] for i in range(len(bounds) - 1)]
+        i = int(np.argmin(lens))
+        if lens[i] >= min_seconds:
+            break
+        left_ok = i > 0
+        right_ok = i < len(lens) - 1
+        if left_ok and right_ok and (bounds[i] in prim) != (bounds[i + 1] in prim):
+            del bounds[i + 1 if bounds[i] in prim else i]
+        elif left_ok and (not right_ok or lens[i - 1] <= lens[i + 1]):
+            del bounds[i]
+        else:
+            del bounds[i + 1]
+    return bounds[1:-1]
+
+
+def _pieces_from_boundaries(turn: dict, boundaries: list[float]) -> list[dict]:
+    """Split ``turn`` at ``boundaries`` (already snapped to word gaps when the
+    turn has words). Text follows the words; without word timings the text
+    is divided proportionally to the pieces' durations — approximate, and
+    logged as such by the caller."""
+    start = float(turn.get("start_time") or 0.0)
+    end = float(turn.get("end_time") or 0.0)
+    bounds = [start, *boundaries, end]
+    base = {k: v for k, v in turn.items() if k != "words"}
+    words = turn.get("words")
+    pieces: list[dict] = []
+    if isinstance(words, list) and len(words) >= 2:
+        # Boundary → index of the last word before it.
+        cuts = []
+        for b in boundaries:
+            gaps = [
+                (float(words[i]["end_time"]) + float(words[i + 1]["start_time"])) / 2
+                for i in range(len(words) - 1)
+            ]
+            cuts.append(min(range(len(gaps)), key=lambda i: abs(gaps[i] - b)))
+        idx = [0, *[c + 1 for c in cuts], len(words)]
+        for j in range(len(bounds) - 1):
+            pieces.append(dict(
+                base,
+                text=" ".join(w["word"] for w in words[idx[j]:idx[j + 1]]),
+                start_time=bounds[j], end_time=bounds[j + 1],
+            ))
+        return pieces
+    tokens = str(turn.get("text") or "").split()
+    durs = [bounds[j + 1] - bounds[j] for j in range(len(bounds) - 1)]
+    total = sum(durs) or 1.0
+    counts = [int(len(tokens) * d / total) for d in durs]
+    for _ in range(len(tokens) - sum(counts)):  # largest-remainder top-up
+        j = max(range(len(durs)), key=lambda j: len(tokens) * durs[j] / total - counts[j])
+        counts[j] += 1
+    pos = 0
+    for j in range(len(bounds) - 1):
+        pieces.append(dict(
+            base, text=" ".join(tokens[pos:pos + counts[j]]),
+            start_time=bounds[j], end_time=bounds[j + 1],
+        ))
+        pos += counts[j]
+    return pieces
+
+
 def split_long_utterances(
     pcm: np.ndarray, sr: int, turns: list[dict], embed,
     centroids: tuple[np.ndarray, np.ndarray],
     word_centroids: list[np.ndarray] | None = None,
+    *, proposals: dict[int, list[float]] | None = None,
 ) -> tuple[list[dict], dict]:
     """Split long word-timed utterances at voice changes.
 
@@ -646,66 +1084,105 @@ def split_long_utterances(
        per-word verdict of "no split" (e.g. a lone flipped word smoothed
        away) is respected, never overruled.
 
+    3. WINDOW-PASS PROPOSALS (2026-08-29; ``proposals`` maps a turn index to
+       voice-change times found by the transcript-free spectral pass over
+       that utterance's 1.5 s windows — :meth:`_WindowPass.propose_boundaries`):
+       an ADDITIONAL source of cuts for every utterance over
+       WORD_SPLIT_MIN_UTTERANCE_SECONDS, INCLUDING ones without word
+       timings. Proposals are snapped to the nearest word gap when words
+       exist, union'd with the per-word cuts (a proposal within
+       BOUNDARY_DEDUPE_SECONDS of a word-pass cut is the same cut), and
+       every piece must still last MIN_SECONDS. A no-words utterance's text
+       is divided proportionally to the pieces' durations (approximate —
+       logged).
+
     Returns ``(finer_turns, stats)`` where stats counts ``scanned``,
-    ``split``, ``skipped_short`` (too short for either instrument — bounded
-    compute, by design) and ``skipped_no_words`` (long enough to scan but the
-    transcriber gave no word timings, so text cannot be divided honestly —
-    logged, never hidden). Turns that yield no trustworthy change pass
-    through unchanged.
+    ``split``, ``skipped_short`` (too short for any instrument — bounded
+    compute, by design), ``skipped_no_words`` (long enough for the sustained
+    scan but no word timings AND no window proposal — logged, never hidden)
+    and ``window_boundaries`` (cuts that came from the window pass alone).
+    Turns that yield no trustworthy change pass through unchanged.
     """
-    stats = {"scanned": 0, "split": 0, "skipped_short": 0, "skipped_no_words": 0}
+    stats = {
+        "scanned": 0, "split": 0, "skipped_short": 0, "skipped_no_words": 0,
+        "window_boundaries": 0,
+    }
     cents = list(word_centroids) if word_centroids is not None else list(centroids)
+    proposals = proposals or {}
     out: list[dict] = []
-    for t in turns:
+    for idx, t in enumerate(turns):
         start = float(t.get("start_time") or 0.0)
         end = float(t.get("end_time") or 0.0)
         words = t.get("words")
-        pieces: list[dict] | None = None
+        has_words = isinstance(words, list) and len(words) >= 2
+        long_enough = end - start > WORD_SPLIT_MIN_UTTERANCE_SECONDS
         scanned = False
         conclusive = False
-        if (
-            words and len(words) >= 2
-            and end - start > WORD_SPLIT_MIN_UTTERANCE_SECONDS
-        ):
+        word_bounds: list[float] = []
+        if has_words and long_enough:
             scanned = True
             labels, margins = _label_words(pcm, sr, t, embed, cents)
             smoothed = _smooth_word_labels(labels, margins)
             if smoothed is not None:
                 conclusive = True
-                pieces = split_turn_at_word_runs(
-                    t, _collapse_word_runs(words, smoothed, start, end)
-                )
+                runs = _word_runs(_collapse_word_runs(words, smoothed, start, end))
+                if len(runs) >= 2:
+                    word_bounds = [
+                        p1 for _, p1 in _run_pieces(words, runs, start, end)[:-1]
+                    ]
+        win_bounds: list[float] = []
+        if long_enough and proposals.get(idx):
+            scanned = True
+            win_bounds = list(proposals[idx])
+            if has_words:
+                win_bounds = _snap_to_word_gaps(words, win_bounds)
+        bounds = _enforce_min_pieces(
+            start, end, _dedupe_boundaries(word_bounds, win_bounds),
+            primary=word_bounds,
+        )
         if (
-            pieces is None and not conclusive
+            not bounds and not conclusive
             and end - start > SPLIT_MIN_UTTERANCE_SECONDS
         ):
             if not words:
                 stats["skipped_no_words"] += 1
                 logger.info(
-                    "split scan skipped %.1fs utterance at %.2fs: no word timings",
+                    "split scan skipped %.1fs utterance at %.2fs: no word timings "
+                    "(and no window-pass proposal)",
                     end - start, start,
                 )
                 out.append(t)
                 continue
             scanned = True
             change = find_change_point(pcm, sr, start, end, embed, centroids)
-            pieces = (
+            two = (
                 split_turn_at_word_boundary(t, change)
                 if change is not None else None
             )
+            if two is not None:
+                bounds = [float(two[0]["end_time"])]
         if not scanned:
             stats["skipped_short"] += 1
             out.append(t)
             continue
         stats["scanned"] += 1
-        if pieces is None:
+        if not bounds:
             out.append(t)
             continue
+        pieces = _pieces_from_boundaries(t, bounds)
+        from_windows = sum(
+            1 for b in bounds
+            if all(abs(b - w) > BOUNDARY_DEDUPE_SECONDS for w in word_bounds)
+        )
         stats["split"] += 1
+        stats["window_boundaries"] += from_windows
         logger.info(
-            "split %.1fs utterance at %.2fs into %d pieces (boundaries %s)",
+            "split %.1fs utterance at %.2fs into %d pieces (boundaries %s; "
+            "%d from the window pass%s)",
             end - start, start, len(pieces),
             ", ".join(f"{p['end_time']:.2f}" for p in pieces[:-1]),
+            from_windows,
+            "" if has_words else "; no word timings — text divided by duration",
         )
         out.extend(pieces)
     return out, stats
@@ -745,13 +1222,25 @@ def _refine_k(
     pcm: np.ndarray, sr: int, turns: list[dict], embed,
     order: list[int], embs: list[np.ndarray], k: int,
 ) -> tuple[list[int], dict[int, np.ndarray]] | None:
-    """Force-k split + pooled-centroid refinement.
+    """Force-k split (average linkage) + pooled-centroid refinement.
 
     Returns ``(labels, centroids)`` — one cluster label per embeddable turn
     and the k pooled cluster centroids — or ``None`` when refinement empties
     a cluster (the audio does not actually hold k distinct voices).
     """
-    labels = _merge_to_k(embs, k)
+    return _refine_labels(pcm, sr, turns, embed, order, embs, _merge_to_k(embs, k), k)
+
+
+def _refine_labels(
+    pcm: np.ndarray, sr: int, turns: list[dict], embed,
+    order: list[int], embs: list[np.ndarray], labels: list[int], k: int,
+) -> tuple[list[int], dict[int, np.ndarray]] | None:
+    """Pooled-centroid refinement of an initial k-way ``labels`` partition:
+    embed each cluster's POOLED audio, reassign every turn to its nearest
+    pooled centroid, up to REFINE_ROUNDS rounds or until stable. Shared by
+    the average-linkage route (:func:`_refine_k`) and the spectral route
+    (:func:`_spectral_route`). ``None`` when a cluster empties."""
+    labels = list(labels)
     centroids: dict[int, np.ndarray] = {}
     for _ in range(REFINE_ROUNDS):
         centroids = {}
@@ -847,6 +1336,7 @@ def _validate_k(
     worst = max(pair_cos.values())
     if worst > max_pooled_cosine:
         entry["ok"] = False
+        entry["failed"] = "centroids"
         entry["reason"] = (
             f"centroids not clearly distinct (worst pair cosine "
             f"{worst:.3f} > {max_pooled_cosine:.2f})"
@@ -859,6 +1349,7 @@ def _validate_k(
         entry["marginal_pair_cosine"] = round(worst_split, 3)
         if worst_split > STRONG_SEPARATION_COSINE:
             entry["ok"] = False
+            entry["failed"] = "marginal_pair"
             entry["reason"] = (
                 f"marginal split pair too similar (cosine {worst_split:.3f} "
                 f"> {STRONG_SEPARATION_COSINE:.2f} — one voice in two "
@@ -879,6 +1370,7 @@ def _validate_k(
             entry["split_anchor_cosine"] = round(anchor, 3)
             if anchor > NEW_VOICE_ANCHOR_COSINE:
                 entry["ok"] = False
+                entry["failed"] = "anchor"
                 entry["reason"] = (
                     "marginal split not anchored by a clearly new voice "
                     f"(both halves ≥ cosine {anchor:.3f} from every other "
@@ -894,6 +1386,7 @@ def _validate_k(
         )
         if seconds[c] < floor:
             entry["ok"] = False
+            entry["failed"] = "duration_floor"
             entry["reason"] = (
                 f"cluster has only {seconds[c]:.1f}s pooled speech "
                 f"(needs {floor:.1f}s at separation "
@@ -909,6 +1402,7 @@ def _select_k(
     max_pooled_cosine: float,
     *, pass2: tuple[list[int], dict[int, np.ndarray]] | None = None,
     max_k: int = MAX_SPEAKERS_LOCAL,
+    window_pass: _WindowPass | None = None,
 ) -> tuple[list[dict], tuple[list[int], dict[int, np.ndarray], dict] | None]:
     """Refine + validate every candidate k; keep the LARGEST that validates.
 
@@ -916,48 +1410,135 @@ def _select_k(
     against the refined k-1 partition (the marginal-split rule — see
     :data:`STRONG_SEPARATION_COSINE`). ``pass2`` is an already-refined k=2
     partition to reuse; ``max_k`` caps the candidate range below
-    :data:`MAX_SPEAKERS_LOCAL`. Returns ``(k_evaluated, chosen)`` where
-    ``chosen`` is ``(labels, centroids, entry)`` or ``None`` when no k
-    validates.
+    :data:`MAX_SPEAKERS_LOCAL`.
+
+    Two ROUTES to a k-way partition (2026-08-29; each ``k_evaluated`` entry
+    says which in ``route``): average LINKAGE first, and — when
+    ``window_pass`` is given — a SPECTRAL alternative seeded from the window
+    pass's pooled spectral centroids (:func:`_spectral_route`) whenever the
+    linkage partition failed on a DURATION FLOOR (it peeled a sliver — the
+    maggiano3 failure, where all three voices are ≤0.24 apart yet linkage's
+    3-way split carved a 1 s sliver) or when ``k`` is the window pass's
+    EIGENGAP count (the lower bound: the window evidence says at least k
+    voices, so the k-way spectral partition is at least TRIED before a
+    smaller k is settled on). The eigengap never RAISES k on its own — every
+    partition, whichever route, faces the same :func:`_validate_k`, and the
+    spectral route is only consulted for k ≤ the eigengap count. Returns
+    ``(k_evaluated, chosen)`` where ``chosen`` is ``(labels, centroids,
+    entry)`` or ``None`` when no k validates.
     """
     weights = [_slice(pcm, sr, turns[i]).size / sr for i in order]
     k_evaluated: list[dict] = []
     chosen: tuple[list[int], dict[int, np.ndarray], dict] | None = None
     prev_labels: list[int] | None = None
+    k_eig = window_pass.k_eigengap if window_pass is not None else None
     for k in range(2, min(max_k, MAX_SPEAKERS_LOCAL, len(order)) + 1):
         refined = (
             pass2 if k == 2 and pass2 is not None
             else _refine_k(pcm, sr, turns, embed, order, embs, k)
         )
+        labels_k: list[int] | None = None
+        entry: dict | None = None
         if refined is None:
             k_evaluated.append({
-                "k": k, "ok": False,
+                "k": k, "ok": False, "route": "linkage",
                 "reason": "refinement collapsed clusters "
                           f"(audio does not hold {k} distinct voices)",
             })
-            prev_labels = None
-            continue
-        labels_k, centroids_k = refined
-        if k == 2:
-            strict_pairs: list[tuple[int, int]] = []
-        elif prev_labels is None:
-            k_evaluated.append({
-                "k": k, "ok": False,
-                "reason": f"no refined k={k - 1} partition to justify "
-                          "the marginal split against",
-            })
-            continue
         else:
-            strict_pairs = _marginal_pairs(labels_k, prev_labels, weights)
-        entry = _validate_k(
-            pcm, sr, turns, order, labels_k, centroids_k,
-            max_pooled_cosine, strict_pairs,
-        )
-        k_evaluated.append(entry)
+            labels_k, centroids_k = refined
+            if k == 2:
+                strict_pairs: list[tuple[int, int]] | None = []
+            elif prev_labels is None:
+                strict_pairs = None
+                k_evaluated.append({
+                    "k": k, "ok": False, "route": "linkage",
+                    "reason": f"no refined k={k - 1} partition to justify "
+                              "the marginal split against",
+                })
+            else:
+                strict_pairs = _marginal_pairs(labels_k, prev_labels, weights)
+            if strict_pairs is not None:
+                entry = _validate_k(
+                    pcm, sr, turns, order, labels_k, centroids_k,
+                    max_pooled_cosine, strict_pairs,
+                )
+                entry["route"] = "linkage"
+                k_evaluated.append(entry)
+                if entry["ok"]:
+                    chosen = (labels_k, centroids_k, entry)
+                    prev_labels = labels_k
+                    continue
+        floor_fail = entry is not None and entry.get("failed") == "duration_floor"
+        if (
+            window_pass is not None and k_eig is not None and k <= k_eig
+            and (floor_fail or k == k_eig)
+        ):
+            alt_entry, alt = _spectral_route(
+                pcm, sr, turns, embed, order, embs, k, window_pass,
+                prev_labels, weights, max_pooled_cosine,
+            )
+            k_evaluated.append(alt_entry)
+            if alt is not None and alt_entry["ok"]:
+                chosen = (alt[0], alt[1], alt_entry)
+                prev_labels = alt[0]
+                continue
         prev_labels = labels_k
-        if entry["ok"]:
-            chosen = (labels_k, centroids_k, entry)
     return k_evaluated, chosen
+
+
+def _spectral_route(
+    pcm: np.ndarray, sr: int, turns: list[dict], embed,
+    order: list[int], embs: list[np.ndarray], k: int, window_pass: _WindowPass,
+    prev_labels: list[int] | None, weights: list[float], max_pooled_cosine: float,
+) -> tuple[dict, tuple[list[int], dict[int, np.ndarray]] | None]:
+    """The SPECTRAL k-way partition of the embeddable turns: every turn goes
+    to the nearest of the window pass's k pooled spectral centroids, then
+    the same pooled-centroid refinement rounds as the linkage route
+    (:func:`_refine_labels`), then the same :func:`_validate_k` (with the
+    marginal-split pairs measured against ``prev_labels``, the k-1
+    partition). Returns ``(k_evaluated entry, (labels, centroids) | None)``.
+    """
+    entry: dict = {"k": k, "ok": False, "route": "spectral"}
+    cents = window_pass.pooled_centroids(k)
+    if cents is None:
+        entry["reason"] = (
+            f"window spectral pass has fewer than {k} populated clusters"
+        )
+        return entry, None
+    keys = sorted(cents)
+    seed = [
+        keys[int(np.argmax([float(np.dot(e, cents[c])) for c in keys]))]
+        for e in embs
+    ]
+    if len(set(seed)) < k:
+        entry["reason"] = (
+            f"spectral centroids claim only {len(set(seed))} of {k} clusters "
+            "among the embeddable turns"
+        )
+        return entry, None
+    refined = _refine_labels(pcm, sr, turns, embed, order, embs, seed, k)
+    if refined is None:
+        entry["reason"] = (
+            "refinement collapsed clusters from the spectral seed "
+            f"(audio does not hold {k} distinct voices)"
+        )
+        return entry, None
+    labels_s, cents_s = refined
+    if k == 2:
+        strict: list[tuple[int, int]] = []
+    elif prev_labels is None:
+        entry["reason"] = (
+            f"no refined k={k - 1} partition to justify the marginal split against"
+        )
+        return entry, None
+    else:
+        strict = _marginal_pairs(labels_s, prev_labels, weights)
+    entry = _validate_k(
+        pcm, sr, turns, order, labels_s, cents_s, max_pooled_cosine, strict,
+    )
+    entry["route"] = "spectral"
+    return entry, (labels_s, cents_s)
 
 
 def diarize_turns(
@@ -966,6 +1547,7 @@ def diarize_turns(
     turns: list[dict],
     *,
     embed_fn=None,
+    embed_batch_fn=None,
     min_seconds: float = MIN_SECONDS,
     max_pooled_cosine: float = MAX_POOLED_COSINE,
 ) -> dict | None:
@@ -996,18 +1578,39 @@ def diarize_turns(
                                        # marginal_pair_cosine? (k>2),
                                        # reason?}
           "agreement_with_input": float,   # Rand agreement vs input labels
+          "window_pass": {...},        # the transcript-free window pass:
+                                       # windows, hop, speech gate, windows
+                                       # embedded, k_eigengap, eigenvalues,
+                                       # proposed_boundaries
         }
 
     Turns may carry an optional ``words`` list ([{word, start_time,
     end_time}, ...]); it enables the word-level split pre-pass and is never
-    propagated to the output turns.
+    propagated to the output turns. ``embed_batch_fn(chunks, sr)`` embeds a
+    list of window chunks for the window pass (defaults to
+    :func:`speaker_id.embed_pcm_batch`, or to a loop over ``embed_fn`` when
+    only that is injected).
     """
     embed = embed_fn or _default_embed
+    if embed_batch_fn is not None:
+        embed_batch = embed_batch_fn
+    elif embed_fn is not None:
+        def embed_batch(chunks, sr_):
+            return [embed_fn(c, sr_) for c in chunks]
+    else:
+        embed_batch = speaker_id.embed_pcm_batch
     try:
         embedded = _embed_turns(pcm, sr, turns, embed, min_seconds)
         if embedded is None:
             return None
         order, embs = embedded
+
+        # Transcript-free window pass over the whole clip's speech (see the
+        # WINDOW_PASS_* constants): supplies the eigengap speaker-count lower
+        # bound + spectral centroids to k-selection and voice-change
+        # proposals inside long utterances to the split pass.
+        window_pass = _WindowPass(pcm, sr, embed_batch, embed)
+        window_pass.run_global()
 
         # First k-selection pass over the transcript's own utterances: its
         # winner supplies the pooled centroids the word-level splitter scores
@@ -1020,20 +1623,44 @@ def diarize_turns(
             return None
         k_evaluated, chosen = _select_k(
             pcm, sr, turns, embed, order, embs, max_pooled_cosine, pass2=pass1,
+            window_pass=window_pass,
         )
         word_centroids = (
             [c for _, c in sorted(chosen[1].items())] if chosen is not None
             else [pass1[1][0], pass1[1][1]]
         )
 
+        # Window-pass boundary proposals inside every long utterance (with
+        # or without word timings) — cost proportional to the long
+        # utterances' seconds only (their windows were embedded by the
+        # whole-clip pass above and are re-used from its cache).
+        proposals: dict[int, list[float]] = {}
+        n_proposed = 0
+        for idx, t in enumerate(turns):
+            start = float(t.get("start_time") or 0.0)
+            end = float(t.get("end_time") or 0.0)
+            if end - start <= WORD_SPLIT_MIN_UTTERANCE_SECONDS:
+                continue
+            bounds, info = window_pass.propose_boundaries(start, end)
+            logger.info(
+                "window pass on %.1fs utterance at %.2fs: %d windows, %d raw "
+                "cut(s), %d confirmed (pieces [margin, centroid] %s)",
+                end - start, start, info["windows"], info["raw"],
+                info["kept"], info.get("pieces", []),
+            )
+            if bounds:
+                proposals[idx] = bounds
+                n_proposed += len(bounds)
+
         # Word-level split pass: a transcriber can weld a rapid multi-voice
         # exchange into ONE utterance. Split word-timed utterances at
         # per-word voice-run boundaries (sustained-flip scan as fallback),
-        # then re-embed the finer segments and REDO k-selection so every
-        # piece is attributed and validated like any other turn.
+        # union'd with the window-pass proposals, then re-embed the finer
+        # segments and REDO k-selection so every piece is attributed and
+        # validated like any other turn.
         turns, split_stats = split_long_utterances(
             pcm, sr, turns, embed, (pass1[1][0], pass1[1][1]),
-            word_centroids=word_centroids,
+            word_centroids=word_centroids, proposals=proposals,
         )
         if split_stats["split"]:
             embedded = _embed_turns(pcm, sr, turns, embed, min_seconds)
@@ -1050,11 +1677,23 @@ def diarize_turns(
             # 0.14 < 0.15). Whole utterances are the trustworthy evidence
             # for HOW MANY voices there are; pieces only redistribute WHO
             # said what. (No round-1 winner → no cap, as before.)
+            #
+            # 2026-08-29: the cap is lifted to the window pass's EIGENGAP
+            # count when that is higher — independent, transcript-free
+            # evidence of how many voices there are (it never over-counted a
+            # 2-4-voice fixture in the bake-off). A whole utterance that
+            # welds three voices embeds as a BLEND and can fail round 1's
+            # marginal-split rule, which would otherwise forbid the very
+            # pieces the window pass just cut from claiming the third voice.
+            # Validation still gates every k; the cap only decides what is
+            # TRIED.
             k_evaluated, chosen = _select_k(
                 pcm, sr, turns, embed, order, embs, max_pooled_cosine,
                 max_k=(
-                    len(chosen[1]) if chosen is not None else MAX_SPEAKERS_LOCAL
+                    max(len(chosen[1]), window_pass.k_eigengap or 0)
+                    if chosen is not None else MAX_SPEAKERS_LOCAL
                 ),
+                window_pass=window_pass,
             )
         if chosen is None:
             logger.info(
@@ -1111,4 +1750,14 @@ def diarize_turns(
             [t.get("speaker") for t in turns],
             [t["speaker"] for t in new_turns],
         ),
+        "window_pass": {
+            "windows": len(window_pass.starts),
+            "hop": window_pass.global_hop,
+            "speech_gate": round(window_pass.gate, 4),
+            "embedded": window_pass.embedded,
+            "k_eigengap": window_pass.k_eigengap,
+            "eigenvalues": window_pass.eigenvalues,
+            "proposed_boundaries": n_proposed,
+            "window_boundaries_used": split_stats["window_boundaries"],
+        },
     }
