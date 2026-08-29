@@ -26,6 +26,7 @@ import { useAudioStream, type TranscriptEntry } from "../hooks/useAudioStream";
 import { useAuthStore } from "../store/authStore";
 import { loadLiveMode, saveLiveMode } from "../live/modePrefs";
 import { loadScoreboardVisible, saveScoreboardVisible } from "../live/scoreboardPrefs";
+import { DEFAULT_KEEP_AUDIO, loadKeepAudio, saveKeepAudio } from "../live/keepAudioPrefs";
 import type { LiveMode } from "../live/localLlm";
 import type { CallRole } from "../live/call/types";
 import { listVoicePeople, type VoicePerson } from "../api/liveSessions";
@@ -73,6 +74,31 @@ export default function LiveCoachScreen({
   joinRole = "participant",
   onJoinCodeConsumed,
 }: LiveCoachScreenProps = {}) {
+  // Keep this session's audio (default ON — see keepAudioPrefs.ts): read
+  // once per account before the hook needs it; the switch below changes it
+  // for the NEXT session (a running session keeps whatever it started with).
+  const keepAudioUserId = useAuthStore((s) => s.user?.uid ?? null);
+  const [keepAudio, setKeepAudio] = useState(DEFAULT_KEEP_AUDIO);
+  const keepAudioLoadedRef = useRef(false);
+  useEffect(() => {
+    let cancelled = false;
+    void loadKeepAudio(keepAudioUserId).then((on) => {
+      if (cancelled || keepAudioLoadedRef.current) return;
+      keepAudioLoadedRef.current = true;
+      setKeepAudio(on);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [keepAudioUserId]);
+  const handleKeepAudioToggle = useCallback(
+    (on: boolean) => {
+      setKeepAudio(on);
+      void saveKeepAudio(keepAudioUserId, on);
+    },
+    [keepAudioUserId],
+  );
+
   const {
     isRecording,
     sessionActive,
@@ -116,7 +142,7 @@ export default function LiveCoachScreen({
     setCallMuted,
     callRoute,
     setCallRoute,
-  } = useAudioStream();
+  } = useAudioStream({ keepAudio });
   const callView = call ?? IDLE_CALL_VIEW;
 
   const userId = useAuthStore((s) => s.user?.uid ?? null);
@@ -546,6 +572,18 @@ export default function LiveCoachScreen({
           </Text>
         </View>
       ) : null}
+      <View style={styles.modeRow} testID="keep-audio-row">
+        <Text style={styles.modeLabel}>Keep audio</Text>
+        <Switch
+          testID="keep-audio-switch"
+          value={keepAudio}
+          onValueChange={handleKeepAudioToggle}
+          disabled={liveStatus === "live"}
+        />
+        <Text style={styles.modeHint} numberOfLines={1}>
+          {keepAudio ? "saved with the session — replay + re-analyze" : "off — transcribed and thrown away"}
+        </Text>
+      </View>
       <View style={styles.modeRow} testID="scoreboard-row">
         <Text style={styles.modeLabel}>Scoreboard</Text>
         <Switch

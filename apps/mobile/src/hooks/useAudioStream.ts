@@ -51,10 +51,17 @@ import type {
 } from "../live/types";
 import {
   postLiveSession,
+  postLiveSessionAudio,
+  type LiveSessionAudioUploader,
   type LiveSessionBody,
   type LiveSpeakerLabel,
   type PostLiveSessionResult,
 } from "../api/liveSessions";
+import {
+  openDefaultLiveAudioKeeper,
+  type LiveAudioKeeper,
+  type LiveAudioKeeperFactory,
+} from "../live/liveAudioKeeper";
 import { CallSession } from "../live/call/callSession";
 import { callApi as defaultCallApi, type CallApi } from "../live/call/callApi";
 import { createNativeRtcAdapter } from "../live/call/rtcNative";
@@ -166,6 +173,32 @@ export interface UseAudioStreamOptions {
    *  RTCPeerConnection on the web; tests: fakes). */
   callApi?: CallApi;
   makeRtcAdapter?: (getCaptureStream: () => MediaStream | null) => RtcAdapter;
+  /** Keep the session's mic audio on the phone as a WAV and attach it to
+   *  the saved episode once `POST /sessions/live` has stored it (default
+   *  true; the Live Coach "keep audio" switch). False writes nothing. */
+  keepAudio?: boolean;
+  /** Seam: open the per-session WAV keeper (production: one file per
+   *  session under Paths.cache/live-audio; tests: MemoryFs). */
+  openAudioKeeper?: LiveAudioKeeperFactory;
+  /** Seam: upload the kept WAV to the saved episode
+   *  (production: api/liveSessions.ts postLiveSessionAudio). */
+  postSessionAudio?: LiveSessionAudioUploader;
+}
+
+/** The kept session audio, as the screen shows it.
+ *  - off: not keeping (switch off, web, disk full, or the session was never
+ *    saved on the server — `error` says which when there is a reason);
+ *  - keeping: the WAV is growing on the phone;
+ *  - uploading / kept: attaching it to the saved episode / done (the local
+ *    file is deleted once the server has it);
+ *  - failed: the upload failed — the file stays on the phone and `retry`
+ *    sends it again. The session record itself is never affected. */
+export interface AudioKeepState {
+  status: "off" | "keeping" | "uploading" | "kept" | "failed";
+  bytes?: number;
+  seconds?: number;
+  error?: string;
+  retry?: () => Promise<void>;
 }
 
 /** What the sheet is told after a mid-call "that's Mom". */
@@ -273,6 +306,8 @@ interface UseAudioStreamReturn {
   /** The server's record of the last finished session (null until then, and
    *  null on the legacy path where nothing is POSTed). */
   lastEpisode: LastEpisode | null;
+  /** The session's kept audio (see AudioKeepState). */
+  audioKeep: AudioKeepState;
   /** Mid-call naming: raw wire label → the person the user (or a voiceprint
    *  match) says it is. Reset per session. */
   speakerNames: Record<string, SpeakerBinding>;
@@ -534,6 +569,94 @@ export function useAudioStream(
   const probeRef = useRef(options.probeCapabilities ?? defaultProbeCapabilities);
   probeRef.current = options.probeCapabilities ?? defaultProbeCapabilities;
 
+  // --- Kept session audio (live/liveAudioKeeper.ts) ------------------------
+  const keepAudioRef = useRef(options.keepAudio ?? true);
+  keepAudioRef.current = options.keepAudio ?? true;
+  const openKeeperRef = useRef(options.openAudioKeeper ?? openDefaultLiveAudioKeeper);
+  openKeeperRef.current = options.openAudioKeeper ?? openDefaultLiveAudioKeeper;
+  const postAudioRef = useRef(options.postSessionAudio ?? postLiveSessionAudio);
+  postAudioRef.current = options.postSessionAudio ?? postLiveSessionAudio;
+  /** The running session's keeper; null when not keeping. */
+  const keeperRef = useRef<LiveAudioKeeper | null>(null);
+  const [audioKeep, setAudioKeep] = useState<AudioKeepState>({ status: "off" });
+
+  /** Open the keeper for a starting session (or say why not). */
+  const beginAudioKeep = useCallback((sessionId: string) => {
+    keeperRef.current?.discard();
+    keeperRef.current = null;
+    if (!keepAudioRef.current) {
+      setAudioKeep({ status: "off" });
+      return;
+    }
+    if (sessionModeRef.current === "call") {
+      // The server records an in-app call itself (one episode per side).
+      setAudioKeep({ status: "off", error: "in-app calls are recorded by the server" });
+      return;
+    }
+    const opened = openKeeperRef.current(sessionId);
+    if (!opened.keeper) {
+      setAudioKeep({ status: "off", error: opened.reason });
+      return;
+    }
+    keeperRef.current = opened.keeper;
+    setAudioKeep({ status: "keeping" });
+  }, []);
+
+  /** Attach a finished file to its episode. A failure keeps the file on the
+   *  phone and offers a retry; success deletes it. Never throws. */
+  const uploadKeptAudio = useCallback(
+    async (kept: {
+      episodeId: string;
+      uri: string;
+      bytes: number;
+      seconds: number;
+      keeper: LiveAudioKeeper;
+    }): Promise<void> => {
+      const { bytes, seconds } = kept;
+      setAudioKeep({ status: "uploading", bytes, seconds });
+      try {
+        await postAudioRef.current(kept.episodeId, kept.uri, kept.bytes);
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.warn("[useAudioStream] session audio upload failed:", error);
+        setAudioKeep({ status: "failed", bytes, seconds, error, retry: () => uploadKeptAudio(kept) });
+        return;
+      }
+      kept.keeper.discard(); // the server has it — free the cache
+      setAudioKeep({ status: "kept", bytes, seconds });
+    },
+    [],
+  );
+
+  /** Session over: upload the kept file when the server stored the session,
+   *  otherwise discard it (never upload audio for a session with no episode). */
+  const settleAudioKeep = useCallback(
+    async (keeper: LiveAudioKeeper | null, episodeId: string | null) => {
+      if (!keeper) return;
+      if (!episodeId) {
+        keeper.discard();
+        setAudioKeep({ status: "off", error: "not kept — the session wasn't saved on the server" });
+        return;
+      }
+      let kept: Awaited<ReturnType<LiveAudioKeeper["finish"]>>;
+      try {
+        kept = await keeper.finish();
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.warn("[useAudioStream] keeping session audio failed:", error);
+        keeper.discard();
+        setAudioKeep({ status: "failed", error });
+        return;
+      }
+      if (!kept) {
+        setAudioKeep({ status: "off", error: "no audio was captured" });
+        return;
+      }
+      await uploadKeptAudio({ ...kept, episodeId, keeper });
+    },
+    [uploadKeptAudio],
+  );
+
   useEffect(() => {
     transcriptRef.current = transcript;
   }, [transcript]);
@@ -669,7 +792,17 @@ export function useAudioStream(
    */
   const stopFastLoop = useCallback(async () => {
     const loop = fastLoopRef.current;
-    if (!loop) return;
+    // The kept audio is settled by the SAME call that posts the session (the
+    // first one — later calls find no loop): taken here so a re-entrant stop
+    // can't upload or discard it twice.
+    const keeper = keeperRef.current;
+    keeperRef.current = null;
+    if (!loop) {
+      // Legacy path (no on-device loop): nothing is POSTed, so there is no
+      // episode to attach the audio to.
+      void settleAudioKeep(keeper, null);
+      return;
+    }
     fastLoopRef.current = null;
     lastLoopRef.current = loop;
     liveActiveRef.current = false;
@@ -694,6 +827,7 @@ export function useAudioStream(
       localTurnsRef.current = [];
       toneFlagsRef.current = [];
       identitiesRef.current = [];
+      void settleAudioKeep(keeper, null);
       return;
     }
     const body: LiveSessionBody = {
@@ -744,7 +878,14 @@ export function useAudioStream(
         });
       }
     }
-  }, []);
+    // Attach the kept audio to the stored episode (or drop it when there is
+    // none). Awaited so a stop that completes has settled the file; an
+    // upload failure never fails the session — it leaves a retry.
+    await settleAudioKeep(
+      keeper,
+      result.status === "created" && result.episodeId ? result.episodeId : null,
+    );
+  }, [settleAudioKeep]);
 
   /**
    * Start the fast loop for this session. Any failure (native module absent,
@@ -960,6 +1101,8 @@ export function useAudioStream(
       // The on-device fast loop (when running) hears exactly what the server
       // hears — one 16 kHz mono int16 conversion, two consumers.
       fastLoopRef.current?.pushSamples(int16);
+      // …and the kept-audio WAV is the third consumer of the same frames.
+      keeperRef.current?.append(int16);
       pendingRef.current = concatInt16(pendingRef.current, int16);
       flushAudioFrames();
     },
@@ -1213,6 +1356,10 @@ export function useAudioStream(
       callRef.current = null;
       call?.hangUp();
       stopSpeechSafely(); // Never keep talking after the screen is gone.
+      // A session abandoned mid-way was never saved: drop its audio rather
+      // than upload it (taken before stopFastLoop so it can't).
+      keeperRef.current?.discard();
+      keeperRef.current = null;
       void stopFastLoop();
       teardownWebSocket();
       // Leaving the live screen: hand the audio session back to playback so a
@@ -1726,6 +1873,7 @@ export function useAudioStream(
       // Frames start flowing from the worklet now, so open the gate before the
       // socket connects (frames buffer in pendingRef until the WS is OPEN).
       streamingRef.current = true;
+      beginAudioKeep(sessionId);
       shouldReconnect.current = true;
       setSessionActive(true);
       connectWebSocket(sessionId);
@@ -1737,7 +1885,7 @@ export function useAudioStream(
         await startFastLoop(sessionId, empathyLevel, primed);
       }
     },
-    [connectWebSocket, beginWebCapture, startFastLoop, liveCapability.capable],
+    [connectWebSocket, beginWebCapture, startFastLoop, beginAudioKeep, liveCapability.capable],
   );
 
   const startSession = useCallback(
@@ -1873,6 +2021,7 @@ export function useAudioStream(
       }
 
       streamingRef.current = true;
+      beginAudioKeep(sessionId);
       setIsRecording(true);
 
       if (liveModeRef.current && liveCapability.capable) {
@@ -1888,6 +2037,7 @@ export function useAudioStream(
       finishDrain,
       startWebSession,
       startFastLoop,
+      beginAudioKeep,
       liveCapability.capable,
     ],
   );
@@ -2310,6 +2460,7 @@ export function useAudioStream(
     escalationCount,
     sessionSummary,
     lastEpisode,
+    audioKeep,
     speakerNames,
     displayNameOf,
     labelSpeaker,
