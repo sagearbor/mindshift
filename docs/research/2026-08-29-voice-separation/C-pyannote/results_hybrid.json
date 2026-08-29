@@ -1,0 +1,2337 @@
+{
+ "family_real": {
+  "replay_p31_default": {
+   "k_true": 2,
+   "k_pred": 4,
+   "frame_accuracy": 0.552,
+   "unlabelled_frac": 0.101,
+   "mapping": {
+    "3": "Asher",
+    "1": "Sage"
+   },
+   "per_gt_recall": {
+    "Asher": 0.508,
+    "Sage": 0.581
+   },
+   "owner_purity": 0.994,
+   "fixture": "family_real",
+   "clustering_wall_s": 0.009
+  },
+  "seg_pyannote__oracle_labels": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.878,
+   "unlabelled_frac": 0.101,
+   "mapping": {
+    "0": "Asher",
+    "1": "Sage"
+   },
+   "per_gt_recall": {
+    "Asher": 0.818,
+    "Sage": 0.918
+   },
+   "owner_purity": 0.994,
+   "fixture": "family_real"
+  },
+  "seg_pyannote__wespeaker__pyclust_thr": {
+   "k_true": 2,
+   "k_pred": 4,
+   "frame_accuracy": 0.552,
+   "unlabelled_frac": 0.101,
+   "mapping": {
+    "3": "Asher",
+    "1": "Sage"
+   },
+   "per_gt_recall": {
+    "Asher": 0.508,
+    "Sage": 0.581
+   },
+   "owner_purity": 0.994,
+   "fixture": "family_real"
+  },
+  "seg_pyannote__wespeaker__pyclust_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.877,
+   "unlabelled_frac": 0.101,
+   "mapping": {
+    "0": "Sage",
+    "1": "Asher"
+   },
+   "per_gt_recall": {
+    "Asher": 0.816,
+    "Sage": 0.918
+   },
+   "owner_purity": 0.992,
+   "fixture": "family_real"
+  },
+  "seg_pyannote__wespeaker__pyclust_bounds_2_6": {
+   "k_true": 2,
+   "k_pred": 4,
+   "frame_accuracy": 0.552,
+   "unlabelled_frac": 0.101,
+   "mapping": {
+    "3": "Asher",
+    "1": "Sage"
+   },
+   "per_gt_recall": {
+    "Asher": 0.508,
+    "Sage": 0.581
+   },
+   "owner_purity": 0.994,
+   "fixture": "family_real"
+  },
+  "seg_pyannote__wespeaker__ours_avglink_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.877,
+   "unlabelled_frac": 0.101,
+   "mapping": {
+    "0": "Sage",
+    "1": "Asher"
+   },
+   "per_gt_recall": {
+    "Asher": 0.816,
+    "Sage": 0.918
+   },
+   "owner_purity": 0.992,
+   "fixture": "family_real"
+  },
+  "seg_GT__wespeaker__pyclust_thr": {
+   "k_true": 2,
+   "k_pred": 8,
+   "frame_accuracy": 0.346,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C4": "Asher",
+    "C2": "Sage"
+   },
+   "per_gt_recall": {
+    "Asher": 0.337,
+    "Sage": 0.351
+   },
+   "owner_purity": 1.0,
+   "fixture": "family_real"
+  },
+  "seg_GT__wespeaker__pyclust_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.621,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Sage",
+    "C1": "Asher"
+   },
+   "per_gt_recall": {
+    "Asher": 0.05,
+    "Sage": 1.0
+   },
+   "owner_purity": 0.613,
+   "fixture": "family_real"
+  },
+  "seg_GT__wespeaker__ours_avglink_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.98,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Asher",
+    "C1": "Sage"
+   },
+   "per_gt_recall": {
+    "Asher": 0.95,
+    "Sage": 1.0
+   },
+   "owner_purity": 0.968,
+   "fixture": "family_real"
+  },
+  "seg_pyannote__ecapa__pyclust_thr": {
+   "k_true": 2,
+   "k_pred": 4,
+   "frame_accuracy": 0.552,
+   "unlabelled_frac": 0.101,
+   "mapping": {
+    "3": "Asher",
+    "1": "Sage"
+   },
+   "per_gt_recall": {
+    "Asher": 0.508,
+    "Sage": 0.581
+   },
+   "owner_purity": 0.994,
+   "fixture": "family_real"
+  },
+  "seg_pyannote__ecapa__pyclust_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.877,
+   "unlabelled_frac": 0.101,
+   "mapping": {
+    "0": "Sage",
+    "1": "Asher"
+   },
+   "per_gt_recall": {
+    "Asher": 0.816,
+    "Sage": 0.918
+   },
+   "owner_purity": 0.992,
+   "fixture": "family_real"
+  },
+  "seg_pyannote__ecapa__pyclust_bounds_2_6": {
+   "k_true": 2,
+   "k_pred": 4,
+   "frame_accuracy": 0.552,
+   "unlabelled_frac": 0.101,
+   "mapping": {
+    "3": "Asher",
+    "1": "Sage"
+   },
+   "per_gt_recall": {
+    "Asher": 0.508,
+    "Sage": 0.581
+   },
+   "owner_purity": 0.994,
+   "fixture": "family_real"
+  },
+  "seg_pyannote__ecapa__ours_avglink_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.877,
+   "unlabelled_frac": 0.101,
+   "mapping": {
+    "0": "Sage",
+    "1": "Asher"
+   },
+   "per_gt_recall": {
+    "Asher": 0.816,
+    "Sage": 0.918
+   },
+   "owner_purity": 0.992,
+   "fixture": "family_real"
+  },
+  "seg_GT__ecapa__pyclust_thr": {
+   "k_true": 2,
+   "k_pred": 8,
+   "frame_accuracy": 0.346,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C5": "Asher",
+    "C2": "Sage"
+   },
+   "per_gt_recall": {
+    "Asher": 0.337,
+    "Sage": 0.351
+   },
+   "owner_purity": 1.0,
+   "fixture": "family_real"
+  },
+  "seg_GT__ecapa__pyclust_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.621,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Sage",
+    "C1": "Asher"
+   },
+   "per_gt_recall": {
+    "Asher": 0.05,
+    "Sage": 1.0
+   },
+   "owner_purity": 0.613,
+   "fixture": "family_real"
+  },
+  "seg_GT__ecapa__ours_avglink_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.98,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Asher",
+    "C1": "Sage"
+   },
+   "per_gt_recall": {
+    "Asher": 0.95,
+    "Sage": 1.0
+   },
+   "owner_purity": 0.968,
+   "fixture": "family_real"
+  },
+  "_units": {
+   "n": 42,
+   "median_active_sec": 3.91,
+   "ecapa_nan": 0
+  }
+ },
+ "poker6": {
+  "replay_p31_default": {
+   "k_true": 6,
+   "k_pred": 4,
+   "frame_accuracy": 0.355,
+   "unlabelled_frac": 0.32,
+   "mapping": {
+    "0": "Player5",
+    "1": "Player4",
+    "2": "Player3",
+    "3": "Player1"
+   },
+   "per_gt_recall": {
+    "Player1": 0.0,
+    "Player2": 0.0,
+    "Player3": 0.85,
+    "Player4": 0.826,
+    "Player5": 0.46,
+    "Player6": 0.0
+   },
+   "owner_purity": null,
+   "fixture": "poker6",
+   "clustering_wall_s": 0.01
+  },
+  "seg_pyannote__oracle_labels": {
+   "k_true": 6,
+   "k_pred": 6,
+   "frame_accuracy": 0.559,
+   "unlabelled_frac": 0.32,
+   "mapping": {
+    "0": "Player1",
+    "1": "Player2",
+    "2": "Player3",
+    "3": "Player4",
+    "4": "Player5",
+    "5": "Player6"
+   },
+   "per_gt_recall": {
+    "Player1": 0.462,
+    "Player2": 0.054,
+    "Player3": 1.0,
+    "Player4": 0.826,
+    "Player5": 0.466,
+    "Player6": 0.547
+   },
+   "owner_purity": 1.0,
+   "fixture": "poker6"
+  },
+  "seg_pyannote__wespeaker__pyclust_thr": {
+   "k_true": 6,
+   "k_pred": 4,
+   "frame_accuracy": 0.355,
+   "unlabelled_frac": 0.32,
+   "mapping": {
+    "0": "Player5",
+    "1": "Player4",
+    "2": "Player3",
+    "3": "Player1"
+   },
+   "per_gt_recall": {
+    "Player1": 0.0,
+    "Player2": 0.0,
+    "Player3": 0.85,
+    "Player4": 0.826,
+    "Player5": 0.46,
+    "Player6": 0.0
+   },
+   "owner_purity": null,
+   "fixture": "poker6"
+  },
+  "seg_pyannote__wespeaker__pyclust_oracle_k": {
+   "k_true": 6,
+   "k_pred": 4,
+   "frame_accuracy": 0.355,
+   "unlabelled_frac": 0.32,
+   "mapping": {
+    "0": "Player5",
+    "1": "Player4",
+    "2": "Player3",
+    "3": "Player1"
+   },
+   "per_gt_recall": {
+    "Player1": 0.0,
+    "Player2": 0.0,
+    "Player3": 0.85,
+    "Player4": 0.826,
+    "Player5": 0.46,
+    "Player6": 0.0
+   },
+   "owner_purity": null,
+   "fixture": "poker6"
+  },
+  "seg_pyannote__wespeaker__pyclust_bounds_2_6": {
+   "k_true": 6,
+   "k_pred": 4,
+   "frame_accuracy": 0.355,
+   "unlabelled_frac": 0.32,
+   "mapping": {
+    "0": "Player5",
+    "1": "Player4",
+    "2": "Player3",
+    "3": "Player1"
+   },
+   "per_gt_recall": {
+    "Player1": 0.0,
+    "Player2": 0.0,
+    "Player3": 0.85,
+    "Player4": 0.826,
+    "Player5": 0.46,
+    "Player6": 0.0
+   },
+   "owner_purity": null,
+   "fixture": "poker6"
+  },
+  "seg_pyannote__wespeaker__ours_avglink_oracle_k": {
+   "k_true": 6,
+   "k_pred": 5,
+   "frame_accuracy": 0.549,
+   "unlabelled_frac": 0.32,
+   "mapping": {
+    "0": "Player5",
+    "1": "Player1",
+    "2": "Player4",
+    "3": "Player3",
+    "4": "Player6"
+   },
+   "per_gt_recall": {
+    "Player1": 0.462,
+    "Player2": 0.0,
+    "Player3": 1.0,
+    "Player4": 0.826,
+    "Player5": 0.46,
+    "Player6": 0.547
+   },
+   "owner_purity": 1.0,
+   "fixture": "poker6"
+  },
+  "seg_GT__wespeaker__pyclust_thr": {
+   "k_true": 6,
+   "k_pred": 6,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Player2",
+    "C1": "Player3",
+    "C2": "Player6",
+    "C3": "Player5",
+    "C4": "Player1",
+    "C5": "Player4"
+   },
+   "per_gt_recall": {
+    "Player1": 1.0,
+    "Player2": 1.0,
+    "Player3": 1.0,
+    "Player4": 1.0,
+    "Player5": 1.0,
+    "Player6": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "poker6"
+  },
+  "seg_GT__wespeaker__pyclust_oracle_k": {
+   "k_true": 6,
+   "k_pred": 6,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Player2",
+    "C1": "Player3",
+    "C2": "Player6",
+    "C3": "Player5",
+    "C4": "Player1",
+    "C5": "Player4"
+   },
+   "per_gt_recall": {
+    "Player1": 1.0,
+    "Player2": 1.0,
+    "Player3": 1.0,
+    "Player4": 1.0,
+    "Player5": 1.0,
+    "Player6": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "poker6"
+  },
+  "seg_GT__wespeaker__ours_avglink_oracle_k": {
+   "k_true": 6,
+   "k_pred": 6,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Player1",
+    "C1": "Player2",
+    "C2": "Player3",
+    "C3": "Player4",
+    "C4": "Player5",
+    "C5": "Player6"
+   },
+   "per_gt_recall": {
+    "Player1": 1.0,
+    "Player2": 1.0,
+    "Player3": 1.0,
+    "Player4": 1.0,
+    "Player5": 1.0,
+    "Player6": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "poker6"
+  },
+  "seg_pyannote__ecapa__pyclust_thr": {
+   "k_true": 6,
+   "k_pred": 5,
+   "frame_accuracy": 0.447,
+   "unlabelled_frac": 0.32,
+   "mapping": {
+    "0": "Player5",
+    "1": "Player4",
+    "2": "Player6",
+    "3": "Player3",
+    "4": "Player1"
+   },
+   "per_gt_recall": {
+    "Player1": 0.0,
+    "Player2": 0.0,
+    "Player3": 0.85,
+    "Player4": 0.826,
+    "Player5": 0.46,
+    "Player6": 0.543
+   },
+   "owner_purity": 1.0,
+   "fixture": "poker6"
+  },
+  "seg_pyannote__ecapa__pyclust_oracle_k": {
+   "k_true": 6,
+   "k_pred": 5,
+   "frame_accuracy": 0.447,
+   "unlabelled_frac": 0.32,
+   "mapping": {
+    "0": "Player5",
+    "1": "Player4",
+    "2": "Player6",
+    "3": "Player3",
+    "4": "Player1"
+   },
+   "per_gt_recall": {
+    "Player1": 0.0,
+    "Player2": 0.0,
+    "Player3": 0.85,
+    "Player4": 0.826,
+    "Player5": 0.46,
+    "Player6": 0.543
+   },
+   "owner_purity": 1.0,
+   "fixture": "poker6"
+  },
+  "seg_pyannote__ecapa__pyclust_bounds_2_6": {
+   "k_true": 6,
+   "k_pred": 5,
+   "frame_accuracy": 0.447,
+   "unlabelled_frac": 0.32,
+   "mapping": {
+    "0": "Player5",
+    "1": "Player4",
+    "2": "Player6",
+    "3": "Player3",
+    "4": "Player1"
+   },
+   "per_gt_recall": {
+    "Player1": 0.0,
+    "Player2": 0.0,
+    "Player3": 0.85,
+    "Player4": 0.826,
+    "Player5": 0.46,
+    "Player6": 0.543
+   },
+   "owner_purity": 1.0,
+   "fixture": "poker6"
+  },
+  "seg_pyannote__ecapa__ours_avglink_oracle_k": {
+   "k_true": 6,
+   "k_pred": 6,
+   "frame_accuracy": 0.524,
+   "unlabelled_frac": 0.32,
+   "mapping": {
+    "0": "Player4",
+    "1": "Player6",
+    "2": "Player3",
+    "3": "Player2",
+    "4": "Player1",
+    "5": "Player5"
+   },
+   "per_gt_recall": {
+    "Player1": 0.46,
+    "Player2": 0.0,
+    "Player3": 0.85,
+    "Player4": 0.826,
+    "Player5": 0.46,
+    "Player6": 0.547
+   },
+   "owner_purity": 1.0,
+   "fixture": "poker6"
+  },
+  "seg_GT__ecapa__pyclust_thr": {
+   "k_true": 6,
+   "k_pred": 6,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Player2",
+    "C1": "Player6",
+    "C2": "Player3",
+    "C3": "Player4",
+    "C4": "Player5",
+    "C5": "Player1"
+   },
+   "per_gt_recall": {
+    "Player1": 1.0,
+    "Player2": 1.0,
+    "Player3": 1.0,
+    "Player4": 1.0,
+    "Player5": 1.0,
+    "Player6": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "poker6"
+  },
+  "seg_GT__ecapa__pyclust_oracle_k": {
+   "k_true": 6,
+   "k_pred": 6,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Player2",
+    "C1": "Player6",
+    "C2": "Player3",
+    "C3": "Player4",
+    "C4": "Player5",
+    "C5": "Player1"
+   },
+   "per_gt_recall": {
+    "Player1": 1.0,
+    "Player2": 1.0,
+    "Player3": 1.0,
+    "Player4": 1.0,
+    "Player5": 1.0,
+    "Player6": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "poker6"
+  },
+  "seg_GT__ecapa__ours_avglink_oracle_k": {
+   "k_true": 6,
+   "k_pred": 6,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Player1",
+    "C1": "Player2",
+    "C2": "Player3",
+    "C3": "Player4",
+    "C4": "Player5",
+    "C5": "Player6"
+   },
+   "per_gt_recall": {
+    "Player1": 1.0,
+    "Player2": 1.0,
+    "Player3": 1.0,
+    "Player4": 1.0,
+    "Player5": 1.0,
+    "Player6": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "poker6"
+  },
+  "_units": {
+   "n": 46,
+   "median_active_sec": 2.97,
+   "ecapa_nan": 3
+  }
+ },
+ "openai": {
+  "replay_p31_default": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.91,
+   "unlabelled_frac": 0.09,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.925,
+    "Speaker B": 0.893
+   },
+   "owner_purity": null,
+   "fixture": "openai",
+   "clustering_wall_s": 0.043
+  },
+  "seg_pyannote__oracle_labels": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.91,
+   "unlabelled_frac": 0.09,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.925,
+    "Speaker B": 0.893
+   },
+   "owner_purity": null,
+   "fixture": "openai"
+  },
+  "seg_pyannote__wespeaker__pyclust_thr": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.91,
+   "unlabelled_frac": 0.09,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.925,
+    "Speaker B": 0.893
+   },
+   "owner_purity": null,
+   "fixture": "openai"
+  },
+  "seg_pyannote__wespeaker__pyclust_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.91,
+   "unlabelled_frac": 0.09,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.925,
+    "Speaker B": 0.893
+   },
+   "owner_purity": null,
+   "fixture": "openai"
+  },
+  "seg_pyannote__wespeaker__pyclust_bounds_2_6": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.91,
+   "unlabelled_frac": 0.09,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.925,
+    "Speaker B": 0.893
+   },
+   "owner_purity": null,
+   "fixture": "openai"
+  },
+  "seg_pyannote__wespeaker__ours_avglink_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.91,
+   "unlabelled_frac": 0.09,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.925,
+    "Speaker B": 0.893
+   },
+   "owner_purity": null,
+   "fixture": "openai"
+  },
+  "seg_GT__wespeaker__pyclust_thr": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker B",
+    "C1": "Speaker A"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0
+   },
+   "owner_purity": null,
+   "fixture": "openai"
+  },
+  "seg_GT__wespeaker__pyclust_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker B",
+    "C1": "Speaker A"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0
+   },
+   "owner_purity": null,
+   "fixture": "openai"
+  },
+  "seg_GT__wespeaker__ours_avglink_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker B",
+    "C1": "Speaker A"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0
+   },
+   "owner_purity": null,
+   "fixture": "openai"
+  },
+  "seg_pyannote__ecapa__pyclust_thr": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.91,
+   "unlabelled_frac": 0.09,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.925,
+    "Speaker B": 0.893
+   },
+   "owner_purity": null,
+   "fixture": "openai"
+  },
+  "seg_pyannote__ecapa__pyclust_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.91,
+   "unlabelled_frac": 0.09,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.925,
+    "Speaker B": 0.893
+   },
+   "owner_purity": null,
+   "fixture": "openai"
+  },
+  "seg_pyannote__ecapa__pyclust_bounds_2_6": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.91,
+   "unlabelled_frac": 0.09,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.925,
+    "Speaker B": 0.893
+   },
+   "owner_purity": null,
+   "fixture": "openai"
+  },
+  "seg_pyannote__ecapa__ours_avglink_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.91,
+   "unlabelled_frac": 0.09,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.925,
+    "Speaker B": 0.893
+   },
+   "owner_purity": null,
+   "fixture": "openai"
+  },
+  "seg_GT__ecapa__pyclust_thr": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker B",
+    "C1": "Speaker A"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0
+   },
+   "owner_purity": null,
+   "fixture": "openai"
+  },
+  "seg_GT__ecapa__pyclust_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker B",
+    "C1": "Speaker A"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0
+   },
+   "owner_purity": null,
+   "fixture": "openai"
+  },
+  "seg_GT__ecapa__ours_avglink_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker B",
+    "C1": "Speaker A"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0
+   },
+   "owner_purity": null,
+   "fixture": "openai"
+  },
+  "_units": {
+   "n": 125,
+   "median_active_sec": 4.4,
+   "ecapa_nan": 0
+  }
+ },
+ "gptaudio": {
+  "replay_p31_default": {
+   "k_true": 2,
+   "k_pred": 3,
+   "frame_accuracy": 0.834,
+   "unlabelled_frac": 0.077,
+   "mapping": {
+    "1": "Speaker A",
+    "2": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.744,
+    "Speaker B": 0.932
+   },
+   "owner_purity": null,
+   "fixture": "gptaudio",
+   "clustering_wall_s": 0.031
+  },
+  "seg_pyannote__oracle_labels": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.923,
+   "unlabelled_frac": 0.077,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.916,
+    "Speaker B": 0.932
+   },
+   "owner_purity": null,
+   "fixture": "gptaudio"
+  },
+  "seg_pyannote__wespeaker__pyclust_thr": {
+   "k_true": 2,
+   "k_pred": 3,
+   "frame_accuracy": 0.834,
+   "unlabelled_frac": 0.077,
+   "mapping": {
+    "1": "Speaker A",
+    "2": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.744,
+    "Speaker B": 0.932
+   },
+   "owner_purity": null,
+   "fixture": "gptaudio"
+  },
+  "seg_pyannote__wespeaker__pyclust_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.923,
+   "unlabelled_frac": 0.077,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.916,
+    "Speaker B": 0.932
+   },
+   "owner_purity": null,
+   "fixture": "gptaudio"
+  },
+  "seg_pyannote__wespeaker__pyclust_bounds_2_6": {
+   "k_true": 2,
+   "k_pred": 3,
+   "frame_accuracy": 0.834,
+   "unlabelled_frac": 0.077,
+   "mapping": {
+    "1": "Speaker A",
+    "2": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.744,
+    "Speaker B": 0.932
+   },
+   "owner_purity": null,
+   "fixture": "gptaudio"
+  },
+  "seg_pyannote__wespeaker__ours_avglink_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.923,
+   "unlabelled_frac": 0.077,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.916,
+    "Speaker B": 0.932
+   },
+   "owner_purity": null,
+   "fixture": "gptaudio"
+  },
+  "seg_GT__wespeaker__pyclust_thr": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker B",
+    "C1": "Speaker A"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0
+   },
+   "owner_purity": null,
+   "fixture": "gptaudio"
+  },
+  "seg_GT__wespeaker__pyclust_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker B",
+    "C1": "Speaker A"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0
+   },
+   "owner_purity": null,
+   "fixture": "gptaudio"
+  },
+  "seg_GT__wespeaker__ours_avglink_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker B",
+    "C1": "Speaker A"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0
+   },
+   "owner_purity": null,
+   "fixture": "gptaudio"
+  },
+  "seg_pyannote__ecapa__pyclust_thr": {
+   "k_true": 2,
+   "k_pred": 5,
+   "frame_accuracy": 0.649,
+   "unlabelled_frac": 0.077,
+   "mapping": {
+    "1": "Speaker A",
+    "4": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.39,
+    "Speaker B": 0.932
+   },
+   "owner_purity": null,
+   "fixture": "gptaudio"
+  },
+  "seg_pyannote__ecapa__pyclust_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.923,
+   "unlabelled_frac": 0.077,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.916,
+    "Speaker B": 0.932
+   },
+   "owner_purity": null,
+   "fixture": "gptaudio"
+  },
+  "seg_pyannote__ecapa__pyclust_bounds_2_6": {
+   "k_true": 2,
+   "k_pred": 5,
+   "frame_accuracy": 0.649,
+   "unlabelled_frac": 0.077,
+   "mapping": {
+    "1": "Speaker A",
+    "4": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.39,
+    "Speaker B": 0.932
+   },
+   "owner_purity": null,
+   "fixture": "gptaudio"
+  },
+  "seg_pyannote__ecapa__ours_avglink_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.923,
+   "unlabelled_frac": 0.077,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.916,
+    "Speaker B": 0.932
+   },
+   "owner_purity": null,
+   "fixture": "gptaudio"
+  },
+  "seg_GT__ecapa__pyclust_thr": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker B",
+    "C1": "Speaker A"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0
+   },
+   "owner_purity": null,
+   "fixture": "gptaudio"
+  },
+  "seg_GT__ecapa__pyclust_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker B",
+    "C1": "Speaker A"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0
+   },
+   "owner_purity": null,
+   "fixture": "gptaudio"
+  },
+  "seg_GT__ecapa__ours_avglink_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker B",
+    "C1": "Speaker A"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0
+   },
+   "owner_purity": null,
+   "fixture": "gptaudio"
+  },
+  "_units": {
+   "n": 132,
+   "median_active_sec": 4.49,
+   "ecapa_nan": 0
+  }
+ },
+ "scene_couple": {
+  "replay_p31_default": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.95,
+   "unlabelled_frac": 0.05,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.933
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_couple",
+   "clustering_wall_s": 0.02
+  },
+  "seg_pyannote__oracle_labels": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.95,
+   "unlabelled_frac": 0.05,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.933
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_couple"
+  },
+  "seg_pyannote__wespeaker__pyclust_thr": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.95,
+   "unlabelled_frac": 0.05,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.933
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_couple"
+  },
+  "seg_pyannote__wespeaker__pyclust_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.95,
+   "unlabelled_frac": 0.05,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.933
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_couple"
+  },
+  "seg_pyannote__wespeaker__pyclust_bounds_2_6": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.95,
+   "unlabelled_frac": 0.05,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.933
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_couple"
+  },
+  "seg_pyannote__wespeaker__ours_avglink_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.95,
+   "unlabelled_frac": 0.05,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.933
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_couple"
+  },
+  "seg_GT__wespeaker__pyclust_thr": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker A",
+    "C1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_couple"
+  },
+  "seg_GT__wespeaker__pyclust_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker A",
+    "C1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_couple"
+  },
+  "seg_GT__wespeaker__ours_avglink_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker A",
+    "C1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_couple"
+  },
+  "seg_pyannote__ecapa__pyclust_thr": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.95,
+   "unlabelled_frac": 0.05,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.933
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_couple"
+  },
+  "seg_pyannote__ecapa__pyclust_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.95,
+   "unlabelled_frac": 0.05,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.933
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_couple"
+  },
+  "seg_pyannote__ecapa__pyclust_bounds_2_6": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.95,
+   "unlabelled_frac": 0.05,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.933
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_couple"
+  },
+  "seg_pyannote__ecapa__ours_avglink_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.95,
+   "unlabelled_frac": 0.05,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.933
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_couple"
+  },
+  "seg_GT__ecapa__pyclust_thr": {
+   "k_true": 2,
+   "k_pred": 9,
+   "frame_accuracy": 0.503,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C2": "Speaker A",
+    "C7": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.168,
+    "Speaker B": 0.873
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_couple"
+  },
+  "seg_GT__ecapa__pyclust_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker A",
+    "C1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_couple"
+  },
+  "seg_GT__ecapa__ours_avglink_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker A",
+    "C1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_couple"
+  },
+  "_units": {
+   "n": 122,
+   "median_active_sec": 4.28,
+   "ecapa_nan": 0
+  }
+ },
+ "scene_family3": {
+  "replay_p31_default": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.904,
+   "unlabelled_frac": 0.051,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B",
+    "2": "Speaker C"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.904,
+    "Speaker C": 0.842
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_family3",
+   "clustering_wall_s": 0.02
+  },
+  "seg_pyannote__oracle_labels": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.904,
+   "unlabelled_frac": 0.051,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B",
+    "2": "Speaker C"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.903,
+    "Speaker C": 0.842
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_family3"
+  },
+  "seg_pyannote__wespeaker__pyclust_thr": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.904,
+   "unlabelled_frac": 0.051,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B",
+    "2": "Speaker C"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.904,
+    "Speaker C": 0.842
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_family3"
+  },
+  "seg_pyannote__wespeaker__pyclust_oracle_k": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.904,
+   "unlabelled_frac": 0.051,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B",
+    "2": "Speaker C"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.904,
+    "Speaker C": 0.842
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_family3"
+  },
+  "seg_pyannote__wespeaker__pyclust_bounds_2_6": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.904,
+   "unlabelled_frac": 0.051,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B",
+    "2": "Speaker C"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.904,
+    "Speaker C": 0.842
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_family3"
+  },
+  "seg_pyannote__wespeaker__ours_avglink_oracle_k": {
+   "k_true": 3,
+   "k_pred": 1,
+   "frame_accuracy": 0.326,
+   "unlabelled_frac": 0.051,
+   "mapping": {
+    "0": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.0,
+    "Speaker B": 0.904,
+    "Speaker C": 0.0
+   },
+   "owner_purity": null,
+   "fixture": "scene_family3"
+  },
+  "seg_GT__wespeaker__pyclust_thr": {
+   "k_true": 3,
+   "k_pred": 2,
+   "frame_accuracy": 0.685,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker B",
+    "C1": "Speaker A"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0,
+    "Speaker C": 0.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_family3"
+  },
+  "seg_GT__wespeaker__pyclust_oracle_k": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker B",
+    "C1": "Speaker C",
+    "C2": "Speaker A"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0,
+    "Speaker C": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_family3"
+  },
+  "seg_GT__wespeaker__ours_avglink_oracle_k": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker B",
+    "C1": "Speaker C",
+    "C2": "Speaker A"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0,
+    "Speaker C": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_family3"
+  },
+  "seg_pyannote__ecapa__pyclust_thr": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.948,
+   "unlabelled_frac": 0.051,
+   "mapping": {
+    "0": "Speaker C",
+    "1": "Speaker B",
+    "2": "Speaker A"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.902,
+    "Speaker C": 0.984
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_family3"
+  },
+  "seg_pyannote__ecapa__pyclust_oracle_k": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.948,
+   "unlabelled_frac": 0.051,
+   "mapping": {
+    "0": "Speaker C",
+    "1": "Speaker B",
+    "2": "Speaker A"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.902,
+    "Speaker C": 0.984
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_family3"
+  },
+  "seg_pyannote__ecapa__pyclust_bounds_2_6": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.948,
+   "unlabelled_frac": 0.051,
+   "mapping": {
+    "0": "Speaker C",
+    "1": "Speaker B",
+    "2": "Speaker A"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.902,
+    "Speaker C": 0.984
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_family3"
+  },
+  "seg_pyannote__ecapa__ours_avglink_oracle_k": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.948,
+   "unlabelled_frac": 0.051,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker C",
+    "2": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.902,
+    "Speaker C": 0.984
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_family3"
+  },
+  "seg_GT__ecapa__pyclust_thr": {
+   "k_true": 3,
+   "k_pred": 2,
+   "frame_accuracy": 0.685,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker A",
+    "C1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0,
+    "Speaker C": 0.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_family3"
+  },
+  "seg_GT__ecapa__pyclust_oracle_k": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker A",
+    "C1": "Speaker C",
+    "C2": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0,
+    "Speaker C": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_family3"
+  },
+  "seg_GT__ecapa__ours_avglink_oracle_k": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker A",
+    "C1": "Speaker C",
+    "C2": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0,
+    "Speaker C": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_family3"
+  },
+  "_units": {
+   "n": 146,
+   "median_active_sec": 3.96,
+   "ecapa_nan": 5
+  }
+ },
+ "scene_meeting4": {
+  "replay_p31_default": {
+   "k_true": 4,
+   "k_pred": 3,
+   "frame_accuracy": 0.771,
+   "unlabelled_frac": 0.052,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B",
+    "2": "Speaker C"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.95,
+    "Speaker B": 0.929,
+    "Speaker C": 0.95,
+    "Speaker D": 0.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_meeting4",
+   "clustering_wall_s": 0.024
+  },
+  "seg_pyannote__oracle_labels": {
+   "k_true": 4,
+   "k_pred": 4,
+   "frame_accuracy": 0.895,
+   "unlabelled_frac": 0.052,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B",
+    "2": "Speaker C",
+    "3": "Speaker D"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.95,
+    "Speaker B": 0.816,
+    "Speaker C": 0.95,
+    "Speaker D": 0.861
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_meeting4"
+  },
+  "seg_pyannote__wespeaker__pyclust_thr": {
+   "k_true": 4,
+   "k_pred": 3,
+   "frame_accuracy": 0.771,
+   "unlabelled_frac": 0.052,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B",
+    "2": "Speaker C"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.95,
+    "Speaker B": 0.929,
+    "Speaker C": 0.95,
+    "Speaker D": 0.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_meeting4"
+  },
+  "seg_pyannote__wespeaker__pyclust_oracle_k": {
+   "k_true": 4,
+   "k_pred": 4,
+   "frame_accuracy": 0.7,
+   "unlabelled_frac": 0.052,
+   "mapping": {
+    "0": "Speaker D",
+    "1": "Speaker A",
+    "2": "Speaker B",
+    "3": "Speaker C"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.719,
+    "Speaker B": 0.929,
+    "Speaker C": 0.95,
+    "Speaker D": 0.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_meeting4"
+  },
+  "seg_pyannote__wespeaker__pyclust_bounds_2_6": {
+   "k_true": 4,
+   "k_pred": 3,
+   "frame_accuracy": 0.771,
+   "unlabelled_frac": 0.052,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B",
+    "2": "Speaker C"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.95,
+    "Speaker B": 0.929,
+    "Speaker C": 0.95,
+    "Speaker D": 0.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_meeting4"
+  },
+  "seg_pyannote__wespeaker__ours_avglink_oracle_k": {
+   "k_true": 4,
+   "k_pred": 2,
+   "frame_accuracy": 0.57,
+   "unlabelled_frac": 0.052,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.95,
+    "Speaker B": 0.959,
+    "Speaker C": 0.0,
+    "Speaker D": 0.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_meeting4"
+  },
+  "seg_GT__wespeaker__pyclust_thr": {
+   "k_true": 4,
+   "k_pred": 3,
+   "frame_accuracy": 0.818,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker C",
+    "C1": "Speaker B",
+    "C2": "Speaker A"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0,
+    "Speaker C": 1.0,
+    "Speaker D": 0.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_meeting4"
+  },
+  "seg_GT__wespeaker__pyclust_oracle_k": {
+   "k_true": 4,
+   "k_pred": 4,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker C",
+    "C1": "Speaker D",
+    "C2": "Speaker B",
+    "C3": "Speaker A"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0,
+    "Speaker C": 1.0,
+    "Speaker D": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_meeting4"
+  },
+  "seg_GT__wespeaker__ours_avglink_oracle_k": {
+   "k_true": 4,
+   "k_pred": 4,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker A",
+    "C1": "Speaker C",
+    "C2": "Speaker D",
+    "C3": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0,
+    "Speaker C": 1.0,
+    "Speaker D": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_meeting4"
+  },
+  "seg_pyannote__ecapa__pyclust_thr": {
+   "k_true": 4,
+   "k_pred": 3,
+   "frame_accuracy": 0.754,
+   "unlabelled_frac": 0.052,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B",
+    "2": "Speaker C"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.95,
+    "Speaker B": 0.872,
+    "Speaker C": 0.95,
+    "Speaker D": 0.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_meeting4"
+  },
+  "seg_pyannote__ecapa__pyclust_oracle_k": {
+   "k_true": 4,
+   "k_pred": 4,
+   "frame_accuracy": 0.684,
+   "unlabelled_frac": 0.052,
+   "mapping": {
+    "0": "Speaker D",
+    "1": "Speaker A",
+    "2": "Speaker B",
+    "3": "Speaker C"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.719,
+    "Speaker B": 0.872,
+    "Speaker C": 0.95,
+    "Speaker D": 0.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_meeting4"
+  },
+  "seg_pyannote__ecapa__pyclust_bounds_2_6": {
+   "k_true": 4,
+   "k_pred": 3,
+   "frame_accuracy": 0.754,
+   "unlabelled_frac": 0.052,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B",
+    "2": "Speaker C"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.95,
+    "Speaker B": 0.872,
+    "Speaker C": 0.95,
+    "Speaker D": 0.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_meeting4"
+  },
+  "seg_pyannote__ecapa__ours_avglink_oracle_k": {
+   "k_true": 4,
+   "k_pred": 3,
+   "frame_accuracy": 0.76,
+   "unlabelled_frac": 0.052,
+   "mapping": {
+    "0": "Speaker A",
+    "1": "Speaker B",
+    "2": "Speaker C"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.95,
+    "Speaker B": 0.902,
+    "Speaker C": 0.934,
+    "Speaker D": 0.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_meeting4"
+  },
+  "seg_GT__ecapa__pyclust_thr": {
+   "k_true": 4,
+   "k_pred": 2,
+   "frame_accuracy": 0.513,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker C",
+    "C1": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.0,
+    "Speaker B": 1.0,
+    "Speaker C": 1.0,
+    "Speaker D": 0.0
+   },
+   "owner_purity": null,
+   "fixture": "scene_meeting4"
+  },
+  "seg_GT__ecapa__pyclust_oracle_k": {
+   "k_true": 4,
+   "k_pred": 4,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker A",
+    "C1": "Speaker C",
+    "C2": "Speaker D",
+    "C3": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0,
+    "Speaker C": 1.0,
+    "Speaker D": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_meeting4"
+  },
+  "seg_GT__ecapa__ours_avglink_oracle_k": {
+   "k_true": 4,
+   "k_pred": 4,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "Speaker A",
+    "C1": "Speaker C",
+    "C2": "Speaker D",
+    "C3": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0,
+    "Speaker C": 1.0,
+    "Speaker D": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_meeting4"
+  },
+  "_units": {
+   "n": 145,
+   "median_active_sec": 4.62,
+   "ecapa_nan": 3
+  }
+ },
+ "maggiano3": {
+  "replay_p31_default": {
+   "k_true": 3,
+   "k_pred": 4,
+   "frame_accuracy": 0.522,
+   "unlabelled_frac": 0.131,
+   "mapping": {
+    "1": "asher",
+    "3": "dad",
+    "0": "mom"
+   },
+   "per_gt_recall": {
+    "asher": 0.179,
+    "dad": 0.656,
+    "mom": 0.61
+   },
+   "owner_purity": 0.718,
+   "fixture": "maggiano3",
+   "clustering_wall_s": 0.011
+  },
+  "seg_pyannote__oracle_labels": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.544,
+   "unlabelled_frac": 0.131,
+   "mapping": {
+    "0": "asher",
+    "1": "dad",
+    "2": "mom"
+   },
+   "per_gt_recall": {
+    "asher": 0.128,
+    "dad": 0.741,
+    "mom": 0.601
+   },
+   "owner_purity": 0.63,
+   "fixture": "maggiano3"
+  },
+  "seg_pyannote__wespeaker__pyclust_thr": {
+   "k_true": 3,
+   "k_pred": 4,
+   "frame_accuracy": 0.522,
+   "unlabelled_frac": 0.131,
+   "mapping": {
+    "1": "asher",
+    "3": "dad",
+    "0": "mom"
+   },
+   "per_gt_recall": {
+    "asher": 0.179,
+    "dad": 0.656,
+    "mom": 0.61
+   },
+   "owner_purity": 0.718,
+   "fixture": "maggiano3"
+  },
+  "seg_pyannote__wespeaker__pyclust_oracle_k": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.569,
+   "unlabelled_frac": 0.131,
+   "mapping": {
+    "0": "mom",
+    "1": "asher",
+    "2": "dad"
+   },
+   "per_gt_recall": {
+    "asher": 0.315,
+    "dad": 0.656,
+    "mom": 0.65
+   },
+   "owner_purity": 0.718,
+   "fixture": "maggiano3"
+  },
+  "seg_pyannote__wespeaker__pyclust_bounds_2_6": {
+   "k_true": 3,
+   "k_pred": 4,
+   "frame_accuracy": 0.522,
+   "unlabelled_frac": 0.131,
+   "mapping": {
+    "1": "asher",
+    "3": "dad",
+    "0": "mom"
+   },
+   "per_gt_recall": {
+    "asher": 0.179,
+    "dad": 0.656,
+    "mom": 0.61
+   },
+   "owner_purity": 0.718,
+   "fixture": "maggiano3"
+  },
+  "seg_pyannote__wespeaker__ours_avglink_oracle_k": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.546,
+   "unlabelled_frac": 0.131,
+   "mapping": {
+    "0": "dad",
+    "1": "asher",
+    "2": "mom"
+   },
+   "per_gt_recall": {
+    "asher": 0.014,
+    "dad": 0.755,
+    "mom": 0.685
+   },
+   "owner_purity": 0.628,
+   "fixture": "maggiano3"
+  },
+  "seg_GT__wespeaker__pyclust_thr": {
+   "k_true": 3,
+   "k_pred": 1,
+   "frame_accuracy": 0.432,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "dad"
+   },
+   "per_gt_recall": {
+    "asher": 0.0,
+    "dad": 1.0,
+    "mom": 0.0
+   },
+   "owner_purity": 0.432,
+   "fixture": "maggiano3"
+  },
+  "seg_GT__wespeaker__pyclust_oracle_k": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.64,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "mom",
+    "C1": "asher",
+    "C2": "dad"
+   },
+   "per_gt_recall": {
+    "asher": 0.71,
+    "dad": 0.84,
+    "mom": 0.315
+   },
+   "owner_purity": 0.594,
+   "fixture": "maggiano3"
+  },
+  "seg_GT__wespeaker__ours_avglink_oracle_k": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.611,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "dad",
+    "C1": "mom",
+    "C2": "asher"
+   },
+   "per_gt_recall": {
+    "asher": 0.162,
+    "dad": 0.973,
+    "mom": 0.486
+   },
+   "owner_purity": 0.591,
+   "fixture": "maggiano3"
+  },
+  "seg_pyannote__ecapa__pyclust_thr": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.576,
+   "unlabelled_frac": 0.131,
+   "mapping": {
+    "0": "mom",
+    "1": "asher",
+    "2": "dad"
+   },
+   "per_gt_recall": {
+    "asher": 0.317,
+    "dad": 0.632,
+    "mom": 0.696
+   },
+   "owner_purity": 0.709,
+   "fixture": "maggiano3"
+  },
+  "seg_pyannote__ecapa__pyclust_oracle_k": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.576,
+   "unlabelled_frac": 0.131,
+   "mapping": {
+    "0": "mom",
+    "1": "asher",
+    "2": "dad"
+   },
+   "per_gt_recall": {
+    "asher": 0.317,
+    "dad": 0.632,
+    "mom": 0.696
+   },
+   "owner_purity": 0.709,
+   "fixture": "maggiano3"
+  },
+  "seg_pyannote__ecapa__pyclust_bounds_2_6": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.576,
+   "unlabelled_frac": 0.131,
+   "mapping": {
+    "0": "mom",
+    "1": "asher",
+    "2": "dad"
+   },
+   "per_gt_recall": {
+    "asher": 0.317,
+    "dad": 0.632,
+    "mom": 0.696
+   },
+   "owner_purity": 0.709,
+   "fixture": "maggiano3"
+  },
+  "seg_pyannote__ecapa__ours_avglink_oracle_k": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.566,
+   "unlabelled_frac": 0.131,
+   "mapping": {
+    "0": "asher",
+    "1": "mom",
+    "2": "dad"
+   },
+   "per_gt_recall": {
+    "asher": 0.014,
+    "dad": 0.805,
+    "mom": 0.683
+   },
+   "owner_purity": 0.643,
+   "fixture": "maggiano3"
+  },
+  "seg_GT__ecapa__pyclust_thr": {
+   "k_true": 3,
+   "k_pred": 1,
+   "frame_accuracy": 0.432,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "dad"
+   },
+   "per_gt_recall": {
+    "asher": 0.0,
+    "dad": 1.0,
+    "mom": 0.0
+   },
+   "owner_purity": 0.432,
+   "fixture": "maggiano3"
+  },
+  "seg_GT__ecapa__pyclust_oracle_k": {
+   "k_true": 3,
+   "k_pred": 1,
+   "frame_accuracy": 0.432,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "dad"
+   },
+   "per_gt_recall": {
+    "asher": 0.0,
+    "dad": 1.0,
+    "mom": 0.0
+   },
+   "owner_purity": 0.432,
+   "fixture": "maggiano3"
+  },
+  "seg_GT__ecapa__ours_avglink_oracle_k": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.608,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "C0": "mom",
+    "C1": "asher",
+    "C2": "dad"
+   },
+   "per_gt_recall": {
+    "asher": 0.597,
+    "dad": 0.867,
+    "mom": 0.248
+   },
+   "owner_purity": 0.575,
+   "fixture": "maggiano3"
+  },
+  "_units": {
+   "n": 77,
+   "median_active_sec": 2.94,
+   "ecapa_nan": 2
+  }
+ }
+}
