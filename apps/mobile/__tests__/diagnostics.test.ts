@@ -10,6 +10,7 @@ import {
   newDiagnosticsId,
   sendDiagnostics,
   summarizeLatency,
+  summarizeSpeakerId,
   telemetryBody,
   useDiagnosticsStore,
   type SessionDiagnostics,
@@ -47,6 +48,34 @@ function session(over: Partial<SessionDiagnostics> = {}): SessionDiagnostics {
 beforeEach(() => {
   mockFetch.mockReset();
   useDiagnosticsStore.setState({ capability: null, capabilityReason: null, lastSession: null, sending: false, lastSent: null });
+});
+
+describe("summarizeSpeakerId", () => {
+  it("counts self turns by how they were reached, matched turns, voices and unknowns", () => {
+    const t = (speaker: string, isSelf: boolean | null, personId: string | null, matchBasis: string | null) => ({
+      speaker, isSelf, personId, matchBasis,
+    });
+    expect(
+      summarizeSpeakerId([
+        t("Speaker A", true, "self", "contrast"),
+        t("Speaker A", true, "self", "contrast"),
+        t("You", true, "self", "absolute"),
+        t("Speaker B", false, "mom", null), // a user binding: no voiceprint basis
+        t("Speaker C", false, null, null),
+        t("Unknown", null, null, null),
+      ]),
+    ).toEqual({
+      turns: 6,
+      selfTurns: 3,
+      selfByBasis: { contrast: 2, absolute: 1 },
+      matchedByBasis: { contrast: 2, absolute: 1, binding: 1 },
+      voices: 4,
+      unknownTurns: 1,
+    });
+    expect(summarizeSpeakerId([])).toEqual({
+      turns: 0, selfTurns: 0, selfByBasis: {}, matchedByBasis: {}, voices: 0, unknownTurns: 0,
+    });
+  });
 });
 
 describe("diagnostics", () => {

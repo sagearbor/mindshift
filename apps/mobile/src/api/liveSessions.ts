@@ -106,6 +106,8 @@ interface VoiceprintWire {
   voiceprint?: number[] | null;
   dim?: number | null;
   model?: string | null;
+  /** Distinct recordings pooled into the print (gates the contrast match). */
+  settings?: number | null;
 }
 
 export interface VoiceprintsResult {
@@ -136,6 +138,9 @@ export function parseVoiceprints(data: unknown): EnrolledPerson[] {
       embedding: emb,
       model: p.model ?? null,
       dim: typeof p.dim === "number" ? p.dim : emb.length,
+      // Absent on an older server => 1: the contrast match stays off for
+      // that print rather than trusting a count nobody reported.
+      settings: typeof p.settings === "number" && p.settings > 0 ? Math.trunc(p.settings) : 1,
     });
   }
   return people;
@@ -179,6 +184,8 @@ export interface VoicePerson {
   displayName: string;
   isSelf: boolean;
   enrollCount: number;
+  /** Distinct recordings the print pools (0 when the server predates it). */
+  settings: number;
 }
 
 export interface VoicePeopleResult {
@@ -209,6 +216,7 @@ export async function listVoicePeople(): Promise<VoicePeopleResult> {
         displayName: p.display_name || (p.is_self ? "You" : p.person_id),
         isSelf: Boolean(p.is_self),
         enrollCount: typeof p.enroll_count === "number" ? p.enroll_count : 0,
+        settings: typeof p.settings === "number" ? p.settings : 0,
       });
     }
     return { people, error: null };

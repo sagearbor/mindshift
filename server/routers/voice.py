@@ -239,21 +239,21 @@ def _profile_response(
     """The per-person status view of one stored profile (person view) — the
     metadata GET /voice/profile and GET /voice/people share. The embedding is
     attached ONLY on ``include_embedding`` (the on-device opt-in of
-    ``GET /voice/people?include_embeddings=true``): the stored blend,
-    L2-normalized — which is exactly the vector ``main._identify_enrolled_
-    speakers`` hands the matcher (cosine normalizes anyway, so the phone and
-    the server score a turn identically). A stored profile without a usable
-    vector (never expected — it can't have been enrolled) is served without
-    one rather than with an invented zero vector."""
+    ``GET /voice/people?include_embeddings=true``): the CURRENT blend
+    (``speaker_id.current_blend`` — one centroid per recording, re-blended
+    from the stored samples at read time), L2-normalized — which is exactly
+    the vector ``main._identify_enrolled_speakers`` hands the matcher
+    (cosine normalizes anyway, so the phone and the server score a turn
+    identically). A stored profile without a usable vector (never expected
+    — it can't have been enrolled) is served without one rather than with an
+    invented zero vector. ``settings`` (distinct recordings pooled) is
+    always served: it gates the phone's contrast match exactly as it gates
+    the server's."""
     embedding: list[float] | None = None
     if include_embedding:
-        raw = profile.get("embedding")
-        if isinstance(raw, list) and raw:
-            import numpy as np
-
-            embedding = [
-                float(x) for x in speaker_id.l2_normalize(np.asarray(raw, dtype=np.float32)).tolist()
-            ]
+        blend = speaker_id.current_blend(profile)
+        if blend is not None:
+            embedding = [float(x) for x in speaker_id.l2_normalize(blend).tolist()]
     return VoiceProfileResponse(
         available=available,
         storage_enabled=storage_enabled,
@@ -262,6 +262,7 @@ def _profile_response(
         display_name=profile.get("display_name"),
         is_self=bool(profile.get("is_self", True)),
         enroll_count=int(profile.get("enroll_count", 0) or 0),
+        settings=speaker_id.profile_settings(profile),
         updated_at=profile.get("updated_at"),
         model=profile.get("model"),
         dim=profile.get("dim"),
@@ -483,6 +484,14 @@ class VoiceProfileResponse(BaseModel):
     display_name: str | None = speaker_id.SELF_DISPLAY_NAME
     is_self: bool = True
     enroll_count: int
+    # How many DISTINCT recordings the print pools (speaker_id.profile_settings;
+    # 0 when unenrolled, >= 1 otherwise — a legacy v1 blend counts as one).
+    # Not the same as enroll_count: three "This is me" taps on one clip are
+    # three samples but ONE setting. Gates the cross-recording contrast match
+    # (speaker_id.CROSS_MATCH_MIN_SETTINGS) on the server and on the phone
+    # alike, so the phone's verdict can never be more permissive than the
+    # server's for the same print.
+    settings: int = 0
     updated_at: str | None = None
     model: str | None = None
     dim: int | None = None

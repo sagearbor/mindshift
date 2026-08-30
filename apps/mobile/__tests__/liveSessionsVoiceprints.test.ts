@@ -16,7 +16,7 @@ beforeEach(() => {
   setTokenProvider(null);
 });
 
-const SELF = { person_id: "self", display_name: "You", is_self: true, embedding: [1, 0, 0], dim: 3, model: "ecapa@rev" };
+const SELF = { person_id: "self", display_name: "You", is_self: true, embedding: [1, 0, 0], dim: 3, model: "ecapa@rev", settings: 2 };
 const MOM = { person_id: "mom", display_name: "Mom", is_self: false, embedding: [0, 1, 0], dim: 3, model: "ecapa@rev" };
 
 describe("fetchVoiceprints", () => {
@@ -32,8 +32,10 @@ describe("fetchVoiceprints", () => {
     expect(init.headers["Content-Type"]).toBeUndefined();
     expect(res.error).toBeNull();
     expect(res.people).toEqual([
-      { personId: "self", displayName: "You", isSelf: true, embedding: [1, 0, 0], model: "ecapa@rev", dim: 3 },
-      { personId: "mom", displayName: "Mom", isSelf: false, embedding: [0, 1, 0], model: "ecapa@rev", dim: 3 },
+      { personId: "self", displayName: "You", isSelf: true, embedding: [1, 0, 0], model: "ecapa@rev", dim: 3, settings: 2 },
+      // No `settings` on the wire (older server) => 1: the contrast match
+      // stays off for that print rather than trusting an unreported count.
+      { personId: "mom", displayName: "Mom", isSelf: false, embedding: [0, 1, 0], model: "ecapa@rev", dim: 3, settings: 1 },
     ]);
   });
 
@@ -61,7 +63,7 @@ describe("fetchVoiceprints", () => {
 describe("parseVoiceprints", () => {
   it("accepts a bare array or {people}, the legacy `voiceprint` key, and fills display names", () => {
     expect(parseVoiceprints([{ person_id: "p", voiceprint: [0, 1] }])).toEqual([
-      { personId: "p", displayName: "p", isSelf: false, embedding: [0, 1], model: null, dim: 2 },
+      { personId: "p", displayName: "p", isSelf: false, embedding: [0, 1], model: null, dim: 2, settings: 1 },
     ]);
     expect(parseVoiceprints({ people: [{ person_id: "self", is_self: true, embedding: [1] }] })[0]).toMatchObject({
       displayName: "You",

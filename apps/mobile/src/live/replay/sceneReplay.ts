@@ -535,12 +535,12 @@ export function formatReport(r: ReplayResult): string {
   });
   lines.push("");
   lines.push(`   loop turns (${r.turns.length}):`);
-  lines.push(`   ${pad("#", 3)} ${pad("start", 7)} ${pad("end", 7)} ${pad("speaker", 12)} ${pad("self", 5)} ${pad("score", 6)} ${pad("dBFS", 6)} ${pad("via", 8)} ${pad("speak", 8)} text   (?X = the loop's own unknown cluster X)`);
+  lines.push(`   ${pad("#", 3)} ${pad("start", 7)} ${pad("end", 7)} ${pad("speaker", 12)} ${pad("self", 5)} ${pad("score", 6)} ${pad("basis", 6)} ${pad("dBFS", 6)} ${pad("via", 8)} ${pad("speak", 8)} text   (?X = the loop's own unknown cluster X; basis abs/ctr = how the voiceprint matched)`);
   r.turns.forEach((lt) => {
     const speakMs = lt.latency.toSpeakMs;
     lines.push(
       `   ${pad(String(lt.index), 3)} ${pad(lt.startTime.toFixed(2), 7)} ${pad(lt.endTime.toFixed(2), 7)} ${pad(lt.personId ? lt.speaker : lt.speaker === "Unknown" ? "Unknown" : `?${lt.speaker}`, 12)} ${pad(lt.isSelf === null ? "?" : lt.isSelf ? "yes" : "no", 5)} ` +
-        `${pad(lt.matchScore === null ? "-" : lt.matchScore.toFixed(2), 6)} ${pad(lt.prosody.rms_dbfs === null ? "-" : lt.prosody.rms_dbfs.toFixed(0), 6)} ${pad(lt.provider, 8)} ` +
+        `${pad(lt.matchScore === null ? "-" : lt.matchScore.toFixed(2), 6)} ${pad(lt.matchBasis === "absolute" ? "abs" : lt.matchBasis === "contrast" ? "ctr" : "-", 6)} ${pad(lt.prosody.rms_dbfs === null ? "-" : lt.prosody.rms_dbfs.toFixed(0), 6)} ${pad(lt.provider, 8)} ` +
         `${pad(speakMs === null ? (lt.suggestion ? "held/x" : "") : `${Math.round(speakMs)}${lt.latency.held ? "h" : ""}`, 8)} ${(lt.text || "").slice(0, 50)}${lt.transcriptFinal ? "" : " (interim)"}`,
     );
   });

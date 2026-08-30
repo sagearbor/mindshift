@@ -2607,19 +2607,12 @@ async def _load_voiceprints(uid: str) -> tuple[dict, dict] | None:
         if not isinstance(profile, dict) or not isinstance(profile.get("embedding"), list):
             continue
         pid = profile.get("person_id") or speaker_id.SELF_PERSON_ID
-        # Blend from the stored per-sample vectors when they exist, so the
-        # CURRENT blend rule (one centroid per recording) applies to prints
-        # written under an older rule without waiting for a rewrite; the
-        # stored blend is the fallback (v1 prints carry no samples).
-        samples = profile.get("samples")
-        try:
-            blend = (
-                speaker_id.blend_samples(samples)
-                if isinstance(samples, list) and samples
-                else np.asarray(profile["embedding"], dtype=np.float32)
-            )
-        except (KeyError, TypeError, ValueError):
-            blend = np.asarray(profile["embedding"], dtype=np.float32)
+        # The CURRENT blend rule (one centroid per recording) re-applied over
+        # the stored samples — the same vector GET /voice/people serves the
+        # phone (speaker_id.current_blend).
+        blend = speaker_id.current_blend(profile)
+        if blend is None:
+            continue
         voiceprints[pid] = blend
         people[pid] = {
             "display_name": profile.get("display_name"),

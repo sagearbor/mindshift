@@ -10,7 +10,7 @@ import { cloudProvider, ProviderChain, parseSuggestionJson, type SuggestionProvi
 import { SpeakerLabeler, type Embedder } from "../src/live/speakerId";
 import { phoneNudgePolicy, type NudgeEvent } from "../src/live/nudgePolicy";
 import type { TurnLocalEvent } from "../src/live/types";
-import { silenceInt16, toneInt16, unitVector } from "../src/live/testing/synth";
+import { silenceInt16, toneInt16, unitVector, vectorAtCosine } from "../src/live/testing/synth";
 
 const GOOD = '{"suggestion":"Tell her you miss the calls too.","tone":{"warmth":30,"frustration":20,"label":"hurt"}}';
 const LOUD = '{"suggestion":"ease up","tone":{"warmth":5,"frustration":95,"defensiveness":80,"label":"angry"}}';
@@ -564,6 +564,122 @@ describe("FastLoop", () => {
     expect(h.turns[0].text).toBe("still heard");
     expect(h.turns[0].suggestion).toBe("Tell her you miss the calls too.");
     await loop.stop();
+  });
+
+  describe("cross-recording (contrast) self identity", () => {
+    const D = 192;
+    // The owner's print pooled from TWO recordings (settings 2) — the real
+    // 2026-08-27 shape: poker night scores the owner 0.42, the runner-up 0.19.
+    const youAway = { personId: "p-you", displayName: "You", isSelf: true, embedding: unitVector(D, 0), settings: 2 };
+    const owner = () => vectorAtCosine(D, 0.42, 0, 1);
+    const stranger = () => vectorAtCosine(D, 0.19, 0, 2);
+
+    async function speak(h: Harness, text: string) {
+      push(h.loop, toneInt16(2.0, -20)); // >= MIN_CLUSTER_SECONDS: can found a cluster
+      h.rec.emit({ text, isFinal: true });
+      push(h.loop, silenceInt16(0.5));
+      await h.loop.settle();
+    }
+
+    function withQueue(queue: Float32Array[], people: (typeof youAway)[]) {
+      const embedder: Embedder = { embed: async () => queue.shift() ?? unitVector(D, 9) };
+      return harness({ embedder, labeler: new SpeakerLabeler(people) });
+    }
+
+    it("(a) settings=2, clusters at 0.42 / 0.19: the first is self by contrast once the second exists", async () => {
+      const h = withQueue([owner(), stranger(), owner()], [youAway]);
+      await h.loop.start({ sessionId: "cx-a", mode: "earpiece", empathy: 50 });
+      await speak(h, "one voice alone");
+      // Alone: an honest miss (nothing to contrast with) — not self on the wire.
+      expect(h.sent[0]).toMatchObject({ speaker: "Speaker A", speaker_person_id: null, is_self: false, speaker_match_basis: null });
+      await speak(h, "a second voice");
+      expect(h.sent[1]).toMatchObject({ speaker: "Speaker B", speaker_person_id: null, is_self: false });
+      // The earlier turn is revised in place (the session record follows).
+      expect(h.turns[0]).toMatchObject({ speaker: "Speaker A", personId: "p-you", displayName: "You", isSelf: true, matchBasis: "contrast" });
+      expect(h.turns[0].matchScore).toBeCloseTo(0.42, 4);
+      await speak(h, "the owner again");
+      expect(h.turns[2]).toMatchObject({ speaker: "Speaker A", personId: "p-you", isSelf: true, matchBasis: "contrast", suggestionKind: "nudge" });
+      expect(h.sent[2]).toMatchObject({
+        speaker: "Speaker A", // the raw label stays the wire key
+        speaker_person_id: "p-you",
+        is_self: true,
+        speaker_match_basis: "contrast",
+      });
+      expect(h.sent[2].speaker_match_score).toBeCloseTo(0.42, 4);
+      await h.loop.stop();
+    });
+
+    it("(b) settings=1: the same scores never make anyone self", async () => {
+      const h = withQueue([owner(), stranger(), owner()], [{ ...youAway, settings: 1 }]);
+      await h.loop.start({ sessionId: "cx-b", mode: "earpiece", empathy: 50 });
+      for (const t of ["one", "two", "three"]) await speak(h, t);
+      expect(h.turns.map((t) => [t.speaker, t.isSelf, t.personId, t.matchBasis])).toEqual([
+        ["Speaker A", false, null, null],
+        ["Speaker B", false, null, null],
+        ["Speaker A", false, null, null],
+      ]);
+      expect(h.sent.every((e) => e.is_self === false && e.speaker_match_basis === null)).toBe(true);
+      await h.loop.stop();
+    });
+
+    it("(c) a single cluster at 0.55 is not self until a second cluster appears", async () => {
+      const h = withQueue([vectorAtCosine(D, 0.55, 0, 1), vectorAtCosine(D, 0.55, 0, 1), vectorAtCosine(D, 0.05, 0, 2)], [youAway]);
+      await h.loop.start({ sessionId: "cx-c", mode: "earpiece", empathy: 50 });
+      await speak(h, "just me so far");
+      await speak(h, "still just me");
+      expect(h.turns.map((t) => [t.speaker, t.isSelf, t.matchBasis])).toEqual([
+        ["Speaker A", false, null],
+        ["Speaker A", false, null],
+      ]);
+      await speak(h, "someone else");
+      expect(h.turns.map((t) => [t.speaker, t.isSelf, t.personId, t.matchBasis])).toEqual([
+        ["Speaker A", true, "p-you", "contrast"],
+        ["Speaker A", true, "p-you", "contrast"],
+        ["Speaker B", false, null, null],
+      ]);
+      await h.loop.stop();
+    });
+
+    it("(d) revision: a later cluster at 0.60 beats the earlier 0.42 by the margin, so self moves", async () => {
+      const h = withQueue([owner(), stranger(), vectorAtCosine(D, 0.6, 0, 3), owner()], [youAway]);
+      await h.loop.start({ sessionId: "cx-d", mode: "earpiece", empathy: 50 });
+      await speak(h, "first voice");
+      await speak(h, "second voice");
+      expect(h.turns[0]).toMatchObject({ speaker: "Speaker A", isSelf: true, matchBasis: "contrast" });
+      await speak(h, "third voice, closer to the print");
+      expect(h.turns[2]).toMatchObject({ speaker: "Speaker C", personId: "p-you", isSelf: true, matchBasis: "contrast" });
+      expect(h.turns[2].matchScore).toBeCloseTo(0.6, 4);
+      // A person is one voice: Speaker A gave self up (and is honestly not-self).
+      expect(h.turns[0]).toMatchObject({ speaker: "Speaker A", personId: null, displayName: null, isSelf: false, matchScore: null, matchBasis: null });
+      await speak(h, "first voice again");
+      expect(h.turns[3]).toMatchObject({ speaker: "Speaker A", personId: null, isSelf: false, matchBasis: null, suggestionKind: "response" });
+      expect(h.sent[3]).toMatchObject({ speaker: "Speaker A", speaker_person_id: null, is_self: false, speaker_match_basis: null });
+      await h.loop.stop();
+    });
+
+    it("(e) absolute: 0.70 matches outright with a single cluster, exactly as before", async () => {
+      const h = withQueue([vectorAtCosine(D, 0.7, 0, 1)], [{ ...youAway, settings: 1 }]);
+      await h.loop.start({ sessionId: "cx-e", mode: "earpiece", empathy: 50 });
+      await speak(h, "me, clearly");
+      expect(h.turns[0]).toMatchObject({ speaker: "You", personId: "p-you", isSelf: true, matchBasis: "absolute", suggestionKind: "nudge" });
+      expect(h.sent[0]).toMatchObject({ speaker: "You", speaker_person_id: "p-you", is_self: true, speaker_match_basis: "absolute" });
+      expect(h.sent[0].speaker_match_score).toBeCloseTo(0.7, 4);
+      await h.loop.stop();
+    });
+
+    it("a user's own binding of a cluster outranks the contrast inference on that label", async () => {
+      const h = withQueue([owner(), stranger(), owner()], [youAway]);
+      await h.loop.start({ sessionId: "cx-f", mode: "earpiece", empathy: 50 });
+      await speak(h, "first voice");
+      h.loop.bindSpeaker("Speaker A", { personId: "p-mom", displayName: "Mom", isSelf: false });
+      await speak(h, "second voice");
+      // The contrast rule would call A the owner; the user said it is Mom.
+      expect(h.turns[0]).toMatchObject({ speaker: "Speaker A", personId: "p-mom", displayName: "Mom", isSelf: false });
+      await speak(h, "first voice again");
+      expect(h.turns[2]).toMatchObject({ speaker: "Speaker A", personId: "p-mom", displayName: "Mom", isSelf: false, matchBasis: null });
+      expect(h.sent[2]).toMatchObject({ speaker: "Speaker A", speaker_person_id: "p-mom", is_self: false, speaker_match_basis: null });
+      await h.loop.stop();
+    });
   });
 
   it("bounds what a long turn hands to the embedder (last MAX_EMBED_SECONDS) and still measures loudness over all of it", async () => {

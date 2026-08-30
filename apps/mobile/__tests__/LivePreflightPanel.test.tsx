@@ -70,8 +70,8 @@ describe("LivePreflightPanel", () => {
             },
           }}
           people={[
-            { personId: "self", displayName: "You", isSelf: true, enrollCount: 3 },
-            { personId: "mom", displayName: "Mom", isSelf: false, enrollCount: 1 },
+            { personId: "self", displayName: "You", isSelf: true, enrollCount: 3, settings: 2 },
+            { personId: "mom", displayName: "Mom", isSelf: false, enrollCount: 1, settings: 1 },
           ]}
           peopleError={null}
         />,

@@ -100,6 +100,50 @@ export function summarizeLatency(log: readonly TurnLatency[]): LatencySummary {
   };
 }
 
+/**
+ * Who the loop thought was talking, and WHY — the session-level view of the
+ * per-turn `speaker_match_basis` the phone sends on every turn_local.
+ * Answers the diagnostics question "was the owner ever called self, and was
+ * that the 0.65 bar or the in-session contrast rule?" without the turns.
+ */
+export interface SpeakerIdSummary {
+  /** Turns the loop finalized. */
+  turns: number;
+  /** Turns carried as the owner (is_self true). */
+  selfTurns: number;
+  /** selfTurns by how: "absolute" | "contrast" | "binding" (named by the
+   *  user / no voiceprint basis). */
+  selfByBasis: Record<string, number>;
+  /** Turns matched to ANY enrolled person, by basis (same keys). */
+  matchedByBasis: Record<string, number>;
+  /** Distinct raw labels ("Speaker A", "You", …) excluding "Unknown" — how
+   *  many voices the loop kept apart. */
+  voices: number;
+  /** Turns with no identity at all ("Unknown": unembeddable or too short). */
+  unknownTurns: number;
+}
+
+export function summarizeSpeakerId(
+  turns: readonly { speaker: string; isSelf: boolean | null; personId: string | null; matchBasis: string | null }[],
+): SpeakerIdSummary {
+  const selfByBasis: Record<string, number> = {};
+  const matchedByBasis: Record<string, number> = {};
+  const voices = new Set<string>();
+  let selfTurns = 0;
+  let unknownTurns = 0;
+  for (const t of turns) {
+    if (t.speaker === "Unknown") unknownTurns += 1;
+    else voices.add(t.speaker);
+    const basis = t.matchBasis ?? "binding";
+    if (t.personId !== null) matchedByBasis[basis] = (matchedByBasis[basis] ?? 0) + 1;
+    if (t.isSelf === true) {
+      selfTurns += 1;
+      selfByBasis[basis] = (selfByBasis[basis] ?? 0) + 1;
+    }
+  }
+  return { turns: turns.length, selfTurns, selfByBasis, matchedByBasis, voices: voices.size, unknownTurns };
+}
+
 export interface SessionDiagnostics {
   sessionId: string;
   mode: string;
@@ -107,6 +151,9 @@ export interface SessionDiagnostics {
   endedAt: string;
   turns: number;
   latency: LatencySummary;
+  /** Speaker-ID outcome of the loop's turns; absent on the legacy (no
+   *  on-device loop) path and in records written before it existed. */
+  speakerId?: SpeakerIdSummary | null;
   /** What the loop said it loaded (the status line), or why it didn't run. */
   liveStatus: string;
   onDevice: boolean;

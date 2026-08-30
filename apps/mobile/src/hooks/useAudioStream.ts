@@ -68,7 +68,7 @@ import { createNativeRtcAdapter } from "../live/call/rtcNative";
 import { createWebRtcAdapter } from "../live/call/callWeb";
 import type { AudioRoute, RtcAdapter } from "../live/call/rtc";
 import { IDLE_CALL_VIEW, type CallClientMessage, type CallRole, type CallView } from "../live/call/types";
-import { summarizeLatency, useDiagnosticsStore, type SessionDiagnostics } from "../diagnostics/diagnostics";
+import { summarizeLatency, summarizeSpeakerId, useDiagnosticsStore, type SessionDiagnostics } from "../diagnostics/diagnostics";
 import { useAuthStore } from "../store/authStore";
 
 const API_URL =
@@ -515,6 +515,11 @@ export function useAudioStream(
   const liveStatusRef = useRef("");
   /** Mirrors speakerNames for the long-lived callbacks (onTurn, onmessage). */
   const speakerNamesRef = useRef<Record<string, SpeakerBinding>>({});
+  /** personId -> the raw label the loop's CONTRAST rule currently puts that
+   *  person on. A contrast identity can move to a later cluster (a person is
+   *  one voice), and the screen's name must follow it — unlike an absolute
+   *  match or a user's own label, which stay where they were put. */
+  const contrastLabelsRef = useRef<Record<string, string>>({});
   /** Labels the USER gave this session (not voiceprint matches) — what
    *  POST /sessions/live carries as `speaker_labels`. */
   const speakerLabelsRef = useRef<Record<string, LiveSpeakerLabel>>({});
@@ -919,16 +924,32 @@ export function useAudioStream(
         onTurn: (turn) => {
           // A voiceprint match (pre-enrolled or learned mid-call) names the
           // raw label for every later line; the wire label stays raw.
-          if (turn.displayName && turn.personId && !speakerNamesRef.current[turn.speaker]) {
-            speakerNamesRef.current = {
-              ...speakerNamesRef.current,
-              [turn.speaker]: {
-                personId: turn.personId,
-                displayName: turn.displayName,
-                isSelf: turn.isSelf === true,
-              },
-            };
-            setSpeakerNames(speakerNamesRef.current);
+          if (turn.displayName && turn.personId) {
+            let names = speakerNamesRef.current;
+            if (turn.matchBasis === "contrast") {
+              // The contrast rule moved this person off an earlier cluster:
+              // the old label's name goes with them, unless the USER gave it.
+              const previous = contrastLabelsRef.current[turn.personId];
+              if (previous !== undefined && previous !== turn.speaker && !speakerLabelsRef.current[previous]) {
+                const { [previous]: _moved, ...rest } = names;
+                names = rest;
+              }
+              contrastLabelsRef.current = { ...contrastLabelsRef.current, [turn.personId]: turn.speaker };
+            }
+            if (!names[turn.speaker]) {
+              names = {
+                ...names,
+                [turn.speaker]: {
+                  personId: turn.personId,
+                  displayName: turn.displayName,
+                  isSelf: turn.isSelf === true,
+                },
+              };
+            }
+            if (names !== speakerNamesRef.current) {
+              speakerNamesRef.current = names;
+              setSpeakerNames(names);
+            }
           }
           // In a call this phone hears only its owner: every local turn is
           // "You", keyed by the slot label the server relabels it with
@@ -1189,6 +1210,12 @@ export function useAudioStream(
       endedAt: new Date().toISOString(),
       turns: transcriptRef.current.length,
       latency: summarizeLatency(latencyLogRef.current),
+      // stopFastLoop parks the loop in lastLoopRef before this runs; its
+      // turns carry any identity revision the contrast rule made.
+      speakerId: (() => {
+        const loop = fastLoopRef.current ?? lastLoopRef.current;
+        return loop ? summarizeSpeakerId(loop.turnsSoFar) : null;
+      })(),
       liveStatus: liveStatusRef.current,
       onDevice: liveModeRef.current && liveCapability.capable,
       sttRestarts: sttRestartsRef.current,
@@ -1925,6 +1952,7 @@ export function useAudioStream(
       lastEpisodeRef.current = null;
       lastLoopRef.current = null;
       speakerNamesRef.current = {};
+      contrastLabelsRef.current = {};
       setSpeakerNames({});
       speakerLabelsRef.current = {};
       trackerRef.current = new PleasantnessTracker();

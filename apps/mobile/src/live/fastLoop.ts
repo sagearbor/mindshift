@@ -44,7 +44,7 @@ import type { SegmenterConfig, Span } from "./segmenter";
 import { DEFAULT_SEGMENTER_CONFIG, StreamingSegmenter } from "./segmenter";
 import type { TurnProsody } from "./prosody";
 import { LIVE_MAX_PITCH_SECONDS, turnProsodyAsync } from "./prosody";
-import type { Embedder, EnrolledPerson, SpeakerLabeler, SpeakerVerdict } from "./speakerId";
+import type { Embedder, EnrolledPerson, MatchBasis, SpeakerLabeler, SpeakerVerdict } from "./speakerId";
 import type { SpeechRecognizer } from "./stt";
 import { TranscriptAligner } from "./stt";
 import type { LiveMode, ProviderChain, TextTone } from "./localLlm";
@@ -108,6 +108,11 @@ export interface LocalTurn {
    *  binding); null for an unknown cluster. `speaker` stays the raw label. */
   displayName: string | null;
   matchScore: number | null;
+  /** How the voiceprint match was reached ("absolute" | "contrast"); null
+   *  for an unidentified cluster or a mid-call binding. A contrast identity
+   *  is REVISABLE: if a later cluster beats this one for the same person by
+   *  the margin, the person moves and this turn's identity is cleared. */
+  matchBasis: MatchBasis | null;
   prosody: TurnProsody;
   textTone: TextTone | null;
   suggestion: string | null;
@@ -234,6 +239,8 @@ export class FastLoop {
   private vadQueue: Promise<void> = Promise.resolve();
   private turnQueue: Promise<void> = Promise.resolve();
   private turns: LocalTurn[] = [];
+  /** The labeler identity revision the past turns were last aligned to. */
+  private seenIdentityRevision = 0;
   private held: HeldSpeech | null = null;
   /** Audio seconds: end of the most recent speech frame / most recent
    *  frame — quiet is measured on the frame clock, like the segmenter. */
@@ -356,6 +363,15 @@ export class FastLoop {
 
   /** Apply the mid-call bindings to a labeler verdict (pure w.r.t. state). */
   private applyBindings(verdict: SpeakerVerdict): SpeakerVerdict {
+    // The user's own naming of a raw cluster label outranks an INFERRED
+    // (contrast) identity on that label: "Speaker B is Mom" was said out
+    // loud; the contrast rule only concluded it.
+    if (verdict.basis === "contrast") {
+      const said = this.bindings.get(verdict.speaker);
+      if (said && said.personId !== verdict.personId) {
+        return { ...verdict, personId: said.personId, displayName: said.displayName, isSelf: said.isSelf, score: null, basis: null };
+      }
+    }
     // A voiceprint match on a person bound to a raw label → keep the raw
     // label on the wire (one key per voice for the whole session).
     if (verdict.personId !== null) {
@@ -390,8 +406,54 @@ export class FastLoop {
     return verdict;
   }
 
+  /**
+   * Carry a revised cluster identity back over the session's past turns
+   * (same in-place update `bindSpeaker` does). The labeler re-resolves who
+   * is who after every cluster update; a cluster can gain a person once a
+   * second cluster exists to contrast against, or lose it to a later
+   * cluster that beats it by the margin — a person is one voice. Turns on
+   * a label the USER bound, and turns matched outright (absolute), are
+   * never touched. Already-sent turn_local events are not re-sent: the raw
+   * label is the stable wire key, and the record shows the move.
+   */
+  private reattributeTurns(): void {
+    const labeler = this.deps.labeler;
+    if (!labeler || labeler.identityRevision === this.seenIdentityRevision) return;
+    this.seenIdentityRevision = labeler.identityRevision;
+    const assignments = labeler.clusterAssignments();
+    const someoneBoundAsSelf = Array.from(this.bindings.values()).some((b) => b.isSelf);
+    for (const turn of this.turns) {
+      if (turn.matchBasis === "absolute" || turn.speaker === "Unknown") continue;
+      if (this.bindings.has(turn.speaker)) continue;
+      const now = assignments.get(turn.speaker) ?? null;
+      if (now) {
+        if (turn.personId === now.personId && turn.matchBasis === now.basis) continue;
+        turn.personId = now.personId;
+        turn.displayName = now.displayName;
+        turn.isSelf = now.isSelf;
+        turn.matchScore = now.score;
+        turn.matchBasis = now.basis;
+      } else if (turn.matchBasis === "contrast") {
+        // Lost its person to a stronger cluster: back to an unidentified
+        // voice, with the same honesty rule the labeler applies.
+        turn.personId = null;
+        turn.displayName = null;
+        turn.isSelf = labeler.hasSelfPrint || someoneBoundAsSelf ? false : null;
+        turn.matchScore = null;
+        turn.matchBasis = null;
+      }
+    }
+  }
+
   get isRunning() {
     return this.running;
+  }
+
+  /** The turns finalized so far this session (live view; `stop()` returns
+   *  the same list in its summary). Identities on past turns may be revised
+   *  in place — see `reattributeTurns`. */
+  get turnsSoFar(): readonly LocalTurn[] {
+    return this.turns;
   }
 
   /** Session seconds by the audio clock (samples pushed so far). */
@@ -424,6 +486,7 @@ export class FastLoop {
     this.bindings = new Map();
     this.boundLabelOfPerson = new Map();
     this.speakerPools = new Map();
+    this.seenIdentityRevision = 0;
     this.segmenter.reset();
     this.aligner.reset();
     this.vad = this.deps.vad;
@@ -652,7 +715,7 @@ export class FastLoop {
     // Speaker-ID and STT are independent — run them together.
     const speakerPromise = (async (): Promise<{ verdict: SpeakerVerdict; ms: number }> => {
       const t0 = this.now();
-      let verdict: SpeakerVerdict = { speaker: "Unknown", personId: null, displayName: null, isSelf: null, score: null };
+      let verdict: SpeakerVerdict = { speaker: "Unknown", personId: null, displayName: null, isSelf: null, score: null, basis: null };
       if (this.deps.embedder && this.deps.labeler) {
         try {
           const embedPcm =
@@ -669,6 +732,8 @@ export class FastLoop {
     const [{ verdict: rawVerdict, ms: speakerMs }, aligned] = await Promise.all([speakerPromise, textPromise]);
     // Mid-call naming: a bound cluster carries its person from here on.
     const verdict = this.applyBindings(rawVerdict);
+    // This turn may have moved a person between clusters: past turns follow.
+    this.reattributeTurns();
     this.poolSpeakerAudio(verdict.speaker, pcm);
 
     const tp0 = this.now();
@@ -744,6 +809,7 @@ export class FastLoop {
       personId: verdict.personId,
       displayName: verdict.displayName,
       matchScore: verdict.score,
+      matchBasis: verdict.basis,
       prosody,
       textTone,
       suggestion,
@@ -792,6 +858,7 @@ export class FastLoop {
         speaker: verdict.speaker,
         speaker_person_id: verdict.personId,
         speaker_match_score: verdict.score,
+        speaker_match_basis: verdict.basis,
         is_self: verdict.isSelf,
         text: aligned.text,
         start_time: span.start,

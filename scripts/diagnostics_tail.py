@@ -113,6 +113,17 @@ def summarize(event: dict) -> str:
         if lat.get("byOutcome"):
             # WHY each local rung did/didn't answer, e.g. {"os:refused": 12}.
             lines.append(f"   attempt outcomes={json.dumps(lat.get('byOutcome'))}")
+        sid_sum = s.get("speakerId")
+        if sid_sum:
+            # Was the owner ever called "self", and HOW: absolute (>= 0.65),
+            # contrast (the in-session cross-recording rule) or a binding
+            # the user made. Per-turn `speaker_match_basis` is in turns.json.
+            lines.append(
+                f"   speaker-id: self {sid_sum.get('selfTurns')}/{sid_sum.get('turns')} turns "
+                f"by={json.dumps(sid_sum.get('selfByBasis') or {})} "
+                f"matched={json.dumps(sid_sum.get('matchedByBasis') or {})} "
+                f"voices={sid_sum.get('voices')} unknown={sid_sum.get('unknownTurns')}"
+            )
         for key, sample in (lat.get("outcomeSamples") or {}).items():
             # The actual error/refusal text (e.g. the Gemini Nano exception).
             lines.append(f"     {key}: {sample}")

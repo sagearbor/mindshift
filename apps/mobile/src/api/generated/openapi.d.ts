@@ -3809,6 +3809,11 @@ export interface components {
              */
             speaker_match_score?: number | null;
             /**
+             * Speaker Match Basis
+             * @description How the voiceprint match was reached: absolute cosine or in-session contrast
+             */
+            speaker_match_basis?: ("absolute" | "contrast") | null;
+            /**
              * Is Self
              * @description True/False when the phone could decide; null when it couldn't
              */
@@ -4101,6 +4106,11 @@ export interface components {
             is_self: boolean;
             /** Enroll Count */
             enroll_count: number;
+            /**
+             * Settings
+             * @default 0
+             */
+            settings: number;
             /** Updated At */
             updated_at?: string | null;
             /** Model */

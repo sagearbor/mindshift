@@ -963,6 +963,28 @@ def blend_samples(samples: list[dict]) -> np.ndarray:
     return l2_normalize(np.mean(centroids, axis=0))
 
 
+def current_blend(profile: dict | None) -> "np.ndarray | None":
+    """The voiceprint a stored profile matches with TODAY: re-blended from its
+    per-sample vectors under the current :func:`blend_samples` rule when it
+    has any (so a print written under an older blend rule is served/matched
+    correctly without waiting for a rewrite), else the stored blend (v1
+    prints carry no samples). ``None`` when the document has no usable
+    vector. Shared by main's matcher and ``GET /voice/people`` so the phone
+    holds exactly the vector the server scores with."""
+    if not isinstance(profile, dict):
+        return None
+    stored = profile.get("embedding")
+    if not isinstance(stored, list) or not stored:
+        return None
+    samples = profile.get("samples")
+    if isinstance(samples, list) and samples:
+        try:
+            return blend_samples([s for s in samples if isinstance(s, dict)])
+        except (KeyError, TypeError, ValueError):
+            pass
+    return np.asarray(stored, dtype=np.float32)
+
+
 def profile_settings(profile: dict | None) -> int:
     """How many distinct recordings a print pools (≥1 for any usable print;
     a v1 print with no samples counts as one setting). Gates the contrast

@@ -168,3 +168,75 @@ def test_openapi_advertises_the_switch_and_the_optional_field():
     props = spec["components"]["schemas"]["VoiceProfileResponse"]["properties"]
     assert "embedding" in props
     assert "embedding" not in spec["components"]["schemas"]["VoiceProfileResponse"].get("required", [])
+    # `settings` (distinct recordings pooled) is part of the per-person shape
+    # — what the phone's contrast match is gated on.
+    assert props["settings"]["type"] == "integer"
+
+
+# ---------------------------------------------------------------------------
+# settings + the current per-recording blend (the phone's contrast match
+# needs BOTH to agree with the server's own matcher)
+# ---------------------------------------------------------------------------
+
+def _two_recording_doc():
+    """Three samples: two from recording r1 (which would outvote a per-sample
+    mean), one from r2. Stored top-level `embedding` is deliberately STALE
+    (an older blend rule) so the test can see which vector is served."""
+    return {
+        "version": 2, "dim": 3, "enroll_count": 3, "model": "ecapa@rev",
+        "embedding": [0.0, 0.0, 1.0],
+        "samples": [
+            {"id": "a", "recording_id": "r1", "embedding": [1.0, 0.0, 0.0]},
+            {"id": "b", "recording_id": "r1", "embedding": [1.0, 0.0, 0.0]},
+            {"id": "c", "recording_id": "r2", "embedding": [0.0, 1.0, 0.0]},
+        ],
+    }
+
+
+async def test_settings_counts_distinct_recordings_with_and_without_embeddings(client, voice_store, monkeypatch):
+    await voice_store.write_voiceprint("u1", _two_recording_doc())
+    await voice_store.write_voiceprint(
+        "u1", _doc(E_ALEX_RAW, person_id="alex", display_name="Alex", model="ecapa@rev"),
+    )
+    monkeypatch.setattr(speaker_id, "is_available", lambda: True)
+    for params in ({}, {"include_embeddings": "true"}):
+        res = await client.get("/voice/people", params=params, headers=H)
+        assert res.status_code == 200, res.text
+        me, alex = res.json()["people"]
+        # 3 samples, 2 recordings: enroll_count 3 but settings 2.
+        assert (me["enroll_count"], me["settings"]) == (3, 2)
+        # One sample with no recording is its own setting.
+        assert (alex["enroll_count"], alex["settings"]) == (1, 1)
+    # /profile serves the same number; an unenrolled person has none.
+    res = await client.get("/voice/profile", headers=H)
+    assert res.json()["settings"] == 2
+    res = await client.get("/voice/profile", params={"person_id": "nobody"}, headers=H)
+    assert res.status_code == 200 and res.json()["settings"] == 0
+
+
+async def test_include_embeddings_serves_the_current_per_recording_blend(client, voice_store, monkeypatch):
+    doc = _two_recording_doc()
+    await voice_store.write_voiceprint("u1", doc)
+    monkeypatch.setattr(speaker_id, "is_available", lambda: True)
+    res = await client.get("/voice/people", params={"include_embeddings": "true"}, headers=H)
+    assert res.status_code == 200, res.text
+    (me,) = res.json()["people"]
+    # One centroid PER RECORDING, then the mean: (1,0,0) and (0,1,0) ->
+    # (1,1,0)/sqrt2 — NOT the stale stored blend (0,0,1) and NOT the
+    # per-sample mean (2,1,0)/sqrt5 that r1's two taps would produce.
+    assert me["embedding"] == pytest.approx([2 ** -0.5, 2 ** -0.5, 0.0], abs=1e-6)
+    # Byte-for-byte the vector main's matcher loads for the same document.
+    served = speaker_id.l2_normalize(speaker_id.current_blend(doc))
+    assert me["embedding"] == pytest.approx(served.tolist(), abs=1e-6)
+    assert np.allclose(served, speaker_id.blend_samples(doc["samples"]))
+
+
+def test_current_blend_falls_back_to_the_stored_vector():
+    # v1 (no samples) -> the stored blend; malformed samples -> the stored
+    # blend; no vector at all -> None.
+    assert np.allclose(speaker_id.current_blend({"embedding": [0.0, 3.0, 4.0]}), [0.0, 3.0, 4.0])
+    assert np.allclose(
+        speaker_id.current_blend({"embedding": [0.0, 3.0, 4.0], "samples": [{"id": "x"}]}), [0.0, 3.0, 4.0],
+    )
+    assert speaker_id.current_blend({"samples": [{"id": "x", "embedding": [1.0]}]}) is None
+    assert speaker_id.current_blend(None) is None

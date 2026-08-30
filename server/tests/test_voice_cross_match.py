@@ -128,6 +128,44 @@ def test_one_to_one_still_holds_across_bases():
 
 
 # ---------------------------------------------------------------------------
+# Phone parity — apps/mobile/src/live/speakerId.ts::identifyClusters must
+# give the same matches. The fixture is generated FROM this function (see
+# its note); this test keeps it honest in the other direction, so a rule
+# change here that forgets to regenerate the fixture fails loudly.
+# ---------------------------------------------------------------------------
+
+_PARITY = (
+    Path(__file__).resolve().parents[2]
+    / "apps" / "mobile" / "__tests__" / "fixtures" / "speakerCrossMatch.json"
+)
+
+
+@pytest.mark.skipif(not _PARITY.exists(), reason="phone parity fixture not checked out")
+def test_phone_parity_fixture_matches_this_implementation():
+    fixture = json.loads(_PARITY.read_text())
+    assert fixture["constants"] == {
+        "match_threshold": speaker_id.MATCH_THRESHOLD,
+        "cross_match_threshold": speaker_id.CROSS_MATCH_THRESHOLD,
+        "cross_match_margin": speaker_id.CROSS_MATCH_MARGIN,
+        "cross_match_min_settings": speaker_id.CROSS_MATCH_MIN_SETTINGS,
+    }
+    names = {c["name"] for c in fixture["cases"]}
+    # The three shapes the phone must reproduce, at minimum.
+    assert {"absolute_0.80_vs_0.10", "contrast_poker_0.42_vs_0.19_0.12",
+            "reject_margin_0.45_vs_0.35"} <= names
+    for case in fixture["cases"]:
+        rep = speaker_id.identify_from_embeddings(
+            {sp: np.asarray(v, dtype=np.float32) for sp, v in case["speakers"].items()},
+            {pid: np.asarray(p["embedding"], dtype=np.float32) for pid, p in case["people"].items()},
+            people={pid: {k: v for k, v in p.items() if k != "embedding"}
+                    for pid, p in case["people"].items()},
+        )
+        assert rep["matched"] == case["expected"]["matched"], case["name"]
+        assert {sp: e["match_basis"] for sp, e in rep["speakers"].items()} == case["expected"]["basis"], case["name"]
+        assert {sp: e["scores"] for sp, e in rep["speakers"].items()} == case["expected"]["scores"], case["name"]
+
+
+# ---------------------------------------------------------------------------
 # stored_speaker_embeddings — the audio-free re-match reader
 # ---------------------------------------------------------------------------
 
