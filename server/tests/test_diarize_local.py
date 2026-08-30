@@ -474,19 +474,21 @@ class TestDiarizeTurnsWithWordSplitting:
 class TestWordLabeling:
     def test_labels_words_by_nearest_centroid_with_margins(self):
         turn = dict(_turn(3.0, 11.0), words=_MIXED_WORDS)
-        labels, margins = diarize_local._label_words(
+        labels, margins, bests = diarize_local._label_words(
             _mixed_scenario_pcm(), SR, turn, _mean_angle_embed,
             list(_CENTROIDS_AB),
         )
         assert labels == [0, 0, 0, 0, 1, 1, 1, 1]
         assert all(m > diarize_local.WORD_MIN_MARGIN for m in margins)
+        # Every word is claimed by a voice: best cosine ~1 to its centroid.
+        assert all(b > 0.9 for b in bests)
 
     def test_ambiguous_word_has_low_margin(self):
         """A word whose window favors neither centroid scores near-zero."""
         words = _words(3.0, 5.0, ["x", "y"])
         turn = dict(_turn(3.0, 5.0), words=words)
         pcm = np.zeros(int(6.0 * SR), dtype=np.float32)  # fill 0 = neither voice
-        _, margins = diarize_local._label_words(
+        _, margins, _ = diarize_local._label_words(
             pcm, SR, turn, _mean_angle_embed, list(_CENTROIDS_AB),
         )
         assert all(m < diarize_local.WORD_MIN_MARGIN for m in margins)
@@ -581,6 +583,7 @@ class TestRapidExchangeSplitting:
         assert stats == {
             "scanned": 1, "split": 1, "skipped_short": 0, "skipped_no_words": 0,
             "window_boundaries": 0, "confirmed_short_pieces": [],
+            "unknown_pieces": [],
         }
         assert [(p["start_time"], p["end_time"]) for p in got] == [
             (3.0, 5.0), (5.0, 7.0), (7.0, 9.0), (9.0, 11.0), (11.0, 13.0),
@@ -1542,3 +1545,302 @@ class TestUncoveredSpeech:
         )
         assert got is not None
         assert got["uncovered_turns"] == 0 and len(got["turns"]) == 4
+
+
+# ---------------------------------------------------------------------------
+# "Unknown" speaker for unclaimed speech (2026-08-30, flag
+# MINDSHIFT_DIARIZE_UNKNOWN) — pure math with the fake embedder.
+#
+# Geometry: the fake embeds a slice's mean m at angle (m+1)*pi/2, so fills
+# -1 / 0 / +1 sit at 0 / pi/2 / pi. With centroids at 0 (voice P) and pi/2
+# (voice Q), a fill of +1 (angle pi) has cosine -1 / 0 to them — claimed by
+# NOBODY under UNCLAIMED_COSINE — while P and Q words are claimed at margin 1.
+# ---------------------------------------------------------------------------
+
+_UNCLAIMED = 1.0  # angle pi: cosine -1 to voice P, 0 to voice Q
+_CENT_P = _mean_angle_embed(np.full(8, VOICE_P, dtype=np.float32), SR)
+_CENT_Q = _mean_angle_embed(np.full(8, VOICE_Q, dtype=np.float32), SR)
+
+
+def _stub_window_pass(monkeypatch) -> None:
+    """Silence the transcript-free window pass: no eigengap, no spectral
+    centroids, no proposals (the 2-D fake's boundary-blend windows are not a
+    meaningful second claimant — the spectral claimant is covered by
+    ``extra_centroids`` in TestUnknownSpeaker directly)."""
+    monkeypatch.setattr(diarize_local._WindowPass, "run_global", lambda self: None)
+
+
+class TestUnknownSpeaker:
+    def test_flag_is_read_at_call_time_and_defaults_off(self, monkeypatch):
+        monkeypatch.delenv(diarize_local.UNKNOWN_FLAG_ENV, raising=False)
+        assert diarize_local.unknown_enabled() is diarize_local.UNKNOWN_DEFAULT
+        # The measured verdict (see the module docstring, 2026-08-30): OFF.
+        assert diarize_local.UNKNOWN_DEFAULT is False
+        for raw, want in [("1", True), ("on", True), ("YES", True), ("0", False),
+                          ("off", False), ("", diarize_local.UNKNOWN_DEFAULT)]:
+            monkeypatch.setenv(diarize_local.UNKNOWN_FLAG_ENV, raw)
+            assert diarize_local.unknown_enabled() is want, raw
+
+    def test_unknown_label_is_the_shared_constant(self):
+        assert diarize_local.UNKNOWN_SPEAKER == speaker_id.UNKNOWN_SPEAKER == "Unknown"
+
+    # -- per-word smoothing --------------------------------------------------
+
+    def test_unclaimed_words_take_unknown_and_neither_seed_nor_inherit(self):
+        got = diarize_local._smooth_word_labels(
+            [0, 0, 1, 1, 1], [0.5, 0.5, 0.02, 0.02, 0.02],
+            min_margin=0.1, unclaimed=[False, False, True, True, False],
+        )
+        # The unclaimed pair is UNKNOWN; the trailing AMBIGUOUS word inherits
+        # the nearest confident CLAIMED word (index 1 -> 0), never the
+        # Unknown words next to it.
+        assert got == [0, 0, diarize_local.UNKNOWN_LABEL, diarize_local.UNKNOWN_LABEL, 0]
+
+    def test_no_confident_claimed_word_is_still_inconclusive(self):
+        # Two "confident" words that are both unclaimed: nothing to say.
+        assert diarize_local._smooth_word_labels(
+            [0, 1], [0.5, 0.5], min_margin=0.1, unclaimed=[True, True],
+        ) is None
+
+    def test_without_unclaimed_mask_behaviour_is_unchanged(self):
+        assert diarize_local._smooth_word_labels(
+            [0, 0, 1, 0, 1, 1], [0.5, 0.5, 0.02, 0.03, 0.5, 0.5], min_margin=0.1,
+        ) == [0, 0, 0, 1, 1, 1]
+
+    # -- run collapse --------------------------------------------------------
+
+    def test_unclaimed_run_survives_with_enough_words_and_seconds(self):
+        words = _words(3.0, 11.0, list("abcdefgh"))
+        u = diarize_local.UNKNOWN_LABEL
+        labels = [0, 0, 0, u, u, 0, 0, 0]
+        out: set = set()
+        got = diarize_local._collapse_word_runs(
+            words, labels, 3.0, 11.0,
+            min_seconds_unknown=diarize_local.UNKNOWN_MIN_SECONDS, unknown_out=out,
+        )
+        assert got == labels
+        assert out == {(6.0, 8.0)}
+
+    def test_unclaimed_run_merges_when_the_rule_is_off_or_too_short(self):
+        words = _words(3.0, 11.0, list("abcdefgh"))
+        u = diarize_local.UNKNOWN_LABEL
+        # Rule off (no floor given): an unclaimed run is just a bad run.
+        assert diarize_local._collapse_word_runs(
+            words, [0, 0, 0, u, u, 0, 0, 0], 3.0, 11.0,
+        ) == [0] * 8
+        # A lone unclaimed word never stands (WORD_MIN_RUN).
+        out: set = set()
+        assert diarize_local._collapse_word_runs(
+            words, [0, 0, 0, u, 0, 0, 0, 0], 3.0, 11.0,
+            min_seconds_unknown=diarize_local.UNKNOWN_MIN_SECONDS, unknown_out=out,
+        ) == [0] * 8
+        assert out == set()
+        # Two unclaimed words under UNKNOWN_MIN_SECONDS merge too.
+        short = [dict(w) for w in words]
+        short[3]["start_time"], short[3]["end_time"] = 6.0, 6.3
+        short[4]["start_time"], short[4]["end_time"] = 6.3, 6.6
+        short[5]["start_time"] = 6.6
+        assert diarize_local._collapse_word_runs(
+            short, [0, 0, 0, u, u, 0, 0, 0], 3.0, 11.0,
+            min_seconds_unknown=diarize_local.UNKNOWN_MIN_SECONDS,
+        ) == [0] * 8
+
+    def test_short_claimed_run_beside_unknown_keeps_a_real_voice(self):
+        words = _words(3.0, 11.0, list("abcdefgh"))
+        u = diarize_local.UNKNOWN_LABEL
+        # Runs: P(3) U(2) Q(1 word — untrustworthy) P(2). The lone Q word has
+        # an Unknown neighbour on the left and a claimed one on the right:
+        # it joins the claimed one, never the Unknown stretch.
+        got = diarize_local._collapse_word_runs(
+            words, [0, 0, 0, u, u, 1, 0, 0], 3.0, 11.0,
+            min_seconds_unknown=diarize_local.UNKNOWN_MIN_SECONDS,
+        )
+        assert got == [0, 0, 0, u, u, 0, 0, 0]
+
+    def test_merge_target_prefers_the_claimed_neighbour(self):
+        pieces = [(0.0, 3.0), (3.0, 5.0), (5.0, 5.4), (5.4, 6.0)]
+        u = diarize_local.UNKNOWN_LABEL
+        assert diarize_local._merge_target(2, pieces, [0, u, 1, 0]) == 3
+        assert diarize_local._merge_target(2, pieces, [0, 0, 1, u]) == 1
+        # Both neighbours unclaimed: the plain (longer-piece) rule — a sliver
+        # inside a stretch nobody claims is part of it; relabelling it to a
+        # non-adjacent run could never terminate the collapse.
+        assert diarize_local._merge_target(2, pieces, [0, u, 1, u]) == 1
+        assert diarize_local._merge_target(2, pieces) == 1
+
+    def test_collapse_terminates_with_a_sliver_between_two_unknown_runs(self):
+        words = _words(3.0, 11.0, list("abcdefgh"))
+        u = diarize_local.UNKNOWN_LABEL
+        got = diarize_local._collapse_word_runs(
+            words, [0, 0, u, u, 1, u, u, 0], 3.0, 11.0,
+            min_seconds_unknown=diarize_local.UNKNOWN_MIN_SECONDS,
+        )
+        # The lone claimed word joined the unclaimed stretch; the leading /
+        # trailing claimed runs (2 words, 2 s and 1 word) resolve as before.
+        assert got[4] == u and len(set(got)) == 2
+
+    # -- per-word scoring ----------------------------------------------------
+
+    def test_extra_centroids_raise_the_best_cosine_but_never_label(self):
+        words = _words(2.0, 4.0, ["x", "y"])
+        turn = dict(_turn(2.0, 4.0), words=words)
+        pcm = np.full(int(5.0 * SR), _UNCLAIMED, dtype=np.float32)
+        labels, margins, bests = diarize_local._label_words(
+            pcm, SR, turn, _mean_angle_embed, [_CENT_P, _CENT_Q],
+        )
+        assert labels == [1, 1]  # "least unlike": Q at cosine 0 vs P at -1
+        assert all(abs(b) < 1e-6 for b in bests)
+        own = _mean_angle_embed(np.full(8, _UNCLAIMED, dtype=np.float32), SR)
+        labels2, _, bests2 = diarize_local._label_words(
+            pcm, SR, turn, _mean_angle_embed, [_CENT_P, _CENT_Q],
+            extra_centroids=[own],
+        )
+        assert labels2 == [1, 1]
+        assert all(b > 0.99 for b in bests2)
+
+    def test_enforce_min_pieces_honours_a_per_span_floor(self):
+        assert diarize_local._enforce_min_pieces(
+            3.0, 9.85, [9.0], floors={(9.0, 9.85): diarize_local.UNKNOWN_MIN_SECONDS},
+        ) == [9.0]
+        assert diarize_local._enforce_min_pieces(3.0, 9.85, [9.0], floors={}) == []
+
+    # -- the split pass ------------------------------------------------------
+
+    def _welded(self):
+        texts = ["p1", "p2", "p3", "p4", "u1", "u2", "p5", "p6", "p7", "p8"]
+        turns = [dict(_turn(3.0, 13.0, text="welded"), words=_words(3.0, 13.0, texts))]
+        pcm = np.full(int(14.0 * SR), VOICE_P, dtype=np.float32)
+        pcm[int(7.0 * SR):int(9.0 * SR)] = _UNCLAIMED
+        return turns, pcm
+
+    def test_split_pass_cuts_an_unclaimed_run_into_an_unknown_piece(self):
+        turns, pcm = self._welded()
+        got, stats = diarize_local.split_long_utterances(
+            pcm, SR, turns, _mean_angle_embed, (_CENT_P, _CENT_Q),
+            unclaimed_centroids=[], unknown=True,
+        )
+        assert stats["split"] == 1
+        assert stats["unknown_pieces"] == [(7.0, 9.0)]
+        assert [(t["start_time"], t["end_time"], t["text"]) for t in got] == [
+            (3.0, 7.0, "p1 p2 p3 p4"), (7.0, 9.0, "u1 u2"), (9.0, 13.0, "p5 p6 p7 p8"),
+        ]
+
+    def test_split_pass_off_gives_the_run_to_the_least_unlike_voice(self):
+        """The pre-2026-08-30 behaviour, kept when the flag is off: the
+        unclaimed words are confidently labelled Q (cosine 0 beats -1), so
+        the same piece is cut but reported as a claimed run."""
+        turns, pcm = self._welded()
+        got, stats = diarize_local.split_long_utterances(
+            pcm, SR, turns, _mean_angle_embed, (_CENT_P, _CENT_Q),
+        )
+        assert stats["split"] == 1
+        assert stats["unknown_pieces"] == []
+        assert len(got) == 3
+
+    def test_split_pass_leaves_a_claimed_run_alone(self):
+        """A claimed second voice (Q) is a split, never Unknown."""
+        texts = ["p1", "p2", "p3", "p4", "q1", "q2", "p5", "p6", "p7", "p8"]
+        turns = [dict(_turn(3.0, 13.0, text="welded"), words=_words(3.0, 13.0, texts))]
+        pcm = np.full(int(14.0 * SR), VOICE_P, dtype=np.float32)
+        pcm[int(7.0 * SR):int(9.0 * SR)] = VOICE_Q
+        got, stats = diarize_local.split_long_utterances(
+            pcm, SR, turns, _mean_angle_embed, (_CENT_P, _CENT_Q),
+            unclaimed_centroids=[], unknown=True,
+        )
+        assert stats["split"] == 1 and stats["unknown_pieces"] == []
+        assert len(got) == 3
+
+    # -- never seeds k -------------------------------------------------------
+
+    def test_embed_turns_exclude_keeps_a_span_out_of_the_clustering_set(self):
+        turns = [_turn(0.0, 2.0), _turn(2.0, 4.0), _turn(4.0, 6.0)]
+        pcm = _voiced_pcm(turns, [VOICE_P, _UNCLAIMED, VOICE_Q], 6.0)
+        order, _ = diarize_local._embed_turns(
+            pcm, SR, turns, _mean_angle_embed, 1.0, exclude={(2.0, 4.0)},
+        )
+        assert order == [0, 2]
+
+    # -- end to end ----------------------------------------------------------
+
+    def _exchange(self):
+        """P 0-3 | welded 3-8 (p-words 3-6, unclaimed 6-8) | "hm" 8-8.5 |
+        Q 8.5-11.5 | P 11.5-14.5 | Q 14.5-17.5."""
+        words = _words(3.0, 8.0, ["a1", "a2", "a3", "u1", "u2"])
+        turns = [
+            _turn(0.0, 3.0, text="p"),
+            dict(_turn(3.0, 8.0, text="welded"), words=words),
+            _turn(8.0, 8.5, text="hm"),
+            _turn(8.5, 11.5, text="q"), _turn(11.5, 14.5, text="p"),
+            _turn(14.5, 17.5, text="q"),
+        ]
+        pcm = np.zeros(int(18.0 * SR), dtype=np.float32)
+        for lo, hi, fill in [(0, 6, VOICE_P), (6, 8, _UNCLAIMED), (8, 8.5, VOICE_P),
+                             (8.5, 11.5, VOICE_Q), (11.5, 14.5, VOICE_P),
+                             (14.5, 17.5, VOICE_Q)]:
+            pcm[int(lo * SR):int(hi * SR)] = fill
+        return turns, pcm
+
+    def test_unclaimed_piece_is_unknown_never_a_cluster_never_inherited(self, monkeypatch):
+        _stub_window_pass(monkeypatch)
+        monkeypatch.setenv(diarize_local.UNKNOWN_FLAG_ENV, "1")
+        turns, pcm = self._exchange()
+        got = diarize_local.diarize_turns(pcm, SR, turns, embed_fn=_mean_angle_embed)
+        assert got is not None
+        assert got["num_speakers"] == 2  # Unknown is not a speaker
+        assert got["unknown_turns"] == 1 and got["unknown_seconds"] == 2.0
+        assert [(t["start_time"], t["end_time"], t["speaker"]) for t in got["turns"]] == [
+            (0.0, 3.0, "Speaker A"), (3.0, 6.0, "Speaker A"),
+            (6.0, 8.0, diarize_local.UNKNOWN_SPEAKER),
+            # The 0.5 s "hm" sits nearest the Unknown piece by midpoint, yet
+            # inherits the nearest CLAIMED embedded turn (Q) — never Unknown.
+            (8.0, 8.5, "Speaker B"),
+            (8.5, 11.5, "Speaker B"), (11.5, 14.5, "Speaker A"), (14.5, 17.5, "Speaker B"),
+        ]
+        # Never seeds k: the Unknown piece and the 0.5 s turn are the only
+        # turns outside the clustering set.
+        assert got["segments_total"] == 7 and got["segments_embedded"] == 5
+        assert all(e["k"] <= 2 or not e["ok"] for e in got["k_evaluated"])
+
+    def test_flag_off_gives_the_unclaimed_piece_to_the_least_unlike_voice(self, monkeypatch):
+        _stub_window_pass(monkeypatch)
+        monkeypatch.setenv(diarize_local.UNKNOWN_FLAG_ENV, "0")
+        turns, pcm = self._exchange()
+        got = diarize_local.diarize_turns(pcm, SR, turns, embed_fn=_mean_angle_embed)
+        assert got is not None and got["num_speakers"] == 2
+        assert got["unknown_turns"] == 0 and got["unknown_seconds"] == 0.0
+        by_span = {(t["start_time"], t["end_time"]): t["speaker"] for t in got["turns"]}
+        assert by_span[(6.0, 8.0)] == "Speaker B"
+        assert diarize_local.UNKNOWN_SPEAKER not in by_span.values()
+
+    def test_whole_turn_claimed_by_no_voice_is_unknown(self, monkeypatch):
+        """An EMBEDDABLE turn the refinement parked in a cluster it does not
+        resemble: 1.2 s of the unclaimed fill among 35 s of P and 30 s of a
+        Q voice at angle 0.51 pi (fill 0.02 — a hair nearer the unclaimed
+        fill than P is, so average linkage folds the 1.2 s into Q rather
+        than pairing P with Q). k=3 would make it its own cluster but fails
+        the strong duration floor (1.2 < 1.5 s); at k=2 it lands on Q's
+        pooled centroid at cosine ~0.09 (-1 to P) — under UNCLAIMED_COSINE,
+        so Unknown."""
+        _stub_window_pass(monkeypatch)
+        q_near = 0.02
+        spec = [("p", 5.0, VOICE_P), ("q", 5.0, q_near)] * 6 + [
+            ("??", 1.2, _UNCLAIMED), ("p", 5.0, VOICE_P),
+        ]
+        turns, fills, t = [], [], 0.0
+        for text, dur, fill in spec:
+            turns.append(_turn(t, t + dur, text=text))
+            fills.append(fill)
+            t += dur
+        pcm = _voiced_pcm(turns, fills, t + 0.5)
+        monkeypatch.setenv(diarize_local.UNKNOWN_FLAG_ENV, "1")
+        got = diarize_local.diarize_turns(pcm, SR, turns, embed_fn=_mean_angle_embed)
+        assert got is not None and got["num_speakers"] == 2
+        assert got["turns"][12]["text"] == "??"
+        assert got["turns"][12]["speaker"] == diarize_local.UNKNOWN_SPEAKER
+        assert got["unknown_turns"] == 1 and got["unknown_seconds"] == 1.2
+        assert got["segments_embedded"] == 14  # it WAS embedded; flagged after refinement
+        assert [e["k"] for e in got["k_evaluated"] if e["ok"]] == [2]
+        monkeypatch.setenv(diarize_local.UNKNOWN_FLAG_ENV, "0")
+        got_off = diarize_local.diarize_turns(pcm, SR, turns, embed_fn=_mean_angle_embed)
+        assert got_off["turns"][12]["speaker"] == "Speaker B"
+        assert got_off["unknown_turns"] == 0

@@ -79,6 +79,14 @@ ECAPA_REVISION = os.getenv(
 # speaker keeps its generic label; we NEVER force a match. Overridable via env.
 MATCH_THRESHOLD = float(os.getenv("MINDSHIFT_VOICE_MATCH_THRESHOLD", "0.65"))
 
+# The diarizer's label for speech that sounds like NONE of a recording's found
+# voices (diarize_local, 2026-08-30). Defined here — the torch-free module
+# every consumer already imports — so enrollment matching, dynamics and the
+# diarizer agree on the one string without a circular import. Never a real
+# speaker: excluded from enrollment matching, talk share, coupling, report
+# cards.
+UNKNOWN_SPEAKER = "Unknown"
+
 # CROSS-RECORDING (contrast) match — a second, narrower way to clear the bar.
 #
 # MEASURED 2026-08-27 on the owner's REAL recordings (pinned ECAPA; the
@@ -610,7 +618,10 @@ def identify_speakers_multi(
     speakers: list[str] = []
     for t in turns:
         s = t.get("speaker")
-        if s is not None and s not in speakers:
+        # UNKNOWN_SPEAKER is speech no found voice claimed — pooling it and
+        # matching it to an enrolled print would name a voice the diarizer
+        # itself refused to; it can never be "You".
+        if s is not None and s != UNKNOWN_SPEAKER and s not in speakers:
             speakers.append(s)
     embeddings: dict[str, np.ndarray] = {}
     for speaker in speakers:

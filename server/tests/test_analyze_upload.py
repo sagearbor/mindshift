@@ -665,3 +665,42 @@ async def test_upload_requires_auth_401(client, monkeypatch):
         files={"file": ("clip.wav", FIXTURE_WAV, "audio/wav")},
     )
     assert resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_upload_crosscheck_unknown_turn_is_kept_but_never_a_speaker(client, monkeypatch):
+    """diarize_local (2026-08-30, flag MINDSHIFT_DIARIZE_UNKNOWN) may label a
+    turn speaker_id.UNKNOWN_SPEAKER — speech none of the found voices
+    claimed. It reports ``num_speakers`` WITHOUT it (so the never-reduce
+    guard compares real voices), the turn keeps its text and label in the
+    transcript / per_turn, and it is NOT a speaker downstream: no
+    per_speaker entry, no report card demanded (the mocked LLM only returns
+    cards for Speaker A/B — an Unknown card would 502), talk share over the
+    real speakers only."""
+    monkeypatch.setenv("MINDSHIFT_DIARIZE_CROSSCHECK", "1")
+    relabeled = [dict(t) for t in MOCK_TURNS]
+    relabeled[2]["speaker"] = diarize_local.UNKNOWN_SPEAKER
+    payload = dict(
+        _crosscheck_payload(relabeled, agreement=0.8),
+        num_speakers=2, unknown_turns=1, unknown_seconds=1.0,
+    )
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS, None)), \
+         patch("main.get_llm_client",
+               return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))), \
+         patch("diarize_local.diarize_turns", return_value=payload) as dz:
+        resp = await client.post(
+            "/analyze/upload",
+            files={"file": ("clip.wav", FIXTURE_WAV, "audio/wav")},
+        )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    dz.assert_called_once()
+    assert data["turns"][2]["speaker"] == diarize_local.UNKNOWN_SPEAKER
+    assert data["turns"][2]["text"] == MOCK_TURNS[2]["text"]
+    assert data["per_turn"][2]["speaker"] == diarize_local.UNKNOWN_SPEAKER
+    assert set(data["per_speaker"]) == {"Speaker A", "Speaker B"}
+    assert set(data["report_cards"]) == {"Speaker A", "Speaker B"}
+    assert sum(v["talk_share"] for v in data["per_speaker"].values()) == pytest.approx(1.0, abs=1e-3)
+    # The label ladder still renders it (generic rung, raw id) — never blank.
+    assert data["speaker_labels"][diarize_local.UNKNOWN_SPEAKER]["display_label"] == "Unknown"
+    assert "cross-check" in (data["voice_analysis"] or "")

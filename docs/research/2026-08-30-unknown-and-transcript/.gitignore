@@ -1,0 +1,15 @@
+# Anything derived from the owner's PRIVATE family clip stays local.
+**/*maggiano3*
+**/emb_*.npy
+**/cache/
+**/*.wav
+**/*.m4a
+**/*.log
+__pycache__/
+# The owner's other private recordings (GCS copies) — never committed.
+**/*_gcs*
+**/transcript_run*.json
+**/pred_*maggiano*
+**/pred_*_gcs*
+# Raw outputs (predictions, results with private text snippets) stay local; README.md carries the tables.
+**/out/

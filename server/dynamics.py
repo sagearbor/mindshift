@@ -19,6 +19,8 @@ Design rules honored here (house style):
 
 from __future__ import annotations
 
+from speaker_id import UNKNOWN_SPEAKER
+
 # The Gottman "Four Horsemen" plus the two constructive markers. This is the
 # EXACT vocabulary the LLM is constrained to; anything outside it is dropped
 # upstream before these functions ever see a marker list.
@@ -43,12 +45,17 @@ def talk_share(speakers: list[str], char_counts: list[int]) -> dict[str, float]:
 
     Uses characters (not turns) so a speaker who takes few but long turns is
     credited fairly. An all-empty transcript yields 0.0 for every speaker
-    rather than a division by zero.
+    rather than a division by zero. Turns labelled
+    :data:`speaker_id.UNKNOWN_SPEAKER` (speech the diarizer could attribute
+    to none of the found voices) are not a speaker: left out of the map AND
+    of the total, so the real speakers' shares still sum to 1.
     """
     totals: dict[str, int] = {}
     for sp, count in zip(speakers, char_counts):
+        if sp == UNKNOWN_SPEAKER:
+            continue
         totals[sp] = totals.get(sp, 0) + count
-    grand_total = sum(char_counts)
+    grand_total = sum(totals.values())
     if grand_total == 0:
         return {sp: 0.0 for sp in totals}
     return {sp: round(chars / grand_total, 4) for sp, chars in totals.items()}
@@ -108,9 +115,13 @@ def speaker_heat_stats(
     speakers: list[str], heats: list[int],
 ) -> dict[str, dict[str, float | int]]:
     """avg / peak / peak-turn-index / population-variance of each speaker's
-    heat series, plus the speaker's turn count."""
+    heat series, plus the speaker's turn count. :data:`UNKNOWN_SPEAKER` gets
+    no entry — and since the analysis's per-speaker block and report cards
+    are keyed by this map, no card is demanded for an unattributed voice."""
     series: dict[str, list[tuple[int, int]]] = {}
     for i, (sp, heat) in enumerate(zip(speakers, heats)):
+        if sp == UNKNOWN_SPEAKER:
+            continue
         series.setdefault(sp, []).append((i, heat))
 
     stats: dict[str, dict[str, float | int]] = {}
@@ -219,9 +230,13 @@ def _locf_series(sp: str, speakers: list[str], heats: list[int]) -> list[int | N
 
 
 def _rank_speakers(speakers: list[str]) -> list[tuple[str, int]]:
-    """Speakers sorted by turn count (descending), name as a stable tiebreak."""
+    """Speakers sorted by turn count (descending), name as a stable tiebreak.
+    :data:`UNKNOWN_SPEAKER` is never ranked — coupling is between two real
+    people."""
     counts: dict[str, int] = {}
     for sp in speakers:
+        if sp == UNKNOWN_SPEAKER:
+            continue
         counts[sp] = counts.get(sp, 0) + 1
     return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
 

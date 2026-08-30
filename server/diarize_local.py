@@ -173,6 +173,59 @@ A 1.5 s / 0.5 s grid halves the pass but was measured and rejected: the
 eigengap over-counted openai (3; its lambda_2/lambda_3 and lambda_3/lambda_4
 ratios are 2.82 vs 2.83 at that hop) and minted a phantom cut there, and
 maggiano3's 8-utterance transcript fell back to 0.574.
+
+2026-08-30 — "UNKNOWN" FOR UNCLAIMED SPEECH (flag MINDSHIFT_DIARIZE_UNKNOWN,
+default OFF; constants under "Unclaimed speech"; measurements in
+docs/research/2026-08-30-unknown-and-transcript/). The hypothesis: a word run
+(or a whole embeddable turn) that sounds like NONE of the found voices — best
+cosine to every pooled centroid, k-selection's and the window pass's spectral
+ones, under UNCLAIMED_COSINE — was inheriting a neighbour / the least-unlike
+centroid, and that is how the son's quiet lines landed on the owner. Built:
+such a run (≥ WORD_MIN_RUN words, ≥ UNKNOWN_MIN_SECONDS) becomes its own
+piece labelled UNKNOWN_SPEAKER ("Unknown"), excluded from every k-selection
+pass, never inherited from, not a speaker (num_speakers, talk share, heat
+stats / report cards, coupling and enrollment matching all skip it —
+speaker_id.UNKNOWN_SPEAKER, dynamics, speaker_id.identify_speakers_multi);
+the same floor is applied to every embeddable turn after the final
+refinement and to self-attributed short turns.
+
+Measured, and NOT shipped (default OFF). Calibration first (see
+UNCLAIMED_COSINE): on both maggiano3 transcripts the words production gets
+WRONG are claimed confidently by the wrong centroid (min best-cosine
+0.10-0.13, median 0.33-0.36) — they are not unclaimed; the only words under
+any floor are the OVERLAPPED chant at 28-32 s (both voices at once) where
+production is right; the son's quiet "Because I wanna do my Duolingo, dad"
+that motivated this is claimed at 0.74 / 0.71 since the window pass. With
+the flag on at 0.12 (frame accuracy vs the rubric / dad-cluster purity /
+Unknown seconds; Unknown scores as UNLABELLED = wrong): rubric boundaries
+0.833 / 0.84 / 0 s (unchanged); 7-utterance transcript 0.702 → 0.491,
+purity 0.796 → 0.508, 0.85 s Unknown ("I wanna go. No.", 30.04-30.89 —
+mom's chant under the son); 8-utterance 0.671 → 0.592, purity 0.792 →
+0.609, the same 0.85 s. At 0.15 the transcripts read 0.491 / 0.592 again
+and the rubric boundaries gain 1.48 s of Unknown (0.833, purity 0.90). The
+loss is not the 0.85 s itself: cutting it re-shapes the neighbouring pieces
+("I'd like a solid yellow" / "one. I don't wanna go. I wanna go." / "It's
+it. Yay..."), the post-split re-selection then validates a DIFFERENT
+linkage k=3 whose third cluster is the 2.1 s overlapped-chant piece
+(marginal 0.119, anchor 0.062 — the 2026-08-27 phantom again) and mom folds
+into dad. Every checked-in fixture is unchanged with the flag on (family_real
+8/8, poker6 6/6, openai / gptaudio / couple / family3 1.00, meeting4 0.597;
+0 s Unknown everywhere). Ship criterion (purity +0.05 on both transcripts,
+accuracy -0.03 at most, no pinned fixture gaining Unknown seconds): purity
+-0.29 / -0.18, accuracy -0.21 / -0.08 — failed on the first two counts. The
+feature stays behind the flag, fully tested, for a recording that actually
+contains an unfound voice; on this one there is none left to find.
+
+Same day — DOES THE TRANSCRIPT'S OWN LABELLING PUSH US WRONG? The never-
+reduce guard in main.py keeps Deepgram's labels whenever it heard more
+speakers than our validated k. Measured on the owner's three stored
+recordings (maggiano3, poker6, family_real; GCS copies byte-/duration-
+identical to the fixtures), each transcribed three times by today's
+Deepgram: it heard ONE speaker in 8 of 9 runs and two (accuracy 0.384) in
+the ninth; its own labels score 0.397 / 0.146 / 0.601 where ours score
+0.671 / 0.467 / 0.974 and win every time (fallback path on 1-speaker
+transcripts; k=3 > 2 on the one 2-speaker maggiano run). The guard never
+fired and never hurt on these three; it is unchanged.
 """
 
 from __future__ import annotations
@@ -336,6 +389,9 @@ REFINE_ROUNDS = 3
 MAX_POOL_SECONDS = 60.0
 
 SOURCE = "local-ecapa"
+
+# Label for speech no found voice claims (see the UNCLAIMED_* constants).
+UNKNOWN_SPEAKER = speaker_id.UNKNOWN_SPEAKER
 
 # --- Word-level speaker-change splitting -----------------------------------
 # A transcriber can weld a speaker handoff into ONE utterance; per-word
@@ -529,6 +585,66 @@ UNTRANSCRIBED_TEXT = "(untranscribed)"
 # so inheriting is at least half wrong by construction) take the nearest
 # final centroid by their own embedding. Window labels are not used for
 # attribution.
+
+# --- Unclaimed speech -> "Unknown" (2026-08-30) -------------------------------
+# A word window (or a whole embeddable turn) whose best cosine to EVERY pooled
+# centroid — the k-selection winner's (linkage or spectral route) AND the
+# window pass's pooled spectral centroids at the eigengap k — is under
+# UNCLAIMED_COSINE sounds like NONE of the found voices. Before this, such a
+# word simply inherited the nearest confident word (per-word smoothing) and a
+# whole turn went to whichever centroid was least unlike it, so speech by an
+# unfound voice landed on whoever spoke before. With the flag ON, a run of at
+# least WORD_MIN_RUN unclaimed words lasting UNKNOWN_MIN_SECONDS becomes its
+# own piece labelled UNKNOWN_SPEAKER: never a cluster (it is excluded from
+# every k-selection pass), never an inheritance source, never a neighbour a
+# short turn can inherit, never a speaker (num_speakers excludes it; dynamics,
+# report cards and enrollment matching skip it — see speaker_id.UNKNOWN_SPEAKER).
+# The same floor is applied to every embeddable turn after the final
+# refinement and to every turn attributed by its own embedding.
+#
+# CALIBRATION (2026-08-30, maggiano3, both Deepgram transcripts, the round-1
+# instrument exactly as the per-word pass sees it; docs/research/2026-08-30-
+# unknown-and-transcript/calibrate_unclaimed.py): per-word best cosine to any
+# centroid for words production labels RIGHT — p5 0.096 / 0.099, p10 0.141 /
+# 0.153, median 0.41 / 0.39 — vs words it labels WRONG — min 0.129 / 0.102,
+# p10 0.147 / 0.139, median 0.33 / 0.36. The mislabelled words are NOT
+# unclaimed: they are claimed, confidently, by the wrong centroid. No floor
+# separates the two populations; the words under any floor are the
+# OVERLAPPED chant at 28-32 s ("I wanna go" / "No." / "Yay.", both voices at
+# once), where production happens to be right. At 0.10 the 9 words below are
+# all right; at 0.12, 13 below, 1 wrong; at 0.15, 21 below, 5 wrong; at 0.18,
+# 34 below, 7 wrong. The son's quiet line that motivated this ("Because I
+# wanna do my Duolingo, dad", the 2026-08-27 note under
+# STRONG_SEPARATION_COSINE) is claimed at cosine 0.74 / 0.71 by the current
+# pipeline — the window pass (2026-08-29) fixed it. Every embeddable final
+# turn measures >= 0.22 to its centroid on both transcripts, so the whole-
+# turn rule has nothing to fire on either. 0.12 is kept as the documented
+# starting point; the flag defaults OFF (UNKNOWN_DEFAULT) because the ship
+# criterion was not met — see the module docstring's 2026-08-30 entry.
+UNCLAIMED_COSINE = float(os.getenv("MINDSHIFT_DIARIZE_UNCLAIMED_COSINE", "0.12"))
+
+# An unclaimed word run must last this long to stand as its own Unknown piece
+# (the same floor as CONFIRMED_PIECE_MIN_SECONDS: where ECAPA still carries
+# voice); a shorter run inherits its neighbour exactly as before.
+UNKNOWN_MIN_SECONDS = 0.8
+
+# Internal per-word / per-turn cluster id for "no cluster" (real ids are
+# 0..k-1).
+UNKNOWN_LABEL = -1
+
+# Feature flag, read at CALL time (diarize_turns) so a deploy can flip it
+# without a restart of the test process; the default is the measured verdict.
+UNKNOWN_FLAG_ENV = "MINDSHIFT_DIARIZE_UNKNOWN"
+UNKNOWN_DEFAULT = False
+
+
+def unknown_enabled() -> bool:
+    """Is the Unknown-speaker behaviour on? ``MINDSHIFT_DIARIZE_UNKNOWN``
+    (1/true/yes/on vs 0/false/no/off), else :data:`UNKNOWN_DEFAULT`."""
+    raw = (os.getenv(UNKNOWN_FLAG_ENV) or "").strip().lower()
+    if not raw:
+        return UNKNOWN_DEFAULT
+    return raw in {"1", "true", "yes", "on"}
 
 
 def partition_agreement(a: list, b: list) -> float:
@@ -724,18 +840,25 @@ def split_turn_at_word_boundary(
 def _label_words(
     pcm: np.ndarray, sr: int, turn: dict, embed,
     centroids: list[np.ndarray], *, window: float = WORD_WINDOW_SECONDS,
-) -> tuple[list[int], list[float]]:
-    """Nearest-centroid label + confidence margin for each word of ``turn``.
+    extra_centroids: list[np.ndarray] | None = None,
+) -> tuple[list[int], list[float], list[float]]:
+    """Nearest-centroid label + confidence margin + best cosine per word.
 
     Each word is scored by embedding ``window`` seconds of audio centered on
     the word's midpoint (clamped to the utterance bounds) against ALL pooled
     centroids. The margin is best-minus-second-best cosine — low margin means
-    the window does not clearly favor any one voice.
+    the window does not clearly favor any one voice. The third list is each
+    word's BEST cosine to any of ``centroids`` OR ``extra_centroids`` (the
+    window pass's pooled spectral centroids — they never LABEL a word, they
+    only get a say in whether ANY found voice claims it; see
+    UNCLAIMED_COSINE).
     """
     start = float(turn.get("start_time") or 0.0)
     end = float(turn.get("end_time") or 0.0)
+    extras = list(extra_centroids or [])
     labels: list[int] = []
     margins: list[float] = []
+    bests: list[float] = []
     for w in turn["words"]:
         mid = (float(w["start_time"]) + float(w["end_time"])) / 2
         lo = max(start, mid - window / 2)
@@ -748,12 +871,14 @@ def _label_words(
         )
         labels.append(scored[-1][1])
         margins.append(scored[-1][0] - scored[-2][0])
-    return labels, margins
+        bests.append(max([scored[-1][0], *(float(np.dot(e, c)) for c in extras)]))
+    return labels, margins, bests
 
 
 def _smooth_word_labels(
     labels: list[int], margins: list[float],
     *, min_margin: float = WORD_MIN_MARGIN,
+    unclaimed: list[bool] | None = None,
 ) -> list[int] | None:
     """Ambiguous words inherit the nearest confident word's label.
 
@@ -761,12 +886,20 @@ def _smooth_word_labels(
     every other word takes the label of the nearest confident word (by word
     index; tie → the earlier one — voices persist forward). No confident word
     at all → ``None``: the scan has nothing trustworthy to say.
+
+    ``unclaimed`` (one bool per word; 2026-08-30) marks words whose window
+    sounds like NONE of the voices (best cosine under UNCLAIMED_COSINE):
+    such a word takes :data:`UNKNOWN_LABEL`, is never an inheritance source
+    and never inherits — a claimed neighbour says nothing about a voice
+    nobody found. Confidence is judged among CLAIMED words only.
     """
-    conf = [i for i, m in enumerate(margins) if m >= min_margin]
+    uncl = list(unclaimed) if unclaimed is not None else [False] * len(labels)
+    conf = [i for i, m in enumerate(margins) if m >= min_margin and not uncl[i]]
     if not conf:
         return None
     return [
-        labels[i] if margins[i] >= min_margin
+        UNKNOWN_LABEL if uncl[i]
+        else labels[i] if margins[i] >= min_margin
         else labels[min(conf, key=lambda c: (abs(c - i), c))]
         for i in range(len(labels))
     ]
@@ -798,12 +931,29 @@ def _run_pieces(
     return list(zip(bounds[:-1], bounds[1:]))
 
 
-def _merge_target(idx: int, pieces: list[tuple[float, float]]) -> int:
-    """The neighbour run ``idx`` would merge into: its longer-piece
-    neighbour (tie → the earlier one)."""
+def _merge_target(
+    idx: int, pieces: list[tuple[float, float]],
+    run_labels: list[int] | None = None,
+) -> int:
+    """The run ``idx`` would merge into: its longer-piece neighbour (tie →
+    the earlier one). With ``run_labels`` (one label per run), an
+    :data:`UNKNOWN_LABEL` neighbour is never chosen while a claimed
+    NEIGHBOUR exists — a short claimed run beside unclaimed speech keeps a
+    real voice. A sliver claimed run BETWEEN two unclaimed runs merges into
+    one of them by the plain rule (it is part of a stretch nobody claims;
+    relabelling it to a non-adjacent run would never terminate the
+    collapse)."""
+    n = len(pieces)
+    if run_labels is not None:
+        real = [
+            j for j in (idx - 1, idx + 1)
+            if 0 <= j < n and run_labels[j] != UNKNOWN_LABEL
+        ]
+        if len(real) == 1:
+            return real[0]
     if idx == 0:
         return 1
-    if idx == len(pieces) - 1:
+    if idx == n - 1:
         return idx - 1
     prev_d = pieces[idx - 1][1] - pieces[idx - 1][0]
     next_d = pieces[idx + 1][1] - pieces[idx + 1][0]
@@ -815,6 +965,8 @@ def _collapse_word_runs(
     *, min_run: int = WORD_MIN_RUN, min_seconds: float = MIN_SECONDS,
     min_seconds_confirmed: float | None = None, confirm=None,
     confirmed_out: set[tuple[float, float]] | None = None,
+    min_seconds_unknown: float | None = None,
+    unknown_out: set[tuple[float, float]] | None = None,
 ) -> list[int]:
     """Merge untrustworthy label runs into their surrounding dominant voice.
 
@@ -832,6 +984,14 @@ def _collapse_word_runs(
     CONFIRMED_PIECE_MIN_SECONDS). Without ``confirm`` the old floor applies
     unchanged. Every confirmed sub-``min_seconds`` piece's ``(p0, p1)`` is
     added to ``confirmed_out`` when given.
+
+    Unknown (2026-08-30): a run labelled :data:`UNKNOWN_LABEL` (unclaimed
+    words, see :func:`_smooth_word_labels`) is trustworthy when it has
+    ``min_run`` words and lasts ``min_seconds_unknown``; otherwise it merges
+    like any other bad run. With ``min_seconds_unknown`` None every such run
+    merges. A bad run never merges INTO an unknown run while a claimed run
+    exists (:func:`_merge_target`). Surviving unknown runs' ``(p0, p1)`` go
+    to ``unknown_out``.
     """
     labels = list(labels)
     verdict: dict[tuple[int, int], bool] = {}
@@ -840,10 +1000,19 @@ def _collapse_word_runs(
         if len(runs) == 1:
             return labels
         pieces = _run_pieces(words, runs, start, end)
+        run_labels = [r[0] for r in runs]
         bad: list[tuple[int, float, int]] = []
         for idx, (r, (p0, p1)) in enumerate(zip(runs, pieces)):
             n_words = r[2] - r[1] + 1
             d = p1 - p0
+            if r[0] == UNKNOWN_LABEL:
+                if (
+                    min_seconds_unknown is not None
+                    and n_words >= min_run and d >= min_seconds_unknown
+                ):
+                    continue
+                bad.append((n_words, d, idx))
+                continue
             if n_words >= min_run and d >= min_seconds:
                 continue
             if (
@@ -852,7 +1021,7 @@ def _collapse_word_runs(
             ):
                 key = (r[1], r[2])
                 if key not in verdict:
-                    q0, q1 = pieces[_merge_target(idx, pieces)]
+                    q0, q1 = pieces[_merge_target(idx, pieces, run_labels)]
                     verdict[key] = bool(confirm(p0, p1, q0, q1))
                 if verdict[key]:
                     continue
@@ -862,9 +1031,13 @@ def _collapse_word_runs(
                 for r, (p0, p1) in zip(runs, pieces):
                     if p1 - p0 < min_seconds and verdict.get((r[1], r[2])):
                         confirmed_out.add((p0, p1))
+            if unknown_out is not None:
+                for r, (p0, p1) in zip(runs, pieces):
+                    if r[0] == UNKNOWN_LABEL:
+                        unknown_out.add((p0, p1))
             return labels
         idx = min(bad)[2]
-        tgt = _merge_target(idx, pieces)
+        tgt = _merge_target(idx, pieces, run_labels)
         for i in range(runs[idx][1], runs[idx][2] + 1):
             labels[i] = runs[tgt][0]
 
@@ -1165,6 +1338,7 @@ def _enforce_min_pieces(
     min_seconds: float = MIN_SECONDS, primary: list[float] | None = None,
     confirmed: set[tuple[float, float]] | None = None,
     min_seconds_confirmed: float | None = None,
+    floors: dict[tuple[float, float], float] | None = None,
 ) -> list[float]:
     """Drop boundaries until every piece of [start, end] lasts at least
     ``min_seconds``. For the shortest sliver piece, the boundary dropped is a
@@ -1177,12 +1351,17 @@ def _enforce_min_pieces(
     by the per-word pass — see :func:`_collapse_word_runs`) is held to
     ``min_seconds_confirmed`` instead; a piece that merely happens to be
     short — bounded by a window proposal, or by a word cut that was not
-    confirmed — still faces the full floor."""
+    confirmed — still faces the full floor. ``floors`` maps a piece's
+    ``(start, end)`` to its own floor (the Unknown pieces,
+    UNKNOWN_MIN_SECONDS) and takes precedence."""
     prim = set(primary or [])
     conf = confirmed or set()
+    per_span = floors or {}
     bounds = [start, *sorted(b for b in boundaries if start < b < end), end]
 
     def floor_of(a: float, b: float) -> float:
+        if (a, b) in per_span:
+            return per_span[(a, b)]
         if min_seconds_confirmed is not None and (a, b) in conf:
             return min_seconds_confirmed
         return min_seconds
@@ -1258,6 +1437,8 @@ def split_long_utterances(
     word_centroids: list[np.ndarray] | None = None,
     *, proposals: dict[int, list[float]] | None = None,
     confirm=None,
+    unclaimed_centroids: list[np.ndarray] | None = None,
+    unknown: bool = False,
 ) -> tuple[list[dict], dict]:
     """Split long word-timed utterances at voice changes.
 
@@ -1304,10 +1485,19 @@ def split_long_utterances(
     and lists ``confirmed_short_pieces`` (the ``(start, end)`` of every
     both-source-confirmed piece under MIN_SECONDS that survived). Turns that
     yield no trustworthy change pass through unchanged.
+
+    Unknown (2026-08-30, ``unknown=True``): in the per-word pass a word whose
+    best cosine to every centroid in ``word_centroids``/``centroids`` and
+    ``unclaimed_centroids`` (the window pass's pooled spectral centroids) is
+    under UNCLAIMED_COSINE is UNCLAIMED; a run of WORD_MIN_RUN+ such words
+    lasting UNKNOWN_MIN_SECONDS becomes its own piece, listed in
+    ``unknown_pieces`` — the caller labels it UNKNOWN_SPEAKER and keeps it
+    out of clustering. Off (the default), nothing here changes.
     """
     stats: dict = {
         "scanned": 0, "split": 0, "skipped_short": 0, "skipped_no_words": 0,
         "window_boundaries": 0, "confirmed_short_pieces": [],
+        "unknown_pieces": [],
     }
     cents = list(word_centroids) if word_centroids is not None else list(centroids)
     proposals = proposals or {}
@@ -1322,10 +1512,15 @@ def split_long_utterances(
         conclusive = False
         word_bounds: list[float] = []
         confirmed: set[tuple[float, float]] = set()
+        unknown_spans: set[tuple[float, float]] = set()
         if has_words and long_enough:
             scanned = True
-            labels, margins = _label_words(pcm, sr, t, embed, cents)
-            smoothed = _smooth_word_labels(labels, margins)
+            labels, margins, bests = _label_words(
+                pcm, sr, t, embed, cents,
+                extra_centroids=unclaimed_centroids if unknown else None,
+            )
+            unclaimed = [b < UNCLAIMED_COSINE for b in bests] if unknown else None
+            smoothed = _smooth_word_labels(labels, margins, unclaimed=unclaimed)
             if smoothed is not None:
                 conclusive = True
                 runs = _word_runs(_collapse_word_runs(
@@ -1334,6 +1529,8 @@ def split_long_utterances(
                         CONFIRMED_PIECE_MIN_SECONDS if confirm is not None else None
                     ),
                     confirm=confirm, confirmed_out=confirmed,
+                    min_seconds_unknown=UNKNOWN_MIN_SECONDS if unknown else None,
+                    unknown_out=unknown_spans,
                 ))
                 if len(runs) >= 2:
                     word_bounds = [
@@ -1349,6 +1546,7 @@ def split_long_utterances(
             start, end, _dedupe_boundaries(word_bounds, win_bounds),
             primary=word_bounds, confirmed=confirmed,
             min_seconds_confirmed=CONFIRMED_PIECE_MIN_SECONDS,
+            floors={span: UNKNOWN_MIN_SECONDS for span in unknown_spans},
         )
         if (
             not bounds and not conclusive
@@ -1388,12 +1586,17 @@ def split_long_utterances(
             (float(p["start_time"]), float(p["end_time"])) for p in pieces
             if (float(p["start_time"]), float(p["end_time"])) in confirmed
         ]
+        kept_unknown = [
+            (float(p["start_time"]), float(p["end_time"])) for p in pieces
+            if (float(p["start_time"]), float(p["end_time"])) in unknown_spans
+        ]
         stats["split"] += 1
         stats["window_boundaries"] += from_windows
         stats["confirmed_short_pieces"].extend(kept_short)
+        stats["unknown_pieces"].extend(kept_unknown)
         logger.info(
             "split %.1fs utterance at %.2fs into %d pieces (boundaries %s; "
-            "%d from the window pass%s%s)",
+            "%d from the window pass%s%s%s)",
             end - start, start, len(pieces),
             ", ".join(f"{p['end_time']:.2f}" for p in pieces[:-1]),
             from_windows,
@@ -1401,6 +1604,11 @@ def split_long_utterances(
             (
                 f"; {len(kept_short)} piece(s) under {MIN_SECONDS:.1f}s kept on "
                 "both-source confirmation" if kept_short else ""
+            ),
+            (
+                f"; {len(kept_unknown)} unclaimed piece(s) -> {UNKNOWN_SPEAKER}: "
+                + ", ".join(f"{a:.2f}-{b:.2f}" for a, b in kept_unknown)
+                if kept_unknown else ""
             ),
         )
         out.extend(pieces)
@@ -1910,6 +2118,9 @@ def diarize_turns(
                                        # both-source confirmation
           "uncovered_turns": int,      # "(untranscribed)" turns added for
                                        # speech no utterance covered
+          "unknown_turns": int,        # turns labelled UNKNOWN_SPEAKER
+          "unknown_seconds": float,    # (0 / 0.0 unless MINDSHIFT_DIARIZE_
+                                       # UNKNOWN is on — see UNCLAIMED_COSINE)
           "short_turn_attribution": {self, neighbour},  # how the
                                        # un-embedded turns got their label
           "pooled_cosine": float,      # WORST (highest) pairwise centroid
@@ -1943,6 +2154,8 @@ def diarize_turns(
         embed_batch = speaker_id.embed_pcm_batch
     n_transcript = len(turns)
     embed_cache: dict[tuple[int, int], np.ndarray] = {}
+    unknown = unknown_enabled()
+    spectral_cents: list[np.ndarray] = []
     try:
         embedded = _embed_turns(pcm, sr, turns, embed, min_seconds, cache=embed_cache)
         if embedded is None:
@@ -2002,12 +2215,21 @@ def diarize_turns(
         # union'd with the window-pass proposals, then re-embed the finer
         # segments and REDO k-selection so every piece is attributed and
         # validated like any other turn.
+        # Unknown (2026-08-30, flag): the window pass's pooled spectral
+        # centroids join the k-selection centroids as the set a word or a
+        # turn must be claimed by (UNCLAIMED_COSINE). Unclaimed pieces are
+        # NEVER clustered — see the exclude below — so they cannot seed a k.
+        if unknown and window_pass.k_eigengap:
+            sc = window_pass.pooled_centroids(window_pass.k_eigengap)
+            spectral_cents = [sc[c] for c in sorted(sc)] if sc else []
         turns, split_stats = split_long_utterances(
             pcm, sr, turns, embed, (pass1[1][0], pass1[1][1]),
             word_centroids=word_centroids, proposals=proposals,
             confirm=window_pass.confirms_two_voices,
+            unclaimed_centroids=spectral_cents, unknown=unknown,
         )
         confirmed_short = set(split_stats["confirmed_short_pieces"])
+        unknown_spans = set(split_stats["unknown_pieces"])
 
         # Speech the transcript never covered (round 2, 2026-08-29; see the
         # UNCOVERED_* constants): runs of window-VAD speech outside every
@@ -2044,7 +2266,7 @@ def diarize_turns(
         if split_stats["split"]:
             embedded = _embed_turns(
                 pcm, sr, turns, embed, min_seconds, cache=embed_cache,
-                exclude=uncovered_spans,
+                exclude=uncovered_spans | unknown_spans,
             )
             if embedded is None:
                 return None
@@ -2093,20 +2315,48 @@ def diarize_turns(
 
     cluster_of = dict(zip(order, labels))
 
+    # Whole-turn Unknown rule (2026-08-30, flag): an embeddable turn the
+    # refinement placed in a cluster it does not resemble — best cosine to
+    # EVERY final centroid and every spectral centroid under
+    # UNCLAIMED_COSINE — is unclaimed. Never all of them (a one-turn cluster
+    # measures 1.0 to its own centroid; the guard is belt and braces).
+    all_cents = list(centroids.values()) + spectral_cents
+    if unknown:
+        flagged = [
+            i for i, e in enumerate(embs)
+            if max(float(np.dot(e, c)) for c in all_cents) < UNCLAIMED_COSINE
+        ]
+        if flagged and len(flagged) < len(order):
+            for i in flagged:
+                cluster_of[order[i]] = UNKNOWN_LABEL
+                t = turns[order[i]]
+                logger.info(
+                    "turn %.2f-%.2fs claimed by no voice (best cosine %.3f < %.2f) -> %s",
+                    float(t.get("start_time") or 0.0), float(t.get("end_time") or 0.0),
+                    max(float(np.dot(embs[i], c)) for c in all_cents),
+                    UNCLAIMED_COSINE, UNKNOWN_SPEAKER,
+                )
+
     # Un-embedded (too-short) turns (round 2, 2026-08-29 — see the
     # attribution comment above CONFIRMED_PIECE_MIN_SECONDS): a both-source-
     # confirmed split piece or an uncovered turn takes the nearest final
     # pooled centroid by its OWN embedding; every other short turn inherits
-    # the nearest embedded turn's cluster, by utterance midpoint.
+    # the nearest embedded turn's cluster, by utterance midpoint. An Unknown
+    # piece (unclaimed word run) is Unknown; a self-attributed turn under
+    # the floor is Unknown; an Unknown turn is never inherited from.
     def midpoint(t: dict) -> float:
         return (float(t.get("start_time") or 0.0) + float(t.get("end_time") or 0.0)) / 2
 
     cids = sorted(centroids)
+    claimed_order = [e for e in order if cluster_of[e] != UNKNOWN_LABEL] or list(order)
     attributed = {"self": 0, "neighbour": 0}
     for idx, t in enumerate(turns):
         if idx in cluster_of:
             continue
         span = (float(t.get("start_time") or 0.0), float(t.get("end_time") or 0.0))
+        if span in unknown_spans:
+            cluster_of[idx] = UNKNOWN_LABEL
+            continue
         if span in confirmed_short or span in uncovered_spans:
             try:
                 v = speaker_id.l2_normalize(embed(_slice(pcm, sr, t), sr))
@@ -2114,6 +2364,17 @@ def diarize_turns(
                 v = None
             if v is not None:
                 scored = sorted((float(np.dot(v, centroids[c])), c) for c in cids)
+                best_any = max(
+                    [scored[-1][0], *(float(np.dot(v, c)) for c in spectral_cents)]
+                )
+                if unknown and best_any < UNCLAIMED_COSINE:
+                    cluster_of[idx] = UNKNOWN_LABEL
+                    logger.info(
+                        "%s %.2f-%.2fs claimed by no voice (best cosine %.3f < %.2f) -> %s",
+                        "uncovered turn" if span in uncovered_spans else "confirmed piece",
+                        span[0], span[1], best_any, UNCLAIMED_COSINE, UNKNOWN_SPEAKER,
+                    )
+                    continue
                 cluster_of[idx] = scored[-1][1]
                 attributed["self"] += 1
                 logger.info(
@@ -2123,16 +2384,29 @@ def diarize_turns(
                     scored[-1][0] - (scored[-2][0] if len(scored) > 1 else -1.0),
                 )
                 continue
-        nearest = min(order, key=lambda e: abs(midpoint(turns[e]) - midpoint(t)))
+        nearest = min(claimed_order, key=lambda e: abs(midpoint(turns[e]) - midpoint(t)))
         cluster_of[idx] = cluster_of[nearest]
         attributed["neighbour"] += 1
 
-    # Name clusters in order of first appearance across the full transcript.
+    # Name clusters in order of first appearance across the full transcript;
+    # Unknown is a label, not a speaker (num_speakers excludes it).
     name_of: dict[int, str] = {}
     for idx in range(len(turns)):
         cid = cluster_of[idx]
-        if cid not in name_of:
+        if cid != UNKNOWN_LABEL and cid not in name_of:
             name_of[cid] = _speaker_name(len(name_of))
+    num_speakers = len(name_of)
+    name_of[UNKNOWN_LABEL] = UNKNOWN_SPEAKER
+    unknown_idx = [i for i in range(len(turns)) if cluster_of[i] == UNKNOWN_LABEL]
+    unknown_seconds = sum(
+        float(turns[i].get("end_time") or 0.0) - float(turns[i].get("start_time") or 0.0)
+        for i in unknown_idx
+    )
+    if unknown_idx:
+        logger.info(
+            "%d turn(s) / %.2fs labelled %s (claimed by none of the %d voices)",
+            len(unknown_idx), unknown_seconds, UNKNOWN_SPEAKER, num_speakers,
+        )
 
     # Output turns are plain {speaker, text, start_time, end_time, ...} — the
     # internal ``words`` plumbing is not propagated.
@@ -2143,7 +2417,7 @@ def diarize_turns(
     ]
     return {
         "turns": new_turns,
-        "num_speakers": len(name_of),
+        "num_speakers": num_speakers,
         "source": SOURCE,
         "model": f"{speaker_id.ECAPA_SOURCE}@{speaker_id.ECAPA_REVISION}",
         "segments_total": len(turns),
@@ -2151,6 +2425,8 @@ def diarize_turns(
         "split_utterances": split_stats["split"],
         "confirmed_short_pieces": len(confirmed_short),
         "uncovered_turns": len(uncovered),
+        "unknown_turns": len(unknown_idx),
+        "unknown_seconds": round(unknown_seconds, 2),
         "short_turn_attribution": attributed,
         "pooled_cosine": pooled_cosine,
         "k_evaluated": k_evaluated,
