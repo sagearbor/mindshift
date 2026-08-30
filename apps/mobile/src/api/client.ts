@@ -2,6 +2,7 @@ import { Platform } from "react-native";
 import { File as FSFile, FileMode } from "expo-file-system";
 import type { Suggestion } from "../components/SuggestionCard";
 import { getFreshToken } from "../auth/authToken";
+import { markRecordingsListStale } from "../utils/recordingsListCache";
 
 const API_URL =
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:8000";
@@ -670,7 +671,11 @@ export async function postAnalyzeUpload(
     throw uploadFailure(attempt, res.status);
   }
 
-  return (await res.json()) as UploadAnalyzeResult;
+  const uploaded = (await res.json()) as UploadAnalyzeResult;
+  // A stored recording may have just been created — the cached Recordings
+  // list is now behind (recordingsListCache.ts).
+  if (uploaded.recording_id) markRecordingsListStale();
+  return uploaded;
 }
 
 // --- Chunked upload (large recordings) --------------------------------------
@@ -940,7 +945,9 @@ export async function postAnalyzeUploadChunked(
     if (!completeRes.ok) {
       throw uploadFailure(attempt, completeRes.status);
     }
-    return (await completeRes.json()) as UploadAnalyzeResult;
+    const completed = (await completeRes.json()) as UploadAnalyzeResult;
+    if (completed.recording_id) markRecordingsListStale();
+    return completed;
   } catch (err) {
     await abortChunkedUpload(attempt, uploadId);
     throw err;
@@ -1004,7 +1011,9 @@ export async function postAnalyzeUploadChunkedJob(
       if (!completeRes.ok) {
         throw uploadFailure(attempt, completeRes.status);
       }
-      return { result: (await completeRes.json()) as UploadAnalyzeResult };
+      const completed = (await completeRes.json()) as UploadAnalyzeResult;
+      if (completed.recording_id) markRecordingsListStale();
+      return { result: completed };
     } catch (err) {
       await abortChunkedUpload(attempt, uploadId);
       throw err;
@@ -1080,7 +1089,11 @@ export async function postAnalyzeLink(
     throw err;
   }
 
-  return (await res.json()) as UploadAnalyzeResult;
+  const uploaded = (await res.json()) as UploadAnalyzeResult;
+  // A stored recording may have just been created — the cached Recordings
+  // list is now behind (recordingsListCache.ts).
+  if (uploaded.recording_id) markRecordingsListStale();
+  return uploaded;
 }
 
 // --- Submit-and-poll analysis jobs ------------------------------------------
@@ -1202,7 +1215,10 @@ export async function getAnalyzeJob(jobId: string): Promise<AnalyzeJobState> {
   if (!res.ok) {
     throw new Error(`API error: ${res.status}`);
   }
-  return (await res.json()) as AnalyzeJobState;
+  const job = (await res.json()) as AnalyzeJobState;
+  // A finished job stored a new recording — the cached list is behind.
+  if (job.status === "done") markRecordingsListStale();
+  return job;
 }
 
 /** Build an Error for a failed job-submit POST, carrying `.status` (and the
@@ -1577,7 +1593,9 @@ export async function postShare(
     err.detail = detail;
     throw err;
   }
-  return (await res.json()) as { shares: RecordingShare[] };
+  const shared = (await res.json()) as { shares: RecordingShare[] };
+  markRecordingsListStale();
+  return shared;
 }
 
 /**
@@ -1604,6 +1622,7 @@ export async function deleteShare(
     err.status = res.status;
     throw err;
   }
+  markRecordingsListStale();
 }
 
 /**
@@ -1726,7 +1745,9 @@ export async function patchRecordingSource(
     err.detail = detail;
     throw err;
   }
-  return (await res.json()) as PatchSourceResult;
+  const patchedSource = (await res.json()) as PatchSourceResult;
+  markRecordingsListStale();
+  return patchedSource;
 }
 
 /** Result of PATCH /recordings/{id} with a `{ title }` body — the recording's
@@ -1764,7 +1785,10 @@ export async function patchRecordingTitle(
     err.status = res.status;
     throw err;
   }
-  return (await res.json()) as PatchTitleResult;
+  const patchedTitle = (await res.json()) as PatchTitleResult;
+  // The list row shows the title — mark the cached list stale.
+  markRecordingsListStale();
+  return patchedTitle;
 }
 
 /** Result of PATCH /recordings/{id}/speaker-labels — the raw manual name map the
@@ -1830,7 +1854,10 @@ export async function patchSpeakerLabels(
     err.detail = detail;
     throw err;
   }
-  return (await res.json()) as PatchSpeakerLabelsResult;
+  const patchedLabels = (await res.json()) as PatchSpeakerLabelsResult;
+  // The list row's participant line comes from manual_speaker_labels.
+  markRecordingsListStale();
+  return patchedLabels;
 }
 
 /**
@@ -1846,6 +1873,7 @@ export async function deleteRecording(id: string): Promise<void> {
   if (!res.ok) {
     throw new Error(`API error: ${res.status}`);
   }
+  markRecordingsListStale();
 }
 
 /**
