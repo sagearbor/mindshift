@@ -117,13 +117,14 @@ function ortNative(): typeof import("./ortNative") | null {
   return tryRequire(() => require("./ortNative") as typeof import("./ortNative"));
 }
 
-async function buildVad(): Promise<{ vad: FrameVad; name: string }> {
+/** The VAD rung on its own (shared with the Journal mode, journalDeps.ts). */
+export async function buildVad(): Promise<{ vad: FrameVad; name: string }> {
   const session = await ortNative()?.loadSileroSession();
   if (session) return { vad: new SileroVad(session), name: "Silero VAD" };
   return { vad: new EnergyVad(), name: "energy VAD" };
 }
 
-interface SpeakerIdBuild {
+export interface SpeakerIdBuild {
   embedder: Embedder | null;
   labeler: SpeakerLabeler | null;
   capability: SpeakerIdCapability;
@@ -135,7 +136,8 @@ function speakerIdOff(reason: string): SpeakerIdBuild {
   return { embedder: null, labeler: null, capability: inactiveCapability(reason) };
 }
 
-async function buildSpeakerId(): Promise<SpeakerIdBuild> {
+/** The speaker-ID rung on its own (shared with the Journal mode). */
+export async function buildSpeakerId(): Promise<SpeakerIdBuild> {
   const native = ortNative();
   if (!native) return speakerIdOff("native ONNX Runtime unavailable");
   // Model download/revalidation and the voiceprint fetch are independent

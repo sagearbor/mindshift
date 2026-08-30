@@ -62,6 +62,15 @@ import {
   type LiveAudioKeeper,
   type LiveAudioKeeperFactory,
 } from "../live/liveAudioKeeper";
+import type { LiveSessionMode } from "../api/liveSessions";
+import { IDLE_JOURNAL_STATE, type JournalRecorder, type JournalState } from "../live/journalRecorder";
+import {
+  createBackgroundMicHold,
+  createDefaultJournalRecorder,
+  prepareJournalAudioSession,
+  type BackgroundMicHold,
+  type JournalHandlers,
+} from "../live/journalDeps";
 import { CallSession } from "../live/call/callSession";
 import { callApi as defaultCallApi, type CallApi } from "../live/call/callApi";
 import { createNativeRtcAdapter } from "../live/call/rtcNative";
@@ -183,6 +192,17 @@ export interface UseAudioStreamOptions {
   /** Seam: upload the kept WAV to the saved episode
    *  (production: api/liveSessions.ts postLiveSessionAudio). */
   postSessionAudio?: LiveSessionAudioUploader;
+  /** Journal mode: build the recorder (production: live/journalDeps.ts —
+   *  Silero + ECAPA + the enrolled prints, the cache store, the chunked
+   *  upload job; tests: fakes over MemoryFs). Rejects with the reason when
+   *  the models or the store are unavailable. */
+  makeJournal?: (handlers: JournalHandlers) => Promise<JournalRecorder>;
+  /** Journal mode: configure the audio session for an all-day mic
+   *  (production: background flags + the Android notification permission). */
+  prepareJournalAudio?: () => Promise<unknown>;
+  /** Journal mode: the best-effort Android foreground-service hold (see
+   *  journalDeps.createBackgroundMicHold). Null = none. */
+  holdBackgroundMic?: () => Promise<BackgroundMicHold | null>;
 }
 
 /** The kept session audio, as the screen shows it.
@@ -308,6 +328,11 @@ interface UseAudioStreamReturn {
   lastEpisode: LastEpisode | null;
   /** The session's kept audio (see AudioKeepState). */
   audioKeep: AudioKeepState;
+  /** Journal mode ("listen for my voice"): what the journal is doing —
+   *  listening time, kept stretches, file size, uploads. IDLE otherwise. */
+  journal: JournalState;
+  /** Journal mode: send every journal file still on the phone now. */
+  retryJournalUploads: () => Promise<void>;
   /** Mid-call naming: raw wire label → the person the user (or a voiceprint
    *  match) says it is. Reset per session. */
   speakerNames: Record<string, SpeakerBinding>;
@@ -405,6 +430,13 @@ function stopSpeechSafely() {
   } catch {
     // No TTS backend — nothing could have been speaking.
   }
+}
+
+/** The mode a session RECORD carries. Journal never posts a record (it
+ *  uploads files instead), so it never reaches the callers of this; the
+ *  narrowing keeps the wire type honest. */
+function liveSessionModeOf(mode: LiveMode): LiveSessionMode {
+  return mode === "journal" ? "speaker" : mode;
 }
 
 /** Production fast-loop factory: the native stack, or the browser stack on
@@ -584,6 +616,64 @@ export function useAudioStream(
   /** The running session's keeper; null when not keeping. */
   const keeperRef = useRef<LiveAudioKeeper | null>(null);
   const [audioKeep, setAudioKeep] = useState<AudioKeepState>({ status: "off" });
+
+  // --- Journal mode (live/journalRecorder.ts) --------------------------------
+  const makeJournalRef = useRef(options.makeJournal ?? createDefaultJournalRecorder);
+  makeJournalRef.current = options.makeJournal ?? createDefaultJournalRecorder;
+  const prepareJournalAudioRef = useRef(options.prepareJournalAudio ?? prepareJournalAudioSession);
+  prepareJournalAudioRef.current = options.prepareJournalAudio ?? prepareJournalAudioSession;
+  const holdBackgroundMicRef = useRef(options.holdBackgroundMic ?? createBackgroundMicHold);
+  holdBackgroundMicRef.current = options.holdBackgroundMic ?? createBackgroundMicHold;
+  /** The running journal; null outside Journal mode. Mic frames go here
+   *  INSTEAD of the fast loop / keeper / WebSocket while it is set. */
+  const journalRef = useRef<JournalRecorder | null>(null);
+  /** The journal that last ran (its uploads may still be settling). */
+  const lastJournalRef = useRef<JournalRecorder | null>(null);
+  const micHoldRef = useRef<BackgroundMicHold | null>(null);
+  const [journal, setJournal] = useState<JournalState>(IDLE_JOURNAL_STATE);
+
+  const releaseMicHold = useCallback(() => {
+    const hold = micHoldRef.current;
+    micHoldRef.current = null;
+    if (hold) void hold.release().catch(() => {});
+  }, []);
+
+  /** End a journal run: mic off, loop flushed, file closed, uploads kicked
+   *  off (they continue detached; the state reports them). Never throws. */
+  const stopJournalSession = useCallback(async () => {
+    const recorder = journalRef.current;
+    journalRef.current = null;
+    streamingRef.current = false;
+    shouldReconnect.current = false;
+    try {
+      micStreamRef.current?.stop();
+    } catch {
+      // Stream may already be stopped.
+    }
+    releaseMicHold();
+    setIsRecording(false);
+    setSessionActive(false);
+    if (recorder) {
+      lastJournalRef.current = recorder;
+      try {
+        const final = await recorder.stop();
+        console.log(
+          `[journal] stopped: listened ${final.listeningSeconds}s, kept ${final.selfCount} stretch(es) / ${final.selfSeconds}s, ` +
+            `${final.filesClosed} file(s), uploads sent ${final.uploads.sent} pending ${final.uploads.pending}`,
+        );
+      } catch (err) {
+        console.warn("[journal] stop failed:", err);
+      }
+    }
+    sessionActiveRef.current = false;
+    // Hand the audio session back to playback (see finishDrain).
+    void setPlaybackMode().catch(() => {});
+  }, [releaseMicHold]);
+
+  const retryJournalUploads = useCallback(async () => {
+    const recorder = journalRef.current ?? lastJournalRef.current;
+    if (recorder) await recorder.retryUploads();
+  }, []);
 
   /** Open the keeper for a starting session (or say why not). */
   const beginAudioKeep = useCallback((sessionId: string) => {
@@ -839,7 +929,7 @@ export function useAudioStream(
       session_id: sessionIdRef.current,
       started_at: sessionStartedAtRef.current,
       ended_at: new Date().toISOString(),
-      mode: sessionModeRef.current,
+      mode: liveSessionModeOf(sessionModeRef.current),
       turns: localTurnsRef.current,
       tone_flags: toneFlagsRef.current,
       speaker_identities: identitiesRef.current,
@@ -1119,6 +1209,14 @@ export function useAudioStream(
         samples = resampler.process(samples);
       }
       const int16 = float32ToInt16(samples);
+      // Journal mode: the recorder is the ONLY consumer — no fast loop, no
+      // kept-audio WAV, no WebSocket frames (nothing leaves the phone while
+      // it listens).
+      const journalRecorder = journalRef.current;
+      if (journalRecorder) {
+        journalRecorder.pushSamples(int16);
+        return;
+      }
       // The on-device fast loop (when running) hears exactly what the server
       // hears — one 16 kHz mono int16 conversion, two consumers.
       fastLoopRef.current?.pushSamples(int16);
@@ -1307,6 +1405,11 @@ export function useAudioStream(
 
   const stopSession = useCallback(async () => {
     if (drainingRef.current) return; // Stop already in progress.
+    if (journalRef.current) {
+      // Journal mode has no socket to drain and no record to post.
+      await stopJournalSession();
+      return;
+    }
     shouldReconnect.current = false;
     streamingRef.current = false;
     // Call mode: hang up first (releases WebRTC's mic, stops remote audio)
@@ -1364,7 +1467,7 @@ export function useAudioStream(
     // clean up immediately, exactly as before.
     pendingRef.current = new Int16Array(0);
     finishDrain();
-  }, [finishDrain, armDrainTimer, releaseCapture, stopFastLoop]);
+  }, [finishDrain, armDrainTimer, releaseCapture, stopFastLoop, stopJournalSession]);
 
   useEffect(() => {
     return () => {
@@ -1387,13 +1490,16 @@ export function useAudioStream(
       // than upload it (taken before stopFastLoop so it can't).
       keeperRef.current?.discard();
       keeperRef.current = null;
+      // A journal stops cleanly on unmount: its file is closed (valid WAV)
+      // and its upload kicked off, detached — nothing kept is lost.
+      if (journalRef.current) void stopJournalSession();
       void stopFastLoop();
       teardownWebSocket();
       // Leaving the live screen: hand the audio session back to playback so a
       // replay elsewhere in the app isn't left silent by our record mode.
       void setPlaybackMode().catch(() => {});
     };
-  }, [teardownWebSocket, releaseCapture, stopFastLoop]);
+  }, [teardownWebSocket, releaseCapture, stopFastLoop, stopJournalSession]);
 
   const connectWebSocket = useCallback(
     (sessionId: string) => {
@@ -1915,6 +2021,83 @@ export function useAudioStream(
     [connectWebSocket, beginWebCapture, startFastLoop, beginAudioKeep, liveCapability.capable],
   );
 
+  /**
+   * Journal mode ("listen for my voice"): mic + the journal recorder, and
+   * NOTHING else — no WebSocket, no STT, no LLM, no TTS, no kept-audio WAV.
+   * Honest gates, in order: the phone app (not the browser), microphone
+   * permission, the models + a place to write, and an enrolled owner
+   * voiceprint (without one nothing could ever be kept). Every refusal
+   * lands in `journal.error` and opens no session.
+   */
+  const startJournalSession = useCallback(async (sessionId: string) => {
+    const fail = (error: string) => {
+      setJournal({ ...IDLE_JOURNAL_STATE, error });
+      sessionActiveRef.current = false;
+    };
+    const stream = micStreamRef.current;
+    if (Platform.OS === "web" || !stream) {
+      fail("The journal needs the phone app's microphone — it isn't available in the browser.");
+      return;
+    }
+    setJournal({ ...IDLE_JOURNAL_STATE, status: "starting" });
+    let granted = false;
+    try {
+      granted = (await requestRecordingPermissionsAsync()).granted;
+    } catch {
+      granted = false;
+    }
+    if (!granted) {
+      fail("Microphone permission denied — enable microphone access to start the journal.");
+      return;
+    }
+    let recorder: JournalRecorder;
+    try {
+      recorder = await makeJournalRef.current({
+        onState: (state) => {
+          // Only the running (or just-stopped) journal drives the screen.
+          if (journalRef.current === recorder || lastJournalRef.current === recorder) setJournal(state);
+        },
+      });
+    } catch (err) {
+      fail(`Journal unavailable: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+    if (!recorder.hasSelfPrint) {
+      fail("Enroll your voice first — the journal keeps only the stretches that match your voiceprint.");
+      return;
+    }
+    if (!sessionActiveRef.current) return; // Stopped while the models loaded.
+    try {
+      await prepareJournalAudioRef.current();
+      await stream.start();
+    } catch (err) {
+      fail(
+        err instanceof Error && err.message
+          ? `Microphone unavailable: ${err.message}`
+          : "Microphone unavailable — could not start audio capture.",
+      );
+      return;
+    }
+    sessionIdRef.current = sessionId;
+    sessionStartedAtRef.current = new Date().toISOString();
+    journalRef.current = recorder;
+    lastJournalRef.current = null;
+    streamingRef.current = true;
+    await recorder.start();
+    setJournal(recorder.stateSnapshot);
+    setSessionActive(true);
+    setIsRecording(true);
+    setConnectionStatus("idle"); // no server in this loop
+    // Best-effort foreground-service hold (Android); the journal runs
+    // without it. Taken AFTER the stream is up so it can never block it.
+    void holdBackgroundMicRef.current()
+      .then((hold) => {
+        if (journalRef.current === recorder) micHoldRef.current = hold;
+        else void hold?.release();
+      })
+      .catch(() => {});
+  }, []);
+
   const startSession = useCallback(
     async (
       sessionId: string,
@@ -1980,6 +2163,13 @@ export function useAudioStream(
       // "you speak first" default.
       selfSpeakerRef.current = "Speaker A";
       setSelfSpeakerState("Speaker A");
+
+      if (sessionModeRef.current === "journal") {
+        // Mic + journal recorder only: no socket, no loop, no keeper.
+        await startJournalSession(sessionId);
+        return;
+      }
+      setJournal(IDLE_JOURNAL_STATE);
 
       if (Platform.OS === "web") {
         await startWebSession(sessionId, empathyLevel);
@@ -2064,6 +2254,7 @@ export function useAudioStream(
       teardownWebSocket,
       finishDrain,
       startWebSession,
+      startJournalSession,
       startFastLoop,
       beginAudioKeep,
       liveCapability.capable,
@@ -2489,6 +2680,8 @@ export function useAudioStream(
     sessionSummary,
     lastEpisode,
     audioKeep,
+    journal,
+    retryJournalUploads,
     speakerNames,
     displayNameOf,
     labelSpeaker,

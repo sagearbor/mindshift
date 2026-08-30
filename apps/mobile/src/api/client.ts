@@ -383,6 +383,10 @@ export interface UploadAnalyzeOptions {
   consent?: boolean;
   store?: boolean;
   title?: string;
+  /** Client-declared provenance ("journal" for the Live Coach voice
+   *  journal). Sent as `source_type`; today's server derives the source
+   *  itself and ignores it — forward-compatible, never rejected. */
+  sourceType?: string;
 }
 
 // --- Upload diagnostics ------------------------------------------------------
@@ -660,6 +664,9 @@ export async function postAnalyzeUpload(
   const store = options?.store ?? true;
   form.append("consent", consent ? "true" : "false");
   form.append("store", store ? "true" : "false");
+  if (options?.sourceType) {
+    form.append("source_type", options.sourceType);
+  }
 
   const res = await uploadFetch(attempt, `${API_URL}/analyze/upload`, {
     method: "POST",
@@ -701,6 +708,8 @@ export interface ChunkedUploadOptions {
   // Optional human title for the stored recording (see UploadAnalyzeOptions.title);
   // ignored by servers that don't support titling yet.
   title?: string;
+  /** See UploadAnalyzeOptions.sourceType (sent as `source_type`). */
+  sourceType?: string;
   onProgress?: (fraction: number) => void;
 }
 
@@ -868,6 +877,9 @@ async function uploadFileInChunks(
   }
   if (opts.title !== undefined && opts.title !== "") {
     startBody.title = opts.title;
+  }
+  if (opts.sourceType) {
+    startBody.source_type = opts.sourceType;
   }
   const startRes = await uploadFetch(attempt, `${API_URL}/uploads/start`, {
     method: "POST",

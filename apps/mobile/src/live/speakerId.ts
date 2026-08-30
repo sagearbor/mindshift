@@ -51,7 +51,11 @@ export const CROSS_MATCH_MARGIN = 0.15;
 export const CROSS_MATCH_MIN_SETTINGS = 2;
 
 /** How a (cluster, person) pair cleared the bar — server `match_basis`. */
-export type MatchBasis = "absolute" | "contrast";
+/** "solo" is the journal's rule only: a lone voice (no second cluster yet)
+ *  at >= CROSS_MATCH_THRESHOLD against a >= 2-recording self print —
+ *  contrast can't run without a second voice, and a stranger measured
+ *  <= 0.28 across settings. Never used for live coaching verdicts. */
+export type MatchBasis = "absolute" | "contrast" | "solo";
 // Merge threshold for the ONLINE (live, on-device) unknown-speaker clustering.
 // LOWER than the server/batch value (server/watch/diarize.py keeps 0.55) on
 // purpose: live turns are short and the on-device ECAPA embedding of the SAME
@@ -304,6 +308,10 @@ export interface SpeakerVerdict {
    *  "contrast" (the in-session cross-recording rule); null for an
    *  unidentified cluster or a mid-call binding. */
   basis: MatchBasis | null;
+  /** Cosine of this turn against the owner's print (null without a self
+   *  print or embedding) — reported even when it did NOT match, so a caller
+   *  with a looser context (the journal's solo rule) can decide. */
+  selfScore?: number | null;
 }
 
 /** A cluster's current person, as the labeler resolves it (raw label keyed). */
@@ -361,6 +369,17 @@ export class SpeakerLabeler {
   /** Increments each time a cluster gains, loses or changes its person. */
   get identityRevision(): number {
     return this.revision;
+  }
+
+  /** Recordings pooled into the owner's print (`settings`); 0 without one. */
+  get selfSettings(): number {
+    const self = this.people.find((p) => p.person.isSelf);
+    return self ? Math.trunc(self.person.settings || 0) || 1 : 0;
+  }
+
+  /** Running unknown-voice clusters this session. */
+  get clusterCount(): number {
+    return this.centroids.length;
   }
 
   /** Every identified cluster, keyed by its raw "Speaker X" label. */
@@ -426,8 +445,10 @@ export class SpeakerLabeler {
     // ABSOLUTE path, unchanged: a turn that clears the 0.65 bar carries the
     // person outright and founds no cluster.
     let best: { person: EnrolledPerson; score: number } | null = null;
+    let selfScore: number | null = null;
     for (const { person, vec } of this.people) {
       const score = cosine(embedding, vec);
+      if (person.isSelf) selfScore = score;
       if (best === null || score > best.score) best = { person, score };
     }
     if (best && best.score >= this.matchThreshold) {
@@ -438,6 +459,7 @@ export class SpeakerLabeler {
         isSelf: best.person.isSelf,
         score: best.score,
         basis: "absolute",
+        selfScore,
       };
     }
     // Unknown: online clustering, order-stable, same as assign_speakers.
@@ -460,7 +482,7 @@ export class SpeakerLabeler {
     } else if (seconds !== undefined && seconds < this.minClusterSeconds) {
       // Too short to be evidence of a NEW voice: no cluster, no identity,
       // and no claim about self either way.
-      return { ...NO_IDENTITY };
+      return { ...NO_IDENTITY, selfScore };
     } else {
       this.centroids.push(l2Normalize(embedding));
       this.counts.push(1);
@@ -483,6 +505,7 @@ export class SpeakerLabeler {
         isSelf: person.isSelf,
         score: identity.score,
         basis: identity.basis,
+        selfScore,
       };
     }
     return {
@@ -494,6 +517,7 @@ export class SpeakerLabeler {
       isSelf: this.hasSelf ? false : null,
       score,
       basis: null,
+      selfScore,
     };
   }
 

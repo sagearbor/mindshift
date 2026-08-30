@@ -19,6 +19,8 @@ import SessionSummaryCard from "../components/SessionSummaryCard";
 import ScoreboardPanel from "../components/ScoreboardPanel";
 import WhoIsThisSheet, { type LiveLabelChoice } from "../components/WhoIsThisSheet";
 import CallPanel from "../components/CallPanel";
+import JournalPanel, { type JournalGate } from "../components/JournalPanel";
+import { IDLE_JOURNAL_STATE } from "../live/journalRecorder";
 import { IDLE_CALL_VIEW } from "../live/call/types";
 import { callApi } from "../live/call/callApi";
 import { probeIce, iceProbeUnavailable, type IceProbeResult } from "../live/call/iceProbe";
@@ -131,6 +133,8 @@ export default function LiveCoachScreen({
     escalationCount,
     sessionSummary,
     lastEpisode,
+    journal,
+    retryJournalUploads,
     speakerNames,
     displayNameOf,
     labelSpeaker,
@@ -183,8 +187,9 @@ export default function LiveCoachScreen({
   // do (free on-device TTS; the fast loop additionally holds speech until
   // the room is quiet), therapist mode never does. The hook stops any
   // in-flight utterance when this flips to false.
+  // Journal mode never speaks either (nothing is coached while it listens).
   useEffect(() => {
-    setSpeechEnabled(sessionMode !== "therapist" && speakAloud);
+    setSpeechEnabled(sessionMode !== "therapist" && sessionMode !== "journal" && speakAloud);
   }, [sessionMode, speakAloud, setSpeechEnabled]);
 
   // Remember the mode per account (Sage's phone opens on the mode he used
@@ -387,6 +392,24 @@ export default function LiveCoachScreen({
   const statusColor = STATUS_COLORS[connectionStatus] || STATUS_COLORS.idle;
   const mode: LiveMode = sessionMode ?? "earpiece";
   const isCall = mode === "call";
+  // Journal mode ("listen for my voice"): no coaching, no transcript, no
+  // server while it runs — the screen collapses to the journal panel + Stop.
+  const isJournal = mode === "journal";
+  const journalState = journal ?? IDLE_JOURNAL_STATE;
+  // The honest gate: an enrolled OWNER voiceprint with at least one
+  // recording pooled into it. The hook re-checks at Start (the labeler's
+  // own `hasSelfPrint`); this decides what the idle screen says.
+  const journalGate: JournalGate = React.useMemo(() => {
+    if (people === null) return peopleError ? "unknown" : "checking";
+    if (people.length === 0 && peopleError) return "unknown";
+    const self = people.find((p) => p.isSelf);
+    if (!self) return "missing";
+    return Math.max(self.settings, self.enrollCount) >= 1 ? "ok" : "missing";
+  }, [people, peopleError]);
+  const journalBlocked = isJournal && !sessionActive && journalGate === "missing";
+  const handleRetryJournalUploads = useCallback(() => {
+    void retryJournalUploads?.();
+  }, [retryJournalUploads]);
   // A therapist observer (Therapist mode, or a therapist-role call) gets the
   // two-column observer layout and never sees "speak"/nudge affordances
   // aimed at themselves.
@@ -473,7 +496,7 @@ export default function LiveCoachScreen({
           be meaningless. Tapping flips A↔B; the hint reminds the "you speak
           first" convention while idle. Therapist mode has no "you" on the
           mic, so the chip is hidden there. */}
-      {!isTherapist && !isCall && (sessionActive || transcript.length > 0) && (
+      {!isTherapist && !isCall && !isJournal && (sessionActive || transcript.length > 0) && (
         <View style={styles.identityRow}>
           <TouchableOpacity
             testID="self-speaker-chip"
@@ -533,7 +556,16 @@ export default function LiveCoachScreen({
 
       {/* On-device fast loop (Track 3): only offered when the device can run
           it (on-device STT present). Off = the legacy server path. */}
-      {liveCapable ? (
+      {isJournal ? (
+        <JournalPanel
+          state={journalState}
+          sessionActive={sessionActive}
+          gate={journalGate}
+          onRetryUploads={handleRetryJournalUploads}
+        />
+      ) : null}
+
+      {liveCapable && !isJournal ? (
         <View style={styles.modeRow} testID="live-mode-row">
           <Text style={styles.modeLabel}>On-device coaching</Text>
           <Switch
@@ -549,7 +581,7 @@ export default function LiveCoachScreen({
       ) : null}
 
       {/* What the loop actually loaded (or why it isn't running). */}
-      {liveStatus ? (
+      {liveStatus && !isJournal ? (
         <Text style={styles.speechUnavailableText} testID="live-status">
           {liveStatus}
         </Text>
@@ -559,7 +591,7 @@ export default function LiveCoachScreen({
           per account. A race to be nicer — both lines climbing is the win. */}
       {/* Speak aloud — only meaningful in a mode that would speak (therapist
           is always silent). Off keeps nudges on screen without any TTS. */}
-      {sessionMode !== "therapist" ? (
+      {sessionMode !== "therapist" && !isJournal ? (
         <View style={styles.modeRow} testID="speak-aloud-row">
           <Text style={styles.modeLabel}>Speak aloud</Text>
           <Switch
@@ -572,6 +604,8 @@ export default function LiveCoachScreen({
           </Text>
         </View>
       ) : null}
+      {isJournal ? null : (
+      <>
       <View style={styles.modeRow} testID="keep-audio-row">
         <Text style={styles.modeLabel}>Keep audio</Text>
         <Switch
@@ -608,6 +642,8 @@ export default function LiveCoachScreen({
           }
         />
       ) : null}
+      </>
+      )}
 
       {/* Who's talking: one chip per voice heard. Tap to name them ("Who is
           this?") — the name applies for the rest of the call at once. */}
@@ -632,7 +668,7 @@ export default function LiveCoachScreen({
       ) : null}
 
       {/* Session strip: mode + escalation count while live. */}
-      {sessionActive ? (
+      {sessionActive && !isJournal ? (
         <View style={styles.sessionStrip} testID="session-strip">
           <Text style={styles.sessionStripText}>{modeLabel}</Text>
           <Text
@@ -667,29 +703,31 @@ export default function LiveCoachScreen({
 
       {/* Honest state: a spoken mode selected but this platform has no TTS —
           suggestions stay visual-only instead of silently pretending. */}
-      {!isTherapist && !speechAvailable ? (
+      {!isTherapist && !isJournal && !speechAvailable ? (
         <Text style={styles.speechUnavailableText} testID="speech-unavailable-note">
           Spoken suggestions aren&apos;t available on this platform — showing
           them on screen only.
         </Text>
       ) : null}
 
-      {/* Empathy slider */}
-      <EmpathySlider
-        value={empathyLevel}
-        onValueChange={handleEmpathyChange}
-      />
-
-      {/* How often the coach should interject */}
-      <InterjectSlider
-        value={interjectLevel}
-        onValueChange={handleInterjectChange}
-      />
+      {/* Empathy slider + interject: the coach's knobs — none in Journal mode. */}
+      {isJournal ? null : (
+        <>
+          <EmpathySlider
+            value={empathyLevel}
+            onValueChange={handleEmpathyChange}
+          />
+          <InterjectSlider
+            value={interjectLevel}
+            onValueChange={handleInterjectChange}
+          />
+        </>
+      )}
 
       {/* Idle: the honest pre-flight (what will run on this phone, who the
           loop expects to hear) and the short how-to. Disappears the moment a
           session starts or any transcript arrives. */}
-      {idle ? (
+      {idle && !isJournal ? (
         <>
           <LivePreflightPanel
             liveCapable={liveCapable}
@@ -737,8 +775,9 @@ export default function LiveCoachScreen({
         </>
       ) : null}
 
-      {/* Live transcript: two labelled columns in therapist mode. */}
-      {isTherapist ? (
+      {/* Live transcript: two labelled columns in therapist mode; none in
+          Journal mode (nothing is transcribed while it listens). */}
+      {isJournal ? null : isTherapist ? (
         <TherapistTranscript entries={transcript} onSpeakerPress={openWho} isNamed={isNamed} />
       ) : (
         <LiveTranscript entries={transcript} onSpeakerPress={openWho} isNamed={isNamed} />
@@ -762,7 +801,7 @@ export default function LiveCoachScreen({
           banner; responses render the usual SuggestionCard stack. Each entry
           says where it came from (the phone's fast loop or the cloud) — the
           local one lands first, the cloud one augments it. */}
-      {suggestions.length > 0 && (
+      {!isJournal && suggestions.length > 0 && (
         <ScrollView
           style={styles.suggestionsContainer}
           horizontal={false}
@@ -832,7 +871,7 @@ export default function LiveCoachScreen({
 
       {/* Session end: the summary card (duration, turns, escalations,
           first-words latency) with "Share with my therapist" when linked. */}
-      {!sessionActive && sessionSummary ? (
+      {!sessionActive && !isJournal && sessionSummary ? (
         <SessionSummaryCard
           summary={sessionSummary}
           episode={lastEpisode ?? null}
@@ -850,7 +889,7 @@ export default function LiveCoachScreen({
 
       {/* Post-session review handoff: after a session ends with something to
           review, offer a prominent jump to the async-review Session screen. */}
-      {!sessionActive && transcript.length > 0 && (
+      {!sessionActive && !isJournal && transcript.length > 0 && (
         <TouchableOpacity
           testID="review-transcript-button"
           style={styles.reviewButton}
@@ -873,11 +912,22 @@ export default function LiveCoachScreen({
           style={[
             styles.micButton,
             isRecording && styles.micButtonRecording,
+            journalBlocked && styles.micButtonDisabled,
           ]}
+          disabled={journalBlocked}
+          accessibilityState={{ disabled: journalBlocked }}
           onPress={isCall ? handleHangUp : handleToggle}
         >
           <Text style={styles.micButtonText}>
-            {isCall ? "Hang up" : sessionActive ? "Stop Listening" : "Start Listening"}
+            {isCall
+              ? "Hang up"
+              : isJournal
+                ? sessionActive
+                  ? "Stop Journal"
+                  : "Start Journal"
+                : sessionActive
+                  ? "Stop Listening"
+                  : "Start Listening"}
           </Text>
         </TouchableOpacity>
       )}
@@ -1203,6 +1253,9 @@ const styles = StyleSheet.create({
   },
   micButtonRecording: {
     backgroundColor: "#EF4444",
+  },
+  micButtonDisabled: {
+    backgroundColor: "#9CA3AF",
   },
   micButtonText: {
     color: "#FFFFFF",

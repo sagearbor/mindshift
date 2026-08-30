@@ -35,9 +35,13 @@ export interface TextTone {
  * in the room, one mic) — the wire value stays `speaker` so stored episodes
  * and per-account prefs from before the rename keep working. `call` is an
  * in-app WebRTC call: only the user's own voice is on this mic; the other
- * side's turns arrive from the server (src/live/call/).
+ * side's turns arrive from the server (src/live/call/). `journal` is the
+ * all-day "listen for my voice" mode (src/live/journalRecorder.ts): mic
+ * open, no STT / coaching / cloud while listening — only the owner's own
+ * stretches are kept and uploaded later as a stored recording. It never
+ * reaches the LLM or the server's live-session ingest.
  */
-export type LiveMode = "earpiece" | "speaker" | "therapist" | "call";
+export type LiveMode = "earpiece" | "speaker" | "therapist" | "call" | "journal";
 
 export interface SuggestInput {
   text: string;
