@@ -131,3 +131,43 @@ def test_maggiano3_owner_and_son_are_not_one_speaker():
         "maggiano3: the welded first utterance (owner question + son's answer) "
         f"was not split: {first['text']!r}"
     )
+
+
+@pytest.mark.skipif(not _VOICE_OK, reason="voice deps (torch + speechbrain) not installed")
+@pytest.mark.skipif(
+    not (_AUDIO.exists() and _TRANSCRIPT.exists() and _RUBRIC.exists()),
+    reason="private maggiano3 fixture absent (tmp/private_fixtures/maggiano3/ incl. rubric.json)",
+)
+def test_windows_first_maggiano3_three_voices():
+    """The windows engine (production default since 2026-08-30) on the same
+    transcript. Measured 2026-08-30 against the rubric: eigengap k=3, frame
+    accuracy 0.694 (7utt) / 0.681 (8utt) with dad-cluster purity 0.775 —
+    the utterance engine's 0.702 / 0.671 at purity 0.80 / 0.79; on the
+    rubric's own boundaries 0.865 vs 0.833, and the engine's raw segment
+    timeline scores 0.761 (the bake-off's B number, reproduced). What the
+    transcript's turns cannot reach is the 7-8 % of rubric speech that has
+    no words and sits under the speech gate or in sub-0.4 s gaps. Pinned:
+    k=3, purity ≥ 0.75, the welded first utterance split."""
+    import audio_ingest
+
+    data = _AUDIO.read_bytes()
+    pcm, sr = audio_ingest.decode_to_pcm_16k(data, "audio.m4a")
+    raw = json.loads(_TRANSCRIPT.read_text())
+    got = diarize_local.diarize_windows_first(pcm, sr, [dict(t) for t in raw])
+    assert got is not None, "maggiano3: the windows engine returned nothing"
+    assert got["source"] == diarize_local.SOURCE_WINDOWS
+    purity, k = owner_purity(got["turns"])
+    detail = "\n".join(
+        f"  {t['speaker']:9s} {t['start_time']:6.2f}-{t['end_time']:6.2f} {t['text'][:70]!r}"
+        for t in got["turns"]
+    )
+    assert got["k_evaluated"][0]["k_eigengap"] == 3, f"eigengap {got['k_evaluated']}\n{detail}"
+    assert k == 3, f"maggiano3 (windows): heard {k} speakers, expected 3\n{detail}"
+    assert purity >= 0.75, (
+        f"maggiano3 (windows): dad-cluster purity {purity:.2f} < 0.75\n{detail}"
+    )
+    first = got["turns"][0]
+    assert "Duolingo" not in first["text"], (
+        "maggiano3 (windows): the welded first utterance was not split: "
+        f"{first['text']!r}"
+    )

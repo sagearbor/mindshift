@@ -55,6 +55,33 @@ Owner-cluster purity on maggiano3: production 0.76 / 0.59; B 0.80.
 * **VAD gate** (B): `speaker_id`'s absolute 0.01 RMS speech gate drops poker's
   quietest player (RMS 0.0036); a noise-floor-relative gate keeps everyone.
 
+## 2026-08-30 update — B ships as the default engine
+
+`server/diarize_local.diarize_windows_first` runs approach B end to end as
+the speaker labelling (window pass → spectral labels at the eigengap k, max
+k 8 → mode filter → runs → segments; the transcript's words regrouped by
+those segments, uncovered speech labelled by the same timeline) and is
+production's default (`MINDSHIFT_DIARIZE_ENGINE=windows`; `utterances` is the
+engine above). `baseline/run.py --engine both` produces the two-engine table
+(`baseline/results.json` = utterances, `baseline/results_windows.json`), now
+including the owner's REAL Deepgram transcripts for poker and family.
+Frame accuracy, windows vs utterances (windows' raw segment timeline in
+brackets), 4 torch threads:
+
+| input | windows | utterances |
+|---|---|---|
+| poker, real Deepgram transcript (1 speaker heard, 7 utt) | **0.720** k=7, 2.2 s [0.809] | 0.447 k=4, 4.5 s |
+| maggiano3, transcript 7utt / 8utt | 0.694 / 0.681 k=3, purity 0.775, 3 s [0.761] | 0.702 / 0.671 k=3, purity 0.80 / 0.79, 7.6 s |
+| family, real Deepgram transcript (1 speaker heard, 5 utt) | 0.949 k=2, 2.1 s [0.959] | 0.974 k=2, 4.7 s |
+| maggiano3, rubric boundaries | **0.865** k=3, 3.1 s | 0.833 k=3, 5.2 s |
+| family_real / poker6, GT boundaries | 0.980 / 1.000 | 1.000 / 1.000 |
+| openai / gptaudio / couple / family3, GT | 1.000 each, 5 s | 1.000 each, 7.5-8 s |
+| scene_meeting4, GT | **0.818** k=3, 6.2 s | 0.597 k=2, 9.8 s |
+
+maggiano3's transcripts stay under B's 0.76 because 7-8 % of the rubric's
+speech has no words and sits under the speech gate or in sub-0.4 s gaps —
+no turn can carry it; the engine's own timeline reproduces B to the frame.
+
 ## Decision
 
 Keep the ECAPA model and the k-validation rules. Augment `diarize_local.py`

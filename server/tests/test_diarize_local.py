@@ -1844,3 +1844,173 @@ class TestUnknownSpeaker:
         got_off = diarize_local.diarize_turns(pcm, SR, turns, embed_fn=_mean_angle_embed)
         assert got_off["turns"][12]["speaker"] == "Speaker B"
         assert got_off["unknown_turns"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Windows-first engine (2026-08-30) — transcript-free labelling, words regrouped
+# ---------------------------------------------------------------------------
+
+class TestWindowsFirst:
+    _FILLS = (-1.0, 1 / 3, 1.0)  # three orthogonal, non-silent voices
+
+    def _three_voice_pcm(self) -> np.ndarray:
+        f = self._FILLS
+        pcm = np.zeros(int(18.0 * SR), dtype=np.float32)
+        for lo, hi, fill in [(0, 3, f[0]), (3, 6, f[1]), (6, 9, f[2]),
+                             (9, 12, f[0]), (12, 15, f[1]), (15, 18, f[2])]:
+            pcm[int(lo * SR):int(hi * SR)] = fill
+        return pcm
+
+    def _embedders(self):
+        embed = _gram_embed(self._FILLS, np.eye(3))
+
+        def embed_batch(chunks, sr):
+            return [embed(c, sr) for c in chunks]
+        return embed, embed_batch
+
+    def test_labels_come_from_the_windows_and_words_follow_the_segments(self):
+        """The same welded 9 s utterance the utterance engine splits via
+        proposals: here the window timeline IS the labelling — three voices
+        found by the eigengap, six segments at the voice changes, the welded
+        utterance's words regrouped into three turns, the clean utterances
+        untouched."""
+        embed, embed_batch = self._embedders()
+        turns = [
+            _turn(0.0, 3.0, text="pp"), _turn(3.0, 6.0, text="qq"),
+            _turn(6.0, 9.0, text="rr"), _turn(9.0, 18.0, text="w1 w2 w3"),
+        ]
+        got = diarize_local.diarize_windows_first(
+            self._three_voice_pcm(), SR, turns, embed_fn=embed, embed_batch_fn=embed_batch,
+        )
+        assert got is not None
+        assert got["source"] == diarize_local.SOURCE_WINDOWS
+        assert got["num_speakers"] == 3
+        assert got["split_utterances"] == 1
+        assert got["uncovered_turns"] == 0
+        assert got["k_evaluated"][0]["k_eigengap"] == 3
+        assert got["k_evaluated"][0]["route"] == "spectral-windows"
+        assert len(got["k_evaluated"][0]["eigenvalues"]) >= 4
+        assert got["window_pass"]["k_eigengap"] == 3
+        segs = got["segments"]
+        assert [s["label"] for s in segs] == ["Speaker A", "Speaker B", "Speaker C"] * 2
+        for s, edge in zip(segs, [0.0, 3.0, 6.0, 9.0, 12.0, 15.0]):
+            assert abs(s["start"] - edge) <= 0.5, segs
+        assert segs[-1]["end"] == pytest.approx(18.0, abs=1e-6)
+        assert [t["speaker"] for t in got["turns"]] == [
+            "Speaker A", "Speaker B", "Speaker C",
+        ] * 2
+        assert [t["text"] for t in got["turns"]] == ["pp", "qq", "rr", "w1", "w2", "w3"]
+        assert all("words" not in t and "utterance" not in t for t in got["turns"])
+        assert 0.0 <= got["agreement_with_input"] <= 1.0
+        assert got["pooled_cosine"] <= 0.5
+
+    def test_turn_breaks_at_the_utterance_boundary_even_without_a_voice_change(self):
+        """Two utterances of ONE voice stay two turns (the transcriber's
+        granularity is kept, as reanalyze-with-segments keeps it)."""
+        embed, embed_batch = self._embedders()
+        turns = [
+            _turn(0.0, 1.5, text="a a"), _turn(1.5, 3.0, text="b b"),
+            _turn(3.0, 6.0, text="qq"), _turn(6.0, 9.0, text="rr"),
+            _turn(9.0, 18.0, text="w1 w2 w3"),
+        ]
+        got = diarize_local.diarize_windows_first(
+            self._three_voice_pcm(), SR, turns, embed_fn=embed, embed_batch_fn=embed_batch,
+        )
+        assert got is not None
+        assert [(t["speaker"], t["text"]) for t in got["turns"][:2]] == [
+            ("Speaker A", "a a"), ("Speaker A", "b b"),
+        ]
+
+    def test_uncovered_speech_becomes_untranscribed_turns_labelled_by_the_timeline(self):
+        """The transcript covers the first 9 s only: the other 9 s of speech
+        become "(untranscribed)" turns carrying the SEGMENT's label (one per
+        voice change), not a neighbour's."""
+        embed, embed_batch = self._embedders()
+        turns = [
+            _turn(0.0, 3.0, text="pp"), _turn(3.0, 6.0, text="qq"),
+            _turn(6.0, 9.0, text="rr"),
+        ]
+        got = diarize_local.diarize_windows_first(
+            self._three_voice_pcm(), SR, turns, embed_fn=embed, embed_batch_fn=embed_batch,
+        )
+        assert got is not None
+        assert got["num_speakers"] == 3
+        extra = [t for t in got["turns"] if t["text"] == diarize_local.UNTRANSCRIBED_TEXT]
+        assert got["uncovered_turns"] == len(extra) == 3
+        assert [t["speaker"] for t in extra] == ["Speaker A", "Speaker B", "Speaker C"]
+        for t, edge in zip(extra, [9.0, 12.0, 15.0]):
+            assert abs(t["start_time"] - edge) <= 0.5, extra
+        assert [t["text"] for t in got["turns"]] == [
+            "pp", "qq", "rr", diarize_local.UNTRANSCRIBED_TEXT,
+            diarize_local.UNTRANSCRIBED_TEXT, diarize_local.UNTRANSCRIBED_TEXT,
+        ]
+
+    def test_one_voice_returns_none_so_the_caller_falls_back(self):
+        """Every window the same voice → the refined affinity is rank one,
+        the eigengap says k=1 and the engine has nothing to say."""
+        turns = [_turn(0.0, 4.0, text="a"), _turn(4.0, 8.0, text="b")]
+        pcm = _voiced_pcm(turns, [VOICE_A, VOICE_A], 8.0)
+
+        def embed_batch(chunks, sr):
+            return [_mean_angle_embed(c, sr) for c in chunks]
+
+        got = diarize_local.diarize_windows_first(
+            pcm, SR, turns, embed_fn=_mean_angle_embed, embed_batch_fn=embed_batch,
+        )
+        assert got is None
+
+    def test_too_little_speech_returns_none(self):
+        turns = [_turn(0.0, 1.0, text="a")]
+        pcm = _voiced_pcm(turns, [VOICE_A], 1.0)
+        got = diarize_local.diarize_windows_first(
+            pcm, SR, turns, embed_fn=_mean_angle_embed,
+        )
+        assert got is None
+
+    def test_voice_model_unavailable_returns_none(self):
+        def broken(chunks, sr):
+            raise SpeakerIdUnavailable("no torch")
+
+        turns = [_turn(0.0, 4.0, text="a"), _turn(4.0, 8.0, text="b")]
+        pcm = _voiced_pcm(turns, [VOICE_A, VOICE_B], 8.0)
+        got = diarize_local.diarize_windows_first(
+            pcm, SR, turns, embed_fn=_mean_angle_embed, embed_batch_fn=broken,
+        )
+        assert got is None
+
+
+class TestRegroupTranscriptBySegments:
+    """The word regrouping shared by the windows engine and
+    POST …/reanalyze-with-segments (main.py delegates here)."""
+
+    def test_breaks_at_label_change_and_at_utterance_boundary(self):
+        rows = [
+            {"speaker": "X", "text": "one two three four", "start_time": 0.0, "end_time": 4.0},
+            {"speaker": "X", "text": "five six", "start_time": 4.0, "end_time": 6.0},
+        ]
+        segs = [
+            {"start": 0.0, "end": 2.0, "label": "A"},
+            {"start": 2.0, "end": 6.0, "label": "B"},
+        ]
+        got = diarize_local.regroup_transcript_by_segments(rows, segs)
+        assert [(t["speaker"], t["text"]) for t in got] == [
+            ("A", "one two"), ("B", "three four"), ("B", "five six"),
+        ]
+        assert all("utterance" not in t for t in got)
+
+    def test_accepts_objects_with_attributes_and_unsorted_segments(self):
+        class Seg:
+            def __init__(self, s, e, lab):
+                self.start, self.end, self.label = s, e, lab
+
+        rows = [{"speaker": "X", "text": "a b", "start_time": 0.0, "end_time": 2.0}]
+        got = diarize_local.regroup_transcript_by_segments(
+            rows, [Seg(1.0, 2.0, " B "), Seg(0.0, 1.0, "A")],
+        )
+        assert [(t["speaker"], t["text"]) for t in got] == [("A", "a"), ("B", "b")]
+
+    def test_no_words_yields_empty(self):
+        assert diarize_local.regroup_transcript_by_segments(
+            [{"speaker": "X", "text": "  ", "start_time": 0.0, "end_time": 1.0}],
+            [{"start": 0.0, "end": 1.0, "label": "A"}],
+        ) == []

@@ -226,10 +226,45 @@ the ninth; its own labels score 0.397 / 0.146 / 0.601 where ours score
 0.671 / 0.467 / 0.974 and win every time (fallback path on 1-speaker
 transcripts; k=3 > 2 on the one 2-speaker maggiano run). The guard never
 fired and never hurt on these three; it is unchanged.
+
+2026-08-30 — the WINDOWS ENGINE (:func:`diarize_windows_first`, the
+``WINDOWS_FIRST_*`` constants; main.py's MINDSHIFT_DIARIZE_ENGINE, default
+``windows``). Everything above keeps the transcript's utterances as the unit
+that decides who spoke and uses the window pass as evidence. On the owner's
+REAL Deepgram transcripts that ceiling is the transcript itself: Deepgram
+hears ONE speaker on 8 of 9 runs and welds voices into utterances (poker:
+7 utterances for 6 men, 36 % of the speech never transcribed), and the
+utterance engine scored poker 0.447 (4 of 6 voices) — the owner watched
+"Re-analyze with the latest engine" turn a good 7-voice result back into 4.
+The windows engine runs the bake-off's approach B end to end as the
+labelling: the same whole-clip window pass → spectral labels at the eigengap
+k (max k 8, B's range) → mode filter → label runs → segments, then the
+transcript's WORDS are regrouped by those segments (the regrouping POST
+…/reanalyze-with-segments applies to the phone's timeline, one shared
+implementation: :func:`regroup_transcript_by_segments`) and speech no
+utterance covered becomes "(untranscribed)" turns labelled by the same
+timeline. It returns None (→ the utterance engine runs as before) when the
+eigengap says one voice or there is too little speech.
+
+Measured 2026-08-30 (frame accuracy vs ground truth, score.py; windows vs
+utterance engine; the windows engine's raw segment timeline in brackets):
+real Deepgram transcripts — poker 0.720 / k=7 (7 clusters: one player's
+turn splits at the fixture's ±1-2 s slop) vs 0.447 / k=4 [0.809];
+maggiano3 7utt 0.694 vs 0.702, 8utt 0.681 vs 0.671, both k=3, dad-cluster
+purity 0.775 vs 0.80 / 0.79 [0.761 — B's number, reproduced]; family
+0.949 vs 0.974 [0.959]. Ground-truth boundaries — family_real 0.980 (7/8
+utterances: the son's 0.5 s "And") vs 1.000, poker6 1.000 (6/6) vs 1.000,
+openai / gptaudio / couple / family3 1.000 vs 1.000, meeting4 0.818 / k=3
+(14/17) vs 0.597 / k=2 (11/17), maggiano3 rubric boundaries 0.865 vs 0.833.
+What keeps maggiano3's transcripts under B's 0.76 is coverage: 7-8 % of
+the rubric's speech has no words and sits under the speech gate or in
+sub-0.4 s gaps, so no turn can carry it. Wall time at 4 torch threads, this
+Mac: windows 2-6 s per fixture vs utterances 4-10 s.
 """
 
 from __future__ import annotations
 
+import bisect
 import logging
 import os
 
@@ -636,6 +671,55 @@ UNKNOWN_LABEL = -1
 # without a restart of the test process; the default is the measured verdict.
 UNKNOWN_FLAG_ENV = "MINDSHIFT_DIARIZE_UNKNOWN"
 UNKNOWN_DEFAULT = False
+
+# --- Windows-first engine (2026-08-30) ---------------------------------------
+# The bake-off's approach B run END TO END as the speaker labelling (the
+# ``windows`` engine, MINDSHIFT_DIARIZE_ENGINE — main.py's cross-check block):
+# the whole-clip window pass above (same 1.5 s / 0.25 s grid, same cap and
+# hop widening, same noise-floor speech gate) → spectral labels at the
+# eigengap k → mode filter → label runs (< SPECTRAL_MIN_RUN_SECONDS absorbed)
+# → speaker SEGMENTS, and the transcript's WORDS are regrouped by those
+# segments (:func:`regroup_transcript_by_segments`, the same regrouping
+# POST …/reanalyze-with-segments applies to the phone's own timeline). The
+# transcript's utterance boundaries never decide who spoke — they only
+# decide where a turn may ALSO break, so the welded-utterance failure
+# (poker: Deepgram hears ONE speaker in seven utterances, the utterance
+# engine 4 of 6 voices, 0.467) cannot happen. Why (2026-08-29/30, frame
+# accuracy vs GT under score.py): on the owner's real recordings the
+# utterance engine scores maggiano3 0.70 / 0.67 (two Deepgram transcripts),
+# poker 0.47 (k=4), family 0.97; B scores 0.76 / 0.81 (k=7) / 0.96. Today
+# the owner watched "Re-analyze with the latest engine" turn a good 7-voice
+# poker result back into 4 voices. The measurements the engine ships with
+# are in :func:`diarize_windows_first`'s docstring.
+#
+# Eigengap search range for THIS engine. B's headline (poker6 k=7, 0.81)
+# was measured with max k 8; the window pass's own k_eigengap is clamped to
+# MAX_SPEAKERS_LOCAL (6) because there it is only a lower bound for the
+# utterance engine's validated k-selection (which returned 4 on poker6).
+# Here the eigengap IS the count, so it gets B's range. Measured 2026-08-30
+# at max 8: family_real 2, poker6 7, openai/gptaudio/couple 2, family3 3,
+# meeting4 3, maggiano3 3 — the same counts as the bake-off.
+WINDOWS_FIRST_MAX_K = 8
+
+# The windows engine's ``source`` tag (the utterance engine's is SOURCE).
+SOURCE_WINDOWS = "local-ecapa-windows"
+
+# Speech the transcript never covered (the UNCOVERED_* rules) is labelled by
+# this engine's segment timeline, so a run may bridge pauses up to this long
+# (the utterance engine bridges UNCOVERED_BRIDGE_SECONDS 0.15 because it can
+# only give such a run a NEIGHBOUR'S label). Measured 2026-08-30 on the
+# owner's poker transcript (Deepgram covered 64 % of the speech): at 0.15 s
+# the runs 0.48-1.14, 4.74-5.4 and 7.14-8.34 s — three players' speech with
+# breath pauses — stayed unlabelled; at 0.5 s they are recovered, and no
+# checked-in fixture gains a run it should not (their gaps are digital
+# silence or under UNCOVERED_MIN_SECONDS).
+WINDOWS_FIRST_UNCOVERED_BRIDGE_SECONDS = 0.5
+
+# Word regrouping by speaker segments (moved here from main.py 2026-08-30 so
+# the windows engine and POST …/reanalyze-with-segments share ONE
+# implementation): a word further than this from every segment is not
+# snapped to one; it stays with its utterance's neighbours instead.
+SPEAKER_SEGMENT_SNAP_S = 0.5
 
 
 def unknown_enabled() -> bool:
@@ -2144,14 +2228,7 @@ def diarize_turns(
     :func:`speaker_id.embed_pcm_batch`, or to a loop over ``embed_fn`` when
     only that is injected).
     """
-    embed = embed_fn or _default_embed
-    if embed_batch_fn is not None:
-        embed_batch = embed_batch_fn
-    elif embed_fn is not None:
-        def embed_batch(chunks, sr_):
-            return [embed_fn(c, sr_) for c in chunks]
-    else:
-        embed_batch = speaker_id.embed_pcm_batch
+    embed, embed_batch = _resolve_embedders(embed_fn, embed_batch_fn)
     n_transcript = len(turns)
     embed_cache: dict[tuple[int, int], np.ndarray] = {}
     unknown = unknown_enabled()
@@ -2444,4 +2521,449 @@ def diarize_turns(
             "proposed_boundaries": n_proposed,
             "window_boundaries_used": split_stats["window_boundaries"],
         },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Word regrouping by speaker segments (shared by the windows-first engine and
+# POST …/reanalyze-with-segments; moved from main.py 2026-08-30)
+# ---------------------------------------------------------------------------
+
+def _word_span(w) -> "tuple[float, float] | None":
+    """A stored word's (start, end) in seconds, or None when either is
+    unusable. Accepts the transcriber's ``start_time``/``end_time``
+    (audio_ingest) and the bare ``start``/``end`` spelling defensively."""
+    if not isinstance(w, dict):
+        return None
+    try:
+        start = float(w.get("start_time", w.get("start")))
+        end = float(w.get("end_time", w.get("end")))
+    except (TypeError, ValueError):
+        return None
+    if end < start:
+        return None
+    return start, end
+
+
+def _segment_triple(sg) -> tuple[float, float, str]:
+    """``(start, end, label)`` of a segment given as a dict or as an object
+    with ``start`` / ``end`` / ``label`` attributes (main.SpeakerSegment)."""
+    if isinstance(sg, dict):
+        return float(sg["start"]), float(sg["end"]), str(sg["label"]).strip()
+    return float(sg.start), float(sg.end), str(sg.label).strip()
+
+
+def _regroup_tokens(
+    rows: list[dict], segments: list, *, snap_s: float = SPEAKER_SEGMENT_SNAP_S,
+) -> list[dict]:
+    """:func:`regroup_transcript_by_segments` with each turn's source
+    utterance index kept under ``utterance`` (the windows engine needs it
+    for its agreement-with-input diagnostic)."""
+    segs = [_segment_triple(sg) for sg in segments]
+    segs.sort(key=lambda t: (t[0], t[1]))
+    starts = [a for a, _, _ in segs]
+
+    def _locate(mid: float) -> "str | None":
+        i = bisect.bisect_right(starts, mid) - 1
+        if i >= 0 and segs[i][0] <= mid <= segs[i][1]:
+            return segs[i][2]
+        best: str | None = None
+        best_d = snap_s
+        for j in (i, i + 1):
+            if 0 <= j < len(segs):
+                a, b, lab = segs[j]
+                d = a - mid if mid < a else max(mid - b, 0.0)
+                if d <= best_d:
+                    best_d, best = d, lab
+        return best
+
+    def _nearest_any(mid: "float | None") -> str:
+        if mid is None:
+            return segs[0][2]
+        return min(
+            segs,
+            key=lambda t: (t[0] - mid if mid < t[0] else max(mid - t[1], 0.0)),
+        )[2]
+
+    # tokens: [utterance index, text, start|None, end|None, label|None]
+    tokens: list[list] = []
+    for ui, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        words = row.get("words")
+        spans: list[tuple[str, "float | None", "float | None"]] = []
+        if isinstance(words, list) and words:
+            for w in words:
+                text = str((w or {}).get("word") or "").strip() if isinstance(w, dict) else ""
+                if not text:
+                    continue
+                span = _word_span(w)
+                spans.append((text, span[0], span[1]) if span else (text, None, None))
+        if not spans:
+            # Proportional fallback: spread the row's words evenly over its span.
+            pieces = str(row.get("text") or "").split()
+            span = _word_span(row)
+            n = len(pieces)
+            for k, piece in enumerate(pieces):
+                if span and span[1] > span[0]:
+                    st = span[0] + (span[1] - span[0]) * k / n
+                    en = span[0] + (span[1] - span[0]) * (k + 1) / n
+                    spans.append((piece, st, en))
+                elif span:
+                    spans.append((piece, span[0], span[1]))
+                else:
+                    spans.append((piece, None, None))
+        for text, st, en in spans:
+            label = _locate((st + en) / 2.0) if st is not None and en is not None else None
+            tokens.append([ui, text, st, en, label])
+
+    # Neighbour fill within each utterance: previous word, then next word.
+    for idx, tok in enumerate(tokens):
+        if tok[4] is None and idx > 0 and tokens[idx - 1][0] == tok[0]:
+            tok[4] = tokens[idx - 1][4]
+    for idx in range(len(tokens) - 2, -1, -1):
+        tok = tokens[idx]
+        if tok[4] is None and tokens[idx + 1][0] == tok[0]:
+            tok[4] = tokens[idx + 1][4]
+    # A whole utterance nobody could place: the last label placed before it,
+    # else the nearest segment however far.
+    last: str | None = None
+    for tok in tokens:
+        if tok[4] is None:
+            mid = (tok[2] + tok[3]) / 2.0 if tok[2] is not None and tok[3] is not None else None
+            tok[4] = last if last is not None else _nearest_any(mid)
+        last = tok[4]
+
+    turns: list[dict] = []
+    for ui, text, st, en, label in tokens:
+        cur = turns[-1] if turns else None
+        if cur is not None and cur["speaker"] == label and cur["utterance"] == ui:
+            cur["_words"].append(text)
+            if en is not None:
+                cur["end_time"] = en if cur["end_time"] is None else max(cur["end_time"], en)
+            continue
+        turns.append({
+            "speaker": label, "_words": [text], "utterance": ui,
+            "start_time": st, "end_time": en,
+        })
+    return [
+        {
+            "speaker": t["speaker"],
+            "text": " ".join(t["_words"]),
+            "start_time": t["start_time"],
+            "end_time": t["end_time"],
+            "utterance": t["utterance"],
+        }
+        for t in turns
+    ]
+
+
+def regroup_transcript_by_segments(
+    rows: list[dict], segments: list, *, snap_s: float = SPEAKER_SEGMENT_SNAP_S,
+) -> list[dict]:
+    """Rebuild a transcript so its SPEAKERS follow ``segments`` while its
+    WORDS stay the transcriber's.
+
+    ``segments`` are ``{start, end, label}`` dicts (or objects with those
+    attributes), seconds from the start of the audio, any order, ideally
+    non-overlapping. Every word of every row (the row's stored per-word
+    timings when it has them; otherwise the row's text split on whitespace
+    and spread evenly over the row's own [start_time, end_time] — the
+    proportional fallback for turns.json rows and word-less transcribers)
+    is assigned to the segment containing its midpoint, else the nearest
+    segment within ``snap_s``, else it stays with its neighbours in the
+    same utterance (previous word first, then next, then the last word
+    placed anywhere before it, then the nearest segment however far — a
+    word is never dropped). Consecutive words with the same label form one
+    turn ``{speaker, text, start_time, end_time}``; a turn ALSO breaks at
+    the original utterance boundary so the transcriber's turn granularity
+    — what per-turn heat is scored on — is kept, and a welded utterance is
+    split exactly at the voice change.
+
+    Blank rows contribute nothing; a transcript with no words at all yields
+    ``[]``."""
+    return [
+        {k: v for k, v in t.items() if k != "utterance"}
+        for t in _regroup_tokens(rows, segments, snap_s=snap_s)
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Windows-first engine (2026-08-30; see the WINDOWS_FIRST_* constants)
+# ---------------------------------------------------------------------------
+
+def _uncovered_segment_turns(
+    candidates: list[tuple[float, float]], segments: list[dict], *, cap: int,
+    min_seconds: float = UNCOVERED_MIN_SECONDS,
+) -> list[dict]:
+    """Turn dicts (text UNTRANSCRIBED_TEXT) for the ``cap`` LONGEST
+    uncovered speech runs, each cut where the segment timeline changes
+    label; a piece under ``min_seconds`` is absorbed into its longer
+    neighbour inside the run. Pure Python."""
+    if cap <= 0 or not candidates:
+        return []
+    ranked = sorted(
+        [(s, e) for s, e in candidates if e > s],
+        key=lambda se: (-(se[1] - se[0]), se[0]),
+    )[:cap]
+    out: list[dict] = []
+    for s, e in sorted(ranked):
+        pieces = [
+            [max(s, sg["start"]), min(e, sg["end"]), sg["label"]]
+            for sg in segments if min(e, sg["end"]) > max(s, sg["start"])
+        ]
+        if not pieces:
+            continue
+        while len(pieces) > 1:
+            lens = [b - a for a, b, _ in pieces]
+            i = int(np.argmin(lens))
+            if lens[i] >= min_seconds:
+                break
+            cand = [j for j in (i - 1, i + 1) if 0 <= j < len(pieces)]
+            j = max(cand, key=lambda j: pieces[j][1] - pieces[j][0])
+            pieces[i][2] = pieces[j][2]
+            merged: list[list] = []
+            for a, b, lab in pieces:
+                if merged and merged[-1][2] == lab:
+                    merged[-1][1] = b
+                else:
+                    merged.append([a, b, lab])
+            pieces = merged
+        for a, b, lab in pieces:
+            out.append({
+                "speaker": lab, "text": UNTRANSCRIBED_TEXT,
+                "start_time": round(a, 3), "end_time": round(b, 3),
+            })
+    return out
+
+
+def _resolve_embedders(embed_fn, embed_batch_fn):
+    """``(embed, embed_batch)`` — the injected functions, or the real model
+    (a loop over ``embed_fn`` stands in for the batch when only that is
+    injected). Shared by both engines."""
+    embed = embed_fn or _default_embed
+    if embed_batch_fn is not None:
+        embed_batch = embed_batch_fn
+    elif embed_fn is not None:
+        def embed_batch(chunks, sr_):
+            return [embed_fn(c, sr_) for c in chunks]
+    else:
+        embed_batch = speaker_id.embed_pcm_batch
+    return embed, embed_batch
+
+
+def diarize_windows_first(
+    pcm: np.ndarray,
+    sr: int,
+    turns: list[dict],
+    *,
+    embed_fn=None,
+    embed_batch_fn=None,
+) -> dict | None:
+    """Transcript-FREE speaker labelling (the ``windows`` engine): label the
+    audio from the whole-clip window pass alone, then regroup the
+    transcript's words by the resulting speaker segments.
+
+    Pipeline (bake-off approach B, docs/research/2026-08-29-voice-separation/
+    B-sliding-window/, run end to end): :class:`_WindowPass` over the clip's
+    speech (WINDOW_PASS_* — same grid, cap, hop widening and gate as the
+    utterance engine's pass) → refined affinity → eigengap k over
+    1..WINDOWS_FIRST_MAX_K → spectral labels → mode filter
+    (SPECTRAL_SMOOTH_HOPS) → label runs, runs under SPECTRAL_MIN_RUN_SECONDS
+    absorbed into their longer neighbour → segments named in order of first
+    appearance → :func:`regroup_transcript_by_segments` (a turn breaks at a
+    label change AND at the original utterance boundary). Costs the window
+    embeddings plus one pooled embed per found voice (the ``pooled_cosine``
+    diagnostic).
+
+    Returns ``None`` — the caller falls back to :func:`diarize_turns` — when
+    the voice model is unavailable, fewer than two speech windows exist, the
+    eigengap says ONE voice, or smoothing leaves a single label. Otherwise
+    the same shape as :func:`diarize_turns` (``turns``, ``num_speakers``,
+    ``k_evaluated`` with the eigenvalues, ``agreement_with_input``, …) with
+    ``source`` = SOURCE_WINDOWS and ``segments`` = the
+    ``[{start, end, label}]`` timeline the words were regrouped by.
+
+    Measured 2026-08-30 (frame accuracy vs ground truth, score.py; this
+    engine vs the utterance engine): the owner's real Deepgram transcripts —
+    poker 0.720 (k=7) vs 0.447 (k=4), maggiano3 0.694 / 0.681 vs 0.702 /
+    0.671 (k=3 both), family 0.949 vs 0.974; ground-truth boundaries —
+    family_real 0.980 vs 1.000, poker6 1.000 vs 1.000, the five TTS fixtures
+    1.000 vs 1.000 except meeting4 0.818 (k=3) vs 0.597 (k=2), maggiano3's
+    rubric 0.865 vs 0.833. Pins: tests/test_diarize_regression_ladder.py,
+    tests/test_diarize_scenes.py, tests/test_diarize_private.py
+    (``test_windows_first_*``); the full two-engine table is produced by
+    docs/research/2026-08-29-voice-separation/baseline/run.py
+    (results_windows.json). 2-6 s per 30-40 s fixture at 4 torch threads.
+    """
+    embed, embed_batch = _resolve_embedders(embed_fn, embed_batch_fn)
+    try:
+        window_pass = _WindowPass(pcm, sr, embed_batch, embed)
+        window_pass.run_global()
+        if window_pass.affinity is None or len(window_pass.starts) < 2:
+            logger.info(
+                "windows engine: %d speech window(s) — nothing to cluster",
+                len(window_pass.starts),
+            )
+            return None
+        k_raw, eigenvalues = _dsw.eigengap_k(window_pass.affinity, WINDOWS_FIRST_MAX_K)
+        if k_raw < 2:
+            logger.info(
+                "windows engine heard one voice (eigengap k=1, eigenvalues %s)",
+                eigenvalues,
+            )
+            return None
+        k = min(k_raw, len(window_pass.starts))
+        labels = _dsw.spectral_labels(window_pass.affinity, k)
+        smoothed = _dsw.mode_filter(labels, window_pass.starts, window_pass.global_hop)
+        duration = pcm.size / sr
+        runs = _dsw.window_label_runs(
+            smoothed, window_pass.starts, window_pass.window, 0.0, duration,
+        )
+        name_of: dict[int, str] = {}
+        segments: list[dict] = []
+        for b, e, lab in runs:
+            if lab not in name_of:
+                name_of[lab] = _speaker_name(len(name_of))
+            segments.append({
+                "start": round(float(b), 3), "end": round(float(e), 3),
+                "label": name_of[lab],
+            })
+        if len(name_of) < 2:
+            logger.info(
+                "windows engine: eigengap k=%d but one label survives smoothing "
+                "(%d windows) — nothing to say", k_raw, len(window_pass.starts),
+            )
+            return None
+        # Pooled centroid per found voice (its segments' audio, capped at
+        # MAX_POOL_SECONDS) → the worst pairwise cosine, the utterance
+        # engine's acceptance quantity, reported for the logs only.
+        cap = int(MAX_POOL_SECONDS * sr)
+        seconds_of: dict[str, float] = {}
+        pooled: dict[str, np.ndarray] = {}
+        for lab in name_of.values():
+            spans = [(int(s["start"] * sr), int(s["end"] * sr)) for s in segments if s["label"] == lab]
+            seconds_of[lab] = round(sum((b - a) / sr for a, b in spans), 2)
+            audio = np.concatenate([pcm[a:b] for a, b in spans])[:cap]
+            pooled[lab] = speaker_id.l2_normalize(embed(np.ascontiguousarray(audio), sr))
+        labs = sorted(pooled)
+        pooled_cosine = max(
+            (float(np.dot(pooled[a], pooled[b])) for i, a in enumerate(labs) for b in labs[i + 1:]),
+            default=0.0,
+        )
+    except speaker_id.SpeakerIdUnavailable as exc:
+        logger.info("windows engine unavailable: %s", exc)
+        return None
+
+    regrouped = _regroup_tokens(turns, segments)
+    # A turn with a time span but no words at all (boundary-only input, as
+    # the regression fixtures feed) is still a turn: it takes the label of
+    # the segment it overlaps most and keeps its (empty) text.
+    placed = {t["utterance"] for t in regrouped}
+    for ui, row in enumerate(turns):
+        span = _word_span(row) if isinstance(row, dict) else None
+        if ui in placed or span is None or span[1] <= span[0]:
+            continue
+        best = max(
+            segments,
+            key=lambda sg: _overlap_seconds(span[0], span[1], sg["start"], sg["end"]),
+        )
+        regrouped.append({
+            "speaker": best["label"], "text": str(row.get("text") or ""),
+            "start_time": span[0], "end_time": span[1], "utterance": ui,
+        })
+    regrouped.sort(key=lambda t: (t["utterance"], float(t["start_time"] or 0.0)))
+    if not regrouped:
+        logger.info("windows engine: the transcript has nothing to regroup")
+        return None
+    new_turns = [{k_: v for k_, v in t.items() if k_ != "utterance"} for t in regrouped]
+
+    # Speech the transcript never covered becomes "(untranscribed)" turns
+    # labelled by the segment timeline — the same UNCOVERED_* rules as the
+    # utterance engine, but labelled by the instrument that labelled
+    # everything else rather than by the nearest utterance, and capped at
+    # the transcript's own utterance count + UNCOVERED_MAX_EXTRA rather than
+    # a fifth of it: on the owner's poker recording Deepgram transcribed
+    # 7 utterances covering 64 % of the speech (whole players missing), and
+    # the missing 36 % is exactly the speech this engine can label.
+    uncovered = _uncovered_segment_turns(
+        _uncovered_speech(
+            window_pass.mask, window_pass.frame_s, turns, duration,
+            bridge=WINDOWS_FIRST_UNCOVERED_BRIDGE_SECONDS,
+        ),
+        segments, cap=len(turns) + UNCOVERED_MAX_EXTRA,
+    )
+    if uncovered:
+        logger.info(
+            "windows engine: %d run(s) of speech outside every utterance become "
+            "%r turns (%s)",
+            len(uncovered), UNTRANSCRIBED_TEXT,
+            ", ".join(
+                f"{t['start_time']:.2f}-{t['end_time']:.2f} {t['speaker']}" for t in uncovered
+            ),
+        )
+        new_turns, index_map = _insert_chronological(new_turns, uncovered)
+    speakers_out = []
+    for t in new_turns:
+        if t["speaker"] not in speakers_out:
+            speakers_out.append(t["speaker"])
+    num_speakers = len(speakers_out)
+    if num_speakers < 2:
+        logger.info(
+            "windows engine: %d voices found but the transcript's words all "
+            "fall on one — nothing to say", len(name_of),
+        )
+        return None
+    from_utterance = [t["utterance"] for t in regrouped]
+    n_split = sum(1 for ui in set(from_utterance) if from_utterance.count(ui) > 1)
+    for t in uncovered:
+        if t["speaker"] not in speakers_out:
+            speakers_out.append(t["speaker"])
+    num_speakers = len(speakers_out)
+    entry = {
+        "k": k, "ok": True, "route": "spectral-windows",
+        "k_eigengap": k_raw, "eigenvalues": eigenvalues,
+        "voices_after_smoothing": len(name_of),
+        "max_pairwise_cosine": round(pooled_cosine, 3),
+        "min_cluster_seconds": min(seconds_of.values()),
+        "cluster_seconds": seconds_of,
+    }
+    logger.info(
+        "windows engine: %d speech windows (%.2fs hop, gate %.4f RMS), eigengap "
+        "k=%d (eigenvalues %s) -> %d segment(s), %d voice(s) in the transcript, "
+        "%d utterance(s) broken at a voice change, worst pooled cosine %.3f, "
+        "cluster seconds %s",
+        len(window_pass.starts), window_pass.global_hop, window_pass.gate, k_raw,
+        eigenvalues, len(segments), num_speakers, n_split, pooled_cosine, seconds_of,
+    )
+    return {
+        "turns": new_turns,
+        "num_speakers": num_speakers,
+        "source": SOURCE_WINDOWS,
+        "model": f"{speaker_id.ECAPA_SOURCE}@{speaker_id.ECAPA_REVISION}",
+        "segments_total": len(new_turns),
+        "segments_embedded": len(window_pass.starts),
+        "split_utterances": n_split,
+        "confirmed_short_pieces": 0,
+        "uncovered_turns": len(uncovered),
+        "unknown_turns": 0,
+        "unknown_seconds": 0.0,
+        "short_turn_attribution": {"self": 0, "neighbour": 0},
+        "pooled_cosine": round(pooled_cosine, 3),
+        "k_evaluated": [entry],
+        "agreement_with_input": partition_agreement(
+            [turns[ui].get("speaker") for ui in from_utterance],
+            [t["speaker"] for t in regrouped],
+        ),
+        "window_pass": {
+            "windows": len(window_pass.starts),
+            "hop": window_pass.global_hop,
+            "speech_gate": round(window_pass.gate, 4),
+            "embedded": window_pass.embedded,
+            "k_eigengap": k_raw,
+            "eigenvalues": eigenvalues,
+            "proposed_boundaries": len(segments) - 1,
+            "window_boundaries_used": len(segments) - 1,
+        },
+        "segments": segments,
     }

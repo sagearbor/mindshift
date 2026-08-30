@@ -15,7 +15,7 @@
    },
    "owner_purity": 1.0,
    "fixture": "family_real",
-   "runtime_s": 4.1,
+   "runtime_s": 3.9,
    "k_evaluated": [
     {
      "k": 2,
@@ -61,7 +61,43 @@
      "reason": "centroids not clearly distinct (worst pair cosine 0.684 > 0.45)",
      "route": "linkage"
     }
-   ]
+   ],
+   "n_turns": 8,
+   "engine": "utterances",
+   "source": "local-ecapa",
+   "uncovered_turns": 0,
+   "split_utterances": 0
+  },
+  "deepgram_run1": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.974,
+   "unlabelled_frac": 0.01,
+   "mapping": {
+    "Speaker A": "Sage",
+    "Speaker B": "Asher"
+   },
+   "per_gt_recall": {
+    "Asher": 0.976,
+    "Sage": 0.973
+   },
+   "owner_purity": 1.0,
+   "fixture": "family_real",
+   "runtime_s": 4.7,
+   "k_evaluated": [
+    {
+     "k": 2,
+     "ok": true,
+     "max_pairwise_cosine": 0.106,
+     "min_cluster_seconds": 10.13,
+     "route": "linkage"
+    }
+   ],
+   "n_turns": 7,
+   "engine": "utterances",
+   "source": "local-ecapa",
+   "uncovered_turns": 0,
+   "split_utterances": 2
   }
  },
  "poker6": {
@@ -133,7 +169,67 @@
      "split_anchor_cosine": 0.231,
      "route": "linkage"
     }
-   ]
+   ],
+   "n_turns": 6,
+   "engine": "utterances",
+   "source": "local-ecapa",
+   "uncovered_turns": 0,
+   "split_utterances": 0
+  },
+  "deepgram_run1": {
+   "k_true": 6,
+   "k_pred": 4,
+   "frame_accuracy": 0.447,
+   "unlabelled_frac": 0.169,
+   "mapping": {
+    "Speaker A": "Player1",
+    "Speaker B": "Player3",
+    "Speaker C": "Player5",
+    "Speaker D": "Player4"
+   },
+   "per_gt_recall": {
+    "Player1": 0.488,
+    "Player2": 0.0,
+    "Player3": 0.862,
+    "Player4": 0.784,
+    "Player5": 0.558,
+    "Player6": 0.0
+   },
+   "owner_purity": null,
+   "fixture": "poker6",
+   "runtime_s": 4.5,
+   "k_evaluated": [
+    {
+     "k": 2,
+     "ok": true,
+     "max_pairwise_cosine": 0.098,
+     "min_cluster_seconds": 6.36,
+     "route": "linkage"
+    },
+    {
+     "k": 3,
+     "ok": true,
+     "max_pairwise_cosine": 0.124,
+     "min_cluster_seconds": 3.06,
+     "marginal_pair_cosine": 0.042,
+     "split_anchor_cosine": 0.052,
+     "route": "linkage"
+    },
+    {
+     "k": 4,
+     "ok": true,
+     "max_pairwise_cosine": 0.108,
+     "min_cluster_seconds": 2.44,
+     "marginal_pair_cosine": 0.108,
+     "split_anchor_cosine": 0.021,
+     "route": "linkage"
+    }
+   ],
+   "n_turns": 12,
+   "engine": "utterances",
+   "source": "local-ecapa",
+   "uncovered_turns": 4,
+   "split_utterances": 1
   }
  },
  "openai": {
@@ -152,7 +248,7 @@
    },
    "owner_purity": null,
    "fixture": "openai",
-   "runtime_s": 7.5,
+   "runtime_s": 7.7,
    "k_evaluated": [
     {
      "k": 2,
@@ -197,7 +293,12 @@
      "reason": "centroids not clearly distinct (worst pair cosine 0.784 > 0.45)",
      "route": "linkage"
     }
-   ]
+   ],
+   "n_turns": 10,
+   "engine": "utterances",
+   "source": "local-ecapa",
+   "uncovered_turns": 0,
+   "split_utterances": 0
   }
  },
  "gptaudio": {
@@ -216,7 +317,7 @@
    },
    "owner_purity": null,
    "fixture": "gptaudio",
-   "runtime_s": 8.0,
+   "runtime_s": 8.2,
    "k_evaluated": [
     {
      "k": 2,
@@ -261,7 +362,12 @@
      "reason": "centroids not clearly distinct (worst pair cosine 0.725 > 0.45)",
      "route": "linkage"
     }
-   ]
+   ],
+   "n_turns": 10,
+   "engine": "utterances",
+   "source": "local-ecapa",
+   "uncovered_turns": 0,
+   "split_utterances": 0
   }
  },
  "scene_couple": {
@@ -280,7 +386,7 @@
    },
    "owner_purity": 1.0,
    "fixture": "scene_couple",
-   "runtime_s": 7.6,
+   "runtime_s": 7.7,
    "k_evaluated": [
     {
      "k": 2,
@@ -325,7 +431,12 @@
      "reason": "centroids not clearly distinct (worst pair cosine 0.842 > 0.45)",
      "route": "linkage"
     }
-   ]
+   ],
+   "n_turns": 13,
+   "engine": "utterances",
+   "source": "local-ecapa",
+   "uncovered_turns": 0,
+   "split_utterances": 0
   }
  },
  "scene_family3": {
@@ -346,7 +457,7 @@
    },
    "owner_purity": 1.0,
    "fixture": "scene_family3",
-   "runtime_s": 7.3,
+   "runtime_s": 7.5,
    "k_evaluated": [
     {
      "k": 2,
@@ -391,7 +502,12 @@
      "reason": "centroids not clearly distinct (worst pair cosine 0.766 > 0.45)",
      "route": "linkage"
     }
-   ]
+   ],
+   "n_turns": 15,
+   "engine": "utterances",
+   "source": "local-ecapa",
+   "uncovered_turns": 0,
+   "split_utterances": 0
   }
  },
  "scene_meeting4": {
@@ -412,7 +528,7 @@
    },
    "owner_purity": 1.0,
    "fixture": "scene_meeting4",
-   "runtime_s": 9.6,
+   "runtime_s": 9.8,
    "k_evaluated": [
     {
      "k": 2,
@@ -468,7 +584,12 @@
      "reason": "centroids not clearly distinct (worst pair cosine 0.791 > 0.45)",
      "route": "linkage"
     }
-   ]
+   ],
+   "n_turns": 17,
+   "engine": "utterances",
+   "source": "local-ecapa",
+   "uncovered_turns": 0,
+   "split_utterances": 0
   }
  },
  "maggiano3": {
@@ -489,7 +610,7 @@
    },
    "owner_purity": 0.84,
    "fixture": "maggiano3",
-   "runtime_s": 5.3,
+   "runtime_s": 5.2,
    "k_evaluated": [
     {
      "k": 2,
@@ -551,7 +672,12 @@
      "reason": "cluster has only 1.0s pooled speech (needs 1.5s at separation 0.222)",
      "route": "linkage"
     }
-   ]
+   ],
+   "n_turns": 25,
+   "engine": "utterances",
+   "source": "local-ecapa",
+   "uncovered_turns": 4,
+   "split_utterances": 0
   },
   "transcript_7utt": {
    "k_true": 3,
@@ -588,7 +714,12 @@
      "split_anchor_cosine": 0.084,
      "route": "linkage"
     }
-   ]
+   ],
+   "n_turns": 20,
+   "engine": "utterances",
+   "source": "local-ecapa",
+   "uncovered_turns": 0,
+   "split_utterances": 3
   },
   "transcript_8utt": {
    "k_true": 3,
@@ -607,7 +738,7 @@
    },
    "owner_purity": 0.792,
    "fixture": "maggiano3",
-   "runtime_s": 7.3,
+   "runtime_s": 7.5,
    "k_evaluated": [
     {
      "k": 2,
@@ -625,7 +756,12 @@
      "split_anchor_cosine": 0.173,
      "route": "linkage"
     }
-   ]
+   ],
+   "n_turns": 15,
+   "engine": "utterances",
+   "source": "local-ecapa",
+   "uncovered_turns": 0,
+   "split_utterances": 2
   }
  }
 }

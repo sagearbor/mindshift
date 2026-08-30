@@ -27,6 +27,7 @@ from tests.test_reanalyze import (
     FIXTURE_WAV,
     GOOD_UUID,
     STORED_TURNS,
+    _STORED_SPEAKERS,
     FakeReanalyzeStore,
     _analyze_llm_json,
     _drain_jobs,
@@ -396,3 +397,134 @@ async def test_apply_segments_requires_auth_401(client, store, monkeypatch):
         f"/recordings/{GOOD_UUID}/reanalyze-with-segments", json={"segments": SEGMENTS},
     )
     assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# POST …/reanalyze on a recording WITH applied voices (2026-08-30): the applied
+# segments are kept by default ("Re-analyze with the latest engine" must not
+# undo a hand-checked result); fresh=true (query or body) ignores them.
+# ---------------------------------------------------------------------------
+
+def _seed_applied(store, *, manual=True):
+    store.seed("test-user", GOOD_UUID, audio=FIXTURE_WAV, title="Plumber",
+               transcript=STORED_TURNS,
+               turns=[{"speaker": "Speaker A", "text": "stale"}],
+               analysis={"narrative": "old"})
+    meta = store._recordings["test-user"][GOOD_UUID]["meta"]
+    meta["speaker_segments"] = [dict(s) for s in SEGMENTS]
+    meta["speaker_segments_source"] = "device-B"
+    meta["speaker_segments_applied_at"] = "2026-08-30T10:00:00+00:00"
+    if manual:
+        meta["manual_speaker_labels"] = {"Speaker A": "Mum", "Speaker B": "Dad"}
+        meta["manual_speaker_people"] = {"Speaker A": "self"}
+    return meta
+
+
+async def _post_reanalyze(client, rid, *, query="", body=None, uid="test-user"):
+    return await client.post(
+        f"/recordings/{rid}/reanalyze{query}", headers={"X-Test-Uid": uid},
+        **({"json": body} if body is not None else {}),
+    )
+
+
+@pytest.mark.anyio
+async def test_reanalyze_keeps_applied_voices_by_default(client, store, monkeypatch):
+    monkeypatch.setenv("MINDSHIFT_DIARIZE_CROSSCHECK", "1")
+    monkeypatch.delenv("MINDSHIFT_DIARIZE_ENGINE", raising=False)
+    meta = _seed_applied(store)
+
+    with patch("main.transcribe_upload") as stt, \
+         patch("main.get_llm_client",
+               return_value=_mock_llm(_analyze_llm_json(len(EXPECTED_TURNS), _ABC))), \
+         patch("main.diarize_local.diarize_windows_first") as wf, \
+         patch("main.diarize_local.diarize_turns") as dz:
+        resp = await _post_reanalyze(client, GOOD_UUID)
+        assert resp.status_code == 202, resp.text
+        job_id = resp.json()["job_id"]
+        assert resp.json()["note"] is None
+        await _drain_jobs()
+        done = await _get_job(client, job_id)
+
+    # No STT, no engine at all — the applied voices are the speakers.
+    stt.assert_not_called()
+    wf.assert_not_called()
+    dz.assert_not_called()
+    assert store.transcript_saves == []
+
+    body = done.json()
+    assert body["status"] == "done", body
+    result = body["result"]
+    assert [(t["speaker"], t["text"]) for t in result["turns"]] == \
+        [(s, x) for s, x, _, _ in EXPECTED_TURNS]
+    assert set(result["word_metrics"]["speakers"]) == set(_ABC)
+    assert "skipped" in (result["voice_analysis"] or "")
+    note = result["transcription_note"] or ""
+    assert "device-B" in note and "kept" in note and "fresh=true" in note
+    assert result["storage_note"] is None
+    assert result["stored"] is True and result["recording_id"] == GOOD_UUID
+
+    # Persisted in place; the applied segments, their provenance and the manual
+    # names all survive (the speaker ids did not change) — nothing re-stamped.
+    assert len(store.overwrite_calls) == 1
+    assert store.segment_stamps == []
+    assert meta["speaker_segments"] == SEGMENTS
+    assert meta["speaker_segments_source"] == "device-B"
+    assert meta["speaker_segments_applied_at"] == "2026-08-30T10:00:00+00:00"
+    assert meta["manual_speaker_labels"] == {"Speaker A": "Mum", "Speaker B": "Dad"}
+    assert meta["manual_speaker_people"] == {"Speaker A": "self"}
+    assert meta["reanalyzed_at"] == store.overwrite_calls[0]["reanalyzed_at"]
+    history = store.status_history[job_id]
+    assert "transcribing" not in history and history[-1] == "done"
+
+
+@pytest.mark.parametrize("how", ["query", "body"])
+@pytest.mark.anyio
+async def test_reanalyze_fresh_ignores_applied_voices(client, store, monkeypatch, how):
+    monkeypatch.setenv("MINDSHIFT_DIARIZE_CROSSCHECK", "1")
+    monkeypatch.delenv("MINDSHIFT_DIARIZE_ENGINE", raising=False)
+    meta = _seed_applied(store, manual=False)
+    seen: list = []
+
+    def _spy(pcm, sr, turns, **kw):
+        seen.append([dict(t) for t in turns])
+        return None
+
+    with patch("main.transcribe_upload") as stt, \
+         patch("main.get_llm_client",
+               return_value=_mock_llm(_analyze_llm_json(len(STORED_TURNS), _STORED_SPEAKERS))), \
+         patch("main.diarize_local.diarize_windows_first", side_effect=_spy) as wf, \
+         patch("main.diarize_local.diarize_turns", return_value=None) as dz:
+        resp = await _post_reanalyze(
+            client, GOOD_UUID,
+            query="?fresh=true" if how == "query" else "",
+            body={"fresh": True} if how == "body" else None,
+        )
+        assert resp.status_code == 202, resp.text
+        job_id = resp.json()["job_id"]
+        await _drain_jobs()
+        done = await _get_job(client, job_id)
+
+    stt.assert_not_called()
+    # The engines ran (windows first, then the utterance fallback) on the
+    # STORED transcript — not on the applied segments.
+    wf.assert_called_once()
+    dz.assert_called_once()
+    assert seen and seen[0][0].get("words") == STORED_TURNS[0]["words"]
+    body = done.json()
+    assert body["status"] == "done", body
+    result = body["result"]
+    assert [t["speaker"] for t in result["turns"]] == [t["speaker"] for t in STORED_TURNS]
+    assert "stored transcript" in (result["transcription_note"] or "")
+    assert "kept" not in (result["transcription_note"] or "")
+    # The applied segments stay on the meta for a later re-apply.
+    assert meta["speaker_segments"] == SEGMENTS
+    assert store.segment_stamps == []
+
+
+@pytest.mark.anyio
+async def test_reanalyze_unusable_applied_voices_is_422_with_fresh_hint(client, store):
+    meta = _seed_applied(store, manual=False)
+    meta["speaker_segments"] = [{"start": 2.0, "end": 1.0, "label": "X"}]
+    resp = await _post_reanalyze(client, GOOD_UUID)
+    assert resp.status_code == 422, resp.text
+    assert "fresh=true" in resp.json()["detail"]

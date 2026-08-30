@@ -37,6 +37,17 @@ async def client():
         yield ac
 
 
+@pytest.fixture(autouse=True)
+def _windows_engine_silent(monkeypatch):
+    """The cross-check's default engine (``windows``, 2026-08-30) runs the
+    REAL window pass on the upload before ``diarize_turns`` gets a turn. The
+    tests in this module script the cross-check by patching
+    ``diarize_turns``, so the windows engine is stubbed to "nothing to say"
+    — production's fallback path — unless a test patches it itself (the
+    windows-engine tests at the bottom do)."""
+    monkeypatch.setattr(diarize_local, "diarize_windows_first", lambda *a, **k: None)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures: a tiny stdlib WAV + aligned mock transcript / mock LLM output
 # ---------------------------------------------------------------------------
@@ -354,7 +365,10 @@ async def test_upload_crosscheck_resamples_non_16k_audio_before_diarizing(client
 
 
 @pytest.mark.anyio
-async def test_upload_two_speakers_skips_local_diarization(client):
+async def test_upload_two_speakers_skips_local_diarization(client, monkeypatch):
+    # The DEFAULT: no MINDSHIFT_DIARIZE_CROSSCHECK → a 2-speaker transcript
+    # is never cross-checked (the env-gated case is tested further down).
+    monkeypatch.delenv("MINDSHIFT_DIARIZE_CROSSCHECK", raising=False)
     with patch("main.transcribe_upload", return_value=(MOCK_TURNS, None)), \
          patch("main.get_llm_client",
                return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))), \
@@ -734,3 +748,166 @@ def test_align_per_turn_unindexed_entries_fill_gaps_when_exact():
     entries = [{"turn": 0, "heat": 1}, {"heat": 9}, {"turn": 2, "heat": 3}]
     aligned, padded = main._align_per_turn(entries, 3)
     assert padded == [] and [e["heat"] for e in aligned] == [1, 9, 3]
+
+
+# ---------------------------------------------------------------------------
+# Engine selection (MINDSHIFT_DIARIZE_ENGINE, 2026-08-30) — the windows engine
+# is the default, falls back to the utterance engine when it has nothing to
+# say, names itself in voice_analysis, and its never-reduce guard defers to
+# the transcript only when the transcript counts TWO or more voices more.
+# ---------------------------------------------------------------------------
+
+def _windows_payload(turns: list[dict], *, num_speakers: int, agreement: float) -> dict:
+    return dict(
+        _crosscheck_payload(turns, agreement),
+        source=diarize_local.SOURCE_WINDOWS, num_speakers=num_speakers,
+        uncovered_turns=0,
+        segments=[{"start": 0.0, "end": 6.0, "label": "Speaker A"}],
+    )
+
+
+@pytest.mark.anyio
+async def test_upload_default_engine_is_windows_and_names_itself(client, monkeypatch):
+    monkeypatch.delenv("MINDSHIFT_DIARIZE_ENGINE", raising=False)
+    payload = _windows_payload(
+        _local_diarization_payload(MOCK_TURNS_COLLAPSED)["turns"],
+        num_speakers=2, agreement=0.33,
+    )
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS_COLLAPSED, None)), \
+         patch("main.get_llm_client",
+               return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))), \
+         patch("diarize_local.diarize_windows_first", return_value=payload) as wf, \
+         patch("diarize_local.diarize_turns") as dz:
+        resp = await client.post(
+            "/analyze/upload",
+            files={"file": ("clip.wav", FIXTURE_WAV, "audio/wav")},
+        )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    wf.assert_called_once()
+    dz.assert_not_called()
+    assert wf.call_args.args[1] == 16000
+    assert [t["speaker"] for t in data["turns"]] == [
+        t["speaker"] for t in payload["turns"]
+    ]
+    assert "windows engine" in (data["voice_analysis"] or "")
+    assert "local voice diarization" in (data["voice_analysis"] or "")
+
+
+@pytest.mark.anyio
+async def test_upload_windows_engine_falls_back_to_utterances(client, monkeypatch):
+    monkeypatch.delenv("MINDSHIFT_DIARIZE_ENGINE", raising=False)
+    payload = _local_diarization_payload(MOCK_TURNS_COLLAPSED)
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS_COLLAPSED, None)), \
+         patch("main.get_llm_client",
+               return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))), \
+         patch("diarize_local.diarize_windows_first", return_value=None) as wf, \
+         patch("diarize_local.diarize_turns", return_value=payload) as dz:
+        resp = await client.post(
+            "/analyze/upload",
+            files={"file": ("clip.wav", FIXTURE_WAV, "audio/wav")},
+        )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    wf.assert_called_once()
+    dz.assert_called_once()
+    assert [t["speaker"] for t in data["turns"]] == [
+        t["speaker"] for t in payload["turns"]
+    ]
+    assert "utterance engine" in (data["voice_analysis"] or "")
+
+
+@pytest.mark.anyio
+async def test_upload_engine_utterances_never_runs_windows(client, monkeypatch):
+    monkeypatch.setenv("MINDSHIFT_DIARIZE_ENGINE", "utterances")
+    payload = _local_diarization_payload(MOCK_TURNS_COLLAPSED)
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS_COLLAPSED, None)), \
+         patch("main.get_llm_client",
+               return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))), \
+         patch("diarize_local.diarize_windows_first") as wf, \
+         patch("diarize_local.diarize_turns", return_value=payload) as dz:
+        resp = await client.post(
+            "/analyze/upload",
+            files={"file": ("clip.wav", FIXTURE_WAV, "audio/wav")},
+        )
+    assert resp.status_code == 200, resp.text
+    wf.assert_not_called()
+    dz.assert_called_once()
+    assert "utterance engine" in (resp.json()["voice_analysis"] or "")
+
+
+@pytest.mark.anyio
+async def test_upload_windows_guard_lets_one_fewer_voice_through(client, monkeypatch):
+    """Transcript heard 3; the windows engine hears 2 → adopted (a one-voice
+    difference is within the transcript's own error — Deepgram heard ONE
+    speaker on 8 of 9 runs of the owner's recordings)."""
+    monkeypatch.setenv("MINDSHIFT_DIARIZE_CROSSCHECK", "1")
+    monkeypatch.delenv("MINDSHIFT_DIARIZE_ENGINE", raising=False)
+    reduced = [
+        dict(t, speaker="Speaker A" if t["speaker"] == "Speaker C" else t["speaker"])
+        for t in MOCK_TURNS_3SPK
+    ]
+    payload = _windows_payload(reduced, num_speakers=2, agreement=0.6)
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS_3SPK, None)), \
+         patch("main.get_llm_client",
+               return_value=_mock_llm(_analyze_llm_json(len(MOCK_TURNS)))), \
+         patch("diarize_local.diarize_windows_first", return_value=payload) as wf, \
+         patch("diarize_local.diarize_turns") as dz:
+        resp = await client.post(
+            "/analyze/upload",
+            files={"file": ("clip.wav", FIXTURE_WAV, "audio/wav")},
+        )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    wf.assert_called_once()
+    dz.assert_not_called()
+    assert [t["speaker"] for t in data["turns"]] == [t["speaker"] for t in reduced]
+    assert set(data["per_speaker"]) == {"Speaker A", "Speaker B"}
+    assert "windows engine" in (data["voice_analysis"] or "")
+
+
+MOCK_TURNS_4SPK = [
+    dict(t, speaker=f"Speaker {'ABCD'[i % 4]}")
+    for i, t in enumerate(MOCK_TURNS)
+]
+
+_LLM_4SPK = json.dumps({
+    "per_turn": [
+        {"heat": 20, "markers": [], "trigger_phrase": None}
+        for _ in MOCK_TURNS_4SPK
+    ],
+    "requests": [],
+    "narrative": "n",
+    "report_cards": {
+        sp: {"score": 70, "headline": "h", "did_well": "d", "work_on": "w"}
+        for sp in ("Speaker A", "Speaker B", "Speaker C", "Speaker D")
+    },
+})
+
+
+@pytest.mark.anyio
+async def test_upload_windows_guard_keeps_transcript_two_fewer_voices(client, monkeypatch):
+    """Transcript heard 4; the windows engine hears 2 → the transcript wins
+    (a two-voice gap is still a collapse the guard exists for)."""
+    monkeypatch.setenv("MINDSHIFT_DIARIZE_CROSSCHECK", "1")
+    monkeypatch.delenv("MINDSHIFT_DIARIZE_ENGINE", raising=False)
+    reduced = [
+        dict(t, speaker="Speaker A" if t["speaker"] in {"Speaker C", "Speaker D"} else t["speaker"])
+        for t in MOCK_TURNS_4SPK
+    ]
+    payload = _windows_payload(reduced, num_speakers=2, agreement=0.4)
+    with patch("main.transcribe_upload", return_value=(MOCK_TURNS_4SPK, None)), \
+         patch("main.get_llm_client", return_value=_mock_llm(_LLM_4SPK)), \
+         patch("diarize_local.diarize_windows_first", return_value=payload) as wf, \
+         patch("diarize_local.diarize_turns") as dz:
+        resp = await client.post(
+            "/analyze/upload",
+            files={"file": ("clip.wav", FIXTURE_WAV, "audio/wav")},
+        )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    wf.assert_called_once()
+    dz.assert_not_called()
+    assert [t["speaker"] for t in data["turns"]] == [t["speaker"] for t in MOCK_TURNS_4SPK]
+    assert set(data["per_speaker"]) == {"Speaker A", "Speaker B", "Speaker C", "Speaker D"}
+    assert "diarization" not in (data["voice_analysis"] or "")

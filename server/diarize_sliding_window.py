@@ -8,7 +8,12 @@ the 2026-08-29 voice-separation bake-off (docs/research/2026-08-29-voice-
 separation/, approach B) is the last section of this module — the refined
 cosine affinity, eigengap speaker count, spectral labels and run smoothing
 over window embeddings — which ``diarize_local``'s window pass calls for its
-boundary proposals, eigengap lower bound and spectral fallback partition.
+boundary proposals, eigengap lower bound and spectral fallback partition —
+and which, since 2026-08-30, IS the speaker labelling under production's
+default engine (``diarize_local.diarize_windows_first``, MINDSHIFT_DIARIZE_
+ENGINE=windows: spectral labels at the eigengap k → :func:`mode_filter` →
+:func:`window_label_runs` → segments the transcript's words are regrouped
+by).
 
 The original round-3 question: can a
 speaker-change detector that works directly on RAW AUDIO via a sliding

@@ -21,6 +21,7 @@ import numpy as np
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+import diarize_local
 import main
 from main import app, init_db
 
@@ -223,6 +224,15 @@ async def client():
         transport=ASGITransport(app=app), base_url="http://test"
     ) as ac:
         yield ac
+
+
+@pytest.fixture(autouse=True)
+def _windows_engine_silent(monkeypatch):
+    """The cross-check's default engine (``windows``, 2026-08-30) would run
+    the REAL window pass on the fixture audio before ``diarize_turns``; the
+    tests here script the cross-check via ``diarize_turns``, so the windows
+    engine is stubbed to "nothing to say" (production's fallback path)."""
+    monkeypatch.setattr(diarize_local, "diarize_windows_first", lambda *a, **k: None)
 
 
 @pytest.fixture
