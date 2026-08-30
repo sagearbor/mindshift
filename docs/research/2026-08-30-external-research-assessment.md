@@ -79,3 +79,11 @@ propagation for sub-second fragments in batch → ORT with XNNPACK/NNAPI,
 Transcript-free window pass with spectral clustering + eigengap k (shipped
 2026-08-29, on the phone with exact parity 2026-08-30); a noise-floor-relative
 speech gate; per-recording print blending + a contrast match on the server.
+
+## Outcome (measured the same day — `docs/research/2026-08-30-external-ideas/`)
+
+| idea | result | decision |
+|---|---|---|
+| AS-Norm for self-ID | With an 11-voice cohort it flips every multi-setting print NEGATIVE (the spouse shares the room's channel, the cohort doesn't); with 51 voices (+LibriSpeech) it is positive but the owner/non-owner margin is 1.7 sd vs **2.5 sd for raw cosine with the 3-setting blend**; never rescues a single-setting print. Our contrast rule already wins on all three recordings. | **drop** |
+| pyannote overlap mask → B | Flags 7.0 s on maggiano's, only 0.67 s of the rubric's 1.6 s overlap; B 0.761 → 0.66–0.77 depending on mask strength; production 8-utt 0.67 → 0.57. | **drop** |
+| DeepFilterNet3 denoising | Raises the window ceiling 0.84 → 0.92 but pulls DIFFERENT speakers together (dad–mom pooled 0.24 → 0.38): B collapses to k=1, production 0.83 → 0.57, poker 1.00 → 0.83. A 12 dB-limited variant: B +0.015 (poker k=6), production −0.12. Per-window gain normalization: no effect (ECAPA is gain-invariant). | **drop** (a window-pass-only 12 dB device trial is the most that survives) |
