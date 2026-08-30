@@ -186,6 +186,13 @@ def env(monkeypatch):
     monkeypatch.setattr(audio_pipeline, "speaker_id", None)
     monkeypatch.setattr(audio_pipeline, "watch_relay", None)
     monkeypatch.setattr(audio_pipeline, "SLICE_GRACE_S", 0.0)
+    # RoutingLLM answers EVERY self turn with the same "ease up"; the
+    # don't-nag gate (nudge-quality work) would silence the repeats within
+    # its cooldown and these tests wait on each nudge event. Off here — the
+    # gate has its own tests (test_nudge_quality.py). Disabled via the
+    # overlap threshold (> 1 can never match) rather than the cooldown,
+    # because these tests reuse identical turn timestamps.
+    monkeypatch.setattr(audio_pipeline, "COACH_REPEAT_JACCARD", 2.0)
     # The two LLM passes on the persisted episodes run as background tasks
     # on the socket's loop; off by default here (one test turns them on).
     monkeypatch.setattr(calls, "ANALYZE_ON_END", False)

@@ -54,6 +54,27 @@ describe("buildPrompt", () => {
     expect(user).toContain("the coached person (YOU)");
     expect(user).not.toContain("Delivery cue");
   });
+
+  // Prompt v2 (nudge-quality research, 2026-08-30): a speakable first-person
+  // line, bounded length, and an explicit "say nothing when fine" clause.
+  it("v2: bounds the line to 10 words in the coached person's own voice", () => {
+    const { system, user } = buildPrompt(input);
+    expect(system).toContain("10 words or fewer");
+    expect(system).toContain("own voice");
+    expect(system).toContain("never an instruction to be translated first");
+    expect(system).toContain("Do not repeat or reword");
+    expect(user).toContain("verbatim, first person, 10 words or fewer");
+    expect(user).not.toContain("18 words");
+  });
+
+  it("v2: a self turn may return an empty suggestion and is never praised", () => {
+    const { user } = buildPrompt({ ...input, isSelf: true, speaker: "You" });
+    expect(user).toContain("6 words or fewer");
+    expect(user).toContain('reply with an empty "suggestion"');
+    expect(user).toContain("never praise");
+    // The empty answer parses as "nothing to say" rather than a broken reply.
+    expect(parseSuggestionJson('{"suggestion": "", "tone": {}}')).toBeNull();
+  });
 });
 
 describe("parseSuggestionJson", () => {

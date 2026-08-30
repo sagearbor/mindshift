@@ -86,12 +86,26 @@ function stance(empathy: number): string {
   return "validating and gentle";
 }
 
+/**
+ * Prompt v2 (docs/research/2026-08-30-nudge-quality). Measured against v1
+ * on the owner's real sessions + the scene fixtures with a cloud model
+ * standing in for Gemini Nano: v1 let "suggestion" run to 18 words (71% of
+ * responses were too long to whisper in ~4 s), produced meta-instructions
+ * ("Acknowledge their concern, then firmly reiterate…") instead of a line
+ * the user can say, and — with no "say nothing" clause — nudged on EVERY
+ * self turn (11/11 calm self turns in the scenes got one). The Python port
+ * of this template in docs/research/2026-08-30-nudge-quality/grade.py
+ * (ONDEVICE_PROMPTS["v2"]) must stay byte-identical to it.
+ */
 export const SUGGESTION_SYSTEM_PROMPT =
   "You are a discreet real-time conversation coach whispering to one person " +
-  "during a conversation. Reply with ONLY a JSON object, no prose, no markdown: " +
-  '{"suggestion": string, "tone": {"warmth": 0-100, "defensiveness": 0-100, ' +
-  '"sarcasm": 0-100, "sadness": 0-100, "frustration": 0-100, "label": string}}. ' +
-  '"tone" scores the turn you were given. Keep "suggestion" under 18 words.';
+  "(the coached person) during a live conversation. Reply with ONLY a JSON object, " +
+  'no prose, no markdown: {"suggestion": string, "tone": {"warmth": 0-100, ' +
+  '"defensiveness": 0-100, "sarcasm": 0-100, "sadness": 0-100, "frustration": 0-100, ' +
+  '"label": string}}. "tone" scores the turn you were given. "suggestion" is ONE ' +
+  "line, 10 words or fewer, in the coached person's own voice — never advice " +
+  "about the other person, never an instruction to be translated first. " +
+  "Do not repeat or reword a coaching line already given in the transcript.";
 
 export function buildPrompt(input: SuggestInput): { system: string; user: string } {
   const history = input.context
@@ -99,10 +113,13 @@ export function buildPrompt(input: SuggestInput): { system: string; user: string
     .join("\n");
   const who = input.isSelf ? "the coached person (YOU)" : input.speaker;
   const task = input.isSelf
-    ? "The coached person just said this. Give a single delivery nudge for them " +
-      "(6 words or fewer, e.g. \"ease up\", \"let them finish\")."
-    : "Suggest what the coached person should say next to " +
-      `${input.speaker}, in a ${stance(input.empathy)} stance.`;
+    ? "The coached person just said this. Reply with ONE delivery nudge about HOW they " +
+      "came across (6 words or fewer, imperative, e.g. \"ease up\", \"let them finish\"). " +
+      "If their delivery was fine — calm, sincere, apologizing, agreeing — reply with an " +
+      "empty \"suggestion\"; never praise."
+    : "Reply with ONE sentence the coached person could say next to " +
+      `${input.speaker}, verbatim, first person, 10 words or fewer, in a ` +
+      `${stance(input.empathy)} stance.`;
   const cue = input.prosodyHint ? `\nDelivery cue: ${input.prosodyHint}.` : "";
   const user =
     (history ? `Earlier:\n${history}\n\n` : "") +

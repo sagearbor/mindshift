@@ -228,6 +228,29 @@ NUDGE_MAX_TOKENS = int(os.getenv("MINDSHIFT_NUDGE_MAX_TOKENS", "60"))
 # length) — see main.empathy_system_prompt(live=True). "0" restores the REST
 # contract for the WS path (the pre-perf behaviour).
 LIVE_PROMPT = os.getenv("MINDSHIFT_LIVE_PROMPT", "1") != "0"
+# Nudge-quality fixes (docs/research/2026-08-30-nudge-quality): the coach
+# used to see ONE transcript turn and nothing else — not who said what
+# before it, not what it had already whispered — so it re-issued the same
+# "I hear you — let's figure this out together" frame turn after turn
+# (not_repeating was the lowest judge score on every data set) and could
+# not tell a fragment from a new thought. With COACH_CONTEXT the user turn
+# carries the last COACH_CONTEXT_TURNS turns plus the coach's own recent
+# lines, and the self-turn prompt says when to stay silent. "0" restores
+# the single-turn prompt byte-for-byte (the grader's before/after switch).
+COACH_CONTEXT = os.getenv("MINDSHIFT_COACH_CONTEXT", "1") != "0"
+COACH_CONTEXT_TURNS = max(0, int(os.getenv("MINDSHIFT_COACH_CONTEXT_TURNS", "6")))
+# A nudge the model itself rates below this is "nothing should change" —
+# in the scene fixtures every false positive on a calm/repairing self turn
+# was praise ("good — hold that tone") at importance 15–25, voiced anyway
+# because the app's default interject level is 0. Expected nudges scored
+# 45–92. Below the floor the turn is treated as silent (no event, no TTS).
+NUDGE_MIN_IMPORTANCE = int(os.getenv("MINDSHIFT_NUDGE_MIN_IMPORTANCE", "40"))
+# Don't nag: a nudge that repeats what the coach whispered within this many
+# session-seconds is dropped; a repeated first suggestion is demoted behind
+# the first alternative the model offered. Word-bigram Jaccard >= this is a
+# repeat (an exact re-issue scores 1.0; a reworded one ~0.5–0.7).
+COACH_REPEAT_COOLDOWN_S = float(os.getenv("MINDSHIFT_COACH_REPEAT_COOLDOWN_S", "45"))
+COACH_REPEAT_JACCARD = float(os.getenv("MINDSHIFT_COACH_REPEAT_JACCARD", "0.5"))
 # When the model's answer is not parseable JSON, ask it once (tiny prompt,
 # temperature 0) to return the same content as valid JSON before giving up
 # with llm_parse_error. "0" restores fail-on-first-parse-error.
@@ -1054,6 +1077,9 @@ class SuggestionJob:
     timing: UtteranceTiming
     is_self: bool | None = None
     tone_context: dict | None = None
+    # Enqueue-time snapshot of the recent exchange + the coach's own recent
+    # lines for the prompt (None when COACH_CONTEXT is off).
+    history: dict | None = None
     prev_done: "asyncio.Future[None] | None" = field(default=None, repr=False, compare=False)
     done: "asyncio.Future[None] | None" = field(default=None, repr=False, compare=False)
 
@@ -1180,11 +1206,15 @@ def _turn_prompt(
     utterance: Utterance,
     tone_context: dict | None = None,
     speaker_name: str | None = None,
+    history: dict | None = None,
 ) -> str:
     """The user-turn content for both coaching prompts. Byte-identical to the
-    pre-Track-3 prompt when there is no tone context and no name.
-    ``speaker_name`` (mid-call naming — see ``apply_speaker_label``) tells
-    the coach WHO said it ("Mom"), so the suggestion is for that person."""
+    pre-Track-3 prompt when there is no tone context, no name and no
+    history. ``speaker_name`` (mid-call naming — see ``apply_speaker_label``)
+    tells the coach WHO said it ("Mom"), so the suggestion is for that
+    person. ``history`` (see :func:`_history_for_prompt`) appends the recent
+    exchange, the coach's own recent lines and the per-kind guidance the
+    nudge-quality work added; ``None`` keeps the single-turn prompt."""
     if speaker_name:
         content = f'Transcript turn from {speaker_name}: "{utterance.text}"'
     else:
@@ -1192,7 +1222,181 @@ def _turn_prompt(
     block = _render_tone_context(tone_context)
     if block:
         content += "\n\n" + block
+    if history is not None:
+        block = _render_history(history)
+        if block:
+            content += "\n\n" + block
     return content
+
+
+# ---------------------------------------------------------------------------
+# Nudge-quality context + gates (docs/research/2026-08-30-nudge-quality)
+# ---------------------------------------------------------------------------
+
+COACHING_LOG_MAX = 200
+
+# What the prompt says AFTER the exchange, per kind. The self-turn line is
+# the fix for praise/"drop the apology" nudges on calm or repairing turns
+# (36% of calm self turns in the scene fixtures got one); the other-turn
+# line bounds length to what an earpiece can whisper in ~4 s and stops the
+# reworded-repeat pattern.
+_SELF_GUIDANCE = (
+    "Nudge ONLY if something about HOW the user just came across should "
+    "change right now. A calm, sincere, or repairing turn (an apology, "
+    "owning a mistake, agreeing) needs no nudge: return \"\" — never praise, "
+    "never tell them to drop a sincere apology. Never re-issue a nudge the "
+    "coach already whispered above."
+)
+_OTHER_GUIDANCE = (
+    "Each suggestion is something the user can say verbatim, first person, "
+    "10 words or fewer, grounded in what was just said. Do not reword a line "
+    "the coach already gave above, and do not open with the same words it "
+    "opened with (vary \"I hear you\" / \"You're right\" / \"Let's\")."
+)
+
+
+def _remember_coaching(ctx: SessionContext, utterance: Utterance, text: str, kind: str) -> None:
+    """Record a line the coach sent (for the prompt's "already said" block
+    and the repeat gates). Bounded; never persisted."""
+    if not text:
+        return
+    ctx.coaching_log.append({
+        "kind": kind, "text": text, "t": float(utterance.end_time), "speaker": utterance.speaker,
+    })
+    if len(ctx.coaching_log) > COACHING_LOG_MAX:
+        del ctx.coaching_log[:-COACHING_LOG_MAX // 2]
+
+
+def _history_for_prompt(
+    ctx: SessionContext, utterance: Utterance, *, is_self: bool | None,
+) -> dict | None:
+    """The context block for THIS turn's prompt, or ``None`` when the
+    feature is off (the prompt is then byte-identical to the single-turn
+    one). ``utterance`` is the turn being coached; the history is every
+    earlier remembered turn (the caller remembers the current one after).
+
+    Each earlier turn is rendered as "You" when the phone has called that
+    raw label self (this frame or an earlier one), else by its mid-call
+    name / raw label. The coach's own recent lines are interleaved by
+    session time so the model sees what it already said — and when.
+    """
+    if not COACH_CONTEXT:
+        return None
+    if is_self is True:
+        ctx.self_labels.add(utterance.speaker)
+    elif is_self is False:
+        ctx.self_labels.discard(utterance.speaker)
+    self_labels = set(ctx.self_labels)
+    if ctx.self_speaker:
+        self_labels.add(ctx.self_speaker)
+
+    turns: list[dict] = []
+    for u in ctx.utterances:
+        if u is utterance:
+            continue
+        if not u.text.strip():
+            continue
+        turns.append({
+            "t": float(u.end_time),
+            "who": "You" if u.speaker in self_labels else display_speaker(ctx, u.speaker),
+            "text": u.text,
+        })
+    turns = turns[-COACH_CONTEXT_TURNS:] if COACH_CONTEXT_TURNS else []
+    since = turns[0]["t"] if turns else float(utterance.end_time)
+    coach_lines = [
+        {"t": float(c["t"]), "kind": c["kind"], "text": c["text"]}
+        for c in ctx.coaching_log
+        if float(c["t"]) >= since or c is ctx.coaching_log[-1]
+    ][-COACH_CONTEXT_TURNS:] if ctx.coaching_log else []
+    return {"turns": turns, "coach": coach_lines, "self": bool(is_self)}
+
+
+def _render_history(history: dict) -> str:
+    """Deterministic rendering of :func:`_history_for_prompt`'s dict."""
+    turns = list(history.get("turns") or [])
+    coach = list(history.get("coach") or [])
+    rows: list[tuple[float, int, str]] = []
+    for t in turns:
+        rows.append((float(t["t"]), 0, f'- {t["who"]}: "{t["text"]}"'))
+    for c in coach:
+        what = "whispered to the user" if c.get("kind") == "nudge" else "suggested the user say"
+        rows.append((float(c["t"]), 1, f'- (coach {what}: "{c["text"]}")'))
+    rows.sort(key=lambda r: (r[0], r[1]))
+    lines: list[str] = []
+    if rows:
+        lines.append("Recent exchange before this turn (oldest first):")
+        lines.extend(r[2] for r in rows)
+    lines.append(_SELF_GUIDANCE if history.get("self") else _OTHER_GUIDANCE)
+    return "\n".join(lines)
+
+
+_WORD_RE = re.compile(r"[a-z0-9']+")
+
+
+def _coaching_overlap(a: str, b: str) -> float:
+    """Word-bigram Jaccard between two coaching lines (unigrams when a line
+    is a single word). 1.0 for the same words, ~0 for unrelated lines."""
+    def grams(text: str) -> set[tuple[str, ...]]:
+        w = _WORD_RE.findall(text.lower())
+        if len(w) < 2:
+            return {(x,) for x in w}
+        return {(w[i], w[i + 1]) for i in range(len(w) - 1)}
+    ga, gb = grams(a), grams(b)
+    if not ga or not gb:
+        return 0.0
+    return len(ga & gb) / len(ga | gb)
+
+
+def _is_repeat_coaching(ctx: SessionContext, text: str, t: float, kind: str | None = None) -> bool:
+    """True when ``text`` re-issues a line the coach sent within
+    COACH_REPEAT_COOLDOWN_S session-seconds before ``t`` (any kind unless
+    ``kind`` narrows it)."""
+    for c in reversed(ctx.coaching_log):
+        if t - float(c["t"]) > COACH_REPEAT_COOLDOWN_S:
+            break
+        if kind is not None and c.get("kind") != kind:
+            continue
+        if _coaching_overlap(c["text"], text) >= COACH_REPEAT_JACCARD:
+            return True
+    return False
+
+
+def _gate_nudge(
+    ctx: SessionContext, utterance: Utterance, nudge: str, importance: int,
+    tone_context: dict | None = None,
+) -> tuple[str, int]:
+    """Policy after the model: a nudge below NUDGE_MIN_IMPORTANCE, or one
+    that repeats a nudge inside the cooldown, becomes silence ``("", 0)``.
+    ``tone_context`` is accepted for symmetry with the generator (the gate
+    deliberately does not second-guess the phone's tone hints)."""
+    if not nudge:
+        return "", 0
+    if importance < NUDGE_MIN_IMPORTANCE:
+        logger.debug(
+            "Nudge for session %s dropped: importance %d < %d",
+            ctx.session_id, importance, NUDGE_MIN_IMPORTANCE,
+        )
+        return "", 0
+    if _is_repeat_coaching(ctx, nudge, float(utterance.end_time), kind="nudge"):
+        logger.debug("Nudge for session %s dropped: repeats a recent nudge", ctx.session_id)
+        return "", 0
+    return nudge, importance
+
+
+def _gate_suggestions(ctx: SessionContext, utterance: Utterance, suggestions: list[str]) -> list[str]:
+    """Policy after the model: when the FIRST suggestion (the one that is
+    voiced) re-issues a recent coaching line, promote the first alternative
+    that doesn't. Order is otherwise preserved; nothing is dropped."""
+    if len(suggestions) < 2:
+        return suggestions
+    t = float(utterance.end_time)
+    if not _is_repeat_coaching(ctx, suggestions[0], t):
+        return suggestions
+    for i, s in enumerate(suggestions[1:], start=1):
+        if s and not _is_repeat_coaching(ctx, s, t):
+            logger.debug("Suggestion for session %s reordered: first line repeated a recent one", ctx.session_id)
+            return [s] + suggestions[:i] + suggestions[i + 1:]
+    return suggestions
 
 
 def _validation_summary(exc: ValidationError) -> str:
@@ -1246,6 +1450,14 @@ class SessionContext:
     # sets self_speaker); persistence rides the phone's POST /sessions/live
     # `speaker_labels` at session end — this server keeps no transcript.
     speaker_labels: dict[str, dict] = field(default_factory=dict)
+    # Nudge-quality context (see COACH_CONTEXT): every line the coach sent
+    # this session — {"kind": "nudge"|"response", "text", "t" (session
+    # seconds of the turn it answered), "speaker"} — bounded like the
+    # utterance buffer; and the raw labels the phone has called is_self, so
+    # earlier turns can be shown to the model as "You" without the phone
+    # re-sending identity on every frame.
+    coaching_log: list[dict] = field(default_factory=list)
+    self_labels: set[str] = field(default_factory=set)
     # Track 3-server — local-first (phone-orchestrated) sessions. Latched
     # True by the FIRST turn_local frame and never reset: a client that has
     # proven it segments/transcribes/speaks on-device keeps that role for
@@ -1875,10 +2087,13 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             nudge, importance = await _generate_nudge(
                 llm_client, utterance, job.empathy_slider, job.role,
                 ctx.voice_profile, job.tone_context, speaker_name=speaker_name,
-                stream=progressive, stats=hedge_stats,
+                stream=progressive, stats=hedge_stats, history=job.history,
             )
             timing.llm_end = ctx.latency.now()
             note_hedge()
+            # Policy after the model (nudge-quality): importance floor and
+            # the don't-nag repeat gate. Both turn the nudge into silence.
+            nudge, importance = _gate_nudge(ctx, utterance, nudge, importance, job.tone_context)
             if not nudge:
                 # "Only speak when something should change." The transcript
                 # event already went out at enqueue; a self turn that needs no
@@ -1906,6 +2121,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 speak=speak,
                 kind="nudge",
             ))
+            _remember_coaching(ctx, utterance, nudge, "nudge")
             timing.sent = ctx.latency.now()
             ctx.latency.record(timing, session_id)
             return
@@ -1937,10 +2153,13 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             llm_client, utterance, job.empathy_slider, job.role,
             ctx.voice_profile, job.tone_context,
             on_first_suggestion=on_first_suggestion if progressive else None,
-            speaker_name=speaker_name, stats=hedge_stats,
+            speaker_name=speaker_name, stats=hedge_stats, history=job.history,
         )
         timing.llm_end = ctx.latency.now()
         note_hedge()
+        # Don't-nag gate: a first line that re-issues a recent coaching line
+        # is demoted behind the model's first different alternative.
+        suggestion_texts = _gate_suggestions(ctx, utterance, suggestion_texts)
 
         # Interjection gate: the coach only VOICES a suggestion when the
         # LLM-scored importance of the moment clears the session's threshold.
@@ -1974,6 +2193,8 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             importance=importance,
             speak=speak,
         ))
+        if suggestion_texts:
+            _remember_coaching(ctx, utterance, suggestion_texts[0], "response")
         timing.sent = ctx.latency.now()
         ctx.latency.record(timing, session_id)
 
@@ -2077,6 +2298,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             timing=timing,
             is_self=is_self,
             tone_context=tone_context,
+            history=_history_for_prompt(ctx, utterance, is_self=is_self),
             prev_done=previous.done if previous is not None else None,
             done=asyncio.get_running_loop().create_future(),
         )
@@ -3208,6 +3430,7 @@ async def _generate_suggestions(
     on_first_suggestion=None,
     speaker_name: str | None = None,
     stats: dict | None = None,
+    history: dict | None = None,
 ) -> tuple[list[str], int]:
     """Call LLMClient.complete(); parse suggestions + moment importance.
 
@@ -3236,7 +3459,7 @@ async def _generate_suggestions(
     system = empathy_system_prompt(
         empathy_slider, role, voice_profile, live=LIVE_PROMPT,
     )
-    user_content = _turn_prompt(utterance, tone_context, speaker_name)
+    user_content = _turn_prompt(utterance, tone_context, speaker_name, history)
 
     if on_first_suggestion is not None and _supports_streaming(llm):
         raw = await _stream_with_first_suggestion(
@@ -3286,6 +3509,7 @@ async def _generate_nudge(
     *,
     stream: bool = False,
     stats: dict | None = None,
+    history: dict | None = None,
 ) -> tuple[str, int]:
     """Call the LLM for a SELF turn; parse the single delivery nudge + urgency.
 
@@ -3314,7 +3538,7 @@ async def _generate_nudge(
     # a streaming-capable client the call still goes through the hedged
     # stream, so a nudge gets the same first-token tail protection as a
     # suggestion. ``stream=False`` (legacy clients) is the exact old call.
-    user_content = _turn_prompt(utterance, tone_context, speaker_name)
+    user_content = _turn_prompt(utterance, tone_context, speaker_name, history)
 
     if stream and _supports_streaming(llm):
         raw = await _stream_with_first_suggestion(
