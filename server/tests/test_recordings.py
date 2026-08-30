@@ -581,6 +581,8 @@ async def test_list_and_detail_happy_path(client, store):
         "shared", "owner_email", "shares",
         # Track 2 (live sessions) — None for an upload.
         "mode", "session_id",
+        # "Use these voices" (device-B segments applied) — None until applied.
+        "speaker_segments_source", "speaker_segments_applied_at",
     }
     assert d["manual_speaker_people"] == {}
     assert d["mode"] is None and d["session_id"] is None
