@@ -10,7 +10,7 @@ describe("float32Tensor never passes a subarray view to ORT", () => {
     const t = float32Tensor(view, [1, 4]);
     expect(t.data.byteOffset).toBe(0);
     expect(t.data.byteLength).toBe(t.data.buffer.byteLength);
-    expect(Array.from(t.data)).toEqual([4, 5, 6, 7]);
+    expect(Array.from(t.data as Float32Array)).toEqual([4, 5, 6, 7]);
     expect(t.data).not.toBe(view);
   });
 
