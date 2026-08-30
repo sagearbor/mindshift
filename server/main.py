@@ -1054,7 +1054,41 @@ from watch.app import build_watch_deps, build_watch_routers  # noqa: E402
 _watch_deps = build_watch_deps()
 app.state.watch_deps = _watch_deps
 
-for _r in build_watch_routers(_watch_deps):
+
+async def _watch_journal_recording_sink(
+    account_id: str, wav_bytes: bytes, title: str, context: str,
+) -> None:
+    """Turn a watch journal capture's SELF-filtered audio into a stored,
+    analyzed recording — the main-side half of watch/journal.py's handoff.
+
+    Runs the exact upload pipeline (transcode → windows-first diarization →
+    LLM analysis → episodes) as a background job with consent=True/store=True:
+    journal mode is itself the standing consent the wearer gave on the watch
+    (a one-tap attested ConsentRecord per capture rides on the capture doc).
+    Best-effort: storage off or a failure logs and drops — the capture's
+    labels still carry the segments, so nothing is unrecoverable."""
+    store_backend = get_recordings_store()
+    if store_backend is None:
+        logger.warning("watch journal: recordings storage disabled; dropping %s", title)
+        return
+    job_id = str(uuid.uuid4())
+    state = _new_job_state()
+    await store_backend.write_job_state(account_id, job_id, state)
+
+    async def _prepare(set_stage: "JobProgressFn") -> tuple:
+        return wav_bytes, "journal.wav", "audio/wav", {
+            "type": "journal", "url": None, "original_filename": None,
+        }
+
+    _spawn_job(_run_analysis_job(
+        account_id, job_id, store_backend, state,
+        prepare=_prepare, context=context, consent=True, store=True, title=title,
+    ))
+
+
+for _r in build_watch_routers(
+    _watch_deps, journal_recording_sink=_watch_journal_recording_sink,
+):
     app.include_router(_r)
 
 # Account deletion (Play requirement): DELETE /me — erases every tier of the

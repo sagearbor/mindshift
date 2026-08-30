@@ -7,6 +7,7 @@ import app.gauge.shared.telemetry.DebugRing
 import app.gauge.wear.BuildConfig
 import app.gauge.wear.prefs.GaugePrefs
 import java.time.Instant
+import kotlinx.serialization.json.JsonObject
 
 private const val MAX_STACK_CHARS = 20_000
 
@@ -69,6 +70,14 @@ object Telemetry {
 
     fun log(level: String, tag: String, message: String) {
         ring.add(level, tag, message, nowIso())
+        Log.println(priorityFor(level), tag, message)
+    }
+
+    /** [log] with a structured `data` payload riding the event (server's additive
+     * `TelemetryEventIn.data` — see [app.gauge.shared.TelemetryEventOut.data]). Used by the
+     * journal battery/counter series; behaves exactly like [log] otherwise. */
+    fun log(level: String, tag: String, message: String, data: JsonObject?) {
+        ring.add(level, tag, message, nowIso(), data = data)
         Log.println(priorityFor(level), tag, message)
     }
 

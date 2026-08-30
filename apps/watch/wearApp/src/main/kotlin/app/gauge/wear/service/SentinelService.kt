@@ -40,6 +40,13 @@ import app.gauge.wear.haptics.Pulse
 import app.gauge.wear.haptics.PulseChainDecision
 import app.gauge.wear.haptics.PulseChainGate
 import app.gauge.wear.haptics.RealVibratorPort
+import app.gauge.wear.journal.BatteryReader
+import app.gauge.wear.journal.JournalQueue
+import app.gauge.wear.journal.JournalScheduler
+import app.gauge.wear.journal.JournalStats
+import app.gauge.wear.journal.JournalUploader
+import app.gauge.wear.journal.journalNowIso
+import app.gauge.wear.journal.journalTelemetryData
 import app.gauge.wear.prefs.GaugePrefs
 import app.gauge.wear.sensors.AccelSource
 import app.gauge.wear.sensors.HrAction
@@ -155,6 +162,14 @@ class SentinelService : Service() {
     // discipline below.
     private var lastCaptureMode: CaptureMode = CaptureMode.CONTINUOUS
 
+    // Journal A/B (auto retro-capture): handler-thread-only scheduler (same contract as
+    // loopRunning) + thread-safe capacity-1 retry queue. Counters live in the process-wide
+    // JournalStats so the UI's toggle telemetry can read the same numbers. Reset (scheduler
+    // only — a queued failed snapshot survives a stop/re-arm on purpose, it's already paid-for
+    // audio) in stopSentinel()/onDestroy() alongside micDutyCycle.
+    private val journalScheduler = JournalScheduler()
+    private val journalQueue = JournalQueue()
+
     // Handler-thread-only: the last SentinelState passed through publishAndNotify. Used only to
     // detect the STREAMING -> COOLDOWN transition (episode-end) for the telemetry flush below —
     // no decision content, mirrors loopRunning's threading contract.
@@ -229,6 +244,9 @@ class SentinelService : Service() {
                 if (snapshot.sentinel != SentinelState.ARMED) micDutyCycle.reset()
                 publishAndNotify(snapshot)
                 managePulseRepeat(snapshot)
+                // Journal A/B: its own runCatching — a journal bug must degrade to "this
+                // interval's upload didn't happen", never stop the sentinel via the outer catch.
+                runCatching { manageJournal(snapshot) }
                 // v0.2.4: ARMED shout-tap — a one-shot, deliberately NOT a chain. Mutual exclusion
                 // with the pulse-repeat chain is by construction: managePulseRepeat only ever
                 // starts chains while snapshot.sentinel == STREAMING, and armedShoutTap is only
@@ -268,6 +286,108 @@ class SentinelService : Service() {
         if (mode == lastCaptureMode) return
         lastCaptureMode = mode
         runCatching { Telemetry.log("info", TAG, "mic capture mode: $mode") }
+    }
+
+    /**
+     * Journal A/B (auto retro-capture): called once per tick on the loop thread, fail-soft (the
+     * call site wraps it in its own runCatching). [JournalScheduler] decides whether an upload
+     * is due — every [JOURNAL_UPLOAD_INTERVAL_MS][app.gauge.wear.journal.
+     * JOURNAL_UPLOAD_INTERVAL_MS], deferred while STREAMING (the live WS path already carries
+     * that audio) and caught up right after. On a due tick the retro buffer is snapshotted for
+     * the interval actually elapsed (≤ 300 s — anything older already fell off the 5-minute
+     * ring, honestly lost), and that snapshot plus at most ONE previously-failed one from
+     * [journalQueue] are uploaded via the captures API on [retroCaptureScope].
+     *
+     * Consent: the stored artifact [GaugePrefs.journalConsentTs] (minted ONLY by the toggle's
+     * explicit confirm tap, cleared on toggle-off) is threaded into [JournalUploader.upload]'s
+     * required `consentConfirmed` parameter — never hardcoded `true`. Journal REQUIRES a paired
+     * watch (the captures API rejects legacy callers): with no device token the attempt counts
+     * as a failure and "pair your watch first" is logged. Every due tick emits one telemetry
+     * event whose `data` carries battery_pct/charging + the journal counters + mic_duty_state
+     * — see [journalTelemetryData] for the exact shape.
+     */
+    private fun manageJournal(snapshot: ControllerState) {
+        val ctx = applicationContext
+        val enabled = runCatching { GaugePrefs.journalMode(ctx) }.getOrDefault(false)
+        val consentTs = if (enabled) runCatching { GaugePrefs.journalConsentTs(ctx) }.getOrNull() else null
+        val dueSeconds = journalScheduler.onTick(
+            nowMs = System.currentTimeMillis(),
+            journalEnabled = enabled,
+            consentConfirmed = consentTs != null,
+            streaming = snapshot.sentinel == SentinelState.STREAMING,
+        ) ?: return
+        JournalStats.micDutyState = lastCaptureMode.name
+        val token = app.gauge.wear.auth.AccountPrefs.deviceToken(ctx)
+        if (token == null) {
+            JournalStats.uploadFailures.incrementAndGet()
+            runCatching {
+                Telemetry.log("warn", TAG, "journal: pair your watch first — uploads need a paired watch")
+            }
+            logJournalTick(ctx)
+            return
+        }
+        val pcm = runCatching { controller?.captureRetroSnapshot(dueSeconds) }.getOrNull()
+        val current = pcm?.takeIf { it.isNotEmpty() }?.let {
+            JournalQueue.Snapshot(
+                pcm = it,
+                durationS = it.size / (16000.0 * 2),
+                intervalS = dueSeconds,
+                capturedAtIso = journalNowIso(),
+            )
+        }
+        val pending = journalQueue.take()
+        if (current == null && pending == null) {
+            // Nothing recorded this interval (e.g. armed moments ago) and nothing to retry.
+            logJournalTick(ctx)
+            return
+        }
+        val scope = retroCaptureScope ?: return
+        val uploader = JournalUploader(
+            api = app.gauge.wear.net.WatchApiClient(
+                baseUrl = BuildConfig.GAUGE_API_BASE,
+                deviceToken = { token },
+            ),
+            nowIso = { journalNowIso() },
+            deviceId = GaugePrefs.deviceId(ctx),
+        )
+        scope.launch {
+            // Oldest first: the pending retry, then this interval's snapshot. A failure
+            // re-queues into the capacity-1 queue; whatever it displaces is counted dropped.
+            for (snap in listOfNotNull(pending, current)) {
+                val ok = runCatching { uploader.upload(snap, consentConfirmed = consentTs != null) }
+                    .getOrDefault(false)
+                if (ok) {
+                    JournalStats.uploads.incrementAndGet()
+                } else {
+                    JournalStats.uploadFailures.incrementAndGet()
+                    if (journalQueue.offer(snap)) JournalStats.drops.incrementAndGet()
+                }
+            }
+            logJournalTick(ctx)
+        }
+    }
+
+    /** One journal telemetry event (battery + counters — the shape [journalTelemetryData] pins)
+     * and an immediate flush: the 5-minute cadence would otherwise leave the battery series
+     * sitting in the ring until the next episode-end flush. Fail-soft like every telemetry call. */
+    private fun logJournalTick(ctx: Context) {
+        runCatching {
+            val battery = BatteryReader.read(ctx)
+            Telemetry.log(
+                "info",
+                TAG,
+                "journal tick",
+                journalTelemetryData(
+                    batteryPct = battery.pct,
+                    charging = battery.charging,
+                    journalUploads = JournalStats.uploads.get(),
+                    journalUploadFailures = JournalStats.uploadFailures.get(),
+                    journalDrops = JournalStats.drops.get(),
+                    micDutyState = JournalStats.micDutyState,
+                ),
+            )
+            Telemetry.flushAsync()
+        }
     }
 
     override fun onCreate() {
@@ -361,6 +481,8 @@ class SentinelService : Service() {
         // keeps both teardown paths visibly symmetric rather than relying on that implicitly.
         micDutyCycle.reset()
         lastCaptureMode = CaptureMode.CONTINUOUS
+        // Journal A/B: same belt-and-suspenders symmetry as micDutyCycle above.
+        journalScheduler.reset()
         handlerThread?.quitSafely()
         handlerThread = null
         handler = null
@@ -604,6 +726,9 @@ class SentinelService : Service() {
         // resuming mid-cycle (or mid-quiet-run) from this now-ended session.
         micDutyCycle.reset()
         lastCaptureMode = CaptureMode.CONTINUOUS
+        // Journal A/B: a fresh arm starts a fresh 5-minute interval — the retro ring was
+        // cleared by disarm(), so a stale anchor firing immediately would upload ~nothing.
+        journalScheduler.reset()
         accelSource?.stop()
         // P4-4 (review round 2): clear the push-on-change caches so a subsequent re-arm always
         // pushes its first projection fresh, rather than comparing against a stale value left over
