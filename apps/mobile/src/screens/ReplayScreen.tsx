@@ -48,6 +48,7 @@ import RecordingShareManager from "../components/RecordingShareManager";
 import SpeakerNaming from "../components/SpeakerNaming";
 import SpeakerEnrollment, { useSpeakerEnrollment } from "../components/SpeakerEnrollment";
 import PulseDot from "../components/PulseDot";
+import DeviceDiarizationRow from "../components/DeviceDiarizationRow";
 import { summarizeReanalyze, type ReanalyzeSummary } from "./reanalyzeDelta";
 import { setPlaybackMode } from "../utils/audioMode";
 import { formatDateTime } from "../utils/dateDisplay";
@@ -1234,6 +1235,13 @@ export default function ReplayScreen({
               </View>
             </>
           )}
+
+          {/* Experimental (Advanced → "Experimental voice engine"): run the
+              bake-off's window engine over THIS recording's audio on the
+              phone and show its own separation under the chart. Owner-only
+              and only where audio is stored; the row hides itself when the
+              switch is off. */}
+          {!isShared && !noMedia ? <DeviceDiarizationRow recordingId={recordingId} /> : null}
 
           {/* Track 2 — "Your tone": the live session's self / per-person tone
               summary from the phone's per-turn tone + identity. Only live

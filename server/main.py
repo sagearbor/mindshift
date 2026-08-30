@@ -60,6 +60,7 @@ from audio_ingest import (
     build_derivatives,
     decode_to_pcm,
     decode_to_pcm_16k,
+    pcm_to_wav16,
     transcribe_upload,
 )
 from audio_pipeline import UUID_PATTERN, audio_ws_endpoint
@@ -4135,16 +4136,71 @@ async def update_recording_source(
 # token — and it is a pure GCS read, not an LLM-cost endpoint. Also NO auth
 # dependency: a <video>/<audio> src cannot carry an Authorization header, so the
 # token in the query string is the sole credential.
+# ``?format=pcm16k``: the stored audio transcoded to what the phone's on-device
+# voice engine consumes (apps/mobile/src/live/deviceDiarization.ts — approach B
+# of the 2026-08-29 bake-off run post-hoc on the phone). Bounded: a 30-minute
+# 16 kHz mono s16 WAV is ~58 MB of response body and the phone holds it in
+# memory, so longer recordings are refused with 413 rather than transcoded.
+PCM16K_MAX_SECONDS = 30 * 60
+PCM16K_TOO_LONG_DETAIL = (
+    f"recording longer than {PCM16K_MAX_SECONDS // 60} minutes — too big to hand to the phone as PCM"
+)
+
+
+async def _pcm16k_response(
+    store_backend: "recordings_store.RecordingsStore", uid: str, recording_id: str,
+) -> Response:
+    """The recording's ``audio.m4a`` derivative as a 16 kHz mono s16le WAV
+    (ffmpeg via ``audio_ingest.decode_to_pcm_16k``, in a worker thread).
+    404 without stored audio, 413 past PCM16K_MAX_SECONDS (checked against
+    the stored duration BEFORE decoding and against the decoded length after),
+    422 when ffmpeg cannot decode it."""
+    rec = await store_backend.get_recording(uid, recording_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="Recording not found")
+    duration = rec.get("duration_seconds")
+    if isinstance(duration, (int, float)) and duration > PCM16K_MAX_SECONDS:
+        raise HTTPException(status_code=413, detail=PCM16K_TOO_LONG_DETAIL)
+    audio_bytes = await store_backend.get_audio_bytes(uid, recording_id)
+    if not audio_bytes:
+        raise HTTPException(status_code=404, detail="recording has no stored audio")
+    try:
+        pcm, sr = await asyncio.to_thread(decode_to_pcm_16k, audio_bytes, "audio.m4a")
+    except AudioDecodeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if pcm.size > PCM16K_MAX_SECONDS * sr:
+        raise HTTPException(status_code=413, detail=PCM16K_TOO_LONG_DETAIL)
+    wav = pcm_to_wav16(pcm, sr)
+    return Response(
+        content=wav,
+        media_type="audio/wav",
+        headers={
+            "Content-Length": str(len(wav)),
+            "Cache-Control": "private, max-age=0",
+            "X-Pcm-Seconds": f"{pcm.size / sr:.3f}",
+        },
+    )
+
+
 @app.get("/recordings/{recording_id}/media")
 async def get_recording_media(
     recording_id: Annotated[str, Path(pattern=UUID_PATTERN)],
     request: Request,
     tk: str = Query(default=""),
+    format: str | None = Query(
+        default=None,
+        description="Omit for the stored derivative; 'pcm16k' for a 16 kHz mono s16le WAV "
+        "transcode of the audio (≤ 30 min, else 413).",
+    ),
 ):
     uid = _verify_media_token(tk, recording_id)
     if uid is None:
         raise HTTPException(status_code=403, detail="invalid or expired token")
     store_backend = _require_store()
+    if format == "pcm16k":
+        return await _pcm16k_response(store_backend, uid, recording_id)
+    if format is not None:
+        raise HTTPException(status_code=400, detail="format must be omitted or 'pcm16k'")
     result = await store_backend.open_media_stream(
         uid, recording_id, request.headers.get("range"),
     )

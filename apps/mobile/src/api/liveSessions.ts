@@ -157,7 +157,7 @@ export async function fetchVoiceprints(path = VOICEPRINTS_PATH): Promise<Voicepr
 // The pinned ECAPA revision the server exports and the phone's voiceprints are
 // tied to (server: speaker_id.ECAPA_REVISION). Bump BOTH this and the uploaded
 // file when the pin changes.
-const ECAPA_REVISION = "0f99f2d0ebe89ac095bcc5903c4dd8f72b367286";
+export const ECAPA_REVISION = "0f99f2d0ebe89ac095bcc5903c4dd8f72b367286";
 
 export function ecapaModelUrl(): string {
   // Served from Firebase Hosting (public CDN), NOT the Cloud Run API. The API's

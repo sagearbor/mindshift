@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
+  Switch,
 } from "react-native";
 
 import Constants from "expo-constants";
@@ -30,6 +31,11 @@ import { useAuthStore } from "../store/authStore";
 import { useAvatarStore } from "../store/avatarStore";
 import { useOtaStatus, type OtaStatus } from "../utils/otaUpdate";
 import { useDiagnosticsStore } from "../diagnostics/diagnostics";
+import {
+  DEFAULT_EXPERIMENTAL_VOICE_ENGINE,
+  loadExperimentalVoiceEngine,
+  saveExperimentalVoiceEngine,
+} from "../live/experimentalPrefs";
 import { formatDate, formatDateTime } from "../utils/dateDisplay";
 
 /** Bare host (no scheme/path) of the configured backend, for the About row. */
@@ -190,6 +196,28 @@ export default function AdvancedScreen({
   const handleSendDiagnostics = useCallback(() => {
     void sendDiagnostics("manual", { uid: user?.uid ?? null, email: user?.email ?? null });
   }, [sendDiagnostics, user?.uid, user?.email]);
+
+  // Experimental voice engine (src/live/experimentalPrefs): reveals the
+  // "Separate voices on this phone" row on a recording's replay. Per
+  // account, off by default; the switch reflects the stored choice.
+  const experimentalUid = user?.uid ?? null;
+  const [experimentalVoiceEngine, setExperimentalVoiceEngine] = useState(DEFAULT_EXPERIMENTAL_VOICE_ENGINE);
+  useEffect(() => {
+    let cancelled = false;
+    void loadExperimentalVoiceEngine(experimentalUid).then((on) => {
+      if (!cancelled) setExperimentalVoiceEngine(on);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [experimentalUid]);
+  const handleExperimentalVoiceEngine = useCallback(
+    (on: boolean) => {
+      setExperimentalVoiceEngine(on);
+      void saveExperimentalVoiceEngine(experimentalUid, on);
+    },
+    [experimentalUid],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -616,6 +644,27 @@ export default function AdvancedScreen({
         />
       </View>
 
+      <Text style={styles.sectionHeading} testID="section-experimental">
+        Experimental
+      </Text>
+      <View style={styles.row} testID="experimental-voice-engine-row">
+        <View style={styles.switchRow}>
+          <View style={styles.switchText}>
+            <Text style={styles.rowTitle}>Experimental voice engine</Text>
+            <Text style={styles.rowSub}>
+              {experimentalVoiceEngine
+                ? "On — a recording’s replay offers “Separate voices on this phone (engine B)”. Research only; the result is sent as diagnostics."
+                : "Off — the on-phone voice-separation row stays hidden on replays."}
+            </Text>
+          </View>
+          <Switch
+            testID="experimental-voice-engine-switch"
+            value={experimentalVoiceEngine}
+            onValueChange={handleExperimentalVoiceEngine}
+          />
+        </View>
+      </View>
+
       <Text style={styles.sectionHeading} testID="section-diagnostics">
         Diagnostics
       </Text>
@@ -856,6 +905,15 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     lineHeight: 19,
     color: "#6B7280",
+  },
+  switchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  switchText: {
+    flex: 1,
   },
   watchPairedStatus: {
     marginTop: 6,

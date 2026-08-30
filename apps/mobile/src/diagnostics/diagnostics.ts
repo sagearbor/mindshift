@@ -180,10 +180,48 @@ export function collectAppInfo(): AppInfo {
   };
 }
 
+/**
+ * One run of the on-phone voice-separation engine over a stored recording
+ * (live/deviceDiarization.ts — approach B post-hoc on the phone). Posted as
+ * its own diagnostics record the moment it finishes (trigger
+ * "device_diarization") AND carried on every later bundle, so
+ * `scripts/diagnostics_tail.py --id dx-…` prints it and
+ * `--score-rubric <rubric.json>` scores `segments` against a per-second
+ * rubric with the bake-off scorer. `segments` are `[start_s, end_s, label]`
+ * over the whole clip (labels 0..k-1, the app's "Speaker A/B/…" order).
+ */
+export interface DeviceDiarizationEvent {
+  recording_id: string;
+  engine: "B";
+  k: number;
+  k_eigengap: number;
+  eigenvalues: number[];
+  segments: [number, number, number][];
+  windows: number;
+  windows_total: number;
+  window_s: number;
+  hop_s: number;
+  gate_rms: number;
+  speech_s: number;
+  duration_s: number;
+  download_ms: number;
+  download_bytes: number;
+  embed_ms_mean: number | null;
+  embed_ms_p90: number | null;
+  cluster_ms: number;
+  total_ms: number;
+  model_rev: string | null;
+  model_source: string | null;
+  device: DeviceInfo;
+  created_at: string;
+}
+
+export type DiagnosticsTrigger = "manual" | "auto" | "device_diarization";
+
 export interface DiagnosticsPayload {
   diagnostics_id: string;
   created_at: string;
-  trigger: "manual" | "auto";
+  trigger: DiagnosticsTrigger;
   uid: string | null;
   email: string | null;
   app: AppInfo;
@@ -191,15 +229,18 @@ export interface DiagnosticsPayload {
   capability: FastLoopCapabilities | null;
   capability_reason: string | null;
   last_session: SessionDiagnostics | null;
+  /** The latest on-phone voice-separation run, when one happened this launch. */
+  device_diarization?: DeviceDiarizationEvent | null;
 }
 
 export interface BuildPayloadInput {
-  trigger: "manual" | "auto";
+  trigger: DiagnosticsTrigger;
   uid: string | null;
   email: string | null;
   capability: FastLoopCapabilities | null;
   capabilityReason: string | null;
   lastSession: SessionDiagnostics | null;
+  deviceDiarization?: DeviceDiarizationEvent | null;
   id?: string;
   now?: () => Date;
 }
@@ -216,6 +257,7 @@ export function buildDiagnosticsPayload(input: BuildPayloadInput): DiagnosticsPa
     capability: input.capability,
     capability_reason: input.capabilityReason,
     last_session: input.lastSession,
+    device_diarization: input.deviceDiarization ?? null,
   };
 }
 
@@ -226,6 +268,7 @@ export function telemetryBody(payload: DiagnosticsPayload): {
   events: { level: string; tag: string; message: string; stack: null; ts: string; data: DiagnosticsPayload }[];
 } {
   const errors = payload.last_session?.errors ?? [];
+  const dd = payload.device_diarization;
   return {
     device: `phone:${payload.device.platform}:${payload.uid ?? "anon"}`,
     app_version: payload.app.version ?? "unknown",
@@ -235,7 +278,8 @@ export function telemetryBody(payload: DiagnosticsPayload): {
         tag: DIAGNOSTICS_TAG,
         message:
           `${DIAGNOSTICS_TAG} ${payload.diagnostics_id} uid=${payload.uid ?? "-"} email=${payload.email ?? "-"}` +
-          (errors.length > 0 ? ` errors=${errors.join(" | ")}` : ""),
+          (errors.length > 0 ? ` errors=${errors.join(" | ")}` : "") +
+          (dd ? ` device_diarization=${dd.recording_id} k=${dd.k}` : ""),
         stack: null,
         ts: payload.created_at,
         data: payload,
@@ -269,18 +313,25 @@ export interface DiagnosticsState {
   capability: FastLoopCapabilities | null;
   capabilityReason: string | null;
   lastSession: SessionDiagnostics | null;
+  /** The latest on-phone voice-separation run (rides on every later bundle). */
+  deviceDiarization: DeviceDiarizationEvent | null;
   sending: boolean;
-  lastSent: { id: string; at: string; trigger: "manual" | "auto"; ok: boolean; error: string | null } | null;
+  lastSent: { id: string; at: string; trigger: DiagnosticsTrigger; ok: boolean; error: string | null } | null;
   setCapability: (capability: FastLoopCapabilities | null, reason: string | null) => void;
   recordSession: (session: SessionDiagnostics) => void;
   /** Build + POST. Resolves with the outcome; also kept in `lastSent`. */
   send: (trigger: "manual" | "auto", who: { uid: string | null; email: string | null }) => Promise<SendOutcome>;
+  /** Remember a voice-separation run AND post it right away as its own
+   *  record (trigger "device_diarization") so its id can be read off the
+   *  replay screen. Never throws. */
+  sendDeviceDiarization: (event: DeviceDiarizationEvent, who: { uid: string | null; email: string | null }) => Promise<SendOutcome>;
 }
 
 export const useDiagnosticsStore = create<DiagnosticsState>((set, get) => ({
   capability: null,
   capabilityReason: null,
   lastSession: null,
+  deviceDiarization: null,
   sending: false,
   lastSent: null,
   setCapability: (capability, reason) => set({ capability, capabilityReason: reason }),
@@ -294,6 +345,7 @@ export const useDiagnosticsStore = create<DiagnosticsState>((set, get) => ({
       capability: state.capability,
       capabilityReason: state.capabilityReason,
       lastSession: state.lastSession,
+      deviceDiarization: state.deviceDiarization,
     });
     set({ sending: true });
     const outcome = await sendDiagnostics(payload);
@@ -303,6 +355,30 @@ export const useDiagnosticsStore = create<DiagnosticsState>((set, get) => ({
         id: outcome.id,
         at: payload.created_at,
         trigger,
+        ok: outcome.ok,
+        error: outcome.ok ? null : outcome.error,
+      },
+    });
+    return outcome;
+  },
+  sendDeviceDiarization: async (event, who) => {
+    set({ deviceDiarization: event });
+    const state = get();
+    const payload = buildDiagnosticsPayload({
+      trigger: "device_diarization",
+      uid: who.uid,
+      email: who.email,
+      capability: state.capability,
+      capabilityReason: state.capabilityReason,
+      lastSession: state.lastSession,
+      deviceDiarization: event,
+    });
+    const outcome = await sendDiagnostics(payload);
+    set({
+      lastSent: {
+        id: outcome.id,
+        at: payload.created_at,
+        trigger: "device_diarization",
         ok: outcome.ok,
         error: outcome.ok ? null : outcome.error,
       },

@@ -1644,6 +1644,16 @@ export async function getRecordingMediaUrl(
 }
 
 /**
+ * The `?format=pcm16k` variant of a minted media URL: the SAME short-lived
+ * token, but the server transcodes the stored audio to a 16 kHz mono s16le
+ * WAV (≤ 30 min, else 413) — what the on-phone voice engine
+ * (live/deviceDiarization.ts) reads. Pure string work; no request.
+ */
+export function pcm16kMediaUrl(media: RecordingMediaUrl): string {
+  return `${media.url}${media.url.includes("?") ? "&" : "?"}format=pcm16k`;
+}
+
+/**
  * GET /recordings/{id}/source_url — resolve the CURRENT direct media URL for a
  * LINK-sourced recording so the player can stream the user's own HD original
  * straight from its CDN (we never proxy the bytes). Only meaningful when the

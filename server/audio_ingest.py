@@ -436,6 +436,12 @@ def decode_to_pcm_16k(data: bytes, filename: str) -> tuple[np.ndarray, int]:
 # Deepgram pre-recorded transcription
 # ---------------------------------------------------------------------------
 
+def pcm_to_wav16(pcm: np.ndarray, sr: int) -> bytes:
+    """Public alias of :func:`_pcm_to_wav16` — the ``?format=pcm16k`` media
+    option (main.py) hands a stored recording to the phone in this shape."""
+    return _pcm_to_wav16(pcm, sr)
+
+
 def _pcm_to_wav16(pcm: np.ndarray, sr: int) -> bytes:
     """Wrap mono float32 PCM in [-1, 1] as a 16-bit little-endian WAV in memory."""
     ints = (np.clip(pcm, -1.0, 1.0) * 32767.0).astype("<i2")

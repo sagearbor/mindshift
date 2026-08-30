@@ -6958,6 +6958,8 @@ export interface operations {
         parameters: {
             query?: {
                 tk?: string;
+                /** @description Omit for the stored derivative; 'pcm16k' for a 16 kHz mono s16le WAV transcode of the audio (≤ 30 min, else 413). */
+                format?: string | null;
             };
             header?: never;
             path: {
