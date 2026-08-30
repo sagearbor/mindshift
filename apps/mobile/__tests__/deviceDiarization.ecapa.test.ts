@@ -86,9 +86,11 @@ describe("runDeviceDiarization on the real ECAPA export (family_real, two voices
     expect(ev.mean_pairwise_cosine as number).toBeLessThan(0.5);
   });
 
-  maybe("the guard is real: a byteOffset-dropping session fed views collapses to one vector", async () => {
+  maybe("subarray views through the embedder no longer collapse — float32Tensor copies them before ORT sees them", async () => {
     // What the phone did before the fix, on the same model and audio: every
-    // window's tensor pointed at the buffer's start.
+    // window's tensor pointed at the buffer's start. The seam (ort.ts
+    // float32Tensor) now hands ORT an owned zero-offset array, so even a
+    // byteOffset-dropping session embeds the right audio for a view.
     const embedder = new EcapaEmbedder(phoneFaithful(session!));
     const pcm = new Float32Array(16000 * 6);
     const src = fs.readFileSync(FIXTURE);
@@ -99,7 +101,13 @@ describe("runDeviceDiarization on the real ECAPA export (family_real, two voices
     const ownedEmbs = [];
     for (const v of views) viewEmbs.push(await embedder.embed(v, 16000));
     for (const o of owned) ownedEmbs.push(await embedder.embed(o, 16000));
-    expect(meanPairwiseCosine(viewEmbs) as number).toBeGreaterThan(0.999);
+    expect(meanPairwiseCosine(viewEmbs) as number).toBeLessThan(0.95);
     expect(meanPairwiseCosine(ownedEmbs) as number).toBeLessThan(0.95);
+    // And the two paths agree window for window.
+    for (let i = 0; i < views.length; i++) {
+      let dot = 0;
+      for (let j = 0; j < viewEmbs[i].length; j++) dot += viewEmbs[i][j] * ownedEmbs[i][j];
+      expect(dot).toBeGreaterThan(0.999);
+    }
   });
 });
