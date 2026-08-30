@@ -704,3 +704,33 @@ async def test_upload_crosscheck_unknown_turn_is_kept_but_never_a_speaker(client
     # The label ladder still renders it (generic rung, raw id) — never blank.
     assert data["speaker_labels"][diarize_local.UNKNOWN_SPEAKER]["display_label"] == "Unknown"
     assert "cross-check" in (data["voice_analysis"] or "")
+
+
+# ---------------------------------------------------------------------------
+# per_turn alignment — a skipped fragment is padded, not a 502 (2026-08-30)
+# ---------------------------------------------------------------------------
+
+def test_align_per_turn_exact_passthrough():
+    entries = [{"heat": 10}, {"heat": 20}, {"heat": 30}]
+    assert main._align_per_turn(entries, 3) == (entries, [])
+
+
+def test_align_per_turn_by_index_pads_one_missing_from_neighbour():
+    entries = [{"turn": 0, "heat": 10}, {"turn": 1, "heat": 20}, {"turn": 3, "heat": 40}]
+    aligned, padded = main._align_per_turn(entries, 4)
+    assert padded == [2]
+    assert [e["heat"] for e in aligned] == [10, 20, 20, 40]
+    assert aligned[2]["_padded"] is True and aligned[2]["markers"] == []
+
+
+def test_align_per_turn_rejects_too_many_missing_or_no_indexes():
+    # 19 of 40 with indexes → far over the 10% budget.
+    assert main._align_per_turn([{"turn": i, "heat": 1} for i in range(19)], 40) is None
+    # Short list with NO indexes: ambiguous → misaligned.
+    assert main._align_per_turn([{"heat": 1}, {"heat": 2}], 3) is None
+
+
+def test_align_per_turn_unindexed_entries_fill_gaps_when_exact():
+    entries = [{"turn": 0, "heat": 1}, {"heat": 9}, {"turn": 2, "heat": 3}]
+    aligned, padded = main._align_per_turn(entries, 3)
+    assert padded == [] and [e["heat"] for e in aligned] == [1, 9, 3]

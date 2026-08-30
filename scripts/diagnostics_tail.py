@@ -143,11 +143,24 @@ def _label(index: int) -> str:
     return f"Speaker {chr(65 + index % 26)}"
 
 
+def _segment_triples(segs) -> list:
+    """Segments as ``(start, end, label)`` whichever shape they were stored in:
+    the phone sends ``[[start, end, label], ...]``; the server rewrites nested
+    arrays for Firestore into ``[{"start", "end", "label"}, ...]``."""
+    out = []
+    for s in segs or []:
+        if isinstance(s, dict):
+            out.append((float(s["start"]), float(s["end"]), s["label"]))
+        elif isinstance(s, (list, tuple)) and len(s) >= 3:
+            out.append((float(s[0]), float(s[1]), s[2]))
+    return out
+
+
 def summarize_device_diarization(dd: dict, max_segments: int = 40) -> list[str]:
     """The on-phone voice-separation run (apps/mobile/src/live/
     deviceDiarization.ts) carried in ``data.device_diarization``."""
     dev = dd.get("device") or {}
-    segs = dd.get("segments") or []
+    segs = _segment_triples(dd.get("segments"))
     lines = [
         f"   device_diarization: recording {dd.get('recording_id')} engine {dd.get('engine')} "
         f"k={dd.get('k')} (eigengap {dd.get('k_eigengap')}) runs={len(segs)} "

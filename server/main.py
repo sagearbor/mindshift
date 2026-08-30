@@ -1810,9 +1810,11 @@ ANALYZE_SYSTEM_PROMPT = (
     "before responding to criticism\"), never generic advice. Be honest and "
     "direct, kind but not mushy — do not soften real feedback away.\n\n"
     "Return ONLY a JSON object of exactly this shape, with per_turn holding "
-    "one entry per input turn in the SAME order and length, and report_cards "
-    "holding one card per distinct speaker:\n"
-    '{"per_turn": [{"heat": 0, "markers": [], "trigger_phrase": null}], '
+    "one entry per input turn in the SAME order and length — each entry "
+    "carries \"turn\", the turn's number from the transcript (0-based), so "
+    "nothing can be skipped — and report_cards holding one card per distinct "
+    "speaker:\n"
+    '{"per_turn": [{"turn": 0, "heat": 0, "markers": [], "trigger_phrase": null}], '
     '"speaker_names": {"Alice": {"name": "", "confidence": "low"}}, '
     '"requests": [{"speaker": "", "request": "", "outcome": "unclear"}], '
     '"narrative": "", '
@@ -2221,6 +2223,62 @@ def _me_speaker(effective: dict[str, dict]) -> str | None:
     return me[0] if len(me) == 1 else None
 
 
+# A per_turn list may be short by this fraction of turns (rounded up, min 1)
+# and still be used, with the missing turns padded from neighbours.
+ALIGN_MAX_MISSING_FRAC = 0.1
+
+
+def _align_per_turn(entries: list, n: int) -> tuple[list[dict], list[int]] | None:
+    """Align an LLM ``per_turn`` list to ``n`` transcript turns.
+
+    Returns ``(aligned, padded_indexes)`` or ``None`` when the list cannot be
+    trusted. Exact length with in-order entries passes through untouched. An
+    entry's ``turn`` field (0-based) places it; entries without a usable
+    ``turn`` are taken in order into the gaps only when the count matches.
+    Missing turns (at most ``ceil(ALIGN_MAX_MISSING_FRAC * n)``) are padded
+    from the nearest scored neighbour — heat copied, no markers, no trigger
+    phrase — and reported so the caller can surface it.
+    """
+    import math
+
+    entries = [e if isinstance(e, dict) else {} for e in entries]
+    if len(entries) == n and all(
+        not isinstance(e.get("turn"), int) or e.get("turn") == i
+        for i, e in enumerate(entries)
+    ):
+        return entries, []
+    by_index: dict[int, dict] = {}
+    unindexed: list[dict] = []
+    for e in entries:
+        t = e.get("turn")
+        if isinstance(t, int) and 0 <= t < n and t not in by_index:
+            by_index[t] = e
+        else:
+            unindexed.append(e)
+    # Entries with no usable index fill the remaining slots in order, but only
+    # when that is unambiguous (they exactly fill the gaps).
+    gaps = [i for i in range(n) if i not in by_index]
+    if unindexed and len(unindexed) == len(gaps):
+        for i, e in zip(gaps, unindexed):
+            by_index[i] = e
+        gaps = []
+    if not by_index:
+        return None
+    if len(gaps) > max(1, math.ceil(ALIGN_MAX_MISSING_FRAC * n)):
+        return None
+    aligned: list[dict] = []
+    for i in range(n):
+        if i in by_index:
+            aligned.append(by_index[i])
+            continue
+        neighbour = min(by_index, key=lambda j: (abs(j - i), j))
+        aligned.append({
+            "heat": by_index[neighbour].get("heat"),
+            "markers": [], "trigger_phrase": None, "_padded": True,
+        })
+    return aligned, gaps
+
+
 async def _run_analysis(
     turns: list[AnalyzeTurn],
     context: str,
@@ -2318,11 +2376,24 @@ async def _run_analysis(
         # AttributeError on .get() downstream — treat it as a parse failure.
         if not isinstance(parsed, dict):
             raise _LLMResponseError("LLM returned invalid JSON")
-        # No padding, no truncation: a misaligned per_turn length means the
-        # scores cannot be trusted against the transcript at all.
+        # Align per_turn to the transcript. Each entry carries "turn" (the
+        # transcript number) so a skipped fragment can be identified instead of
+        # silently shifting every later score. Measured 2026-08-30 on a real
+        # 20-turn re-analysis: Haiku returned 19 entries twice in a row (the
+        # word-level splitter now produces short fragments like "Hey. Settle",
+        # which the model folds into a neighbour), so a strict length check
+        # 502'd the whole re-analysis. Rules: same length and in order → as
+        # before; otherwise align by "turn"; ≤ ALIGN_MAX_MISSING_FRAC of turns
+        # missing → pad each from its nearest scored neighbour (heat copied,
+        # no markers, no trigger) and say so in `parsed["_padded_turns"]`;
+        # more than that, or no usable indexes → misaligned (retry, then 502).
         per_turn_field = parsed.get("per_turn")
-        if not isinstance(per_turn_field, list) or len(per_turn_field) != len(turns):
+        if not isinstance(per_turn_field, list):
             raise _LLMResponseError("LLM returned misaligned analysis")
+        aligned = _align_per_turn(per_turn_field, len(turns))
+        if aligned is None:
+            raise _LLMResponseError("LLM returned misaligned analysis")
+        parsed["per_turn"], parsed["_padded_turns"] = aligned
         return parsed
 
     # ~10% of production batch-analysis calls come back non-JSON (or truncated
@@ -2341,8 +2412,14 @@ async def _run_analysis(
         except _LLMResponseError as exc:
             raise HTTPException(status_code=502, detail=exc.detail)
 
-    # Guaranteed a list of the correct length by _complete_analysis_json above.
+    # Guaranteed a list of the correct length by _complete_analysis_json above
+    # (possibly with a few padded fragments — logged, never silent).
     llm_per_turn = data["per_turn"]
+    if data.get("_padded_turns"):
+        logger.warning(
+            "analysis LLM skipped %d of %d turns; padded from neighbours: %s",
+            len(data["_padded_turns"]), len(turns), data["_padded_turns"],
+        )
 
     # Extract + clean the per-turn LLM fields into parallel arrays.
     heats: list[int] = []
