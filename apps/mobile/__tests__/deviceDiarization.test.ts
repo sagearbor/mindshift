@@ -4,8 +4,12 @@
  * ECAPA → diarizeWindows → a DeviceDiarizationEvent; cancellation; the
  * phrased failures (model missing, 413, bad audio).
  */
+import * as fs from "fs";
+import * as path from "path";
 import { buildWavHeader, int16ToBytes } from "../src/recorder/wav";
 import { parseWav, parseWav16kMono } from "../src/recorder/wavParse";
+import { parseWav as parseWavNode } from "../src/live/replay/wav";
+import { AUDIO_FIXTURES_DIR } from "../src/live/replay/sceneReplay";
 import {
   DeviceDiarizationError,
   runDeviceDiarization,
@@ -47,13 +51,17 @@ function wavClip(blocks: { voice: number; seconds: number }[]): { bytes: Uint8Ar
   return { bytes, seconds: total };
 }
 
-/** Fake ECAPA keyed on the chunk's dominant pitch. */
-function fakeEmbedder(): Embedder & { calls: number } {
+/** Fake ECAPA keyed on the chunk's dominant pitch. `views` counts chunks
+ *  that were NOT owned zero-offset buffers — the shape the native ORT
+ *  binding mis-reads (it drops byteOffset), so it must stay 0. */
+function fakeEmbedder(): Embedder & { calls: number; views: number } {
   const rnd = lcg(9);
   const e = {
     calls: 0,
+    views: 0,
     async embed(pcm: Float32Array): Promise<Float32Array> {
       e.calls++;
+      if (pcm.byteOffset !== 0 || pcm.byteLength !== pcm.buffer.byteLength) e.views++;
       let crossings = 0;
       for (let i = 1; i < pcm.length; i++) if ((pcm[i - 1] < 0) !== (pcm[i] < 0)) crossings++;
       const f0 = (crossings / 2) * (SR / pcm.length);
@@ -102,6 +110,41 @@ describe("wavParse", () => {
     expect(() => parseWav16kMono(other)).toThrow(/16 kHz mono/);
     expect(() => parseWav(new Uint8Array([1, 2, 3]))).toThrow(/RIFF/);
   });
+
+  it("reads a real `?format=pcm16k` WAV from the server's own writer, sample for sample", () => {
+    // fixtures/pcm16k_family_real_6s.wav: the first 6 s of
+    // server/tests/fixtures/audio/test_recording_family_real.wav through
+    // server/audio_ingest.decode_to_pcm_16k + pcm_to_wav16 (what
+    // GET /recordings/{id}/media?format=pcm16k returns). The server writes
+    // int16 as round(x × 32767) of the float, so it lands within 1 LSB of
+    // the original int16 — never more.
+    const served = fs.readFileSync(path.join(__dirname, "fixtures/pcm16k_family_real_6s.wav"));
+    const source = parseWavNode(fs.readFileSync(path.join(AUDIO_FIXTURES_DIR, "test_recording_family_real.wav")));
+    expect(source.sampleRate).toBe(16000);
+    // Exactly what the phone hands the parser: a Uint8Array over the XHR
+    // ArrayBuffer — but also a view with a non-zero offset, which must not matter.
+    const bytes = new Uint8Array(served.buffer, served.byteOffset, served.byteLength);
+    const w = parseWav(bytes, "pcm16k");
+    expect([w.channels, w.sampleRate, w.bitsPerSample]).toEqual([1, 16000, 16]);
+    expect(w.samples.length).toBe(6 * 16000);
+    expect(w.seconds).toBeCloseTo(6, 6);
+    const f = parseWav16kMono(bytes, "pcm16k");
+    expect(f.length).toBe(6 * 16000);
+    expect(f.byteOffset).toBe(0);
+    let maxAbs = 0;
+    let maxDiffLsb = 0;
+    for (let i = 0; i < f.length; i++) {
+      maxAbs = Math.max(maxAbs, Math.abs(f[i]));
+      maxDiffLsb = Math.max(maxDiffLsb, Math.abs(w.samples[i] - source.samples[i]));
+    }
+    expect(maxAbs).toBeLessThanOrEqual(1);
+    expect(maxAbs).toBeGreaterThan(0.1); // real speech, not silence or a scale slip
+    expect(maxDiffLsb).toBeLessThanOrEqual(1);
+    for (let i = 0; i < 100; i++) expect(Math.abs(w.samples[i] - source.samples[i])).toBeLessThanOrEqual(1);
+    // The float mapping is the fast loop's own: int16 / 32768.
+    const k = w.samples.findIndex((s) => Math.abs(s) > 1000);
+    expect(f[k]).toBeCloseTo(w.samples[k] / 32768, 7);
+  });
 });
 
 describe("runDeviceDiarization", () => {
@@ -126,6 +169,13 @@ describe("runDeviceDiarization", () => {
     expect(ev.window_s).toBe(1.5);
     expect(ev.windows).toBeGreaterThan(50);
     expect(ev.windows).toBe(embedder.calls);
+    // Every chunk crossed the embedder seam as an owned zero-offset buffer
+    // (the native binding drops byteOffset — a view would embed the clip's
+    // first window every time and the run would degenerate to one vector).
+    expect(embedder.views).toBe(0);
+    expect(ev.mean_pairwise_cosine).not.toBeNull();
+    expect(ev.mean_pairwise_cosine as number).toBeGreaterThan(0);
+    expect(ev.mean_pairwise_cosine as number).toBeLessThan(0.95);
     expect(ev.windows_total).toBeGreaterThanOrEqual(ev.windows);
     expect(ev.duration_s).toBeCloseTo(clip.seconds, 3);
     expect(ev.speech_s).toBeGreaterThan(25);

@@ -97,6 +97,7 @@ const event: DeviceDiarizationEvent = {
   k: 3,
   k_eigengap: 3,
   eigenvalues: [1, 0.9, 0.8, 0.2],
+  mean_pairwise_cosine: 0.19,
   segments: [
     [0, 10.5, 0],
     [10.5, 25.0, 1],
@@ -228,9 +229,32 @@ describe("ReplayScreen — Separate voices on this phone (engine B)", () => {
     expect(timings).toContain("embed 38.2 ms/window (p90 45.1)");
     expect(timings).toContain("total 9.8 s");
     expect(timings).toContain("162/165 windows @ 0.25 s hop");
+    expect(timings).toContain("mean cos 0.19");
+    expect(queryId(comp, "device-diarization-warning")).toBeNull();
     // Posted as a diagnostics event; its id is shown.
     expect(mockSend).toHaveBeenCalledWith(event, { uid: null, email: null });
     expect(textOf(queryId(comp, "device-diarization-sent")!)).toContain("ID dx-TEST-TEST");
+  });
+
+  it("a run whose windows all embed to the same vector is a warning, never '1 voice found'", async () => {
+    // The Pixel 10's first run (2026-08-30): the native ORT binding ignored
+    // the PCM view's byteOffset, every window embedded the clip's first 1.5 s,
+    // eigengap 1. The row must say what happened, not report one voice.
+    const degenerate: DeviceDiarizationEvent = { ...event, k: 1, k_eigengap: 1, eigenvalues: [162, 0, 0], mean_pairwise_cosine: 1, segments: [[0, 42.6, 0]] };
+    mockRun.mockImplementation(() => ({ promise: Promise.resolve(degenerate), cancel: jest.fn() }));
+    const comp = await render();
+    await act(async () => {
+      queryId(comp, "device-diarization-run")!.props.onPress();
+    });
+    await flush();
+    expect(queryId(comp, "device-diarization-k")).toBeNull();
+    const warning = textOf(queryId(comp, "device-diarization-warning")!);
+    expect(warning).toContain("No result");
+    expect(warning).toContain("all 162 windows came back as the same voiceprint (mean cosine 1)");
+    expect(warning).toContain("model or audio problem");
+    expect(textOf(queryId(comp, "device-diarization-row")!)).not.toContain("voice found");
+    // Still posted, so the fault is on the server with its numbers.
+    expect(mockSend).toHaveBeenCalledWith(degenerate, { uid: null, email: null });
   });
 
   it("cancel stops the run and a failure is one honest inline line", async () => {

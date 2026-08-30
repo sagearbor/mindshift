@@ -76,3 +76,49 @@ record and prints its `dx-…` id; then, on the Mac:
 
 prints the record and its frame accuracy / k / owner purity / per-speaker
 recall under the bake-off scorer — the number to put next to the 0.761 above.
+
+## 2026-08-30 — the first Pixel 10 runs said "1 voice found (eigengap 1)"
+
+Both recordings (maggiano's 162/165 windows, poker night 108/115 — the window
+counts and gates matched this replay exactly) came back as one voice. Root
+cause, reproduced in node against this replay's model and fixture
+(`meanPairwiseCos` 0.187 / k = 2 with a normal session; **1.0000 / k = 1,
+eigenvalues [110, 0, 0, …]** with a session that behaves like the phone's):
+
+* `diarizeWindows` handed the embedder `pcm.subarray(start, start + 24000)`
+  — views into the whole recording's Float32Array.
+* `onnxruntime-react-native` 1.24.3's JSI binding (`cpp/TensorUtils.cpp`,
+  `createOrtValueFromJSTensor`) builds the `Ort::Value` from
+  `tensor.data.buffer` and never reads `byteOffset`: every window's tensor
+  pointed at sample 0 of the recording, so all 162 windows embedded the same
+  first 1.5 s — one vector, an all-ones affinity, eigengap 1.
+* `onnxruntime-node` honours the view, and this replay copied anyway
+  (`Float32Array.from(c)`), so the parity harness could not see it. The model
+  was not at fault: the served `ecapa_<rev>.onnx` (ETag `960224a6…`, the
+  revision the phone printed) is byte-identical to the export replayed here.
+
+Fix: `diarizeWindows` now `slice`s each window (an owned, zero-offset buffer;
+96 KB per window), `deviceDiarization` re-guards at the native seam
+(`ownedFloat32`), the event carries `mean_pairwise_cosine`, and the Replay row
+shows a warning instead of a voice count when that cosine is > 0.95.
+`apps/mobile/__tests__/deviceDiarization.ecapa.test.ts` runs the production
+orchestration over `family_real` with the real export — once normally and once
+through a byteOffset-dropping session wrapper — and asserts k = 2 both ways.
+
+The same `subarray` shape exists in the live loop (`fastLoop.ts`: the
+oversized-turn tail in `poolSpeakerAudio` and `finalizeTurn`'s
+`pcm.subarray(pcm.length - maxEmbedSamples)`): on the phone those embed the
+HEAD of the same turn instead of its tail — still that speaker's voice, which
+is why live separation worked while this did not. The durable fix is at the
+seam (`ort.ts wrapOrtRuntime` or `EcapaEmbedder.embed`: copy when
+`byteOffset !== 0 || byteLength !== buffer.byteLength`).
+
+**Pixel timing.** The phone's ECAPA cost was 62–68 ms per 1.5 s window
+(p90 70 ms) against ~15 ms on the M4 here — 4.3×. At the 0.25 s hop that is
+240 windows per minute of speech ≈ 16 s of model time per audio minute
+(maggiano's 42.6 s → 10.1 s of embedding inside the 11.8 s total; download
+was 1.5 s for 1.4 MB). The 600-window cap (hop widening) bounds any clip at
+~40 s of embedding, so a 10-minute recording costs the same 40 s as a
+2.5-minute one — at a coarser hop. Cheaper paths, untested: batch the
+windows as one `[B, 24000]` tensor if the export's first dim is dynamic, or the
+XNNPACK execution provider.

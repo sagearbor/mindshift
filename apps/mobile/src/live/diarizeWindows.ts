@@ -791,7 +791,14 @@ export async function diarizeWindows(pcm: Float32Array, sampleRate: number, embe
   for (let i = 0; i < keep.length; i += batchSize) {
     checkAbort();
     const batch = keep.slice(i, i + batchSize);
-    const chunks = batch.map((s) => pcm.subarray(s, s + grid.windowSamples));
+    // `slice`, never `subarray`: every chunk must OWN a zero-offset buffer.
+    // onnxruntime-react-native's JSI binding (1.24.3, cpp/TensorUtils.cpp)
+    // builds the input tensor from `tensor.data.buffer` and drops the view's
+    // byteOffset, so a subarray view embeds the first 1.5 s of the clip for
+    // EVERY window — identical vectors, eigengap 1, "1 voice found" (Pixel 10,
+    // 2026-08-30). onnxruntime-node honours the offset, which is why the node
+    // replay never saw it. 96 KB per window is nothing next to the model call.
+    const chunks = batch.map((s) => pcm.slice(s, s + grid.windowSamples));
     const tb = now();
     const vecs = await embedBatch(chunks, sampleRate);
     const per = (now() - tb) / batch.length;

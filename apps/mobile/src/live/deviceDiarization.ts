@@ -16,6 +16,13 @@
  * with fakes); the defaults are the app's real client / ORT / fetch. Never
  * blocks the UI thread for long: the embedder awaits between windows and
  * the run can be cancelled between batches.
+ *
+ * Two guards learned from the first Pixel 10 run (2026-08-30, "1 voice found
+ * (eigengap 1)" on every recording): the native ORT binding ignores a typed
+ * array's byteOffset, so every PCM chunk crosses the seam as an OWNED buffer
+ * (`ownedFloat32`); and the event carries `mean_pairwise_cosine` so a run
+ * whose windows all embed to the same vector is reported as the fault it is
+ * (`embeddingsLookDegenerate`), never as one voice.
  */
 import type { Embedder } from "./speakerId";
 import { EcapaEmbedder } from "./speakerId";
@@ -70,6 +77,53 @@ export class DeviceDiarizationError extends Error {
 
 function fmtMb(bytes: number): string {
   return `${(bytes / 1e6).toFixed(1)} MB`;
+}
+
+/**
+ * A Float32Array that owns its whole buffer from offset 0 — the only shape
+ * that is safe to hand to the native ORT session. onnxruntime-react-native
+ * (1.24.3, cpp/TensorUtils.cpp `createOrtValueFromJSTensor`) creates the
+ * Ort::Value from `data.buffer` and never reads `byteOffset` / `length`, so
+ * a `subarray` view silently embeds the START of the underlying buffer.
+ * onnxruntime-node and onnxruntime-web honour the view, so this is invisible
+ * in the replay and in tests unless asserted. The input is returned as is
+ * when it already qualifies (no copy on the common path).
+ */
+export function ownedFloat32(pcm: Float32Array): Float32Array {
+  return pcm.byteOffset === 0 && pcm.byteLength === pcm.buffer.byteLength ? pcm : pcm.slice();
+}
+
+/** Mean cosine over every pair of window embeddings (they arrive
+ *  L2-normalised from diarizeWindows); null below two windows. */
+export function meanPairwiseCosine(embs: ArrayLike<number>[]): number | null {
+  const n = embs.length;
+  if (n < 2) return null;
+  const d = embs[0].length;
+  let sum = 0;
+  let pairs = 0;
+  for (let i = 0; i < n; i++) {
+    const a = embs[i];
+    for (let j = i + 1; j < n; j++) {
+      const b = embs[j];
+      let dot = 0;
+      for (let t = 0; t < d; t++) dot += a[t] * b[t];
+      sum += dot;
+      pairs++;
+    }
+  }
+  return sum / pairs;
+}
+
+/**
+ * Above this mean pairwise cosine the windows are not one voice — they are
+ * one VECTOR: a model or audio-path fault (the byteOffset bug above scored
+ * exactly 1.0000; the two-voice family_real fixture scores 0.19). The row
+ * shows such a run as a warning, never as "1 voice found".
+ */
+export const DEGENERATE_EMBEDDING_COSINE = 0.95;
+
+export function embeddingsLookDegenerate(ev: Pick<DeviceDiarizationEvent, "mean_pairwise_cosine" | "windows">): boolean {
+  return ev.windows >= 2 && ev.mean_pairwise_cosine !== null && ev.mean_pairwise_cosine > DEGENERATE_EMBEDDING_COSINE;
 }
 
 /** XMLHttpRequest when the platform has it (React Native does, with progress
@@ -157,12 +211,14 @@ export function toDeviceDiarizationEvent(
   const sorted = [...r.embedMs].sort((a, b) => a - b);
   const mean = sorted.length > 0 ? sorted.reduce((a, b) => a + b, 0) / sorted.length : null;
   const p90 = percentile(sorted, 0.9);
+  const cos = meanPairwiseCosine(r.embeddings);
   return {
     recording_id: recordingId,
     engine: "B",
     k: r.k,
     k_eigengap: r.kEigengap,
     eigenvalues: r.eigenvalues.map((x) => Math.round(x * 1e6) / 1e6),
+    mean_pairwise_cosine: cos === null ? null : Math.round(cos * 1e4) / 1e4,
     segments: r.segments.map(([s, e, l]) => [r3(s), r3(e), l]),
     windows: r.windows,
     windows_total: r.totalWindows,
@@ -248,11 +304,13 @@ export function runDeviceDiarization(
         throw new DeviceDiarizationError(`the audio couldn't be read (${msg})`, "bad-audio");
       }
       // 3. The engine, one window per embed call (the live loop's shape).
+      // Every chunk crosses the native seam as an owned, zero-offset buffer
+      // (see ownedFloat32) — diarizeWindows already slices, this is the guard.
       const embedBatch = async (chunks: Float32Array[], sr: number) => {
         const out: Float32Array[] = [];
         for (const c of chunks) {
           check();
-          out.push(await loaded.embedder.embed(c, sr));
+          out.push(await loaded.embedder.embed(ownedFloat32(c), sr));
         }
         return out;
       };

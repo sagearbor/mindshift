@@ -13,7 +13,7 @@ import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "rea
 import { useAuthStore } from "../store/authStore";
 import { useDiagnosticsStore, type DeviceDiarizationEvent } from "../diagnostics/diagnostics";
 import { loadExperimentalVoiceEngine } from "../live/experimentalPrefs";
-import { runDeviceDiarization, DeviceDiarizationError, type DeviceDiarizationProgress, type DeviceDiarizationRun } from "../live/deviceDiarization";
+import { runDeviceDiarization, DeviceDiarizationError, embeddingsLookDegenerate, type DeviceDiarizationProgress, type DeviceDiarizationRun } from "../live/deviceDiarization";
 import { unknownLabel } from "../live/speakerId";
 import { resolveSpeakerColors } from "../utils/speakerColors";
 
@@ -55,7 +55,16 @@ export function timingsLine(ev: DeviceDiarizationEvent): string {
   const embed = ev.embed_ms_mean === null ? "no windows" : `embed ${ev.embed_ms_mean} ms/window (p90 ${ev.embed_ms_p90})`;
   return (
     `download ${fmtS(ev.download_ms)} (${(ev.download_bytes / 1e6).toFixed(1)} MB) · ${embed} · ` +
-    `cluster ${fmtS(ev.cluster_ms)} · total ${fmtS(ev.total_ms)} · ${ev.windows}/${ev.windows_total} windows @ ${ev.hop_s} s hop`
+    `cluster ${fmtS(ev.cluster_ms)} · total ${fmtS(ev.total_ms)} · ${ev.windows}/${ev.windows_total} windows @ ${ev.hop_s} s hop` +
+    (ev.mean_pairwise_cosine === null ? "" : ` · mean cos ${ev.mean_pairwise_cosine}`)
+  );
+}
+
+/** The one line a degenerate run gets instead of a voice count. */
+export function degenerateWarning(ev: DeviceDiarizationEvent): string {
+  return (
+    `No result — all ${ev.windows} windows came back as the same voiceprint (mean cosine ${ev.mean_pairwise_cosine}). ` +
+    "That is a model or audio problem on this phone, not one voice; the strip above means nothing."
   );
 }
 
@@ -160,9 +169,10 @@ function Result({ event, sent }: { event: DeviceDiarizationEvent; sent: { ok: bo
   const labels = Array.from({ length: Math.max(event.k, 1) }, (_, i) => unknownLabel(i));
   const colors = resolveSpeakerColors(labels);
   const span = Math.max(event.duration_s, 0.001);
+  const degenerate = embeddingsLookDegenerate(event);
   return (
     <View testID="device-diarization-result">
-      <View style={styles.strip} testID="device-diarization-strip" accessibilityLabel={`${event.k} voices found`}>
+      <View style={styles.strip} testID="device-diarization-strip" accessibilityLabel={degenerate ? "no result — embeddings identical" : `${event.k} voices found`}>
         {event.segments.map(([s, e, l], i) => (
           <View
             key={`${i}-${s}`}
@@ -180,9 +190,15 @@ function Result({ event, sent }: { event: DeviceDiarizationEvent; sent: { ok: bo
           </View>
         ))}
       </View>
-      <Text style={styles.k} testID="device-diarization-k">
-        {event.k} {event.k === 1 ? "voice" : "voices"} found (eigengap {event.k_eigengap}) · {event.segments.length} runs
-      </Text>
+      {degenerate ? (
+        <Text style={[styles.k, styles.error]} testID="device-diarization-warning">
+          {degenerateWarning(event)}
+        </Text>
+      ) : (
+        <Text style={styles.k} testID="device-diarization-k">
+          {event.k} {event.k === 1 ? "voice" : "voices"} found (eigengap {event.k_eigengap}) · {event.segments.length} runs
+        </Text>
+      )}
       <Text style={styles.timings} testID="device-diarization-timings">
         {timingsLine(event)}
       </Text>

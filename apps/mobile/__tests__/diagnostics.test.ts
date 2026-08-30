@@ -164,6 +164,7 @@ describe("device_diarization (on-phone voice separation) in the bundle", () => {
     k: 3,
     k_eigengap: 3,
     eigenvalues: [1, 0.9, 0.8, 0.2],
+    mean_pairwise_cosine: 0.21,
     segments: [[0, 10, 0], [10, 20, 1], [20, 30, 2]] as [number, number, number][],
     windows: 100,
     windows_total: 110,
@@ -191,7 +192,7 @@ describe("device_diarization (on-phone voice separation) in the bundle", () => {
     expect(withRun.device_diarization).toEqual(event);
     const body = telemetryBody(withRun);
     expect(body.events[0].data.device_diarization).toEqual(event);
-    expect(body.events[0].message).toContain("device_diarization=r1 k=3");
+    expect(body.events[0].message).toContain("device_diarization=r1 k=3 cos=0.21");
     expect(body.events[0].tag).toBe("client_diagnostics");
   });
 

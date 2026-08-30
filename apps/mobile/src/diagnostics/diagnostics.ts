@@ -196,6 +196,10 @@ export interface DeviceDiarizationEvent {
   k: number;
   k_eigengap: number;
   eigenvalues: number[];
+  /** Mean cosine over every pair of window embeddings (null under two
+   *  windows). ~1.0 means every window embedded to the SAME vector — a
+   *  model / audio-path fault, not a one-voice recording. */
+  mean_pairwise_cosine: number | null;
   segments: [number, number, number][];
   windows: number;
   windows_total: number;
@@ -279,7 +283,7 @@ export function telemetryBody(payload: DiagnosticsPayload): {
         message:
           `${DIAGNOSTICS_TAG} ${payload.diagnostics_id} uid=${payload.uid ?? "-"} email=${payload.email ?? "-"}` +
           (errors.length > 0 ? ` errors=${errors.join(" | ")}` : "") +
-          (dd ? ` device_diarization=${dd.recording_id} k=${dd.k}` : ""),
+          (dd ? ` device_diarization=${dd.recording_id} k=${dd.k} cos=${dd.mean_pairwise_cosine ?? "-"}` : ""),
         stack: null,
         ts: payload.created_at,
         data: payload,

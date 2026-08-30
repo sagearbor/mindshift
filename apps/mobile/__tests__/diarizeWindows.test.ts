@@ -252,6 +252,26 @@ describe("diarizeWindows end to end", () => {
     expect(r.timings.totalMs).toBeGreaterThanOrEqual(0);
   });
 
+  it("hands the embedder OWNED zero-offset chunks (the native ORT binding ignores byteOffset)", async () => {
+    // onnxruntime-react-native builds the tensor from `data.buffer` and drops
+    // the view's byteOffset: a `subarray` view would embed the clip's first
+    // 1.5 s for every window (Pixel 10, 2026-08-30: "1 voice found").
+    const { pcm } = synthClip([{ voice: 0, seconds: 4 }, { voice: 1, seconds: 4 }]);
+    const seen: { offset: number; owns: boolean; len: number; first: number }[] = [];
+    const inner = fakeEmbedder();
+    const spy: EmbedBatch = async (chunks, sr) => {
+      for (const c of chunks) seen.push({ offset: c.byteOffset, owns: c.byteLength === c.buffer.byteLength, len: c.length, first: c[0] });
+      return inner(chunks, sr);
+    };
+    const r = await diarizeWindows(pcm, SR, spy);
+    expect(seen.length).toBe(r.windows);
+    expect(seen.length).toBeGreaterThan(10);
+    expect(seen.every((s) => s.offset === 0 && s.owns && s.len === 24000)).toBe(true);
+    // And they are DIFFERENT windows, not copies of the first one.
+    const firsts = seen.map((s, i) => pcm[Math.round(r.starts[i] * SR)]);
+    expect(seen.map((s) => s.first)).toEqual(firsts);
+  });
+
   it("honours the window cap by widening the hop", async () => {
     const { pcm } = synthClip([{ voice: 0, seconds: 20 }, { voice: 1, seconds: 20 }]);
     const r = await diarizeWindows(pcm, SR, fakeEmbedder(), { maxWindows: 40 });
