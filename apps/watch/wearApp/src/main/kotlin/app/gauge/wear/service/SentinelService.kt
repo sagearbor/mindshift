@@ -175,6 +175,11 @@ class SentinelService : Service() {
     // no decision content, mirrors loopRunning's threading contract.
     private var lastPublishedSentinelState: SentinelState? = null
 
+    // Tier B: the last mode passed through publishAndNotify — handler-thread-only, same contract
+    // as lastPublishedSentinelState. COMPANION ticks must not resume the mic or duty-cycle it,
+    // and pace themselves via postDelayed (there is no blocking mic read to set the cadence).
+    private var lastPublishedMode: Mode? = null
+
     // Review fix (P4-4 round 2): push-on-change caches for pushFaceUpdates, mirroring
     // lastPublishedSentinelState's own threading contract (handler-thread-only, no locking). tick()
     // runs on this ~1s cadence for the ENTIRE armed session (ARMED/COOLDOWN/STREAMING alike, not
@@ -196,12 +201,15 @@ class SentinelService : Service() {
             val c = controller ?: return
             try {
                 val now = System.currentTimeMillis()
+                // Tier B: COMPANION never touches the mic — no duty cycle, no resume; the tick
+                // only drives the controller's companionTick (socket keepalive + nudge reminders).
+                val companionMode = lastPublishedMode == Mode.COMPANION
                 // P5-3 (C2): duty-cycling only ever applies while ARMED — an episode in flight, or
                 // a cooldown that may still return to one, always captures continuously. Reading
                 // the sentinel state from the last published snapshot (not the controller) keeps
                 // this on the same handler-thread-only bookkeeping as loopRunning.
                 val armedOnly = lastPublishedSentinelState == SentinelState.ARMED
-                if (armedOnly && !micDutyCycle.shouldCapture(now)) {
+                if (!companionMode && armedOnly && !micDutyCycle.shouldCapture(now)) {
                     micReader?.pause()
                     reportCaptureMode(CaptureMode.DUTY_CYCLED)
                     // Sleep exactly until this cycle's next ON phase rather than re-polling every
@@ -226,7 +234,7 @@ class SentinelService : Service() {
                 // this invocation still converges to stopSentinel() exactly as before; stopSentinel()
                 // -> micReader.release() cleanly stops+releases the record whether or not it was
                 // ever resumed (AudioRecord.stop() on an already-stopped record is a no-op).
-                if (lastPublishedSentinelState != SentinelState.DISARMED) {
+                if (!companionMode && lastPublishedSentinelState != SentinelState.DISARMED) {
                     // Unconditional and idempotent — see MicReader.resume()'s KDoc for why this must
                     // happen before every capturing tick, not just on the OFF -> ON edge.
                     micReader?.resume()
@@ -256,6 +264,11 @@ class SentinelService : Service() {
                     // Converges explicit ACTION_DISARM and mic-loss auto-disarm (SentinelController.
                     // tick() disarms itself when the mic returns null) onto one cleanup path.
                     stopSentinel()
+                } else if (snapshot.mode == Mode.COMPANION) {
+                    // Tier B: no blocking mic read paces this loop in COMPANION — an undelayed
+                    // re-post would spin the handler thread. ~1 s matches the mic-window cadence
+                    // every other consumer of this tick (reminders, journal, HR policy) assumes.
+                    handler?.postDelayed(this, COMPANION_TICK_MS)
                 } else {
                     handler?.post(this)
                 }
@@ -417,8 +430,15 @@ class SentinelService : Service() {
             mode = Mode.STANDARD,
             mic = mic,
             wsFactory = object : WsFactory {
+                // Token read per create() (not captured at onCreate) so a pairing completed while
+                // the service is alive upgrades the NEXT socket to `?token=`; null falls back to
+                // the legacy `?account=` URL exactly as the shipped client.
                 override fun create(): EpisodeWs =
-                    RealEpisodeWs(wsBase, app.gauge.wear.ui.currentAccountId(applicationContext))
+                    RealEpisodeWs(
+                        wsBase,
+                        app.gauge.wear.ui.currentAccountId(applicationContext),
+                        app.gauge.wear.auth.AccountPrefs.deviceToken(applicationContext),
+                    )
             },
             haptics = hapticDirector,
             ids = EpisodeIdFactory { UUID.randomUUID().toString() },
@@ -427,6 +447,13 @@ class SentinelService : Service() {
             accel = accel,
             selectedSignal = { selectedSignalPref() },
             pulseIntervalMs = { pulseIntervalMsPref() },
+            // Tier B: deterministic per-day+account id for the companion socket — see
+            // control/CompanionSession.kt for why (relay keys by account; the id is for logs).
+            companionSessionId = {
+                app.gauge.wear.control.companionSessionId(
+                    app.gauge.wear.ui.currentAccountId(applicationContext),
+                )
+            },
         )
     }
 
@@ -662,23 +689,29 @@ class SentinelService : Service() {
             return
         }
         val mic = micReader ?: return
-        try {
-            mic.start()
-        } catch (e: Exception) {
-            // Mic unavailable (permission not granted, hardware busy, ...): nothing to arm.
-            runCatching {
-                Telemetry.log("error", TAG, "mic start failed; stopping sentinel: ${e.message}")
-            }
-            stopSentinel()
-            return
-        }
-        // P5-3: HR registration is no longer unconditional here — demand (selected signal, or
-        // streaming with an HR-subscribed vector) decides via manageHrRegistration, called from
-        // publishAndNotify below on this same tick. accelSource stays unconditional: it's cheap
-        // and always the movement signal's source.
-        accelSource?.start()
-
+        // Tier B: apply the mode FIRST (setMode while DISARMED applies immediately) so the
+        // mic/accel decision below reads the mode this arm actually runs under.
         if (mode != null) c.setMode(mode)
+        val companionMode = c.state.mode == Mode.COMPANION
+        if (!companionMode) {
+            try {
+                mic.start()
+            } catch (e: Exception) {
+                // Mic unavailable (permission not granted, hardware busy, ...): nothing to arm.
+                runCatching {
+                    Telemetry.log("error", TAG, "mic start failed; stopping sentinel: ${e.message}")
+                }
+                stopSentinel()
+                return
+            }
+            // P5-3: HR registration is no longer unconditional here — demand (selected signal, or
+            // streaming with an HR-subscribed vector) decides via manageHrRegistration, called from
+            // publishAndNotify below on this same tick. accelSource stays unconditional: it's cheap
+            // and always the movement signal's source.
+            accelSource?.start()
+        }
+        // COMPANION: no mic, no accel — the socket + haptics are the whole battery budget.
+
         c.arm()
         loopRunning = true
         runCatching { Telemetry.log("info", TAG, "armed mode=${c.state.mode}") }
@@ -859,6 +892,7 @@ class SentinelService : Service() {
             runCatching { Telemetry.flushAsync() }
         }
         lastPublishedSentinelState = snapshot.sentinel
+        lastPublishedMode = snapshot.mode
         ControllerStateBus.publish(snapshot)
         if (loopRunning) updateNotification(snapshot)
         pushFaceUpdates(snapshot)
@@ -878,6 +912,17 @@ class SentinelService : Service() {
      */
     private fun manageHrRegistration(snapshot: ControllerState) {
         val hr = hrSource ?: return
+        // Tier B: COMPANION reads no sensors at all — HrDemandPolicy would otherwise see
+        // "STREAMING + hr vector subscribed" and light the HR sensor for a mode whose whole point
+        // is the socket + haptics battery budget. Unregister anything left over and bail.
+        if (snapshot.mode == Mode.COMPANION) {
+            if (hrRegistered) {
+                runCatching { hr.stop() }
+                hrRegistered = false
+            }
+            hrPermissionWarnedThisDemand = false
+            return
+        }
         val action = runCatching {
             hrDemandPolicy.evaluate(
                 selectedSignal = selectedSignalPref(),
@@ -1027,6 +1072,10 @@ class SentinelService : Service() {
         // race (e.g. the OFF-phase boundary lands exactly on `now`) must never spin the handler
         // with a zero-delay repost loop.
         private const val MIN_DUTY_SLEEP_MS = 250L
+
+        // Tier B: COMPANION tick cadence — ~1 s, matching the mic-window pace every other tick
+        // consumer assumes; postDelayed because no blocking mic read paces the loop in this mode.
+        private const val COMPANION_TICK_MS = 1_000L
 
         private const val RETRO_CAPTURE_DEFAULT_SECONDS = 120.0 // "the last 2 minutes" — product default
 

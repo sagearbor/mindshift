@@ -314,6 +314,9 @@ interface UseAudioStreamReturn {
   latencySummary: string;
   /** Server tone flags (newest first), rendered additively in live mode. */
   toneFlags: ToneFlagEvent[];
+  /** Tier B: true while a paired watch has a live/companion socket open on
+   *  the server (`watch_connected` frames) — nudges are reaching the wrist. */
+  watchConnected: boolean;
   /** Pre-session capability check; null until `runPreflight` is called. */
   preflight: PreflightState | null;
   /** Probe what the on-device loop would load (no session started). No-op
@@ -517,6 +520,9 @@ export function useAudioStream(
   const [nudgeFlash, setNudgeFlash] = useState<NudgeEvent | null>(null);
   const [latencySummary, setLatencySummary] = useState("");
   const [toneFlags, setToneFlags] = useState<ToneFlagEvent[]>([]);
+  // Tier B: the server says a paired watch socket is registered on its relay
+  // (a `watch_connected` frame per change) — Live Coach shows a wrist note.
+  const [watchConnected, setWatchConnected] = useState(false);
   const [preflight, setPreflight] = useState<PreflightState | null>(null);
   const [escalationCount, setEscalationCount] = useState(0);
   const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(null);
@@ -1785,6 +1791,10 @@ export function useAudioStream(
             const flag = data as ToneFlagEvent;
             toneFlagsRef.current.push(flag);
             setToneFlags((prev) => [flag, ...prev].slice(0, MAX_SUGGESTION_FEED));
+          } else if (data.type === "watch_connected") {
+            // Tier B: a paired watch's (companion) socket came or went on the
+            // server — the screen shows "nudges on your wrist" while present.
+            setWatchConnected(data.connected === true);
           } else if (data.type === "speaker_identity") {
             // The server's (possibly revised) identity for a label: relabel
             // every transcript line that carries it. A null display_name is
@@ -2129,6 +2139,7 @@ export function useAudioStream(
       setLiveStatus("");
       setLatencySummary("");
       setToneFlags([]);
+      setWatchConnected(false);
       setNudgeFlash(null);
       setSessionSummary(null);
       setLastEpisode(null);
@@ -2674,6 +2685,7 @@ export function useAudioStream(
     clearNudgeFlash,
     latencySummary,
     toneFlags,
+    watchConnected,
     preflight,
     runPreflight,
     escalationCount,

@@ -40,10 +40,22 @@ class FakeWs : EpisodeWs {
         private set
     var cancelCallCount = 0
         private set
+    var helloCount = 0
+        private set
+    var heartbeatCount = 0
+        private set
 
     override fun open(episodeId: String, listener: EpisodeWsClient.Listener) {
         openedEpisodeId = episodeId
         this.listener = listener
+    }
+
+    override fun sendCompanionHello() {
+        helloCount++
+    }
+
+    override fun sendHeartbeat() {
+        heartbeatCount++
     }
 
     override fun sendPcmWindow(bytes: ByteArray) {
@@ -1710,5 +1722,142 @@ class SentinelControllerTest {
         c.disarm()
         assertEquals(0.0, c.state.retroCaptureAvailableSeconds, absoluteTolerance = 0.001)
         assertNull(c.captureRetroSnapshot(120.0))
+    }
+
+    // --- Tier B: Companion mode (no mic — socket + haptics only) --------------------------------
+
+    /** A MicSource that fails the test outright if anything ever reads it — the companion
+     * contract is "the watch does NOT open its mic at all". */
+    private val forbiddenMic = object : MicSource {
+        override fun readWindow(): ShortArray? =
+            throw AssertionError("COMPANION must never read the mic")
+    }
+
+    private fun companionController(
+        wsFactory: WsFactory,
+        vibrator: VibratorPort = FakeVibratorPort(),
+        nowMs: () -> Long = { 0L },
+        pulseIntervalMs: () -> Long? = { 250L },
+    ): SentinelController = SentinelController(
+        mode = Mode.COMPANION,
+        mic = forbiddenMic,
+        wsFactory = wsFactory,
+        haptics = HapticDirector(vibrator, nowMs = nowMs),
+        ids = FakeEpisodeIdFactory(),
+        pulseIntervalMs = pulseIntervalMs,
+        companionSessionId = { "companion-20260830-alice" },
+        nowMs = nowMs,
+    )
+
+    @Test
+    fun companionArmOpensSocketWithDeterministicIdSendsHelloAndNeverTouchesMicOrPcm() {
+        val wsFactory = FakeWsFactory()
+        val c = companionController(wsFactory)
+
+        c.arm() // continuous: straight to STREAMING, socket opens now
+        assertEquals(SentinelState.STREAMING, c.state.sentinel)
+        val ws = wsFactory.created.single()
+        assertEquals("companion-20260830-alice", ws.openedEpisodeId)
+        assertEquals(1, ws.helloCount, "the {\"type\":\"companion\"} hello goes out right after open()")
+
+        repeat(5) { c.tick() } // would throw via forbiddenMic if the mic were ever read
+        assertTrue(ws.sentWindows.isEmpty(), "companion never sends PCM")
+        assertTrue(ws.hrSent.isEmpty(), "companion reads no sensors either")
+        assertEquals(0, ws.endCallCount)
+    }
+
+    @Test
+    fun companionHeartbeatsEveryTwentySecondsNotEveryTick() {
+        var clock = 0L
+        val wsFactory = FakeWsFactory()
+        val c = companionController(wsFactory, nowMs = { clock })
+        c.arm() // hello at clock=0 stamps the heartbeat clock
+        val ws = wsFactory.created.single()
+
+        repeat(19) { clock += 1_000; c.tick() }
+        assertEquals(0, ws.heartbeatCount, "under the 20s cadence: no heartbeat yet")
+        clock += 1_000; c.tick() // 20s
+        assertEquals(1, ws.heartbeatCount)
+        repeat(19) { clock += 1_000; c.tick() }
+        assertEquals(1, ws.heartbeatCount, "one per interval, never one per tick")
+        clock += 1_000; c.tick()
+        assertEquals(2, ws.heartbeatCount)
+    }
+
+    @Test
+    fun companionNudgeRendersThroughTheExistingHapticPipeline() {
+        val vibrator = FakeVibratorPort()
+        val wsFactory = FakeWsFactory()
+        val c = companionController(wsFactory, vibrator)
+        c.arm()
+        val listener = requireNotNull(wsFactory.created.single().listener)
+
+        listener.onNudge(NudgeEvent(channel = "A", level = 2, t = 1.0, vectors = listOf("aggressive_tone")))
+
+        // No mic → the local pulse train can never be "actively covering" channel A, so the nudge
+        // always plays its NudgeHapticSchedule level pattern — even with pulses enabled.
+        assertEquals(1, vibrator.calls.size)
+        val expected = HapticPatterns.waveformFallback("A", 2)!!
+        assertTrue(vibrator.calls[0].timingsMs.contentEquals(expected.timingsMs.toLongArray()))
+        assertTrue(vibrator.calls[0].amplitudes.contentEquals(expected.amplitudes.toIntArray()))
+        assertEquals(2, c.state.channelLevels["A"])
+    }
+
+    @Test
+    fun companionNudgeRepeatsOnThePrdScheduleViaCompanionTicks() {
+        var clock = 0L
+        val vibrator = FakeVibratorPort()
+        val wsFactory = FakeWsFactory()
+        val c = companionController(wsFactory, vibrator, nowMs = { clock })
+        c.arm()
+        val listener = requireNotNull(wsFactory.created.single().listener)
+
+        listener.onNudge(NudgeEvent(channel = "A", level = 2, t = 1.0, vectors = listOf("aggressive_tone")))
+        assertEquals(1, vibrator.calls.size, "felt once on arrival")
+
+        clock = 59_000
+        c.tick()
+        assertEquals(1, vibrator.calls.size, "not yet due")
+        clock = 60_000
+        c.tick()
+        assertEquals(2, vibrator.calls.size, "the level-2 cue repeats at the 1 min cadence with no server re-send")
+    }
+
+    @Test
+    fun companionWsFailureArmsBackoffAndReconnectsWithTheSameSessionIdAndAFreshHello() {
+        var clock = 0L
+        val wsFactory = FakeWsFactory()
+        val c = companionController(wsFactory, nowMs = { clock })
+        c.arm()
+        val ws1 = wsFactory.created.single()
+
+        ws1.listener!!.onFailure(java.io.IOException("connection reset"))
+        assertFalse(c.state.online)
+
+        clock += 1_999; c.tick()
+        assertEquals(1, wsFactory.created.size, "before the armed 2s backoff elapses: no attempt")
+        clock += 1; c.tick()
+        assertEquals(2, wsFactory.created.size, "the armed 2s backoff fires a reconnect attempt")
+        val ws2 = wsFactory.created[1]
+        assertEquals(ws1.openedEpisodeId, ws2.openedEpisodeId, "companion reuses its deterministic session id (nothing is persisted server-side)")
+        assertEquals(1, ws2.helloCount, "every reconnect re-announces itself as a companion")
+        assertTrue(c.state.online)
+    }
+
+    @Test
+    fun companionDisarmCancelsTheSocketAndClearsLevels() {
+        val wsFactory = FakeWsFactory()
+        val c = companionController(wsFactory)
+        c.arm()
+        val ws = wsFactory.created.single()
+        ws.listener!!.onNudge(NudgeEvent(channel = "A", level = 3, t = 1.0, vectors = listOf("aggressive_tone")))
+
+        c.disarm()
+
+        assertEquals(SentinelState.DISARMED, c.state.sentinel)
+        assertEquals(1, ws.cancelCallCount)
+        assertTrue(c.state.channelLevels.isEmpty())
+        c.tick() // a disarmed companion tick is a no-op — and still never reads the mic
+        assertEquals(SentinelState.DISARMED, c.state.sentinel)
     }
 }

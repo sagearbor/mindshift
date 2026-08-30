@@ -92,6 +92,7 @@ private fun Mode.displayNameForDescription(): String = when (this) {
     Mode.STANDARD -> "standard mode"
     Mode.BATTERY_SAVER -> "battery saver mode"
     Mode.SESSION -> "session mode"
+    Mode.COMPANION -> "companion mode"
 }
 
 /** Bounds of the RANGED_VALUE arc — see [complicationValue]'s KDoc. */

@@ -1508,6 +1508,11 @@ class SessionContext:
     # "participant" (coached) or "therapist" (observer: transcribed and
     # merged, never coached; receives the participants' coaching read-only).
     call_role: str | None = None
+    # Tier B: whether a watch (companion or mic) socket is currently
+    # registered on the watch relay for this uid, as last reported to the
+    # phone — a `watch_connected` frame goes out only on CHANGES, so a
+    # watchless session sees no frame at all. See _notify_watch_connected.
+    watch_connected: bool = False
 
 
 def _remember_utterance(ctx: SessionContext, utterance: Utterance) -> None:
@@ -1966,6 +1971,12 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
     # 4401; just return (no worker task has been created yet, so nothing leaks).
     if not await _authenticate(websocket, ctx, send_json):
         return
+
+    # Tier B: if a watch socket is ALREADY registered on the relay when this
+    # session opens, say so up front — the Live Coach indicator must not wait
+    # for the first spoken turn. Best-effort, like every relay touch.
+    with contextlib.suppress(Exception):
+        await _notify_watch_connected(ctx, send_json)
 
     # Resolve providers from app.state (tests inject doubles here), falling
     # back to the real, credential-gated implementations.
@@ -3057,6 +3068,8 @@ async def _enrich_turn_local(
             "speaker_match_score": identity.score,
         })
     await guarded("relay", _relay_turn_local(ctx, relayed, tone_flag))
+    # (d) Tier B: piggyback the watch-presence check on the turn cadence.
+    await guarded("watch_connected", _notify_watch_connected(ctx, send_json))
 
 
 async def _enrich_tone(
@@ -3262,6 +3275,26 @@ async def _relay_turn_local(
     result = push(ctx.uid, event, tone_flag=tone_flag)
     if inspect.isawaitable(result):
         await result
+
+
+async def _notify_watch_connected(ctx: SessionContext, send_json) -> None:
+    """(d) Tell the phone when a watch socket appears on / leaves the relay
+    registry for this uid — one ``{"type": "watch_connected", "connected":
+    bool}`` frame per change, so Live Coach can show "watch connected —
+    nudges on your wrist". Pull-based on purpose: checked at session start
+    and after each relayed turn, so no cross-loop callback plumbing into
+    watch/relay.py's registry is needed (that module may be running sockets
+    on other event loops)."""
+    if watch_relay is None or not ctx.uid:
+        return
+    lookup = getattr(watch_relay, "live_session_for", None)
+    if lookup is None:
+        return
+    connected = lookup(ctx.uid) is not None
+    if connected == ctx.watch_connected:
+        return
+    ctx.watch_connected = connected
+    await send_json({"type": "watch_connected", "connected": connected})
 
 
 # ---------------------------------------------------------------------------

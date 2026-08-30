@@ -45,7 +45,7 @@ fun ModeScreen(
         modifier = modifier.fillMaxWidth(),
         state = listState,
     ) {
-        for (mode in listOf(Mode.STANDARD, Mode.BATTERY_SAVER, Mode.SESSION)) {
+        for (mode in listOf(Mode.STANDARD, Mode.BATTERY_SAVER, Mode.SESSION, Mode.COMPANION)) {
             item {
                 Chip(
                     modifier = Modifier.fillMaxWidth(),

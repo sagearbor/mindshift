@@ -285,6 +285,11 @@ private fun ControllerState.toGlanceUi(
     // v0.2.4: the center number is always the meter — calm score is gone. "Off" only when BOTH
     // disarmed AND no reading exists; otherwise the live reading, else the armed label.
     val centerText = when {
+        // Tier B: COMPANION has no mic, so no meter ever exists — the center shows the phone-
+        // relayed nudge level instead ("what my wrist is being told right now"), falling back to
+        // the "Companion" label while everything is calm.
+        mode == Mode.COMPANION && sentinel == SentinelState.STREAMING ->
+            (channelLevels.values.maxOrNull() ?: 0).let { if (it > 0) "Level $it" else armedLabelText }
         !isOn && meterText == null -> "Off"
         meterText != null -> meterText
         else -> armedLabelText
@@ -335,7 +340,13 @@ private fun ringColorFor(maxLevel: Int): Long = when (maxLevel) {
 private fun ControllerState.armedLabel(): String = when (sentinel) {
     SentinelState.DISARMED -> "Off"
     SentinelState.ARMED -> "On"
-    SentinelState.STREAMING -> if (online) "Episode" else "Episode · offline"
+    SentinelState.STREAMING -> when {
+        // Tier B: COMPANION's STREAMING is "socket open, phone listening", not an episode.
+        mode == Mode.COMPANION && online -> "Companion"
+        mode == Mode.COMPANION -> "Companion · offline"
+        online -> "Episode"
+        else -> "Episode · offline"
+    }
     SentinelState.COOLDOWN -> "Cooling down"
 }
 

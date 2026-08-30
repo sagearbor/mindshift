@@ -21,6 +21,23 @@ class SentinelStateMachineTest {
         assertEquals(SentinelState.STREAMING, sm.onWindow(false, true)) // loud resets quiet count
         assertEquals(SentinelState.STREAMING, sm.onWindow(false, false))
     }
+    @Test fun companionModeStreamsImmediatelyUntilDisarmAndNeverLeavesOnWindows() {
+        // Tier B: COMPANION is continuous like SESSION — arm() goes straight to STREAMING (the
+        // open-socket state), no window (there are none: no mic) can ever end it, only disarm.
+        val sm = SentinelStateMachine(Mode.COMPANION)
+        assertEquals(SentinelState.STREAMING, sm.onArm())
+        repeat(50) { assertEquals(SentinelState.STREAMING, sm.onWindow(false, false)) }
+        assertEquals(SentinelState.DISARMED, sm.onDisarm())
+    }
+    @Test fun companionModeParamsUseNoMic() {
+        assertEquals(false, Mode.COMPANION.params().usesMic)
+        assertEquals(true, Mode.COMPANION.params().continuous)
+        // Every mic-using mode keeps usesMic = true (the default) — pinned so a future param
+        // shuffle can't silently turn a listening mode into a deaf one.
+        for (m in listOf(Mode.STANDARD, Mode.BATTERY_SAVER, Mode.SESSION)) {
+            assertEquals(true, m.params().usesMic, "mode ${'$'}m must use the mic")
+        }
+    }
     @Test fun sessionModeStreamsImmediatelyUntilDisarm() {
         val sm = SentinelStateMachine(Mode.SESSION)
         assertEquals(SentinelState.STREAMING, sm.onArm())

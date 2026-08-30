@@ -128,6 +128,7 @@ export default function LiveCoachScreen({
     clearNudgeFlash,
     latencySummary,
     toneFlags,
+    watchConnected,
     preflight,
     runPreflight,
     escalationCount,
@@ -680,6 +681,15 @@ export default function LiveCoachScreen({
         </View>
       ) : null}
 
+      {/* Tier B: a paired watch has its (companion) nudge socket open on the
+          server — escalations on your own turns buzz the wrist even with this
+          phone pocketed. */}
+      {sessionActive && watchConnected ? (
+        <Text style={styles.watchConnectedText} testID="watch-connected">
+          ⌚ watch connected — nudges on your wrist
+        </Text>
+      ) : null}
+
       {/* Haptic nudge mirror: "you're getting loud/heated" on the user's own
           turn. Level 1–3 from the shared nudge policy. */}
       {nudgeFlash ? (
@@ -1149,6 +1159,12 @@ const styles = StyleSheet.create({
   toneFlagText: {
     fontSize: 12,
     color: "#92400E",
+    paddingHorizontal: 16,
+    paddingBottom: 4,
+  },
+  watchConnectedText: {
+    fontSize: 12,
+    color: "#047857",
     paddingHorizontal: 16,
     paddingBottom: 4,
   },
