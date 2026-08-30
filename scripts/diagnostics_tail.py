@@ -213,7 +213,7 @@ def score_against_rubric(dd: dict, rubric_path: str, owner: str | None) -> str:
     one-to-one label mapping, rubric speech only)."""
     score = _bakeoff_score_module()
     gt = load_rubric(rubric_path)
-    pred = [(float(s), float(e), _label(int(lab))) for s, e, lab in (dd.get("segments") or [])]
+    pred = [(s, e, _label(int(lab)) if not isinstance(lab, str) else lab) for s, e, lab in _segment_triples(dd.get("segments"))]
     res = score.score_segments(gt, pred, owner)
     recall = " ".join(f"{k}={v}" for k, v in (res.get("per_gt_recall") or {}).items())
     return (
