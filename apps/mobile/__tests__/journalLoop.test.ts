@@ -251,7 +251,9 @@ describe("JournalLoop", () => {
     expect(h.kept).toHaveLength(2);
     expect(h.kept[0].meta.basis).toBe("solo");
     expect(h.kept[1].meta.basis).toBe("contrast");
-    expect(h.discarded.map((d) => d.reason)).toEqual(["other", "other"]);
+    // One "other" voice remains discarded; the segment that used to be the
+    // second discard is now the solo keep above.
+    expect(h.discarded.map((d) => d.reason)).toEqual(["other"]);
   });
 });
 
