@@ -4,11 +4,14 @@
  * engine" is on, and never for a shared or audio-less recording; with an
  * injected engine it shows progress, then the strip + k + timings, posts the
  * device_diarization diagnostics event, and phrases a failure inline.
+ * "Use these voices for this recording" then POSTs the engine's segments and
+ * the screen polls the job and refreshes — only after a run that can be
+ * applied (2+ voices, sane embeddings).
  */
 import React from "react";
 import renderer, { act, ReactTestInstance } from "react-test-renderer";
 import ReplayScreen from "../src/screens/ReplayScreen";
-import { getRecording, getRecordingMediaUrl } from "../src/api/client";
+import { getRecording, getRecordingMediaUrl, postReanalyzeWithSegments, getAnalyzeJob } from "../src/api/client";
 import type { RecordingDetail } from "../src/api/client";
 import { loadExperimentalVoiceEngine } from "../src/live/experimentalPrefs";
 import { runDeviceDiarization, DeviceDiarizationError } from "../src/live/deviceDiarization";
@@ -22,6 +25,7 @@ jest.mock("../src/api/client", () => ({
   patchRecordingTitle: jest.fn(),
   patchSpeakerLabels: jest.fn(),
   postReanalyze: jest.fn(),
+  postReanalyzeWithSegments: jest.fn(),
   getAnalyzeJob: jest.fn(),
   postShare: jest.fn(),
   deleteShare: jest.fn(),
@@ -63,6 +67,8 @@ const mockGetRecording = getRecording as jest.Mock;
 const mockGetMediaUrl = getRecordingMediaUrl as jest.Mock;
 const mockLoadPref = loadExperimentalVoiceEngine as jest.Mock;
 const mockRun = runDeviceDiarization as jest.Mock;
+const mockPostSegments = postReanalyzeWithSegments as jest.Mock;
+const mockGetJob = getAnalyzeJob as jest.Mock;
 
 const detail: RecordingDetail = {
   id: "r1",
@@ -160,6 +166,8 @@ beforeEach(() => {
   mockGetRecording.mockReset();
   mockGetMediaUrl.mockReset();
   mockRun.mockReset();
+  mockPostSegments.mockReset();
+  mockGetJob.mockReset();
   mockLoadPref.mockReset().mockResolvedValue(true);
   mockSend = jest.fn().mockResolvedValue({ ok: true, id: "dx-TEST-TEST" });
   useDiagnosticsStore.setState({ sendDeviceDiarization: mockSend, deviceDiarization: null, lastSent: null });
@@ -234,6 +242,9 @@ describe("ReplayScreen — Separate voices on this phone (engine B)", () => {
     // Posted as a diagnostics event; its id is shown.
     expect(mockSend).toHaveBeenCalledWith(event, { uid: null, email: null });
     expect(textOf(queryId(comp, "device-diarization-sent")!)).toContain("ID dx-TEST-TEST");
+    // A run with 2+ real voices offers the second step.
+    expect(queryId(comp, "device-diarization-apply")).not.toBeNull();
+    expect(textOf(queryId(comp, "device-diarization-apply")!)).toBe("Use these voices for this recording");
   });
 
   it("a run whose windows all embed to the same vector is a warning, never '1 voice found'", async () => {
@@ -255,6 +266,20 @@ describe("ReplayScreen — Separate voices on this phone (engine B)", () => {
     expect(textOf(queryId(comp, "device-diarization-row")!)).not.toContain("voice found");
     // Still posted, so the fault is on the server with its numbers.
     expect(mockSend).toHaveBeenCalledWith(degenerate, { uid: null, email: null });
+    // Nothing to apply from a degenerate run.
+    expect(queryId(comp, "device-diarization-apply")).toBeNull();
+  });
+
+  it("offers no apply step for a one-voice run", async () => {
+    const one: DeviceDiarizationEvent = { ...event, k: 1, k_eigengap: 1, segments: [[0, 42.6, 0]] };
+    mockRun.mockImplementation(() => ({ promise: Promise.resolve(one), cancel: jest.fn() }));
+    const comp = await render();
+    await act(async () => {
+      queryId(comp, "device-diarization-run")!.props.onPress();
+    });
+    await flush();
+    expect(textOf(queryId(comp, "device-diarization-k")!)).toContain("1 voice found");
+    expect(queryId(comp, "device-diarization-apply")).toBeNull();
   });
 
   it("cancel stops the run and a failure is one honest inline line", async () => {
@@ -285,5 +310,137 @@ describe("ReplayScreen — Separate voices on this phone (engine B)", () => {
     const err = textOf(queryId(comp, "device-diarization-error")!);
     expect(err).toContain("offline and no cached model");
     expect(err).toContain("Start a live session once so the model downloads");
+  });
+
+  it("'Use these voices for this recording' confirms, POSTs the segments, polls the job and refreshes the recording", async () => {
+    mockRun.mockImplementation(() => ({ promise: Promise.resolve(event), cancel: jest.fn() }));
+    const comp = await render();
+    await act(async () => {
+      queryId(comp, "device-diarization-run")!.props.onPress();
+    });
+    await flush();
+    expect(mockGetRecording).toHaveBeenCalledTimes(1);
+
+    // Tap → an inline confirm with the honest consequence; nothing posted yet.
+    await act(async () => {
+      queryId(comp, "device-diarization-apply")!.props.onPress();
+    });
+    const confirm = queryId(comp, "device-diarization-apply-confirm");
+    expect(confirm).not.toBeNull();
+    expect(textOf(confirm!)).toContain("Re-analyzes this recording with the voices this phone heard.");
+    expect(textOf(confirm!)).toContain("Your speaker names for this recording will need to be set again.");
+    expect(mockPostSegments).not.toHaveBeenCalled();
+    // "Keep current" backs out.
+    await act(async () => {
+      queryId(comp, "device-diarization-apply-cancel")!.props.onPress();
+    });
+    expect(queryId(comp, "device-diarization-apply-confirm")).toBeNull();
+    expect(queryId(comp, "device-diarization-apply")).not.toBeNull();
+
+    // Confirm → POST the engine's runs as the server's speaker timeline, then
+    // the screen polls the job (done at once here) and refetches.
+    mockPostSegments.mockResolvedValueOnce({ job_id: "job_seg", note: "manual speaker names cleared" });
+    mockGetJob.mockResolvedValueOnce({
+      job_id: "job_seg",
+      status: "done",
+      created_at: "",
+      updated_at: "",
+      stage_started_at: null,
+      progress_note: null,
+      duration_seconds: null,
+      error: null,
+      result: { per_turn: [], per_speaker: {}, dynamics: {}, narrative: "", turns: [], stored: true, recording_id: "r1", storage_note: null },
+    });
+    const refreshed: RecordingDetail = {
+      ...detail,
+      speaker_segments_source: "device-B",
+      turns: [
+        { speaker: "Speaker A", text: "Pass the bread.", start_time: 0, end_time: 10.5 },
+        { speaker: "Speaker B", text: "Here.", start_time: 10.5, end_time: 25 },
+        { speaker: "Speaker C", text: "Thanks.", start_time: 25, end_time: 42.6 },
+      ],
+    };
+    mockGetRecording.mockResolvedValueOnce(refreshed);
+    await act(async () => {
+      queryId(comp, "device-diarization-apply")!.props.onPress();
+    });
+    await act(async () => {
+      queryId(comp, "device-diarization-apply-go")!.props.onPress();
+    });
+    await flush();
+    await flush();
+    expect(mockPostSegments).toHaveBeenCalledTimes(1);
+    expect(mockPostSegments).toHaveBeenCalledWith("r1", [
+      { start: 0, end: 10.5, label: "Speaker A" },
+      { start: 10.5, end: 25.0, label: "Speaker B" },
+      { start: 25.0, end: 42.6, label: "Speaker C" },
+    ]);
+    expect(mockGetJob).toHaveBeenCalledWith("job_seg");
+    // The recording was refetched so the chart/legend/cards follow.
+    expect(mockGetRecording).toHaveBeenCalledTimes(2);
+    expect(queryId(comp, "device-diarization-apply-progress")).toBeNull();
+    expect(textOf(queryId(comp, "device-diarization-applied")!)).toContain("Applied");
+    // The strip stays for comparison; the row is not reset.
+    expect(queryId(comp, "device-diarization-strip")).not.toBeNull();
+    expect(queryId(comp, "reanalyze-error")).toBeNull();
+  });
+
+  it("a rejected apply (422 with the server's reason) is one honest inline line and the strip stays", async () => {
+    mockRun.mockImplementation(() => ({ promise: Promise.resolve(event), cancel: jest.fn() }));
+    const comp = await render();
+    await act(async () => {
+      queryId(comp, "device-diarization-run")!.props.onPress();
+    });
+    await flush();
+    const err = new Error("the regrouped transcript is out of bounds for analysis (2 turn(s), 1 issue(s))") as Error & { status?: number };
+    err.status = 422;
+    mockPostSegments.mockRejectedValueOnce(err);
+    await act(async () => {
+      queryId(comp, "device-diarization-apply")!.props.onPress();
+    });
+    await act(async () => {
+      queryId(comp, "device-diarization-apply-go")!.props.onPress();
+    });
+    await flush();
+    const line = textOf(queryId(comp, "device-diarization-apply-error")!);
+    expect(line).toContain("Couldn’t apply");
+    expect(line).toContain("out of bounds");
+    expect(mockGetJob).not.toHaveBeenCalled();
+    expect(mockGetRecording).toHaveBeenCalledTimes(1);
+    expect(queryId(comp, "device-diarization-strip")).not.toBeNull();
+    // Can try again.
+    expect(queryId(comp, "device-diarization-apply")).not.toBeNull();
+  });
+
+  it("a failed job after the POST surfaces the failure inline too", async () => {
+    mockRun.mockImplementation(() => ({ promise: Promise.resolve(event), cancel: jest.fn() }));
+    const comp = await render();
+    await act(async () => {
+      queryId(comp, "device-diarization-run")!.props.onPress();
+    });
+    await flush();
+    mockPostSegments.mockResolvedValueOnce({ job_id: "job_bad" });
+    mockGetJob.mockResolvedValueOnce({
+      job_id: "job_bad",
+      status: "failed",
+      created_at: "",
+      updated_at: "",
+      stage_started_at: null,
+      progress_note: null,
+      duration_seconds: null,
+      error: "analysis failed: LLMError",
+      result: null,
+    });
+    await act(async () => {
+      queryId(comp, "device-diarization-apply")!.props.onPress();
+    });
+    await act(async () => {
+      queryId(comp, "device-diarization-apply-go")!.props.onPress();
+    });
+    await flush();
+    await flush();
+    expect(textOf(queryId(comp, "device-diarization-apply-error")!)).toContain("analysis failed: LLMError");
+    expect(textOf(queryId(comp, "reanalyze-error")!)).toContain("analysis failed: LLMError");
+    expect(mockGetRecording).toHaveBeenCalledTimes(1);
   });
 });

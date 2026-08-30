@@ -767,6 +767,49 @@ class RecordingsStore:
         )
         return meta
 
+    # -- applied speaker segmentation (…/reanalyze-with-segments) ----------
+    async def apply_speaker_segments_meta(
+        self,
+        uid: str,
+        recording_id: str,
+        *,
+        source: str,
+        applied_at: str,
+        segments: list[dict],
+    ) -> dict | None:
+        """Record that an explicit voice segmentation was applied to this
+        recording (POST …/reanalyze-with-segments): stamp
+        ``speaker_segments_source`` / ``speaker_segments_applied_at`` and keep
+        the applied ``speaker_segments`` verbatim, and DROP the manual speaker
+        name + people maps — both are keyed by the speaker ids the previous
+        analysis used, which the applied segmentation replaced. Read-modify-
+        write of meta.json only (the overwrite of turns/analysis happened in
+        ``overwrite_analysis`` just before). Returns the updated meta, or
+        ``None`` when the recording does not exist for this uid (→ 404)."""
+        return await asyncio.to_thread(
+            self._apply_speaker_segments_meta_sync,
+            uid, recording_id, source, applied_at, segments,
+        )
+
+    def _apply_speaker_segments_meta_sync(
+        self, uid, recording_id, source, applied_at, segments,
+    ) -> dict | None:
+        blob = self._bucket.blob(
+            self._prefix(uid, recording_id) + "meta.json"
+        )
+        if not blob.exists():
+            return None
+        meta = json.loads(blob.download_as_bytes())
+        meta["speaker_segments_source"] = source
+        meta["speaker_segments_applied_at"] = applied_at
+        meta["speaker_segments"] = segments
+        meta.pop("manual_speaker_labels", None)
+        meta.pop("manual_speaker_people", None)
+        blob.upload_from_string(
+            json.dumps(meta), content_type="application/json",
+        )
+        return meta
+
     # -- raw transcript (STT output, incl. word timings) --------------------
     # transcript.json is the transcriber's RAW utterances for the recording —
     # pre-diarization labels, per-word timings and all — saved at first

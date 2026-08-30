@@ -1809,6 +1809,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/recordings/{recording_id}/reanalyze-with-segments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reanalyze Recording With Segments
+         * @description Re-analyze a stored recording with the caller's OWN speaker segmentation
+         *     — "Use these voices for this recording" after the phone's engine B ran —
+         *     as the same submit-and-poll job as POST …/reanalyze → 202 {job_id, note}.
+         *
+         *     The stored RAW transcript's words (transcript.json; turns.json's text spread
+         *     proportionally when there are no word timings) are regrouped so every word
+         *     takes the label of the segment it falls in (see
+         *     :func:`_regroup_transcript_by_segments`), and that transcript feeds the same
+         *     re-analysis job with STT skipped AND the local-diarization cross-check
+         *     DISABLED — the user's chosen segmentation must win, never be relabeled. The
+         *     result overwrites analysis.json + turns.json in place (so the heat chart,
+         *     talk share, speaker labels and report cards all follow), stamps
+         *     meta.reanalyzed_at, records the applied segments' provenance
+         *     (``speaker_segments_source`` / ``speaker_segments_applied_at`` /
+         *     ``speaker_segments``), and CLEARS the recording's manual speaker names and
+         *     people map: they are keyed by the OLD speaker ids, which no longer exist —
+         *     the response's ``note`` and the result's ``storage_note`` say so.
+         *
+         *     Owner-only, same auth/rate limit as …/reanalyze. 503 when storage is
+         *     disabled; 404 for an unknown/foreign recording (403 for a recipient); 422
+         *     when the recording has no stored audio, when the segments overlap / name too
+         *     many speakers, or when the regrouped transcript is out of analysis bounds
+         *     (fewer than 4 turns, etc.) — never a job that silently falls back.
+         */
+        post: operations["reanalyze_recording_with_segments_recordings__recording_id__reanalyze_with_segments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/analyze/jobs/{job_id}": {
         parameters: {
             query?: never;
@@ -2920,6 +2962,8 @@ export interface components {
         JobCreatedResponse: {
             /** Job Id */
             job_id: string;
+            /** Note */
+            note?: string | null;
         };
         /** JobStateResponse */
         JobStateResponse: {
@@ -3264,6 +3308,27 @@ export interface components {
             /** Escalations */
             escalations: number;
         };
+        /**
+         * ReanalyzeWithSegmentsRequest
+         * @description Body of POST /recordings/{id}/reanalyze-with-segments.
+         *
+         *     ``segments`` is the caller's speaker timeline: ``[{start, end, label}]`` in
+         *     seconds from the start of the stored audio, at most 400 of them, sorted here
+         *     (any order accepted), non-overlapping (≤ 0.05 s of overlap between
+         *     neighbours is tolerated as engine rounding), with at most 10 distinct
+         *     labels — the same speaker cap analysis enforces. ``source`` names where the
+         *     segmentation came from ("device-B" = the phone's own window engine); it is
+         *     stamped on the recording's meta so the provenance is never lost.
+         */
+        ReanalyzeWithSegmentsRequest: {
+            /** Segments */
+            segments: components["schemas"]["SpeakerSegment"][];
+            /**
+             * Source
+             * @default device-B
+             */
+            source: string;
+        };
         /** RecordingShareRequest */
         RecordingShareRequest: {
             /** Email */
@@ -3575,6 +3640,15 @@ export interface components {
             people?: {
                 [key: string]: string | null;
             };
+        };
+        /** SpeakerSegment */
+        SpeakerSegment: {
+            /** Start */
+            start: number;
+            /** End */
+            end: number;
+            /** Label */
+            label: string;
         };
         /** TelemetryEvent */
         TelemetryEvent: {
@@ -7206,6 +7280,43 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCreatedResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reanalyze_recording_with_segments_recordings__recording_id__reanalyze_with_segments_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                recording_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReanalyzeWithSegmentsRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             202: {

@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import bisect
 import hashlib
 import hmac
 import io
@@ -695,6 +696,10 @@ class RecordingShareRequest(BaseModel):
 class JobCreatedResponse(BaseModel):
     # 202 body: the id to poll GET /analyze/jobs/{job_id} with.
     job_id: str
+    # Optional honest note about what accepting the job implies (e.g.
+    # …/reanalyze-with-segments: "your manual speaker names will be cleared").
+    # None on every other job endpoint — additive, older clients ignore it.
+    note: Optional[str] = None
 
 
 class JobStateResponse(BaseModel):
@@ -2703,6 +2708,7 @@ async def _analyze_recording_bytes(
     progress: "JobProgressFn | None" = None,
     stored_transcript: list[dict] | None = None,
     on_transcribed: "Callable[[list[dict]], Awaitable[None]] | None" = None,
+    skip_diarization: bool = False,
 ) -> AnalyzeUploadResponse:
     """Analyze one recording's raw bytes and optionally persist the result.
 
@@ -2734,6 +2740,12 @@ async def _analyze_recording_bytes(
     exactly as before; ``on_transcribed`` (when given) then receives the fresh
     raw transcript so the caller can store it for next time — best-effort, a
     failure there is logged and never sinks the analysis.
+
+    ``skip_diarization`` (POST …/reanalyze-with-segments only) turns the local
+    voice-diarization cross-check OFF for this run: the caller supplied the
+    speaker segmentation it wants (the phone's own engine), so relabeling it
+    here would silently undo the user's choice. Prosody, LLM, identity and
+    episodes still run; ``voice_analysis`` says the cross-check was skipped.
 
     Honest failures throughout: transcription unconfigured → 503, undecodable or
     speechless → 422, over the duration cap → 413. A storage failure never sinks
@@ -2895,7 +2907,14 @@ async def _analyze_recording_bytes(
             os.getenv("MINDSHIFT_DIARIZE_CROSSCHECK", "").strip().lower()
             in {"1", "true", "yes", "on"}
         )
-        if transcript_speakers < 2 or run_crosscheck:
+        if skip_diarization:
+            # The caller's segmentation must win (…/reanalyze-with-segments):
+            # neither the one-voice fallback nor the 2+ cross-check runs.
+            voice_note = (
+                "speakers set from the voice segmentation supplied by the "
+                "caller — local voice diarization cross-check skipped"
+            )
+        if not skip_diarization and (transcript_speakers < 2 or run_crosscheck):
             try:
                 # diarize_local.diarize_turns hard-requires 16kHz PCM
                 # (speaker_id.embed_pcm raises SpeakerIdUnavailable on any
@@ -3757,6 +3776,12 @@ async def get_recording(
         # When the recording was last re-analyzed (POST …/reanalyze). None for a
         # recording that has only ever had its original analysis.
         "reanalyzed_at": rec.get("reanalyzed_at"),
+        # When the owner applied an explicit voice segmentation (POST
+        # …/reanalyze-with-segments): where it came from ("device-B" = the
+        # phone's own engine) and when. None when the speakers are the
+        # pipeline's own. Additive.
+        "speaker_segments_source": rec.get("speaker_segments_source"),
+        "speaker_segments_applied_at": rec.get("speaker_segments_applied_at"),
         # Live sessions only (Track 2): coaching mode + the phone's session
         # id. None for uploads/links — additive, older clients ignore them.
         "mode": rec.get("mode"),
@@ -4691,6 +4716,7 @@ async def _run_analysis_job(
     on_success: "Callable[[AnalyzeUploadResponse, JobProgressFn], Awaitable[None]] | None" = None,
     stored_transcript: list[dict] | None = None,
     on_transcribed: "Callable[[list[dict]], Awaitable[None]] | None" = None,
+    skip_diarization: bool = False,
 ) -> None:
     """Run one analysis job to a terminal state, writing staged progress.
 
@@ -4701,7 +4727,10 @@ async def _run_analysis_job(
     analyzing → storing). ``stored_transcript`` / ``on_transcribed``
     (re-analysis) are passed straight through so the pipeline can reuse the
     stored raw transcript and skip STT — or store a fresh one for next time
-    (see :func:`_analyze_recording_bytes`); None for the link/upload paths. ``on_success`` is an optional hook run with the finished
+    (see :func:`_analyze_recording_bytes`); None for the link/upload paths.
+    ``skip_diarization`` is passed straight through too (the
+    …/reanalyze-with-segments job sets it so the caller's own speaker
+    segmentation is never relabeled). ``on_success`` is an optional hook run with the finished
     response + the stage hook BEFORE the done-state is written — re-analysis uses
     it to overwrite the existing recording in place (the pipeline itself runs with
     ``store=False``, so nothing new is persisted); it may raise an HTTPException to
@@ -4747,6 +4776,7 @@ async def _run_analysis_job(
                     progress=set_stage,
                     stored_transcript=stored_transcript,
                     on_transcribed=on_transcribed,
+                    skip_diarization=skip_diarization,
                 )
                 if on_success is not None:
                     await on_success(response, set_stage)
@@ -5024,6 +5054,349 @@ async def reanalyze_recording(
         on_transcribed=_cache_transcript,
     ))
     return JobCreatedResponse(job_id=job_id)
+
+
+# --- POST /recordings/{id}/reanalyze-with-segments — apply an explicit voice
+# segmentation (the phone's own engine B) to a stored recording -------------
+
+# A word further than this from every segment is not snapped to one; it stays
+# with its utterance's neighbours instead.
+SPEAKER_SEGMENT_SNAP_S = 0.5
+# Two consecutive segments may overlap by this much (engine rounding) before
+# the request is rejected as overlapping.
+SPEAKER_SEGMENT_OVERLAP_SLOP_S = 0.05
+SPEAKER_SEGMENTS_MAX = 400
+SPEAKER_SEGMENT_SOURCE_MAX = 40
+
+
+class SpeakerSegment(BaseModel):
+    start: float = Field(ge=0.0)
+    end: float = Field(ge=0.0)
+    label: str = Field(min_length=1, max_length=60)
+
+    @model_validator(mode="after")
+    def _validate_span(self) -> "SpeakerSegment":
+        if self.end <= self.start:
+            raise ValueError(
+                f"segment end ({self.end}) must be after its start ({self.start})"
+            )
+        return self
+
+
+class ReanalyzeWithSegmentsRequest(BaseModel):
+    """Body of POST /recordings/{id}/reanalyze-with-segments.
+
+    ``segments`` is the caller's speaker timeline: ``[{start, end, label}]`` in
+    seconds from the start of the stored audio, at most 400 of them, sorted here
+    (any order accepted), non-overlapping (≤ 0.05 s of overlap between
+    neighbours is tolerated as engine rounding), with at most 10 distinct
+    labels — the same speaker cap analysis enforces. ``source`` names where the
+    segmentation came from ("device-B" = the phone's own window engine); it is
+    stamped on the recording's meta so the provenance is never lost."""
+    segments: list[SpeakerSegment] = Field(
+        min_length=1, max_length=SPEAKER_SEGMENTS_MAX,
+    )
+    source: str = Field(
+        default="device-B", min_length=1, max_length=SPEAKER_SEGMENT_SOURCE_MAX,
+    )
+
+    @model_validator(mode="after")
+    def _validate_segments(self) -> "ReanalyzeWithSegmentsRequest":
+        ordered = sorted(self.segments, key=lambda sg: (sg.start, sg.end))
+        for prev, cur in zip(ordered, ordered[1:]):
+            if cur.start < prev.end - SPEAKER_SEGMENT_OVERLAP_SLOP_S:
+                raise ValueError(
+                    f"segments overlap: [{prev.start}, {prev.end}] and "
+                    f"[{cur.start}, {cur.end}] (more than "
+                    f"{SPEAKER_SEGMENT_OVERLAP_SLOP_S} s)"
+                )
+        distinct = {sg.label.strip() for sg in ordered}
+        if len(distinct) > ANALYZE_MAX_SPEAKERS:
+            raise ValueError(
+                f"segments name {len(distinct)} distinct speakers; at most "
+                f"{ANALYZE_MAX_SPEAKERS} are supported"
+            )
+        self.segments = ordered
+        return self
+
+
+def _word_span(w: dict) -> "tuple[float, float] | None":
+    """A stored word's (start, end) in seconds, or None when either is unusable.
+    Accepts the transcriber's ``start_time``/``end_time`` (audio_ingest) and the
+    bare ``start``/``end`` spelling defensively."""
+    if not isinstance(w, dict):
+        return None
+    try:
+        start = float(w.get("start_time", w.get("start")))
+        end = float(w.get("end_time", w.get("end")))
+    except (TypeError, ValueError):
+        return None
+    if end < start:
+        return None
+    return start, end
+
+
+def _regroup_transcript_by_segments(
+    rows: list[dict],
+    segments: list[SpeakerSegment],
+    *,
+    snap_s: float = SPEAKER_SEGMENT_SNAP_S,
+) -> list[dict]:
+    """Rebuild a transcript so its SPEAKERS follow ``segments`` while its WORDS
+    stay the transcriber's.
+
+    Every word of every row (the row's stored per-word timings when it has
+    them; otherwise the row's text split on whitespace and spread evenly over
+    the row's own [start_time, end_time] — the proportional fallback for
+    turns.json rows and word-less transcribers) is assigned to the segment
+    containing its midpoint, else the nearest segment within ``snap_s``, else
+    it stays with its neighbours in the same utterance (previous word first,
+    then next, then the last word placed anywhere before it, then the nearest
+    segment however far — a word is never dropped). Consecutive words with the
+    same label form one turn ``{speaker, text, start_time, end_time}``; a turn
+    also breaks at the original utterance boundary so the transcriber's turn
+    granularity — what per-turn heat is scored on — is kept, and a welded
+    utterance is split exactly at the voice change.
+
+    ``segments`` must already be sorted (the request validator does that).
+    Blank rows contribute nothing; a transcript with no words at all yields
+    ``[]`` (the endpoint turns that into an honest 422)."""
+    starts = [sg.start for sg in segments]
+
+    def _locate(mid: float) -> "str | None":
+        i = bisect.bisect_right(starts, mid) - 1
+        if i >= 0 and segments[i].start <= mid <= segments[i].end:
+            return segments[i].label.strip()
+        best: str | None = None
+        best_d = snap_s
+        for j in (i, i + 1):
+            if 0 <= j < len(segments):
+                sg = segments[j]
+                d = sg.start - mid if mid < sg.start else max(mid - sg.end, 0.0)
+                if d <= best_d:
+                    best_d, best = d, sg.label.strip()
+        return best
+
+    def _nearest_any(mid: "float | None") -> str:
+        if mid is None:
+            return segments[0].label.strip()
+        return min(
+            segments,
+            key=lambda sg: (
+                sg.start - mid if mid < sg.start else max(mid - sg.end, 0.0)
+            ),
+        ).label.strip()
+
+    # tokens: [utterance index, text, start|None, end|None, label|None]
+    tokens: list[list] = []
+    for ui, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        words = row.get("words")
+        spans: list[tuple[str, "float | None", "float | None"]] = []
+        if isinstance(words, list) and words:
+            for w in words:
+                text = str((w or {}).get("word") or "").strip() if isinstance(w, dict) else ""
+                if not text:
+                    continue
+                span = _word_span(w)
+                spans.append((text, span[0], span[1]) if span else (text, None, None))
+        if not spans:
+            # Proportional fallback: spread the row's words evenly over its span.
+            pieces = str(row.get("text") or "").split()
+            span = _word_span(row)
+            n = len(pieces)
+            for k, piece in enumerate(pieces):
+                if span and span[1] > span[0]:
+                    st = span[0] + (span[1] - span[0]) * k / n
+                    en = span[0] + (span[1] - span[0]) * (k + 1) / n
+                    spans.append((piece, st, en))
+                elif span:
+                    spans.append((piece, span[0], span[1]))
+                else:
+                    spans.append((piece, None, None))
+        for text, st, en in spans:
+            label = _locate((st + en) / 2.0) if st is not None and en is not None else None
+            tokens.append([ui, text, st, en, label])
+
+    # Neighbour fill within each utterance: previous word, then next word.
+    for idx, tok in enumerate(tokens):
+        if tok[4] is None and idx > 0 and tokens[idx - 1][0] == tok[0]:
+            tok[4] = tokens[idx - 1][4]
+    for idx in range(len(tokens) - 2, -1, -1):
+        tok = tokens[idx]
+        if tok[4] is None and tokens[idx + 1][0] == tok[0]:
+            tok[4] = tokens[idx + 1][4]
+    # A whole utterance nobody could place: the last label placed before it,
+    # else the nearest segment however far.
+    last: str | None = None
+    for tok in tokens:
+        if tok[4] is None:
+            mid = (tok[2] + tok[3]) / 2.0 if tok[2] is not None and tok[3] is not None else None
+            tok[4] = last if last is not None else _nearest_any(mid)
+        last = tok[4]
+
+    turns: list[dict] = []
+    for ui, text, st, en, label in tokens:
+        cur = turns[-1] if turns else None
+        if cur is not None and cur["speaker"] == label and cur["_utt"] == ui:
+            cur["_words"].append(text)
+            if en is not None:
+                cur["end_time"] = en if cur["end_time"] is None else max(cur["end_time"], en)
+            continue
+        turns.append({
+            "speaker": label, "_words": [text], "_utt": ui,
+            "start_time": st, "end_time": en,
+        })
+    return [
+        {
+            "speaker": t["speaker"],
+            "text": " ".join(t["_words"]),
+            "start_time": t["start_time"],
+            "end_time": t["end_time"],
+        }
+        for t in turns
+    ]
+
+
+@app.post(
+    "/recordings/{recording_id}/reanalyze-with-segments",
+    response_model=JobCreatedResponse,
+    status_code=202,
+)
+async def reanalyze_recording_with_segments(
+    recording_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    req: ReanalyzeWithSegmentsRequest,
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    """Re-analyze a stored recording with the caller's OWN speaker segmentation
+    — "Use these voices for this recording" after the phone's engine B ran —
+    as the same submit-and-poll job as POST …/reanalyze → 202 {job_id, note}.
+
+    The stored RAW transcript's words (transcript.json; turns.json's text spread
+    proportionally when there are no word timings) are regrouped so every word
+    takes the label of the segment it falls in (see
+    :func:`_regroup_transcript_by_segments`), and that transcript feeds the same
+    re-analysis job with STT skipped AND the local-diarization cross-check
+    DISABLED — the user's chosen segmentation must win, never be relabeled. The
+    result overwrites analysis.json + turns.json in place (so the heat chart,
+    talk share, speaker labels and report cards all follow), stamps
+    meta.reanalyzed_at, records the applied segments' provenance
+    (``speaker_segments_source`` / ``speaker_segments_applied_at`` /
+    ``speaker_segments``), and CLEARS the recording's manual speaker names and
+    people map: they are keyed by the OLD speaker ids, which no longer exist —
+    the response's ``note`` and the result's ``storage_note`` say so.
+
+    Owner-only, same auth/rate limit as …/reanalyze. 503 when storage is
+    disabled; 404 for an unknown/foreign recording (403 for a recipient); 422
+    when the recording has no stored audio, when the segments overlap / name too
+    many speakers, or when the regrouped transcript is out of analysis bounds
+    (fewer than 4 turns, etc.) — never a job that silently falls back."""
+    store_backend = get_recordings_store()
+    if store_backend is None:
+        raise HTTPException(status_code=503, detail=_JOBS_DISABLED_DETAIL)
+
+    rec = await store_backend.get_recording(uid, recording_id)
+    if rec is None:
+        await _deny_write(store_backend, uid, recording_id)
+    audio_bytes = await store_backend.get_audio_bytes(uid, recording_id)
+    if not audio_bytes:
+        raise HTTPException(
+            status_code=422,
+            detail="recording has no stored audio to re-analyze",
+        )
+
+    # The raw STT transcript (word timings) when it exists, else the stored
+    # post-diarization turns (text only → proportional split).
+    rows = await store_backend.get_transcript(uid, recording_id)
+    words_available = bool(rows) and any(
+        isinstance(r, dict) and r.get("words") for r in rows
+    )
+    if not rows:
+        rows = [t for t in (rec.get("turns") or []) if isinstance(t, dict)]
+    if not rows:
+        raise HTTPException(
+            status_code=422,
+            detail="recording has no stored transcript to regroup",
+        )
+    regrouped = _regroup_transcript_by_segments(rows, req.segments)
+    try:
+        AnalyzeRequest(turns=regrouped, context="")
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "the regrouped transcript is out of bounds for analysis "
+                f"({len(regrouped)} turn(s), {exc.error_count()} issue(s)): "
+                + "; ".join(e["msg"] for e in exc.errors()[:3])
+            ),
+        )
+    logger.info(
+        "reanalyze-with-segments uid=%s recording=%s: %d segment(s), %d "
+        "label(s), %d row(s) → %d turn(s) (word timings: %s, source=%s)",
+        uid, recording_id, len(req.segments),
+        len({sg.label.strip() for sg in req.segments}), len(rows),
+        len(regrouped), words_available, req.source,
+    )
+
+    preserved_title = rec.get("title")
+    preserved_source = rec.get("source")
+    segments_payload = [
+        {"start": sg.start, "end": sg.end, "label": sg.label.strip()}
+        for sg in req.segments
+    ]
+    cleared_note = (
+        "manual speaker names for this recording were cleared — the speaker "
+        "ids changed with the applied voices"
+    )
+
+    job_id = str(uuid.uuid4())
+    state = _new_job_state()
+    await store_backend.write_job_state(uid, job_id, state)
+
+    async def _prepare(set_stage: "JobProgressFn") -> tuple:
+        return audio_bytes, "audio.m4a", "audio/mp4", preserved_source
+
+    async def _persist(
+        response: AnalyzeUploadResponse, set_stage: "JobProgressFn",
+    ) -> None:
+        await set_stage("storing", "saving re-analysis", None)
+        response.stored = True
+        response.recording_id = recording_id
+        response.storage_note = cleared_note
+        response.transcription_note = (
+            f"speakers assigned from the {req.source} voice segmentation; the "
+            "stored transcript's words were kept (no re-transcription)"
+        )
+        applied_at = datetime.now(timezone.utc).isoformat()
+        updated = await store_backend.overwrite_analysis(
+            uid, recording_id,
+            turns=[t.model_dump() for t in response.turns],
+            analysis=response.model_dump(),
+            reanalyzed_at=applied_at,
+        )
+        if updated is None:
+            raise HTTPException(status_code=404, detail="Recording not found")
+        stamped = await store_backend.apply_speaker_segments_meta(
+            uid, recording_id,
+            source=req.source, applied_at=applied_at, segments=segments_payload,
+        )
+        if stamped is None:
+            raise HTTPException(status_code=404, detail="Recording not found")
+
+    _spawn_job(_run_analysis_job(
+        uid, job_id, store_backend, state,
+        prepare=_prepare,
+        context="",
+        consent=True,
+        store=False,
+        title=preserved_title,
+        on_success=_persist,
+        stored_transcript=regrouped,
+        skip_diarization=True,
+    ))
+    return JobCreatedResponse(job_id=job_id, note=cleared_note)
 
 
 @app.get("/analyze/jobs/{job_id}", response_model=JobStateResponse)

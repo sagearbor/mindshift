@@ -13,6 +13,7 @@ import { AUDIO_FIXTURES_DIR } from "../src/live/replay/sceneReplay";
 import {
   DeviceDiarizationError,
   runDeviceDiarization,
+  toSpeakerSegments,
   type DeviceDiarizationDeps,
   type DeviceDiarizationProgress,
   type LoadedEmbedder,
@@ -243,5 +244,24 @@ describe("runDeviceDiarization", () => {
     await expect(run.promise).rejects.toMatchObject({ code: "cancelled" });
     expect(embedder.calls).toBeLessThan(10);
     expect(release).toHaveBeenCalled();
+  });
+});
+
+describe("toSpeakerSegments", () => {
+  it("names the engine's runs the way the strip's legend does, in time order, dropping empty runs", () => {
+    expect(
+      toSpeakerSegments({
+        segments: [
+          [10.5, 25, 1],
+          [0, 10.5, 0],
+          [25, 25, 2],
+          [25, 42.6, 2],
+        ],
+      }),
+    ).toEqual([
+      { start: 0, end: 10.5, label: "Speaker A" },
+      { start: 10.5, end: 25, label: "Speaker B" },
+      { start: 25, end: 42.6, label: "Speaker C" },
+    ]);
   });
 });

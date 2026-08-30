@@ -7,13 +7,21 @@
  * with k, the timings, and the diagnostics id the run was posted under (so
  * the result can be scored against a per-second rubric with
  * scripts/diagnostics_tail.py --score-rubric). A failure is one honest line.
+ *
+ * A second, explicit step — "Use these voices for this recording" — appears
+ * after a run that found 2+ voices with sane embeddings: it POSTs the
+ * engine's segments (`postReanalyzeWithSegments`) and hands the job to the
+ * screen's re-analyze polling (`onReanalyzeJob`), so the heat chart, talk
+ * share, Speakers card and report cards follow once the server re-analyzes
+ * with those speakers. The strip stays on screen for comparison.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useAuthStore } from "../store/authStore";
 import { useDiagnosticsStore, type DeviceDiarizationEvent } from "../diagnostics/diagnostics";
 import { loadExperimentalVoiceEngine } from "../live/experimentalPrefs";
-import { runDeviceDiarization, DeviceDiarizationError, embeddingsLookDegenerate, type DeviceDiarizationProgress, type DeviceDiarizationRun } from "../live/deviceDiarization";
+import { runDeviceDiarization, DeviceDiarizationError, embeddingsLookDegenerate, toSpeakerSegments, type DeviceDiarizationProgress, type DeviceDiarizationRun } from "../live/deviceDiarization";
+import { postReanalyzeWithSegments } from "../api/client";
 import { unknownLabel } from "../live/speakerId";
 import { resolveSpeakerColors } from "../utils/speakerColors";
 
@@ -24,6 +32,14 @@ export interface DeviceDiarizationRowProps {
   enabled?: boolean;
   /** The engine entry point (injectable for tests). */
   run?: typeof runDeviceDiarization;
+  /** "Use these voices for this recording": after the segments are POSTed,
+   *  the screen polls the returned job with its re-analyze card and
+   *  refreshes the recording; resolves `{ ok: true }` once the fresh
+   *  analysis is on screen, `{ ok: false, message }` with the honest reason
+   *  otherwise. Undefined hides the apply step (nothing to hand the job to). */
+  onReanalyzeJob?: (jobId: string) => Promise<{ ok: boolean; message?: string }>;
+  /** The POST (injectable for tests). */
+  postSegments?: typeof postReanalyzeWithSegments;
 }
 
 type Phase =
@@ -31,6 +47,33 @@ type Phase =
   | { status: "running"; progress: DeviceDiarizationProgress | null }
   | { status: "done"; event: DeviceDiarizationEvent; sent: { ok: boolean; id: string; error: string | null } | null }
   | { status: "error"; message: string };
+
+/** The "Use these voices" step, independent of the run itself. */
+type ApplyPhase =
+  | { status: "idle" }
+  | { status: "confirm" }
+  | { status: "posting" }
+  | { status: "polling" }
+  | { status: "done" }
+  | { status: "error"; message: string };
+
+export const APPLY_CONFIRM_TEXT =
+  "Re-analyzes this recording with the voices this phone heard. Your speaker names for this recording will need to be set again.";
+
+/** A run whose voices can honestly be applied: 2+ voices, embeddings not degenerate. */
+export function canApplyRun(ev: DeviceDiarizationEvent): boolean {
+  return ev.k >= 2 && !embeddingsLookDegenerate(ev) && ev.segments.length > 0;
+}
+
+function phraseApplyError(err: unknown): string {
+  const status = (err as { status?: number } | null)?.status;
+  const msg = err instanceof Error && err.message ? err.message : String(err);
+  if (status === 422) return `Couldn’t apply — ${msg.replace(/^API error: 422$/, "the server rejected these voices")}.`;
+  if (status === 404) return "Couldn’t apply — this recording is no longer available.";
+  if (status === 503) return "Couldn’t apply — re-analysis isn’t available right now.";
+  if (status === 401) return "Couldn’t apply — please sign in again.";
+  return `Couldn’t apply — ${msg}.`;
+}
 
 const INK = "#1F2937";
 const MUTED = "#6B7280";
@@ -68,13 +111,21 @@ export function degenerateWarning(ev: DeviceDiarizationEvent): string {
   );
 }
 
-export default function DeviceDiarizationRow({ recordingId, enabled, run = runDeviceDiarization }: DeviceDiarizationRowProps) {
+export default function DeviceDiarizationRow({
+  recordingId,
+  enabled,
+  run = runDeviceDiarization,
+  onReanalyzeJob,
+  postSegments = postReanalyzeWithSegments,
+}: DeviceDiarizationRowProps) {
   const user = useAuthStore((s) => s.user);
   const uid = user?.uid ?? null;
   const email = user?.email ?? null;
   const sendDeviceDiarization = useDiagnosticsStore((s) => s.sendDeviceDiarization);
   const [prefOn, setPrefOn] = useState<boolean>(enabled ?? false);
   const [phase, setPhase] = useState<Phase>({ status: "idle" });
+  const [apply, setApply] = useState<ApplyPhase>({ status: "idle" });
+  const applyBusyRef = useRef(false);
   const runRef = useRef<DeviceDiarizationRun | null>(null);
   const mountedRef = useRef(true);
 
@@ -101,8 +152,9 @@ export default function DeviceDiarizationRow({ recordingId, enabled, run = runDe
   }, [enabled, uid]);
 
   const start = useCallback(() => {
-    if (runRef.current) return;
+    if (runRef.current || applyBusyRef.current) return;
     setPhase({ status: "running", progress: null });
+    setApply({ status: "idle" });
     const handle = run(recordingId, {
       onProgress: (progress) => {
         if (mountedRef.current) setPhase({ status: "running", progress });
@@ -127,6 +179,28 @@ export default function DeviceDiarizationRow({ recordingId, enabled, run = runDe
   const cancel = useCallback(() => {
     runRef.current?.cancel();
   }, []);
+
+  // "Use these voices for this recording": POST the segments, then let the
+  // screen poll the job and refresh. Errors from either half land inline.
+  const applyVoices = useCallback(
+    async (event: DeviceDiarizationEvent) => {
+      if (applyBusyRef.current || !onReanalyzeJob) return;
+      applyBusyRef.current = true;
+      setApply({ status: "posting" });
+      try {
+        const { job_id } = await postSegments(recordingId, toSpeakerSegments(event));
+        if (mountedRef.current) setApply({ status: "polling" });
+        const outcome = await onReanalyzeJob(job_id);
+        if (!mountedRef.current) return;
+        setApply(outcome.ok ? { status: "done" } : { status: "error", message: `Couldn’t apply — ${outcome.message ?? "the re-analysis failed"}` });
+      } catch (err) {
+        if (mountedRef.current) setApply({ status: "error", message: phraseApplyError(err) });
+      } finally {
+        applyBusyRef.current = false;
+      }
+    },
+    [onReanalyzeJob, postSegments, recordingId],
+  );
 
   if (!prefOn) return null;
 
@@ -161,6 +235,54 @@ export default function DeviceDiarizationRow({ recordingId, enabled, run = runDe
         </Text>
       ) : null}
       {phase.status === "done" ? <Result event={phase.event} sent={phase.sent} /> : null}
+      {phase.status === "done" && onReanalyzeJob && canApplyRun(phase.event) ? (
+        <ApplyStep apply={apply} onRequest={() => setApply({ status: "confirm" })} onCancel={() => setApply({ status: "idle" })} onConfirm={() => void applyVoices(phase.event)} />
+      ) : null}
+    </View>
+  );
+}
+
+function ApplyStep({ apply, onRequest, onCancel, onConfirm }: { apply: ApplyPhase; onRequest: () => void; onCancel: () => void; onConfirm: () => void }) {
+  if (apply.status === "posting" || apply.status === "polling") {
+    return (
+      <View style={styles.progressRow} testID="device-diarization-apply-progress">
+        <ActivityIndicator size="small" color={PRIMARY} />
+        <Text style={styles.progressText} numberOfLines={2}>
+          {apply.status === "posting" ? "Sending these voices…" : "Re-analyzing with these voices — progress is in the re-analyze card below…"}
+        </Text>
+      </View>
+    );
+  }
+  if (apply.status === "confirm") {
+    return (
+      <View style={styles.confirm} testID="device-diarization-apply-confirm">
+        <Text style={styles.confirmText}>{APPLY_CONFIRM_TEXT}</Text>
+        <View style={styles.confirmRow}>
+          <TouchableOpacity testID="device-diarization-apply-cancel" accessibilityRole="button" onPress={onCancel} style={styles.cancel}>
+            <Text style={styles.cancelText}>Keep current</Text>
+          </TouchableOpacity>
+          <TouchableOpacity testID="device-diarization-apply-go" accessibilityRole="button" onPress={onConfirm} style={styles.button}>
+            <Text style={styles.buttonText}>Re-analyze with these voices</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+  return (
+    <View>
+      <TouchableOpacity testID="device-diarization-apply" accessibilityRole="button" style={[styles.button, styles.applyButton]} onPress={onRequest}>
+        <Text style={styles.buttonText}>{apply.status === "done" ? "Use these voices again" : "Use these voices for this recording"}</Text>
+      </TouchableOpacity>
+      {apply.status === "done" ? (
+        <Text style={styles.applied} testID="device-diarization-applied">
+          Applied — the chart, talk share and report cards above now use these voices. Name the speakers again if you had named them.
+        </Text>
+      ) : null}
+      {apply.status === "error" ? (
+        <Text style={styles.error} testID="device-diarization-apply-error">
+          {apply.message}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -247,4 +369,9 @@ const styles = StyleSheet.create({
   timings: { marginTop: 4, fontSize: 12.5, color: MUTED, lineHeight: 17 },
   model: { marginTop: 2, fontSize: 12, color: MUTED },
   sent: { marginTop: 6, fontSize: 12.5, color: "#15803D", fontWeight: "600" },
+  applyButton: { marginTop: 12 },
+  applied: { marginTop: 6, fontSize: 12.5, color: "#15803D", lineHeight: 17 },
+  confirm: { marginTop: 12, padding: 10, borderRadius: 8, backgroundColor: "#F3F4F6" },
+  confirmText: { fontSize: 13, color: INK, lineHeight: 18 },
+  confirmRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
 });

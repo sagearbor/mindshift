@@ -29,7 +29,8 @@ import { EcapaEmbedder } from "./speakerId";
 import { diarizeWindows, type DiarizeProgress, type DiarizeWindowsResult } from "./diarizeWindows";
 import { revisionFromEtag } from "./modelDownload";
 import { parseWav16kMono } from "../recorder/wavParse";
-import { getRecordingMediaUrl, pcm16kMediaUrl, type RecordingMediaUrl } from "../api/client";
+import { getRecordingMediaUrl, pcm16kMediaUrl, type RecordingMediaUrl, type SpeakerSegmentInput } from "../api/client";
+import { unknownLabel } from "./speakerId";
 import { ECAPA_REVISION, authHeaders, ecapaModelUrl } from "../api/liveSessions";
 import { collectDeviceInfo, type DeviceDiarizationEvent, type DeviceInfo } from "../diagnostics/diagnostics";
 
@@ -124,6 +125,20 @@ export const DEGENERATE_EMBEDDING_COSINE = 0.95;
 
 export function embeddingsLookDegenerate(ev: Pick<DeviceDiarizationEvent, "mean_pairwise_cosine" | "windows">): boolean {
   return ev.windows >= 2 && ev.mean_pairwise_cosine !== null && ev.mean_pairwise_cosine > DEGENERATE_EMBEDDING_COSINE;
+}
+
+/**
+ * The engine's result as the server's speaker timeline
+ * (`postReanalyzeWithSegments`): every run `[start, end, cluster]` becomes
+ * `{start, end, label}` with the cluster named the way the strip's legend
+ * names it ("Speaker A" …), in time order, zero-length runs dropped. Runs
+ * are already non-overlapping (diarizeWindows emits contiguous runs).
+ */
+export function toSpeakerSegments(ev: Pick<DeviceDiarizationEvent, "segments">): SpeakerSegmentInput[] {
+  return ev.segments
+    .filter(([s, e]) => e > s)
+    .map(([s, e, l]) => ({ start: s, end: e, label: unknownLabel(l) }))
+    .sort((a, b) => a.start - b.start || a.end - b.end);
 }
 
 /** XMLHttpRequest when the platform has it (React Native does, with progress

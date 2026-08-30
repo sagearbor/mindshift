@@ -1121,6 +1121,10 @@ export type JobStatus =
 /** 202 body of the job-submit endpoints — the id to poll with. */
 export interface JobCreated {
   job_id: string;
+  // Optional honest note about what accepting the job implies (e.g.
+  // `postReanalyzeWithSegments`: the manual speaker names will be cleared).
+  // Absent on older servers and on every other job endpoint.
+  note?: string | null;
 }
 
 /** GET /analyze/jobs/{id} — a job's staged progress (and its result once done). */
@@ -1463,6 +1467,11 @@ export interface RecordingDetail extends RecordingSummary {
   // People labeling: {canonical_id: person_id} for manually named speakers the
   // user attached to an enrolled person. Absent on older servers.
   manual_speaker_people?: Record<string, string>;
+  // When the owner applied an explicit voice segmentation (the phone's own
+  // engine B → `postReanalyzeWithSegments`): where it came from ("device-B")
+  // and when. Null/absent when the speakers are the pipeline's own.
+  speaker_segments_source?: string | null;
+  speaker_segments_applied_at?: string | null;
   // True when the caller is a RECIPIENT viewing a recording shared with them
   // (read-only) — the UI hides every owner-only affordance in this mode. Absent
   // or false ⇒ the caller owns it. Older servers omit it (treated as owned).
@@ -1898,6 +1907,50 @@ export async function postReanalyze(id: string): Promise<JobCreated> {
     };
     err.status = res.status;
     throw err;
+  }
+  return (await res.json()) as JobCreated;
+}
+
+/** One run of a speaker timeline for {@link postReanalyzeWithSegments}:
+ *  seconds from the start of the stored audio, `label` is the speaker id the
+ *  re-analysis will use ("Speaker A" …). */
+export interface SpeakerSegmentInput {
+  start: number;
+  end: number;
+  label: string;
+}
+
+/**
+ * POST /recordings/{id}/reanalyze-with-segments — "Use these voices for this
+ * recording": re-run the analysis over the stored recording with the given
+ * speaker timeline (the phone's engine B) instead of the server's own
+ * diarization. The stored transcript's words are regrouped by segment, the
+ * job runs with the diarization cross-check off, and on completion the
+ * recording's turns/analysis are overwritten in place — the heat chart, talk
+ * share, speaker labels and report cards all follow. The recording's MANUAL
+ * speaker names are cleared (they were keyed by the old speaker ids); the
+ * returned `note` says so. Returns `{ job_id, note }` (202) to poll via
+ * {@link getAnalyzeJob}.
+ *
+ * Throws with the numeric `.status` and the server's `detail` when it wrote
+ * one (a 422 explains overlapping segments / no stored audio / a regrouped
+ * transcript too short to analyze); 404/503 as for {@link postReanalyze}.
+ */
+export async function postReanalyzeWithSegments(
+  id: string,
+  segments: SpeakerSegmentInput[],
+  source: string = "device-B",
+): Promise<JobCreated> {
+  const res = await fetch(
+    `${API_URL}/recordings/${encodeURIComponent(id)}/reanalyze-with-segments`,
+    {
+      method: "POST",
+      headers: await authHeaders(),
+      body: JSON.stringify({ segments, source }),
+    },
+  );
+  if (!res.ok) {
+    throw await jobPostError(res);
   }
   return (await res.json()) as JobCreated;
 }
