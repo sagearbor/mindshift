@@ -311,13 +311,27 @@ export default function LiveCoachScreen({
     if (liveCapable && liveMode) void runPreflight?.();
   }, [liveCapable, liveMode, runPreflight]);
 
+  // Voiceprint gate data. Refetches on a schedule while the gate is not
+  // "ok" (a fetch that raced sign-in or hit a cold instance must heal
+  // without the user leaving the screen — on-device 2026-08-30 the enroll
+  // banner showed to an enrolled owner and never went away).
+  const peopleRetryRef = useRef(0);
   useEffect(() => {
     let cancelled = false;
-    void listVoicePeople().then((res) => {
-      if (cancelled) return;
-      setPeople(res.people);
-      setPeopleError(res.error);
-    });
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const fetchPeople = () => {
+      void listVoicePeople().then((res) => {
+        if (cancelled) return;
+        setPeople(res.people);
+        setPeopleError(res.error);
+        const gateOk = res.people.some((p) => p.isSelf && Math.max(p.settings, p.enrollCount) >= 1);
+        if (!gateOk && peopleRetryRef.current < 5) {
+          peopleRetryRef.current += 1;
+          timer = setTimeout(fetchPeople, 4000 * peopleRetryRef.current);
+        }
+      });
+    };
+    fetchPeople();
     getTherapistLink()
       .then((l) => {
         if (!cancelled) setTherapist(l);
@@ -327,6 +341,7 @@ export default function LiveCoachScreen({
       });
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, []);
 

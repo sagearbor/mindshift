@@ -206,8 +206,18 @@ export async function listVoicePeople(): Promise<VoicePeopleResult> {
     if (res.status === 404) return { people: [], error: "server has no people endpoint (404)" };
     if (res.status === 401 || res.status === 403) return { people: [], error: `not signed in (${res.status})` };
     if (!res.ok) return { people: [], error: `people endpoint answered ${res.status}` };
-    const data = (await res.json()) as { people?: VoiceprintWire[] & { enroll_count?: number }[] };
-    const list = Array.isArray(data?.people) ? data.people : [];
+    const data = (await res.json()) as {
+      people?: VoiceprintWire[] & { enroll_count?: number }[];
+      storage_enabled?: boolean;
+    };
+    // A 200 without a people array (or with storage reported off — a cold
+    // instance answering before its store is wired) is NOT "nobody is
+    // enrolled": surface it as an error so gates read "unknown" instead of
+    // telling an enrolled owner to enroll (seen on-device 2026-08-30).
+    if (!Array.isArray(data?.people)) {
+      return { people: [], error: data?.storage_enabled === false ? "server storage not ready" : "people list missing from response" };
+    }
+    const list = data.people;
     const people: VoicePerson[] = [];
     for (const p of list as (VoiceprintWire & { enroll_count?: number })[]) {
       if (!p || typeof p !== "object" || !p.person_id) continue;
