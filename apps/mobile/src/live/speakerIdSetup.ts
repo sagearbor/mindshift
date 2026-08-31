@@ -9,7 +9,7 @@
  * just calls it.
  */
 import type { EnrolledPerson } from "./speakerId";
-import { revisionFromEtag, type EcapaModelResult, type EcapaModelSource } from "./modelDownload";
+import type { EcapaModelResult, EcapaModelSource } from "./modelDownload";
 
 export interface SpeakerIdCapability {
   /** Embedder + labeler are wired for this session. */
@@ -26,18 +26,23 @@ export interface SpeakerIdCapability {
 }
 
 /**
- * Keep only prints from the SAME embedding space as the model on disk. A
- * person's `model` is "<source>@<revision>" (server/speaker_id.py); the
- * model's ETag is that revision. A print with no recorded model (a legacy
- * profile) is kept — the server matches with it too, and there is no
- * evidence of a mismatch. Without a revision to compare (no ETag) nothing
- * is dropped.
+ * Keep only prints from the SAME embedding space as the model this app
+ * pins. A person's `model` is "<source>@<revision>" (server/speaker_id.py);
+ * the comparison revision is the app's PINNED model revision
+ * (api/liveSessions.ECAPA_REVISION — the download URL is a pure function
+ * of it, so it is what is on disk). NEVER the download's ETag: Firebase
+ * Hosting tags the file with a CONTENT HASH, which matches no print's
+ * revision and silently dropped every enrolled voiceprint (2026-08-31:
+ * journal said "Enroll your voice first" while enrolled 8 samples; live
+ * self-ID inert). A print with no recorded model (a legacy profile) is
+ * kept — the server matches with it too, and there is no evidence of a
+ * mismatch. Without a revision to compare nothing is dropped.
  */
 export function peopleForModel(
   people: EnrolledPerson[],
-  modelEtag: string | null | undefined,
+  pinnedRevision: string | null | undefined,
 ): { kept: EnrolledPerson[]; dropped: EnrolledPerson[] } {
-  const revision = revisionFromEtag(modelEtag);
+  const revision = pinnedRevision?.trim() || null;
   if (!revision) return { kept: people, dropped: [] };
   const kept: EnrolledPerson[] = [];
   const dropped: EnrolledPerson[] = [];

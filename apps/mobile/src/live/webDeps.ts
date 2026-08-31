@@ -13,7 +13,7 @@
  *
  * Everything degrades to a reason in `FastLoopBuild.status`, never a throw.
  */
-import { ecapaModelUrl, fetchVoiceprints, authHeaders } from "../api/liveSessions";
+import { ecapaModelUrl, ECAPA_REVISION, fetchVoiceprints, authHeaders } from "../api/liveSessions";
 import { FastLoop } from "./fastLoop";
 import type { FastLoopBuild, FastLoopCapabilities, FastLoopHandlers, DefaultFastLoopOptions } from "./defaultDeps";
 import { EnergyVad, SileroVad, type FrameVad } from "./vad";
@@ -121,7 +121,7 @@ async function buildSpeakerId(
   } catch (err) {
     return speakerIdOff(`ONNX Runtime rejected the model (${err instanceof Error ? err.message : String(err)})`);
   }
-  const { kept, dropped } = peopleForModel(voiceprints.people, model.etag);
+  const { kept, dropped } = peopleForModel(voiceprints.people, ECAPA_REVISION);
   if (dropped.length > 0) {
     console.log(`[live/web] speaker-ID: skipped ${dropped.length} voiceprint(s) from another model revision`);
   }

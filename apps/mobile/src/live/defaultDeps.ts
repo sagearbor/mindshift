@@ -19,7 +19,7 @@
  * `.capabilities.speakerId` — one console line, never an error toast.
  */
 import { Platform } from "react-native";
-import { ecapaModelUrl, fetchVoiceprints, authHeaders } from "../api/liveSessions";
+import { ecapaModelUrl, ECAPA_REVISION, fetchVoiceprints, authHeaders } from "../api/liveSessions";
 import { FastLoop, type FastLoopDeps } from "./fastLoop";
 import { EnergyVad, SileroVad, type FrameVad } from "./vad";
 import { EcapaEmbedder, SpeakerLabeler, type Embedder } from "./speakerId";
@@ -150,7 +150,7 @@ export async function buildSpeakerId(): Promise<SpeakerIdBuild> {
     const reason = loaded.model.status === "ready" ? "ONNX session failed" : loaded.model.reason;
     return speakerIdOff(reason);
   }
-  const { kept, dropped } = peopleForModel(voiceprints.people, loaded.model.etag);
+  const { kept, dropped } = peopleForModel(voiceprints.people, ECAPA_REVISION);
   if (dropped.length > 0) {
     console.log(
       `[live] speaker-ID: skipped ${dropped.length} voiceprint(s) from another model revision`,

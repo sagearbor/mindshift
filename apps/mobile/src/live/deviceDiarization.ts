@@ -27,7 +27,6 @@
 import type { Embedder } from "./speakerId";
 import { EcapaEmbedder } from "./speakerId";
 import { diarizeWindows, type DiarizeProgress, type DiarizeWindowsResult } from "./diarizeWindows";
-import { revisionFromEtag } from "./modelDownload";
 import { parseWav16kMono } from "../recorder/wavParse";
 import { getRecordingMediaUrl, pcm16kMediaUrl, type RecordingMediaUrl, type SpeakerSegmentInput } from "../api/client";
 import { unknownLabel } from "./speakerId";
@@ -193,7 +192,7 @@ export async function defaultLoadEmbedder(): Promise<LoadedEmbedder | { unavaila
   const session = loaded.session;
   return {
     embedder: new EcapaEmbedder(session),
-    modelRev: revisionFromEtag(loaded.model.etag) ?? ECAPA_REVISION,
+    modelRev: ECAPA_REVISION,
     modelSource: loaded.model.source,
     release: () => session.release(),
   };
