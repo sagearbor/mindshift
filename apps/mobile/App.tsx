@@ -38,6 +38,7 @@ import { useSessionStore } from "./src/store/sessionStore";
 import { useRecorderStore } from "./src/store/recorderStore";
 import { getOnboardingSeen, setOnboardingSeen } from "./src/utils/onboardingStorage";
 import { parseCallLink, type ParsedCallLink } from "./src/nav/callLink";
+import { parseJournalLink, type JournalLinkAction } from "./src/nav/journalLink";
 import type { AnalyzeResult } from "./src/api/client";
 
 // --- Two-mode navigation -----------------------------------------------------
@@ -79,7 +80,15 @@ export type Screen =
   | { name: "home" }
   // `joinCode`: an in-app call invite (mindshift://call/<code>, or the web
   // route /call/<code>) opens Live Coach in Call mode with an Answer button.
-  | { name: "live-coach"; joinCode?: string; joinRole?: "participant" | "therapist" }
+  // `journalAction`: a "Hey Google, start my journal" deep link
+  // (mindshift://journal/start|stop) — the screen selects Journal mode and
+  // starts/stops it, honoring its own gates (src/nav/journalLink.ts).
+  | {
+      name: "live-coach";
+      joinCode?: string;
+      joinRole?: "participant" | "therapist";
+      journalAction?: JournalLinkAction;
+    }
   // The Analyze mode hub: record / upload / link + relationship context.
   | { name: "analyze" }
   // Everything that doesn't fit the two modes: Settings (dashboard, watch
@@ -286,6 +295,13 @@ export default function App({ initialUrl }: AppProps = {}) {
   const [pendingCall, setPendingCall] = useState<ParsedCallLink | null>(() =>
     parseCallLink(initialUrl !== undefined ? initialUrl : initialWebUrl()),
   );
+  // "Hey Google, start my journal" (src/nav/journalLink.ts): same waiting
+  // pattern as pendingCall — mindshift://journal/start|stop holds here until
+  // the gates below let a screen render, then opens Live Coach with the
+  // action for the screen to execute (its own gates still apply there).
+  const [pendingJournal, setPendingJournal] = useState<JournalLinkAction | null>(() =>
+    parseJournalLink(initialUrl !== undefined ? initialUrl : initialWebUrl()),
+  );
   useEffect(() => {
     if (Platform.OS === "web") return;
     let cancelled = false;
@@ -293,11 +309,15 @@ export default function App({ initialUrl }: AppProps = {}) {
       .then((url) => {
         const parsed = parseCallLink(url);
         if (parsed && !cancelled) setPendingCall(parsed);
+        const journal = parseJournalLink(url);
+        if (journal && !cancelled) setPendingJournal(journal);
       })
       .catch(() => {});
     const sub = Linking.addEventListener("url", ({ url }) => {
       const parsed = parseCallLink(url);
       if (parsed) setPendingCall(parsed);
+      const journal = parseJournalLink(url);
+      if (journal) setPendingJournal(journal);
     });
     return () => {
       cancelled = true;
@@ -398,6 +418,15 @@ export default function App({ initialUrl }: AppProps = {}) {
     }
   }, [pendingCall, ready]);
 
+  // Journal deep link: same gate-waiting as the call invite above. The screen
+  // does the actual selecting/starting (and shows its gate messages when a
+  // gate fails) — this only navigates and hands over the action.
+  useEffect(() => {
+    if (!pendingJournal || !ready) return;
+    setPendingJournal(null);
+    setScreen({ name: "live-coach", journalAction: pendingJournal });
+  }, [pendingJournal, ready]);
+
   // Cold start: wait for the first auth-state resolution before deciding which
   // surface to show, so we never flash the wrong screen.
   if (initializing) {
@@ -476,6 +505,8 @@ export default function App({ initialUrl }: AppProps = {}) {
             joinCode={screen.joinCode ?? null}
             joinRole={screen.joinRole ?? "participant"}
             onJoinCodeConsumed={() => setScreen({ name: "live-coach" })}
+            journalAction={screen.journalAction ?? null}
+            onJournalActionConsumed={() => setScreen({ name: "live-coach" })}
             onReviewTranscript={(turns) => {
               // Hand the finished live conversation to the text tools, where
               // Get Suggestions / Analyze dynamics work off the loaded turns.

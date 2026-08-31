@@ -1547,6 +1547,49 @@ class SentinelControllerTest {
         assertFalse(c.state.lastWindowVoiced)
     }
 
+    // --- Deep duty cycle: the stillness fact SentinelService feeds MicDutyCycle -----------------
+
+    @Test
+    fun lastWindowStillIsNullWithoutAnAccelSource() {
+        val c = controller() // no accel wired at all
+        c.arm()
+        repeat(8) { c.tick(silence()) }
+        assertNull(c.state.lastWindowStill) // no motion signal: never a fabricated "still"
+    }
+
+    @Test
+    fun lastWindowStillTracksTheMovementThresholdOnceEstablished() {
+        val accel = FakeScalar(1.0)
+        val c = controller(accel = accel)
+        c.arm()
+        // MovementTracker's honest degradation: no baseline until MIN_READINGS_FOR_BASELINE (5)
+        // observations — no verdict before then, so no deepening is possible either.
+        repeat(4) { c.tick(silence()) }
+        assertNull(c.state.lastWindowStill)
+        c.tick(silence())
+        assertEquals(true, c.state.lastWindowStill)
+        // A reading at/over the wearer's own threshold (steady history: 2*baseline + 0.1 floor)
+        // reads as movement...
+        accel.v = 10.0
+        c.tick(silence())
+        assertEquals(false, c.state.lastWindowStill)
+        // ...and back below it reads still again (anti-poisoning kept the baseline honest).
+        accel.v = 1.0
+        c.tick(silence())
+        assertEquals(true, c.state.lastWindowStill)
+    }
+
+    @Test
+    fun disarmClearsLastWindowStill() {
+        val accel = FakeScalar(1.0)
+        val c = controller(accel = accel)
+        c.arm()
+        repeat(6) { c.tick(silence()) }
+        assertEquals(true, c.state.lastWindowStill)
+        c.disarm()
+        assertNull(c.state.lastWindowStill)
+    }
+
     // --- v0.2.4: ARMED shout-tap ----------------------------------------------------------------
 
     private fun shoutController(clock: () -> Long): SentinelController {

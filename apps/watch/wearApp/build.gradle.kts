@@ -22,8 +22,8 @@ android {
         applicationId = "com.sagearbor.gauge.wear"
         minSdk = 30
         targetSdk = 34
-        versionCode = 13
-        versionName = "0.4.3"
+        versionCode = 14
+        versionName = "0.4.4"
 
         buildConfigField(
             "String",

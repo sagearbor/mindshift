@@ -41,7 +41,7 @@ object JournalStats {
  *   "journal_uploads": 3,         // successful uploads this process lifetime
  *   "journal_upload_failures": 1, // failed attempts this process lifetime
  *   "journal_drops": 0,           // snapshots dropped from the capacity-1 retry queue
- *   "mic_duty_state": "CONTINUOUS" // or "DUTY_CYCLED" (MicDutyCycle's CaptureMode name)
+ *   "mic_duty_state": "CONTINUOUS" // or "DUTY_CYCLED" / "DEEP_DUTY_CYCLED" (CaptureMode's name)
  * }
  * ```
  *

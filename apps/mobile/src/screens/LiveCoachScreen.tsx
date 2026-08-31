@@ -67,6 +67,14 @@ interface LiveCoachScreenProps {
   joinRole?: CallRole;
   /** The Answer tap consumed the code (so a re-render doesn't re-offer it). */
   onJoinCodeConsumed?: () => void;
+  /** "Hey Google, start my journal" (mindshift://journal/start|stop, wired in
+   *  App.tsx): "start" selects Journal mode and starts it — honoring the
+   *  existing gates (a missing owner voiceprint lands here with the gate
+   *  message visible instead; a mic failure shows the usual micError banner);
+   *  "stop" stops a running journal session. */
+  journalAction?: "start" | "stop" | null;
+  /** The action was executed (or ruled out) — so a re-render doesn't redo it. */
+  onJournalActionConsumed?: () => void;
 }
 
 export default function LiveCoachScreen({
@@ -75,6 +83,8 @@ export default function LiveCoachScreen({
   joinCode = null,
   joinRole = "participant",
   onJoinCodeConsumed,
+  journalAction = null,
+  onJournalActionConsumed,
 }: LiveCoachScreenProps = {}) {
   // Keep this session's audio (default ON — see keepAudioPrefs.ts): read
   // once per account before the hook needs it; the switch below changes it
@@ -201,7 +211,9 @@ export default function LiveCoachScreen({
     void loadLiveMode(userId).then((mode) => {
       if (cancelled || modeLoadedRef.current) return;
       modeLoadedRef.current = true;
-      setSessionMode?.(joinCode ? "call" : mode);
+      // A call invite or a journal start link overrides the remembered mode
+      // for this visit (neither is persisted — see handleModeChange).
+      setSessionMode?.(joinCode ? "call" : journalAction === "start" ? "journal" : mode);
     });
     return () => {
       cancelled = true;
@@ -212,6 +224,14 @@ export default function LiveCoachScreen({
     if (joinCode) setSessionMode?.("call");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [joinCode]);
+  // "Hey Google, start my journal": the start link selects Journal mode the
+  // same way an invite link selects Call mode — for this visit only, never
+  // persisted. (A stop link doesn't touch the mode: stopping must never
+  // silently re-mode a running non-journal session.)
+  useEffect(() => {
+    if (journalAction === "start") setSessionMode?.("journal");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [journalAction]);
 
   const handleModeChange = useCallback(
     (mode: LiveMode) => {
@@ -411,6 +431,56 @@ export default function LiveCoachScreen({
   const handleRetryJournalUploads = useCallback(() => {
     void retryJournalUploads?.();
   }, [retryJournalUploads]);
+
+  // Deep-link executor ("Hey Google, start my journal"). Runs the delivered
+  // action at most once (the ref guards dependency churn until the parent's
+  // consume callback clears the prop; it re-arms when the prop clears), and
+  // honors the same gates as the buttons: "start" waits for the Journal mode
+  // override and the voiceprint gate check, then either starts the session or
+  // — on a missing owner print — lands with JournalPanel's gate message
+  // visible without starting. A mic-permission failure surfaces through
+  // startSession's own micError banner exactly as a manual tap would. "stop"
+  // only ever stops a running *journal* session.
+  const journalActionDoneRef = useRef(false);
+  useEffect(() => {
+    if (!journalAction) {
+      journalActionDoneRef.current = false;
+      return;
+    }
+    if (journalActionDoneRef.current) return;
+    if (journalAction === "stop") {
+      journalActionDoneRef.current = true;
+      onJournalActionConsumed?.();
+      if (sessionActive && mode === "journal") void stopSession();
+      return;
+    }
+    // "start": wait until the mode override has landed in the hook.
+    if (mode !== "journal") return;
+    if (sessionActive) {
+      // Already listening — nothing to start twice.
+      journalActionDoneRef.current = true;
+      onJournalActionConsumed?.();
+      return;
+    }
+    // Wait for the voiceprint gate to resolve; "missing" stays on screen with
+    // the gate message (never a silent failed start), anything else starts —
+    // the hook re-checks the gate at Start anyway (its own hasSelfPrint).
+    if (journalGate === "checking") return;
+    journalActionDoneRef.current = true;
+    onJournalActionConsumed?.();
+    if (journalGate === "missing") return;
+    void startSession(`live-${Date.now()}`, empathyLevel, interjectLevel);
+  }, [
+    journalAction,
+    mode,
+    sessionActive,
+    journalGate,
+    onJournalActionConsumed,
+    startSession,
+    stopSession,
+    empathyLevel,
+    interjectLevel,
+  ]);
   // A therapist observer (Therapist mode, or a therapist-role call) gets the
   // two-column observer layout and never sees "speak"/nudge affordances
   // aimed at themselves.

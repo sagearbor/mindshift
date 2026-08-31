@@ -134,6 +134,12 @@ class SentinelController(
     // the top of processWindow(); cleared in disarm() beside `meter`/`availability`.
     private var lastWindowVoiced: Boolean = false
 
+    // Deep duty cycle: the companion stillness fact — see ControllerState.lastWindowStill's own
+    // KDoc. Core-thread-only, same contract as `lastWindowVoiced` above; written once per
+    // processWindow() (in updateMeter, where the movement reading is already computed every
+    // window), cleared in disarm() beside it. `null` = no honest movement reading this window.
+    private var lastWindowStill: Boolean? = null
+
     // Core-thread-only, same contract as `meter` above (P4-3): the pulse-train verdict for the
     // *current* window — the pulse due this tick, or null (below threshold, pulses off, or gated
     // by PulseEngine's own interval). Reset at the top of every processWindow() call and only
@@ -190,6 +196,7 @@ class SentinelController(
                 activePulse = activePulse,
                 availability = availability,
                 lastWindowVoiced = lastWindowVoiced,
+                lastWindowStill = lastWindowStill,
                 armedShoutTap = armedShoutTap,
                 retroCaptureAvailableSeconds = retroCaptureBuffer.availableSeconds(),
                 sparklineSignal = sparklineKind,
@@ -270,6 +277,7 @@ class SentinelController(
         // P5-3: same "stale across episodes" rationale — a disarmed sentinel reports nothing about
         // a window it isn't reading.
         lastWindowVoiced = false
+        lastWindowStill = null
         // Review fix (T6, v0.2.4): same "stale across episodes" rationale as meter/activePulse/
         // availability above — missed in the original pass. Without this, rearming showed up to
         // SPARKLINE_LENGTH ticks of the PREVIOUS session's loudness trace as if it were current,
@@ -447,6 +455,11 @@ class SentinelController(
         val hrReading = hrBpm?.let { hrTracker.observe(it) }
         val accelStddev = safeLatest(accel, "accel")
         val movementReading = accelStddev?.let { movementTracker.observe(it) }
+        // Deep duty cycle: publish this window's stillness verdict from the reading ALREADY
+        // computed above — no new sensor plumbing. Honest degradation end to end: no reading, or
+        // a reading with no established threshold yet, is `null` (never a fabricated "still"),
+        // and MicDutyCycle fails open on null — it never deepens without a real motion signal.
+        lastWindowStill = movementReading?.takeIf { it.threshold != null }?.let { !it.over }
         val speakingReading = speakingRateTracker.observe(Cadence.burstsPerSecond(window))
 
         val selected = selectedSignal()

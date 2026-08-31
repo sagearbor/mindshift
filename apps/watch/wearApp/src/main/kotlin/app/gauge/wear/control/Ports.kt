@@ -155,6 +155,16 @@ data class ControllerState(
      * `false` in [SentinelController.disarm] next to `meter`/`availability` — a disarmed sentinel
      * reports nothing about a window it isn't reading. */
     val lastWindowVoiced: Boolean = false,
+    /** Deep duty cycle (P5-3 follow-up): whether the most recently processed window's movement
+     * reading sat BELOW the wearer's own [app.gauge.shared.signals.MovementTracker] threshold —
+     * the stillness fact [app.gauge.wear.service.SentinelService] needs to drive [app.gauge.
+     * shared.signals.MicDutyCycle]'s motion-gated DEEPER tier, published the same way (and for
+     * the same reason) as [lastWindowVoiced] above. `null` whenever there is NO honest reading:
+     * no accel source configured, no 1-second bucket elapsed yet, or a baseline/threshold not
+     * yet established (MovementTracker's own honest degradation) — and `null` NEVER deepens
+     * (MicDutyCycle fails open on it). Cleared to `null` in [SentinelController.disarm] beside
+     * [lastWindowVoiced]. */
+    val lastWindowStill: Boolean? = null,
     /** v0.2.4: a single band-1 tap due THIS window because the wearer went loud while merely
      * ARMED (before any episode opened). Set only when the sentinel both started AND stayed ARMED
      * this tick — the ARMED→STREAMING transition tick never taps (the pulse chain's own first

@@ -209,9 +209,12 @@ class SentinelService : Service() {
                 // the sentinel state from the last published snapshot (not the controller) keeps
                 // this on the same handler-thread-only bookkeeping as loopRunning.
                 val armedOnly = lastPublishedSentinelState == SentinelState.ARMED
-                if (!companionMode && armedOnly && !micDutyCycle.shouldCapture(now)) {
+                if (micPauseDue(lastPublishedMode, lastPublishedSentinelState, micDutyCycle, now)) {
                     micReader?.pause()
-                    reportCaptureMode(CaptureMode.DUTY_CYCLED)
+                    // mode(now), not a literal: the pause may belong to either duty tier
+                    // (DUTY_CYCLED, or the motion-gated DEEP_DUTY_CYCLED at 2s/30s) — the
+                    // journal telemetry's mic_duty_state reports whichever is in force.
+                    reportCaptureMode(micDutyCycle.mode(now))
                     // Sleep exactly until this cycle's next ON phase rather than re-polling every
                     // second — that wait is the actual power saving. An ACTION_DISARM posted from
                     // the main thread still runs promptly (it's a separate, undelayed message on
@@ -220,7 +223,8 @@ class SentinelService : Service() {
                     // exact pending message and posts an immediate tick, so the actual STOP
                     // (mic release, notification teardown, stopSelf) converges within about one
                     // cycle too, not just the disarm() call itself, rather than waiting out
-                    // whatever's left of this up-to-8s sleep.
+                    // whatever's left of this sleep (up to ~8s on the 10s tier, ~28s on the
+                    // deep 30s tier).
                     handler?.postDelayed(this, micDutyCycle.msUntilNextCapture(now).coerceAtLeast(MIN_DUTY_SLEEP_MS))
                     return
                 }
@@ -247,8 +251,10 @@ class SentinelService : Service() {
                 // POST_NOTIFICATIONS permission) run unguarded on this HandlerThread just like
                 // tick() does, and must degrade the same way rather than killing the process.
                 val snapshot = c.state
-                // Feed the observed window back in: `true` is the snap-back to continuous capture.
-                micDutyCycle.onObservation(snapshot.lastWindowVoiced, now)
+                // Feed the observed window back in: a voiced window is the snap-back to
+                // continuous capture; the stillness verdict (null = no honest motion reading,
+                // which NEVER deepens — fail open) gates the motion-gated DEEP tier.
+                micDutyCycle.onObservation(snapshot.lastWindowVoiced, now, snapshot.lastWindowStill)
                 if (snapshot.sentinel != SentinelState.ARMED) micDutyCycle.reset()
                 publishAndNotify(snapshot)
                 managePulseRepeat(snapshot)
@@ -564,9 +570,10 @@ class SentinelService : Service() {
         // happens before this even gets a chance to run (~2 cycles).
         //
         // Round-1 review fix (Important 2, P5-3): a duty-cycle OFF-phase repost can be scheduled
-        // up to ~8s out (MicDutyCycle's cycleMs - onMs) — without the cancel-and-repost below, an
+        // up to ~8s out (MicDutyCycle's cycleMs - onMs), or ~28s on the deep tier (deepCycleMs -
+        // deepOnMs) — without the cancel-and-repost below, an
         // Off tap landing during that sleep would queue behind it and the actual STOP (mic
-        // release, notification teardown, stopSelf) would defer up to that whole ~8s, even though
+        // release, notification teardown, stopSelf) would defer up to that whole sleep, even though
         // this block's own disarm()/publishAndNotify/cancelPulseRepeat calls (none of which touch
         // the mic) still run immediately. removeCallbacks + an undelayed re-post collapses that
         // back down to the same ~1-2 cycle bound as every other disarm: it cancels whatever's
