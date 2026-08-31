@@ -317,7 +317,7 @@ fun GlanceScreen(
         if (showJournalConsent) {
             item {
                 Text(
-                    text = "While the sentinel is on, Journal uploads a few minutes of your OWN audio at a time. After processing, only the stretches matching your enrolled voice are kept; raw uploads are deleted within 48 hours.",
+                    text = "Turning Journal on also starts listening (arms the sentinel). It uploads a few minutes of your OWN audio at a time. After processing, only the stretches matching your enrolled voice are kept; raw uploads are deleted within 48 hours.",
                     style = MaterialTheme.typography.caption2,
                     textAlign = TextAlign.Center,
                 )
@@ -337,6 +337,12 @@ fun GlanceScreen(
                         )
                         journalOn = true
                         app.gauge.wear.journal.logJournalToggle(context, true)
+                        // Journal without the sentinel armed is a silent no-op (no
+                        // mic, no ring, no uploads, no nudges — the owner hit
+                        // exactly this on 0.4.4): turning Journal ON arms the
+                        // sentinel through the SAME gesture path as the center
+                        // ring, permission gate included.
+                        if (!uiState.isOn) onToggle()
                     },
                 )
             }
