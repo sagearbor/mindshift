@@ -43,13 +43,13 @@ import { EnergyVad, SILERO_SAMPLE_RATE } from "./vad";
 import type { SegmenterConfig, Span } from "./segmenter";
 import { DEFAULT_SEGMENTER_CONFIG, StreamingSegmenter } from "./segmenter";
 import type { TurnProsody } from "./prosody";
-import { LIVE_MAX_PITCH_SECONDS, turnProsodyAsync } from "./prosody";
+import { LIVE_MAX_PITCH_SECONDS, rmsDbfs, turnProsodyAsync } from "./prosody";
 import type { Embedder, EnrolledPerson, MatchBasis, SpeakerLabeler, SpeakerVerdict } from "./speakerId";
 import type { SpeechRecognizer } from "./stt";
 import { TranscriptAligner } from "./stt";
 import type { LiveMode, ProviderChain, TextTone } from "./localLlm";
-import type { HapticSink, NudgeEvent, NudgePolicy } from "./nudgePolicy";
-import { LoudnessBaseline, phoneNudgePolicy, selfTurnVectorEvents } from "./nudgePolicy";
+import type { HapticSink, NudgeEvent, NudgePolicy, VectorEvent } from "./nudgePolicy";
+import { aggressiveToneLevel, LoudnessBaseline, phoneNudgePolicy, yellingLevel } from "./nudgePolicy";
 import type { TurnLocalEvent } from "./types";
 
 export type SuggestionKind = "response" | "nudge";
@@ -666,6 +666,20 @@ export class FastLoop {
       .catch(() => {});
   }
 
+  /** Deliver policy nudges: screen always; haptic on ESCALATION only
+   *  (`vectors` names what raised the level). A cooldown decay (level
+   *  2 -> 1, no vectors) updates the screen but never buzzes — before this
+   *  it buzzed if and only if the decay happened to land on the user's own
+   *  turn (replay-harness finding). */
+  private emitNudges(nudges: NudgeEvent[]) {
+    for (const n of nudges) {
+      this.deps.onNudge?.(n);
+      if (n.level > 0 && n.vectors.length > 0 && this.deps.haptics) {
+        void this.deps.haptics.nudge(n.level).catch(() => {});
+      }
+    }
+  }
+
   private sliceHistory(span: Span): Float32Array {
     const a = Math.round(span.start * SILERO_SAMPLE_RATE);
     const b = Math.round(span.end * SILERO_SAMPLE_RATE);
@@ -729,19 +743,15 @@ export class FastLoop {
       return { verdict, ms: this.now() - t0 };
     })();
     const textPromise = this.waitForText(span);
-    const [{ verdict: rawVerdict, ms: speakerMs }, aligned] = await Promise.all([speakerPromise, textPromise]);
+    // Identity resolves in ~65 ms (one ECAPA pass); the words can take 100x
+    // that (STT grace, then the LLM). The INSTANT nudge tier below rides
+    // identity alone — never the text.
+    const { verdict: rawVerdict, ms: speakerMs } = await speakerPromise;
     // Mid-call naming: a bound cluster carries its person from here on.
     const verdict = this.applyBindings(rawVerdict);
     // This turn may have moved a person between clusters: past turns follow.
     this.reattributeTurns();
     this.poolSpeakerAudio(verdict.speaker, pcm);
-
-    const tp0 = this.now();
-    const prosody = await turnProsodyAsync(pcm, SILERO_SAMPLE_RATE, aligned.text, duration, {
-      maxPitchSeconds: this.maxPitchSeconds,
-      sleep: this.sleep,
-    });
-    const prosodyMs = this.now() - tp0;
 
     // Coaching identity: the voiceprint verdict when there is one, else the
     // "you speak first" convention (Speaker A) — never sent as is_self.
@@ -749,6 +759,31 @@ export class FastLoop {
     const coachedAsSelf =
       verdict.isSelf === true ||
       (verdict.isSelf === null && fallback !== null && verdict.speaker === fallback);
+
+    // INSTANT nudge tier (owner, 2026-09-03: "bare bones nudge now; the
+    // nuanced one may lag"): loudness over the user's own running baseline,
+    // straight off the raw span — no STT, no LLM in the path. It lands
+    // within ~a second of the turn closing, where the full pipeline's
+    // median-to-speak was ~6.8 s on-device. The LLM's text tone rides the
+    // SAME policy when it arrives (the nuanced tier further down), so
+    // hysteresis and cooldown stay one machine.
+    const instantEvents: VectorEvent[] = [];
+    if (coachedAsSelf) {
+      const db = rmsDbfs(pcm);
+      const over = this.baseline.observe(Number.isFinite(db) ? db : null);
+      instantEvents.push({ vector: "yelling", level: yellingLevel(over), t: span.end, value: over });
+    }
+    // Non-self turns still tick the policy clock (cooldown decay).
+    this.emitNudges(this.policy.onEvents(instantEvents, span.end));
+
+    const aligned = await textPromise;
+
+    const tp0 = this.now();
+    const prosody = await turnProsodyAsync(pcm, SILERO_SAMPLE_RATE, aligned.text, duration, {
+      maxPitchSeconds: this.maxPitchSeconds,
+      sleep: this.sleep,
+    });
+    const prosodyMs = this.now() - tp0;
 
     // Local LLM: only when there are words to coach on.
     let suggestion: string | null = null;
@@ -821,19 +856,16 @@ export class FastLoop {
     this.turns.push(turn);
     this.latencyLog.push(latency);
 
-    // Nudge policy over the user's own delivery; other turns tick the clock.
-    const events = coachedAsSelf
-      ? selfTurnVectorEvents(span.end, this.baseline.observe(prosody.rms_dbfs), textTone ?? { frustration: null, defensiveness: null })
-      : [];
-    for (const n of this.policy.onEvents(events, span.end)) {
-      this.deps.onNudge?.(n);
-      // Haptic on ESCALATION only (`vectors` names what raised the level).
-      // A cooldown decay (level 2 -> 1, no vectors) updates the screen but
-      // never buzzes — before this it buzzed if and only if the decay
-      // happened to land on the user's own turn (replay-harness finding).
-      if (n.level > 0 && n.vectors.length > 0 && this.deps.haptics) {
-        void this.deps.haptics.nudge(n.level).catch(() => {});
-      }
+    // Nuanced tier: the LLM's text tone feeds the SAME policy at the same
+    // t as the instant tier — it can escalate or refresh the level, never
+    // decay it early.
+    if (coachedAsSelf && textTone) {
+      this.emitNudges(
+        this.policy.onEvents(
+          [{ vector: "aggressive_tone", level: aggressiveToneLevel(textTone.frustration, textTone.defensiveness), t: span.end }],
+          span.end,
+        ),
+      );
     }
 
     if (suggestion && session.mode !== "therapist") {

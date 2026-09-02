@@ -256,6 +256,47 @@ describe("FastLoop", () => {
     await h.loop.stop();
   });
 
+  it("instant tier: the loudness nudge fires while STT/LLM are still pending (never waits ~7 s)", async () => {
+    const D = 192;
+    const you = { personId: "p-you", displayName: "You", isSelf: true, embedding: unitVector(D, 0) };
+    const embedder: Embedder = { embed: async () => unitVector(D, 0, 0.2, 3) };
+    let releaseLlm: () => void = () => {};
+    let llmCalls = 0;
+    const base = okProvider();
+    const slow = {
+      ...base,
+      suggest: async (req: Parameters<typeof base.suggest>[0]) => {
+        llmCalls++;
+        if (llmCalls >= 3) await new Promise<void>((r) => { releaseLlm = r; });
+        return base.suggest(req);
+      },
+    };
+    const h = harness({ provider: slow, embedder, labeler: new SpeakerLabeler([you]) });
+    await h.loop.start({ sessionId: "s-instant", mode: "earpiece", empathy: 50 });
+    // Two calm turns build the personal loudness baseline (median -30 dBFS).
+    for (const dbfs of [-30, -30]) {
+      push(h.loop, toneInt16(1.0, dbfs));
+      h.rec.emit({ text: "calm words here", isFinal: true });
+      push(h.loop, silenceInt16(0.5));
+      await h.loop.settle();
+    }
+    expect(h.nudges).toHaveLength(0);
+    // The loud turn: +20 dB over baseline. Its text arrives, the LLM HANGS —
+    // the yelling nudge must fire anyway, before the turn finalizes.
+    push(h.loop, toneInt16(1.0, -10));
+    h.rec.emit({ text: "stop yelling at me", isFinal: true });
+    push(h.loop, silenceInt16(0.5));
+    await sleep(80);
+    expect(h.nudges).toHaveLength(1);
+    expect(h.nudges[0]).toMatchObject({ channel: "A", level: 3, vectors: ["yelling"] });
+    expect(h.haptic).toEqual([3]);
+    expect(h.turns).toHaveLength(2); // the full pipeline is still on the LLM
+    releaseLlm();
+    await h.loop.settle();
+    expect(h.turns).toHaveLength(3);
+    await h.loop.stop();
+  });
+
   it("a sub-1.5 s fragment that matches nobody is Unknown (no cluster, is_self null) and is not coached as self", async () => {
     // Replay-harness finding: before the guard, every short fragment minted
     // a fresh "Speaker X" (13 clusters for 2 voices on the couple scene).
