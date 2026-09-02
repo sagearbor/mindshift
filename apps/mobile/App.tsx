@@ -34,6 +34,7 @@ import { PRIMARY_ELIGIBLE_DESTINATIONS, type DestScreen } from "./src/nav/destin
 import { useAuthStore, initAuth } from "./src/store/authStore";
 import { useLayoutStore } from "./src/store/layoutStore";
 import { useAvatarStore } from "./src/store/avatarStore";
+import { useDevModeStore } from "./src/store/devModeStore";
 import { useSessionStore } from "./src/store/sessionStore";
 import { useRecorderStore } from "./src/store/recorderStore";
 import { getOnboardingSeen, setOnboardingSeen } from "./src/utils/onboardingStorage";
@@ -360,6 +361,13 @@ export default function App({ initialUrl }: AppProps = {}) {
   }, []);
 
   const user = useAuthStore((s) => s.user);
+
+  // Developer mode is remembered per account (store/devModeStore.ts) — load
+  // it whenever the signed-in uid changes, before Settings or Live Coach can
+  // show the wrong surface for long. Fail-open to OFF (the clean UI).
+  useEffect(() => {
+    void useDevModeStore.getState().hydrate(user?.uid ?? null);
+  }, [user?.uid]);
   const initializing = useAuthStore((s) => s.initializing);
   const signOut = useAuthStore((s) => s.signOut);
   const avatarUri = useAvatarStore((s) => s.uri);

@@ -5,6 +5,7 @@ import { formatDuration, formatLatency } from "../live/sessionSummary";
 import type { LastEpisode } from "../hooks/useAudioStream";
 import type { TherapistLink } from "../api/therapist";
 import { postShare } from "../api/client";
+import { useDevModeStore } from "../store/devModeStore";
 
 interface Props {
   summary: SessionSummary;
@@ -53,6 +54,9 @@ export default function SessionSummaryCard({ summary, episode, therapist, share 
     }
   }, [episodeId, email, sharing, share]);
 
+  // Developer mode off: no latency stat, no provider tag — a tester reads
+  // duration/turns/escalations and the share button, nothing else.
+  const devMode = useDevModeStore((s) => s.devMode);
   return (
     <View style={styles.card} testID="session-summary">
       <Text style={styles.title}>Session summary</Text>
@@ -65,21 +69,23 @@ export default function SessionSummaryCard({ summary, episode, therapist, share 
           value={String(summary.escalations)}
           warn={summary.escalations > 0}
         />
-        <Stat
-          testID="summary-latency"
-          label="First words"
-          value={formatLatency(summary.firstWordsMedianMs)}
-          sub={
-            summary.firstWordsMedianMs === null
-              ? "nothing spoken"
-              : `best ${formatLatency(summary.firstWordsBestMs)} · ${summary.spokenTurns} spoken`
-          }
-        />
+        {devMode ? (
+          <Stat
+            testID="summary-latency"
+            label="First words"
+            value={formatLatency(summary.firstWordsMedianMs)}
+            sub={
+              summary.firstWordsMedianMs === null
+                ? "nothing spoken"
+                : `best ${formatLatency(summary.firstWordsBestMs)} · ${summary.spokenTurns} spoken`
+            }
+          />
+        ) : null}
       </View>
       {summary.turnsBySpeaker.length > 0 ? (
         <Text style={styles.people} testID="summary-people">
           {summary.turnsBySpeaker.map((s) => `${s.speaker}: ${s.turns}`).join(" · ")}
-          {summary.topProvider ? ` · via ${summary.topProvider}` : ""}
+          {devMode && summary.topProvider ? ` · via ${summary.topProvider}` : ""}
         </Text>
       ) : null}
 

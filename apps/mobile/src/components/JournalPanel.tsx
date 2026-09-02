@@ -1,6 +1,7 @@
 import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { JOURNAL_QUIET_NOTE_SECONDS, type JournalState } from "../live/journalRecorder";
+import { useDevModeStore } from "../store/devModeStore";
 
 /** Whether the account has an owner voiceprint the journal can match
  *  against: "ok" | "missing" (say "enroll your voice first") | "checking"
@@ -58,6 +59,9 @@ function timeOfDay(ms: number): string {
  * has none until the server analyzes the uploaded files.
  */
 export default function JournalPanel({ state, sessionActive, gate, onRetryUploads, now = Date.now }: Props) {
+  // Developer mode off: no file-size or VAD-internals lines — the journal
+  // reads as elapsed / times heard / uploads, in plain words.
+  const devMode = useDevModeStore((s) => s.devMode);
   const running = sessionActive || state.status === "starting" || state.status === "listening" || state.status === "stopping";
   const quietSeconds =
     state.status === "listening" && state.startedAt !== null
@@ -125,15 +129,17 @@ export default function JournalPanel({ state, sessionActive, gate, onRetryUpload
               Haven&apos;t heard you for {Math.floor(quietSeconds / 60)} min — that&apos;s normal, still listening.
             </Text>
           ) : null}
-          <Text style={styles.statLine} testID="journal-size">
-            {state.status === "stopped"
-              ? `${state.filesClosed} journal file${state.filesClosed === 1 ? "" : "s"}`
-              : `Journal file ${formatBytes(state.fileBytes)}${state.filesClosed > 0 ? ` · ${state.filesClosed} closed` : ""}`}
-          </Text>
+          {devMode ? (
+            <Text style={styles.statLine} testID="journal-size">
+              {state.status === "stopped"
+                ? `${state.filesClosed} journal file${state.filesClosed === 1 ? "" : "s"}`
+                : `Journal file ${formatBytes(state.fileBytes)}${state.filesClosed > 0 ? ` · ${state.filesClosed} closed` : ""}`}
+            </Text>
+          ) : null}
           <Text style={styles.hint} testID="journal-uploads">
             {uploadLine}
           </Text>
-          {state.vadDegraded ? (
+          {devMode && state.vadDegraded ? (
             <Text style={styles.hint} testID="journal-vad-degraded">
               Voice detection fell back to the energy rule (Silero failed).
             </Text>

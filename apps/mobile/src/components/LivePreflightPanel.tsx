@@ -3,6 +3,7 @@ import { View, Text, ActivityIndicator, StyleSheet } from "react-native";
 import type { PreflightState } from "../hooks/useAudioStream";
 import type { VoicePerson } from "../api/liveSessions";
 import { iceProbeOk, type IceProbeResult } from "../live/call/iceProbe";
+import { useDevModeStore } from "../store/devModeStore";
 
 interface Props {
   /** Can this device run the on-device loop at all (on-device STT)? */
@@ -75,9 +76,19 @@ export default function LivePreflightPanel({
   const caps = preflight?.status === "ready" ? preflight.capabilities : null;
   const probing = preflight?.status === "probing";
   const onDevice = liveCapable && liveMode;
+  // Developer mode off = just "who's here" + a plain readiness line; the
+  // capability rows (models, providers, VAD) are the owner's instrument.
+  const devMode = useDevModeStore((s) => s.devMode);
   return (
     <View style={styles.card} testID="live-preflight">
       <Text style={styles.title}>Before you start</Text>
+      {!devMode ? (
+        <Text style={styles.rowDetail} testID="preflight-plain">
+          {probing ? "Getting ready…" : "Ready when you are — tap Start and speak first."}
+        </Text>
+      ) : null}
+      {devMode ? (
+      <>
       <Row
         testID="preflight-stt"
         ok={liveCapable}
@@ -116,6 +127,8 @@ export default function LivePreflightPanel({
                 : "not checked yet"
         }
       />
+      </>
+      ) : null}
       {/* Call mode only: can these two phones actually reach each other?
           One honest line from a real ICE gathering run against the server's
           own ice_servers — "relay needed — no TURN configured" is the
@@ -134,7 +147,7 @@ export default function LivePreflightPanel({
           }
         />
       ) : null}
-      {onDevice && caps ? (
+      {devMode && onDevice && caps ? (
         <Row
           testID="preflight-vad"
           ok={caps.vad === "silero"}

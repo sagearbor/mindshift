@@ -2,6 +2,7 @@ import React from "react";
 import renderer, { act } from "react-test-renderer";
 import SessionSummaryCard from "../src/components/SessionSummaryCard";
 import type { SessionSummary } from "../src/live/sessionSummary";
+import { useDevModeStore } from "../src/store/devModeStore";
 
 jest.mock("../src/api/client", () => ({
   postShare: jest.fn(),
@@ -33,6 +34,10 @@ function text(root: renderer.ReactTestRenderer) {
 }
 
 describe("SessionSummaryCard", () => {
+  // Latency stat + provider tag are developer-mode details.
+  beforeEach(() => useDevModeStore.setState({ devMode: true }));
+  afterEach(() => useDevModeStore.setState({ devMode: false }));
+
   it("shows duration, turns, escalations, first-words latency and per-person turns", () => {
     let root: renderer.ReactTestRenderer;
     act(() => {
@@ -126,5 +131,18 @@ describe("SessionSummaryCard", () => {
     });
     expect(root!.root.findByProps({ testID: "summary-post-failed" })).toBeTruthy();
     expect(root!.root.findAllByProps({ testID: "summary-share-therapist" })).toHaveLength(0);
+  });
+
+  it("developer mode off: duration/turns/people survive, latency stat and provider tag don't", () => {
+    useDevModeStore.setState({ devMode: false });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<SessionSummaryCard summary={summary} episode={null} therapist={null} />);
+    });
+    const t = text(root!);
+    expect(t).toContain("2m 14s");
+    expect(t).toContain("You: 3 · Mom: 2");
+    expect(t).not.toContain("640 ms");
+    expect(t).not.toContain("via os");
   });
 });

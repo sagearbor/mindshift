@@ -77,12 +77,40 @@ function responseEntry(
 
 const flush = () => act(async () => { await Promise.resolve(); });
 
+import { useDevModeStore } from "../src/store/devModeStore";
+
 beforeEach(() => {
+  // Most of this suite asserts the full diagnostic surface (and its
+  // snapshots predate developer mode) — run it as the owner does, dev ON.
+  useDevModeStore.setState({ devMode: true });
   mockUseAudioStream.mockReturnValue({ ...defaultHookState });
   mockListVoicePeople.mockReset().mockResolvedValue({ people: [], error: null });
   mockGetTherapistLink.mockReset().mockResolvedValue({ linked: false });
   mockLoadLiveMode.mockReset().mockResolvedValue("earpiece");
   mockSaveLiveMode.mockReset().mockResolvedValue(undefined);
+});
+
+describe("LiveCoachScreen — developer mode off (clean tester surface)", () => {
+  it("plain status word; capability, latency and mode-row chrome hidden", async () => {
+    useDevModeStore.setState({ devMode: false });
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      liveStatus: "On-device: Silero VAD · speaker-ID off (no model)",
+      latencySummary: "p50 1200ms to speak",
+    });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    await flush();
+    const json = JSON.stringify(root!.toJSON());
+    expect(json).toContain("ready"); // friendly word, not the raw "idle"
+    expect(json).not.toContain("speaker-ID");
+    expect(json).not.toContain("p50 1200ms");
+    expect(root!.root.findAllByProps({ testID: "live-mode-row" })).toHaveLength(0);
+    expect(root!.root.findAllByProps({ testID: "live-status" })).toHaveLength(0);
+    expect(root!.root.findByProps({ testID: "preflight-plain" })).toBeTruthy();
+  });
 });
 
 describe("LiveCoachScreen", () => {

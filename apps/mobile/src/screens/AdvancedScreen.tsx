@@ -29,6 +29,7 @@ import TherapistLinkCard from "../components/TherapistLinkCard";
 import Avatar from "../components/Avatar";
 import { useAuthStore } from "../store/authStore";
 import { useAvatarStore } from "../store/avatarStore";
+import { useDevModeStore } from "../store/devModeStore";
 import { useOtaStatus, type OtaStatus } from "../utils/otaUpdate";
 import { useDiagnosticsStore } from "../diagnostics/diagnostics";
 import {
@@ -201,6 +202,15 @@ export default function AdvancedScreen({
   // "Separate voices on this phone" row on a recording's replay. Per
   // account, off by default; the switch reflects the stored choice.
   const experimentalUid = user?.uid ?? null;
+  // Developer mode (store/devModeStore.ts): reveals every diagnostic detail
+  // — the Experimental section, backend/update-id About rows, latency and
+  // capability lines across the app. Per account, off by default.
+  const devMode = useDevModeStore((s) => s.devMode);
+  const setDevMode = useDevModeStore((s) => s.setDevMode);
+  const handleDevMode = useCallback(
+    (on: boolean) => setDevMode(experimentalUid, on),
+    [setDevMode, experimentalUid],
+  );
   const [experimentalVoiceEngine, setExperimentalVoiceEngine] = useState(DEFAULT_EXPERIMENTAL_VOICE_ENGINE);
   useEffect(() => {
     let cancelled = false;
@@ -624,7 +634,7 @@ export default function AdvancedScreen({
           label="Update"
           value={otaSummary(ota)}
         />
-        {ota.updateId ? (
+        {devMode && ota.updateId ? (
           <AboutRow
             testID="about-update-id"
             label="Update ID"
@@ -635,15 +645,20 @@ export default function AdvancedScreen({
           testID="about-account"
           label="Signed in as"
           value={accountEmail}
+          last={!devMode}
         />
-        <AboutRow
-          testID="about-backend"
-          label="Backend"
-          value={backendHost()}
-          last
-        />
+        {devMode ? (
+          <AboutRow
+            testID="about-backend"
+            label="Backend"
+            value={backendHost()}
+            last
+          />
+        ) : null}
       </View>
 
+      {devMode ? (
+      <>
       <Text style={styles.sectionHeading} testID="section-experimental">
         Experimental
       </Text>
@@ -664,10 +679,32 @@ export default function AdvancedScreen({
           />
         </View>
       </View>
+      </>
+      ) : null}
 
       <Text style={styles.sectionHeading} testID="section-diagnostics">
         Diagnostics
       </Text>
+      {/* Developer mode: the clean-vs-full switch itself lives here so a
+          tester can be walked to it in one breath ("Settings → Diagnostics →
+          Developer mode"). Everything it reveals existed before it did. */}
+      <View style={styles.row} testID="developer-mode-row">
+        <View style={styles.switchRow}>
+          <View style={styles.switchText}>
+            <Text style={styles.rowTitle}>Developer mode</Text>
+            <Text style={styles.rowSub}>
+              {devMode
+                ? "On — showing diagnostic codes, latency and engine details everywhere."
+                : "Off — hides diagnostic codes, latency and engine details. Turn on to see everything."}
+            </Text>
+          </View>
+          <Switch
+            testID="developer-mode-switch"
+            value={devMode}
+            onValueChange={handleDevMode}
+          />
+        </View>
+      </View>
       <TouchableOpacity
         testID="advanced-send-diagnostics"
         accessibilityRole="button"
@@ -678,13 +715,15 @@ export default function AdvancedScreen({
       >
         <Text style={styles.rowTitle}>{diagSending ? "Sending diagnostics…" : "Send diagnostics"}</Text>
         <Text style={styles.rowSub}>
-          {diagLastSession
-            ? `Last session: ${diagLastSession.mode} · ${diagLastSession.turns} turns · ` +
-              `${diagLastSession.errors.length === 0 ? "no errors" : `${diagLastSession.errors.length} problem(s)`}` +
-              (diagLastSession.latency.medianToSpeakMs !== null
-                ? ` · median ${diagLastSession.latency.medianToSpeakMs} ms to speak`
-                : "")
-            : "No live session yet this launch — sends the capability check and app/device facts."}
+          {!devMode
+            ? "Something not working? Send a technical report — nothing you said is included."
+            : diagLastSession
+              ? `Last session: ${diagLastSession.mode} · ${diagLastSession.turns} turns · ` +
+                `${diagLastSession.errors.length === 0 ? "no errors" : `${diagLastSession.errors.length} problem(s)`}` +
+                (diagLastSession.latency.medianToSpeakMs !== null
+                  ? ` · median ${diagLastSession.latency.medianToSpeakMs} ms to speak`
+                  : "")
+              : "No live session yet this launch — sends the capability check and app/device facts."}
         </Text>
         {diagLastSent ? (
           <Text

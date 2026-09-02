@@ -146,7 +146,11 @@ async function render(handlers = makeHandlers()) {
   return comp;
 }
 
+import { useDevModeStore } from "../src/store/devModeStore";
+
 beforeEach(() => {
+  // The About/Experimental assertions below are the developer surface.
+  useDevModeStore.setState({ devMode: true });
   mockOta = baseOta();
   mockVtProps = null;
   mockProfile.mockReset();
@@ -687,6 +691,22 @@ describe("AdvancedScreen — voice profile card", () => {
     );
     alertSpy.mockRestore();
     act(() => comp.unmount());
+  });
+});
+
+describe("Developer mode switch", () => {
+  it("off: hides Backend/Experimental; flipping it on brings them back and persists", async () => {
+    useDevModeStore.setState({ devMode: false });
+    const comp = await render();
+    expect(comp.root.findAllByProps({ testID: "about-backend" })).toHaveLength(0);
+    expect(comp.root.findAllByProps({ testID: "section-experimental" })).toHaveLength(0);
+    const sw = comp.root.findByProps({ testID: "developer-mode-switch" });
+    await act(async () => {
+      sw.props.onValueChange(true);
+    });
+    expect(useDevModeStore.getState().devMode).toBe(true);
+    expect(comp.root.findAllByProps({ testID: "about-backend" }).length).toBeGreaterThan(0);
+    expect(comp.root.findAllByProps({ testID: "section-experimental" }).length).toBeGreaterThan(0);
   });
 });
 

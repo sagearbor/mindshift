@@ -26,6 +26,7 @@ import { callApi } from "../live/call/callApi";
 import { probeIce, iceProbeUnavailable, type IceProbeResult } from "../live/call/iceProbe";
 import { useAudioStream, type TranscriptEntry } from "../hooks/useAudioStream";
 import { useAuthStore } from "../store/authStore";
+import { useDevModeStore } from "../store/devModeStore";
 import { loadLiveMode, saveLiveMode } from "../live/modePrefs";
 import { loadScoreboardVisible, saveScoreboardVisible } from "../live/scoreboardPrefs";
 import { DEFAULT_KEEP_AUDIO, loadKeepAudio, saveKeepAudio } from "../live/keepAudioPrefs";
@@ -41,6 +42,15 @@ const STATUS_COLORS: Record<string, string> = {
   connecting: "#F59E0B",
   live: "#10B981",
   disconnected: "#EF4444",
+};
+
+/** Plain words for the header status when developer mode is off — the raw
+ *  socket state ("disconnected") reads as jargon to an invited tester. */
+const FRIENDLY_STATUS: Record<string, string> = {
+  idle: "ready",
+  connecting: "connecting…",
+  live: "listening",
+  disconnected: "offline",
 };
 
 interface LiveCoachScreenProps {
@@ -426,6 +436,9 @@ export default function LiveCoachScreen({
   );
 
   const statusColor = STATUS_COLORS[connectionStatus] || STATUS_COLORS.idle;
+  // Developer mode (Settings → Diagnostics): raw states, capability and
+  // latency lines. Off = the clean tester surface; nothing is lost, hidden.
+  const devMode = useDevModeStore((s) => s.devMode);
   const mode: LiveMode = sessionMode ?? "earpiece";
   const isCall = mode === "call";
   // Journal mode ("listen for my voice"): no coaching, no transcript, no
@@ -572,7 +585,7 @@ export default function LiveCoachScreen({
             style={[styles.statusText, { color: statusColor }]}
             numberOfLines={1}
           >
-            {connectionStatus}
+            {devMode ? connectionStatus : (FRIENDLY_STATUS[connectionStatus] ?? connectionStatus)}
           </Text>
         </View>
       </View>
@@ -651,7 +664,7 @@ export default function LiveCoachScreen({
         />
       ) : null}
 
-      {liveCapable && !isJournal ? (
+      {devMode && liveCapable && !isJournal ? (
         <View style={styles.modeRow} testID="live-mode-row">
           <Text style={styles.modeLabel}>On-device coaching</Text>
           <Switch
@@ -667,7 +680,7 @@ export default function LiveCoachScreen({
       ) : null}
 
       {/* What the loop actually loaded (or why it isn't running). */}
-      {liveStatus && !isJournal ? (
+      {devMode && liveStatus && !isJournal ? (
         <Text style={styles.speechUnavailableText} testID="live-status">
           {liveStatus}
         </Text>
@@ -780,11 +793,13 @@ export default function LiveCoachScreen({
       {nudgeFlash ? (
         <View style={styles.nudgeFlash} testID="nudge-flash">
           <Text style={styles.nudgeFlashText}>
-            {`Easy — level ${nudgeFlash.level}${
-              nudgeFlash.vectors.length > 0
-                ? ` (${nudgeFlash.vectors.join(", ").replace(/_/g, " ")})`
-                : ""
-            }`}
+            {devMode
+              ? `Easy — level ${nudgeFlash.level}${
+                  nudgeFlash.vectors.length > 0
+                    ? ` (${nudgeFlash.vectors.join(", ").replace(/_/g, " ")})`
+                    : ""
+                }`
+              : "Easy — take a breath"}
           </Text>
         </View>
       ) : null}
@@ -792,7 +807,9 @@ export default function LiveCoachScreen({
       {/* Server tone flag (additive to on-device coaching). */}
       {toneFlags && toneFlags.length > 0 ? (
         <Text style={styles.toneFlagText} testID="tone-flag">
-          {`⚠ ${toneFlags[0].speaker}: ${toneFlags[0].label} (${toneFlags[0].source} tone)`}
+          {devMode
+            ? `⚠ ${toneFlags[0].speaker}: ${toneFlags[0].label} (${toneFlags[0].source} tone)`
+            : `⚠ ${toneFlags[0].speaker}: ${toneFlags[0].label}`}
         </Text>
       ) : null}
 
@@ -909,7 +926,7 @@ export default function LiveCoachScreen({
             // banner style) on top of this.
             const ageStyle =
               i === 0 ? styles.feedEntryNewest : styles.feedEntryOlder;
-            const sourceTag = entry.source ? (
+            const sourceTag = devMode && entry.source ? (
               <Text
                 style={[
                   styles.sourceTag,
@@ -976,7 +993,7 @@ export default function LiveCoachScreen({
 
       {/* Latency report from the on-device loop (printed in full to the
           console at session end; the headline lands here). */}
-      {!sessionActive && latencySummary ? (
+      {devMode && !sessionActive && latencySummary ? (
         <Text style={styles.speechUnavailableText} testID="latency-summary">
           {latencySummary}
         </Text>

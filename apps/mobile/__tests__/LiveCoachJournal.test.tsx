@@ -104,7 +104,10 @@ function textOf(root: renderer.ReactTestRenderer, testID: string): string {
   return out.join("");
 }
 
+import { useDevModeStore } from "../src/store/devModeStore";
+
 beforeEach(() => {
+  useDevModeStore.setState({ devMode: false });
   mockUseAudioStream.mockReturnValue({ ...baseHook });
   mockListVoicePeople.mockReset().mockResolvedValue({ people: [SELF_PERSON, OTHER_PERSON], error: null });
   mockLoadLiveMode.mockReset().mockResolvedValue("journal");
@@ -174,6 +177,8 @@ describe("LiveCoachScreen — Journal mode", () => {
   });
 
   it("while listening: elapsed, how often you spoke, last heard, file size, uploads, Stop Journal", async () => {
+    // File size is a developer-mode line now; this test reads the full surface.
+    useDevModeStore.setState({ devMode: true });
     const now = Date.now();
     mockUseAudioStream.mockReturnValue({
       ...baseHook,
