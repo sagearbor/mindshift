@@ -40,7 +40,18 @@ async function signIn() {
 beforeEach(() => {
   authMock.currentUser = null;
   (SecureStore.getItemAsync as jest.Mock).mockResolvedValue("true");
-  (global.fetch as jest.Mock).mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+  // The people endpoint must answer with a REAL empty roster: since the
+  // 2026-08-31 hardening a 200 without a people array reads as "server not
+  // ready" (gate "unknown", no banner) — this test is about the honest
+  // "missing" gate, which needs people: [] with no self.
+  (global.fetch as jest.Mock).mockImplementation(async (url: unknown) => ({
+    ok: true,
+    status: 200,
+    json: async () =>
+      String(url).includes("/voice/people")
+        ? { available: true, storage_enabled: true, people: [] }
+        : {},
+  }));
   useAuthStore.setState({ user: null, initializing: true, error: null, busy: false });
   act(() => {
     useLayoutStore.getState().resetToDefaults();
@@ -60,8 +71,11 @@ describe("App — journal deep link", () => {
     });
     expect(queryId(comp, "login-screen")).toBeTruthy();
     await signIn();
-    // Extra settles for the screen's own mode-load + people-gate promises.
+    // Extra settles for the screen's own mode-load + people-gate promises
+    // (and App's developer-mode hydrate, one more async effect in the chain).
     await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
     });

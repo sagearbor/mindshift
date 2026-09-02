@@ -174,6 +174,7 @@ describe("SpeakerLabeler", () => {
       displayName: "You",
       isSelf: true,
       score: 0.42,
+      selfScore: expect.closeTo(0.42, 5),
       basis: "contrast",
     });
     expect(lab.identityRevision).toBe(rev0 + 1); // nothing moved
@@ -216,6 +217,7 @@ describe("SpeakerLabeler", () => {
       displayName: "You",
       isSelf: true,
       score: expect.closeTo(0.7, 5),
+      selfScore: expect.closeTo(0.7, 5),
       basis: "absolute",
     });
     expect(lab.clusterAssignments().size).toBe(0);
@@ -269,7 +271,8 @@ describe("SpeakerLabeler", () => {
   it("a segment under MIN_CLUSTER_SECONDS may match but never founds a cluster (Unknown, isSelf null)", () => {
     const lab = new SpeakerLabeler([you, mom]);
     const short = lab.label(unitVector(D, 7), 1.0);
-    expect(short).toEqual({ speaker: "Unknown", personId: null, displayName: null, isSelf: null, score: null, basis: null });
+    expect(short).toEqual({ speaker: "Unknown", personId: null, displayName: null, isSelf: null, score: null,
+      selfScore: 0, basis: null });
     // Nothing was minted: the next long stranger is the FIRST cluster.
     const long = lab.label(unitVector(D, 7), 2.0);
     expect(long.speaker).toBe("Speaker A");
