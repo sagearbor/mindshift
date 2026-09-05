@@ -165,3 +165,19 @@ in this plan requires a native build.
   PATCH endpoint.
 - Known unrelated red: `tests/test_audio_upload_live.py` (live Deepgram
   integration; nova-2 control also collapses speakers) — external.
+
+## Post-A–E extras (2026-09-05 evening, from the gap list) — `– | 🔕 | ⏳ | ☁️`
+
+- **ASR hallucination filter** (2d46a6f, `audio_ingest.drop_low_confidence_words`):
+  Deepgram words < 0.6 confidence dropped before any turn logic; utterances
+  with no surviving words removed. `MINDSHIFT_ASR_CONFIDENCE_MIN` (0 = off).
+- **NaturalTurn post-pass in analysis** (2d46a6f, `main._natural_turns_pass`):
+  after diarization, before prosody; merges same-speaker turns < 1.5 s apart
+  only when nothing but backchannels sits between; tags `kind="backchannel"`
+  (additive on AnalyzeTurn/TranscribedTurn); never merges below
+  ANALYZE_MIN_TURNS. `MINDSHIFT_NATURAL_TURNS=0` disables. Test suite runs it
+  OFF by default (count-locked fake LLMs), ON in its own module. Measured:
+  maggiano transcripts unchanged (no rapid fragments), family_real 8 → 6.
+- Still open from the gap list: question detection; interim-text coaching
+  guard on the phone (product tradeoff — owner call); smaller on-device model
+  for the one-line nudge; validate the two dark probes on owner sessions.
