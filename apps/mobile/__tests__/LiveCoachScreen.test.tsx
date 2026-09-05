@@ -415,6 +415,19 @@ describe("LiveCoachScreen", () => {
     expect(root!.root.findAllByProps({ testID: "live-preflight" })).toHaveLength(0);
   });
 
+  it("the BEFORE mood check shows while idle and disappears once a session starts", async () => {
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<LiveCoachScreen />);
+    });
+    await flush();
+    expect(root!.root.findByProps({ testID: "mood-check-before" })).toBeTruthy();
+
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, sessionActive: true });
+    act(() => root!.update(<LiveCoachScreen />));
+    expect(root!.root.findAllByProps({ testID: "mood-check-before" })).toHaveLength(0);
+  });
+
   it("pre-flight tells the truth: no on-device STT here, so the server labels voices", async () => {
     let root: renderer.ReactTestRenderer;
     act(() => {
@@ -652,5 +665,7 @@ describe("LiveCoachScreen", () => {
     expect(text).toContain("640 ms");
     expect(text).toContain("You: 3 · Mom: 2 · via os");
     expect(root!.root.findByProps({ testID: "summary-share-therapist" })).toBeTruthy();
+    // The AFTER mood check shows alongside the summary.
+    expect(root!.root.findByProps({ testID: "mood-check-after" })).toBeTruthy();
   });
 });

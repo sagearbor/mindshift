@@ -15,6 +15,7 @@ import LiveTranscript from "../components/LiveTranscript";
 import TherapistTranscript from "../components/TherapistTranscript";
 import LiveModePicker, { LIVE_MODE_OPTIONS } from "../components/LiveModePicker";
 import LivePreflightPanel from "../components/LivePreflightPanel";
+import MoodCheck from "../components/MoodCheck";
 import SessionSummaryCard from "../components/SessionSummaryCard";
 import ScoreboardPanel from "../components/ScoreboardPanel";
 import WhoIsThisSheet, { type LiveLabelChoice } from "../components/WhoIsThisSheet";
@@ -27,12 +28,13 @@ import { probeIce, iceProbeUnavailable, type IceProbeResult } from "../live/call
 import { useAudioStream, type TranscriptEntry } from "../hooks/useAudioStream";
 import { useAuthStore } from "../store/authStore";
 import { useDevModeStore } from "../store/devModeStore";
+import { useMoodStore } from "../store/moodStore";
 import { loadLiveMode, saveLiveMode } from "../live/modePrefs";
 import { loadScoreboardVisible, saveScoreboardVisible } from "../live/scoreboardPrefs";
 import { DEFAULT_KEEP_AUDIO, loadKeepAudio, saveKeepAudio } from "../live/keepAudioPrefs";
 import type { LiveMode } from "../live/localLlm";
 import type { CallRole } from "../live/call/types";
-import { listVoicePeople, type VoicePerson } from "../api/liveSessions";
+import { listVoicePeople, patchSessionMood, type VoicePerson } from "../api/liveSessions";
 import { getTherapistLink, type TherapistLink } from "../api/therapist";
 import * as apiClient from "../api/client";
 import type { VoicePerson as ApiVoicePerson } from "../api/client";
@@ -361,10 +363,19 @@ export default function LiveCoachScreen({
     if (sessionActive) {
       await stopSession();
     } else {
+      // A fresh session must never carry a PREVIOUS session's mood-check
+      // answers. `sessionSummary` non-null means a session already ended —
+      // this Start is for session N+1, so whatever the store holds is
+      // stale (the idle BEFORE check, gated on an empty transcript, only
+      // ever shows once per app open — it does not reappear between back-
+      // to-back sessions). When it's null, this is the very first Start and
+      // the store holds exactly the BEFORE answer just given for THIS
+      // session — resetting here would erase it before stop can read it.
+      if (sessionSummary) useMoodStore.getState().reset();
       const sessionId = `live-${Date.now()}`;
       await startSession(sessionId, empathyLevel, interjectLevel);
     }
-  }, [sessionActive, stopSession, startSession, empathyLevel, interjectLevel]);
+  }, [sessionActive, stopSession, startSession, empathyLevel, interjectLevel, sessionSummary]);
 
   // Flip the coached user's identity between the two diarized speakers. The
   // server labels the first voice it hears "Speaker A", so that's the default.
@@ -415,6 +426,32 @@ export default function LiveCoachScreen({
       })),
     );
   }, [onReviewTranscript, transcript]);
+
+  // Outcome engine (Workstream 4): CANDOR's single mood item, one tap
+  // before and one after. BEFORE rides to the server on the stop POST
+  // (useAudioStream reads the store directly at stop); AFTER PATCHes the
+  // stored episode the moment it's answered, since the POST above already
+  // happened before this check is even shown.
+  const beforeMood = useMoodStore((s) => s.before);
+  const afterMood = useMoodStore((s) => s.after);
+  const setBeforeMood = useMoodStore((s) => s.setBefore);
+  const setAfterMood = useMoodStore((s) => s.setAfter);
+  const handleBeforeMoodChange = useCallback(
+    (value: number | null) => {
+      // No episode exists yet to key persistence by — the pair is
+      // persisted once the AFTER half lands (see handleAfterMoodChange).
+      setBeforeMood(null, value);
+    },
+    [setBeforeMood],
+  );
+  const handleAfterMoodChange = useCallback(
+    (value: number | null) => {
+      const episodeId = lastEpisode?.episodeId ?? null;
+      setAfterMood(episodeId, value);
+      if (value !== null && episodeId) void patchSessionMood(episodeId, value);
+    },
+    [setAfterMood, lastEpisode],
+  );
 
   const handleEmpathyChange = useCallback(
     (value: number) => {
@@ -799,7 +836,9 @@ export default function LiveCoachScreen({
                     ? ` (${nudgeFlash.vectors.join(", ").replace(/_/g, " ")})`
                     : ""
                 }`
-              : "Easy — take a breath"}
+              : nudgeFlash.vectors.includes("interrupting")
+                ? "Let them finish"
+                : "Easy — take a breath"}
           </Text>
         </View>
       ) : null}
@@ -884,6 +923,11 @@ export default function LiveCoachScreen({
               </Text>
             ) : null}
           </View>
+          {/* One-tap BEFORE mood check (CANDOR's single outcome item) —
+              right above the Start button, the app's therapy-evidence
+              primitive. Gone the moment a session starts (idle flips false)
+              or in Journal mode (excluded above). */}
+          <MoodCheck phase="before" value={beforeMood} onChange={handleBeforeMoodChange} />
         </>
       ) : null}
 
@@ -981,14 +1025,19 @@ export default function LiveCoachScreen({
         </ScrollView>
       )}
 
-      {/* Session end: the summary card (duration, turns, escalations,
+      {/* Session end: the one-tap AFTER mood check (CANDOR's single
+          outcome item — PATCHes the stored episode the moment it's
+          answered) above the summary card (duration, turns, escalations,
           first-words latency) with "Share with my therapist" when linked. */}
       {!sessionActive && !isJournal && sessionSummary ? (
-        <SessionSummaryCard
-          summary={sessionSummary}
-          episode={lastEpisode ?? null}
-          therapist={therapist}
-        />
+        <>
+          <MoodCheck phase="after" value={afterMood} onChange={handleAfterMoodChange} />
+          <SessionSummaryCard
+            summary={sessionSummary}
+            episode={lastEpisode ?? null}
+            therapist={therapist}
+          />
+        </>
       ) : null}
 
       {/* Latency report from the on-device loop (printed in full to the

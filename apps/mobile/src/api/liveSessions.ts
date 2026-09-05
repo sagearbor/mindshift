@@ -62,6 +62,13 @@ export interface LiveSessionBody {
   /** Raw wire label → the name/person the user gave it mid-call. Omitted
    *  when nobody was named (older servers ignore the key). */
   speaker_labels?: Record<string, LiveSpeakerLabel>;
+  /** Outcome engine (Workstream 4): CANDOR's single mood item ("positive vs
+   *  negative feelings right now", 1–9), answered BEFORE the session — it
+   *  rides in here because stopFastLoop already has it at stop. Omitted
+   *  when skipped/unanswered (older servers ignore the key). The AFTER
+   *  answer is NOT here — see `patchSessionMood` (it lands after this POST
+   *  has already produced an episode). */
+  mood_before?: number;
 }
 
 export type PostLiveSessionResult =
@@ -90,6 +97,38 @@ export async function postLiveSession(body: LiveSessionBody): Promise<PostLiveSe
       ? data.shared_with.filter((x): x is string => typeof x === "string")
       : [];
     return { status: "created", episodeId: data.episode_id ?? "", sharedWith };
+  } catch (err) {
+    return { status: "failed", error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export type PatchSessionMoodResult =
+  | { status: "ok" }
+  | { status: "unsupported" } // 404: episode/endpoint predates mood, or not owned
+  | { status: "failed"; error: string };
+
+/**
+ * `PATCH /sessions/live/{episodeId}/mood` — the AFTER half of the outcome-
+ * engine mood check (CANDOR's single item, 1–9). The BEFORE half already
+ * rode in on `postLiveSession`'s body; this lands a beat later, once the
+ * user answers the AFTER check, so it needs the episode id `postLiveSession`
+ * returned. A 404 (older server, or the episode isn't this account's) reads
+ * as "unsupported" rather than a failure — the check-in itself already
+ * happened on screen. Never throws.
+ */
+export async function patchSessionMood(
+  episodeId: string,
+  moodAfter: number,
+): Promise<PatchSessionMoodResult> {
+  try {
+    const res = await fetch(`${API_URL}/sessions/live/${encodeURIComponent(episodeId)}/mood`, {
+      method: "PATCH",
+      headers: await authHeaders(),
+      body: JSON.stringify({ mood_after: moodAfter }),
+    });
+    if (res.status === 404) return { status: "unsupported" };
+    if (!res.ok) return { status: "failed", error: `API error: ${res.status}` };
+    return { status: "ok" };
   } catch (err) {
     return { status: "failed", error: err instanceof Error ? err.message : String(err) };
   }

@@ -36,6 +36,7 @@ import { EnergyVad } from "../src/live/vad";
 import { FakeSpeechRecognizer } from "../src/live/stt";
 import { cloudProvider, ProviderChain, parseSuggestionJson } from "../src/live/localLlm";
 import { SpeakerLabeler } from "../src/live/speakerId";
+import { useMoodStore } from "../src/store/moodStore";
 import type { FastLoopHandlers } from "../src/live/defaultDeps";
 import type { LiveSessionBody } from "../src/api/liveSessions";
 import { silenceInt16, toneInt16, unitVector } from "../src/live/testing/synth";
@@ -142,6 +143,7 @@ beforeEach(() => {
   mockMic.setAudioMode.mockReset().mockResolvedValue(undefined);
   speakMock.mockReset();
   logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+  useMoodStore.setState({ before: null, after: null });
 });
 
 afterEach(() => {
@@ -310,6 +312,63 @@ describe("useAudioStream live mode", () => {
     expect(posted[0].started_at <= posted[0].ended_at).toBe(true);
     // The stop handshake still happens after the loop drained.
     expect(ws.sentJson().some((m) => m.type === "stop")).toBe(true);
+  });
+
+  it("carries the outcome-engine BEFORE mood check onto the stop POST when one was answered", async () => {
+    const fake = makeFakeFastLoop();
+    const posted: LiveSessionBody[] = [];
+    const hook = await renderHook(() =>
+      useAudioStream({
+        capability: { capable: true, reason: "ok" },
+        makeFastLoop: fake.make,
+        postSession: async (body) => {
+          posted.push(body);
+          return { status: "unsupported" as const };
+        },
+      }),
+    );
+    useMoodStore.getState().setBefore(null, 6);
+    await act(async () => {
+      await hook.result.current.startSession("live-mood", 70);
+    });
+    const ws = FakeWebSocket.instances[0];
+    await act(() => ws.emitOpen());
+    await act(async () => {
+      await flush();
+    });
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    expect(posted).toHaveLength(1);
+    expect(posted[0].mood_before).toBe(6);
+  });
+
+  it("omits mood_before from the stop POST when the check was skipped/unanswered", async () => {
+    const fake = makeFakeFastLoop();
+    const posted: LiveSessionBody[] = [];
+    const hook = await renderHook(() =>
+      useAudioStream({
+        capability: { capable: true, reason: "ok" },
+        makeFastLoop: fake.make,
+        postSession: async (body) => {
+          posted.push(body);
+          return { status: "unsupported" as const };
+        },
+      }),
+    );
+    await act(async () => {
+      await hook.result.current.startSession("live-mood-2", 70);
+    });
+    const ws = FakeWebSocket.instances[0];
+    await act(() => ws.emitOpen());
+    await act(async () => {
+      await flush();
+    });
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    expect(posted).toHaveLength(1);
+    expect(posted[0].mood_before).toBeUndefined();
   });
 
   it("renders a streaming partial preview dimmed and replaces it with the final", async () => {

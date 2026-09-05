@@ -131,8 +131,9 @@ describe("LiveCoachScreen — Journal mode", () => {
     expect(json).toContain(JOURNAL_PRIVACY_NOTE);
     expect(json).toContain("Journal — listen for my voice");
     expect(has(root, "journal-gate")).toBe(false);
-    // None of the coaching chrome.
-    for (const id of ["keep-audio-row", "speak-aloud-row", "scoreboard-row", "live-mode-row", "idle-explainer", "self-speaker-chip"]) {
+    // None of the coaching chrome — including the BEFORE mood check, which
+    // never shows in Journal mode.
+    for (const id of ["keep-audio-row", "speak-aloud-row", "scoreboard-row", "live-mode-row", "idle-explainer", "self-speaker-chip", "mood-check-before"]) {
       expect(has(root, id)).toBe(false);
     }
     expect(json).not.toContain("Empathy");

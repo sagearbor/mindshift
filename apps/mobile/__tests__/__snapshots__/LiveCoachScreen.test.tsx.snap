@@ -1727,6 +1727,653 @@ exports[`LiveCoachScreen renders initial idle state 1`] = `
       <View
         style={
           {
+            "backgroundColor": "#FFFFFF",
+            "borderColor": "#E5E7EB",
+            "borderRadius": 12,
+            "borderWidth": 1,
+            "gap": 8,
+            "marginHorizontal": 16,
+            "marginVertical": 6,
+            "padding": 12,
+          }
+        }
+        testID="mood-check-before"
+      >
+        <Text
+          style={
+            {
+              "color": "#374151",
+              "fontSize": 13.5,
+              "fontWeight": "700",
+            }
+          }
+        >
+          How are you feeling right now?
+        </Text>
+        <View
+          style={
+            {
+              "alignItems": "center",
+              "flexDirection": "row",
+              "gap": 3,
+              "justifyContent": "space-between",
+            }
+          }
+        >
+          <Text
+            accessibilityElementsHidden={true}
+            style={
+              {
+                "fontSize": 16,
+              }
+            }
+          >
+            😞
+          </Text>
+          <View
+            accessibilityLabel="1 out of 9"
+            accessibilityRole="button"
+            accessibilityState={
+              {
+                "busy": undefined,
+                "checked": undefined,
+                "disabled": undefined,
+                "expanded": undefined,
+                "selected": false,
+              }
+            }
+            accessibilityValue={
+              {
+                "max": undefined,
+                "min": undefined,
+                "now": undefined,
+                "text": undefined,
+              }
+            }
+            accessible={true}
+            collapsable={false}
+            focusable={true}
+            onClick={[Function]}
+            onResponderGrant={[Function]}
+            onResponderMove={[Function]}
+            onResponderRelease={[Function]}
+            onResponderTerminate={[Function]}
+            onResponderTerminationRequest={[Function]}
+            onStartShouldSetResponder={[Function]}
+            style={
+              {
+                "alignItems": "center",
+                "backgroundColor": "#F9FAFB",
+                "borderColor": "#D1D5DB",
+                "borderRadius": 13,
+                "borderWidth": 1,
+                "height": 26,
+                "justifyContent": "center",
+                "opacity": 1,
+                "width": 26,
+              }
+            }
+            testID="mood-check-option-1"
+          >
+            <Text
+              style={
+                [
+                  {
+                    "color": "#374151",
+                    "fontSize": 12,
+                    "fontWeight": "600",
+                  },
+                  false,
+                ]
+              }
+            >
+              1
+            </Text>
+          </View>
+          <View
+            accessibilityLabel="2 out of 9"
+            accessibilityRole="button"
+            accessibilityState={
+              {
+                "busy": undefined,
+                "checked": undefined,
+                "disabled": undefined,
+                "expanded": undefined,
+                "selected": false,
+              }
+            }
+            accessibilityValue={
+              {
+                "max": undefined,
+                "min": undefined,
+                "now": undefined,
+                "text": undefined,
+              }
+            }
+            accessible={true}
+            collapsable={false}
+            focusable={true}
+            onClick={[Function]}
+            onResponderGrant={[Function]}
+            onResponderMove={[Function]}
+            onResponderRelease={[Function]}
+            onResponderTerminate={[Function]}
+            onResponderTerminationRequest={[Function]}
+            onStartShouldSetResponder={[Function]}
+            style={
+              {
+                "alignItems": "center",
+                "backgroundColor": "#F9FAFB",
+                "borderColor": "#D1D5DB",
+                "borderRadius": 13,
+                "borderWidth": 1,
+                "height": 26,
+                "justifyContent": "center",
+                "opacity": 1,
+                "width": 26,
+              }
+            }
+            testID="mood-check-option-2"
+          >
+            <Text
+              style={
+                [
+                  {
+                    "color": "#374151",
+                    "fontSize": 12,
+                    "fontWeight": "600",
+                  },
+                  false,
+                ]
+              }
+            >
+              2
+            </Text>
+          </View>
+          <View
+            accessibilityLabel="3 out of 9"
+            accessibilityRole="button"
+            accessibilityState={
+              {
+                "busy": undefined,
+                "checked": undefined,
+                "disabled": undefined,
+                "expanded": undefined,
+                "selected": false,
+              }
+            }
+            accessibilityValue={
+              {
+                "max": undefined,
+                "min": undefined,
+                "now": undefined,
+                "text": undefined,
+              }
+            }
+            accessible={true}
+            collapsable={false}
+            focusable={true}
+            onClick={[Function]}
+            onResponderGrant={[Function]}
+            onResponderMove={[Function]}
+            onResponderRelease={[Function]}
+            onResponderTerminate={[Function]}
+            onResponderTerminationRequest={[Function]}
+            onStartShouldSetResponder={[Function]}
+            style={
+              {
+                "alignItems": "center",
+                "backgroundColor": "#F9FAFB",
+                "borderColor": "#D1D5DB",
+                "borderRadius": 13,
+                "borderWidth": 1,
+                "height": 26,
+                "justifyContent": "center",
+                "opacity": 1,
+                "width": 26,
+              }
+            }
+            testID="mood-check-option-3"
+          >
+            <Text
+              style={
+                [
+                  {
+                    "color": "#374151",
+                    "fontSize": 12,
+                    "fontWeight": "600",
+                  },
+                  false,
+                ]
+              }
+            >
+              3
+            </Text>
+          </View>
+          <View
+            accessibilityLabel="4 out of 9"
+            accessibilityRole="button"
+            accessibilityState={
+              {
+                "busy": undefined,
+                "checked": undefined,
+                "disabled": undefined,
+                "expanded": undefined,
+                "selected": false,
+              }
+            }
+            accessibilityValue={
+              {
+                "max": undefined,
+                "min": undefined,
+                "now": undefined,
+                "text": undefined,
+              }
+            }
+            accessible={true}
+            collapsable={false}
+            focusable={true}
+            onClick={[Function]}
+            onResponderGrant={[Function]}
+            onResponderMove={[Function]}
+            onResponderRelease={[Function]}
+            onResponderTerminate={[Function]}
+            onResponderTerminationRequest={[Function]}
+            onStartShouldSetResponder={[Function]}
+            style={
+              {
+                "alignItems": "center",
+                "backgroundColor": "#F9FAFB",
+                "borderColor": "#D1D5DB",
+                "borderRadius": 13,
+                "borderWidth": 1,
+                "height": 26,
+                "justifyContent": "center",
+                "opacity": 1,
+                "width": 26,
+              }
+            }
+            testID="mood-check-option-4"
+          >
+            <Text
+              style={
+                [
+                  {
+                    "color": "#374151",
+                    "fontSize": 12,
+                    "fontWeight": "600",
+                  },
+                  false,
+                ]
+              }
+            >
+              4
+            </Text>
+          </View>
+          <View
+            accessibilityLabel="5 out of 9"
+            accessibilityRole="button"
+            accessibilityState={
+              {
+                "busy": undefined,
+                "checked": undefined,
+                "disabled": undefined,
+                "expanded": undefined,
+                "selected": false,
+              }
+            }
+            accessibilityValue={
+              {
+                "max": undefined,
+                "min": undefined,
+                "now": undefined,
+                "text": undefined,
+              }
+            }
+            accessible={true}
+            collapsable={false}
+            focusable={true}
+            onClick={[Function]}
+            onResponderGrant={[Function]}
+            onResponderMove={[Function]}
+            onResponderRelease={[Function]}
+            onResponderTerminate={[Function]}
+            onResponderTerminationRequest={[Function]}
+            onStartShouldSetResponder={[Function]}
+            style={
+              {
+                "alignItems": "center",
+                "backgroundColor": "#F9FAFB",
+                "borderColor": "#D1D5DB",
+                "borderRadius": 13,
+                "borderWidth": 1,
+                "height": 26,
+                "justifyContent": "center",
+                "opacity": 1,
+                "width": 26,
+              }
+            }
+            testID="mood-check-option-5"
+          >
+            <Text
+              style={
+                [
+                  {
+                    "color": "#374151",
+                    "fontSize": 12,
+                    "fontWeight": "600",
+                  },
+                  false,
+                ]
+              }
+            >
+              5
+            </Text>
+          </View>
+          <View
+            accessibilityLabel="6 out of 9"
+            accessibilityRole="button"
+            accessibilityState={
+              {
+                "busy": undefined,
+                "checked": undefined,
+                "disabled": undefined,
+                "expanded": undefined,
+                "selected": false,
+              }
+            }
+            accessibilityValue={
+              {
+                "max": undefined,
+                "min": undefined,
+                "now": undefined,
+                "text": undefined,
+              }
+            }
+            accessible={true}
+            collapsable={false}
+            focusable={true}
+            onClick={[Function]}
+            onResponderGrant={[Function]}
+            onResponderMove={[Function]}
+            onResponderRelease={[Function]}
+            onResponderTerminate={[Function]}
+            onResponderTerminationRequest={[Function]}
+            onStartShouldSetResponder={[Function]}
+            style={
+              {
+                "alignItems": "center",
+                "backgroundColor": "#F9FAFB",
+                "borderColor": "#D1D5DB",
+                "borderRadius": 13,
+                "borderWidth": 1,
+                "height": 26,
+                "justifyContent": "center",
+                "opacity": 1,
+                "width": 26,
+              }
+            }
+            testID="mood-check-option-6"
+          >
+            <Text
+              style={
+                [
+                  {
+                    "color": "#374151",
+                    "fontSize": 12,
+                    "fontWeight": "600",
+                  },
+                  false,
+                ]
+              }
+            >
+              6
+            </Text>
+          </View>
+          <View
+            accessibilityLabel="7 out of 9"
+            accessibilityRole="button"
+            accessibilityState={
+              {
+                "busy": undefined,
+                "checked": undefined,
+                "disabled": undefined,
+                "expanded": undefined,
+                "selected": false,
+              }
+            }
+            accessibilityValue={
+              {
+                "max": undefined,
+                "min": undefined,
+                "now": undefined,
+                "text": undefined,
+              }
+            }
+            accessible={true}
+            collapsable={false}
+            focusable={true}
+            onClick={[Function]}
+            onResponderGrant={[Function]}
+            onResponderMove={[Function]}
+            onResponderRelease={[Function]}
+            onResponderTerminate={[Function]}
+            onResponderTerminationRequest={[Function]}
+            onStartShouldSetResponder={[Function]}
+            style={
+              {
+                "alignItems": "center",
+                "backgroundColor": "#F9FAFB",
+                "borderColor": "#D1D5DB",
+                "borderRadius": 13,
+                "borderWidth": 1,
+                "height": 26,
+                "justifyContent": "center",
+                "opacity": 1,
+                "width": 26,
+              }
+            }
+            testID="mood-check-option-7"
+          >
+            <Text
+              style={
+                [
+                  {
+                    "color": "#374151",
+                    "fontSize": 12,
+                    "fontWeight": "600",
+                  },
+                  false,
+                ]
+              }
+            >
+              7
+            </Text>
+          </View>
+          <View
+            accessibilityLabel="8 out of 9"
+            accessibilityRole="button"
+            accessibilityState={
+              {
+                "busy": undefined,
+                "checked": undefined,
+                "disabled": undefined,
+                "expanded": undefined,
+                "selected": false,
+              }
+            }
+            accessibilityValue={
+              {
+                "max": undefined,
+                "min": undefined,
+                "now": undefined,
+                "text": undefined,
+              }
+            }
+            accessible={true}
+            collapsable={false}
+            focusable={true}
+            onClick={[Function]}
+            onResponderGrant={[Function]}
+            onResponderMove={[Function]}
+            onResponderRelease={[Function]}
+            onResponderTerminate={[Function]}
+            onResponderTerminationRequest={[Function]}
+            onStartShouldSetResponder={[Function]}
+            style={
+              {
+                "alignItems": "center",
+                "backgroundColor": "#F9FAFB",
+                "borderColor": "#D1D5DB",
+                "borderRadius": 13,
+                "borderWidth": 1,
+                "height": 26,
+                "justifyContent": "center",
+                "opacity": 1,
+                "width": 26,
+              }
+            }
+            testID="mood-check-option-8"
+          >
+            <Text
+              style={
+                [
+                  {
+                    "color": "#374151",
+                    "fontSize": 12,
+                    "fontWeight": "600",
+                  },
+                  false,
+                ]
+              }
+            >
+              8
+            </Text>
+          </View>
+          <View
+            accessibilityLabel="9 out of 9"
+            accessibilityRole="button"
+            accessibilityState={
+              {
+                "busy": undefined,
+                "checked": undefined,
+                "disabled": undefined,
+                "expanded": undefined,
+                "selected": false,
+              }
+            }
+            accessibilityValue={
+              {
+                "max": undefined,
+                "min": undefined,
+                "now": undefined,
+                "text": undefined,
+              }
+            }
+            accessible={true}
+            collapsable={false}
+            focusable={true}
+            onClick={[Function]}
+            onResponderGrant={[Function]}
+            onResponderMove={[Function]}
+            onResponderRelease={[Function]}
+            onResponderTerminate={[Function]}
+            onResponderTerminationRequest={[Function]}
+            onStartShouldSetResponder={[Function]}
+            style={
+              {
+                "alignItems": "center",
+                "backgroundColor": "#F9FAFB",
+                "borderColor": "#D1D5DB",
+                "borderRadius": 13,
+                "borderWidth": 1,
+                "height": 26,
+                "justifyContent": "center",
+                "opacity": 1,
+                "width": 26,
+              }
+            }
+            testID="mood-check-option-9"
+          >
+            <Text
+              style={
+                [
+                  {
+                    "color": "#374151",
+                    "fontSize": 12,
+                    "fontWeight": "600",
+                  },
+                  false,
+                ]
+              }
+            >
+              9
+            </Text>
+          </View>
+          <Text
+            accessibilityElementsHidden={true}
+            style={
+              {
+                "fontSize": 16,
+              }
+            }
+          >
+            😊
+          </Text>
+        </View>
+        <View
+          accessibilityRole="button"
+          accessibilityState={
+            {
+              "busy": undefined,
+              "checked": undefined,
+              "disabled": undefined,
+              "expanded": undefined,
+              "selected": undefined,
+            }
+          }
+          accessibilityValue={
+            {
+              "max": undefined,
+              "min": undefined,
+              "now": undefined,
+              "text": undefined,
+            }
+          }
+          accessible={true}
+          collapsable={false}
+          focusable={true}
+          onClick={[Function]}
+          onResponderGrant={[Function]}
+          onResponderMove={[Function]}
+          onResponderRelease={[Function]}
+          onResponderTerminate={[Function]}
+          onResponderTerminationRequest={[Function]}
+          onStartShouldSetResponder={[Function]}
+          style={
+            {
+              "alignSelf": "flex-end",
+              "opacity": 1,
+            }
+          }
+          testID="mood-check-skip"
+        >
+          <Text
+            style={
+              {
+                "color": "#9CA3AF",
+                "fontSize": 12,
+                "fontWeight": "600",
+              }
+            }
+          >
+            Skip
+          </Text>
+        </View>
+      </View>
+      <View
+        style={
+          {
             "alignItems": "center",
             "flex": 1,
             "justifyContent": "center",
