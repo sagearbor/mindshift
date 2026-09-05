@@ -51,6 +51,7 @@ import type { LiveMode, ProviderChain, TextTone } from "./localLlm";
 import type { HapticSink, NudgeEvent, NudgePolicy, VectorEvent } from "./nudgePolicy";
 import { aggressiveToneLevel, CoachRepeatGate, LoudnessBaseline, phoneNudgePolicy, yellingLevel } from "./nudgePolicy";
 import { liveTurnKind } from "./naturalTurn";
+import { turnActivationAsync, type TurnActivation } from "./activation";
 import type { TurnLocalEvent } from "./types";
 
 export type SuggestionKind = "response" | "nudge";
@@ -101,6 +102,10 @@ export interface LocalTurn {
    *  noise ("yeah", "mhm") — recorded but never coached, never pooled
    *  into voice clusters, and not counted as a conversational turn. */
   kind: "primary" | "backchannel";
+  /** Vocal activation of the user's OWN turn (live/activation.ts; null on
+   *  other people's turns or when unmeasurable). Dark: recorded + shown in
+   *  Developer mode; nudges only with deps.activationNudges. */
+  activation: TurnActivation | null;
   speaker: string;
   text: string;
   /** false when only an interim STT result covered the span. */
@@ -152,6 +157,11 @@ export interface FastLoopDeps {
    *  CoachRepeatGate; pass `null` to disable (replay harnesses whose
    *  scripted provider emits identical text, which a real LLM never would). */
   repeatGate?: CoachRepeatGate | null;
+  /** Let the vocal-activation classifier drive nudges (instant haptic +
+   *  policy vector). Default false: activation is measured and recorded
+   *  per turn but never buzzes — owner tunes the ladder from real sessions
+   *  first (docs/plans/2026-09-04-naturalturn-conversation-quality.md WS3). */
+  activationNudges?: boolean;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   /** How long to wait for the recognizer to deliver a span's words. */
@@ -218,6 +228,7 @@ export class FastLoop {
    *  coach said the same line on two fragments of one sentence. null =
    *  disabled (deps.repeatGate === null). */
   private readonly repeatGate: CoachRepeatGate | null;
+  private readonly activationNudges: boolean;
   private readonly baseline = new LoudnessBaseline();
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -278,6 +289,7 @@ export class FastLoop {
     this.speakHoldMaxMs = deps.speakHoldMaxMs ?? 3000;
     this.speakQuietMs = deps.speakQuietMs ?? 0;
     this.repeatGate = deps.repeatGate === undefined ? new CoachRepeatGate() : deps.repeatGate;
+    this.activationNudges = deps.activationNudges ?? false;
     this.historySamples = Math.round((deps.historySeconds ?? 30) * SILERO_SAMPLE_RATE);
     this.maxEmbedSamples = Math.round((deps.maxEmbedSeconds ?? MAX_EMBED_SECONDS) * SILERO_SAMPLE_RATE);
     this.maxPitchSeconds = deps.maxPitchSeconds ?? LIVE_MAX_PITCH_SECONDS;
@@ -786,13 +798,25 @@ export class FastLoop {
     // cooldown decay) skips re-buzzing this same level.
     let instantYellingLevel = 0;
     let instantBuzzedLevel = 0;
+    let activation: TurnActivation | null = null;
     if (coachedAsSelf) {
       const db = rmsDbfs(pcm);
       const over = this.baseline.observe(Number.isFinite(db) ? db : null);
       instantYellingLevel = yellingLevel(over);
-      if (instantYellingLevel > (this.policy.current().A ?? 0) && this.deps.haptics) {
-        instantBuzzedLevel = instantYellingLevel;
-        void this.deps.haptics.nudge(instantYellingLevel).catch(() => {});
+      // Vocal activation (dark unless activationNudges): ~370 frames of F0
+      // over the last 3.7 s, cooperative — it overlaps the STT grace wait.
+      try {
+        activation = await turnActivationAsync(pcm, SILERO_SAMPLE_RATE, { sleep: this.sleep });
+      } catch {
+        activation = null;
+      }
+      const instantLevel = Math.max(
+        instantYellingLevel,
+        this.activationNudges && activation ? activation.level : 0,
+      );
+      if (instantLevel > (this.policy.current().A ?? 0) && this.deps.haptics) {
+        instantBuzzedLevel = instantLevel;
+        void this.deps.haptics.nudge(instantLevel).catch(() => {});
       }
     }
 
@@ -870,6 +894,7 @@ export class FastLoop {
     const turn: LocalTurn = {
       index,
       kind: turnKind,
+      activation,
       speaker: verdict.speaker,
       text: aligned.text,
       transcriptFinal: aligned.final,
@@ -899,6 +924,9 @@ export class FastLoop {
       ? [
           { vector: "yelling", level: instantYellingLevel, t: span.end },
           { vector: "aggressive_tone", level: aggressiveToneLevel(textTone?.frustration ?? null, textTone?.defensiveness ?? null), t: span.end },
+          ...(this.activationNudges && activation
+            ? [{ vector: "activation" as const, level: activation.level, t: span.end, value: activation.probability }]
+            : []),
         ]
       : [];
     this.emitNudges(this.policy.onEvents(nudgeEvents, span.end), instantBuzzedLevel);

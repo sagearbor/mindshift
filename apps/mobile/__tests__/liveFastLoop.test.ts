@@ -8,7 +8,7 @@ import { EnergyVad } from "../src/live/vad";
 import { FakeSpeechRecognizer } from "../src/live/stt";
 import { cloudProvider, ProviderChain, parseSuggestionJson, type SuggestionProvider } from "../src/live/localLlm";
 import { SpeakerLabeler, type Embedder } from "../src/live/speakerId";
-import { phoneNudgePolicy, type NudgeEvent } from "../src/live/nudgePolicy";
+import { NudgePolicy, phoneNudgePolicy, type NudgeEvent, type VectorEvent } from "../src/live/nudgePolicy";
 import type { TurnLocalEvent } from "../src/live/types";
 import { silenceInt16, toneInt16, unitVector, vectorAtCosine } from "../src/live/testing/synth";
 
@@ -363,6 +363,74 @@ describe("FastLoop", () => {
     expect(h.turns.map((t) => t.suggestion)).toEqual(["Tell her you miss the calls too.", null]);
     expect(h.spoken).toEqual(["Tell her you miss the calls too."]);
     await h.loop.stop();
+  });
+
+  describe("vocal activation (live/activation.ts)", () => {
+    const D = 192;
+    const you = { personId: "p-you", displayName: "You", isSelf: true, embedding: unitVector(D, 0) };
+    /** A policy that records the vector events it is fed. */
+    class SpyPolicy extends NudgePolicy {
+      seen: VectorEvent[][] = [];
+      override onEvents(events: VectorEvent[], t: number): NudgeEvent[] {
+        this.seen.push(events);
+        return super.onEvents(events, t);
+      }
+    }
+    const spy = () => new SpyPolicy([{ vector: "yelling" }, { vector: "aggressive_tone" }, { vector: "activation" }], 20, ["A"]);
+
+    it("is measured on the user's own turns, null on others', and DARK by default (no policy vector)", async () => {
+      const queue = [unitVector(D, 0, 0.2, 3), unitVector(D, 5)];
+      const embedder: Embedder = { embed: async () => queue.shift() ?? unitVector(D, 9) };
+      const h = harness({ embedder, labeler: new SpeakerLabeler([you]) });
+      const policy = spy();
+      (h.loop as unknown as { policy: unknown }).policy = policy;
+      await h.loop.start({ sessionId: "s-act", mode: "earpiece", empathy: 50 });
+      for (const text of ["stop doing that", "some other person"]) {
+        push(h.loop, toneInt16(2.0, -20));
+        h.rec.emit({ text, isFinal: true });
+        push(h.loop, silenceInt16(0.5));
+        await h.loop.settle();
+      }
+      expect(h.turns[0].isSelf).toBe(true);
+      expect(h.turns[0].activation).not.toBeNull();
+      expect(h.turns[0].activation!.probability).toBeGreaterThanOrEqual(0);
+      expect(h.turns[0].activation!.probability).toBeLessThanOrEqual(1);
+      expect(h.turns[1].activation).toBeNull(); // not the user
+      // Dark: the policy never sees an "activation" vector.
+      expect(policy.seen.flat().some((e) => e.vector === "activation")).toBe(false);
+      await h.loop.stop();
+    });
+
+    it("with activationNudges the vector reaches the policy (still only on self turns)", async () => {
+      const embedder: Embedder = { embed: async () => unitVector(D, 0, 0.2, 3) };
+      const policy = spy();
+      const rec = new FakeSpeechRecognizer();
+      const turns: LocalTurn[] = [];
+      const loop = new FastLoop({
+        vad: new EnergyVad(-45, 0.032),
+        embedder,
+        labeler: new SpeakerLabeler([you]),
+        recognizer: rec,
+        llm: new ProviderChain([okProvider(), cloudProvider()]),
+        speak: () => {},
+        send: () => {},
+        onTurn: (t) => turns.push(t),
+        policy,
+        activationNudges: true,
+        sttGraceMs: 150,
+        pollMs: 5,
+      });
+      await loop.start({ sessionId: "s-act2", mode: "earpiece", empathy: 50 });
+      push(loop, toneInt16(2.0, -20));
+      rec.emit({ text: "stop doing that", isFinal: true });
+      push(loop, silenceInt16(0.5));
+      await loop.settle();
+      const act = policy.seen.flat().filter((e) => e.vector === "activation");
+      expect(act).toHaveLength(1);
+      expect(act[0].level).toBe(turns[0].activation!.level);
+      expect(act[0].value).toBeCloseTo(turns[0].activation!.probability, 10);
+      await loop.stop();
+    });
   });
 
   it("a sub-1.5 s fragment that matches nobody is Unknown (no cluster, is_self null) and is not coached as self", async () => {

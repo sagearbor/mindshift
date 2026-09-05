@@ -13,7 +13,10 @@
  * thresholds as the watch (+6/+10/+14 dB over baseline -> level 1/2/3).
  */
 
-export type VectorName = "yelling" | "aggressive_tone" | "interrupting" | "airtime" | "hr_spike";
+/** "activation" is phone-local (live/activation.ts, dark by default) and is
+ *  never sent over the wire — server/watch VectorName stays the 5-vector
+ *  contract. */
+export type VectorName = "yelling" | "aggressive_tone" | "interrupting" | "airtime" | "hr_spike" | "activation";
 export type Channel = "A" | "B";
 
 export interface VectorSubscription {
@@ -197,6 +200,8 @@ export function phoneNudgePolicy(cooldownS = 20.0): NudgePolicy {
     [
       { vector: "yelling", sensitivity: 1.0, haptics: true, channel: "A" },
       { vector: "aggressive_tone", sensitivity: 1.0, haptics: true, channel: "A" },
+      // Fed only when the loop is built with activationNudges (dark otherwise).
+      { vector: "activation", sensitivity: 1.0, haptics: true, channel: "A" },
     ],
     cooldownS,
     ["A"],

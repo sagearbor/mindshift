@@ -338,6 +338,7 @@ function turn(i: number, start: number, end: number, speaker: string, extra: Par
   return {
     index: i,
     kind: extra.kind ?? "primary",
+    activation: extra.activation ?? null,
     matchBasis: null,
     speaker,
     text: extra.text ?? "words",
