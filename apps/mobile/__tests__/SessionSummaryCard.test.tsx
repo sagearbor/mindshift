@@ -20,6 +20,19 @@ const summary: SessionSummary = {
   firstWordsBestMs: 410,
   spokenTurns: 2,
   topProvider: "os",
+  dynamics: null,
+};
+
+const summaryWithDynamics: SessionSummary = {
+  ...summary,
+  dynamics: {
+    selfResponseGaps: { count: 4, medianS: 0.42, p90S: 1.1, slowCount: 1 },
+    partnerResponseGaps: { count: 3, medianS: 0.5, p90S: 0.9, slowCount: 0 },
+    overlapSecondsTotal: 2.5,
+    overlapEpisodes: [{ speakerA: "Mom", speakerB: "You", startTime: 10, endTime: 11.5, durationS: 1.5 }],
+    sustainedOverlapCountOver1s: 1,
+    sustainedOverlapCountOver2s: 0,
+  },
 };
 
 const linked = { linked: true, therapist_email: "mom@example.com", status: "accepted" as const, auto_share: true };
@@ -144,5 +157,42 @@ describe("SessionSummaryCard", () => {
     expect(t).toContain("You: 3 · Mom: 2");
     expect(t).not.toContain("640 ms");
     expect(t).not.toContain("via os");
+  });
+
+  it("developer mode on with dynamics: shows the response-gap/overlap block", () => {
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(
+        <SessionSummaryCard summary={summaryWithDynamics} episode={null} therapist={null} />,
+      );
+    });
+    expect(root!.root.findAllByProps({ testID: "summary-dynamics" }).length).toBeGreaterThan(0);
+    const t = text(root!);
+    expect(t).toContain("Dynamics (dev)");
+    expect(t).toContain("0.4 s");
+    expect(t).toContain("0.33 s"); // CANDOR norm
+    expect(t).toContain("Slow responses");
+    expect(t).toContain("2.5 s");
+    expect(t).toContain("1 sustained episode");
+  });
+
+  it("developer mode on but no dynamics (legacy path, e.g. therapist mode): the block is hidden, not empty", () => {
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<SessionSummaryCard summary={summary} episode={null} therapist={null} />);
+    });
+    expect(root!.root.findAllByProps({ testID: "summary-dynamics" })).toHaveLength(0);
+  });
+
+  it("developer mode off: dynamics block is hidden even when dynamics were computed", () => {
+    useDevModeStore.setState({ devMode: false });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(
+        <SessionSummaryCard summary={summaryWithDynamics} episode={null} therapist={null} />,
+      );
+    });
+    expect(root!.root.findAllByProps({ testID: "summary-dynamics" })).toHaveLength(0);
+    expect(text(root!)).not.toContain("Dynamics (dev)");
   });
 });

@@ -194,6 +194,48 @@ export function selfTurnVectorEvents(
   ];
 }
 
+// ---------------------------------------------------------------------------
+// interrupting = sustained mutual speech (mirror of server/watch/vectors.py
+// interrupting_events; contract: server/tests/fixtures/policy_vectors/
+// interrupting.json). CANDOR (850 h): median overlap at a speaker change is
+// ~0.4 s and 35% of transitions overlap — brief overlap is normal
+// engagement. Overlap > 2 s is rare (~13/hour): that is where "talking over
+// someone" starts to read as steamrolling (owner call, 2026-09-05).
+// ---------------------------------------------------------------------------
+
+export const INTERRUPT_LEVELS: [number, number][] = [
+  [6.0, 3],
+  [4.0, 2],
+  [2.0, 1],
+];
+
+export interface TurnSpan {
+  start: number;
+  end: number;
+}
+
+/** For each self turn that STARTS inside another party's turn, `value` =
+ *  how long both kept talking (min(end, otherEnd) - start); level from
+ *  INTERRUPT_LEVELS (below the first rung emits nothing). `t` = self start. */
+export function interruptingEvents(selfTurns: TurnSpan[], otherTurns: TurnSpan[]): VectorEvent[] {
+  const out: VectorEvent[] = [];
+  for (const s of selfTurns) {
+    for (const o of otherTurns) {
+      if (o.start < s.start && s.start < o.end) {
+        const overlap = Math.min(s.end, o.end) - s.start;
+        let level = 0;
+        for (const [threshold, l] of INTERRUPT_LEVELS) {
+          if (overlap >= threshold) { level = l; break; }
+        }
+        if (level > 0) {
+          out.push({ vector: "interrupting", level, t: s.start, value: Math.round(overlap * 1000) / 1000 });
+        }
+      }
+    }
+  }
+  return out;
+}
+
 /** The phone's single-lane default: both voice vectors on channel A. */
 export function phoneNudgePolicy(cooldownS = 20.0): NudgePolicy {
   return new NudgePolicy(
@@ -202,6 +244,11 @@ export function phoneNudgePolicy(cooldownS = 20.0): NudgePolicy {
       { vector: "aggressive_tone", sensitivity: 1.0, haptics: true, channel: "A" },
       // Fed only when the loop is built with activationNudges (dark otherwise).
       { vector: "activation", sensitivity: 1.0, haptics: true, channel: "A" },
+      // Sustained talking-over. Not observable on a single mic; arrives as a
+      // server "nudge" frame in call mode (server/calls.py), on the watch
+      // from the server's diarization — subscribed here so any local
+      // producer (future sub-window identity check) rides the same lane.
+      { vector: "interrupting", sensitivity: 1.0, haptics: true, channel: "A" },
     ],
     cooldownS,
     ["A"],

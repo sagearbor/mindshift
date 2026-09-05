@@ -77,6 +77,35 @@ describe("summarizeSession", () => {
   });
 });
 
+describe("summarizeSession dynamics", () => {
+  it("legacy transcript with no startTime/endTime: dynamics is null, not an empty object", () => {
+    const s = summarizeSession({
+      startedAt: null,
+      transcript: [{ speaker: "You", text: "hi" }, { speaker: "Mom", text: "hey" }],
+      latencyLog: [],
+      escalations: 0,
+    });
+    expect(s.dynamics).toBeNull();
+  });
+
+  it("timed transcript feeds conversationDynamics: response gaps, backchannels ignored", () => {
+    const s = summarizeSession({
+      startedAt: null,
+      transcript: [
+        { speaker: "Mom", text: "hey", isSelf: false, startTime: 0, endTime: 2 },
+        { speaker: "You", text: "mhm", isSelf: true, startTime: 2.1, endTime: 2.3, kind: "backchannel" },
+        { speaker: "You", text: "hi back", isSelf: true, startTime: 2.5, endTime: 4 },
+      ],
+      latencyLog: [],
+      escalations: 0,
+    });
+    expect(s.dynamics).not.toBeNull();
+    expect(s.dynamics!.selfResponseGaps.count).toBe(1);
+    expect(s.dynamics!.selfResponseGaps.medianS).toBeCloseTo(0.5, 5); // measured from Mom's turn, not the backchannel
+    expect(s.dynamics!.overlapSecondsTotal).toBe(0);
+  });
+});
+
 describe("formatters", () => {
   it("formats durations and latencies for the card", () => {
     expect(formatDuration(null)).toBe("—");

@@ -288,6 +288,14 @@ describe("useAudioStream live mode", () => {
     expect(hook.result.current.speakerLabel).toBe("Speaker A");
     expect(hook.result.current.toneFlags[0]).toMatchObject({ label: "hurt", source: "text" });
 
+    // A server-computed nudge (call mode's sustained talking-over) renders
+    // like an on-device one: flash + escalation count.
+    await act(() => {
+      ws.emitServer({ type: "nudge", channel: "A", level: 1, t: 47, vectors: ["interrupting"], detail: "self talked over the other party for 3.0s" });
+    });
+    expect(hook.result.current.nudgeFlash).toMatchObject({ channel: "A", level: 1, vectors: ["interrupting"] });
+    expect(hook.result.current.escalationCount).toBe(1);
+
     await act(async () => {
       await hook.result.current.stopSession();
     });

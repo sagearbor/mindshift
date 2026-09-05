@@ -11,14 +11,25 @@
  * finalized transcript, not from what the server may still be working on.
  */
 import type { TurnLatency } from "./fastLoop";
+import { computeConversationDynamics, type ConversationDynamics } from "./conversationDynamics";
 
 export interface SessionSummaryInput {
   /** Wall-clock ISO timestamps; `endedAt` defaults to now. */
   startedAt: string | null;
   endedAt?: string | null;
   /** `kind: "backchannel"` lines (listener noises — live/naturalTurn.ts)
-   *  show in the transcript but never count as turns here. */
-  transcript: { speaker: string; text: string; kind?: string }[];
+   *  show in the transcript but never count as turns here.
+   *  `isSelf`/`startTime`/`endTime` feed the dev-mode conversation-dynamics
+   *  block (see `dynamics` below) when present; absent on lines with no
+   *  known timing (e.g. the legacy suggestion-event fallback path). */
+  transcript: {
+    speaker: string;
+    text: string;
+    kind?: string;
+    isSelf?: boolean | null;
+    startTime?: number;
+    endTime?: number;
+  }[];
   latencyLog: TurnLatency[];
   /** Nudges (level ≥ 1) raised on the user's own turns this session. */
   escalations: number;
@@ -37,6 +48,10 @@ export interface SessionSummary {
   spokenTurns: number;
   /** Which provider answered most often ("os", "bundled", "cloud", …). */
   topProvider: string | null;
+  /** Response-gap/overlap metrics (Workstream 2, dev-mode only surface —
+   *  see conversationDynamics.ts). Null when the transcript carried no
+   *  turn with both startTime and endTime (e.g. the legacy path). */
+  dynamics: ConversationDynamics | null;
 }
 
 function median(values: number[]): number | null {
@@ -82,6 +97,23 @@ export function summarizeSession(input: SessionSummaryInput): SessionSummary {
     }
   }
 
+  const dynamicsTurns = input.transcript
+    .filter(
+      (t): t is typeof t & { startTime: number; endTime: number } =>
+        typeof t.startTime === "number" &&
+        Number.isFinite(t.startTime) &&
+        typeof t.endTime === "number" &&
+        Number.isFinite(t.endTime),
+    )
+    .map((t) => ({
+      speaker: t.speaker,
+      isSelf: t.isSelf ?? null,
+      startTime: t.startTime,
+      endTime: t.endTime,
+      kind: t.kind === "backchannel" ? ("backchannel" as const) : ("primary" as const),
+    }));
+  const dynamics = dynamicsTurns.length > 0 ? computeConversationDynamics(dynamicsTurns) : null;
+
   return {
     durationMs,
     turnsBySpeaker,
@@ -91,6 +123,7 @@ export function summarizeSession(input: SessionSummaryInput): SessionSummary {
     firstWordsBestMs: spoken.length ? Math.min(...spoken) : null,
     spokenTurns: spoken.length,
     topProvider,
+    dynamics,
   };
 }
 

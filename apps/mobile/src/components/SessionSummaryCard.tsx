@@ -2,6 +2,7 @@ import React, { useCallback, useState } from "react";
 import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from "react-native";
 import type { SessionSummary } from "../live/sessionSummary";
 import { formatDuration, formatLatency } from "../live/sessionSummary";
+import { CANDOR_MEDIAN_GAP_S } from "../live/conversationDynamics";
 import type { LastEpisode } from "../hooks/useAudioStream";
 import type { TherapistLink } from "../api/therapist";
 import { postShare } from "../api/client";
@@ -15,6 +16,13 @@ interface Props {
   therapist: TherapistLink | null;
   /** Injected for tests; defaults to the real per-episode share call. */
   share?: (episodeId: string, email: string) => Promise<unknown>;
+}
+
+/** "0.4 s" / "—" — dynamics gaps/overlap are always seconds, unlike the ms
+ *  latency stat above. */
+function formatSeconds(s: number | null): string {
+  if (s === null) return "—";
+  return `${s.toFixed(s < 10 ? 1 : 0)} s`;
 }
 
 function humanizeShareError(err: unknown): string {
@@ -87,6 +95,24 @@ export default function SessionSummaryCard({ summary, episode, therapist, share 
           {summary.turnsBySpeaker.map((s) => `${s.speaker}: ${s.turns}`).join(" · ")}
           {devMode && summary.topProvider ? ` · via ${summary.topProvider}` : ""}
         </Text>
+      ) : null}
+
+      {devMode && summary.dynamics ? (
+        <View style={styles.dynamics} testID="summary-dynamics">
+          <Text style={styles.dynamicsTitle}>Dynamics (dev)</Text>
+          <Text style={styles.dynamicsLine} testID="summary-dynamics-gap">
+            Your response gap: median {formatSeconds(summary.dynamics.selfResponseGaps.medianS)}
+            {" "}(CANDOR norm {CANDOR_MEDIAN_GAP_S.toFixed(2)} s)
+          </Text>
+          <Text style={styles.dynamicsLine} testID="summary-dynamics-slow">
+            Slow responses (&gt;2s): {summary.dynamics.selfResponseGaps.slowCount}
+          </Text>
+          <Text style={styles.dynamicsLine} testID="summary-dynamics-overlap">
+            Overlap: {formatSeconds(summary.dynamics.overlapSecondsTotal)} total ·{" "}
+            {summary.dynamics.sustainedOverlapCountOver1s} sustained episode
+            {summary.dynamics.sustainedOverlapCountOver1s === 1 ? "" : "s"}
+          </Text>
+        </View>
       ) : null}
 
       {episode?.postStatus === "failed" ? (
@@ -198,6 +224,22 @@ const styles = StyleSheet.create({
   },
   people: {
     fontSize: 12.5,
+    color: "#374151",
+  },
+  dynamics: {
+    backgroundColor: "#F9FAFB",
+    borderRadius: 10,
+    padding: 10,
+    gap: 2,
+  },
+  dynamicsTitle: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#6B7280",
+    marginBottom: 2,
+  },
+  dynamicsLine: {
+    fontSize: 12,
     color: "#374151",
   },
   note: {

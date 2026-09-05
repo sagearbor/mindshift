@@ -91,7 +91,7 @@ function tryRequire<T>(load: () => T): T | null {
   }
 }
 
-const expoHaptics: HapticSink = {
+export const expoHaptics: HapticSink = {
   async nudge(level) {
     try {
       const Haptics = tryRequire(

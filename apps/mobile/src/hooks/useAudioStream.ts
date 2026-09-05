@@ -35,12 +35,13 @@ import type {
   FastLoopCapabilities,
   FastLoopHandlers,
 } from "../live/defaultDeps";
-import { createDefaultFastLoop, probeFastLoopCapabilities } from "../live/defaultDeps";
+import { createDefaultFastLoop, expoHaptics, probeFastLoopCapabilities } from "../live/defaultDeps";
 import { createWebFastLoop, primeWebRecognizer, probeWebFastLoopCapabilities } from "../live/webDeps";
 import type { SpeechRecognizer } from "../live/stt";
 import type { TurnLatency } from "../live/fastLoop";
 import { summarizeSession, type SessionSummary } from "../live/sessionSummary";
 import { useLiveEpisodeStore } from "../store/liveEpisodeStore";
+import { useMoodStore } from "../store/moodStore";
 import { detectLiveCapability, type LiveCapability } from "../live/capability";
 import type { LiveMode } from "../live/localLlm";
 import type { NudgeEvent } from "../live/nudgePolicy";
@@ -95,6 +96,14 @@ export interface TranscriptEntry {
    *  noises ("yeah") — shown in the transcript but not counted as turns.
    *  Absent on server/legacy lines (treated as primary). */
   kind?: "primary" | "backchannel";
+  /** Vocal-activation probability of the user's own line (live/activation.ts);
+   *  Developer-mode tag only. Absent on others' lines / server lines. */
+  activation?: number;
+  /** true = the phone's owner, false = a partner, null/undefined = unknown.
+   *  Feeds the dev-mode conversation-dynamics block (live/sessionSummary.ts,
+   *  live/conversationDynamics.ts) — absent on lines where speaker identity
+   *  was never resolved. */
+  isSelf?: boolean | null;
   /** In a CALL: the row's position in the server's merged transcript
    *  (`transcript.seq`). The identity of the line — a later frame carrying
    *  this seq (directly, or as its `replaces_seq`) corrects it in place
@@ -948,6 +957,13 @@ export function useAudioStream(
       ...(Object.keys(speakerLabelsRef.current).length > 0
         ? { speaker_labels: { ...speakerLabelsRef.current } }
         : {}),
+      // Outcome engine (Workstream 4): the BEFORE mood check, answered
+      // before Start — already in the store by the time a session stops.
+      // The AFTER half isn't answered yet at this point (it shows once
+      // sessionSummary lands), so it goes out later via patchSessionMood.
+      ...(useMoodStore.getState().before !== null
+        ? { mood_before: useMoodStore.getState().before! }
+        : {}),
     };
     localTurnsRef.current = [];
     toneFlagsRef.current = [];
@@ -1067,6 +1083,7 @@ export function useAudioStream(
                 speaker: display,
                 speakerId: rawLabel,
                 kind: turn.kind,
+                isSelf: turn.isSelf,
                 text: turn.text,
                 timestamp: Date.now(),
                 startTime: turn.startTime,
@@ -1790,6 +1807,26 @@ export function useAudioStream(
                   loop.offerSpeech(items[0]);
                 }
               }
+            }
+          } else if (data.type === "nudge") {
+            // A nudge the SERVER computed about this user — today: call-mode
+            // "interrupting" (sustained talking-over on the merged timeline,
+            // server/calls.py; exact there, unobservable on a single mic).
+            // Same shape/semantics as the on-device policy's NudgeEvent:
+            // screen always, haptic on escalation only.
+            const level = typeof data.level === "number" ? data.level : 0;
+            const vectors = Array.isArray(data.vectors) ? (data.vectors as string[]) : [];
+            const nudge: NudgeEvent = {
+              channel: data.channel === "B" ? "B" : "A",
+              level,
+              t: typeof data.t === "number" ? data.t : 0,
+              vectors,
+            };
+            if (level > 0) {
+              setNudgeFlash(nudge);
+              escalationRef.current += 1;
+              setEscalationCount(escalationRef.current);
+              if (vectors.length > 0) void expoHaptics.nudge(level).catch(() => {});
             }
           } else if (data.type === "tone_flag") {
             // Server-side tone analysis over a turn: rendered additively.
