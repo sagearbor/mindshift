@@ -28,6 +28,7 @@ describe("summarizeSession", () => {
         { speaker: "You", text: "hi" },
         { speaker: "Mom", text: "hey" },
         { speaker: "You", text: "so" },
+        { speaker: "Mom", text: "yeah", kind: "backchannel" }, // listener noise: shown, never counted
         { speaker: "You", text: "" }, // empty text never counts
       ],
       latencyLog: [],

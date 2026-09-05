@@ -78,6 +78,30 @@ function push(loop: FastLoop, pcm: Int16Array) {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** okProvider with a per-call counter in the text: the CoachRepeatGate
+ *  (identical lines within 45 s become silence) never fires, so tests
+ *  about coaching KINDS keep seeing every kind. */
+function variedProvider(base = okProvider()) {
+  let n = 0;
+  return {
+    ...base,
+    suggest: async (req: Parameters<typeof base.suggest>[0]) => {
+      const r = await base.suggest(req);
+      n++;
+      // Fully distinct lines (no shared word bigrams): a mere suffix keeps
+      // Jaccard >= 0.5 and the gate still fires.
+      const LINES = [
+        "Try asking how that felt.",
+        "Give her a moment to answer.",
+        "Name one thing you appreciated.",
+        "Ask what she needs right now.",
+        "Slow down and breathe together.",
+      ];
+      return r ? { ...r, suggestion: LINES[(n - 1) % LINES.length] } : r;
+    },
+  };
+}
+
 describe("FastLoop", () => {
   it("finalizes a turn, aligns STT text, coaches, speaks, sends turn_local, logs latency", async () => {
     const h = harness();
@@ -197,7 +221,9 @@ describe("FastLoop", () => {
     }
     expect(h.turns.map((t) => t.speaker)).toEqual(["You", "You", "You"]);
     expect(h.turns.map((t) => t.isSelf)).toEqual([true, true, true]);
-    expect(h.turns.map((t) => t.suggestionKind)).toEqual(["nudge", "nudge", "nudge"]);
+    // Identical coach lines within the 45 s repeat cooldown become silence
+    // (CoachRepeatGate): only the first "ease up" is delivered.
+    expect(h.turns.map((t) => t.suggestionKind)).toEqual(["nudge", null, null]);
     expect(h.sent[0]).toMatchObject({ speaker: "You", speaker_person_id: "p-you", is_self: true });
     expect(h.sent[0].speaker_match_score as number).toBeGreaterThan(0.65);
     // aggressive_tone level 3 already on turn 1 (frustration 95) => haptic 3 once;
@@ -205,8 +231,9 @@ describe("FastLoop", () => {
     expect(h.haptic).toEqual([3]);
     expect(h.nudges).toHaveLength(1);
     expect(h.nudges[0]).toMatchObject({ channel: "A", level: 3 });
-    // Spoken nudges are the short delivery cue.
-    expect(h.spoken).toEqual(["ease up", "ease up", "ease up"]);
+    // Spoken once; the repeats were gated (the exact owner bug from
+    // 2026-08-26: the same line on consecutive fragments).
+    expect(h.spoken).toEqual(["ease up"]);
     await h.loop.stop();
   });
 
@@ -214,7 +241,7 @@ describe("FastLoop", () => {
     const D = 192;
     const queue = [unitVector(D, 0), unitVector(D, 5)];
     const embedder: Embedder = { embed: async () => queue.shift() ?? unitVector(D, 9) };
-    const h = harness({ embedder, labeler: new SpeakerLabeler([]) });
+    const h = harness({ provider: variedProvider(), embedder, labeler: new SpeakerLabeler([]) });
     await h.loop.start({ sessionId: "s5", mode: "earpiece", empathy: 50 });
     for (let i = 0; i < 2; i++) {
       // >= MIN_CLUSTER_SECONDS: long enough to found an unknown cluster.
@@ -287,13 +314,54 @@ describe("FastLoop", () => {
     h.rec.emit({ text: "stop yelling at me", isFinal: true });
     push(h.loop, silenceInt16(0.5));
     await sleep(80);
-    expect(h.nudges).toHaveLength(1);
-    expect(h.nudges[0]).toMatchObject({ channel: "A", level: 3, vectors: ["yelling"] });
+    // The HAPTIC (the buzz the user feels) fires now, while STT/LLM are still
+    // pending — no ~7 s wait. The on-screen nudge lands with the combined
+    // policy tick when the turn finalizes.
     expect(h.haptic).toEqual([3]);
     expect(h.turns).toHaveLength(2); // the full pipeline is still on the LLM
     releaseLlm();
     await h.loop.settle();
     expect(h.turns).toHaveLength(3);
+    expect(h.nudges.some((n) => n.level === 3)).toBe(true); // screen nudge arrived
+    await h.loop.stop();
+  });
+
+  it("a backchannel ('yeah') is recorded but never coached — the LLM is not even asked", async () => {
+    let llmCalls = 0;
+    const base = okProvider();
+    const counting = { ...base, suggest: async (req: Parameters<typeof base.suggest>[0]) => { llmCalls++; return base.suggest(req); } };
+    const h = harness({ provider: counting });
+    await h.loop.start({ sessionId: "s-bc", mode: "earpiece", empathy: 50 });
+    push(h.loop, toneInt16(0.6, -20));
+    h.rec.emit({ text: "yeah", isFinal: true });
+    push(h.loop, silenceInt16(0.5));
+    await h.loop.settle();
+    expect(h.turns).toHaveLength(1);
+    expect(h.turns[0].kind).toBe("backchannel");
+    expect(h.turns[0].suggestion).toBeNull();
+    expect(llmCalls).toBe(0);
+    expect(h.spoken).toEqual([]);
+    // A real sentence right after IS coached.
+    push(h.loop, toneInt16(1.0, -20));
+    h.rec.emit({ text: "you never call me back", isFinal: true });
+    push(h.loop, silenceInt16(0.5));
+    await h.loop.settle();
+    expect(h.turns[1].kind).toBe("primary");
+    expect(llmCalls).toBe(1);
+    await h.loop.stop();
+  });
+
+  it("CoachRepeatGate: the same line twice within the cooldown is delivered once", async () => {
+    const h = harness(); // constant-text provider on purpose
+    await h.loop.start({ sessionId: "s-rg", mode: "earpiece", empathy: 50 });
+    for (let i = 0; i < 2; i++) {
+      push(h.loop, toneInt16(1.0, -20));
+      h.rec.emit({ text: "you never call", isFinal: true });
+      push(h.loop, silenceInt16(0.5));
+      await h.loop.settle();
+    }
+    expect(h.turns.map((t) => t.suggestion)).toEqual(["Tell her you miss the calls too.", null]);
+    expect(h.spoken).toEqual(["Tell her you miss the calls too."]);
     await h.loop.stop();
   });
 
@@ -303,7 +371,7 @@ describe("FastLoop", () => {
     const D = 192;
     const you = { personId: "p-you", displayName: "You", isSelf: true, embedding: unitVector(D, 0) };
     const embedder: Embedder = { embed: async () => unitVector(D, 5) }; // a stranger
-    const h = harness({ embedder, labeler: new SpeakerLabeler([you]) });
+    const h = harness({ provider: variedProvider(), embedder, labeler: new SpeakerLabeler([you]) });
     await h.loop.start({ sessionId: "s5b", mode: "earpiece", empathy: 50 });
     push(h.loop, toneInt16(1.0, -20));
     h.rec.emit({ text: "some words here", isFinal: true });
@@ -545,7 +613,7 @@ describe("FastLoop", () => {
     const D = 192;
     const queue = [unitVector(D, 0), unitVector(D, 5), unitVector(D, 0, 0.05, 2), unitVector(D, 5, 0.05, 3)];
     const embedder: Embedder = { embed: async () => queue.shift() ?? unitVector(D, 9) };
-    const h = harness({ provider: okProvider(LOUD), embedder, labeler: new SpeakerLabeler([]) });
+    const h = harness({ provider: variedProvider(okProvider(LOUD)), embedder, labeler: new SpeakerLabeler([]) });
     await h.loop.start({ sessionId: "s13", mode: "earpiece", empathy: 50 });
     const turn = async () => {
       // >= MIN_CLUSTER_SECONDS: long enough to found an unknown cluster.
@@ -624,7 +692,8 @@ describe("FastLoop", () => {
 
     function withQueue(queue: Float32Array[], people: (typeof youAway)[]) {
       const embedder: Embedder = { embed: async () => queue.shift() ?? unitVector(D, 9) };
-      return harness({ embedder, labeler: new SpeakerLabeler(people) });
+      // variedProvider: these tests assert coaching KINDS turn by turn.
+      return harness({ provider: variedProvider(), embedder, labeler: new SpeakerLabeler(people) });
     }
 
     it("(a) settings=2, clusters at 0.42 / 0.19: the first is self by contrast once the second exists", async () => {

@@ -325,6 +325,9 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
     onNudge: (n) => nudges.push(n),
     haptics: { nudge: async (level) => void haptics.push(level) },
     policy,
+    // The scripted provider repeats lines a real LLM would vary; the
+    // repeat-gate is measured directly in liveFastLoop, not here.
+    repeatGate: null,
     now: () => clock.now(),
     sleep: (ms) => clock.sleep(ms),
     sttGraceMs: opts.sttGraceMs,

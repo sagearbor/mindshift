@@ -91,6 +91,10 @@ export interface TranscriptEntry {
   /** The raw wire label behind `speaker` ("Speaker B") — the key mid-call
    *  naming binds. Absent on legacy-path lines that were never relabeled. */
   speakerId?: string;
+  /** NaturalTurn tag (live/naturalTurn.ts): "backchannel" lines are listener
+   *  noises ("yeah") — shown in the transcript but not counted as turns.
+   *  Absent on server/legacy lines (treated as primary). */
+  kind?: "primary" | "backchannel";
   /** In a CALL: the row's position in the server's merged transcript
    *  (`transcript.seq`). The identity of the line — a later frame carrying
    *  this seq (directly, or as its `replaces_seq`) corrects it in place
@@ -1062,6 +1066,7 @@ export function useAudioStream(
               {
                 speaker: display,
                 speakerId: rawLabel,
+                kind: turn.kind,
                 text: turn.text,
                 timestamp: Date.now(),
                 startTime: turn.startTime,

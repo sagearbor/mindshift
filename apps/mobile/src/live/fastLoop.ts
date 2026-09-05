@@ -49,7 +49,8 @@ import type { SpeechRecognizer } from "./stt";
 import { TranscriptAligner } from "./stt";
 import type { LiveMode, ProviderChain, TextTone } from "./localLlm";
 import type { HapticSink, NudgeEvent, NudgePolicy, VectorEvent } from "./nudgePolicy";
-import { aggressiveToneLevel, LoudnessBaseline, phoneNudgePolicy, yellingLevel } from "./nudgePolicy";
+import { aggressiveToneLevel, CoachRepeatGate, LoudnessBaseline, phoneNudgePolicy, yellingLevel } from "./nudgePolicy";
+import { liveTurnKind } from "./naturalTurn";
 import type { TurnLocalEvent } from "./types";
 
 export type SuggestionKind = "response" | "nudge";
@@ -96,6 +97,10 @@ export interface TurnLatency {
 
 export interface LocalTurn {
   index: number;
+  /** NaturalTurn tag (live/naturalTurn.ts): "backchannel" = a listener
+   *  noise ("yeah", "mhm") — recorded but never coached, never pooled
+   *  into voice clusters, and not counted as a conversational turn. */
+  kind: "primary" | "backchannel";
   speaker: string;
   text: string;
   /** false when only an interim STT result covered the span. */
@@ -143,6 +148,10 @@ export interface FastLoopDeps {
   onDegrade?: (stage: "vad", reason: string) => void;
   haptics?: HapticSink | null;
   policy?: NudgePolicy;
+  /** Don't-nag gate over the coach's own lines. Defaults to a real
+   *  CoachRepeatGate; pass `null` to disable (replay harnesses whose
+   *  scripted provider emits identical text, which a real LLM never would). */
+  repeatGate?: CoachRepeatGate | null;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   /** How long to wait for the recognizer to deliver a span's words. */
@@ -204,6 +213,11 @@ export class FastLoop {
   private readonly segmenter: StreamingSegmenter;
   private readonly aligner: TranscriptAligner;
   private readonly policy: NudgePolicy;
+  /** Don't-nag gate over the coach's own lines (nudgePolicy.ts; mirrors the
+   *  server's COACH_REPEAT_* rules). Owner finding 2026-08-26: the on-device
+   *  coach said the same line on two fragments of one sentence. null =
+   *  disabled (deps.repeatGate === null). */
+  private readonly repeatGate: CoachRepeatGate | null;
   private readonly baseline = new LoudnessBaseline();
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -263,6 +277,7 @@ export class FastLoop {
     this.contextTurns = deps.contextTurns ?? 6;
     this.speakHoldMaxMs = deps.speakHoldMaxMs ?? 3000;
     this.speakQuietMs = deps.speakQuietMs ?? 0;
+    this.repeatGate = deps.repeatGate === undefined ? new CoachRepeatGate() : deps.repeatGate;
     this.historySamples = Math.round((deps.historySeconds ?? 30) * SILERO_SAMPLE_RATE);
     this.maxEmbedSamples = Math.round((deps.maxEmbedSeconds ?? MAX_EMBED_SECONDS) * SILERO_SAMPLE_RATE);
     this.maxPitchSeconds = deps.maxPitchSeconds ?? LIVE_MAX_PITCH_SECONDS;
@@ -671,10 +686,12 @@ export class FastLoop {
    *  2 -> 1, no vectors) updates the screen but never buzzes — before this
    *  it buzzed if and only if the decay happened to land on the user's own
    *  turn (replay-harness finding). */
-  private emitNudges(nudges: NudgeEvent[]) {
+  private emitNudges(nudges: NudgeEvent[], alreadyBuzzedLevel = 0) {
     for (const n of nudges) {
       this.deps.onNudge?.(n);
-      if (n.level > 0 && n.vectors.length > 0 && this.deps.haptics) {
+      // Screen always; haptic on ESCALATION only — and never re-buzz a level
+      // the instant tier already delivered this turn (`alreadyBuzzedLevel`).
+      if (n.level > alreadyBuzzedLevel && n.vectors.length > 0 && this.deps.haptics) {
         void this.deps.haptics.nudge(n.level).catch(() => {});
       }
     }
@@ -751,7 +768,6 @@ export class FastLoop {
     const verdict = this.applyBindings(rawVerdict);
     // This turn may have moved a person between clusters: past turns follow.
     this.reattributeTurns();
-    this.poolSpeakerAudio(verdict.speaker, pcm);
 
     // Coaching identity: the voiceprint verdict when there is one, else the
     // "you speak first" convention (Speaker A) — never sent as is_self.
@@ -762,21 +778,34 @@ export class FastLoop {
 
     // INSTANT nudge tier (owner, 2026-09-03: "bare bones nudge now; the
     // nuanced one may lag"): loudness over the user's own running baseline,
-    // straight off the raw span — no STT, no LLM in the path. It lands
-    // within ~a second of the turn closing, where the full pipeline's
-    // median-to-speak was ~6.8 s on-device. The LLM's text tone rides the
-    // SAME policy when it arrives (the nuanced tier further down), so
-    // hysteresis and cooldown stay one machine.
-    const instantEvents: VectorEvent[] = [];
+    // straight off the raw span — no STT, no LLM in the path. The haptic
+    // fires HERE, ~a second after the turn closes, where the full pipeline's
+    // median-to-speak was ~6.8 s on-device. It buzzes on the rising edge
+    // only (level above what the policy already holds), and the single
+    // combined policy tick at end of turn (screen + text-tone escalation +
+    // cooldown decay) skips re-buzzing this same level.
+    let instantYellingLevel = 0;
+    let instantBuzzedLevel = 0;
     if (coachedAsSelf) {
       const db = rmsDbfs(pcm);
       const over = this.baseline.observe(Number.isFinite(db) ? db : null);
-      instantEvents.push({ vector: "yelling", level: yellingLevel(over), t: span.end, value: over });
+      instantYellingLevel = yellingLevel(over);
+      if (instantYellingLevel > (this.policy.current().A ?? 0) && this.deps.haptics) {
+        instantBuzzedLevel = instantYellingLevel;
+        void this.deps.haptics.nudge(instantYellingLevel).catch(() => {});
+      }
     }
-    // Non-self turns still tick the policy clock (cooldown decay).
-    this.emitNudges(this.policy.onEvents(instantEvents, span.end));
 
     const aligned = await textPromise;
+
+    // NaturalTurn tag (words + duration): a backchannel is a listener noise,
+    // not a conversational turn. Only a FINAL transcript is trusted to
+    // suppress — an interim "oh" may finalize as a full sentence, and we
+    // never want to skip coaching on incomplete text. Pool speaker audio
+    // only for primary turns — quarter-second "yeah"s are exactly the
+    // scraps that used to pollute the per-speaker blends.
+    const turnKind = aligned.final ? liveTurnKind(aligned.text, duration) : "primary";
+    if (turnKind === "primary") this.poolSpeakerAudio(verdict.speaker, pcm);
 
     const tp0 = this.now();
     const prosody = await turnProsodyAsync(pcm, SILERO_SAMPLE_RATE, aligned.text, duration, {
@@ -791,7 +820,7 @@ export class FastLoop {
     let provider = "none";
     let llmMs = 0;
     let attempts: { provider: string; outcome: string }[] | undefined;
-    if (aligned.text) {
+    if (aligned.text && turnKind === "primary") {
       const tl0 = this.now();
       // The prompt names people the way the user does ("Mom", not
       // "Speaker B") once a binding or a voiceprint match says who they are.
@@ -819,6 +848,11 @@ export class FastLoop {
         suggestion = result.output.suggestion;
         textTone = result.output.textTone;
       }
+      // A line that re-issues one delivered within the cooldown becomes
+      // silence (tone still counts for the nudge policy below).
+      if (suggestion && this.repeatGate) {
+        suggestion = this.repeatGate.admit(suggestion, span.end, coachedAsSelf ? "nudge" : "response");
+      }
     }
 
     const latency: TurnLatency = {
@@ -835,6 +869,7 @@ export class FastLoop {
     };
     const turn: LocalTurn = {
       index,
+      kind: turnKind,
       speaker: verdict.speaker,
       text: aligned.text,
       transcriptFinal: aligned.final,
@@ -856,17 +891,17 @@ export class FastLoop {
     this.turns.push(turn);
     this.latencyLog.push(latency);
 
-    // Nuanced tier: the LLM's text tone feeds the SAME policy at the same
-    // t as the instant tier — it can escalate or refresh the level, never
-    // decay it early.
-    if (coachedAsSelf && textTone) {
-      this.emitNudges(
-        this.policy.onEvents(
-          [{ vector: "aggressive_tone", level: aggressiveToneLevel(textTone.frustration, textTone.defensiveness), t: span.end }],
-          span.end,
-        ),
-      );
-    }
+    // Single combined policy tick per turn (yelling from the instant tier +
+    // the LLM's text tone): one hysteresis/cooldown machine drives the
+    // screen and any escalation the loudness haptic didn't already cover.
+    // Other turns tick the clock with no events (cooldown decay).
+    const nudgeEvents: VectorEvent[] = coachedAsSelf
+      ? [
+          { vector: "yelling", level: instantYellingLevel, t: span.end },
+          { vector: "aggressive_tone", level: aggressiveToneLevel(textTone?.frustration ?? null, textTone?.defensiveness ?? null), t: span.end },
+        ]
+      : [];
+    this.emitNudges(this.policy.onEvents(nudgeEvents, span.end), instantBuzzedLevel);
 
     if (suggestion && session.mode !== "therapist") {
       if (!this.quietEnoughToSpeak()) {

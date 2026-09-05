@@ -16,7 +16,9 @@ export interface SessionSummaryInput {
   /** Wall-clock ISO timestamps; `endedAt` defaults to now. */
   startedAt: string | null;
   endedAt?: string | null;
-  transcript: { speaker: string; text: string }[];
+  /** `kind: "backchannel"` lines (listener noises — live/naturalTurn.ts)
+   *  show in the transcript but never count as turns here. */
+  transcript: { speaker: string; text: string; kind?: string }[];
   latencyLog: TurnLatency[];
   /** Nudges (level ≥ 1) raised on the user's own turns this session. */
   escalations: number;
@@ -56,7 +58,7 @@ export function summarizeSession(input: SessionSummaryInput): SessionSummary {
 
   const counts = new Map<string, number>();
   for (const t of input.transcript) {
-    if (!t.text) continue;
+    if (!t.text || t.kind === "backchannel") continue;
     counts.set(t.speaker, (counts.get(t.speaker) ?? 0) + 1);
   }
   const turnsBySpeaker = [...counts.entries()]
