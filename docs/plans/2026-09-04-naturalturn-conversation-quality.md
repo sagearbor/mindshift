@@ -134,3 +134,34 @@ in this plan requires a native build.
   grouped-CV AUC 0.82 / acc 0.75, 8 features already computed by prosody.ts.
   Weights export ready. NOT yet wired — awaiting owner OK to add dark to the
   instant tier. Caveat: duration features partly encode RAVDESS acting.
+
+## Day-2 results (2026-09-05, A–E approved by owner)
+
+- **A steamroll → the existing `interrupting` vector, recalibrated** (44a4ca7):
+  sustained mutual speech >= 2/4/6 s → level 1/2/3 (CANDOR: median overlap
+  0.4 s, 35% of transitions overlap, >2 s ≈ 13/h). Pure
+  `watch/vectors.py::interrupting_events`, TS mirror `nudgePolicy.ts
+  interruptingEvents`, contract `policy_vectors/interrupting.json`. **First
+  production caller = call mode** (`calls.py::_coach_overlap`: per-member
+  NudgePolicy → `nudge` frame to the phone (new hook handler: flash +
+  haptic) + watch relay `push_vector_events`). Owner explicitly wants an
+  in-person version too → **dark single-mic overlap probe** (64ca43b,
+  `overlapProbe.ts`): mixed-voice windows inside long self turns, recorded
+  + Developer-mode ⟂ tag, NO nudge until validated on real sessions.
+- **B session dynamics** (landed inside 44a4ca7): `conversationDynamics.ts`,
+  dev-mode "Dynamics" block in the summary (median gap vs 0.33 s norm, slow
+  responses >2 s, overlap seconds, sustained episodes).
+- **C activation classifier on device, dark** (dde4a62): `activation.ts`,
+  TS==Python parity fixture, `LocalTurn.activation`, dev-mode ⚡ tag; nudges
+  only with `activationNudges` (ladder 0.75/0.88/0.96 to tune).
+- **E server NaturalTurn parity** (3773e4b): `server/natural_turn.py` WITH the
+  sentence-stitch + pause-collapse pre-stage; shared `natural_turn.json`
+  (30 classify + 4 merge cases, TS==Python). Validation vs published
+  transcripts (40 convs): **recall 0.064 → 0.998**, boundary agreement
+  0.47 → 0.95, turn-count ratio 3.7 → 1.02. Not yet wired into the recording
+  analysis pipeline (next: apply to Deepgram words in main.py, re-score the
+  maggiano transcript path).
+- **D pre/post mood** — in progress (agent), needs a server deploy for the
+  PATCH endpoint.
+- Known unrelated red: `tests/test_audio_upload_live.py` (live Deepgram
+  integration; nova-2 control also collapses speakers) — external.
