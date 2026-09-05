@@ -337,6 +337,82 @@ ANALYZE_MAX_SPEAKERS = 10
 # "Re-analyze with the latest engine" turn a good 7-voice poker result back
 # into 4 voices (docs/research/2026-08-29-voice-separation/README.md,
 # docs/research/2026-08-30-unknown-and-transcript/README.md).
+# NaturalTurn post-pass over the FINAL (post-diarization) turn list
+# (server/natural_turn.py; Cooney & Reece 2025): same-speaker turns separated
+# by a pause shorter than MAX_PAUSE_SECONDS merge into one — but ONLY when
+# nothing but listener backchannels ("yeah", "mhm") sits between them (a real
+# reply from someone else always breaks the merge: with one mic we never
+# demote a genuine turn to "secondary" the way channelized data would).
+# Backchannels stay in the transcript tagged kind="backchannel" so the LLM's
+# per-turn analysis and the stats can treat them as listening, not speech.
+# Default ON; MINDSHIFT_NATURAL_TURNS=0 disables.
+NATURAL_TURNS_ENV = "MINDSHIFT_NATURAL_TURNS"
+
+
+def _natural_turns_enabled() -> bool:
+    return os.getenv(NATURAL_TURNS_ENV, "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _natural_turns_pass(turns: "list[AnalyzeTurn]") -> "tuple[list[AnalyzeTurn], str | None]":
+    """Merge + tag (see NATURAL_TURNS_ENV). Turns without timings, or fewer
+    than two, pass through untouched. Returns (turns, note|None); the note
+    says what changed so voice_analysis can surface it."""
+    if not _natural_turns_enabled() or len(turns) < 2:
+        return turns, None
+    if any(t.start_time is None or t.end_time is None for t in turns):
+        return turns, None
+    out, note = _natural_turns_merge(turns, allow_merge=True)
+    if len(out) < ANALYZE_MIN_TURNS:
+        # Merging a short, rapid monologue must never push the transcript
+        # under the analysis minimum (a 422 for a perfectly good recording):
+        # keep the tags, skip the merge.
+        out, note = _natural_turns_merge(turns, allow_merge=False)
+    return out, note
+
+
+def _natural_turns_merge(turns: "list[AnalyzeTurn]", *, allow_merge: bool) -> "tuple[list[AnalyzeTurn], str | None]":
+    import natural_turn as _nt
+
+    ordered = sorted(turns, key=lambda t: (t.start_time, t.end_time))
+    out: list[AnalyzeTurn] = []
+    n_merged = 0
+    n_backchannel = 0
+    # index in `out` of each speaker's last PRIMARY turn; cleared for everyone
+    # else whenever a different speaker takes a real turn.
+    last_primary: dict[str, int] = {}
+    for t in ordered:
+        duration = max(0.0, float(t.end_time) - float(t.start_time))
+        if _nt.live_turn_kind(t.text, duration) == "backchannel":
+            n_backchannel += 1
+            out.append(t.model_copy(update={"kind": "backchannel"}))
+            continue
+        prev_idx = last_primary.get(t.speaker)
+        if prev_idx is not None:
+            prev = out[prev_idx]
+            gap = float(t.start_time) - float(prev.end_time)
+            only_backchannels_between = all(o.kind == "backchannel" for o in out[prev_idx + 1:])
+            if allow_merge and 0 <= gap < _nt.MAX_PAUSE_SECONDS and only_backchannels_between and len(prev.text) + 1 + len(t.text) <= 2000:
+                out[prev_idx] = prev.model_copy(update={
+                    "text": f"{prev.text} {t.text}".strip(),
+                    "end_time": max(float(prev.end_time), float(t.end_time)),
+                })
+                n_merged += 1
+                continue
+        out.append(t.model_copy(update={"kind": "primary"}))
+        for spk in list(last_primary):
+            if spk != t.speaker:
+                last_primary.pop(spk)
+        last_primary[t.speaker] = len(out) - 1
+    if n_merged == 0 and n_backchannel == 0:
+        return out, None  # tagged (kind="primary"), nothing to report
+    notes = []
+    if n_merged:
+        notes.append(f"{n_merged} same-speaker turn(s) merged across short pauses")
+    if n_backchannel:
+        notes.append(f"{n_backchannel} listener backchannel(s) tagged")
+    return out, "; ".join(notes)
+
+
 DIARIZE_ENGINE_ENV = "MINDSHIFT_DIARIZE_ENGINE"
 DIARIZE_ENGINE_WINDOWS = "windows"
 DIARIZE_ENGINE_UTTERANCES = "utterances"
@@ -377,6 +453,10 @@ class AnalyzeTurn(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
     start_time: Optional[float] = None
     end_time: Optional[float] = None
+    # NaturalTurn tag set by _natural_turns_pass: "backchannel" = a listener
+    # noise ("yeah", "mhm") kept in the transcript but not a conversational
+    # turn. None/"primary" otherwise. Additive; clients may ignore it.
+    kind: Optional[str] = None
 
 
 class AnalyzeRequest(BaseModel):
@@ -538,6 +618,8 @@ class TranscribedTurn(BaseModel):
     text: str
     start_time: Optional[float] = None
     end_time: Optional[float] = None
+    # NaturalTurn tag (see AnalyzeTurn.kind).
+    kind: Optional[str] = None
 
 
 class AnalyzeUploadResponse(AnalyzeResponse):
@@ -3116,6 +3198,11 @@ async def _analyze_recording_bytes(
                         n_split, local["agreement_with_input"], local["model"],
                         local.get("k_evaluated"),
                     )
+        # NaturalTurn post-pass on the FINAL turn list (after any relabel):
+        # BEFORE prosody so voice_labels stay index-aligned with turns.
+        turns, natural_note = _natural_turns_pass(turns)
+        if natural_note:
+            voice_note = f"{voice_note}; {natural_note}" if voice_note else natural_note
         features = [
             prosody.turn_features(
                 pcm, sr, t.start_time or 0.0, t.end_time or 0.0,
@@ -3126,8 +3213,9 @@ async def _analyze_recording_bytes(
             features, [t.model_dump() for t in turns],
         )
     except AudioDecodeError as exc:
+        turns, natural_note = _natural_turns_pass(turns)
         voice_labels = None
-        voice_note = f"unavailable: {exc}"
+        voice_note = f"unavailable: {exc}" + (f"; {natural_note}" if natural_note else "")
 
     # 4) Run the shared analysis with the voice labels (or None on degrade). The
     #    decoded duration (when we have it) rides along so the client can start
@@ -3148,6 +3236,7 @@ async def _analyze_recording_bytes(
             text=t.text,
             start_time=t.start_time,
             end_time=t.end_time,
+            kind=t.kind,
         )
         for t in turns
     ]

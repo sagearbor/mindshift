@@ -497,8 +497,54 @@ def _parse_utterance_words(raw) -> list[dict]:
             end = float(w["end"])
         except (KeyError, TypeError, ValueError):
             continue
-        words.append({"word": text.strip(), "start_time": start, "end_time": end})
+        entry: dict = {"word": text.strip(), "start_time": start, "end_time": end}
+        conf = w.get("confidence")
+        if isinstance(conf, (int, float)):
+            entry["confidence"] = float(conf)
+        words.append(entry)
     return words
+
+
+# ASR word-confidence floor (NaturalTurn, Cooney & Reece 2025 — their review
+# of real transcripts found tokens under 0.6 are usually hallucinated or
+# mis-heard speech; confidence does not track accuracy linearly above that).
+# Words below it are dropped BEFORE any turn logic; a turn whose every word
+# drops is removed. 0 disables. Same threshold as
+# natural_turn.TOKEN_CONFIDENCE_THRESHOLD.
+ASR_CONFIDENCE_MIN_ENV = "MINDSHIFT_ASR_CONFIDENCE_MIN"
+
+
+def asr_confidence_min() -> float:
+    raw = os.getenv(ASR_CONFIDENCE_MIN_ENV, "0.6").strip()
+    try:
+        v = float(raw)
+    except ValueError:
+        return 0.6
+    return v if 0.0 <= v <= 1.0 else 0.6
+
+
+def drop_low_confidence_words(turn: dict, threshold: float) -> dict | None:
+    """Return ``turn`` with its sub-threshold words removed (text rebuilt from
+    the kept words, timings tightened to them), the same dict when nothing
+    was dropped or there are no word confidences, or None when every word
+    dropped (the turn was noise). Never touches a turn without ``words``."""
+    if threshold <= 0:
+        return turn
+    words = turn.get("words")
+    if not isinstance(words, list) or not words:
+        return turn
+    kept = [w for w in words if not isinstance(w.get("confidence"), float) or w["confidence"] >= threshold]
+    if len(kept) == len(words):
+        return turn
+    if not kept:
+        return None
+    out = dict(turn)
+    out["words"] = kept
+    out["text"] = " ".join(w["word"] for w in kept)
+    out["start_time"] = float(kept[0]["start_time"])
+    out["end_time"] = float(kept[-1]["end_time"])
+    out["dropped_words"] = len(words) - len(kept)
+    return out
 
 
 def transcribe_prerecorded(
@@ -590,6 +636,25 @@ def transcribe_prerecorded(
         if words:
             turn["words"] = words
         turns.append(turn)
+
+    # Hallucination filter (see drop_low_confidence_words).
+    threshold = asr_confidence_min()
+    filtered: list[dict] = []
+    dropped_words = 0
+    dropped_turns = 0
+    for turn in turns:
+        cleaned = drop_low_confidence_words(turn, threshold)
+        if cleaned is None:
+            dropped_turns += 1
+            continue
+        dropped_words += int(cleaned.pop("dropped_words", 0) or 0)
+        filtered.append(cleaned)
+    if dropped_words or dropped_turns:
+        logger.info(
+            "ASR confidence floor %.2f: dropped %d word(s) and %d whole utterance(s)",
+            threshold, dropped_words, dropped_turns,
+        )
+    turns = filtered
 
     if not turns:
         raise NoSpeechFound("no speech found in this recording")
