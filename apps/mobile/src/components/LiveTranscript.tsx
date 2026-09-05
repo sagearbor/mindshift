@@ -77,6 +77,13 @@ export default function LiveTranscript({ entries, onSpeakerPress, isNamed }: Liv
                   {`  ⚡${Math.round(entry.activation * 100)}%`}
                 </Text>
               ) : null}
+              {devMode && entry.overlapSeconds !== undefined ? (
+                // Developer mode: longest mixed-voice run the single-mic
+                // overlap probe saw in this turn (live/overlapProbe.ts, dark).
+                <Text style={styles.devTag} testID={`live-transcript-overlap-${i}`}>
+                  {`  ⟂${entry.overlapSeconds.toFixed(1)}s`}
+                </Text>
+              ) : null}
             </Text>
           </View>
         );

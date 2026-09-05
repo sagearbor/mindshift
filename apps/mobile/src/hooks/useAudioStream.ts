@@ -99,6 +99,9 @@ export interface TranscriptEntry {
   /** Vocal-activation probability of the user's own line (live/activation.ts);
    *  Developer-mode tag only. Absent on others' lines / server lines. */
   activation?: number;
+  /** Longest mixed-voice run (s) the single-mic overlap probe saw inside the
+   *  user's own long turn (live/overlapProbe.ts, dark). Developer-mode tag. */
+  overlapSeconds?: number;
   /** true = the phone's owner, false = a partner, null/undefined = unknown.
    *  Feeds the dev-mode conversation-dynamics block (live/sessionSummary.ts,
    *  live/conversationDynamics.ts) — absent on lines where speaker identity
@@ -1083,6 +1086,10 @@ export function useAudioStream(
                 speaker: display,
                 speakerId: rawLabel,
                 kind: turn.kind,
+                ...(turn.activation ? { activation: turn.activation.probability } : {}),
+                ...(turn.overlap && turn.overlap.longestMixedRunSeconds > 0
+                  ? { overlapSeconds: turn.overlap.longestMixedRunSeconds }
+                  : {}),
                 isSelf: turn.isSelf,
                 text: turn.text,
                 timestamp: Date.now(),

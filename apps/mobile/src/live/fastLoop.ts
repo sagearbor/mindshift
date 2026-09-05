@@ -52,6 +52,7 @@ import type { HapticSink, NudgeEvent, NudgePolicy, VectorEvent } from "./nudgePo
 import { aggressiveToneLevel, CoachRepeatGate, LoudnessBaseline, phoneNudgePolicy, yellingLevel } from "./nudgePolicy";
 import { liveTurnKind } from "./naturalTurn";
 import { turnActivationAsync, type TurnActivation } from "./activation";
+import { OVERLAP_PROBE_MIN_SECONDS, probeOverlapAsync, type OverlapSummary } from "./overlapProbe";
 import type { TurnLocalEvent } from "./types";
 
 export type SuggestionKind = "response" | "nudge";
@@ -106,6 +107,10 @@ export interface LocalTurn {
    *  other people's turns or when unmeasurable). Dark: recorded + shown in
    *  Developer mode; nudges only with deps.activationNudges. */
   activation: TurnActivation | null;
+  /** Single-mic overlap probe over a LONG self turn (live/overlapProbe.ts):
+   *  mixed-voice seconds inside the span. Dark — Developer mode only; null
+   *  on other turns, short turns, or without a voice model. */
+  overlap: OverlapSummary | null;
   speaker: string;
   text: string;
   /** false when only an interim STT result covered the span. */
@@ -820,6 +825,19 @@ export class FastLoop {
       }
     }
 
+    // Dark in-person overlap probe: only long self turns, only with a voice
+    // model; runs alongside the STT wait + LLM call (awaited just before the
+    // turn record), so it never delays coaching.
+    const overlapPromise: Promise<OverlapSummary | null> =
+      coachedAsSelf && duration >= OVERLAP_PROBE_MIN_SECONDS && this.deps.embedder && this.deps.labeler
+        ? probeOverlapAsync(
+            pcm,
+            SILERO_SAMPLE_RATE,
+            (w) => this.deps.embedder!.embed(w, SILERO_SAMPLE_RATE),
+            (e) => this.deps.labeler!.scoreWindow(e),
+          ).catch(() => null)
+        : Promise.resolve(null);
+
     const aligned = await textPromise;
 
     // NaturalTurn tag (words + duration): a backchannel is a listener noise,
@@ -879,6 +897,8 @@ export class FastLoop {
       }
     }
 
+    const overlap = await overlapPromise;
+
     const latency: TurnLatency = {
       turn: index,
       segmentEndMs,
@@ -895,6 +915,7 @@ export class FastLoop {
       index,
       kind: turnKind,
       activation,
+      overlap,
       speaker: verdict.speaker,
       text: aligned.text,
       transcriptFinal: aligned.final,

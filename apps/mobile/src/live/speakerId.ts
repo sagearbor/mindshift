@@ -439,6 +439,27 @@ export class SpeakerLabeler {
 
   /** `seconds` is the segment's audio length; omit it to disable the
    *  short-segment guard (batch callers with known-good segments). */
+  /** Read-only scores for the overlap probe (live/overlapProbe.ts): cosine
+   *  vs the user's print, and the best cosine vs any OTHER known voice
+   *  (non-self enrolled prints + session clusters not identified as self).
+   *  Never founds clusters, never moves identities. */
+  scoreWindow(embedding: ArrayLike<number>): { self: number | null; otherMax: number | null } {
+    let self: number | null = null;
+    let otherMax: number | null = null;
+    for (const { person, vec } of this.people) {
+      const score = cosine(embedding, vec);
+      if (person.isSelf) self = self === null ? score : Math.max(self, score);
+      else otherMax = otherMax === null ? score : Math.max(otherMax, score);
+    }
+    this.centroids.forEach((c, idx) => {
+      const id = this.identities.get(idx)?.personId;
+      if (id !== undefined && this.people.some((p) => p.person.personId === id && p.person.isSelf)) return;
+      const score = cosine(embedding, c);
+      otherMax = otherMax === null ? score : Math.max(otherMax, score);
+    });
+    return { self, otherMax };
+  }
+
   label(embedding: ArrayLike<number> | null, seconds?: number): SpeakerVerdict {
     if (embedding === null || embedding.length === 0) return { ...NO_IDENTITY };
     // Greedy best-above-threshold against every enrolled print — the

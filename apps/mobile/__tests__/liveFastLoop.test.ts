@@ -9,6 +9,7 @@ import { FakeSpeechRecognizer } from "../src/live/stt";
 import { cloudProvider, ProviderChain, parseSuggestionJson, type SuggestionProvider } from "../src/live/localLlm";
 import { SpeakerLabeler, type Embedder } from "../src/live/speakerId";
 import { NudgePolicy, phoneNudgePolicy, type NudgeEvent, type VectorEvent } from "../src/live/nudgePolicy";
+import { l2Normalize } from "../src/live/speakerId";
 import type { TurnLocalEvent } from "../src/live/types";
 import { silenceInt16, toneInt16, unitVector, vectorAtCosine } from "../src/live/testing/synth";
 
@@ -430,6 +431,40 @@ describe("FastLoop", () => {
       expect(act[0].level).toBe(turns[0].activation!.level);
       expect(act[0].value).toBeCloseTo(turns[0].activation!.probability, 10);
       await loop.stop();
+    });
+  });
+
+  describe("single-mic overlap probe (live/overlapProbe.ts, dark)", () => {
+    const D = 192;
+    const you = { personId: "p-you", displayName: "You", isSelf: true, embedding: unitVector(D, 0) };
+    const mom = { personId: "p-mom", displayName: "Mom", isSelf: false, embedding: unitVector(D, 1) };
+    const blend = () => l2Normalize(Float32Array.from(unitVector(D, 0), (v, i) => v + unitVector(D, 1)[i]));
+
+    it("a long self turn is probed window by window; mixed-voice windows are counted; short turns are not probed; nothing nudges", async () => {
+      // First embed = the turn's identity (self). Then one embed per probe
+      // window (5 s turn -> 8 windows): self, self, blend x4, self, self.
+      const queue = [unitVector(D, 0, 0.2, 3), unitVector(D, 0), unitVector(D, 0), blend(), blend(), blend(), blend(), unitVector(D, 0), unitVector(D, 0)];
+      const embedder: Embedder = { embed: async () => queue.shift() ?? unitVector(D, 0) };
+      const h = harness({ embedder, labeler: new SpeakerLabeler([you, mom]) });
+      await h.loop.start({ sessionId: "s-ovl", mode: "earpiece", empathy: 50 });
+      push(h.loop, toneInt16(5.0, -20));
+      h.rec.emit({ text: "and another thing i have been meaning to say for a while now", isFinal: true });
+      push(h.loop, silenceInt16(0.5));
+      await h.loop.settle();
+      const t0 = h.turns[0];
+      expect(t0.isSelf).toBe(true);
+      expect(t0.overlap).not.toBeNull();
+      expect(t0.overlap!.windows).toBe(8);
+      expect(t0.overlap!.voices.filter((v) => v === "mixed")).toHaveLength(4);
+      expect(t0.overlap!.longestMixedRunSeconds).toBe(2.0);
+      queue.push(unitVector(D, 0, 0.2, 4));
+      push(h.loop, toneInt16(1.0, -20));
+      h.rec.emit({ text: "short one", isFinal: true });
+      push(h.loop, silenceInt16(0.5));
+      await h.loop.settle();
+      expect(h.turns[1].overlap).toBeNull();
+      expect(h.nudges).toHaveLength(0); // dark
+      await h.loop.stop();
     });
   });
 
@@ -875,8 +910,10 @@ describe("FastLoop", () => {
     h.rec.emit({ text: "long", isFinal: true });
     push(h.loop, silenceInt16(0.5));
     await h.loop.settle();
-    expect(seen).toHaveLength(1);
+    // The identity embed is bounded; the dark overlap probe then embeds its
+    // own 1.5 s windows over this long self-by-convention turn.
     expect(seen[0]).toBe(MAX_EMBED_SECONDS * 16000);
+    expect(seen.slice(1).every((n) => n === 1.5 * 16000)).toBe(true);
     expect(h.turns[0].prosody.rms_dbfs).toBeCloseTo(-20, 0);
     expect(h.turns[0].endTime - h.turns[0].startTime).toBeCloseTo(14, 0);
     await h.loop.stop();
