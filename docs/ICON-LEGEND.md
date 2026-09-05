@@ -8,7 +8,13 @@ Every feature line in an hlist, report, plan, or status doc opens with a
 WHERE DISPLAYED | METHOD | LATENCY | WHERE COMPUTED
 ```
 
-Put this legend line at the top of any doc that uses the tags:
+Put this legend at the top of any doc that uses the tags. In HTML it is an
+expandable `<details class="legend">` (tap to open on a phone — hover does not
+exist there) whose summary shows the four column names and the latency icons
+with **tooltips** (`title=`): ⚡ ≈ 1 s · 🧠 ≈ 3–7 s · ⏳ ≈ minutes after the
+session · 🌙 ≈ hours/overnight. The open body lists every icon. Reference
+markup: tmp/hlist-20260905-abcde.html. Every hlist/report also opens with a
+"How to test" card. Markdown legend line:
 
 > **displayed | method | latency | computed** — see docs/ICON-LEGEND.md
 
