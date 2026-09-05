@@ -13,9 +13,13 @@ import app.gauge.wear.ui.displayLabel
 fun notificationText(state: ControllerState): String = when (state.sentinel) {
     SentinelState.DISARMED -> "Off"
     SentinelState.ARMED -> "On · ${modeLabel(state.mode)}"
-    SentinelState.STREAMING ->
-        if (state.online) "Episode active"
-        else "Episode active · offline · local nudges"
+    SentinelState.STREAMING -> when {
+        // Companion (Tier B): no mic, no episode — the phone listens; the watch renders nudges.
+        state.mode == Mode.COMPANION && state.online -> "Companion · phone listens"
+        state.mode == Mode.COMPANION -> "Companion · offline"
+        state.online -> "Episode active"
+        else -> "Episode active · offline · local nudges"
+    }
     SentinelState.COOLDOWN -> "Cooling down"
 }
 

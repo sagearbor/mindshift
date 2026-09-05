@@ -1,0 +1,602 @@
+{
+ "family_real": {
+  "k_true": 2,
+  "single": {
+   "f0_med": {
+    "fisher": 0.307,
+    "oracle_acc": 0.673
+   },
+   "f0_iqr": {
+    "fisher": 0.1,
+    "oracle_acc": 0.7
+   },
+   "centroid": {
+    "fisher": 0.606,
+    "oracle_acc": 0.616
+   },
+   "tilt": {
+    "fisher": 0.333,
+    "oracle_acc": 0.713
+   },
+   "rolloff": {
+    "fisher": 0.688,
+    "oracle_acc": 0.688
+   },
+   "rms": {
+    "fisher": 0.417,
+    "oracle_acc": 0.636
+   },
+   "f1": {
+    "fisher": 1.195,
+    "oracle_acc": 0.879
+   },
+   "f2": {
+    "fisher": 0.065,
+    "oracle_acc": 0.561
+   },
+   "f3": {
+    "fisher": 0.039,
+    "oracle_acc": 0.571
+   },
+   "mfcc1_m": {
+    "fisher": 0.717,
+    "oracle_acc": 0.772
+   },
+   "mfcc2_m": {
+    "fisher": 0.096,
+    "oracle_acc": 0.578
+   },
+   "mfcc3_m": {
+    "fisher": 0.191,
+    "oracle_acc": 0.611
+   }
+  },
+  "groups": {
+   "pitch": {
+    "oracle_acc": 0.7,
+    "fisher_mean": 0.204
+   },
+   "spectral": {
+    "oracle_acc": 0.782,
+    "fisher_mean": 0.542
+   },
+   "formants": {
+    "oracle_acc": 0.779,
+    "fisher_mean": 0.433
+   },
+   "mfcc": {
+    "oracle_acc": 0.973,
+    "fisher_mean": 0.227
+   },
+   "full": {
+    "oracle_acc": 0.894,
+    "fisher_mean": 0.276
+   }
+  }
+ },
+ "poker6": {
+  "k_true": 6,
+  "single": {
+   "f0_med": {
+    "fisher": 0.775,
+    "oracle_acc": 0.444
+   },
+   "f0_iqr": {
+    "fisher": 0.172,
+    "oracle_acc": 0.367
+   },
+   "centroid": {
+    "fisher": 0.084,
+    "oracle_acc": 0.331
+   },
+   "tilt": {
+    "fisher": 0.227,
+    "oracle_acc": 0.343
+   },
+   "rolloff": {
+    "fisher": 0.05,
+    "oracle_acc": 0.338
+   },
+   "rms": {
+    "fisher": 0.241,
+    "oracle_acc": 0.44
+   },
+   "f1": {
+    "fisher": 0.216,
+    "oracle_acc": 0.359
+   },
+   "f2": {
+    "fisher": 0.421,
+    "oracle_acc": 0.347
+   },
+   "f3": {
+    "fisher": 0.1,
+    "oracle_acc": 0.381
+   },
+   "mfcc1_m": {
+    "fisher": 0.251,
+    "oracle_acc": 0.305
+   },
+   "mfcc2_m": {
+    "fisher": 0.16,
+    "oracle_acc": 0.282
+   },
+   "mfcc3_m": {
+    "fisher": 1.365,
+    "oracle_acc": 0.393
+   }
+  },
+  "groups": {
+   "pitch": {
+    "oracle_acc": 0.426,
+    "fisher_mean": 0.473
+   },
+   "spectral": {
+    "oracle_acc": 0.297,
+    "fisher_mean": 0.12
+   },
+   "formants": {
+    "oracle_acc": 0.464,
+    "fisher_mean": 0.246
+   },
+   "mfcc": {
+    "oracle_acc": 0.454,
+    "fisher_mean": 0.438
+   },
+   "full": {
+    "oracle_acc": 0.455,
+    "fisher_mean": 0.391
+   }
+  }
+ },
+ "openai": {
+  "k_true": 2,
+  "single": {
+   "f0_med": {
+    "fisher": 8.282,
+    "oracle_acc": 0.993
+   },
+   "f0_iqr": {
+    "fisher": 0.119,
+    "oracle_acc": 0.647
+   },
+   "centroid": {
+    "fisher": 0.367,
+    "oracle_acc": 0.715
+   },
+   "tilt": {
+    "fisher": 0.403,
+    "oracle_acc": 0.806
+   },
+   "rolloff": {
+    "fisher": 0.457,
+    "oracle_acc": 0.738
+   },
+   "rms": {
+    "fisher": 0.015,
+    "oracle_acc": 0.56
+   },
+   "f1": {
+    "fisher": 0.043,
+    "oracle_acc": 0.558
+   },
+   "f2": {
+    "fisher": 0.096,
+    "oracle_acc": 0.679
+   },
+   "f3": {
+    "fisher": 1.711,
+    "oracle_acc": 0.943
+   },
+   "mfcc1_m": {
+    "fisher": 0.134,
+    "oracle_acc": 0.736
+   },
+   "mfcc2_m": {
+    "fisher": 0.011,
+    "oracle_acc": 0.568
+   },
+   "mfcc3_m": {
+    "fisher": 0.101,
+    "oracle_acc": 0.597
+   }
+  },
+  "groups": {
+   "pitch": {
+    "oracle_acc": 0.91,
+    "fisher_mean": 4.2
+   },
+   "spectral": {
+    "oracle_acc": 0.787,
+    "fisher_mean": 0.409
+   },
+   "formants": {
+    "oracle_acc": 0.844,
+    "fisher_mean": 0.617
+   },
+   "mfcc": {
+    "oracle_acc": 0.994,
+    "fisher_mean": 0.367
+   },
+   "full": {
+    "oracle_acc": 0.993,
+    "fisher_mean": 0.601
+   }
+  }
+ },
+ "gptaudio": {
+  "k_true": 2,
+  "single": {
+   "f0_med": {
+    "fisher": 2.088,
+    "oracle_acc": 0.786
+   },
+   "f0_iqr": {
+    "fisher": 0.001,
+    "oracle_acc": 0.561
+   },
+   "centroid": {
+    "fisher": 0.247,
+    "oracle_acc": 0.656
+   },
+   "tilt": {
+    "fisher": 0.709,
+    "oracle_acc": 0.77
+   },
+   "rolloff": {
+    "fisher": 0.276,
+    "oracle_acc": 0.681
+   },
+   "rms": {
+    "fisher": 0.256,
+    "oracle_acc": 0.744
+   },
+   "f1": {
+    "fisher": 0.192,
+    "oracle_acc": 0.62
+   },
+   "f2": {
+    "fisher": 0.07,
+    "oracle_acc": 0.669
+   },
+   "f3": {
+    "fisher": 1.089,
+    "oracle_acc": 0.882
+   },
+   "mfcc1_m": {
+    "fisher": 0.633,
+    "oracle_acc": 0.785
+   },
+   "mfcc2_m": {
+    "fisher": 0.001,
+    "oracle_acc": 0.544
+   },
+   "mfcc3_m": {
+    "fisher": 0.21,
+    "oracle_acc": 0.654
+   }
+  },
+  "groups": {
+   "pitch": {
+    "oracle_acc": 0.706,
+    "fisher_mean": 1.044
+   },
+   "spectral": {
+    "oracle_acc": 0.634,
+    "fisher_mean": 0.411
+   },
+   "formants": {
+    "oracle_acc": 0.798,
+    "fisher_mean": 0.45
+   },
+   "mfcc": {
+    "oracle_acc": 0.993,
+    "fisher_mean": 0.249
+   },
+   "full": {
+    "oracle_acc": 0.993,
+    "fisher_mean": 0.326
+   }
+  }
+ },
+ "scene_couple": {
+  "k_true": 2,
+  "single": {
+   "f0_med": {
+    "fisher": 6.548,
+    "oracle_acc": 1.0
+   },
+   "f0_iqr": {
+    "fisher": 0.143,
+    "oracle_acc": 0.741
+   },
+   "centroid": {
+    "fisher": 0.274,
+    "oracle_acc": 0.812
+   },
+   "tilt": {
+    "fisher": 0.536,
+    "oracle_acc": 0.845
+   },
+   "rolloff": {
+    "fisher": 0.417,
+    "oracle_acc": 0.862
+   },
+   "rms": {
+    "fisher": 0.238,
+    "oracle_acc": 0.82
+   },
+   "f1": {
+    "fisher": 0.056,
+    "oracle_acc": 0.599
+   },
+   "f2": {
+    "fisher": 0.093,
+    "oracle_acc": 0.575
+   },
+   "f3": {
+    "fisher": 0.86,
+    "oracle_acc": 0.887
+   },
+   "mfcc1_m": {
+    "fisher": 0.373,
+    "oracle_acc": 0.82
+   },
+   "mfcc2_m": {
+    "fisher": 0.005,
+    "oracle_acc": 0.654
+   },
+   "mfcc3_m": {
+    "fisher": 0.175,
+    "oracle_acc": 0.618
+   }
+  },
+  "groups": {
+   "pitch": {
+    "oracle_acc": 1.0,
+    "fisher_mean": 3.346
+   },
+   "spectral": {
+    "oracle_acc": 0.778,
+    "fisher_mean": 0.409
+   },
+   "formants": {
+    "oracle_acc": 0.751,
+    "fisher_mean": 0.336
+   },
+   "mfcc": {
+    "oracle_acc": 1.0,
+    "fisher_mean": 0.25
+   },
+   "full": {
+    "oracle_acc": 1.0,
+    "fisher_mean": 0.448
+   }
+  }
+ },
+ "scene_family3": {
+  "k_true": 3,
+  "single": {
+   "f0_med": {
+    "fisher": 2.527,
+    "oracle_acc": 0.786
+   },
+   "f0_iqr": {
+    "fisher": 0.187,
+    "oracle_acc": 0.494
+   },
+   "centroid": {
+    "fisher": 0.376,
+    "oracle_acc": 0.522
+   },
+   "tilt": {
+    "fisher": 1.224,
+    "oracle_acc": 0.707
+   },
+   "rolloff": {
+    "fisher": 0.532,
+    "oracle_acc": 0.575
+   },
+   "rms": {
+    "fisher": 0.396,
+    "oracle_acc": 0.527
+   },
+   "f1": {
+    "fisher": 0.181,
+    "oracle_acc": 0.492
+   },
+   "f2": {
+    "fisher": 0.125,
+    "oracle_acc": 0.45
+   },
+   "f3": {
+    "fisher": 1.493,
+    "oracle_acc": 0.754
+   },
+   "mfcc1_m": {
+    "fisher": 0.928,
+    "oracle_acc": 0.647
+   },
+   "mfcc2_m": {
+    "fisher": 0.12,
+    "oracle_acc": 0.439
+   },
+   "mfcc3_m": {
+    "fisher": 0.167,
+    "oracle_acc": 0.452
+   }
+  },
+  "groups": {
+   "pitch": {
+    "oracle_acc": 0.764,
+    "fisher_mean": 1.357
+   },
+   "spectral": {
+    "oracle_acc": 0.602,
+    "fisher_mean": 0.711
+   },
+   "formants": {
+    "oracle_acc": 0.743,
+    "fisher_mean": 0.6
+   },
+   "mfcc": {
+    "oracle_acc": 0.824,
+    "fisher_mean": 0.291
+   },
+   "full": {
+    "oracle_acc": 0.901,
+    "fisher_mean": 0.417
+   }
+  }
+ },
+ "scene_meeting4": {
+  "k_true": 4,
+  "single": {
+   "f0_med": {
+    "fisher": 2.332,
+    "oracle_acc": 0.589
+   },
+   "f0_iqr": {
+    "fisher": 0.261,
+    "oracle_acc": 0.407
+   },
+   "centroid": {
+    "fisher": 0.291,
+    "oracle_acc": 0.455
+   },
+   "tilt": {
+    "fisher": 0.823,
+    "oracle_acc": 0.495
+   },
+   "rolloff": {
+    "fisher": 0.382,
+    "oracle_acc": 0.429
+   },
+   "rms": {
+    "fisher": 0.464,
+    "oracle_acc": 0.413
+   },
+   "f1": {
+    "fisher": 0.213,
+    "oracle_acc": 0.409
+   },
+   "f2": {
+    "fisher": 0.178,
+    "oracle_acc": 0.364
+   },
+   "f3": {
+    "fisher": 0.633,
+    "oracle_acc": 0.584
+   },
+   "mfcc1_m": {
+    "fisher": 0.671,
+    "oracle_acc": 0.457
+   },
+   "mfcc2_m": {
+    "fisher": 0.165,
+    "oracle_acc": 0.388
+   },
+   "mfcc3_m": {
+    "fisher": 0.157,
+    "oracle_acc": 0.34
+   }
+  },
+  "groups": {
+   "pitch": {
+    "oracle_acc": 0.618,
+    "fisher_mean": 1.296
+   },
+   "spectral": {
+    "oracle_acc": 0.445,
+    "fisher_mean": 0.498
+   },
+   "formants": {
+    "oracle_acc": 0.54,
+    "fisher_mean": 0.341
+   },
+   "mfcc": {
+    "oracle_acc": 0.726,
+    "fisher_mean": 0.284
+   },
+   "full": {
+    "oracle_acc": 0.745,
+    "fisher_mean": 0.37
+   }
+  }
+ },
+ "maggiano3": {
+  "k_true": 3,
+  "single": {
+   "f0_med": {
+    "fisher": 1.523,
+    "oracle_acc": 0.714
+   },
+   "f0_iqr": {
+    "fisher": 0.027,
+    "oracle_acc": 0.378
+   },
+   "centroid": {
+    "fisher": 0.735,
+    "oracle_acc": 0.632
+   },
+   "tilt": {
+    "fisher": 0.736,
+    "oracle_acc": 0.579
+   },
+   "rolloff": {
+    "fisher": 0.389,
+    "oracle_acc": 0.562
+   },
+   "rms": {
+    "fisher": 0.264,
+    "oracle_acc": 0.435
+   },
+   "f1": {
+    "fisher": 1.208,
+    "oracle_acc": 0.653
+   },
+   "f2": {
+    "fisher": 0.316,
+    "oracle_acc": 0.495
+   },
+   "f3": {
+    "fisher": 0.161,
+    "oracle_acc": 0.425
+   },
+   "mfcc1_m": {
+    "fisher": 1.019,
+    "oracle_acc": 0.638
+   },
+   "mfcc2_m": {
+    "fisher": 1.132,
+    "oracle_acc": 0.553
+   },
+   "mfcc3_m": {
+    "fisher": 0.336,
+    "oracle_acc": 0.527
+   }
+  },
+  "groups": {
+   "pitch": {
+    "oracle_acc": 0.53,
+    "fisher_mean": 0.775
+   },
+   "spectral": {
+    "oracle_acc": 0.62,
+    "fisher_mean": 0.62
+   },
+   "formants": {
+    "oracle_acc": 0.581,
+    "fisher_mean": 0.562
+   },
+   "mfcc": {
+    "oracle_acc": 0.607,
+    "fisher_mean": 0.214
+   },
+   "full": {
+    "oracle_acc": 0.708,
+    "fisher_mean": 0.312
+   }
+  }
+ }
+}

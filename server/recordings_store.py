@@ -146,6 +146,18 @@ def _iter_bytes(data: bytes):
         yield data[i:i + _STREAM_CHUNK]
 
 
+# meta.json fields that describe a live session's ATTACHED audio (see
+# RecordingsStore.attach_audio). A re-POST of the session (save_live_session)
+# carries these over from the existing meta so the phone's "no audio" meta
+# never disowns an audio.m4a that is still stored. duration_seconds is among
+# them because attach_audio wrote the duration DECODED from the audio, which
+# beats the transcript-derived estimate a re-POST would otherwise reinstate.
+_ATTACHED_AUDIO_META_KEYS = (
+    "media_type", "stored_variants", "size_bytes", "original_bytes",
+    "storage_note", "audio_attached_at", "duration_seconds",
+)
+
+
 # ---------------------------------------------------------------------------
 # GCS-backed store
 # ---------------------------------------------------------------------------
@@ -427,6 +439,33 @@ class RecordingsStore:
             meta["manual_speaker_people"] = people
         else:
             meta.pop("manual_speaker_people", None)
+        blob.upload_from_string(
+            json.dumps(meta), content_type="application/json",
+        )
+        return meta
+
+    # -- update mood (outcome engine, Workstream 4) ------------------------
+    async def update_mood(
+        self, uid: str, recording_id: str, *, mood_after: int,
+    ) -> dict | None:
+        """Attach the AFTER half of the mood check (CANDOR's single 1-9
+        item) to an already-stored live episode — the phone answers this a
+        beat after ``POST /sessions/live`` already stored ``mood_before``
+        on the same meta. Read-modify-write of meta.json only (same shape
+        as :meth:`update_title`); ``None`` when the recording does not
+        exist for this uid (→ 404)."""
+        return await asyncio.to_thread(
+            self._update_mood_sync, uid, recording_id, mood_after,
+        )
+
+    def _update_mood_sync(self, uid, recording_id, mood_after) -> dict | None:
+        blob = self._bucket.blob(
+            self._prefix(uid, recording_id) + "meta.json"
+        )
+        if not blob.exists():
+            return None
+        meta = json.loads(blob.download_as_bytes())
+        meta["mood_after"] = mood_after
         blob.upload_from_string(
             json.dumps(meta), content_type="application/json",
         )
@@ -755,13 +794,94 @@ class RecordingsStore:
         )
         return meta
 
+    # -- applied speaker segmentation (…/reanalyze-with-segments) ----------
+    async def apply_speaker_segments_meta(
+        self,
+        uid: str,
+        recording_id: str,
+        *,
+        source: str,
+        applied_at: str,
+        segments: list[dict],
+    ) -> dict | None:
+        """Record that an explicit voice segmentation was applied to this
+        recording (POST …/reanalyze-with-segments): stamp
+        ``speaker_segments_source`` / ``speaker_segments_applied_at`` and keep
+        the applied ``speaker_segments`` verbatim, and DROP the manual speaker
+        name + people maps — both are keyed by the speaker ids the previous
+        analysis used, which the applied segmentation replaced. Read-modify-
+        write of meta.json only (the overwrite of turns/analysis happened in
+        ``overwrite_analysis`` just before). Returns the updated meta, or
+        ``None`` when the recording does not exist for this uid (→ 404)."""
+        return await asyncio.to_thread(
+            self._apply_speaker_segments_meta_sync,
+            uid, recording_id, source, applied_at, segments,
+        )
+
+    def _apply_speaker_segments_meta_sync(
+        self, uid, recording_id, source, applied_at, segments,
+    ) -> dict | None:
+        blob = self._bucket.blob(
+            self._prefix(uid, recording_id) + "meta.json"
+        )
+        if not blob.exists():
+            return None
+        meta = json.loads(blob.download_as_bytes())
+        meta["speaker_segments_source"] = source
+        meta["speaker_segments_applied_at"] = applied_at
+        meta["speaker_segments"] = segments
+        meta.pop("manual_speaker_labels", None)
+        meta.pop("manual_speaker_people", None)
+        blob.upload_from_string(
+            json.dumps(meta), content_type="application/json",
+        )
+        return meta
+
+    # -- raw transcript (STT output, incl. word timings) --------------------
+    # transcript.json is the transcriber's RAW utterances for the recording —
+    # pre-diarization labels, per-word timings and all — saved at first
+    # analysis so a re-analysis can skip STT yet still re-run every later
+    # stage exactly as the first pass did (the local-diarization cross-check
+    # needs the word timings to split a welded multi-voice utterance;
+    # turns.json is the POST-diarization transcript without them). Absent on
+    # recordings analyzed before this existed; re-analysis then transcribes
+    # once more and writes it.
+    async def save_transcript(
+        self, uid: str, recording_id: str, transcript: list[dict],
+    ) -> None:
+        await asyncio.to_thread(
+            self._save_transcript_sync, uid, recording_id, transcript,
+        )
+
+    def _save_transcript_sync(self, uid, recording_id, transcript) -> None:
+        prefix = self._prefix(uid, recording_id)
+        self._bucket.blob(prefix + "transcript.json").upload_from_string(
+            json.dumps(transcript), content_type="application/json",
+        )
+
+    async def get_transcript(
+        self, uid: str, recording_id: str,
+    ) -> list[dict] | None:
+        """The raw STT transcript, or ``None`` when none was stored."""
+        return await asyncio.to_thread(self._get_transcript_sync, uid, recording_id)
+
+    def _get_transcript_sync(self, uid, recording_id) -> list[dict] | None:
+        blob = self._bucket.blob(self._prefix(uid, recording_id) + "transcript.json")
+        if not blob.exists():
+            return None
+        data = json.loads(blob.download_as_bytes())
+        return data if isinstance(data, list) else None
+
     # -- live sessions (Track 2) -------------------------------------------
-    # A live coaching session has NO audio on the server (the phone did the
-    # listening) — so it is stored as meta + turns + analysis ONLY, under the
-    # same recordings/{uid}/{id}/ prefix as an upload. Every list/detail/
-    # growth/share/delete path then treats it exactly like a recording; the
-    # media endpoints 404 honestly (no audio.m4a object exists — see
-    # _open_media_stream_sync, which returns None for a missing derivative).
+    # A live coaching session lands WITHOUT audio (the phone did the
+    # listening) — stored as meta + turns + analysis ONLY, under the same
+    # recordings/{uid}/{id}/ prefix as an upload — unless the phone attaches
+    # its mic recording afterwards (POST /sessions/{id}/audio → attach_audio
+    # below writes audio.m4a and flips meta.media_type to "audio"). Every
+    # list/detail/growth/share/delete path treats it exactly like a
+    # recording; until audio is attached the media endpoints 404 honestly
+    # (no audio.m4a object exists — see _open_media_stream_sync, which
+    # returns None for a missing derivative).
     async def save_live_session(
         self,
         uid: str,
@@ -779,9 +899,15 @@ class RecordingsStore:
         meta.json already exists, the human-owned fields it carries —
         ``manual_speaker_labels`` / ``manual_speaker_people`` (a correction),
         ``shares`` (grants) and ``title`` when the new meta has none — are
-        preserved: a phone
-        re-sending its turns must never wipe what the user did afterwards.
-        Returns the meta actually written."""
+        preserved: a phone re-sending its turns must never wipe what the user
+        did afterwards. Likewise, when the existing meta says audio was
+        ATTACHED (``media_type != "none"`` — see :meth:`attach_audio`), the
+        audio-describing fields (``media_type``, ``stored_variants``,
+        ``size_bytes``, ``original_bytes``, ``storage_note``,
+        ``audio_attached_at``, and the decoded ``duration_seconds``) are
+        carried over: the incoming meta always
+        says "no audio", and a re-POST must not disown the audio.m4a that
+        is still sitting next to it. Returns the meta actually written."""
         return await asyncio.to_thread(
             self._save_live_session_sync, uid, recording_id, meta, turns, analysis,
         )
@@ -792,11 +918,25 @@ class RecordingsStore:
         written = dict(meta)
         if meta_blob.exists():
             existing = json.loads(meta_blob.download_as_bytes())
-            for key in ("manual_speaker_labels", "manual_speaker_people", "shares"):
+            # "mood_after" (outcome engine, Workstream 4): set only by
+            # update_mood() after the episode exists — a re-POST's meta
+            # never carries it, so it must survive the same way a manual
+            # label does, or a retry would silently erase the user's
+            # already-answered AFTER check.
+            for key in (
+                "manual_speaker_labels", "manual_speaker_people", "shares",
+                "mood_after",
+            ):
                 if key in existing and key not in written:
                     written[key] = existing[key]
             if not written.get("title") and existing.get("title"):
                 written["title"] = existing["title"]
+            # Attached audio survives a re-POST (the phone's meta says "none";
+            # the audio.m4a object is still there and must stay described).
+            if existing.get("media_type") not in (None, "none"):
+                for key in _ATTACHED_AUDIO_META_KEYS:
+                    if key in existing:
+                        written[key] = existing[key]
         meta_blob.upload_from_string(
             json.dumps(written), content_type="application/json",
         )
@@ -807,6 +947,61 @@ class RecordingsStore:
             json.dumps(analysis), content_type="application/json",
         )
         return written
+
+    async def attach_audio(
+        self,
+        uid: str,
+        recording_id: str,
+        *,
+        audio_m4a: bytes,
+        duration_seconds: float | None = None,
+        original_bytes: int = 0,
+    ) -> dict | None:
+        """Attach the phone's mic recording to an already-stored live
+        session (POST /sessions/{id}/audio): write its AAC derivative as
+        ``audio.m4a`` under the recording prefix, then read-modify-write
+        meta.json so the recording describes itself as an audio recording
+        (``media_type: "audio"``, ``stored_variants``, sizes, the
+        ``storage_note`` cleared, ``audio_attached_at`` stamped, and the
+        decoded ``duration_seconds`` when given). Every "no audio" refusal
+        downstream (media 404, reanalyze 422, voice enrollment) keys off
+        media_type + the blob, so both flip together here.
+
+        Idempotent: re-attaching overwrites audio.m4a (a retry after a
+        dropped connection must not conflict). Returns the updated meta, or
+        ``None`` when the recording does not exist for this uid (→ 404) —
+        nothing is written in that case."""
+        return await asyncio.to_thread(
+            self._attach_audio_sync, uid, recording_id, audio_m4a,
+            duration_seconds, original_bytes,
+        )
+
+    def _attach_audio_sync(
+        self, uid, recording_id, audio_m4a, duration_seconds, original_bytes,
+    ) -> dict | None:
+        prefix = self._prefix(uid, recording_id)
+        meta_blob = self._bucket.blob(prefix + "meta.json")
+        if not meta_blob.exists():
+            return None
+        meta = json.loads(meta_blob.download_as_bytes())
+        # Audio first, meta second: a crash between the two leaves an
+        # undescribed blob (harmless — the next retry overwrites it) rather
+        # than a meta that promises audio which is not there.
+        self._bucket.blob(prefix + "audio.m4a").upload_from_string(
+            audio_m4a, content_type="audio/mp4",
+        )
+        meta["media_type"] = "audio"
+        meta["stored_variants"] = ["audio.m4a"]
+        meta["size_bytes"] = len(audio_m4a)
+        meta["original_bytes"] = original_bytes
+        meta["storage_note"] = None
+        if duration_seconds is not None:
+            meta["duration_seconds"] = duration_seconds
+        meta["audio_attached_at"] = datetime.now(timezone.utc).isoformat()
+        meta_blob.upload_from_string(
+            json.dumps(meta), content_type="application/json",
+        )
+        return meta
 
     async def update_analysis(
         self, uid: str, recording_id: str, analysis: dict,

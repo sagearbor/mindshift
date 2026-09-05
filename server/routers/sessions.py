@@ -1,6 +1,6 @@
 """Live-session router — Track 2 ("phone later analysis").
 
-Three endpoints, included from main.py with one line:
+Five endpoints, included from main.py with one line:
 
 * ``POST /sessions/live``          — Track 3-mobile POSTs a FINISHED live
                                      coaching session here at session end
@@ -15,7 +15,13 @@ Three endpoints, included from main.py with one line:
                                      and the "what you could have said"
                                      reflection run AFTERWARDS as a tracked
                                      background task — the 201 never waits on
-                                     an LLM.
+                                     an LLM. Optionally carries the outcome
+                                     engine's BEFORE mood check
+                                     (``mood_before``, CANDOR's 1-9 item).
+* ``PATCH /sessions/live/{id}/mood`` — the AFTER half of that same mood
+                                     check, answered a beat later (the phone
+                                     PATCHes it once the episode already
+                                     exists). Owner-only, live-episodes-only.
 * ``POST /episodes/{id}/reflect``  — on-demand "what you could have said" for
                                      the user's OWN turns of one episode (a
                                      live session OR an upload whose enrolled
@@ -29,6 +35,22 @@ Three endpoints, included from main.py with one line:
                                      existing read-only grant), projected to
                                      the dashboard's session shape with the
                                      tone/identity summary and reflections.
+* ``POST /sessions/{id}/audio``    — the phone attaches the session's mic
+                                     recording (a WAV, multipart ``file``)
+                                     to an already-stored live episode: it
+                                     is transcoded to the same ``audio.m4a``
+                                     derivative an upload stores and the
+                                     episode's ``media_type`` flips to
+                                     "audio", so replay / re-analyze / voice
+                                     enrollment work on it exactly like an
+                                     upload. Over the direct-upload cap the
+                                     phone streams the WAV through the
+                                     chunked ``/uploads/*`` session instead
+                                     and names the episode in
+                                     ``attach_to_recording_id`` at
+                                     ``/uploads/{id}/complete`` — same
+                                     attach (:func:`attach_live_audio`),
+                                     same response.
 
 Why its own router (not main.py): main's analyze/recordings region is being
 edited by the concurrent tracks (audio_pipeline for realtime, the enrolled-
@@ -55,9 +77,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request
-from pydantic import BaseModel, Field, field_validator, model_validator
+from fastapi import APIRouter, Depends, File, HTTPException, Path, Request, UploadFile
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+import audio_ingest
 import live_sessions
 import recordings_store
 import speaker_id
@@ -169,6 +192,12 @@ class LiveSessionIn(BaseModel):
     # Escape hatches for a client that wants the record but not the spend.
     analyze: bool = True
     reflect: bool = True
+    # Outcome engine (Workstream 4): CANDOR's single mood item ("positive vs
+    # negative feelings right now", 1-9) answered BEFORE the session — it
+    # rides in on this same POST since the phone already has it at stop.
+    # ``mood_after`` (answered a beat later) is NOT here: see
+    # PATCH /sessions/live/{episode_id}/mood below.
+    mood_before: Optional[int] = Field(default=None, ge=1, le=9)
 
     @field_validator("started_at", "ended_at")
     @classmethod
@@ -230,6 +259,36 @@ class ReflectOut(BaseModel):
     could_have_said: list[ReflectionOut]
     cached: bool
     reflected_at: Optional[str]
+
+
+class MoodPatchIn(BaseModel):
+    """The AFTER half of the outcome-engine mood check (CANDOR's single
+    item, 1-9) — answered a beat after POST /sessions/live already stored
+    the episode (with or without ``mood_before``)."""
+    mood_after: int = Field(ge=1, le=9)
+
+
+class MoodOut(BaseModel):
+    episode_id: str
+    mood_after: int
+
+
+class SessionAudioAttachResponse(BaseModel):
+    """200 body of POST /sessions/{id}/audio — and of a chunked
+    ``/uploads/{id}/complete`` that named ``attach_to_recording_id``. The
+    meta fields the attach flipped, so the phone can update its local row
+    without a second GET."""
+    # extra="forbid": /uploads/{id}/complete serves this OR the full
+    # AnalyzeUploadResponse; forbidding extras keeps that union unambiguous.
+    model_config = ConfigDict(extra="forbid")
+
+    recording_id: str
+    media_type: Literal["audio"] = "audio"
+    # Decoded from the attached bytes (not the transcript-derived estimate).
+    duration_seconds: float
+    # Bytes of the STORED derivative (audio.m4a), not of the uploaded WAV.
+    size_bytes: int
+    stored_variants: list[str] = ["audio.m4a"]
 
 
 # ---------------------------------------------------------------------------
@@ -500,6 +559,7 @@ async def ingest_live(
     context: str,
     analyze: bool,
     reflect: bool,
+    mood_before: int | None = None,
 ) -> LiveSessionOut:
     """Store one finished live session for ``uid`` and schedule its
     post-ingest analysis — the body of ``POST /sessions/live``, callable
@@ -562,7 +622,10 @@ async def ingest_live(
         "ingested_at": now,
         "filename": "live-session",
         "title": title,
-        # No audio on the server: "none" so the client never asks for media.
+        # No audio on the server at ingest: "none" so the client never asks
+        # for media — unless the phone attaches it afterwards (POST
+        # /sessions/{id}/audio), which flips this to "audio" in place; a
+        # re-POST then keeps the attached-audio fields (save_live_session).
         "media_type": "none",
         "duration_seconds": live_sessions.duration_seconds(
             turns, started_at, ended_at,
@@ -582,6 +645,11 @@ async def ingest_live(
         meta["manual_speaker_labels"] = manual_names
     if manual_people:
         meta["manual_speaker_people"] = manual_people
+    # Outcome engine: the BEFORE mood rides in on this same POST (the phone
+    # already has it at stop). ``mood_after`` is never set here — see the
+    # PATCH below — and save_live_session() carries it over on a re-POST.
+    if mood_before is not None:
+        meta["mood_before"] = mood_before
     try:
         await store.save_live_session(
             uid, recording_id, meta=meta, turns=turns, analysis=analysis,
@@ -653,7 +721,143 @@ async def ingest_live_session(
         context=body.context,
         analyze=body.analyze,
         reflect=body.reflect,
+        mood_before=body.mood_before,
     )
+
+
+# ---------------------------------------------------------------------------
+# PATCH /sessions/live/{episode_id}/mood
+# ---------------------------------------------------------------------------
+
+@router.patch("/sessions/live/{episode_id}/mood", response_model=MoodOut)
+async def patch_session_mood(
+    request: Request,
+    episode_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    body: MoodPatchIn,
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    """Attach the AFTER mood check to a live episode once the user answers
+    it — the phone POSTs ``mood_before`` with the session at stop, but the
+    AFTER check is answered a moment later, once the episode already
+    exists. Owner-only (``get_recording`` is uid-scoped, so a foreign
+    episode reads as absent) and live-episodes-only, same honest 404 as
+    ``attach_live_audio`` for anything else (missing, foreign, or an
+    upload — moods are a live-session concept only)."""
+    store = _require_store(request)
+    rec = await store.get_recording(uid, episode_id)
+    source = rec.get("source") if isinstance(rec, dict) else None
+    if rec is None or not isinstance(source, dict) or source.get("type") != "live":
+        raise HTTPException(status_code=404, detail="Live session not found")
+    updated = await store.update_mood(uid, episode_id, mood_after=body.mood_after)
+    if updated is None:  # deleted between the read above and the write
+        raise HTTPException(status_code=404, detail="Live session not found")
+    return MoodOut(episode_id=episode_id, mood_after=body.mood_after)
+
+
+# ---------------------------------------------------------------------------
+# POST /sessions/{id}/audio
+# ---------------------------------------------------------------------------
+
+async def attach_live_audio(
+    store: "recordings_store.RecordingsStore",
+    uid: str,
+    recording_id: str,
+    data: bytes,
+) -> SessionAudioAttachResponse:
+    """Attach ``data`` (the phone's mic recording — a 16 kHz mono WAV, but
+    any container ffmpeg decodes is accepted) to ``uid``'s live episode
+    ``recording_id``. Shared by the direct endpoint below and the chunked
+    ``/uploads/{id}/complete`` path (``attach_to_recording_id``), so both
+    produce the same objects and the same body.
+
+    404 when the episode is missing / foreign / not a live session (audio
+    is attached to a LIVE episode only — an upload already has its own);
+    422 when the bytes are empty or do not decode; 503 when ffmpeg (the
+    derivative transcoder) is unavailable. Idempotent — a retry after a
+    dropped connection simply overwrites audio.m4a."""
+    rec = await store.get_recording(uid, recording_id)
+    source = rec.get("source") if isinstance(rec, dict) else None
+    if rec is None or not isinstance(source, dict) or source.get("type") != "live":
+        # Same honest 404 whether it is absent, foreign, or an upload: none
+        # of those is a live episode of this user's.
+        raise HTTPException(status_code=404, detail="Live session not found")
+    if not data:
+        raise HTTPException(status_code=422, detail="empty file")
+
+    # Duration from the bytes themselves — the transcript-derived estimate
+    # ingest wrote is replaced by what was actually recorded. to_thread:
+    # the WAV parse is in-process but any other container shells to ffmpeg.
+    try:
+        pcm, sr = await asyncio.to_thread(
+            audio_ingest.decode_to_pcm, data, "session-audio.wav",
+        )
+    except audio_ingest.AudioDecodeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    duration = float(len(pcm)) / float(sr) if sr > 0 else 0.0
+
+    # The SAME derivative an upload stores (mono AAC audio.m4a) — never
+    # the raw WAV (~1.9 MB/min). expect_video=False: a mic capture.
+    try:
+        derivatives = await asyncio.to_thread(
+            audio_ingest.build_derivatives, data, expect_video=False,
+        )
+    except audio_ingest.AudioDecodeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except audio_ingest.TranscodeError as exc:
+        # ffmpeg missing/failed: nothing to store — honest, never a bare 500.
+        raise HTTPException(status_code=503, detail=f"could not transcode audio: {exc}")
+
+    meta = await store.attach_audio(
+        uid, recording_id,
+        audio_m4a=derivatives.audio_m4a,
+        duration_seconds=duration,
+        original_bytes=len(data),
+    )
+    if meta is None:  # deleted between the read above and the write
+        raise HTTPException(status_code=404, detail="Live session not found")
+    return SessionAudioAttachResponse(
+        recording_id=recording_id,
+        media_type="audio",
+        duration_seconds=float(meta.get("duration_seconds") or duration),
+        size_bytes=int(meta.get("size_bytes") or len(derivatives.audio_m4a)),
+        stored_variants=list(meta.get("stored_variants") or ["audio.m4a"]),
+    )
+
+
+@router.post(
+    "/sessions/{recording_id}/audio", response_model=SessionAudioAttachResponse,
+)
+async def attach_session_audio(
+    request: Request,
+    recording_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    file: UploadFile = File(...),
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    """Attach the phone's mic recording (multipart ``file``, a WAV) to the
+    live episode ``recording_id`` — the ``episode_id`` POST /sessions/live
+    returned. Direct path, capped at main.MAX_UPLOAD_BYTES (413 above it —
+    the phone then streams the WAV through /uploads/start → chunks →
+    /uploads/{id}/complete with ``attach_to_recording_id``). 404 for a
+    missing / foreign / non-live episode, 422 for undecodable bytes;
+    re-attaching overwrites (idempotent)."""
+    import main
+
+    store = _require_store(request)
+    data = await file.read()
+    if len(data) > main.MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"file too large: {len(data)} bytes exceeds the "
+                f"{main.MAX_UPLOAD_BYTES}-byte direct-upload limit — use "
+                "chunked upload (POST /uploads/start, then "
+                "attach_to_recording_id at /uploads/{id}/complete) for files "
+                f"above {main.MAX_UPLOAD_BYTES // (1024 * 1024)}MB"
+            ),
+        )
+    return await attach_live_audio(store, uid, recording_id, data)
 
 
 # ---------------------------------------------------------------------------

@@ -32,6 +32,12 @@ interface SpeakerEnrollmentProps {
 /**
  * "This is me" — per-speaker voice enrollment on a stored recording.
  *
+ * The standalone card is now the FALLBACK (older servers without speaker
+ * naming); on a current server the same affordance renders inline in the
+ * "Speakers" card's rows via `useSpeakerEnrollment` + SpeakerNaming's
+ * `enrollment` prop, so one list serves naming, "Who is this?" and "This is
+ * me" instead of two cards listing the same people.
+ *
  * Renders NOTHING until it confirms the server can actually do voice ID
  * (`available` + `storage_enabled` from GET /voice/profile) — no dead button on
  * a server without the optional embedding deps. For each distinct diarized
@@ -46,26 +52,35 @@ interface SpeakerEnrollmentProps {
  * Biometric transparency is stated up front and again in the confirmation: what
  * is stored is a numeric voice signature, not the audio.
  */
-export default function SpeakerEnrollment({
-  recordingId,
-  turns,
-  speakerLabels,
-}: SpeakerEnrollmentProps) {
+/** Everything the "This is me" affordance needs, as a hook — so it can be
+ *  rendered inline in the speaker rows (SpeakerNaming) instead of as a
+ *  second card listing the same speakers. `enabled=false` skips the profile
+ *  fetch entirely (shared recordings, no audio). */
+export interface SpeakerEnrollmentState {
+  /** The server can do voice ID AND storage is on — otherwise offer nothing. */
+  available: boolean;
+  profile: VoiceProfile | null;
+  enrollingSpeaker: string | null;
+  /** The speaker enrolled in THIS session (confirmation shown), if any. */
+  enrolledSpeaker: string | null;
+  error: string | null;
+  enroll: (speaker: string) => Promise<void>;
+}
+
+export function useSpeakerEnrollment(
+  recordingId: string,
+  enabled = true,
+): SpeakerEnrollmentState {
   const [profile, setProfile] = useState<VoiceProfile | null>(null);
   const [enrollingSpeaker, setEnrollingSpeaker] = useState<string | null>(null);
   const [enrolledSpeaker, setEnrolledSpeaker] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Distinct speakers in first-appearance order (stable, matches the transcript).
-  const speakers = useMemo(() => {
-    const seen: string[] = [];
-    for (const t of turns) {
-      if (t.speaker && !seen.includes(t.speaker)) seen.push(t.speaker);
-    }
-    return seen;
-  }, [turns]);
-
   useEffect(() => {
+    if (!enabled) {
+      setProfile(null);
+      return;
+    }
     let cancelled = false;
     getVoiceProfile()
       .then((p) => {
@@ -78,9 +93,9 @@ export default function SpeakerEnrollment({
     return () => {
       cancelled = true;
     };
-  }, [recordingId]);
+  }, [recordingId, enabled]);
 
-  const handleEnroll = useCallback(
+  const enroll = useCallback(
     async (speaker: string) => {
       setEnrollingSpeaker(speaker);
       setError(null);
@@ -110,6 +125,29 @@ export default function SpeakerEnrollment({
     },
     [recordingId],
   );
+
+  return {
+    available: !!(profile && profile.available && profile.storage_enabled),
+    profile, enrollingSpeaker, enrolledSpeaker, error, enroll,
+  };
+}
+
+export default function SpeakerEnrollment({
+  recordingId,
+  turns,
+  speakerLabels,
+}: SpeakerEnrollmentProps) {
+  const { profile, enrollingSpeaker, enrolledSpeaker, error, enroll: handleEnroll } =
+    useSpeakerEnrollment(recordingId);
+
+  // Distinct speakers in first-appearance order (stable, matches the transcript).
+  const speakers = useMemo(() => {
+    const seen: string[] = [];
+    for (const t of turns) {
+      if (t.speaker && !seen.includes(t.speaker)) seen.push(t.speaker);
+    }
+    return seen;
+  }, [turns]);
 
   // Only offer enrollment when the server can actually do it.
   if (!profile || !profile.available || !profile.storage_enabled) {

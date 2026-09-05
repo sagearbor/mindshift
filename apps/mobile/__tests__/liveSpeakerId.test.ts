@@ -8,8 +8,12 @@ import * as path from "path";
 import {
   assignSpeakers,
   cosine,
+  CROSS_MATCH_MARGIN,
+  CROSS_MATCH_MIN_SETTINGS,
+  CROSS_MATCH_THRESHOLD,
   EcapaEmbedder,
   ECAPA_DIM,
+  identifyClusters,
   MIN_CLUSTER_SECONDS,
   l2Normalize,
   MATCH_THRESHOLD,
@@ -17,10 +21,11 @@ import {
   SpeakerLabeler,
   StaticVoiceprintStore,
   unknownLabel,
+  type EnrolledPerson,
 } from "../src/live/speakerId";
 import type { OnnxSession, OnnxTensor } from "../src/live/ort";
 import { nodeOrtSessionFactory } from "../src/live/testing/ortNode";
-import { AUDIO_FIXTURES_DIR, loadWav16k, sineF32, unitVector } from "../src/live/testing/synth";
+import { AUDIO_FIXTURES_DIR, loadWav16k, sineF32, unitVector, vectorAtCosine } from "../src/live/testing/synth";
 import { findEcapaModel } from "../src/live/replay/sceneReplay";
 
 const D = ECAPA_DIM;
@@ -72,9 +77,162 @@ describe("assignSpeakers (diarize.py parity)", () => {
   });
 });
 
+interface ParityCase {
+  name: string;
+  people: Record<string, { display_name: string; is_self: boolean; settings: number; embedding: number[] }>;
+  speakers: Record<string, number[]>;
+  expected: {
+    matched: Record<string, string>;
+    basis: Record<string, "absolute" | "contrast" | null>;
+    scores: Record<string, Record<string, number>>;
+  };
+}
+
+describe("identifyClusters (speaker_id.identify_from_embeddings parity)", () => {
+  // Generated FROM the Python (server/tests/test_voice_cross_match.py pins
+  // it in the other direction): absolute, the poker-shape contrast match,
+  // and the margin / floor / settings / solo / one-to-one rejections.
+  const fixture = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "fixtures", "speakerCrossMatch.json"), "utf8"),
+  ) as { constants: Record<string, number>; cases: ParityCase[] };
+
+  it("uses the server's constants", () => {
+    expect(fixture.constants).toEqual({
+      match_threshold: MATCH_THRESHOLD,
+      cross_match_threshold: CROSS_MATCH_THRESHOLD,
+      cross_match_margin: CROSS_MATCH_MARGIN,
+      cross_match_min_settings: CROSS_MATCH_MIN_SETTINGS,
+    });
+    expect(fixture.cases.map((c) => c.name)).toEqual(
+      expect.arrayContaining(["absolute_0.80_vs_0.10", "contrast_poker_0.42_vs_0.19_0.12", "reject_margin_0.45_vs_0.35"]),
+    );
+  });
+
+  it.each(fixture.cases.map((c) => [c.name, c] as const))("%s", (_name, c) => {
+    const people: EnrolledPerson[] = Object.entries(c.people).map(([personId, p]) => ({
+      personId,
+      displayName: p.display_name,
+      isSelf: p.is_self,
+      embedding: p.embedding,
+      settings: p.settings,
+    }));
+    const clusters = new Map(Object.entries(c.speakers));
+    const got = identifyClusters(clusters, people);
+    const matched: Record<string, string> = {};
+    const basis: Record<string, string | null> = {};
+    for (const label of clusters.keys()) basis[label] = got.get(label)?.basis ?? null;
+    for (const [label, id] of got) {
+      matched[label] = id.personId;
+      expect(id.score).toBeCloseTo(c.expected.scores[label][id.personId], 4);
+    }
+    expect(matched).toEqual(c.expected.matched);
+    expect(basis).toEqual(c.expected.basis);
+  });
+
+  it("an unknown or zero settings count is one (contrast off), like the server", () => {
+    const you: EnrolledPerson = { personId: "self", displayName: "You", isSelf: true, embedding: [1, 0] };
+    const clusters = new Map<string, number[]>([["A", [0.42, Math.sqrt(1 - 0.42 ** 2)]], ["B", [0.19, Math.sqrt(1 - 0.19 ** 2)]]]);
+    expect(identifyClusters(clusters, [you]).size).toBe(0);
+    expect(identifyClusters(clusters, [{ ...you, settings: 0 }]).size).toBe(0);
+    expect(identifyClusters(clusters, [{ ...you, settings: null }]).size).toBe(0);
+    expect(identifyClusters(clusters, [{ ...you, settings: 2 }].map((p) => p)).get("A")).toEqual({
+      personId: "self",
+      basis: "contrast",
+      score: 0.42,
+    });
+  });
+});
+
 describe("SpeakerLabeler", () => {
   const you = { personId: "p-you", displayName: "You", isSelf: true, embedding: unitVector(D, 0) };
   const mom = { personId: "p-mom", displayName: "Mom", isSelf: false, embedding: unitVector(D, 1) };
+  // The owner's real cross-room print: two recordings pooled.
+  const youAway = { ...you, settings: 2 };
+
+  it("contrast: a cluster gains self once a second cluster exists to contrast against (the poker-night shape)", () => {
+    const lab = new SpeakerLabeler([youAway]);
+    const owner = vectorAtCosine(D, 0.42, 0, 1);
+    const stranger = vectorAtCosine(D, 0.19, 0, 2);
+    // Alone, 0.42 is an honest miss: no second voice to contrast with.
+    const first = lab.label(owner, 2.0);
+    expect(first).toMatchObject({ speaker: "Speaker A", personId: null, isSelf: false, basis: null });
+    expect(lab.clusterAssignments().size).toBe(0);
+    const rev0 = lab.identityRevision;
+    // The stranger's cluster supplies the contrast: A is now the owner.
+    const second = lab.label(stranger, 2.0);
+    expect(second).toMatchObject({ speaker: "Speaker B", personId: null, isSelf: false, basis: null });
+    expect(lab.identityRevision).toBe(rev0 + 1);
+    expect(Array.from(lab.clusterAssignments().entries())).toEqual([
+      ["Speaker A", { personId: "p-you", basis: "contrast", score: 0.42, displayName: "You", isSelf: true }],
+    ]);
+    // The owner's next turn carries the person on the RAW label (the wire
+    // key never changes), with the contrast score and basis.
+    const third = lab.label(owner, 2.0);
+    expect(third).toEqual({
+      speaker: "Speaker A",
+      personId: "p-you",
+      displayName: "You",
+      isSelf: true,
+      score: 0.42,
+      selfScore: expect.closeTo(0.42, 5),
+      basis: "contrast",
+    });
+    expect(lab.identityRevision).toBe(rev0 + 1); // nothing moved
+  });
+
+  it("contrast never fires on a single-recording print, below the floor, or inside the margin", () => {
+    for (const [print, a, b] of [
+      [you, 0.42, 0.19], // settings 1 (default)
+      [youAway, 0.39, 0.05], // under the 0.40 floor
+      [youAway, 0.45, 0.35], // 0.10 gap: inside different-people noise
+    ] as const) {
+      const lab = new SpeakerLabeler([print]);
+      lab.label(vectorAtCosine(D, a, 0, 1), 2.0);
+      lab.label(vectorAtCosine(D, b, 0, 2), 2.0);
+      expect(lab.clusterAssignments().size).toBe(0);
+      expect(lab.label(vectorAtCosine(D, a, 0, 1), 2.0)).toMatchObject({ speaker: "Speaker A", isSelf: false, basis: null });
+    }
+  });
+
+  it("revises: a later cluster that beats the earlier one by the margin takes the person (a person is one voice)", () => {
+    const lab = new SpeakerLabeler([youAway]);
+    lab.label(vectorAtCosine(D, 0.42, 0, 1), 2.0); // A
+    lab.label(vectorAtCosine(D, 0.19, 0, 2), 2.0); // B -> A is self by contrast
+    expect(lab.clusterAssignments().get("Speaker A")?.personId).toBe("p-you");
+    const rev = lab.identityRevision;
+    // C scores 0.60: beats A's 0.42 by 0.18 >= margin — self moves to C.
+    const c = lab.label(vectorAtCosine(D, 0.6, 0, 3), 2.0);
+    expect(c).toMatchObject({ speaker: "Speaker C", personId: "p-you", isSelf: true, score: 0.6, basis: "contrast" });
+    expect(lab.identityRevision).toBe(rev + 1);
+    expect(Array.from(lab.clusterAssignments().keys())).toEqual(["Speaker C"]);
+    // A is an unidentified voice again — honestly not self (a self print exists).
+    expect(lab.label(vectorAtCosine(D, 0.42, 0, 1), 2.0)).toMatchObject({ speaker: "Speaker A", personId: null, isSelf: false, basis: null });
+  });
+
+  it("the absolute path is untouched: >= 0.65 matches outright, founds no cluster, basis absolute", () => {
+    const lab = new SpeakerLabeler([you]); // single recording is enough
+    expect(lab.label(vectorAtCosine(D, 0.7, 0, 1), 2.0)).toEqual({
+      speaker: "You",
+      personId: "p-you",
+      displayName: "You",
+      isSelf: true,
+      score: expect.closeTo(0.7, 5),
+      selfScore: expect.closeTo(0.7, 5),
+      basis: "absolute",
+    });
+    expect(lab.clusterAssignments().size).toBe(0);
+    expect(lab.label(unitVector(D, 5), 2.0).speaker).toBe("Speaker A");
+  });
+
+  it("reset forgets identities and the revision counter", () => {
+    const lab = new SpeakerLabeler([youAway]);
+    lab.label(vectorAtCosine(D, 0.42, 0, 1), 2.0);
+    lab.label(vectorAtCosine(D, 0.19, 0, 2), 2.0);
+    expect(lab.clusterAssignments().size).toBe(1);
+    lab.reset();
+    expect(lab.clusterAssignments().size).toBe(0);
+    expect(lab.identityRevision).toBe(0);
+  });
 
   it("matches enrolled people greedily above MATCH_THRESHOLD", () => {
     const lab = new SpeakerLabeler([you, mom]);
@@ -82,6 +240,7 @@ describe("SpeakerLabeler", () => {
     expect(v1.speaker).toBe("You");
     expect(v1.isSelf).toBe(true);
     expect(v1.personId).toBe("p-you");
+    expect(v1.basis).toBe("absolute");
     expect(v1.score as number).toBeGreaterThanOrEqual(MATCH_THRESHOLD);
     const v2 = lab.label(unitVector(D, 1, 0.15, 12));
     expect(v2.speaker).toBe("Mom");
@@ -112,7 +271,8 @@ describe("SpeakerLabeler", () => {
   it("a segment under MIN_CLUSTER_SECONDS may match but never founds a cluster (Unknown, isSelf null)", () => {
     const lab = new SpeakerLabeler([you, mom]);
     const short = lab.label(unitVector(D, 7), 1.0);
-    expect(short).toEqual({ speaker: "Unknown", personId: null, displayName: null, isSelf: null, score: null });
+    expect(short).toEqual({ speaker: "Unknown", personId: null, displayName: null, isSelf: null, score: null,
+      selfScore: 0, basis: null });
     // Nothing was minted: the next long stranger is the FIRST cluster.
     const long = lab.label(unitVector(D, 7), 2.0);
     expect(long.speaker).toBe("Speaker A");
@@ -127,7 +287,7 @@ describe("SpeakerLabeler", () => {
 
   it("no embedding => Unknown, nothing decided", () => {
     const lab = new SpeakerLabeler([you]);
-    expect(lab.label(null)).toEqual({ speaker: "Unknown", personId: null, displayName: null, isSelf: null, score: null });
+    expect(lab.label(null)).toEqual({ speaker: "Unknown", personId: null, displayName: null, isSelf: null, score: null, basis: null });
   });
 
   it("reset forgets session clusters but not enrollment", () => {

@@ -31,7 +31,8 @@ MEASURED 2026-08-24 (current pipeline, pinned ECAPA revision, 16 kHz):
   meeting4           onyx + marin/ballad/nova  num_speakers=2  11/17 = 0.647
                      SELF isolated on all 6 of its turns; the three
                      colleagues merged into one cluster (k=3 rejected at
-                     marginal cosine 0.339 vs STRONG_SEPARATION_COSINE 0.32).
+                     marginal cosine 0.339 vs STRONG_SEPARATION_COSINE 0.33 —
+                     0.32 at the time; recalibrated 2026-08-27).
 
 The meeting4 number is a REAL LIMIT, not a lazy pin. Four different 4-voice
 sets were generated and measured before settling on this one:
@@ -361,8 +362,8 @@ def test_scene_family3_pinned():
 def test_scene_meeting4_pinned():
     """4 voices (onyx self + marin/ballad/nova). Measured 2026-08-24:
     num_speakers=2, 11/17 = 0.647 — SELF isolated on all 6 of its turns, the
-    three colleagues merged (k=3 rejected: marginal cosine 0.339 vs the 0.32
-    STRONG_SEPARATION bar; k=4 never came close). See the module docstring
+    three colleagues merged (k=3 rejected: marginal cosine 0.339 vs the
+    STRONG_SEPARATION bar — 0.32 then, 0.33 since 2026-08-27, still under 0.339; k=4 never came close). See the module docstring
     for the four voice sets tried before accepting this as a real ceiling.
 
     Pinned EXACTLY at the measured value in both directions: a drop means a
@@ -421,3 +422,88 @@ def test_self_voiceprint_transfers_across_scenes():
                     problems.append(f"self@{a} vs {b}: non-self {spk} matched at {c:.3f}")
     assert not problems, "\n".join(problems)
 
+
+
+# ---------------------------------------------------------------------------
+# Windows-first engine counterparts (2026-08-30; production's default engine —
+# see test_diarize_regression_ladder.py's windows-first section for the
+# per-utterance scoring rule, copied here).
+# ---------------------------------------------------------------------------
+
+def _windows_first_utterance_labels(turns: list[dict], got: dict) -> list[str]:
+    out = []
+    for t in turns:
+        s, e = float(t["start_time"]), float(t["end_time"])
+        weight: dict[str, float] = {}
+        for o in got["turns"]:
+            if o["text"] == diarize_local.UNTRANSCRIBED_TEXT:
+                continue
+            mid = (float(o["start_time"]) + float(o["end_time"])) / 2
+            if s <= mid <= e:
+                weight[o["speaker"]] = weight.get(o["speaker"], 0.0) + (
+                    float(o["end_time"]) - float(o["start_time"])
+                )
+        out.append(max(weight, key=weight.get) if weight else "???")
+    return out
+
+
+def _score_windows(name: str):
+    wav_path = _SCENES[name]
+    meta = json.loads(_meta_path(wav_path).read_text())
+    pcm, sr = _load_16k_pcm(wav_path)
+    turns = _build_turns(meta)
+    truth = [t["speaker"] for t in turns]
+    got = diarize_local.diarize_windows_first(pcm, sr, [dict(t) for t in turns])
+    assert got is not None, f"{name}: the windows engine returned nothing"
+    pred = _windows_first_utterance_labels(turns, got)
+    acc, correct, mapping = _best_permutation_accuracy(truth, pred)
+    lines = [
+        f"{name} (windows engine): num_speakers={got['num_speakers']} (true "
+        f"{meta['num_speakers_true']}), {correct}/{len(truth)} = {acc:.4f}, "
+        f"eigengap k={got['k_evaluated'][0]['k_eigengap']} (eigenvalues "
+        f"{got['k_evaluated'][0]['eigenvalues']}), pooled_cosine={got['pooled_cosine']:.3f}, "
+        f"{len(got['turns'])} turn(s), {got['split_utterances']} split",
+        "  turn  emotion           truth      pred        mapped     ok",
+    ]
+    for i, (t, p) in enumerate(zip(truth, pred)):
+        lines.append(
+            f"  {i:>4}  {meta['turns'][i]['scripted_emotion']:<16}  {t:<9}  "
+            f"{p:<10}  {mapping.get(p, '???'):<9}  {mapping.get(p) == t}"
+        )
+    return meta, got, truth, pred, acc, correct, "\n".join(lines)
+
+
+@_needs_voice_deps
+@_needs_scene_fixtures
+def test_windows_first_scene_couple_escalation_pinned():
+    """Measured 2026-08-30: eigengap k=2, 13/13 (frame accuracy 1.000)."""
+    meta, got, truth, pred, acc, correct, msg = _score_windows("couple_escalation")
+    assert got["num_speakers"] == 2, msg
+    assert acc == 1.0, msg
+
+
+@_needs_voice_deps
+@_needs_scene_fixtures
+def test_windows_first_scene_family3_pinned():
+    """Measured 2026-08-30: eigengap k=3, 15/15 (frame accuracy 1.000)."""
+    meta, got, truth, pred, acc, correct, msg = _score_windows("family3")
+    assert got["num_speakers"] == 3, msg
+    assert acc == 1.0, msg
+
+
+@_needs_voice_deps
+@_needs_scene_fixtures
+def test_windows_first_scene_meeting4_pinned():
+    """4 voices. Measured 2026-08-30: eigengap k=3 (D absorbed into B, the
+    bake-off's documented ceiling — pooled B/D cosine 0.72), frame accuracy
+    0.818 vs the utterance engine's 0.597 (k=2): self isolated, two of the
+    three colleagues separated. Pinned EXACTLY (both directions) like the
+    utterance-engine pin above; a rise to k=4 is the pipeline improving —
+    re-measure and raise."""
+    meta, got, truth, pred, acc, correct, msg = _score_windows("meeting4")
+    assert got["num_speakers"] == 3, msg
+    assert correct == 14 and len(truth) == 17, msg
+    self_label = meta["self_speaker"]
+    self_preds = {p for t, p in zip(truth, pred) if t == self_label}
+    other_preds = {p for t, p in zip(truth, pred) if t != self_label}
+    assert len(self_preds) == 1 and not (self_preds & other_preds), msg

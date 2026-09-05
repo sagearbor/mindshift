@@ -205,6 +205,14 @@ def make_ws_router(
         pcm_buffer_capped = False  # Finding 1d: log the cap crossing only once
         started_at = _now_iso()
         captured = False
+        # Tier B (2026-08-30): a `{"type":"companion"}` hello marks this socket
+        # as a phone-listens companion — it sends no PCM (JSON heartbeats only)
+        # and exists purely to receive relayed vector_event/nudge frames
+        # (watch/relay.py registers it below exactly like any other socket).
+        # A companion connection persists NOTHING: no live-session doc on
+        # `end`, no `not_analyzed` fallback save on an abrupt disconnect — an
+        # all-day wrist socket would otherwise mint an empty junk doc per drop.
+        companion = False
 
         async def emit(events: list[VectorEvent], t: float) -> None:
             vector_events.extend(events)
@@ -294,6 +302,21 @@ def make_ws_router(
 
                 msg_type = payload["type"]
 
+                if msg_type == "companion":
+                    # Tier B hello — see the `companion` flag above. Acked so
+                    # a client can tell the mode registered (and tests can
+                    # synchronize on it); idempotent.
+                    companion = True
+                    await websocket.send_json({"type": "companion_ack"})
+                    continue
+
+                if msg_type == "heartbeat":
+                    # Companion keepalive: deliberately no reply, no state —
+                    # its only job is keeping NATs/idle reapers off a socket
+                    # that may carry no frames for hours. The relay only needs
+                    # the socket registered, which happened at accept.
+                    continue
+
                 if msg_type == "hr":
                     try:
                         bpm = float(payload["bpm"])
@@ -311,6 +334,19 @@ def make_ws_router(
                     events = engine.push_hr(bpm, stream_t)
                     await emit(events, stream_t)
                 elif msg_type == "end":
+                    if companion:
+                        # A companion socket has nothing worth persisting or
+                        # analyzing — close cleanly without a store write. The
+                        # status string says so honestly instead of claiming
+                        # "captured" for a session that captured nothing.
+                        captured = True  # suppress the finally-save too
+                        await websocket.send_json({
+                            "type": "live_session_saved",
+                            "live_session_id": live_session_id,
+                            "status": "companion",
+                        })
+                        await websocket.close()
+                        return
                     live_session = build_live_session("captured")
                     captured = True
                     await store.put_live_session(live_session)
@@ -348,7 +384,15 @@ def make_ws_router(
             # a phone turn arriving during the save below must find no
             # session rather than a half-torn-down one.
             unregister_live_session(relay_session)
-            if not captured:
+            if companion and not captured:
+                # Tier B: an abrupt companion disconnect (screen-off reconnect
+                # churn, pocket dead zones) is ordinary, and there is nothing
+                # to save — see the `companion` flag above.
+                logger.debug(
+                    "Companion socket %s (account=%s) closed; nothing persisted",
+                    live_session_id, account,
+                )
+            elif not captured:
                 # Abrupt disconnect before a clean "end": persist what we
                 # captured so far so data isn't lost, but never mislabel it
                 # as "captured" — it hasn't gone through the normal close path.

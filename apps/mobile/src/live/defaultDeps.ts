@@ -19,7 +19,7 @@
  * `.capabilities.speakerId` — one console line, never an error toast.
  */
 import { Platform } from "react-native";
-import { ecapaModelUrl, fetchVoiceprints, authHeaders } from "../api/liveSessions";
+import { ecapaModelUrl, ECAPA_REVISION, fetchVoiceprints, authHeaders } from "../api/liveSessions";
 import { FastLoop, type FastLoopDeps } from "./fastLoop";
 import { EnergyVad, SileroVad, type FrameVad } from "./vad";
 import { EcapaEmbedder, SpeakerLabeler, type Embedder } from "./speakerId";
@@ -91,7 +91,7 @@ function tryRequire<T>(load: () => T): T | null {
   }
 }
 
-const expoHaptics: HapticSink = {
+export const expoHaptics: HapticSink = {
   async nudge(level) {
     try {
       const Haptics = tryRequire(
@@ -117,13 +117,14 @@ function ortNative(): typeof import("./ortNative") | null {
   return tryRequire(() => require("./ortNative") as typeof import("./ortNative"));
 }
 
-async function buildVad(): Promise<{ vad: FrameVad; name: string }> {
+/** The VAD rung on its own (shared with the Journal mode, journalDeps.ts). */
+export async function buildVad(): Promise<{ vad: FrameVad; name: string }> {
   const session = await ortNative()?.loadSileroSession();
   if (session) return { vad: new SileroVad(session), name: "Silero VAD" };
   return { vad: new EnergyVad(), name: "energy VAD" };
 }
 
-interface SpeakerIdBuild {
+export interface SpeakerIdBuild {
   embedder: Embedder | null;
   labeler: SpeakerLabeler | null;
   capability: SpeakerIdCapability;
@@ -135,7 +136,8 @@ function speakerIdOff(reason: string): SpeakerIdBuild {
   return { embedder: null, labeler: null, capability: inactiveCapability(reason) };
 }
 
-async function buildSpeakerId(): Promise<SpeakerIdBuild> {
+/** The speaker-ID rung on its own (shared with the Journal mode). */
+export async function buildSpeakerId(): Promise<SpeakerIdBuild> {
   const native = ortNative();
   if (!native) return speakerIdOff("native ONNX Runtime unavailable");
   // Model download/revalidation and the voiceprint fetch are independent
@@ -148,7 +150,7 @@ async function buildSpeakerId(): Promise<SpeakerIdBuild> {
     const reason = loaded.model.status === "ready" ? "ONNX session failed" : loaded.model.reason;
     return speakerIdOff(reason);
   }
-  const { kept, dropped } = peopleForModel(voiceprints.people, loaded.model.etag);
+  const { kept, dropped } = peopleForModel(voiceprints.people, ECAPA_REVISION);
   if (dropped.length > 0) {
     console.log(
       `[live] speaker-ID: skipped ${dropped.length} voiceprint(s) from another model revision`,

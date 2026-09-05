@@ -1,4 +1,5 @@
 import React from "react";
+import { AppState } from "react-native";
 import renderer, { act, ReactTestInstance } from "react-test-renderer";
 import GrowthScreen from "../src/screens/GrowthScreen";
 import { catchUpVoice, getGrowth, getVoiceProfile } from "../src/api/client";
@@ -232,17 +233,80 @@ describe("GrowthScreen — catch up my past recordings", () => {
     act(() => comp.unmount());
   });
 
-  it("a transport failure shows an honest error, never a silent no-op", async () => {
+  it("a 503 shows the specific 'voice matching unavailable' error, never a silent no-op", async () => {
     mockGetGrowth.mockResolvedValueOnce(result({ total_recordings: 5 }));
     mockGetVoiceProfile.mockResolvedValue(voiceProfile({ enrolled: true }));
-    mockCatchUpVoice.mockRejectedValueOnce(new Error("API error: 503"));
+    mockCatchUpVoice.mockRejectedValueOnce(
+      Object.assign(new Error("Voice ID unavailable"), { status: 503 }),
+    );
 
     const comp = await render();
     await act(async () => queryId(comp, "growth-catchup-cta")!.props.onPress());
 
-    expect(queryId(comp, "growth-catchup-error")).toBeTruthy();
+    expect(textOf(queryId(comp, "growth-catchup-error")!)).toBe(
+      "Voice matching isn't available on the server right now.",
+    );
     expect(mockGetGrowth).toHaveBeenCalledTimes(1); // no refetch on failure
     act(() => comp.unmount());
+  });
+
+  it("a dropped socket ('Network request failed') says the connection was lost", async () => {
+    mockGetGrowth.mockResolvedValueOnce(result({ total_recordings: 5 }));
+    mockGetVoiceProfile.mockResolvedValue(voiceProfile({ enrolled: true }));
+    mockCatchUpVoice.mockRejectedValueOnce(new TypeError("Network request failed"));
+
+    const comp = await render();
+    await act(async () => queryId(comp, "growth-catchup-cta")!.props.onPress());
+
+    expect(textOf(queryId(comp, "growth-catchup-error")!)).toBe(
+      "Lost the connection while checking — keep the app open and try again.",
+    );
+    expect(mockGetGrowth).toHaveBeenCalledTimes(1);
+    act(() => comp.unmount());
+  });
+
+  it("backgrounded mid catch-up: on return, a failed request still re-reads growth (partial progress is real)", async () => {
+    // RN's jest preset mocks AppState.addEventListener as a jest.fn — grab
+    // the listener GrowthScreen registers so the test can drive it. Scoped to
+    // this test: cleared here, and the subscription is removed on unmount.
+    const addListener = AppState.addEventListener as jest.Mock;
+    addListener.mockClear();
+    const remove = jest.fn();
+    addListener.mockReturnValueOnce({ remove });
+
+    mockGetGrowth
+      .mockResolvedValueOnce(result({ total_recordings: 5 }))
+      .mockResolvedValueOnce(
+        result({ points: series(2), total_recordings: 5, identified_recordings: 2 }),
+      );
+    mockGetVoiceProfile.mockResolvedValue(voiceProfile({ enrolled: true }));
+    let rejectCatchUp!: (err: unknown) => void;
+    mockCatchUpVoice.mockReturnValueOnce(
+      new Promise((_, reject) => {
+        rejectCatchUp = reject;
+      }),
+    );
+
+    const comp = await render();
+    expect(addListener).toHaveBeenCalledWith("change", expect.any(Function));
+    const onChange = addListener.mock.calls[0][1] as (s: string) => void;
+
+    await act(async () => queryId(comp, "growth-catchup-cta")!.props.onPress());
+    expect(queryId(comp, "growth-catchup-pending")).toBeTruthy();
+
+    act(() => onChange("background"));
+    act(() => onChange("active"));
+    await act(async () => rejectCatchUp(new TypeError("Network request failed")));
+
+    expect(textOf(queryId(comp, "growth-catchup-error")!)).toBe(
+      "Lost the connection while checking — keep the app open and try again.",
+    );
+    expect(mockGetGrowth).toHaveBeenCalledTimes(2); // re-read after settling
+    expect(queryId(comp, "growth-dot-r0")).toBeTruthy(); // what DID get identified
+    expect(queryId(comp, "growth-catchup-pending")).toBeNull();
+
+    act(() => comp.unmount());
+    expect(remove).toHaveBeenCalledTimes(1);
   });
 
   it("stays reachable after the first identification: partially identified + enrolled shows the CTA next to the footer", async () => {
@@ -344,6 +408,32 @@ describe("GrowthScreen — chart", () => {
     expect(queryId(comp, "growth-dot-r0")).toBeTruthy();
     expect(queryId(comp, "growth-dot-r2")).toBeTruthy();
     expect(queryId(comp, "growth-trend")).toBeNull();
+    act(() => comp.unmount());
+  });
+
+  it("draws real axes: a labeled 0–100 y axis and date ticks on the x axis", async () => {
+    mockGetGrowth.mockResolvedValueOnce(
+      result({
+        points: series(3),
+        total_recordings: 3,
+        identified_recordings: 3,
+      }),
+    );
+    const comp = await render();
+    expect(textOf(queryId(comp, "growth-axis-y-label")!)).toBe("Score (0–100) ↑");
+    for (const v of [0, 25, 50, 75, 100]) {
+      expect(textOf(queryId(comp, `growth-axis-y-tick-${v}`)!)).toBe(String(v));
+      expect(queryId(comp, `growth-axis-y-grid-${v}`)).toBeTruthy();
+    }
+    const xTicks = comp.root.findAll(
+      (n) => typeof n.type === "string" && n.props?.testID === "growth-axis-x-tick",
+    );
+    expect(xTicks.length).toBeGreaterThanOrEqual(1);
+    // Day-scale window (Jul 1–3) → day labels, first and last dates present.
+    const labels = xTicks.map(textOf);
+    expect(labels[0]).toMatch(/^Jul \d+$/);
+    expect(labels[labels.length - 1]).toMatch(/^Jul \d+$/);
+    expect(queryId(comp, "growth-axis-hint")).toBeTruthy();
     act(() => comp.unmount());
   });
 

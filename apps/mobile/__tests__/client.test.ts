@@ -24,6 +24,7 @@ import {
   patchSpeakerLabels,
   deleteRecording,
   postReanalyze,
+  postReanalyzeWithSegments,
   reportClientLog,
   enrollVoiceDirect,
 } from "../src/api/client";
@@ -1080,6 +1081,37 @@ describe("postReanalyze", () => {
       status: 422,
       message: "API error: 422",
     });
+  });
+});
+
+describe("postReanalyzeWithSegments", () => {
+  it("POSTs the speaker timeline to /recordings/{id}/reanalyze-with-segments and returns the job", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 202,
+      json: async () => ({ job_id: "job_seg", note: "manual speaker names cleared" }),
+    });
+    const segments = [
+      { start: 0, end: 10.5, label: "Speaker A" },
+      { start: 10.5, end: 42.6, label: "Speaker B" },
+    ];
+    const res = await postReanalyzeWithSegments("rec_1", segments);
+    expect(res).toEqual({ job_id: "job_seg", note: "manual speaker names cleared" });
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toMatch(/\/recordings\/rec_1\/reanalyze-with-segments$/);
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ segments, source: "device-B" });
+  });
+
+  it("carries the server's 422 detail and status so the row can show the reason", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      json: async () => ({ detail: "segments overlap: [0, 3] and [2, 5]" }),
+    });
+    await expect(
+      postReanalyzeWithSegments("rec_1", [{ start: 0, end: 1, label: "A" }]),
+    ).rejects.toMatchObject({ status: 422, message: "segments overlap: [0, 3] and [2, 5]" });
   });
 });
 

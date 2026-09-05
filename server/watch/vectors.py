@@ -50,7 +50,17 @@ HR_RESTING_SAMPLE_COUNT = 5
 HR_SPIKE_LEVELS: tuple[tuple[float, int], ...] = ((35.0, 3), (25.0, 2), (15.0, 1))
 
 # --- interrupting / airtime -----------------------------------------------------
-INTERRUPT_MIN_LEAD_S = 0.5
+# "interrupting" = SUSTAINED MUTUAL SPEECH: self started inside someone
+# else's turn and both kept talking for `overlap` seconds. Recalibrated
+# 2026-09-05 from the CANDOR corpus (850 h, 1,656 conversations): the
+# median overlap at a speaker change is ~0.4 s and 35% of transitions
+# overlap at all — brief overlap is normal engagement, not disrespect, so
+# the old "any >=0.5 s cut-in" ladder buzzed on ordinary conversation.
+# Overlap > 2 s is rare (~13/hour) and is where "talking over someone" starts
+# to read as steamrolling (owner call, 2026-09-05). Same ladder mirrored in
+# apps/mobile/src/live/nudgePolicy.ts (interruptingEvents) via
+# server/tests/fixtures/policy_vectors/interrupting.json.
+INTERRUPT_LEVELS: tuple[tuple[float, int], ...] = ((6.0, 3), (4.0, 2), (2.0, 1))
 AIRTIME_WINDOW_S = 120.0
 AIRTIME_LEVELS: tuple[tuple[float, int], ...] = ((0.9, 3), (0.75, 2), (0.6, 1))
 
@@ -131,6 +141,31 @@ def running_median(history: deque[float]) -> float | None:
 # ever imported the underscored names (verified 2026-08-24).
 _level_for = level_for
 _running_median = running_median
+
+
+def interrupting_events(
+    self_turns: list[tuple[float, float]],
+    other_turns: list[tuple[float, float]],
+) -> list[VectorEvent]:
+    """Sustained mutual speech, measured about SELF: for each self turn that
+    STARTS inside another party's turn, ``overlap`` = how long both kept
+    talking (min(end, other_end) - start). Level from INTERRUPT_LEVELS; below
+    the first rung is ordinary overlap and emits nothing. ``t`` is the self
+    turn's start. Pure: usable from the watch engine, the call pipeline
+    (server/calls.py) and post-hoc analysis alike; the phone mirrors it in
+    nudgePolicy.ts and the shared fixture keeps them bit-identical."""
+    events: list[VectorEvent] = []
+    for start, end in self_turns:
+        for other_start, other_end in other_turns:
+            if other_start < start < other_end:
+                overlap = min(end, other_end) - start
+                level = _level_for(overlap, INTERRUPT_LEVELS)
+                if level:
+                    events.append(VectorEvent(
+                        vector="interrupting", level=level, t=start, value=round(overlap, 3),
+                        detail=f"self talked over the other party for {overlap:.1f}s",
+                    ))
+    return events
 
 
 class VectorEngine:
@@ -234,26 +269,10 @@ class VectorEngine:
     # wire a diarization source in and call this; it activates neither vector
     # in v1. See also DEFAULT_VECTOR_NAMES's comment in server/watch/store.py.
     def push_diarization(self, turns: list[tuple[str, float, float]]) -> list[VectorEvent]:
-        events: list[VectorEvent] = []
         context = self._turns + turns  # history + this batch, for interrupt lookups
-
-        for speaker, start, end in turns:
-            if speaker != "self":
-                continue
-            for other_speaker, other_start, other_end in context:
-                if other_speaker == "self":
-                    continue
-                # An "other" turn already in progress that self cuts into,
-                # with at least INTERRUPT_MIN_LEAD_S left before it would
-                # naturally have ended.
-                if other_start < start < other_end and (other_end - start) >= INTERRUPT_MIN_LEAD_S:
-                    overlap = other_end - start
-                    level = 3 if overlap >= 2.0 else 2 if overlap >= 1.0 else 1
-                    events.append(VectorEvent(
-                        vector="interrupting", level=level, t=start, value=overlap,
-                        detail=f"self started {overlap:.1f}s before the other's turn ended",
-                    ))
-
+        self_turns = [(s, e) for spk, s, e in turns if spk == "self"]
+        other_turns = [(s, e) for spk, s, e in context if spk != "self"]
+        events: list[VectorEvent] = interrupting_events(self_turns, other_turns)
         self._turns.extend(turns)
         events.extend(self._airtime_events())
         return events

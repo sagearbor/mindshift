@@ -42,10 +42,29 @@ def test_hr_spike():
 
 def test_airtime_and_interrupting():
     eng = VectorEngine(BASE)
+    # Self restarts 1.0 s before the other ends: ordinary overlap (CANDOR
+    # median ~0.4 s at a speaker change) — NOT interrupting any more.
     evs = eng.push_diarization([("self", 0.0, 50.0), ("other", 49.0, 55.0), ("self", 54.0, 90.0)])
-    names = {e.vector for e in evs}
-    assert "interrupting" in names                 # self restarts 1.0s before other ends
+    assert "interrupting" not in {e.vector for e in evs}
     assert any(e.vector == "airtime" and e.level >= 2 for e in evs)  # ~87% share
+    # Self keeps talking 7 s into the other's turn: sustained talking-over.
+    eng2 = VectorEngine(BASE)
+    evs2 = eng2.push_diarization([("other", 49.0, 61.0), ("self", 54.0, 90.0)])
+    hit = [e for e in evs2 if e.vector == "interrupting"]
+    assert hit and hit[0].level == 3 and hit[0].value == 7.0 and hit[0].t == 54.0
+
+
+def test_interrupting_shared_fixture():
+    """The contract the phone mirrors (apps/mobile/src/live/nudgePolicy.ts
+    interruptingEvents) — every case bit-identical here."""
+    import json
+    from pathlib import Path
+    from watch.vectors import interrupting_events
+
+    fx = json.loads((Path(__file__).resolve().parents[1] / "fixtures" / "policy_vectors" / "interrupting.json").read_text())
+    for case in fx["cases"]:
+        got = interrupting_events([tuple(s) for s in case["self"]], [tuple(o) for o in case["other"]])
+        assert [(e.level, e.t, e.value) for e in got] == [(e["level"], e["t"], e["value"]) for e in case["events"]], case["name"]
 
 
 def test_airtime_excludes_silence_from_denominator():

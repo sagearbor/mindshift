@@ -151,9 +151,12 @@ maybe("scene pack replay (real Silero + ECAPA, scripted STT/LLM, virtual clock)"
       ["Speaker A", true],
       ["Speaker B", false],
     ]);
-    // 10/13 named exactly: the partner's same-scene print (first 10 s of
-    // her) misses her two shortest fragments; self is as in earpiece.
-    expect(r.attribution).toMatchObject({ enrolledCorrect: 10, enrolledTotal: 13, selfCorrect: 6 });
+    // 12/13 named exactly (was 10/13): the partner's same-scene print (first
+    // 10 s of her) misses her two shortest fragments turn by turn, but the
+    // cluster those fragments found pools to a centroid that clears the
+    // absolute bar, so the cluster is carried as her (raw label on the
+    // wire, person on displayName); self is as in earpiece.
+    expect(r.attribution).toMatchObject({ enrolledCorrect: 12, enrolledTotal: 13, selfCorrect: 6 });
     expect(r.nudgeScore).toMatchObject({ hits: 3, misses: 0, falsePositives: 0 });
     writeTurnLocalDump(r, REPLAY_OUT_DIR);
   }, 60_000);
@@ -226,23 +229,32 @@ maybe("scene pack replay (real Silero + ECAPA, scripted STT/LLM, virtual clock)"
     expectInvariants(t);
   }, 90_000);
 
-  it("scene_meeting4 / earpiece: 11/17 attribution, self 2/5 — the shout/apology don't match the calm print (missed nudge), and this 4-party meeting is where the live CLUSTER_THRESHOLD=0.48 costs some separation (its voices sit unusually close); documented trade-off for the couples/family core", async () => {
+  it("scene_meeting4 / earpiece: 12/17 attribution, self 3/5 — the shout/apology don't match the calm print turn by turn (the shout CLUSTER's pooled centroid does reach 0.70 and is then carried as self on its raw label; the strong nudge is still missed), and this 4-party meeting is where the live CLUSTER_THRESHOLD=0.48 costs some separation (its voices sit unusually close); documented trade-off for the couples/family core", async () => {
     const r = await run("scene_meeting4", { mode: "earpiece" });
     console.log(formatReport(r));
     console.log(summaryLine(r));
     expectInvariants(r);
-    expect(r.attribution).toMatchObject({ correct: 11, total: 17, selfCorrect: 2, selfTotal: 5, speakersDetected: 7, unknownClusters: 6 });
+    // 12/17, self 3/5, 5 unknown clusters (was 11/17, 2/5, 6): the shout
+    // cluster's centroid clears the absolute bar (0.70) once its turns pool,
+    // so it is identified as self (basis "absolute") while staying
+    // "Speaker E" on the wire — and is scored as the person it carries.
+    expect(r.attribution).toMatchObject({ correct: 12, total: 17, selfCorrect: 3, selfTotal: 5, speakersDetected: 6, unknownClusters: 5 });
     expect(r.turns).toHaveLength(34);
     expect(r.boundaries).toMatchObject({ split: 14, merged: 0, unmatched: 0 });
-    // mild@11 hit; strong@13 missed: the 2 s shouted fragment scored below
-    // MATCH_THRESHOLD against the calm cross-scene print and became an
-    // unknown cluster, so the loop did not treat it as the coached user.
+    // mild@11 hit; strong@13 missed: the 2 s shouted fragments score below
+    // MATCH_THRESHOLD against the calm cross-scene print turn by turn and
+    // found their own cluster; that cluster's pooled centroid later clears
+    // the bar, so the shout IS carried as self (below) — but the nudge
+    // outcome is unchanged: hits/misses are the same as before the
+    // cluster-level identity existed.
     expect(r.nudgeScore).toMatchObject({ hits: 1, misses: 1, falsePositives: 0 });
     expect(r.nudgeScore.perTurn[11]).toMatchObject({ expected: "mild", verdict: "hit", level: 2 });
     expect(r.nudgeScore.perTurn[13]).toMatchObject({ expected: "strong", verdict: "miss", level: 0 });
     expect(r.nudgeScore.perTurn[7].level).toBe(0); // Speaker D's tense_rising: no nudge
     const shout = r.attribution.perTurn[13];
-    expect(shout.predicted?.startsWith("?")).toBe(true);
+    expect(shout).toMatchObject({ truth: "Speaker A", predicted: "Speaker A", ok: true });
+    const shoutTurn = r.turns[shout.loopTurn as number];
+    expect(shoutTurn).toMatchObject({ speaker: "Speaker E", displayName: "Speaker A", isSelf: true, matchBasis: "absolute" });
     expect(r.speaking).toMatchObject({ spoken: 30, held: 33, overVadSpeech: 0 });
     expect(r.latency).toMatchObject({ toSpeakMedianMs: 2100, toSpeakMaxMs: 3400, textless: 0 });
     writeTurnLocalDump(r, REPLAY_OUT_DIR);

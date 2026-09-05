@@ -1,4 +1,5 @@
 import React, { useRef, useEffect } from "react";
+import { useDevModeStore } from "../store/devModeStore";
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from "react-native";
 import type { TranscriptEntry } from "../hooks/useAudioStream";
 // getSpeakerColor now lives in a shared util so the HeatChart keys speakers to
@@ -17,6 +18,7 @@ interface LiveTranscriptProps {
 
 export default function LiveTranscript({ entries, onSpeakerPress, isNamed }: LiveTranscriptProps) {
   const scrollRef = useRef<ScrollView>(null);
+  const devMode = useDevModeStore((s) => s.devMode);
 
   useEffect(() => {
     if (scrollRef.current && entries.length > 0) {
@@ -68,6 +70,20 @@ export default function LiveTranscript({ entries, onSpeakerPress, isNamed }: Liv
             )}
             <Text style={[styles.text, isLatest && styles.latestText]}>
               {entry.text}
+              {devMode && entry.activation !== undefined ? (
+                // Developer mode: vocal-activation probability of the user's
+                // own line (live/activation.ts, dark classifier).
+                <Text style={styles.devTag} testID={`live-transcript-activation-${i}`}>
+                  {`  ⚡${Math.round(entry.activation * 100)}%`}
+                </Text>
+              ) : null}
+              {devMode && entry.overlapSeconds !== undefined ? (
+                // Developer mode: longest mixed-voice run the single-mic
+                // overlap probe saw in this turn (live/overlapProbe.ts, dark).
+                <Text style={styles.devTag} testID={`live-transcript-overlap-${i}`}>
+                  {`  ⟂${entry.overlapSeconds.toFixed(1)}s`}
+                </Text>
+              ) : null}
             </Text>
           </View>
         );
@@ -77,6 +93,7 @@ export default function LiveTranscript({ entries, onSpeakerPress, isNamed }: Liv
 }
 
 const styles = StyleSheet.create({
+  devTag: { fontSize: 11, color: "#9CA3AF" },
   container: {
     flex: 1,
     paddingHorizontal: 16,

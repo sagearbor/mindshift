@@ -131,7 +131,9 @@ def build_watch_deps() -> WatchDeps:
     )
 
 
-def build_watch_routers(deps: "WatchDeps | None" = None) -> list[APIRouter]:
+def build_watch_routers(
+    deps: "WatchDeps | None" = None, journal_recording_sink=None,
+) -> list[APIRouter]:
     """Assemble every watch router against real, env-driven dependencies.
 
     Returns them as a flat list, in the same order gauge's ``create_app``
@@ -172,7 +174,11 @@ def build_watch_routers(deps: "WatchDeps | None" = None) -> list[APIRouter]:
     return [
         make_rest_router(store, auth_dep, strict_auth_dep, pairing_store=pairing_store),
         make_groups_router(store, strict_auth_dep),
-        make_captures_router(store, blobs, strict_auth_dep),
+        # `diarizer=` (journal A/B): the SAME shared lazy instance the WS and
+        # live-sessions routers get, so journal self-filtering resolves the
+        # torch/speechbrain stack once per process at first use, never a
+        # second copy.
+        make_captures_router(store, blobs, strict_auth_dep, diarizer=diarizer, journal_recording_sink=journal_recording_sink),
         make_pairing_router(pairing_store, strict_auth_dep, rate_limit_dep=_rate_limit),
         make_telemetry_router(telemetry_store, rate_limit_dep=_rate_limit),
         make_ws_router(

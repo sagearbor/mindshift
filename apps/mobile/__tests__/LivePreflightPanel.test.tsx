@@ -1,6 +1,7 @@
 import React from "react";
 import renderer, { act } from "react-test-renderer";
 import LivePreflightPanel, { describeLlm } from "../src/components/LivePreflightPanel";
+import { useDevModeStore } from "../src/store/devModeStore";
 
 /** All rendered text, joined — RN splits interpolated strings into fragments. */
 function textOf(root: renderer.ReactTestRenderer): string {
@@ -12,6 +13,10 @@ function textOf(root: renderer.ReactTestRenderer): string {
 }
 
 describe("LivePreflightPanel", () => {
+  // The capability rows are the owner's instrument — developer mode ON.
+  beforeEach(() => useDevModeStore.setState({ devMode: true }));
+  afterEach(() => useDevModeStore.setState({ devMode: false }));
+
   it("describeLlm: first local provider or 'cloud'", () => {
     expect(describeLlm(undefined)).toBe("cloud");
     expect(describeLlm(["cloud"])).toBe("cloud");
@@ -70,8 +75,8 @@ describe("LivePreflightPanel", () => {
             },
           }}
           people={[
-            { personId: "self", displayName: "You", isSelf: true, enrollCount: 3 },
-            { personId: "mom", displayName: "Mom", isSelf: false, enrollCount: 1 },
+            { personId: "self", displayName: "You", isSelf: true, enrollCount: 3, settings: 2 },
+            { personId: "mom", displayName: "Mom", isSelf: false, enrollCount: 1, settings: 1 },
           ]}
           peopleError={null}
         />,
@@ -110,5 +115,35 @@ describe("LivePreflightPanel", () => {
     const t = textOf(root!);
     expect(t).toContain("ONNX session failed");
     expect(t).toContain("not signed in (401)");
+  });
+
+  it("developer mode off: one plain line, people still shown, no capability rows", () => {
+    useDevModeStore.setState({ devMode: false });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(
+        <LivePreflightPanel
+          liveCapable
+          liveCapabilityReason="ok"
+          liveMode
+          preflight={{
+            status: "ready",
+            capabilities: {
+              vad: "energy",
+              speakerId: { active: true, reason: "model cached", enrolled: 2, model: "cached", droppedForModel: 0 },
+              llm: ["cloud"],
+            },
+          }}
+          people={[{ personId: "self", displayName: "You", isSelf: true, enrollCount: 3, settings: 2 }]}
+          peopleError={null}
+        />,
+      );
+    });
+    const t = textOf(root!);
+    expect(root!.root.findByProps({ testID: "preflight-plain" })).toBeTruthy();
+    expect(t).not.toContain("2 enrolled");
+    expect(t).not.toContain("VAD");
+    expect(root!.root.findAllByProps({ testID: "preflight-stt" })).toHaveLength(0);
+    expect(t).toContain("You");
   });
 });

@@ -1,0 +1,610 @@
+{
+ "family_real": {
+  "p31_default": {
+   "k_true": 2,
+   "k_pred": 4,
+   "frame_accuracy": 0.552,
+   "unlabelled_frac": 0.101,
+   "mapping": {
+    "SPEAKER_03": "Asher",
+    "SPEAKER_01": "Sage"
+   },
+   "per_gt_recall": {
+    "Asher": 0.508,
+    "Sage": 0.581
+   },
+   "owner_purity": 0.994,
+   "fixture": "family_real",
+   "wall_s": 20.58,
+   "device": "cpu",
+   "kwargs": {}
+  },
+  "p31_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.877,
+   "unlabelled_frac": 0.101,
+   "mapping": {
+    "SPEAKER_00": "Sage",
+    "SPEAKER_01": "Asher"
+   },
+   "per_gt_recall": {
+    "Asher": 0.816,
+    "Sage": 0.918
+   },
+   "owner_purity": 0.992,
+   "fixture": "family_real",
+   "wall_s": 20.64,
+   "device": "cpu",
+   "kwargs": {
+    "num_speakers": 2
+   }
+  },
+  "p31_bounds_2_6": {
+   "k_true": 2,
+   "k_pred": 4,
+   "frame_accuracy": 0.552,
+   "unlabelled_frac": 0.101,
+   "mapping": {
+    "SPEAKER_03": "Asher",
+    "SPEAKER_01": "Sage"
+   },
+   "per_gt_recall": {
+    "Asher": 0.508,
+    "Sage": 0.581
+   },
+   "owner_purity": 0.994,
+   "fixture": "family_real",
+   "wall_s": 28.21,
+   "device": "cpu",
+   "kwargs": {
+    "min_speakers": 2,
+    "max_speakers": 6
+   }
+  },
+  "intermediates": {
+   "t_segmentation": 1.9,
+   "t_embedding": 21.64,
+   "num_chunks": 21,
+   "num_units": 42,
+   "max_count": 1
+  }
+ },
+ "poker6": {
+  "p31_default": {
+   "k_true": 6,
+   "k_pred": 4,
+   "frame_accuracy": 0.355,
+   "unlabelled_frac": 0.32,
+   "mapping": {
+    "SPEAKER_00": "Player5",
+    "SPEAKER_01": "Player4",
+    "SPEAKER_02": "Player3",
+    "SPEAKER_03": "Player1"
+   },
+   "per_gt_recall": {
+    "Player1": 0.0,
+    "Player2": 0.0,
+    "Player3": 0.85,
+    "Player4": 0.826,
+    "Player5": 0.46,
+    "Player6": 0.0
+   },
+   "owner_purity": null,
+   "fixture": "poker6",
+   "wall_s": 24.31,
+   "device": "cpu",
+   "kwargs": {}
+  },
+  "p31_oracle_k": {
+   "k_true": 6,
+   "k_pred": 4,
+   "frame_accuracy": 0.355,
+   "unlabelled_frac": 0.32,
+   "mapping": {
+    "SPEAKER_00": "Player5",
+    "SPEAKER_01": "Player4",
+    "SPEAKER_02": "Player3",
+    "SPEAKER_03": "Player1"
+   },
+   "per_gt_recall": {
+    "Player1": 0.0,
+    "Player2": 0.0,
+    "Player3": 0.85,
+    "Player4": 0.826,
+    "Player5": 0.46,
+    "Player6": 0.0
+   },
+   "owner_purity": null,
+   "fixture": "poker6",
+   "wall_s": 39.19,
+   "device": "cpu",
+   "kwargs": {
+    "num_speakers": 6
+   }
+  },
+  "p31_bounds_2_6": {
+   "k_true": 6,
+   "k_pred": 4,
+   "frame_accuracy": 0.355,
+   "unlabelled_frac": 0.32,
+   "mapping": {
+    "SPEAKER_00": "Player5",
+    "SPEAKER_01": "Player4",
+    "SPEAKER_02": "Player3",
+    "SPEAKER_03": "Player1"
+   },
+   "per_gt_recall": {
+    "Player1": 0.0,
+    "Player2": 0.0,
+    "Player3": 0.85,
+    "Player4": 0.826,
+    "Player5": 0.46,
+    "Player6": 0.0
+   },
+   "owner_purity": null,
+   "fixture": "poker6",
+   "wall_s": 41.14,
+   "device": "cpu",
+   "kwargs": {
+    "min_speakers": 2,
+    "max_speakers": 6
+   }
+  },
+  "intermediates": {
+   "t_segmentation": 3.7,
+   "t_embedding": 39.67,
+   "num_chunks": 22,
+   "num_units": 46,
+   "max_count": 2
+  }
+ },
+ "openai": {
+  "p31_default": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.91,
+   "unlabelled_frac": 0.09,
+   "mapping": {
+    "SPEAKER_00": "Speaker A",
+    "SPEAKER_01": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.925,
+    "Speaker B": 0.893
+   },
+   "owner_purity": null,
+   "fixture": "openai",
+   "wall_s": 123.89,
+   "device": "cpu",
+   "kwargs": {}
+  },
+  "p31_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.91,
+   "unlabelled_frac": 0.09,
+   "mapping": {
+    "SPEAKER_00": "Speaker A",
+    "SPEAKER_01": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.925,
+    "Speaker B": 0.893
+   },
+   "owner_purity": null,
+   "fixture": "openai",
+   "wall_s": 105.7,
+   "device": "cpu",
+   "kwargs": {
+    "num_speakers": 2
+   }
+  },
+  "p31_bounds_2_6": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.91,
+   "unlabelled_frac": 0.09,
+   "mapping": {
+    "SPEAKER_00": "Speaker A",
+    "SPEAKER_01": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.925,
+    "Speaker B": 0.893
+   },
+   "owner_purity": null,
+   "fixture": "openai",
+   "wall_s": 95.74,
+   "device": "cpu",
+   "kwargs": {
+    "min_speakers": 2,
+    "max_speakers": 6
+   }
+  },
+  "intermediates": {
+   "t_segmentation": 4.91,
+   "t_embedding": 61.72,
+   "num_chunks": 62,
+   "num_units": 125,
+   "max_count": 1
+  }
+ },
+ "gptaudio": {
+  "p31_default": {
+   "k_true": 2,
+   "k_pred": 3,
+   "frame_accuracy": 0.834,
+   "unlabelled_frac": 0.077,
+   "mapping": {
+    "SPEAKER_01": "Speaker A",
+    "SPEAKER_02": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.744,
+    "Speaker B": 0.932
+   },
+   "owner_purity": null,
+   "fixture": "gptaudio",
+   "wall_s": 72.44,
+   "device": "cpu",
+   "kwargs": {}
+  },
+  "p31_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.923,
+   "unlabelled_frac": 0.077,
+   "mapping": {
+    "SPEAKER_00": "Speaker A",
+    "SPEAKER_01": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.916,
+    "Speaker B": 0.932
+   },
+   "owner_purity": null,
+   "fixture": "gptaudio",
+   "wall_s": 101.89,
+   "device": "cpu",
+   "kwargs": {
+    "num_speakers": 2
+   }
+  },
+  "p31_bounds_2_6": {
+   "k_true": 2,
+   "k_pred": 3,
+   "frame_accuracy": 0.834,
+   "unlabelled_frac": 0.077,
+   "mapping": {
+    "SPEAKER_01": "Speaker A",
+    "SPEAKER_02": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.744,
+    "Speaker B": 0.932
+   },
+   "owner_purity": null,
+   "fixture": "gptaudio",
+   "wall_s": 94.72,
+   "device": "cpu",
+   "kwargs": {
+    "min_speakers": 2,
+    "max_speakers": 6
+   }
+  },
+  "intermediates": {
+   "t_segmentation": 5.87,
+   "t_embedding": 67.92,
+   "num_chunks": 66,
+   "num_units": 132,
+   "max_count": 1
+  }
+ },
+ "scene_couple": {
+  "p31_default": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.95,
+   "unlabelled_frac": 0.05,
+   "mapping": {
+    "SPEAKER_00": "Speaker A",
+    "SPEAKER_01": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.933
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_couple",
+   "wall_s": 67.47,
+   "device": "cpu",
+   "kwargs": {}
+  },
+  "p31_oracle_k": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.95,
+   "unlabelled_frac": 0.05,
+   "mapping": {
+    "SPEAKER_00": "Speaker A",
+    "SPEAKER_01": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.933
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_couple",
+   "wall_s": 67.06,
+   "device": "cpu",
+   "kwargs": {
+    "num_speakers": 2
+   }
+  },
+  "p31_bounds_2_6": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.95,
+   "unlabelled_frac": 0.05,
+   "mapping": {
+    "SPEAKER_00": "Speaker A",
+    "SPEAKER_01": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.933
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_couple",
+   "wall_s": 66.68,
+   "device": "cpu",
+   "kwargs": {
+    "min_speakers": 2,
+    "max_speakers": 6
+   }
+  },
+  "intermediates": {
+   "t_segmentation": 3.12,
+   "t_embedding": 111.9,
+   "num_chunks": 61,
+   "num_units": 122,
+   "max_count": 1
+  }
+ },
+ "scene_family3": {
+  "p31_default": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.904,
+   "unlabelled_frac": 0.051,
+   "mapping": {
+    "SPEAKER_00": "Speaker A",
+    "SPEAKER_01": "Speaker B",
+    "SPEAKER_02": "Speaker C"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.904,
+    "Speaker C": 0.842
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_family3",
+   "wall_s": 97.57,
+   "device": "cpu",
+   "kwargs": {}
+  },
+  "p31_oracle_k": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.904,
+   "unlabelled_frac": 0.051,
+   "mapping": {
+    "SPEAKER_00": "Speaker A",
+    "SPEAKER_01": "Speaker B",
+    "SPEAKER_02": "Speaker C"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.904,
+    "Speaker C": 0.842
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_family3",
+   "wall_s": 180.81,
+   "device": "cpu",
+   "kwargs": {
+    "num_speakers": 3
+   }
+  },
+  "p31_bounds_2_6": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.904,
+   "unlabelled_frac": 0.051,
+   "mapping": {
+    "SPEAKER_00": "Speaker A",
+    "SPEAKER_01": "Speaker B",
+    "SPEAKER_02": "Speaker C"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.964,
+    "Speaker B": 0.904,
+    "Speaker C": 0.842
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_family3",
+   "wall_s": 224.46,
+   "device": "cpu",
+   "kwargs": {
+    "min_speakers": 2,
+    "max_speakers": 6
+   }
+  },
+  "intermediates": {
+   "t_segmentation": 14.65,
+   "t_embedding": 190.13,
+   "num_chunks": 59,
+   "num_units": 146,
+   "max_count": 1
+  }
+ },
+ "scene_meeting4": {
+  "p31_default": {
+   "k_true": 4,
+   "k_pred": 3,
+   "frame_accuracy": 0.771,
+   "unlabelled_frac": 0.052,
+   "mapping": {
+    "SPEAKER_00": "Speaker A",
+    "SPEAKER_01": "Speaker B",
+    "SPEAKER_02": "Speaker C"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.95,
+    "Speaker B": 0.929,
+    "Speaker C": 0.95,
+    "Speaker D": 0.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_meeting4",
+   "wall_s": 203.89,
+   "device": "cpu",
+   "kwargs": {}
+  },
+  "p31_oracle_k": {
+   "k_true": 4,
+   "k_pred": 4,
+   "frame_accuracy": 0.7,
+   "unlabelled_frac": 0.052,
+   "mapping": {
+    "SPEAKER_00": "Speaker D",
+    "SPEAKER_01": "Speaker A",
+    "SPEAKER_02": "Speaker B",
+    "SPEAKER_03": "Speaker C"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.719,
+    "Speaker B": 0.929,
+    "Speaker C": 0.95,
+    "Speaker D": 0.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_meeting4",
+   "wall_s": 179.19,
+   "device": "cpu",
+   "kwargs": {
+    "num_speakers": 4
+   }
+  },
+  "p31_bounds_2_6": {
+   "k_true": 4,
+   "k_pred": 3,
+   "frame_accuracy": 0.771,
+   "unlabelled_frac": 0.052,
+   "mapping": {
+    "SPEAKER_00": "Speaker A",
+    "SPEAKER_01": "Speaker B",
+    "SPEAKER_02": "Speaker C"
+   },
+   "per_gt_recall": {
+    "Speaker A": 0.95,
+    "Speaker B": 0.929,
+    "Speaker C": 0.95,
+    "Speaker D": 0.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_meeting4",
+   "wall_s": 160.89,
+   "device": "cpu",
+   "kwargs": {
+    "min_speakers": 2,
+    "max_speakers": 6
+   }
+  },
+  "intermediates": {
+   "t_segmentation": 10.97,
+   "t_embedding": 199.41,
+   "num_chunks": 74,
+   "num_units": 145,
+   "max_count": 1
+  }
+ },
+ "maggiano3": {
+  "p31_default": {
+   "k_true": 3,
+   "k_pred": 4,
+   "frame_accuracy": 0.522,
+   "unlabelled_frac": 0.131,
+   "mapping": {
+    "SPEAKER_01": "asher",
+    "SPEAKER_03": "dad",
+    "SPEAKER_00": "mom"
+   },
+   "per_gt_recall": {
+    "asher": 0.179,
+    "dad": 0.656,
+    "mom": 0.61
+   },
+   "owner_purity": 0.718,
+   "fixture": "maggiano3",
+   "wall_s": 88.41,
+   "device": "cpu",
+   "kwargs": {}
+  },
+  "p31_oracle_k": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.569,
+   "unlabelled_frac": 0.131,
+   "mapping": {
+    "SPEAKER_00": "mom",
+    "SPEAKER_01": "asher",
+    "SPEAKER_02": "dad"
+   },
+   "per_gt_recall": {
+    "asher": 0.315,
+    "dad": 0.656,
+    "mom": 0.65
+   },
+   "owner_purity": 0.718,
+   "fixture": "maggiano3",
+   "wall_s": 71.47,
+   "device": "cpu",
+   "kwargs": {
+    "num_speakers": 3
+   }
+  },
+  "p31_bounds_2_6": {
+   "k_true": 3,
+   "k_pred": 4,
+   "frame_accuracy": 0.522,
+   "unlabelled_frac": 0.131,
+   "mapping": {
+    "SPEAKER_01": "asher",
+    "SPEAKER_03": "dad",
+    "SPEAKER_00": "mom"
+   },
+   "per_gt_recall": {
+    "asher": 0.179,
+    "dad": 0.656,
+    "mom": 0.61
+   },
+   "owner_purity": 0.718,
+   "fixture": "maggiano3",
+   "wall_s": 77.69,
+   "device": "cpu",
+   "kwargs": {
+    "min_speakers": 2,
+    "max_speakers": 6
+   }
+  },
+  "intermediates": {
+   "t_segmentation": 48.5,
+   "t_embedding": 44.72,
+   "num_chunks": 34,
+   "num_units": 77,
+   "max_count": 2
+  }
+ }
+}

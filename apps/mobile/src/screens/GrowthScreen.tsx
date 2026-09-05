@@ -1,5 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
+  AppState,
   View,
   Text,
   TouchableOpacity,
@@ -35,6 +42,7 @@ import {
   toneChipColors,
   topLabels,
 } from "./toneTrends";
+import { catchUpErrorMessage } from "./catchUpError";
 
 const PRIMARY = "#4A90D9";
 const INK = "#111827";
@@ -147,20 +155,43 @@ export default function GrowthScreen({
     };
   }, []);
 
+  // Catch-up runs for a long time (the server re-embeds every speaker of up
+  // to 25 recordings). If the user backgrounds the app meanwhile, the OS drops
+  // the socket and the fetch rejects with a transport error — but the server
+  // keeps going and persists matches per recording. So: remember that we
+  // came back to the foreground with a catch-up in flight, and once the
+  // request settles (either way) re-read growth so whatever DID get
+  // identified shows up instead of a stale chart under a scary banner.
+  const catchUpInFlight = useRef(false);
+  const reloadAfterCatchUp = useRef(false);
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active" && catchUpInFlight.current) {
+        reloadAfterCatchUp.current = true;
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
   const handleCatchUp = useCallback(() => {
     setCatchingUp(true);
     setCatchUpError(null);
+    catchUpInFlight.current = true;
+    reloadAfterCatchUp.current = false;
     catchUpVoice()
       .then((res) => {
         setCatchUpResult(res);
         load(); // pull the newly identified points in immediately
       })
-      .catch(() => {
-        setCatchUpError(
-          "Couldn’t check your past recordings. Please try again.",
-        );
+      .catch((err: unknown) => {
+        setCatchUpError(catchUpErrorMessage(err));
+        if (reloadAfterCatchUp.current) load(); // partial progress is real
       })
-      .finally(() => setCatchingUp(false));
+      .finally(() => {
+        catchUpInFlight.current = false;
+        reloadAfterCatchUp.current = false;
+        setCatchingUp(false);
+      });
   }, [load]);
 
   const filters = useMemo<PartnerFilter[]>(() => {
@@ -322,14 +353,13 @@ export default function GrowthScreen({
               width={chartWidth}
               height={220}
               dotRadius={4}
+              axes
               onPressPoint={(p) => onOpenRecording(p.recording_id)}
             />
           )}
-          <View style={styles.axisRow}>
-            <Text style={styles.axisText}>older</Text>
-            <Text style={styles.axisText}>score 0–100 · tap a dot to open it</Text>
-            <Text style={styles.axisText}>newer</Text>
-          </View>
+          <Text style={styles.axisHint} testID="growth-axis-hint">
+            tap a dot to open it
+          </Text>
         </View>
 
         <Text style={styles.footer} testID="growth-footer">
@@ -593,14 +623,11 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingVertical: 48,
   },
-  axisRow: {
+  axisHint: {
     marginTop: 6,
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  axisText: {
     fontSize: 11,
     color: "#9CA3AF",
+    textAlign: "right",
   },
   footer: {
     marginTop: 12,

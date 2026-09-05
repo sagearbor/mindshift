@@ -130,6 +130,14 @@ class FakeCatchUpStore:
         r["reanalyzed_at"] = reanalyzed_at
         return {"id": recording_id, "reanalyzed_at": reanalyzed_at}
 
+    async def update_analysis(self, uid, recording_id, analysis):
+        r = self._recordings.get((uid, recording_id))
+        if r is None:
+            return None
+        r["analysis"] = analysis
+        self.update_calls = getattr(self, "update_calls", []) + [(uid, recording_id)]
+        return {"id": recording_id}
+
 
 @pytest.fixture
 async def client():
@@ -477,3 +485,94 @@ async def test_catchup_has_its_own_tighter_rate_limit(client, store, monkeypatch
     assert r2.status_code == 200
     assert r3.status_code == 429
     assert "rate limit" in r3.json()["detail"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Audio-free fast path — stored per-speaker embeddings, no decode
+# ---------------------------------------------------------------------------
+
+def _dim_unit(i: int) -> np.ndarray:
+    v = np.zeros(speaker_id.EMBEDDING_DIM, dtype=np.float32)
+    v[i] = 1.0
+    return v
+
+
+async def test_catchup_rescores_stored_embeddings_without_touching_audio(
+    client, store, monkeypatch,
+):
+    """A recording whose analysis already carries every speaker's embedding
+    (written by an earlier audio pass) is re-matched from those vectors: no
+    download, no decode, no embed — the print grew, the past recording
+    catches up in milliseconds."""
+    e_you, e_other = _dim_unit(0), _dim_unit(1)
+    await store.write_voiceprint("u1", {"embedding": e_you.tolist()})
+    rid = _rid()
+    analysis = _unidentified_analysis()
+    analysis["speaker_identity"] = {
+        "matched_speaker": None, "matched": {}, "people": {},
+        "speakers": {
+            "Speaker A": {"scores": {}, "embedding": e_you.tolist()},
+            "Speaker B": {"scores": {}, "embedding": e_other.tolist()},
+        },
+    }
+    store.add_recording("u1", rid, TURNS_AB, audio=None, analysis=analysis)
+    monkeypatch.setattr(speaker_id, "is_available", lambda: True)
+    import routers.voice as voice_router
+
+    def _no_decode(*_a, **_k):
+        raise AssertionError("fast path must not decode audio")
+
+    monkeypatch.setattr(voice_router, "decode_to_pcm", _no_decode)
+    monkeypatch.setattr(
+        speaker_id, "embed_speaker",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not embed")),
+    )
+
+    res = await client.post("/voice/catch-up", headers={"X-Test-Uid": "u1"})
+    assert res.status_code == 200, res.text
+    assert res.json() == {"checked": 1, "newly_identified": 1, "remaining": 0}
+    detail = await client.get(f"/recordings/{rid}", headers={"X-Test-Uid": "u1"})
+    labels = detail.json()["speaker_labels"]
+    assert labels["Speaker A"] == {"display_label": "You", "label_source": "enrolled"}
+
+
+async def test_catchup_audio_pass_persists_embeddings_for_next_time(
+    client, store, monkeypatch,
+):
+    """An older analysis (no stored embeddings) takes the audio path ONCE —
+    and even on a no-match writes the embeddings it computed back, so the
+    next catch-up (after the print improves) never needs the audio again."""
+    e_you = _dim_unit(0)
+    weak = speaker_id.l2_normalize(0.1 * _dim_unit(0) + _dim_unit(1))
+    await store.write_voiceprint("u1", {"embedding": e_you.tolist()})
+    rid = _rid()
+    store.add_recording("u1", rid, TURNS_AB, analysis=_unidentified_analysis())
+    _catchup_ready(monkeypatch, {"Speaker A": weak, "Speaker B": _dim_unit(2)})
+
+    res = await client.post("/voice/catch-up", headers={"X-Test-Uid": "u1"})
+    assert res.status_code == 200, res.text
+    assert res.json() == {"checked": 1, "newly_identified": 0, "remaining": 0}
+    assert store.update_calls == [("u1", rid)]
+    stored = store._recordings[("u1", rid)]["analysis"]["speaker_identity"]
+    embs = speaker_id.stored_speaker_embeddings(stored)
+    assert set(embs) == {"Speaker A", "Speaker B"}
+    assert np.allclose(embs["Speaker A"], weak, atol=1e-6)
+    # No label was written by the persist (honest no-match).
+    assert stored.get("matched", {}) == {}
+
+    # Now the print improves (the owner's real voice, from a SECOND setting)
+    # — the second catch-up must match from the stored vectors alone.
+    await store.write_voiceprint("u1", speaker_id.new_profile(
+        weak, speaker_id.new_profile(
+            e_you, None, recording_id="r-a", speaker="Speaker A", now_iso="t0",
+        ),
+        recording_id="r-b", speaker="Speaker A", now_iso="t1",
+    ))
+    import routers.voice as voice_router
+    monkeypatch.setattr(
+        voice_router, "decode_to_pcm",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not decode")),
+    )
+    res = await client.post("/voice/catch-up", headers={"X-Test-Uid": "u1"})
+    assert res.status_code == 200, res.text
+    assert res.json() == {"checked": 1, "newly_identified": 1, "remaining": 0}

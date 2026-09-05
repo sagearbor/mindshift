@@ -161,6 +161,19 @@ export function noiseF32(seconds: number, amp: number, seed = 0, sr = SR): Float
 }
 
 /** A unit vector along one axis, optionally perturbed (for voiceprint tests). */
+/**
+ * A unit vector at EXACTLY cosine `c` to `unitVector(dim, axis)`, with the
+ * rest of its weight on `offAxis` — so two such vectors on different
+ * off-axes score c1*c2 against each other (well under CLUSTER_THRESHOLD
+ * for the calibration numbers) while each scores `c` against the print.
+ */
+export function vectorAtCosine(dim: number, c: number, axis = 0, offAxis = 1): Float32Array {
+  const v = new Float32Array(dim);
+  v[axis % dim] = c;
+  v[offAxis % dim] = Math.sqrt(Math.max(0, 1 - c * c));
+  return v;
+}
+
 export function unitVector(dim: number, axis: number, noise = 0, seed = 1): Float32Array {
   const rnd = seededRandom(seed);
   const v = new Float32Array(dim);

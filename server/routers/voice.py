@@ -239,21 +239,21 @@ def _profile_response(
     """The per-person status view of one stored profile (person view) — the
     metadata GET /voice/profile and GET /voice/people share. The embedding is
     attached ONLY on ``include_embedding`` (the on-device opt-in of
-    ``GET /voice/people?include_embeddings=true``): the stored blend,
-    L2-normalized — which is exactly the vector ``main._identify_enrolled_
-    speakers`` hands the matcher (cosine normalizes anyway, so the phone and
-    the server score a turn identically). A stored profile without a usable
-    vector (never expected — it can't have been enrolled) is served without
-    one rather than with an invented zero vector."""
+    ``GET /voice/people?include_embeddings=true``): the CURRENT blend
+    (``speaker_id.current_blend`` — one centroid per recording, re-blended
+    from the stored samples at read time), L2-normalized — which is exactly
+    the vector ``main._identify_enrolled_speakers`` hands the matcher
+    (cosine normalizes anyway, so the phone and the server score a turn
+    identically). A stored profile without a usable vector (never expected
+    — it can't have been enrolled) is served without one rather than with an
+    invented zero vector. ``settings`` (distinct recordings pooled) is
+    always served: it gates the phone's contrast match exactly as it gates
+    the server's."""
     embedding: list[float] | None = None
     if include_embedding:
-        raw = profile.get("embedding")
-        if isinstance(raw, list) and raw:
-            import numpy as np
-
-            embedding = [
-                float(x) for x in speaker_id.l2_normalize(np.asarray(raw, dtype=np.float32)).tolist()
-            ]
+        blend = speaker_id.current_blend(profile)
+        if blend is not None:
+            embedding = [float(x) for x in speaker_id.l2_normalize(blend).tolist()]
     return VoiceProfileResponse(
         available=available,
         storage_enabled=storage_enabled,
@@ -262,6 +262,7 @@ def _profile_response(
         display_name=profile.get("display_name"),
         is_self=bool(profile.get("is_self", True)),
         enroll_count=int(profile.get("enroll_count", 0) or 0),
+        settings=speaker_id.profile_settings(profile),
         updated_at=profile.get("updated_at"),
         model=profile.get("model"),
         dim=profile.get("dim"),
@@ -483,6 +484,14 @@ class VoiceProfileResponse(BaseModel):
     display_name: str | None = speaker_id.SELF_DISPLAY_NAME
     is_self: bool = True
     enroll_count: int
+    # How many DISTINCT recordings the print pools (speaker_id.profile_settings;
+    # 0 when unenrolled, >= 1 otherwise — a legacy v1 blend counts as one).
+    # Not the same as enroll_count: three "This is me" taps on one clip are
+    # three samples but ONE setting. Gates the cross-recording contrast match
+    # (speaker_id.CROSS_MATCH_MIN_SETTINGS) on the server and on the phone
+    # alike, so the phone's verdict can never be more permissive than the
+    # server's for the same print.
+    settings: int = 0
     updated_at: str | None = None
     model: str | None = None
     dim: int | None = None
@@ -935,12 +944,45 @@ async def catch_up_voice(
 
         checked += 1
         try:
-            audio = await store.get_audio_bytes(uid, recording_id)
-            if not audio:
-                raise AudioDecodeError("no stored audio for this recording")
-            pcm, sr = await asyncio.to_thread(decode_to_pcm, audio, "audio.m4a")
-            turns = [main.AnalyzeTurn(**t) for t in (rec.get("turns") or [])]
-            report = await main._identify_enrolled_speakers(uid, pcm, sr, turns)
+            # FAST PATH — the stored analysis already carries every speaker's
+            # pooled ECAPA embedding (written by a previous audio pass): re-score
+            # those against the CURRENT prints in memory. No download, no
+            # decode, no re-embed — the whole batch runs in milliseconds, which
+            # is what lets a print that just grew a second setting re-check
+            # every past recording without the phone waiting on a cold
+            # instance. Otherwise (older analyses) do the audio pass once and
+            # persist the embeddings it computed so the NEXT catch-up is fast.
+            turn_speakers = {
+                t.get("speaker") for t in (rec.get("turns") or [])
+                if isinstance(t, dict) and t.get("speaker")
+            }
+            stored_embs = speaker_id.stored_speaker_embeddings(
+                analysis.get("speaker_identity")
+            )
+            if turn_speakers and turn_speakers <= set(stored_embs):
+                report = await main._identify_enrolled_speakers_from_embeddings(
+                    uid, {sp: stored_embs[sp] for sp in turn_speakers},
+                )
+            else:
+                audio = await store.get_audio_bytes(uid, recording_id)
+                if not audio:
+                    raise AudioDecodeError("no stored audio for this recording")
+                pcm, sr = await asyncio.to_thread(decode_to_pcm, audio, "audio.m4a")
+                turns = [main.AnalyzeTurn(**t) for t in (rec.get("turns") or [])]
+                report = await main._identify_enrolled_speakers(uid, pcm, sr, turns)
+                if isinstance(report, dict) and speaker_id.stored_speaker_embeddings(report):
+                    # Persist the embeddings (and fresh scores) even on a
+                    # no-match, so this recording never needs audio again.
+                    # Labels are NOT touched here — _label_enrolled_and_persist
+                    # below is the only writer of speaker_labels/matched.
+                    existing = analysis.get("speaker_identity")
+                    identity = dict(existing) if isinstance(existing, dict) else {}
+                    identity["speakers"] = report["speakers"]
+                    identity["model"] = report.get("model")
+                    identity["match_threshold"] = report.get("match_threshold")
+                    analysis = {**analysis, "speaker_identity": identity}
+                    await store.update_analysis(uid, recording_id, analysis)
+                    rec = {**rec, "analysis": analysis}
         except Exception:  # noqa: BLE001 — one bad recording must not sink the batch
             logger.warning(
                 "Catch-up: match failed uid=%s recording=%s",

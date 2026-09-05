@@ -13,7 +13,10 @@
  * thresholds as the watch (+6/+10/+14 dB over baseline -> level 1/2/3).
  */
 
-export type VectorName = "yelling" | "aggressive_tone" | "interrupting" | "airtime" | "hr_spike";
+/** "activation" is phone-local (live/activation.ts, dark by default) and is
+ *  never sent over the wire — server/watch VectorName stays the 5-vector
+ *  contract. */
+export type VectorName = "yelling" | "aggressive_tone" | "interrupting" | "airtime" | "hr_spike" | "activation";
 export type Channel = "A" | "B";
 
 export interface VectorSubscription {
@@ -191,16 +194,144 @@ export function selfTurnVectorEvents(
   ];
 }
 
+// ---------------------------------------------------------------------------
+// interrupting = sustained mutual speech (mirror of server/watch/vectors.py
+// interrupting_events; contract: server/tests/fixtures/policy_vectors/
+// interrupting.json). CANDOR (850 h): median overlap at a speaker change is
+// ~0.4 s and 35% of transitions overlap — brief overlap is normal
+// engagement. Overlap > 2 s is rare (~13/hour): that is where "talking over
+// someone" starts to read as steamrolling (owner call, 2026-09-05).
+// ---------------------------------------------------------------------------
+
+export const INTERRUPT_LEVELS: [number, number][] = [
+  [6.0, 3],
+  [4.0, 2],
+  [2.0, 1],
+];
+
+export interface TurnSpan {
+  start: number;
+  end: number;
+}
+
+/** For each self turn that STARTS inside another party's turn, `value` =
+ *  how long both kept talking (min(end, otherEnd) - start); level from
+ *  INTERRUPT_LEVELS (below the first rung emits nothing). `t` = self start. */
+export function interruptingEvents(selfTurns: TurnSpan[], otherTurns: TurnSpan[]): VectorEvent[] {
+  const out: VectorEvent[] = [];
+  for (const s of selfTurns) {
+    for (const o of otherTurns) {
+      if (o.start < s.start && s.start < o.end) {
+        const overlap = Math.min(s.end, o.end) - s.start;
+        let level = 0;
+        for (const [threshold, l] of INTERRUPT_LEVELS) {
+          if (overlap >= threshold) { level = l; break; }
+        }
+        if (level > 0) {
+          out.push({ vector: "interrupting", level, t: s.start, value: Math.round(overlap * 1000) / 1000 });
+        }
+      }
+    }
+  }
+  return out;
+}
+
 /** The phone's single-lane default: both voice vectors on channel A. */
 export function phoneNudgePolicy(cooldownS = 20.0): NudgePolicy {
   return new NudgePolicy(
     [
       { vector: "yelling", sensitivity: 1.0, haptics: true, channel: "A" },
       { vector: "aggressive_tone", sensitivity: 1.0, haptics: true, channel: "A" },
+      // Fed only when the loop is built with activationNudges (dark otherwise).
+      { vector: "activation", sensitivity: 1.0, haptics: true, channel: "A" },
+      // Sustained talking-over. Not observable on a single mic; arrives as a
+      // server "nudge" frame in call mode (server/calls.py), on the watch
+      // from the server's diarization — subscribed here so any local
+      // producer (future sub-window identity check) rides the same lane.
+      { vector: "interrupting", sensitivity: 1.0, haptics: true, channel: "A" },
     ],
     cooldownS,
     ["A"],
   );
+}
+
+// ---------------------------------------------------------------------------
+// Don't-nag gate over the coach's LINES (docs/research/2026-08-30-nudge-quality)
+// ---------------------------------------------------------------------------
+
+/** The server's COACH_REPEAT_* defaults (audio_pipeline.py); both sides
+ *  must agree so a line the cloud lets through is not one the phone re-says
+ *  a moment later. */
+export const COACH_REPEAT_COOLDOWN_S = 45;
+export const COACH_REPEAT_JACCARD = 0.5;
+
+function coachingGrams(text: string): Set<string> {
+  const words = (text.toLowerCase().match(/[a-z0-9']+/g) ?? []) as string[];
+  if (words.length < 2) return new Set(words);
+  const out = new Set<string>();
+  for (let i = 0; i + 1 < words.length; i++) out.add(`${words[i]} ${words[i + 1]}`);
+  return out;
+}
+
+/** Word-bigram Jaccard between two coaching lines — 1 for the same words,
+ *  ~0 for unrelated lines (the server's `_coaching_overlap`). */
+export function coachingOverlap(a: string, b: string): number {
+  const ga = coachingGrams(a);
+  const gb = coachingGrams(b);
+  if (ga.size === 0 || gb.size === 0) return 0;
+  let inter = 0;
+  for (const g of ga) if (gb.has(g)) inter++;
+  return inter / (ga.size + gb.size - inter);
+}
+
+/**
+ * Remembers what the coach said (spoken or shown) and answers "is this new
+ * line a re-issue of one within the cooldown?" — the phone-side mirror of
+ * the server's `_is_repeat_coaching`. Time is session seconds (the turn's
+ * end), so the same transcript always gates the same way.
+ *
+ * On the owner's real sessions (2026-08-26) the on-device coach said
+ * "Please be specific. I need clear directions to find you." on two
+ * consecutive fragments of one sentence; this gate turns the second into
+ * silence. Not yet wired into fastLoop.finalizeTurn (that file has another
+ * owner) — see the research README's "what's next".
+ */
+export class CoachRepeatGate {
+  private readonly said: { text: string; t: number; kind: string }[] = [];
+
+  constructor(
+    private readonly cooldownS = COACH_REPEAT_COOLDOWN_S,
+    private readonly threshold = COACH_REPEAT_JACCARD,
+    private readonly maxEntries = 200,
+  ) {}
+
+  /** True when `text` re-issues a remembered line within the cooldown
+   *  (any kind unless `kind` narrows it). */
+  isRepeat(text: string, t: number, kind?: string): boolean {
+    if (!text) return false;
+    for (let i = this.said.length - 1; i >= 0; i--) {
+      const s = this.said[i];
+      if (t - s.t > this.cooldownS) break;
+      if (kind !== undefined && s.kind !== kind) continue;
+      if (coachingOverlap(s.text, text) >= this.threshold) return true;
+    }
+    return false;
+  }
+
+  /** Record a line the coach actually delivered. */
+  remember(text: string, t: number, kind: "nudge" | "response"): void {
+    if (!text) return;
+    this.said.push({ text, t, kind });
+    if (this.said.length > this.maxEntries) this.said.splice(0, this.said.length - this.maxEntries / 2);
+  }
+
+  /** `text` unless it repeats (then null), remembering it when kept. */
+  admit(text: string | null, t: number, kind: "nudge" | "response"): string | null {
+    if (!text) return null;
+    if (this.isRepeat(text, t, kind === "nudge" ? "nudge" : undefined)) return null;
+    this.remember(text, t, kind);
+    return text;
+  }
 }
 
 /** The haptic seam (expo-haptics in production, a spy in tests). */

@@ -341,3 +341,132 @@ def test_ecapa_clustering_poker6_fixture_full_accuracy():
         )
     assert got["num_speakers"] == 6, "\n".join(lines)
     assert acc == 1.0, "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Windows-first engine counterparts (2026-08-30) — diarize_windows_first labels
+# the audio transcript-free and regroups the words; production's default
+# engine since 2026-08-30 (MINDSHIFT_DIARIZE_ENGINE). Same fixtures, same
+# best-permutation scoring, scored PER INPUT UTTERANCE: an utterance's label is
+# the duration-weighted majority of the engine's output turns inside it
+# ("(untranscribed)" turns for uncovered speech are not scored).
+# ---------------------------------------------------------------------------
+
+def _windows_first_utterance_labels(turns: list[dict], got: dict) -> list[str]:
+    out = []
+    for t in turns:
+        s, e = float(t["start_time"]), float(t["end_time"])
+        weight: dict[str, float] = {}
+        for o in got["turns"]:
+            if o["text"] == diarize_local.UNTRANSCRIBED_TEXT:
+                continue
+            mid = (float(o["start_time"]) + float(o["end_time"])) / 2
+            if s <= mid <= e:
+                weight[o["speaker"]] = weight.get(o["speaker"], 0.0) + (
+                    float(o["end_time"]) - float(o["start_time"])
+                )
+        out.append(max(weight, key=weight.get) if weight else "???")
+    return out
+
+
+def _windows_first_score(name: str, pcm, sr, turns: list[dict]) -> tuple:
+    truth = [t["speaker"] for t in turns]
+    got = diarize_local.diarize_windows_first(pcm, sr, [dict(t) for t in turns])
+    assert got is not None, f"{name}: the windows engine returned nothing"
+    assert got["source"] == diarize_local.SOURCE_WINDOWS
+    pred = _windows_first_utterance_labels(turns, got)
+    acc, correct, mapping = _best_permutation_accuracy(truth, pred)
+    lines = [
+        f"{name} (windows engine): num_speakers={got['num_speakers']}, "
+        f"{correct}/{len(truth)} = {acc:.4f}, eigengap k="
+        f"{got['k_evaluated'][0]['k_eigengap']} (eigenvalues "
+        f"{got['k_evaluated'][0]['eigenvalues']}), {len(got['turns'])} turn(s), "
+        f"{got['split_utterances']} split, {got['uncovered_turns']} untranscribed, "
+        f"segments={[(s['start'], s['end'], s['label']) for s in got['segments']]}",
+        "  turn  truth        pred         mapped       ok",
+    ]
+    for i, (t, p) in enumerate(zip(truth, pred)):
+        lines.append(
+            f"  {i:>4}  {t:<11} {p:<12} {mapping.get(p, '???'):<12} {mapping.get(p) == t}"
+        )
+    return got, acc, correct, len(truth), "\n".join(lines)
+
+
+def _tts_turns(name: str) -> tuple:
+    wav_path = _FIXTURES[name]
+    meta = json.loads(wav_path.with_name(wav_path.stem + "_meta.json").read_text())
+    pcm, sr = _load_16k_pcm(wav_path)
+    return pcm, sr, _build_turns(meta)
+
+
+def test_windows_first_openai_fixture_full_accuracy():
+    """Measured 2026-08-30: eigengap k=2, 10/10 exact per-utterance accuracy
+    (frame accuracy 1.000 vs the scripted boundaries). Pinned at the
+    ceiling."""
+    pcm, sr, turns = _tts_turns("test_recording_openai")
+    got, acc, correct, total, msg = _windows_first_score("openai", pcm, sr, turns)
+    assert got["num_speakers"] == 2, msg
+    assert acc == 1.0, msg
+
+
+def test_windows_first_gptaudio_fixture_full_accuracy():
+    """Measured 2026-08-30: eigengap k=2, 10/10 (frame accuracy 1.000)."""
+    pcm, sr, turns = _tts_turns("test_recording_gptaudio")
+    got, acc, correct, total, msg = _windows_first_score("gptaudio", pcm, sr, turns)
+    assert got["num_speakers"] == 2, msg
+    assert acc == 1.0, msg
+
+
+@pytest.mark.skipif(
+    not _REAL_FIXTURE.exists(),
+    reason="real family fixture missing (test_recording_family_real.wav)",
+)
+def test_windows_first_family_real_fixture_full_accuracy():
+    """Owner + son (real). Measured 2026-08-30: eigengap k=2, frame accuracy
+    0.980 on the owner's boundaries (0.949 on his real Deepgram transcript,
+    which heard ONE voice; the utterance engine 1.000 / 0.974), 7/8 per
+    utterance: the one miss is the son's 0.5 s "And" at 15.43-15.93 s, an
+    interjection a 1.5 s-window timeline cannot resolve (its segment runs
+    10.38-15.88 s for the owner) — 2 % of the speech, and the reason the
+    utterance engine keeps the last word on short turns (SPECTRAL_MIN_RUN_
+    SECONDS). Pinned at 7/8 with the miss named; every other turn must land."""
+    meta = json.loads(_REAL_FIXTURE.with_name(_REAL_FIXTURE.stem + "_meta.json").read_text())
+    pcm, sr = _load_16k_pcm(_REAL_FIXTURE)
+    turns = [dict(t) for t in meta["turns"]]
+    got, acc, correct, total, msg = _windows_first_score("family_real", pcm, sr, turns)
+    assert got["num_speakers"] == 2, msg
+    assert correct == 7 and total == 8, msg
+    pred = _windows_first_utterance_labels(turns, got)
+    wrong = [i for i, (t, p) in enumerate(zip(turns, pred))]
+    # The miss is turn 4 (the 0.5 s "And") and nothing else.
+    truth = [t["speaker"] for t in turns]
+    _, _, mapping = _best_permutation_accuracy(truth, pred)
+    wrong = [i for i, (t, p) in enumerate(zip(truth, pred)) if mapping.get(p) != t]
+    assert wrong == [4], msg
+
+
+@pytest.mark.skipif(
+    not _POKER6_FIXTURE.exists(),
+    reason="poker6 real fixture missing (test_recording_poker6_real.wav)",
+)
+def test_windows_first_poker6_fixture_full_accuracy():
+    """Six real men. Measured 2026-08-30: the eigengap (max k 8, B's
+    range) says 7 — one player's ~5 s turn splits into two clusters at the
+    fixture's ±1-2 s boundary slop (the bake-off's 0.809 / k=7 timeline,
+    reproduced here to the frame) — but on the owner's boundaries every
+    utterance lands on its own player and the seventh cluster claims no
+    words, so num_speakers=6 and 6/6. On the owner's real Deepgram
+    transcript (ONE speaker, 7 utterances, 36 % of the speech never
+    transcribed) the same engine scores 0.720 with 7 speakers (the
+    untranscribed stretches carry the seventh) vs the utterance engine's
+    0.447 / 4 voices. Pinned: 6/6 and 6 speakers on these boundaries."""
+    meta = json.loads(_POKER6_FIXTURE.with_name(_POKER6_FIXTURE.stem + "_meta.json").read_text())
+    pcm, sr = _load_16k_pcm(_POKER6_FIXTURE)
+    turns = [
+        {"speaker": t["speaker"], "start_time": t["approx_start"], "end_time": t["approx_end"]}
+        for t in meta["approx_turns"]
+    ]
+    got, acc, correct, total, msg = _windows_first_score("poker6", pcm, sr, turns)
+    assert got["k_evaluated"][0]["k_eigengap"] == 7, msg
+    assert got["num_speakers"] == 6, msg
+    assert acc == 1.0, msg

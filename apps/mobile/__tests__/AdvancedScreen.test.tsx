@@ -146,7 +146,11 @@ async function render(handlers = makeHandlers()) {
   return comp;
 }
 
+import { useDevModeStore } from "../src/store/devModeStore";
+
 beforeEach(() => {
+  // The About/Experimental assertions below are the developer surface.
+  useDevModeStore.setState({ devMode: true });
   mockOta = baseOta();
   mockVtProps = null;
   mockProfile.mockReset();
@@ -687,5 +691,54 @@ describe("AdvancedScreen — voice profile card", () => {
     );
     alertSpy.mockRestore();
     act(() => comp.unmount());
+  });
+});
+
+describe("Developer mode switch", () => {
+  it("off: hides Backend/Experimental; flipping it on brings them back and persists", async () => {
+    useDevModeStore.setState({ devMode: false });
+    const comp = await render();
+    expect(comp.root.findAllByProps({ testID: "about-backend" })).toHaveLength(0);
+    expect(comp.root.findAllByProps({ testID: "section-experimental" })).toHaveLength(0);
+    const sw = comp.root.findByProps({ testID: "developer-mode-switch" });
+    await act(async () => {
+      sw.props.onValueChange(true);
+    });
+    expect(useDevModeStore.getState().devMode).toBe(true);
+    expect(comp.root.findAllByProps({ testID: "about-backend" }).length).toBeGreaterThan(0);
+    expect(comp.root.findAllByProps({ testID: "section-experimental" }).length).toBeGreaterThan(0);
+  });
+});
+
+describe("Experimental voice engine switch", () => {
+  const SecureStore = require("expo-secure-store") as { getItemAsync: jest.Mock; setItemAsync: jest.Mock };
+
+  afterEach(() => {
+    SecureStore.getItemAsync.mockReset().mockResolvedValue(null);
+    SecureStore.setItemAsync.mockReset().mockResolvedValue(undefined);
+  });
+
+  it("is OFF by default and saves the account's choice when flipped", async () => {
+    const comp = await render();
+    await act(async () => {});
+    const sw = queryId(comp, "experimental-voice-engine-switch");
+    expect(sw).not.toBeNull();
+    expect(sw!.props.value).toBe(false);
+    expect(textOf(queryId(comp, "experimental-voice-engine-row")!)).toContain("Off — the on-phone voice-separation row stays hidden");
+    await act(async () => {
+      sw!.props.onValueChange(true);
+    });
+    expect(queryId(comp, "experimental-voice-engine-switch")!.props.value).toBe(true);
+    expect(SecureStore.setItemAsync).toHaveBeenCalledWith(expect.stringMatching(/^mindshift\.experimentalVoiceEngine\.v1\./), "on");
+    expect(textOf(queryId(comp, "experimental-voice-engine-row")!)).toContain("Separate voices on this phone (engine B)");
+  });
+
+  it("reflects a remembered ON choice", async () => {
+    SecureStore.getItemAsync.mockImplementation((key: string) =>
+      Promise.resolve(key.startsWith("mindshift.experimentalVoiceEngine.v1.") ? "on" : null),
+    );
+    const comp = await render();
+    await act(async () => {});
+    expect(queryId(comp, "experimental-voice-engine-switch")!.props.value).toBe(true);
   });
 });

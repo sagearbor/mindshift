@@ -126,6 +126,15 @@ fun GlanceScreen(
         }
     }
 
+    // Journal A/B toggle state. journalOn mirrors the pref (the service reads the pref itself
+    // each tick, so this is display state only); the consent confirmation reuses the same
+    // ScalingLazyColumn/Chip idiom as the retro-capture confirm above — turning Journal ON asks
+    // ONCE, and the confirm tap is the consent artifact (GaugePrefs.enableJournal stores it with
+    // a timestamp; toggling off clears it, so the next ON asks again).
+    var journalOn by remember { mutableStateOf(app.gauge.wear.prefs.GaugePrefs.journalMode(context)) }
+    var showJournalConsent by remember { mutableStateOf(false) }
+    var journalNeedsPairing by remember { mutableStateOf(false) }
+
     // Task 11's arm/disarm toggle body, extracted so both center visualizations share the exact
     // same tap gesture (Addendum 2 gesture contract — inviolable, see class KDoc: the center tap
     // is the arm/disarm toggle regardless of which view is showing, never a display switcher).
@@ -261,6 +270,88 @@ fun GlanceScreen(
                     text = if (result == app.gauge.wear.capture.RetroCaptureResult.SAVED) "Saved" else "Couldn't save — try again",
                     style = MaterialTheme.typography.caption2,
                     color = if (result == app.gauge.wear.capture.RetroCaptureResult.SAVED) MaterialTheme.colors.primary else MaterialTheme.colors.error,
+                )
+            }
+        }
+        // Journal A/B: the toggle + its one-time consent step. Requires a paired watch (the
+        // captures API rejects legacy callers), surfaced honestly rather than failing silently.
+        item {
+            Chip(
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(if (journalOn) "📓 Journal — keep what I say · On" else "📓 Journal — keep what I say") },
+                colors = if (journalOn) ChipDefaults.primaryChipColors() else ChipDefaults.secondaryChipColors(),
+                onClick = {
+                    journalNeedsPairing = false
+                    if (journalOn) {
+                        // OFF clears the stored consent too (session-long consent semantics).
+                        app.gauge.wear.prefs.GaugePrefs.disableJournal(context)
+                        journalOn = false
+                        showJournalConsent = false
+                        app.gauge.wear.journal.logJournalToggle(context, false)
+                    } else if (!uiState.signedIn) {
+                        journalNeedsPairing = true
+                    } else {
+                        showJournalConsent = true
+                    }
+                },
+            )
+        }
+        item {
+            Text(
+                text = "uploads a few minutes at a time; only your voice is kept after processing",
+                style = MaterialTheme.typography.caption2,
+                color = MaterialTheme.colors.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+        }
+        if (journalNeedsPairing) {
+            item {
+                Text(
+                    text = "Pair your watch first — Journal uploads need a paired watch.",
+                    style = MaterialTheme.typography.caption2,
+                    color = MaterialTheme.colors.error,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+        if (showJournalConsent) {
+            item {
+                Text(
+                    text = "Turning Journal on also starts listening (arms the sentinel). It uploads a few minutes of your OWN audio at a time. After processing, only the stretches matching your enrolled voice are kept; raw uploads are deleted within 48 hours.",
+                    style = MaterialTheme.typography.caption2,
+                    textAlign = TextAlign.Center,
+                )
+            }
+            item {
+                Chip(
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Confirm — turn Journal on") },
+                    colors = ChipDefaults.primaryChipColors(),
+                    onClick = {
+                        showJournalConsent = false
+                        // The wearer's tap on THIS chip is the one consent artifact — stored
+                        // with its timestamp, cleared when the toggle goes off (see
+                        // GaugePrefs.enableJournal/disableJournal). Cancel below stores nothing.
+                        app.gauge.wear.prefs.GaugePrefs.enableJournal(
+                            context, app.gauge.wear.journal.journalNowIso(),
+                        )
+                        journalOn = true
+                        app.gauge.wear.journal.logJournalToggle(context, true)
+                        // Journal without the sentinel armed is a silent no-op (no
+                        // mic, no ring, no uploads, no nudges — the owner hit
+                        // exactly this on 0.4.4): turning Journal ON arms the
+                        // sentinel through the SAME gesture path as the center
+                        // ring, permission gate included.
+                        if (!uiState.isOn) onToggle()
+                    },
+                )
+            }
+            item {
+                Chip(
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Cancel") },
+                    colors = ChipDefaults.secondaryChipColors(),
+                    onClick = { showJournalConsent = false },
                 )
             }
         }

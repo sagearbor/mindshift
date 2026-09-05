@@ -30,6 +30,10 @@ import okio.ByteString.Companion.toByteString
 class EpisodeWsClient(
     private val baseWsUrl: String,
     private val account: String,
+    /** Paired device token (Wave C). Non-null: the socket authenticates with `?token=` (the
+     *  server's preferred form — watch/routers/ws.py accepts both); null: the legacy `?account=`
+     *  URL, byte-identical to the shipped client. */
+    private val token: String? = null,
     // A default client with no timeouts would hang indefinitely on a dead/unreachable backend
     // rather than ever calling the listener's onFailure — the controller's fail-soft path (Task 7)
     // depends on onFailure actually firing to flip `online` false and fall back to local nudges.
@@ -69,7 +73,12 @@ class EpisodeWsClient(
      * twice would silently leak the first [WebSocket] since nothing here guards against it).
      */
     fun open(episodeId: String, listener: Listener) {
-        val url = "$baseWsUrl/ws/live-session/$episodeId?account=$account"
+        val url = if (token != null) {
+            // Prefer the paired device token; URL-encoded since the token is an opaque string.
+            "$baseWsUrl/ws/live-session/$episodeId?token=${java.net.URLEncoder.encode(token, "UTF-8")}"
+        } else {
+            "$baseWsUrl/ws/live-session/$episodeId?account=$account"
+        }
         val request = Request.Builder().url(url).build()
         webSocket = client.newWebSocket(
             request,
@@ -155,6 +164,20 @@ class EpisodeWsClient(
     /** Sends the `{"type":"end"}` text frame that signals episode completion. */
     fun end() {
         webSocket?.send("""{"type":"end"}""")
+    }
+
+    /** Companion mode (Tier B): announces this socket as a no-PCM nudge receiver. The server
+     *  suppresses live-session persistence for a socket that said hello — see
+     *  server/watch/routers/ws.py's `companion` handling. Sent once, right after [open]. */
+    fun sendCompanionHello() {
+        webSocket?.send("""{"type":"companion"}""")
+    }
+
+    /** Companion mode: tiny JSON keepalive (the server ignores it; the traffic keeps NATs and
+     *  idle-connection reapers away). Cadence is the caller's — 20 s, matching the OkHttp
+     *  `pingInterval` above. */
+    fun sendHeartbeat() {
+        webSocket?.send("""{"type":"heartbeat"}""")
     }
 
     /** Cancels the underlying connection immediately, releasing OkHttp resources. */

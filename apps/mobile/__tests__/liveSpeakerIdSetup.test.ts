@@ -10,14 +10,15 @@ import {
   peopleForModel,
 } from "../src/live/speakerIdSetup";
 import type { EnrolledPerson } from "../src/live/speakerId";
+import { ECAPA_REVISION } from "../src/api/liveSessions";
 
 const you: EnrolledPerson = { personId: "self", displayName: "You", isSelf: true, embedding: [1, 0], model: "speechbrain/x@rev1" };
 const mom: EnrolledPerson = { personId: "mom", displayName: "Mom", isSelf: false, embedding: [0, 1], model: "speechbrain/x@rev0" };
 const legacy: EnrolledPerson = { personId: "dad", displayName: "Dad", isSelf: false, embedding: [1, 1], model: null };
 
 describe("peopleForModel", () => {
-  it("keeps prints from the model's revision and legacy prints; drops other revisions", () => {
-    const { kept, dropped } = peopleForModel([you, mom, legacy], '"rev1"');
+  it("keeps prints from the pinned revision and legacy prints; drops other revisions", () => {
+    const { kept, dropped } = peopleForModel([you, mom, legacy], "rev1");
     expect(kept.map((p) => p.personId)).toEqual(["self", "dad"]);
     expect(dropped.map((p) => p.personId)).toEqual(["mom"]);
   });
@@ -25,6 +26,17 @@ describe("peopleForModel", () => {
   it("drops nothing without a revision to compare against", () => {
     expect(peopleForModel([you, mom], null).dropped).toEqual([]);
     expect(peopleForModel([you, mom], "").kept).toHaveLength(2);
+  });
+
+  it("regression 2026-08-31: the comparison is the PINNED revision, never a download ETag", () => {
+    // Firebase Hosting tags the model file with a content hash, not the
+    // model revision; comparing prints against that ETag dropped all three
+    // enrolled voiceprints on a real device (droppedForModel: 3) and the
+    // journal demanded enrollment from an enrolled user.
+    const print: EnrolledPerson = { ...you, model: `speechbrain/spkrec-ecapa-voxceleb@${ECAPA_REVISION}` };
+    const { kept, dropped } = peopleForModel([print], ECAPA_REVISION);
+    expect(kept).toHaveLength(1);
+    expect(dropped).toEqual([]);
   });
 });
 

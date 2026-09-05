@@ -60,6 +60,7 @@ from audio_ingest import (
     build_derivatives,
     decode_to_pcm,
     decode_to_pcm_16k,
+    pcm_to_wav16,
     transcribe_upload,
 )
 from audio_pipeline import UUID_PATTERN, audio_ws_endpoint
@@ -319,6 +320,41 @@ ANALYZE_MIN_TURNS = 4
 ANALYZE_MAX_TURNS = 400
 ANALYZE_MIN_SPEAKERS = 1
 ANALYZE_MAX_SPEAKERS = 10
+
+# Which local voice-diarization ENGINE labels the speakers in the cross-check
+# block of _analyze_recording_bytes (MINDSHIFT_DIARIZE_ENGINE, 2026-08-30):
+#   windows     (DEFAULT) diarize_local.diarize_windows_first — the
+#               transcript-free window engine (bake-off approach B) labels the
+#               audio, the transcript's words are regrouped by its segments;
+#               falls back to the utterance engine when it has nothing to say.
+#   utterances  diarize_local.diarize_turns — the transcript's utterances are
+#               embedded, clustered and validated (the engine that shipped
+#               until 2026-08-30).
+# Why the default changed: on the owner's real recordings the utterance
+# engine scored maggiano3 0.70/0.67, poker 0.47 (4 of 6 voices — Deepgram
+# welded the poker transcript), family 0.97 (frame accuracy vs ground truth);
+# the window engine scores 0.76 / 0.81 (k=7) / 0.96, and the owner watched
+# "Re-analyze with the latest engine" turn a good 7-voice poker result back
+# into 4 voices (docs/research/2026-08-29-voice-separation/README.md,
+# docs/research/2026-08-30-unknown-and-transcript/README.md).
+DIARIZE_ENGINE_ENV = "MINDSHIFT_DIARIZE_ENGINE"
+DIARIZE_ENGINE_WINDOWS = "windows"
+DIARIZE_ENGINE_UTTERANCES = "utterances"
+DIARIZE_ENGINE_DEFAULT = DIARIZE_ENGINE_WINDOWS
+
+
+def _diarize_engine() -> str:
+    """The configured engine name; an unknown value logs and means the default."""
+    raw = (os.getenv(DIARIZE_ENGINE_ENV) or "").strip().lower()
+    if not raw:
+        return DIARIZE_ENGINE_DEFAULT
+    if raw not in {DIARIZE_ENGINE_WINDOWS, DIARIZE_ENGINE_UTTERANCES}:
+        logger.warning(
+            "%s=%r is not an engine (windows | utterances) — using %s",
+            DIARIZE_ENGINE_ENV, raw, DIARIZE_ENGINE_DEFAULT,
+        )
+        return DIARIZE_ENGINE_DEFAULT
+    return raw
 ANALYZE_MAX_TRANSCRIPT_CHARS = 60_000
 
 # Per-person report-card field caps (§2). Enforced server-side as truncation on
@@ -511,10 +547,12 @@ class AnalyzeUploadResponse(AnalyzeResponse):
     # every turn) rather than a hard failure or fabricated labels. None when
     # prosody ran normally.
     voice_analysis: Optional[str] = None
-    # Non-None ONLY when the transcription provider switched mid-request (the
-    # Deepgram→local-Whisper fallback in audio_ingest.transcribe_upload) —
-    # states plainly which engine transcribed and why. A silent vendor swap is
-    # a house-rule violation; None means the configured primary ran normally.
+    # Non-None ONLY when the transcript did NOT come from the configured primary
+    # engine running normally: the Deepgram→local-Whisper fallback in
+    # audio_ingest.transcribe_upload (states plainly which engine transcribed
+    # and why — a silent vendor swap is a house-rule violation), or a
+    # re-analysis that reused the recording's stored transcript instead of
+    # transcribing again. None means the primary ran normally.
     transcription_note: Optional[str] = None
     # Consent-gated persistence outcome (defaults keep the /analyze response
     # byte-compatible for callers that ignore them). ``stored`` is True only
@@ -692,6 +730,10 @@ class RecordingShareRequest(BaseModel):
 class JobCreatedResponse(BaseModel):
     # 202 body: the id to poll GET /analyze/jobs/{job_id} with.
     job_id: str
+    # Optional honest note about what accepting the job implies (e.g.
+    # …/reanalyze-with-segments: "your manual speaker names will be cleared").
+    # None on every other job endpoint — additive, older clients ignore it.
+    note: Optional[str] = None
 
 
 class JobStateResponse(BaseModel):
@@ -1012,7 +1054,41 @@ from watch.app import build_watch_deps, build_watch_routers  # noqa: E402
 _watch_deps = build_watch_deps()
 app.state.watch_deps = _watch_deps
 
-for _r in build_watch_routers(_watch_deps):
+
+async def _watch_journal_recording_sink(
+    account_id: str, wav_bytes: bytes, title: str, context: str,
+) -> None:
+    """Turn a watch journal capture's SELF-filtered audio into a stored,
+    analyzed recording — the main-side half of watch/journal.py's handoff.
+
+    Runs the exact upload pipeline (transcode → windows-first diarization →
+    LLM analysis → episodes) as a background job with consent=True/store=True:
+    journal mode is itself the standing consent the wearer gave on the watch
+    (a one-tap attested ConsentRecord per capture rides on the capture doc).
+    Best-effort: storage off or a failure logs and drops — the capture's
+    labels still carry the segments, so nothing is unrecoverable."""
+    store_backend = get_recordings_store()
+    if store_backend is None:
+        logger.warning("watch journal: recordings storage disabled; dropping %s", title)
+        return
+    job_id = str(uuid.uuid4())
+    state = _new_job_state()
+    await store_backend.write_job_state(account_id, job_id, state)
+
+    async def _prepare(set_stage: "JobProgressFn") -> tuple:
+        return wav_bytes, "journal.wav", "audio/wav", {
+            "type": "journal", "url": None, "original_filename": None,
+        }
+
+    _spawn_job(_run_analysis_job(
+        account_id, job_id, store_backend, state,
+        prepare=_prepare, context=context, consent=True, store=True, title=title,
+    ))
+
+
+for _r in build_watch_routers(
+    _watch_deps, journal_recording_sink=_watch_journal_recording_sink,
+):
     app.include_router(_r)
 
 # Account deletion (Play requirement): DELETE /me — erases every tier of the
@@ -1807,9 +1883,11 @@ ANALYZE_SYSTEM_PROMPT = (
     "before responding to criticism\"), never generic advice. Be honest and "
     "direct, kind but not mushy — do not soften real feedback away.\n\n"
     "Return ONLY a JSON object of exactly this shape, with per_turn holding "
-    "one entry per input turn in the SAME order and length, and report_cards "
-    "holding one card per distinct speaker:\n"
-    '{"per_turn": [{"heat": 0, "markers": [], "trigger_phrase": null}], '
+    "one entry per input turn in the SAME order and length — each entry "
+    "carries \"turn\", the turn's number from the transcript (0-based), so "
+    "nothing can be skipped — and report_cards holding one card per distinct "
+    "speaker:\n"
+    '{"per_turn": [{"turn": 0, "heat": 0, "markers": [], "trigger_phrase": null}], '
     '"speaker_names": {"Alice": {"name": "", "confidence": "low"}}, '
     '"requests": [{"speaker": "", "request": "", "outcome": "unclear"}], '
     '"narrative": "", '
@@ -2218,6 +2296,62 @@ def _me_speaker(effective: dict[str, dict]) -> str | None:
     return me[0] if len(me) == 1 else None
 
 
+# A per_turn list may be short by this fraction of turns (rounded up, min 1)
+# and still be used, with the missing turns padded from neighbours.
+ALIGN_MAX_MISSING_FRAC = 0.1
+
+
+def _align_per_turn(entries: list, n: int) -> tuple[list[dict], list[int]] | None:
+    """Align an LLM ``per_turn`` list to ``n`` transcript turns.
+
+    Returns ``(aligned, padded_indexes)`` or ``None`` when the list cannot be
+    trusted. Exact length with in-order entries passes through untouched. An
+    entry's ``turn`` field (0-based) places it; entries without a usable
+    ``turn`` are taken in order into the gaps only when the count matches.
+    Missing turns (at most ``ceil(ALIGN_MAX_MISSING_FRAC * n)``) are padded
+    from the nearest scored neighbour — heat copied, no markers, no trigger
+    phrase — and reported so the caller can surface it.
+    """
+    import math
+
+    entries = [e if isinstance(e, dict) else {} for e in entries]
+    if len(entries) == n and all(
+        not isinstance(e.get("turn"), int) or e.get("turn") == i
+        for i, e in enumerate(entries)
+    ):
+        return entries, []
+    by_index: dict[int, dict] = {}
+    unindexed: list[dict] = []
+    for e in entries:
+        t = e.get("turn")
+        if isinstance(t, int) and 0 <= t < n and t not in by_index:
+            by_index[t] = e
+        else:
+            unindexed.append(e)
+    # Entries with no usable index fill the remaining slots in order, but only
+    # when that is unambiguous (they exactly fill the gaps).
+    gaps = [i for i in range(n) if i not in by_index]
+    if unindexed and len(unindexed) == len(gaps):
+        for i, e in zip(gaps, unindexed):
+            by_index[i] = e
+        gaps = []
+    if not by_index:
+        return None
+    if len(gaps) > max(1, math.ceil(ALIGN_MAX_MISSING_FRAC * n)):
+        return None
+    aligned: list[dict] = []
+    for i in range(n):
+        if i in by_index:
+            aligned.append(by_index[i])
+            continue
+        neighbour = min(by_index, key=lambda j: (abs(j - i), j))
+        aligned.append({
+            "heat": by_index[neighbour].get("heat"),
+            "markers": [], "trigger_phrase": None, "_padded": True,
+        })
+    return aligned, gaps
+
+
 async def _run_analysis(
     turns: list[AnalyzeTurn],
     context: str,
@@ -2315,11 +2449,24 @@ async def _run_analysis(
         # AttributeError on .get() downstream — treat it as a parse failure.
         if not isinstance(parsed, dict):
             raise _LLMResponseError("LLM returned invalid JSON")
-        # No padding, no truncation: a misaligned per_turn length means the
-        # scores cannot be trusted against the transcript at all.
+        # Align per_turn to the transcript. Each entry carries "turn" (the
+        # transcript number) so a skipped fragment can be identified instead of
+        # silently shifting every later score. Measured 2026-08-30 on a real
+        # 20-turn re-analysis: Haiku returned 19 entries twice in a row (the
+        # word-level splitter now produces short fragments like "Hey. Settle",
+        # which the model folds into a neighbour), so a strict length check
+        # 502'd the whole re-analysis. Rules: same length and in order → as
+        # before; otherwise align by "turn"; ≤ ALIGN_MAX_MISSING_FRAC of turns
+        # missing → pad each from its nearest scored neighbour (heat copied,
+        # no markers, no trigger) and say so in `parsed["_padded_turns"]`;
+        # more than that, or no usable indexes → misaligned (retry, then 502).
         per_turn_field = parsed.get("per_turn")
-        if not isinstance(per_turn_field, list) or len(per_turn_field) != len(turns):
+        if not isinstance(per_turn_field, list):
             raise _LLMResponseError("LLM returned misaligned analysis")
+        aligned = _align_per_turn(per_turn_field, len(turns))
+        if aligned is None:
+            raise _LLMResponseError("LLM returned misaligned analysis")
+        parsed["per_turn"], parsed["_padded_turns"] = aligned
         return parsed
 
     # ~10% of production batch-analysis calls come back non-JSON (or truncated
@@ -2338,8 +2485,14 @@ async def _run_analysis(
         except _LLMResponseError as exc:
             raise HTTPException(status_code=502, detail=exc.detail)
 
-    # Guaranteed a list of the correct length by _complete_analysis_json above.
+    # Guaranteed a list of the correct length by _complete_analysis_json above
+    # (possibly with a few padded fragments — logged, never silent).
     llm_per_turn = data["per_turn"]
+    if data.get("_padded_turns"):
+        logger.warning(
+            "analysis LLM skipped %d of %d turns; padded from neighbours: %s",
+            len(data["_padded_turns"]), len(turns), data["_padded_turns"],
+        )
 
     # Extract + clean the per-turn LLM fields into parallel arrays.
     heats: list[int] = []
@@ -2500,6 +2653,45 @@ async def _emit_progress(
         await progress(status, note, duration_seconds)
 
 
+async def _load_voiceprints(uid: str) -> tuple[dict, dict] | None:
+    """Every voiceprint the user enrolled — ``({person_id: blend}, {person_id:
+    {display_name, is_self, settings}})`` — or ``None`` when storage is off,
+    the read failed, or nobody is enrolled. ``settings`` is the number of
+    distinct recordings pooled into the print (speaker_id.profile_settings),
+    which gates the cross-recording contrast match."""
+    store_backend = get_recordings_store()
+    if store_backend is None:
+        return None
+    try:
+        profiles = await store_backend.list_voiceprints(uid)
+    except Exception:  # noqa: BLE001 — a read failure must not sink analysis
+        logger.warning("Voiceprint read failed for uid=%s", uid, exc_info=True)
+        return None
+    import numpy as np
+
+    voiceprints: dict[str, "np.ndarray"] = {}
+    people: dict[str, dict] = {}
+    for profile in profiles or []:
+        if not isinstance(profile, dict) or not isinstance(profile.get("embedding"), list):
+            continue
+        pid = profile.get("person_id") or speaker_id.SELF_PERSON_ID
+        # The CURRENT blend rule (one centroid per recording) re-applied over
+        # the stored samples — the same vector GET /voice/people serves the
+        # phone (speaker_id.current_blend).
+        blend = speaker_id.current_blend(profile)
+        if blend is None:
+            continue
+        voiceprints[pid] = blend
+        people[pid] = {
+            "display_name": profile.get("display_name"),
+            "is_self": bool(profile.get("is_self", pid == speaker_id.SELF_PERSON_ID)),
+            "settings": speaker_id.profile_settings(profile),
+        }
+    if not voiceprints:
+        return None
+    return voiceprints, people
+
+
 async def _identify_enrolled_speakers(
     uid: str,
     pcm,
@@ -2518,32 +2710,16 @@ async def _identify_enrolled_speakers(
     On success returns :func:`speaker_id.identify_speakers_multi`'s report; the
     top rung of the label ladder reads its ``matched``/``people`` maps (and the
     legacy ``matched_speaker`` = the self match) via :func:`_enrolled_labels`,
-    and the per-speaker cosine scores are retained for debugging."""
+    the per-speaker cosine scores are retained for debugging, and the
+    per-speaker embeddings ride along so a later re-match (the print grew,
+    /voice/catch-up) needs no audio — see
+    :func:`_identify_enrolled_speakers_from_embeddings`."""
     if pcm is None or sr is None or not speaker_id.is_available():
         return None
-    store_backend = get_recordings_store()
-    if store_backend is None:
+    loaded = await _load_voiceprints(uid)
+    if loaded is None:
         return None
-    try:
-        profiles = await store_backend.list_voiceprints(uid)
-    except Exception:  # noqa: BLE001 — a read failure must not sink analysis
-        logger.warning("Voiceprint read failed for uid=%s", uid, exc_info=True)
-        return None
-    import numpy as np
-
-    voiceprints: dict[str, "np.ndarray"] = {}
-    people: dict[str, dict] = {}
-    for profile in profiles or []:
-        if not isinstance(profile, dict) or not isinstance(profile.get("embedding"), list):
-            continue
-        pid = profile.get("person_id") or speaker_id.SELF_PERSON_ID
-        voiceprints[pid] = np.asarray(profile["embedding"], dtype=np.float32)
-        people[pid] = {
-            "display_name": profile.get("display_name"),
-            "is_self": bool(profile.get("is_self", pid == speaker_id.SELF_PERSON_ID)),
-        }
-    if not voiceprints:
-        return None
+    voiceprints, people = loaded
     try:
         return await asyncio.to_thread(
             speaker_id.identify_speakers_multi,
@@ -2551,6 +2727,31 @@ async def _identify_enrolled_speakers(
         )
     except Exception:  # noqa: BLE001 — matching is optional; degrade to no label
         logger.warning("Speaker identification failed for uid=%s", uid, exc_info=True)
+        return None
+
+
+async def _identify_enrolled_speakers_from_embeddings(
+    uid: str, speaker_embeddings: dict,
+) -> dict | None:
+    """The audio-free twin of :func:`_identify_enrolled_speakers`: re-score a
+    recording's STORED per-speaker embeddings (speaker_identity.speakers[*]
+    .embedding, written by the audio pass) against the user's current prints.
+    Pure math — no decode, no torch — so catch-up can re-check every past
+    recording in milliseconds after the print improves. Same honest ``None``
+    on storage-off / nobody-enrolled / failure."""
+    loaded = await _load_voiceprints(uid)
+    if loaded is None:
+        return None
+    voiceprints, people = loaded
+    try:
+        return speaker_id.identify_from_embeddings(
+            speaker_embeddings, voiceprints, people=people,
+        )
+    except Exception:  # noqa: BLE001 — matching is optional; degrade to no label
+        logger.warning(
+            "Speaker identification (stored embeddings) failed for uid=%s",
+            uid, exc_info=True,
+        )
         return None
 
 
@@ -2566,6 +2767,9 @@ async def _analyze_recording_bytes(
     source: dict,
     title: str | None = None,
     progress: "JobProgressFn | None" = None,
+    stored_transcript: list[dict] | None = None,
+    on_transcribed: "Callable[[list[dict]], Awaitable[None]] | None" = None,
+    skip_diarization: bool = False,
 ) -> AnalyzeUploadResponse:
     """Analyze one recording's raw bytes and optionally persist the result.
 
@@ -2585,48 +2789,131 @@ async def _analyze_recording_bytes(
     progress (transcribing → analyzing → storing) as it goes; it is None on the
     synchronous paths, which then run exactly as before.
 
+    ``stored_transcript`` (re-analysis only) is the recording's stored RAW STT
+    transcript (transcript.json: the transcriber's own utterances, per-word
+    timings included). When it is a non-empty list that passes the same
+    AnalyzeRequest validation, STT is SKIPPED and those utterances feed every
+    downstream stage exactly as a fresh transcription would (decode, the
+    local-diarization cross-check — word timings and all — prosody, LLM,
+    enrollment identity, episodes): the user neither waits for nor pays for a
+    second transcription pass, and ``transcription_note`` says so. Empty/None,
+    or a stored transcript that fails validation, falls back to transcribing
+    exactly as before; ``on_transcribed`` (when given) then receives the fresh
+    raw transcript so the caller can store it for next time — best-effort, a
+    failure there is logged and never sinks the analysis.
+
+    ``skip_diarization`` (POST …/reanalyze-with-segments, and …/reanalyze on a
+    recording with applied voices) turns the local voice-diarization
+    cross-check OFF for this run: the caller supplied the speaker
+    segmentation it wants (the phone's own engine), so relabeling it here
+    would silently undo the user's choice. Prosody, LLM, identity and
+    episodes still run; ``voice_analysis`` says the cross-check was skipped.
+    Otherwise the cross-check's ENGINE is chosen by MINDSHIFT_DIARIZE_ENGINE
+    (see :func:`_diarize_engine`; ``windows`` by default) and
+    ``voice_analysis`` names the engine that labelled the speakers.
+
     Honest failures throughout: transcription unconfigured → 503, undecodable or
     speechless → 422, over the duration cap → 413. A storage failure never sinks
     the analysis — the response returns with stored=false and a note carrying the
     failure's class name.
     """
-    # 1) Transcribe the recording. transcribe_upload picks the provider
-    #    (MINDSHIFT_UPLOAD_STT: deepgram default, whisper local) — the Deepgram
-    #    path downmixes to 16 kHz mono for reliable diarization, the Whisper
-    #    path decodes locally; a Deepgram→Whisper fallback comes back with a
-    #    non-None note surfaced as transcription_note (never a silent swap).
-    #    to_thread: both are blocking calls. NOTE: the progress note is
-    #    deliberately NOT a byte size — len(data) is the DOWNLOAD size (a 116MB
-    #    video), not the amount transcribed, and surfacing it here read as
-    #    "116 MB to transcribe" on the client (Bug 4).
-    await _emit_progress(progress, "transcribing", "transcribing audio")
-    try:
-        raw_turns, stt_note = await asyncio.to_thread(
-            transcribe_upload, data, content_type, filename or "",
-        )
-    except TranscriptionUnavailable as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
-    except NoSpeechFound as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    except AudioDecodeError as exc:
-        # Whisper-path only: no local decode means nothing to transcribe (the
-        # Deepgram path instead falls back to sending the raw container).
-        raise HTTPException(status_code=422, detail=str(exc))
+    # 0) Re-analysis with a stored transcript in hand: validate it up front and
+    #    reuse it instead of re-transcribing. Same empty-text tolerance as the
+    #    live-session batch path (routers/sessions.py, 0cb8d3b): a turn whose text
+    #    is blank gets the neutral "(inaudible)" placeholder rather than failing
+    #    AnalyzeTurn.text's min_length and sinking the whole list — per-turn
+    #    analysis is INDEX-aligned, so empties can't simply be dropped. Anything
+    #    else out of bounds is logged and falls through to STT (never a 500).
+    analyze_req: AnalyzeRequest | None = None
+    raw_turns: list = []
+    stt_note: str | None = None
+    if stored_transcript:
+        try:
+            # Two views of the same rows: ``reused`` is the 4-key shape
+            # AnalyzeTurn validates; ``reused_raw`` keeps everything else the
+            # transcriber recorded (the ``words`` timings the cross-check
+            # re-attaches below) exactly like a fresh transcription's rows.
+            reused_raw = [
+                dict(
+                    t,
+                    speaker=str(t.get("speaker") or ""),
+                    text=(str(t.get("text") or "").strip() or "(inaudible)"),
+                )
+                for t in stored_transcript
+                if isinstance(t, dict)
+            ]
+            if len(reused_raw) != len(stored_transcript):
+                raise ValueError("stored transcript has non-object rows")
+            reused = [
+                {k: t.get(k) for k in ("speaker", "text", "start_time", "end_time")}
+                for t in reused_raw
+            ]
+            analyze_req = AnalyzeRequest(turns=reused, context=context)
+        except (ValidationError, ValueError, TypeError) as exc:
+            logger.warning(
+                "stored transcript (%d turn(s)) is out of bounds for analysis "
+                "— falling back to re-transcription: %s",
+                len(stored_transcript), exc,
+            )
+            analyze_req = None
+        else:
+            raw_turns = reused_raw
+            stt_note = "reused the stored transcript (no re-transcription)"
+            logger.info(
+                "Re-analysis reusing the stored transcript (%d turns) — "
+                "skipping STT for uid=%s", len(reused_raw), uid,
+            )
+            # The client's stage vocabulary is queued/transcribing/analyzing/
+            # storing; there is no "transcribing" to report, so go straight to
+            # "analyzing" with an honest note (the later "analyzing" emit at
+            # step 4 adds the decoded duration and leaves this note in place).
+            await _emit_progress(progress, "analyzing", "reusing stored transcript")
 
-    # 2) The recovered conversation must satisfy the same shape rules as text
-    #    /analyze (2-10 speakers, 4-400 turns, per-turn length). Reuse the
-    #    AnalyzeRequest validators; a violation is an honest 422.
-    try:
-        analyze_req = AnalyzeRequest(turns=raw_turns, context=context)
-    except ValidationError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "transcribed conversation is out of bounds for analysis "
-                f"({exc.error_count()} issue(s)): "
-                + "; ".join(e["msg"] for e in exc.errors()[:3])
-            ),
-        )
+    if analyze_req is None:
+        # 1) Transcribe the recording. transcribe_upload picks the provider
+        #    (MINDSHIFT_UPLOAD_STT: deepgram default, whisper local) — the
+        #    Deepgram path downmixes to 16 kHz mono for reliable diarization,
+        #    the Whisper path decodes locally; a Deepgram→Whisper fallback comes
+        #    back with a non-None note surfaced as transcription_note (never a
+        #    silent swap). to_thread: both are blocking calls. NOTE: the
+        #    progress note is deliberately NOT a byte size — len(data) is the
+        #    DOWNLOAD size (a 116MB video), not the amount transcribed, and
+        #    surfacing it here read as "116 MB to transcribe" on the client
+        #    (Bug 4).
+        await _emit_progress(progress, "transcribing", "transcribing audio")
+        try:
+            raw_turns, stt_note = await asyncio.to_thread(
+                transcribe_upload, data, content_type, filename or "",
+            )
+        except TranscriptionUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except NoSpeechFound as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        except AudioDecodeError as exc:
+            # Whisper-path only: no local decode means nothing to transcribe
+            # (the Deepgram path instead falls back to sending the raw
+            # container).
+            raise HTTPException(status_code=422, detail=str(exc))
+        if on_transcribed is not None:
+            try:
+                await on_transcribed(raw_turns)
+            except Exception as exc:  # noqa: BLE001 — caching must not fail analysis
+                logger.warning("storing the raw transcript failed (ignored): %s", exc)
+
+        # 2) The recovered conversation must satisfy the same shape rules as
+        #    text /analyze (1-10 speakers, 4-400 turns, per-turn length). Reuse
+        #    the AnalyzeRequest validators; a violation is an honest 422.
+        try:
+            analyze_req = AnalyzeRequest(turns=raw_turns, context=context)
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "transcribed conversation is out of bounds for analysis "
+                    f"({exc.error_count()} issue(s)): "
+                    + "; ".join(e["msg"] for e in exc.errors()[:3])
+                ),
+            )
     turns = analyze_req.turns
 
     # 3) Decode to PCM for prosody. If decoding fails we DEGRADE HONESTLY:
@@ -2685,28 +2972,57 @@ async def _analyze_recording_bytes(
             os.getenv("MINDSHIFT_DIARIZE_CROSSCHECK", "").strip().lower()
             in {"1", "true", "yes", "on"}
         )
-        if transcript_speakers < 2 or run_crosscheck:
+        if skip_diarization:
+            # The caller's segmentation must win (…/reanalyze-with-segments):
+            # neither the one-voice fallback nor the 2+ cross-check runs.
+            voice_note = (
+                "speakers set from the voice segmentation supplied by the "
+                "caller — local voice diarization cross-check skipped"
+            )
+        if not skip_diarization and (transcript_speakers < 2 or run_crosscheck):
+            engine = _diarize_engine()
+            local = None
             try:
-                # diarize_local.diarize_turns hard-requires 16kHz PCM
-                # (speaker_id.embed_pcm raises SpeakerIdUnavailable on any
-                # other rate, with no internal resampling) — decode
-                # SEPARATELY at 16kHz for this call rather than reusing the
-                # native-rate `pcm`/`sr` above (which prosody needs at its
-                # own rate): most real phone recordings are 44.1/48kHz, and
-                # feeding those in natively made this cross-check silently
-                # raise-and-get-swallowed by the except below on virtually
-                # every non-16kHz upload — the exact vendor-regression safety
-                # net this exists for was effectively never running.
+                # Both engines hard-require 16kHz PCM (speaker_id.embed_pcm
+                # raises SpeakerIdUnavailable on any other rate, with no
+                # internal resampling) — decode SEPARATELY at 16kHz for this
+                # call rather than reusing the native-rate `pcm`/`sr` above
+                # (which prosody needs at its own rate): most real phone
+                # recordings are 44.1/48kHz, and feeding those in natively
+                # made this cross-check silently raise-and-get-swallowed by
+                # the except below on virtually every non-16kHz upload — the
+                # exact vendor-regression safety net this exists for was
+                # effectively never running.
                 crosscheck_pcm, crosscheck_sr = await asyncio.to_thread(
                     decode_to_pcm_16k, data, filename or "",
                 )
-                local = await asyncio.to_thread(
-                    diarize_local.diarize_turns,
-                    crosscheck_pcm, crosscheck_sr, diarize_input,
-                )
+                # ENGINE SELECTION (MINDSHIFT_DIARIZE_ENGINE, see
+                # _diarize_engine): the windows engine labels the audio
+                # transcript-free and regroups the words; when it has
+                # nothing to say (one voice, too little speech, no voice
+                # model) the utterance engine runs exactly as before.
+                if engine == DIARIZE_ENGINE_WINDOWS:
+                    local = await asyncio.to_thread(
+                        diarize_local.diarize_windows_first,
+                        crosscheck_pcm, crosscheck_sr, diarize_input,
+                    )
+                    if local is None:
+                        logger.info(
+                            "windows engine had nothing to say — falling back "
+                            "to the utterance engine"
+                        )
+                if local is None:
+                    local = await asyncio.to_thread(
+                        diarize_local.diarize_turns,
+                        crosscheck_pcm, crosscheck_sr, diarize_input,
+                    )
             except Exception as exc:  # noqa: BLE001 — optional cross-check
                 logger.warning("local diarization failed (ignored): %s", exc)
                 local = None
+            windows_engine = (
+                local is not None and local.get("source") == diarize_local.SOURCE_WINDOWS
+            )
+            engine_label = "windows engine" if windows_engine else "utterance engine"
             # NEVER-REDUCE GUARD: the cross-check may refine or ADD speakers,
             # but must never overwrite a transcript that already heard MORE
             # voices with a coarser local split — local clustering tops out
@@ -2714,16 +3030,32 @@ async def _analyze_recording_bytes(
             # honestly undercount; deleting a voice the transcript heard is
             # never an improvement. The fallback path (transcript heard ONE
             # voice) is unaffected.
+            #
+            # For the WINDOWS engine the guard fires only when the transcript
+            # exceeds our count by 2 or more (2026-08-30): Deepgram heard ONE
+            # speaker on 8 of 9 runs of the owner's three recordings and
+            # scored 0.15-0.40 against ground truth on the ninth, so its
+            # count is not evidence a one-voice difference should defer to;
+            # a two-voice gap is still a sign this engine collapsed
+            # something and the transcript keeps its labels.
+            reduce_floor = 2 if windows_engine else 1
             if (local is not None and transcript_speakers >= 2
-                    and local["num_speakers"] < transcript_speakers):
+                    and transcript_speakers - local["num_speakers"] >= reduce_floor):
                 logger.info(
-                    "local diarization heard %d speakers but the transcript "
-                    "already has %d — never-reduce guard keeps the "
-                    "transcript's labels (k_evaluated=%s)",
-                    local["num_speakers"], transcript_speakers,
+                    "%s heard %d speakers but the transcript already has %d — "
+                    "never-reduce guard keeps the transcript's labels "
+                    "(k_evaluated=%s)",
+                    engine_label, local["num_speakers"], transcript_speakers,
                     local.get("k_evaluated"),
                 )
                 local = None
+            elif (local is not None and transcript_speakers >= 2
+                    and local["num_speakers"] < transcript_speakers):
+                logger.info(
+                    "%s heard %d speakers, the transcript %d — one fewer is "
+                    "within the transcript's own error; the engine's labels stand",
+                    engine_label, local["num_speakers"], transcript_speakers,
+                )
             # The cross-check on an already-2+-speaker transcript only acts
             # when it actually CHANGES something (a split or a different
             # partition); adopting an identical labeling would be noise.
@@ -2747,27 +3079,39 @@ async def _analyze_recording_bytes(
                 else:
                     turns = analyze_req.turns
                     n_split = local.get("split_utterances", 0)
-                    split_note = (
-                        f" ({n_split} long utterance(s) split at a "
-                        "voice change)" if n_split else ""
-                    )
+                    n_uncovered = local.get("uncovered_turns", 0)
+                    notes = []
+                    if n_split:
+                        notes.append(
+                            f"{n_split} long utterance(s) split at a voice change"
+                        )
+                    if n_uncovered:
+                        # diarize_local adds a turn per stretch of speech the
+                        # transcript never covered, text "(untranscribed)" —
+                        # a valid AnalyzeTurn, index-aligned like any other.
+                        notes.append(
+                            f"{n_uncovered} untranscribed stretch(es) of "
+                            "speech labelled"
+                        )
+                    split_note = f" ({'; '.join(notes)})" if notes else ""
                     if transcript_speakers < 2:
                         voice_note = (
-                            "speakers relabeled by local voice diarization — "
-                            "the transcript heard one voice, voice clustering "
-                            f"heard {local['num_speakers']}{split_note}"
+                            "speakers relabeled by local voice diarization "
+                            f"({engine_label}) — the transcript heard one "
+                            "voice, voice clustering heard "
+                            f"{local['num_speakers']}{split_note}"
                         )
                     else:
                         voice_note = (
                             "speakers adjusted by local voice diarization "
-                            "cross-check — voice clustering disagreed with "
-                            f"the transcript's labels{split_note}"
+                            f"cross-check ({engine_label}) — voice clustering "
+                            f"disagreed with the transcript's labels{split_note}"
                         )
                     logger.info(
-                        "Local diarization relabeled %d→%d speakers "
+                        "Local diarization (%s) relabeled %d→%d speakers "
                         "(embedded %d/%d segments, %d utterance(s) split, "
                         "agreement %.2f, model %s, k_evaluated=%s)",
-                        transcript_speakers, local["num_speakers"],
+                        engine_label, transcript_speakers, local["num_speakers"],
                         local["segments_embedded"], local["segments_total"],
                         n_split, local["agreement_with_input"], local["model"],
                         local.get("k_evaluated"),
@@ -2907,6 +3251,17 @@ async def _analyze_recording_bytes(
                     storage_note=response.storage_note,
                 )
                 response.recording_id = recording_id
+                # The RAW transcript (word timings included) rides alongside so
+                # a later re-analysis can skip STT without losing the
+                # cross-check's word-level splitting. Best-effort: the
+                # recording IS stored even if this blob fails.
+                try:
+                    await store_backend.save_transcript(uid, recording_id, raw_turns)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "raw transcript persistence failed for uid=%s rid=%s: %s",
+                        uid, recording_id, exc,
+                    )
             except Exception as exc:  # noqa: BLE001 — persistence must not fail analysis
                 logger.warning("Recording persistence failed for uid=%s: %s", uid, exc)
                 response.stored = False
@@ -3525,10 +3880,23 @@ async def get_recording(
         # When the recording was last re-analyzed (POST …/reanalyze). None for a
         # recording that has only ever had its original analysis.
         "reanalyzed_at": rec.get("reanalyzed_at"),
+        # When the owner applied an explicit voice segmentation (POST
+        # …/reanalyze-with-segments): where it came from ("device-B" = the
+        # phone's own engine) and when. None when the speakers are the
+        # pipeline's own. Additive.
+        "speaker_segments_source": rec.get("speaker_segments_source"),
+        "speaker_segments_applied_at": rec.get("speaker_segments_applied_at"),
         # Live sessions only (Track 2): coaching mode + the phone's session
         # id. None for uploads/links — additive, older clients ignore them.
         "mode": rec.get("mode"),
         "session_id": rec.get("session_id"),
+        # Outcome engine (Workstream 4): CANDOR's single mood item
+        # ("positive vs negative feelings right now", 1-9). mood_before
+        # rides in on the POST /sessions/live body; mood_after lands later
+        # via PATCH /sessions/live/{id}/mood. Both None when the check was
+        # skipped, or for anything that isn't a live session.
+        "mood_before": rec.get("mood_before"),
+        "mood_after": rec.get("mood_after"),
         "turns": rec.get("turns", []),
         "analysis": analysis,
         "episodes": stored_episodes,
@@ -3981,16 +4349,71 @@ async def update_recording_source(
 # token — and it is a pure GCS read, not an LLM-cost endpoint. Also NO auth
 # dependency: a <video>/<audio> src cannot carry an Authorization header, so the
 # token in the query string is the sole credential.
+# ``?format=pcm16k``: the stored audio transcoded to what the phone's on-device
+# voice engine consumes (apps/mobile/src/live/deviceDiarization.ts — approach B
+# of the 2026-08-29 bake-off run post-hoc on the phone). Bounded: a 30-minute
+# 16 kHz mono s16 WAV is ~58 MB of response body and the phone holds it in
+# memory, so longer recordings are refused with 413 rather than transcoded.
+PCM16K_MAX_SECONDS = 30 * 60
+PCM16K_TOO_LONG_DETAIL = (
+    f"recording longer than {PCM16K_MAX_SECONDS // 60} minutes — too big to hand to the phone as PCM"
+)
+
+
+async def _pcm16k_response(
+    store_backend: "recordings_store.RecordingsStore", uid: str, recording_id: str,
+) -> Response:
+    """The recording's ``audio.m4a`` derivative as a 16 kHz mono s16le WAV
+    (ffmpeg via ``audio_ingest.decode_to_pcm_16k``, in a worker thread).
+    404 without stored audio, 413 past PCM16K_MAX_SECONDS (checked against
+    the stored duration BEFORE decoding and against the decoded length after),
+    422 when ffmpeg cannot decode it."""
+    rec = await store_backend.get_recording(uid, recording_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="Recording not found")
+    duration = rec.get("duration_seconds")
+    if isinstance(duration, (int, float)) and duration > PCM16K_MAX_SECONDS:
+        raise HTTPException(status_code=413, detail=PCM16K_TOO_LONG_DETAIL)
+    audio_bytes = await store_backend.get_audio_bytes(uid, recording_id)
+    if not audio_bytes:
+        raise HTTPException(status_code=404, detail="recording has no stored audio")
+    try:
+        pcm, sr = await asyncio.to_thread(decode_to_pcm_16k, audio_bytes, "audio.m4a")
+    except AudioDecodeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if pcm.size > PCM16K_MAX_SECONDS * sr:
+        raise HTTPException(status_code=413, detail=PCM16K_TOO_LONG_DETAIL)
+    wav = pcm_to_wav16(pcm, sr)
+    return Response(
+        content=wav,
+        media_type="audio/wav",
+        headers={
+            "Content-Length": str(len(wav)),
+            "Cache-Control": "private, max-age=0",
+            "X-Pcm-Seconds": f"{pcm.size / sr:.3f}",
+        },
+    )
+
+
 @app.get("/recordings/{recording_id}/media")
 async def get_recording_media(
     recording_id: Annotated[str, Path(pattern=UUID_PATTERN)],
     request: Request,
     tk: str = Query(default=""),
+    format: str | None = Query(
+        default=None,
+        description="Omit for the stored derivative; 'pcm16k' for a 16 kHz mono s16le WAV "
+        "transcode of the audio (≤ 30 min, else 413).",
+    ),
 ):
     uid = _verify_media_token(tk, recording_id)
     if uid is None:
         raise HTTPException(status_code=403, detail="invalid or expired token")
     store_backend = _require_store()
+    if format == "pcm16k":
+        return await _pcm16k_response(store_backend, uid, recording_id)
+    if format is not None:
+        raise HTTPException(status_code=400, detail="format must be omitted or 'pcm16k'")
     result = await store_backend.open_media_stream(
         uid, recording_id, request.headers.get("range"),
     )
@@ -4137,9 +4560,29 @@ async def put_upload_chunk(
     return {"index": index, "received_bytes": len(body)}
 
 
-@app.post("/uploads/{upload_id}/complete", response_model=AnalyzeUploadResponse)
+class UploadCompleteRequest(BaseModel):
+    """OPTIONAL JSON body of POST /uploads/{id}/complete. Absent (or every
+    field null) → the original behaviour: analyze the reassembled bytes.
+
+    ``attach_to_recording_id`` is the live-session audio path for a session
+    too long for the direct POST /sessions/{id}/audio (25MB ≈ 13 min of 16 kHz
+    WAV): the phone streams the WAV through this chunked session and names
+    the episode here; complete() then ATTACHES the bytes to that episode
+    (routers.sessions.attach_live_audio — transcode to audio.m4a, flip
+    media_type) instead of running the analysis pipeline. No analysis job,
+    no new recording; the response is the attach's own body."""
+    attach_to_recording_id: Optional[str] = Field(
+        default=None, pattern=UUID_PATTERN,
+    )
+
+
+@app.post(
+    "/uploads/{upload_id}/complete",
+    response_model=AnalyzeUploadResponse | _sessions_router.SessionAudioAttachResponse,
+)
 async def complete_upload(
     upload_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    body: Optional[UploadCompleteRequest] = None,
     uid: str = Depends(get_current_uid),
     _rl: None = Depends(_rate_limit),
 ):
@@ -4151,7 +4594,14 @@ async def complete_upload(
     :func:`_analyze_recording_bytes` honoring the manifest's consent/store/
     context. The parts + manifest are cleaned up best-effort afterward. Returns
     the same AnalyzeUploadResponse as the direct path. Long-running: transcribing
-    a 200MB video can take minutes (Deepgram pre-recorded timeout is 600s)."""
+    a 200MB video can take minutes (Deepgram pre-recorded timeout is 600s).
+
+    With a JSON body naming ``attach_to_recording_id`` (see
+    :class:`UploadCompleteRequest`) the bytes are instead ATTACHED as that live
+    episode's audio: 200 with the same ``SessionAudioAttachResponse`` as
+    POST /sessions/{id}/audio (404 for a missing/foreign/non-live episode, 422
+    for undecodable bytes) — no analysis, no job. The parts are cleaned up the
+    same way."""
     store_backend = _require_store_for_uploads()
     manifest = await _validate_upload_complete(store_backend, uid, upload_id)
     expected_chunks = manifest["expected_chunks"]
@@ -4159,6 +4609,24 @@ async def complete_upload(
     data = await store_backend.assemble_upload(uid, upload_id, expected_chunks)
     if not data:
         raise HTTPException(status_code=400, detail="assembled upload is empty")
+
+    attach_to = body.attach_to_recording_id if body is not None else None
+    if attach_to is not None:
+        try:
+            return await _sessions_router.attach_live_audio(
+                store_backend, uid, attach_to, data,
+            )
+        finally:
+            # Same best-effort cleanup as the analysis path below: the bytes
+            # are either attached (audio.m4a) or refused; the parts are dead
+            # weight either way and a cleanup failure never masks the result.
+            try:
+                await store_backend.cleanup_upload(uid, upload_id)
+            except Exception as exc:  # noqa: BLE001 — cleanup is best-effort
+                logger.warning(
+                    "Upload cleanup failed for uid=%s upload_id=%s: %s",
+                    uid, upload_id, exc,
+                )
 
     try:
         response = await _analyze_recording_bytes(
@@ -4357,6 +4825,9 @@ async def _run_analysis_job(
     title: str | None = None,
     cleanup: "Callable[[], Awaitable[None]] | None" = None,
     on_success: "Callable[[AnalyzeUploadResponse, JobProgressFn], Awaitable[None]] | None" = None,
+    stored_transcript: list[dict] | None = None,
+    on_transcribed: "Callable[[list[dict]], Awaitable[None]] | None" = None,
+    skip_diarization: bool = False,
 ) -> None:
     """Run one analysis job to a terminal state, writing staged progress.
 
@@ -4364,7 +4835,13 @@ async def _run_analysis_job(
     download, the upload reassembly, or (re-analysis) the stored audio bytes —
     reporting its own "downloading" stage via the passed hook. The shared
     :func:`_analyze_recording_bytes` then runs with that same hook (transcribing →
-    analyzing → storing). ``on_success`` is an optional hook run with the finished
+    analyzing → storing). ``stored_transcript`` / ``on_transcribed``
+    (re-analysis) are passed straight through so the pipeline can reuse the
+    stored raw transcript and skip STT — or store a fresh one for next time
+    (see :func:`_analyze_recording_bytes`); None for the link/upload paths.
+    ``skip_diarization`` is passed straight through too (the
+    …/reanalyze-with-segments job sets it so the caller's own speaker
+    segmentation is never relabeled). ``on_success`` is an optional hook run with the finished
     response + the stage hook BEFORE the done-state is written — re-analysis uses
     it to overwrite the existing recording in place (the pipeline itself runs with
     ``store=False``, so nothing new is persisted); it may raise an HTTPException to
@@ -4408,6 +4885,9 @@ async def _run_analysis_job(
                     source=source,
                     title=title,
                     progress=set_stage,
+                    stored_transcript=stored_transcript,
+                    on_transcribed=on_transcribed,
+                    skip_diarization=skip_diarization,
                 )
                 if on_success is not None:
                     await on_success(response, set_stage)
@@ -4579,6 +5059,12 @@ async def complete_upload_job(
     return JobCreatedResponse(job_id=job_id)
 
 
+class ReanalyzeRequest(BaseModel):
+    """Optional body of POST /recordings/{id}/reanalyze (the same flag is
+    accepted as the ``?fresh=`` query parameter)."""
+    fresh: bool = False
+
+
 @app.post(
     "/recordings/{recording_id}/reanalyze",
     response_model=JobCreatedResponse,
@@ -4586,6 +5072,14 @@ async def complete_upload_job(
 )
 async def reanalyze_recording(
     recording_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    req: Optional[ReanalyzeRequest] = None,
+    fresh: bool = Query(
+        default=False,
+        description=(
+            "Ignore the recording's applied voice segmentation (speaker_segments) "
+            "and run the local voice diarization afresh."
+        ),
+    ),
     uid: str = Depends(get_current_uid),
     _rl: None = Depends(_rate_limit),
 ):
@@ -4593,13 +5087,33 @@ async def reanalyze_recording(
     submit-and-poll background job → 202 {job_id}. Poll GET /analyze/jobs/{job_id}
     for staged progress and the final result.
 
-    "Re-analyze" means re-running from the stored AUDIO derivative (audio.m4a),
-    NOT merely re-scoring the old transcript: transcription + diarization +
-    prosody + voice-enrollment matching + episodes + word metrics ALL re-run, so a
+    "Re-analyze" means re-running the pipeline from the stored AUDIO derivative
+    (audio.m4a): local-diarization cross-check + prosody + LLM analysis +
+    voice-enrollment matching + episodes + word metrics ALL re-run, so a
     recording benefits from every pipeline improvement made since it was first
-    analyzed. The result OVERWRITES analysis.json + turns.json in place and stamps
-    meta.reanalyzed_at; the recording's id, title, source, and stored derivatives
-    are preserved (recordings_store.overwrite_analysis).
+    analyzed. The one stage NOT repeated is STT: the recording's stored
+    transcript (turns.json) is reused as-is when it passes analysis validation —
+    no second "Transcribing…" wait and no second Deepgram charge — and the
+    pipeline falls back to re-transcribing only when there is no usable stored
+    transcript (an old recording without turns.json, or one below the turn
+    minimum). The result OVERWRITES analysis.json + turns.json in place and
+    stamps meta.reanalyzed_at; the recording's id, title, source, manual speaker
+    labels, and stored derivatives are preserved
+    (recordings_store.overwrite_analysis).
+
+    APPLIED VOICES ARE KEPT (2026-08-30): when the recording carries a voice
+    segmentation applied from the phone (meta ``speaker_segments``, set by
+    POST …/reanalyze-with-segments), re-analysis re-runs WITH those segments
+    — the stored transcript's words regrouped by them, the local diarization
+    cross-check skipped — exactly as applying them did, so "Re-analyze with
+    the latest engine" never turns a hand-checked 7-voice result back into
+    whatever the server hears today. The segments' provenance stamps and the
+    manual speaker names are untouched (the speaker ids do not change).
+    Pass ``?fresh=true`` (or a JSON body ``{"fresh": true}``) to ignore the
+    applied segments and run the local voice diarization afresh; the applied
+    segments stay on the meta for a later re-apply. 422 when the applied
+    segments no longer regroup the stored transcript into a valid analysis
+    input (the detail says to use fresh=true).
 
     503 when storage is disabled (a job has nowhere to live); uid-scoped 404 for
     an unknown/foreign recording (never confirming another user's); 422 when the
@@ -4607,6 +5121,7 @@ async def reanalyze_recording(
     store_backend = get_recordings_store()
     if store_backend is None:
         raise HTTPException(status_code=503, detail=_JOBS_DISABLED_DETAIL)
+    fresh = fresh or bool(req and req.fresh)
 
     # Existence (404) and stored-audio (422) are decided synchronously — a job is
     # spawned only for a recording we can actually re-analyze. The audio is read
@@ -4628,6 +5143,54 @@ async def reanalyze_recording(
     preserved_title = rec.get("title")
     preserved_source = rec.get("source")
 
+    # Applied voices (POST …/reanalyze-with-segments) win over the engine
+    # unless the caller asked for a fresh run.
+    applied_raw = rec.get("speaker_segments") if not fresh else None
+    applied_segments: list[SpeakerSegment] | None = None
+    if isinstance(applied_raw, list) and applied_raw:
+        try:
+            applied_segments = ReanalyzeWithSegmentsRequest(
+                segments=applied_raw,
+                source=rec.get("speaker_segments_source") or "device-B",
+            ).segments
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "the recording's applied voice segmentation is not usable "
+                    f"({exc.error_count()} issue(s)) — re-analyze with fresh=true "
+                    "to ignore it"
+                ),
+            )
+    applied_source = str(rec.get("speaker_segments_source") or "device-B")
+    applied_at_note = rec.get("speaker_segments_applied_at")
+
+    if applied_segments is not None:
+        stored_transcript, words_available, n_rows = await _regrouped_rows_for_segments(
+            store_backend, uid, recording_id, rec, applied_segments,
+        )
+        logger.info(
+            "reanalyze uid=%s recording=%s keeps the applied %s voices: %d "
+            "segment(s), %d row(s) → %d turn(s) (word timings: %s)",
+            uid, recording_id, applied_source, len(applied_segments), n_rows,
+            len(stored_transcript), words_available,
+        )
+    else:
+        # The stored RAW transcript (transcript.json) rides along so the
+        # pipeline can skip STT; None for recordings analyzed before it
+        # existed — the pipeline then transcribes once more and
+        # _cache_transcript stores it for next time.
+        stored_transcript = await store_backend.get_transcript(uid, recording_id)
+        if fresh and isinstance(applied_raw := rec.get("speaker_segments"), list) and applied_raw:
+            logger.info(
+                "reanalyze uid=%s recording=%s: fresh=true — ignoring the applied "
+                "%s voices (%d segment(s) stay on the meta)",
+                uid, recording_id, applied_source, len(applied_raw),
+            )
+
+    async def _cache_transcript(raw: list[dict]) -> None:
+        await store_backend.save_transcript(uid, recording_id, raw)
+
     job_id = str(uuid.uuid4())
     state = _new_job_state()
     await store_backend.write_job_state(uid, job_id, state)
@@ -4635,8 +5198,10 @@ async def reanalyze_recording(
     async def _prepare(set_stage: "JobProgressFn") -> tuple:
         # Audio already in hand — hand it straight to the shared pipeline. The
         # filename/content-type describe the stored AAC derivative so decode +
-        # transcription treat it correctly.
-        await set_stage("transcribing", "re-analyzing recording", None)
+        # transcription treat it correctly. The pipeline emits the first real
+        # stage itself ("analyzing" when it reuses the stored transcript,
+        # "transcribing" when it has to fall back), so nothing is reported here —
+        # reporting "transcribing" up front would be a lie on the reuse path.
         return audio_bytes, "audio.m4a", "audio/mp4", preserved_source
 
     async def _persist(
@@ -4648,6 +5213,13 @@ async def reanalyze_recording(
         response.stored = True
         response.recording_id = recording_id
         response.storage_note = None
+        if applied_segments is not None:
+            response.transcription_note = (
+                f"speakers kept from the {applied_source} voice segmentation "
+                f"applied {applied_at_note or 'earlier'} (re-analyze with "
+                "fresh=true to run voice diarization afresh); the stored "
+                "transcript's words were kept (no re-transcription)"
+            )
         updated = await store_backend.overwrite_analysis(
             uid, recording_id,
             turns=[t.model_dump() for t in response.turns],
@@ -4666,8 +5238,248 @@ async def reanalyze_recording(
         store=False,
         title=preserved_title,
         on_success=_persist,
+        stored_transcript=stored_transcript,
+        on_transcribed=None if applied_segments is not None else _cache_transcript,
+        skip_diarization=applied_segments is not None,
     ))
     return JobCreatedResponse(job_id=job_id)
+
+
+# --- POST /recordings/{id}/reanalyze-with-segments — apply an explicit voice
+# segmentation (the phone's own engine B) to a stored recording -------------
+
+# Word regrouping lives in diarize_local (shared with the windows engine since
+# 2026-08-30); these names are kept for callers and tests.
+SPEAKER_SEGMENT_SNAP_S = diarize_local.SPEAKER_SEGMENT_SNAP_S
+# Two consecutive segments may overlap by this much (engine rounding) before
+# the request is rejected as overlapping.
+SPEAKER_SEGMENT_OVERLAP_SLOP_S = 0.05
+SPEAKER_SEGMENTS_MAX = 400
+SPEAKER_SEGMENT_SOURCE_MAX = 40
+
+
+class SpeakerSegment(BaseModel):
+    start: float = Field(ge=0.0)
+    end: float = Field(ge=0.0)
+    label: str = Field(min_length=1, max_length=60)
+
+    @model_validator(mode="after")
+    def _validate_span(self) -> "SpeakerSegment":
+        if self.end <= self.start:
+            raise ValueError(
+                f"segment end ({self.end}) must be after its start ({self.start})"
+            )
+        return self
+
+
+class ReanalyzeWithSegmentsRequest(BaseModel):
+    """Body of POST /recordings/{id}/reanalyze-with-segments.
+
+    ``segments`` is the caller's speaker timeline: ``[{start, end, label}]`` in
+    seconds from the start of the stored audio, at most 400 of them, sorted here
+    (any order accepted), non-overlapping (≤ 0.05 s of overlap between
+    neighbours is tolerated as engine rounding), with at most 10 distinct
+    labels — the same speaker cap analysis enforces. ``source`` names where the
+    segmentation came from ("device-B" = the phone's own window engine); it is
+    stamped on the recording's meta so the provenance is never lost."""
+    segments: list[SpeakerSegment] = Field(
+        min_length=1, max_length=SPEAKER_SEGMENTS_MAX,
+    )
+    source: str = Field(
+        default="device-B", min_length=1, max_length=SPEAKER_SEGMENT_SOURCE_MAX,
+    )
+
+    @model_validator(mode="after")
+    def _validate_segments(self) -> "ReanalyzeWithSegmentsRequest":
+        ordered = sorted(self.segments, key=lambda sg: (sg.start, sg.end))
+        for prev, cur in zip(ordered, ordered[1:]):
+            if cur.start < prev.end - SPEAKER_SEGMENT_OVERLAP_SLOP_S:
+                raise ValueError(
+                    f"segments overlap: [{prev.start}, {prev.end}] and "
+                    f"[{cur.start}, {cur.end}] (more than "
+                    f"{SPEAKER_SEGMENT_OVERLAP_SLOP_S} s)"
+                )
+        distinct = {sg.label.strip() for sg in ordered}
+        if len(distinct) > ANALYZE_MAX_SPEAKERS:
+            raise ValueError(
+                f"segments name {len(distinct)} distinct speakers; at most "
+                f"{ANALYZE_MAX_SPEAKERS} are supported"
+            )
+        self.segments = ordered
+        return self
+
+
+def _regroup_transcript_by_segments(
+    rows: list[dict],
+    segments: list[SpeakerSegment],
+    *,
+    snap_s: float = SPEAKER_SEGMENT_SNAP_S,
+) -> list[dict]:
+    """Rebuild a transcript so its SPEAKERS follow ``segments`` while its WORDS
+    stay the transcriber's — :func:`diarize_local.regroup_transcript_by_segments`,
+    the ONE implementation the windows engine also uses (words to the segment
+    holding their midpoint, else the nearest within ``snap_s``, else their
+    utterance's neighbours; a turn breaks at a label change AND at the
+    original utterance boundary). ``segments`` must already be sorted (the
+    request validator does that). A transcript with no words at all yields
+    ``[]`` (the endpoints turn that into an honest 422)."""
+    return diarize_local.regroup_transcript_by_segments(rows, segments, snap_s=snap_s)
+
+
+async def _regrouped_rows_for_segments(
+    store_backend: "recordings_store.RecordingsStore",
+    uid: str,
+    recording_id: str,
+    rec: dict,
+    segments: list[SpeakerSegment],
+) -> tuple[list[dict], bool, int]:
+    """The recording's transcript regrouped by ``segments`` — the raw STT
+    transcript (word timings) when it exists, else the stored
+    post-diarization turns (text only → proportional split) — validated as
+    an analysis input. Returns ``(regrouped, words_available, n_rows)``;
+    422 when there is nothing to regroup or the result is out of bounds."""
+    rows = await store_backend.get_transcript(uid, recording_id)
+    words_available = bool(rows) and any(
+        isinstance(r, dict) and r.get("words") for r in rows
+    )
+    if not rows:
+        rows = [t for t in (rec.get("turns") or []) if isinstance(t, dict)]
+    if not rows:
+        raise HTTPException(
+            status_code=422,
+            detail="recording has no stored transcript to regroup",
+        )
+    regrouped = _regroup_transcript_by_segments(rows, segments)
+    try:
+        AnalyzeRequest(turns=regrouped, context="")
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "the regrouped transcript is out of bounds for analysis "
+                f"({len(regrouped)} turn(s), {exc.error_count()} issue(s)): "
+                + "; ".join(e["msg"] for e in exc.errors()[:3])
+            ),
+        )
+    return regrouped, words_available, len(rows)
+
+
+@app.post(
+    "/recordings/{recording_id}/reanalyze-with-segments",
+    response_model=JobCreatedResponse,
+    status_code=202,
+)
+async def reanalyze_recording_with_segments(
+    recording_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    req: ReanalyzeWithSegmentsRequest,
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    """Re-analyze a stored recording with the caller's OWN speaker segmentation
+    — "Use these voices for this recording" after the phone's engine B ran —
+    as the same submit-and-poll job as POST …/reanalyze → 202 {job_id, note}.
+
+    The stored RAW transcript's words (transcript.json; turns.json's text spread
+    proportionally when there are no word timings) are regrouped so every word
+    takes the label of the segment it falls in (see
+    :func:`_regroup_transcript_by_segments`), and that transcript feeds the same
+    re-analysis job with STT skipped AND the local-diarization cross-check
+    DISABLED — the user's chosen segmentation must win, never be relabeled. The
+    result overwrites analysis.json + turns.json in place (so the heat chart,
+    talk share, speaker labels and report cards all follow), stamps
+    meta.reanalyzed_at, records the applied segments' provenance
+    (``speaker_segments_source`` / ``speaker_segments_applied_at`` /
+    ``speaker_segments``), and CLEARS the recording's manual speaker names and
+    people map: they are keyed by the OLD speaker ids, which no longer exist —
+    the response's ``note`` and the result's ``storage_note`` say so.
+
+    Owner-only, same auth/rate limit as …/reanalyze. 503 when storage is
+    disabled; 404 for an unknown/foreign recording (403 for a recipient); 422
+    when the recording has no stored audio, when the segments overlap / name too
+    many speakers, or when the regrouped transcript is out of analysis bounds
+    (fewer than 4 turns, etc.) — never a job that silently falls back."""
+    store_backend = get_recordings_store()
+    if store_backend is None:
+        raise HTTPException(status_code=503, detail=_JOBS_DISABLED_DETAIL)
+
+    rec = await store_backend.get_recording(uid, recording_id)
+    if rec is None:
+        await _deny_write(store_backend, uid, recording_id)
+    audio_bytes = await store_backend.get_audio_bytes(uid, recording_id)
+    if not audio_bytes:
+        raise HTTPException(
+            status_code=422,
+            detail="recording has no stored audio to re-analyze",
+        )
+
+    regrouped, words_available, n_rows = await _regrouped_rows_for_segments(
+        store_backend, uid, recording_id, rec, req.segments,
+    )
+    logger.info(
+        "reanalyze-with-segments uid=%s recording=%s: %d segment(s), %d "
+        "label(s), %d row(s) → %d turn(s) (word timings: %s, source=%s)",
+        uid, recording_id, len(req.segments),
+        len({sg.label.strip() for sg in req.segments}), n_rows,
+        len(regrouped), words_available, req.source,
+    )
+
+    preserved_title = rec.get("title")
+    preserved_source = rec.get("source")
+    segments_payload = [
+        {"start": sg.start, "end": sg.end, "label": sg.label.strip()}
+        for sg in req.segments
+    ]
+    cleared_note = (
+        "manual speaker names for this recording were cleared — the speaker "
+        "ids changed with the applied voices"
+    )
+
+    job_id = str(uuid.uuid4())
+    state = _new_job_state()
+    await store_backend.write_job_state(uid, job_id, state)
+
+    async def _prepare(set_stage: "JobProgressFn") -> tuple:
+        return audio_bytes, "audio.m4a", "audio/mp4", preserved_source
+
+    async def _persist(
+        response: AnalyzeUploadResponse, set_stage: "JobProgressFn",
+    ) -> None:
+        await set_stage("storing", "saving re-analysis", None)
+        response.stored = True
+        response.recording_id = recording_id
+        response.storage_note = cleared_note
+        response.transcription_note = (
+            f"speakers assigned from the {req.source} voice segmentation; the "
+            "stored transcript's words were kept (no re-transcription)"
+        )
+        applied_at = datetime.now(timezone.utc).isoformat()
+        updated = await store_backend.overwrite_analysis(
+            uid, recording_id,
+            turns=[t.model_dump() for t in response.turns],
+            analysis=response.model_dump(),
+            reanalyzed_at=applied_at,
+        )
+        if updated is None:
+            raise HTTPException(status_code=404, detail="Recording not found")
+        stamped = await store_backend.apply_speaker_segments_meta(
+            uid, recording_id,
+            source=req.source, applied_at=applied_at, segments=segments_payload,
+        )
+        if stamped is None:
+            raise HTTPException(status_code=404, detail="Recording not found")
+
+    _spawn_job(_run_analysis_job(
+        uid, job_id, store_backend, state,
+        prepare=_prepare,
+        context="",
+        consent=True,
+        store=False,
+        title=preserved_title,
+        on_success=_persist,
+        stored_transcript=regrouped,
+        skip_diarization=True,
+    ))
+    return JobCreatedResponse(job_id=job_id, note=cleared_note)
 
 
 @app.get("/analyze/jobs/{job_id}", response_model=JobStateResponse)

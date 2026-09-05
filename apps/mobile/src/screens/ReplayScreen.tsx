@@ -45,9 +45,10 @@ import {
 import { speakerLabel } from "../utils/speakerLabels";
 import { getCachedMediaUri, cacheMediaInBackground } from "../utils/mediaCache";
 import RecordingShareManager from "../components/RecordingShareManager";
-import SpeakerEnrollment from "../components/SpeakerEnrollment";
 import SpeakerNaming from "../components/SpeakerNaming";
+import SpeakerEnrollment, { useSpeakerEnrollment } from "../components/SpeakerEnrollment";
 import PulseDot from "../components/PulseDot";
+import DeviceDiarizationRow from "../components/DeviceDiarizationRow";
 import { summarizeReanalyze, type ReanalyzeSummary } from "./reanalyzeDelta";
 import { setPlaybackMode } from "../utils/audioMode";
 import { formatDateTime } from "../utils/dateDisplay";
@@ -628,12 +629,20 @@ export default function ReplayScreen({
     }
   }, [titleDraft, savingTitle, recordingId]);
 
-  // Re-analyze this recording with the latest engine. Submits the job, polls it
-  // to completion (reusing the AnalyzeScreen job pattern), then refetches the
-  // recording so the fresh analysis + chart render. Errors are honest: a 422
-  // means the server kept no audio to re-run, so it plainly can't be redone.
-  const handleReanalyze = useCallback(async () => {
-    if (reanalyzeInFlightRef.current) return; // One costed re-run at a time.
+  // Re-analyze this recording. `submit` returns the job id to poll — the
+  // plain "latest engine" re-run POSTs here (handleReanalyze); the device
+  // voice row POSTs its own segments and hands the job id over
+  // (handleReanalyzeJob). Either way the job is polled to completion (reusing
+  // the AnalyzeScreen job pattern) and the recording refetched so the fresh
+  // analysis + chart render. Errors are honest: a 422 means the server kept no
+  // audio to re-run, so it plainly can't be redone. Resolves `{ ok }` (with
+  // the message shown) so a caller can mirror the outcome where it started.
+  const runReanalyzeJob = useCallback(async (
+    submit: () => Promise<string>,
+  ): Promise<{ ok: boolean; message?: string }> => {
+    if (reanalyzeInFlightRef.current) {
+      return { ok: false, message: "A re-analysis is already running." }; // One costed re-run at a time.
+    }
     reanalyzeInFlightRef.current = true;
     setReanalyzing(true);
     setReanalyzeError(null);
@@ -642,7 +651,7 @@ export default function ReplayScreen({
     // Snapshot the analysis on screen now, to diff against the fresh one.
     preReanalyzeRef.current = detail?.analysis ?? null;
     try {
-      const { job_id } = await postReanalyze(recordingId);
+      const job_id = await submit();
       let transientErrors = 0;
       let stalledSince: number | null = null;
       for (;;) {
@@ -688,27 +697,27 @@ export default function ReplayScreen({
           ),
         );
       }
+      return { ok: true };
     } catch (e) {
-      if (mountedRef.current) {
-        const status = statusOf(e);
-        if (status === 422) {
-          setReanalyzeError(
-            "This recording didn’t keep its audio, so it can’t be re-analyzed.",
-          );
-        } else if (status === 404) {
-          setReanalyzeError("This recording is no longer available.");
-        } else if (status === 503) {
-          setReanalyzeError("Re-analysis isn’t available right now.");
-        } else if (status === 401) {
-          setReanalyzeError("Please sign in again to re-analyze.");
-        } else {
-          setReanalyzeError(
-            e instanceof Error && e.message
-              ? e.message
-              : "Couldn’t re-analyze right now — please try again.",
-          );
-        }
+      const status = statusOf(e);
+      let message: string;
+      if (status === 422) {
+        message =
+          "This recording didn’t keep its audio, so it can’t be re-analyzed.";
+      } else if (status === 404) {
+        message = "This recording is no longer available.";
+      } else if (status === 503) {
+        message = "Re-analysis isn’t available right now.";
+      } else if (status === 401) {
+        message = "Please sign in again to re-analyze.";
+      } else {
+        message =
+          e instanceof Error && e.message
+            ? e.message
+            : "Couldn’t re-analyze right now — please try again.";
       }
+      if (mountedRef.current) setReanalyzeError(message);
+      return { ok: false, message };
     } finally {
       reanalyzeInFlightRef.current = false;
       if (mountedRef.current) {
@@ -716,7 +725,19 @@ export default function ReplayScreen({
         setReanalyzeJob(null);
       }
     }
-  }, [recordingId, load, detail]);
+  }, [load, detail]);
+
+  const handleReanalyze = useCallback(
+    () => runReanalyzeJob(async () => (await postReanalyze(recordingId)).job_id),
+    [runReanalyzeJob, recordingId],
+  );
+
+  // The device voice row already POSTed its segments; poll + refresh from
+  // its job id so the chart, legend, Speakers card and report cards follow.
+  const handleReanalyzeJob = useCallback(
+    (jobId: string) => runReanalyzeJob(async () => jobId),
+    [runReanalyzeJob],
+  );
 
   // Track 2 — "What you could have said": ask the server for the reflection
   // over the user's own turns. The server caches it on the episode, so a
@@ -791,6 +812,11 @@ export default function ReplayScreen({
   // has 404'd this session.
   const namingSupported =
     detail?.manual_speaker_labels !== undefined && !namingUnsupported;
+  // "This is me" state, shared by the inline rows (current servers) and the
+  // standalone fallback card (older servers without speaker naming).
+  const enrollment = useSpeakerEnrollment(
+    recordingId, !isShared && turns.length > 0 && !noMedia,
+  );
   // PRD §6 scoreboard for a live session, re-scored on the phone from the
   // stored per-turn tone + prosody with the SAME arithmetic the live board
   // used (live/pleasantness.ts ≡ server/pleasantness.py). Null for an
@@ -1230,6 +1256,15 @@ export default function ReplayScreen({
             </>
           )}
 
+          {/* Experimental (Advanced → "Experimental voice engine"): run the
+              bake-off's window engine over THIS recording's audio on the
+              phone and show its own separation under the chart. Owner-only
+              and only where audio is stored; the row hides itself when the
+              switch is off. */}
+          {!isShared && !noMedia ? (
+            <DeviceDiarizationRow recordingId={recordingId} onReanalyzeJob={handleReanalyzeJob} />
+          ) : null}
+
           {/* Track 2 — "Your tone": the live session's self / per-person tone
               summary from the phone's per-turn tone + identity. Only live
               sessions carry it; uploads render nothing here. */}
@@ -1445,14 +1480,15 @@ export default function ReplayScreen({
               people={people ?? undefined}
               hasAudio={!noMedia}
               onPeopleChanged={() => void refreshPeople()}
+              enrollment={noMedia ? undefined : enrollment}
             />
           ) : null}
 
-          {/* "This is me" — enroll a speaker's voice so they're labeled "You"
-              in future recordings. Self-hides when the server can't do voice ID
-              or there are no diarized turns to choose from. Owner-only:
-              enrolling from someone else's shared recording is meaningless. */}
-          {!isShared && turns.length > 0 && !noMedia ? (
+          {/* "This is me" standalone card — ONLY the fallback for an older
+              server without speaker naming; otherwise it lives inline in the
+              rows above. Self-hides when the server can't do voice ID or there
+              are no diarized turns. Owner-only. */}
+          {!isShared && turns.length > 0 && !noMedia && !namingSupported ? (
             <SpeakerEnrollment
               recordingId={recordingId}
               turns={turns}

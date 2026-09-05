@@ -35,12 +35,13 @@ import type {
   FastLoopCapabilities,
   FastLoopHandlers,
 } from "../live/defaultDeps";
-import { createDefaultFastLoop, probeFastLoopCapabilities } from "../live/defaultDeps";
+import { createDefaultFastLoop, expoHaptics, probeFastLoopCapabilities } from "../live/defaultDeps";
 import { createWebFastLoop, primeWebRecognizer, probeWebFastLoopCapabilities } from "../live/webDeps";
 import type { SpeechRecognizer } from "../live/stt";
 import type { TurnLatency } from "../live/fastLoop";
 import { summarizeSession, type SessionSummary } from "../live/sessionSummary";
 import { useLiveEpisodeStore } from "../store/liveEpisodeStore";
+import { useMoodStore } from "../store/moodStore";
 import { detectLiveCapability, type LiveCapability } from "../live/capability";
 import type { LiveMode } from "../live/localLlm";
 import type { NudgeEvent } from "../live/nudgePolicy";
@@ -51,17 +52,33 @@ import type {
 } from "../live/types";
 import {
   postLiveSession,
+  postLiveSessionAudio,
+  type LiveSessionAudioUploader,
   type LiveSessionBody,
   type LiveSpeakerLabel,
   type PostLiveSessionResult,
 } from "../api/liveSessions";
+import {
+  openDefaultLiveAudioKeeper,
+  type LiveAudioKeeper,
+  type LiveAudioKeeperFactory,
+} from "../live/liveAudioKeeper";
+import type { LiveSessionMode } from "../api/liveSessions";
+import { IDLE_JOURNAL_STATE, type JournalRecorder, type JournalState } from "../live/journalRecorder";
+import {
+  createBackgroundMicHold,
+  createDefaultJournalRecorder,
+  prepareJournalAudioSession,
+  type BackgroundMicHold,
+  type JournalHandlers,
+} from "../live/journalDeps";
 import { CallSession } from "../live/call/callSession";
 import { callApi as defaultCallApi, type CallApi } from "../live/call/callApi";
 import { createNativeRtcAdapter } from "../live/call/rtcNative";
 import { createWebRtcAdapter } from "../live/call/callWeb";
 import type { AudioRoute, RtcAdapter } from "../live/call/rtc";
 import { IDLE_CALL_VIEW, type CallClientMessage, type CallRole, type CallView } from "../live/call/types";
-import { summarizeLatency, useDiagnosticsStore, type SessionDiagnostics } from "../diagnostics/diagnostics";
+import { summarizeLatency, summarizeSpeakerId, useDiagnosticsStore, type SessionDiagnostics } from "../diagnostics/diagnostics";
 import { useAuthStore } from "../store/authStore";
 
 const API_URL =
@@ -75,6 +92,21 @@ export interface TranscriptEntry {
   /** The raw wire label behind `speaker` ("Speaker B") — the key mid-call
    *  naming binds. Absent on legacy-path lines that were never relabeled. */
   speakerId?: string;
+  /** NaturalTurn tag (live/naturalTurn.ts): "backchannel" lines are listener
+   *  noises ("yeah") — shown in the transcript but not counted as turns.
+   *  Absent on server/legacy lines (treated as primary). */
+  kind?: "primary" | "backchannel";
+  /** Vocal-activation probability of the user's own line (live/activation.ts);
+   *  Developer-mode tag only. Absent on others' lines / server lines. */
+  activation?: number;
+  /** Longest mixed-voice run (s) the single-mic overlap probe saw inside the
+   *  user's own long turn (live/overlapProbe.ts, dark). Developer-mode tag. */
+  overlapSeconds?: number;
+  /** true = the phone's owner, false = a partner, null/undefined = unknown.
+   *  Feeds the dev-mode conversation-dynamics block (live/sessionSummary.ts,
+   *  live/conversationDynamics.ts) — absent on lines where speaker identity
+   *  was never resolved. */
+  isSelf?: boolean | null;
   /** In a CALL: the row's position in the server's merged transcript
    *  (`transcript.seq`). The identity of the line — a later frame carrying
    *  this seq (directly, or as its `replaces_seq`) corrects it in place
@@ -166,6 +198,43 @@ export interface UseAudioStreamOptions {
    *  RTCPeerConnection on the web; tests: fakes). */
   callApi?: CallApi;
   makeRtcAdapter?: (getCaptureStream: () => MediaStream | null) => RtcAdapter;
+  /** Keep the session's mic audio on the phone as a WAV and attach it to
+   *  the saved episode once `POST /sessions/live` has stored it (default
+   *  true; the Live Coach "keep audio" switch). False writes nothing. */
+  keepAudio?: boolean;
+  /** Seam: open the per-session WAV keeper (production: one file per
+   *  session under Paths.cache/live-audio; tests: MemoryFs). */
+  openAudioKeeper?: LiveAudioKeeperFactory;
+  /** Seam: upload the kept WAV to the saved episode
+   *  (production: api/liveSessions.ts postLiveSessionAudio). */
+  postSessionAudio?: LiveSessionAudioUploader;
+  /** Journal mode: build the recorder (production: live/journalDeps.ts —
+   *  Silero + ECAPA + the enrolled prints, the cache store, the chunked
+   *  upload job; tests: fakes over MemoryFs). Rejects with the reason when
+   *  the models or the store are unavailable. */
+  makeJournal?: (handlers: JournalHandlers) => Promise<JournalRecorder>;
+  /** Journal mode: configure the audio session for an all-day mic
+   *  (production: background flags + the Android notification permission). */
+  prepareJournalAudio?: () => Promise<unknown>;
+  /** Journal mode: the best-effort Android foreground-service hold (see
+   *  journalDeps.createBackgroundMicHold). Null = none. */
+  holdBackgroundMic?: () => Promise<BackgroundMicHold | null>;
+}
+
+/** The kept session audio, as the screen shows it.
+ *  - off: not keeping (switch off, web, disk full, or the session was never
+ *    saved on the server — `error` says which when there is a reason);
+ *  - keeping: the WAV is growing on the phone;
+ *  - uploading / kept: attaching it to the saved episode / done (the local
+ *    file is deleted once the server has it);
+ *  - failed: the upload failed — the file stays on the phone and `retry`
+ *    sends it again. The session record itself is never affected. */
+export interface AudioKeepState {
+  status: "off" | "keeping" | "uploading" | "kept" | "failed";
+  bytes?: number;
+  seconds?: number;
+  error?: string;
+  retry?: () => Promise<void>;
 }
 
 /** What the sheet is told after a mid-call "that's Mom". */
@@ -261,6 +330,9 @@ interface UseAudioStreamReturn {
   latencySummary: string;
   /** Server tone flags (newest first), rendered additively in live mode. */
   toneFlags: ToneFlagEvent[];
+  /** Tier B: true while a paired watch has a live/companion socket open on
+   *  the server (`watch_connected` frames) — nudges are reaching the wrist. */
+  watchConnected: boolean;
   /** Pre-session capability check; null until `runPreflight` is called. */
   preflight: PreflightState | null;
   /** Probe what the on-device loop would load (no session started). No-op
@@ -273,6 +345,13 @@ interface UseAudioStreamReturn {
   /** The server's record of the last finished session (null until then, and
    *  null on the legacy path where nothing is POSTed). */
   lastEpisode: LastEpisode | null;
+  /** The session's kept audio (see AudioKeepState). */
+  audioKeep: AudioKeepState;
+  /** Journal mode ("listen for my voice"): what the journal is doing —
+   *  listening time, kept stretches, file size, uploads. IDLE otherwise. */
+  journal: JournalState;
+  /** Journal mode: send every journal file still on the phone now. */
+  retryJournalUploads: () => Promise<void>;
   /** Mid-call naming: raw wire label → the person the user (or a voiceprint
    *  match) says it is. Reset per session. */
   speakerNames: Record<string, SpeakerBinding>;
@@ -372,6 +451,13 @@ function stopSpeechSafely() {
   }
 }
 
+/** The mode a session RECORD carries. Journal never posts a record (it
+ *  uploads files instead), so it never reaches the callers of this; the
+ *  narrowing keeps the wire type honest. */
+function liveSessionModeOf(mode: LiveMode): LiveSessionMode {
+  return mode === "journal" ? "speaker" : mode;
+}
+
 /** Production fast-loop factory: the native stack, or the browser stack on
  *  the web build (onnxruntime-web + Web Speech API — src/live/webDeps.ts). */
 const defaultMakeFastLoop = (handlers: FastLoopHandlers) =>
@@ -450,6 +536,9 @@ export function useAudioStream(
   const [nudgeFlash, setNudgeFlash] = useState<NudgeEvent | null>(null);
   const [latencySummary, setLatencySummary] = useState("");
   const [toneFlags, setToneFlags] = useState<ToneFlagEvent[]>([]);
+  // Tier B: the server says a paired watch socket is registered on its relay
+  // (a `watch_connected` frame per change) — Live Coach shows a wrist note.
+  const [watchConnected, setWatchConnected] = useState(false);
   const [preflight, setPreflight] = useState<PreflightState | null>(null);
   const [escalationCount, setEscalationCount] = useState(0);
   const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(null);
@@ -480,6 +569,11 @@ export function useAudioStream(
   const liveStatusRef = useRef("");
   /** Mirrors speakerNames for the long-lived callbacks (onTurn, onmessage). */
   const speakerNamesRef = useRef<Record<string, SpeakerBinding>>({});
+  /** personId -> the raw label the loop's CONTRAST rule currently puts that
+   *  person on. A contrast identity can move to a later cluster (a person is
+   *  one voice), and the screen's name must follow it — unlike an absolute
+   *  match or a user's own label, which stay where they were put. */
+  const contrastLabelsRef = useRef<Record<string, string>>({});
   /** Labels the USER gave this session (not voiceprint matches) — what
    *  POST /sessions/live carries as `speaker_labels`. */
   const speakerLabelsRef = useRef<Record<string, LiveSpeakerLabel>>({});
@@ -533,6 +627,152 @@ export function useAudioStream(
   postSessionRef.current = options.postSession ?? postLiveSession;
   const probeRef = useRef(options.probeCapabilities ?? defaultProbeCapabilities);
   probeRef.current = options.probeCapabilities ?? defaultProbeCapabilities;
+
+  // --- Kept session audio (live/liveAudioKeeper.ts) ------------------------
+  const keepAudioRef = useRef(options.keepAudio ?? true);
+  keepAudioRef.current = options.keepAudio ?? true;
+  const openKeeperRef = useRef(options.openAudioKeeper ?? openDefaultLiveAudioKeeper);
+  openKeeperRef.current = options.openAudioKeeper ?? openDefaultLiveAudioKeeper;
+  const postAudioRef = useRef(options.postSessionAudio ?? postLiveSessionAudio);
+  postAudioRef.current = options.postSessionAudio ?? postLiveSessionAudio;
+  /** The running session's keeper; null when not keeping. */
+  const keeperRef = useRef<LiveAudioKeeper | null>(null);
+  const [audioKeep, setAudioKeep] = useState<AudioKeepState>({ status: "off" });
+
+  // --- Journal mode (live/journalRecorder.ts) --------------------------------
+  const makeJournalRef = useRef(options.makeJournal ?? createDefaultJournalRecorder);
+  makeJournalRef.current = options.makeJournal ?? createDefaultJournalRecorder;
+  const prepareJournalAudioRef = useRef(options.prepareJournalAudio ?? prepareJournalAudioSession);
+  prepareJournalAudioRef.current = options.prepareJournalAudio ?? prepareJournalAudioSession;
+  const holdBackgroundMicRef = useRef(options.holdBackgroundMic ?? createBackgroundMicHold);
+  holdBackgroundMicRef.current = options.holdBackgroundMic ?? createBackgroundMicHold;
+  /** The running journal; null outside Journal mode. Mic frames go here
+   *  INSTEAD of the fast loop / keeper / WebSocket while it is set. */
+  const journalRef = useRef<JournalRecorder | null>(null);
+  /** The journal that last ran (its uploads may still be settling). */
+  const lastJournalRef = useRef<JournalRecorder | null>(null);
+  const micHoldRef = useRef<BackgroundMicHold | null>(null);
+  const [journal, setJournal] = useState<JournalState>(IDLE_JOURNAL_STATE);
+
+  const releaseMicHold = useCallback(() => {
+    const hold = micHoldRef.current;
+    micHoldRef.current = null;
+    if (hold) void hold.release().catch(() => {});
+  }, []);
+
+  /** End a journal run: mic off, loop flushed, file closed, uploads kicked
+   *  off (they continue detached; the state reports them). Never throws. */
+  const stopJournalSession = useCallback(async () => {
+    const recorder = journalRef.current;
+    journalRef.current = null;
+    streamingRef.current = false;
+    shouldReconnect.current = false;
+    try {
+      micStreamRef.current?.stop();
+    } catch {
+      // Stream may already be stopped.
+    }
+    releaseMicHold();
+    setIsRecording(false);
+    setSessionActive(false);
+    if (recorder) {
+      lastJournalRef.current = recorder;
+      try {
+        const final = await recorder.stop();
+        console.log(
+          `[journal] stopped: listened ${final.listeningSeconds}s, kept ${final.selfCount} stretch(es) / ${final.selfSeconds}s, ` +
+            `${final.filesClosed} file(s), uploads sent ${final.uploads.sent} pending ${final.uploads.pending}`,
+        );
+      } catch (err) {
+        console.warn("[journal] stop failed:", err);
+      }
+    }
+    sessionActiveRef.current = false;
+    // Hand the audio session back to playback (see finishDrain).
+    void setPlaybackMode().catch(() => {});
+  }, [releaseMicHold]);
+
+  const retryJournalUploads = useCallback(async () => {
+    const recorder = journalRef.current ?? lastJournalRef.current;
+    if (recorder) await recorder.retryUploads();
+  }, []);
+
+  /** Open the keeper for a starting session (or say why not). */
+  const beginAudioKeep = useCallback((sessionId: string) => {
+    keeperRef.current?.discard();
+    keeperRef.current = null;
+    if (!keepAudioRef.current) {
+      setAudioKeep({ status: "off" });
+      return;
+    }
+    if (sessionModeRef.current === "call") {
+      // The server records an in-app call itself (one episode per side).
+      setAudioKeep({ status: "off", error: "in-app calls are recorded by the server" });
+      return;
+    }
+    const opened = openKeeperRef.current(sessionId);
+    if (!opened.keeper) {
+      setAudioKeep({ status: "off", error: opened.reason });
+      return;
+    }
+    keeperRef.current = opened.keeper;
+    setAudioKeep({ status: "keeping" });
+  }, []);
+
+  /** Attach a finished file to its episode. A failure keeps the file on the
+   *  phone and offers a retry; success deletes it. Never throws. */
+  const uploadKeptAudio = useCallback(
+    async (kept: {
+      episodeId: string;
+      uri: string;
+      bytes: number;
+      seconds: number;
+      keeper: LiveAudioKeeper;
+    }): Promise<void> => {
+      const { bytes, seconds } = kept;
+      setAudioKeep({ status: "uploading", bytes, seconds });
+      try {
+        await postAudioRef.current(kept.episodeId, kept.uri, kept.bytes);
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.warn("[useAudioStream] session audio upload failed:", error);
+        setAudioKeep({ status: "failed", bytes, seconds, error, retry: () => uploadKeptAudio(kept) });
+        return;
+      }
+      kept.keeper.discard(); // the server has it — free the cache
+      setAudioKeep({ status: "kept", bytes, seconds });
+    },
+    [],
+  );
+
+  /** Session over: upload the kept file when the server stored the session,
+   *  otherwise discard it (never upload audio for a session with no episode). */
+  const settleAudioKeep = useCallback(
+    async (keeper: LiveAudioKeeper | null, episodeId: string | null) => {
+      if (!keeper) return;
+      if (!episodeId) {
+        keeper.discard();
+        setAudioKeep({ status: "off", error: "not kept — the session wasn't saved on the server" });
+        return;
+      }
+      let kept: Awaited<ReturnType<LiveAudioKeeper["finish"]>>;
+      try {
+        kept = await keeper.finish();
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.warn("[useAudioStream] keeping session audio failed:", error);
+        keeper.discard();
+        setAudioKeep({ status: "failed", error });
+        return;
+      }
+      if (!kept) {
+        setAudioKeep({ status: "off", error: "no audio was captured" });
+        return;
+      }
+      await uploadKeptAudio({ ...kept, episodeId, keeper });
+    },
+    [uploadKeptAudio],
+  );
 
   useEffect(() => {
     transcriptRef.current = transcript;
@@ -669,7 +909,17 @@ export function useAudioStream(
    */
   const stopFastLoop = useCallback(async () => {
     const loop = fastLoopRef.current;
-    if (!loop) return;
+    // The kept audio is settled by the SAME call that posts the session (the
+    // first one — later calls find no loop): taken here so a re-entrant stop
+    // can't upload or discard it twice.
+    const keeper = keeperRef.current;
+    keeperRef.current = null;
+    if (!loop) {
+      // Legacy path (no on-device loop): nothing is POSTed, so there is no
+      // episode to attach the audio to.
+      void settleAudioKeep(keeper, null);
+      return;
+    }
     fastLoopRef.current = null;
     lastLoopRef.current = loop;
     liveActiveRef.current = false;
@@ -694,13 +944,14 @@ export function useAudioStream(
       localTurnsRef.current = [];
       toneFlagsRef.current = [];
       identitiesRef.current = [];
+      void settleAudioKeep(keeper, null);
       return;
     }
     const body: LiveSessionBody = {
       session_id: sessionIdRef.current,
       started_at: sessionStartedAtRef.current,
       ended_at: new Date().toISOString(),
-      mode: sessionModeRef.current,
+      mode: liveSessionModeOf(sessionModeRef.current),
       turns: localTurnsRef.current,
       tone_flags: toneFlagsRef.current,
       speaker_identities: identitiesRef.current,
@@ -708,6 +959,13 @@ export function useAudioStream(
       // the therapist's auto-shared view of it) shows them at once.
       ...(Object.keys(speakerLabelsRef.current).length > 0
         ? { speaker_labels: { ...speakerLabelsRef.current } }
+        : {}),
+      // Outcome engine (Workstream 4): the BEFORE mood check, answered
+      // before Start — already in the store by the time a session stops.
+      // The AFTER half isn't answered yet at this point (it shows once
+      // sessionSummary lands), so it goes out later via patchSessionMood.
+      ...(useMoodStore.getState().before !== null
+        ? { mood_before: useMoodStore.getState().before! }
         : {}),
     };
     localTurnsRef.current = [];
@@ -744,7 +1002,14 @@ export function useAudioStream(
         });
       }
     }
-  }, []);
+    // Attach the kept audio to the stored episode (or drop it when there is
+    // none). Awaited so a stop that completes has settled the file; an
+    // upload failure never fails the session — it leaves a retry.
+    await settleAudioKeep(
+      keeper,
+      result.status === "created" && result.episodeId ? result.episodeId : null,
+    );
+  }, [settleAudioKeep]);
 
   /**
    * Start the fast loop for this session. Any failure (native module absent,
@@ -778,16 +1043,32 @@ export function useAudioStream(
         onTurn: (turn) => {
           // A voiceprint match (pre-enrolled or learned mid-call) names the
           // raw label for every later line; the wire label stays raw.
-          if (turn.displayName && turn.personId && !speakerNamesRef.current[turn.speaker]) {
-            speakerNamesRef.current = {
-              ...speakerNamesRef.current,
-              [turn.speaker]: {
-                personId: turn.personId,
-                displayName: turn.displayName,
-                isSelf: turn.isSelf === true,
-              },
-            };
-            setSpeakerNames(speakerNamesRef.current);
+          if (turn.displayName && turn.personId) {
+            let names = speakerNamesRef.current;
+            if (turn.matchBasis === "contrast") {
+              // The contrast rule moved this person off an earlier cluster:
+              // the old label's name goes with them, unless the USER gave it.
+              const previous = contrastLabelsRef.current[turn.personId];
+              if (previous !== undefined && previous !== turn.speaker && !speakerLabelsRef.current[previous]) {
+                const { [previous]: _moved, ...rest } = names;
+                names = rest;
+              }
+              contrastLabelsRef.current = { ...contrastLabelsRef.current, [turn.personId]: turn.speaker };
+            }
+            if (!names[turn.speaker]) {
+              names = {
+                ...names,
+                [turn.speaker]: {
+                  personId: turn.personId,
+                  displayName: turn.displayName,
+                  isSelf: turn.isSelf === true,
+                },
+              };
+            }
+            if (names !== speakerNamesRef.current) {
+              speakerNamesRef.current = names;
+              setSpeakerNames(names);
+            }
           }
           // In a call this phone hears only its owner: every local turn is
           // "You", keyed by the slot label the server relabels it with
@@ -804,6 +1085,12 @@ export function useAudioStream(
               {
                 speaker: display,
                 speakerId: rawLabel,
+                kind: turn.kind,
+                ...(turn.activation ? { activation: turn.activation.probability } : {}),
+                ...(turn.overlap && turn.overlap.longestMixedRunSeconds > 0
+                  ? { overlapSeconds: turn.overlap.longestMixedRunSeconds }
+                  : {}),
+                isSelf: turn.isSelf,
                 text: turn.text,
                 timestamp: Date.now(),
                 startTime: turn.startTime,
@@ -957,9 +1244,19 @@ export function useAudioStream(
         samples = resampler.process(samples);
       }
       const int16 = float32ToInt16(samples);
+      // Journal mode: the recorder is the ONLY consumer — no fast loop, no
+      // kept-audio WAV, no WebSocket frames (nothing leaves the phone while
+      // it listens).
+      const journalRecorder = journalRef.current;
+      if (journalRecorder) {
+        journalRecorder.pushSamples(int16);
+        return;
+      }
       // The on-device fast loop (when running) hears exactly what the server
       // hears — one 16 kHz mono int16 conversion, two consumers.
       fastLoopRef.current?.pushSamples(int16);
+      // …and the kept-audio WAV is the third consumer of the same frames.
+      keeperRef.current?.append(int16);
       pendingRef.current = concatInt16(pendingRef.current, int16);
       flushAudioFrames();
     },
@@ -1046,6 +1343,12 @@ export function useAudioStream(
       endedAt: new Date().toISOString(),
       turns: transcriptRef.current.length,
       latency: summarizeLatency(latencyLogRef.current),
+      // stopFastLoop parks the loop in lastLoopRef before this runs; its
+      // turns carry any identity revision the contrast rule made.
+      speakerId: (() => {
+        const loop = fastLoopRef.current ?? lastLoopRef.current;
+        return loop ? summarizeSpeakerId(loop.turnsSoFar) : null;
+      })(),
       liveStatus: liveStatusRef.current,
       onDevice: liveModeRef.current && liveCapability.capable,
       sttRestarts: sttRestartsRef.current,
@@ -1137,6 +1440,11 @@ export function useAudioStream(
 
   const stopSession = useCallback(async () => {
     if (drainingRef.current) return; // Stop already in progress.
+    if (journalRef.current) {
+      // Journal mode has no socket to drain and no record to post.
+      await stopJournalSession();
+      return;
+    }
     shouldReconnect.current = false;
     streamingRef.current = false;
     // Call mode: hang up first (releases WebRTC's mic, stops remote audio)
@@ -1194,7 +1502,7 @@ export function useAudioStream(
     // clean up immediately, exactly as before.
     pendingRef.current = new Int16Array(0);
     finishDrain();
-  }, [finishDrain, armDrainTimer, releaseCapture, stopFastLoop]);
+  }, [finishDrain, armDrainTimer, releaseCapture, stopFastLoop, stopJournalSession]);
 
   useEffect(() => {
     return () => {
@@ -1213,13 +1521,20 @@ export function useAudioStream(
       callRef.current = null;
       call?.hangUp();
       stopSpeechSafely(); // Never keep talking after the screen is gone.
+      // A session abandoned mid-way was never saved: drop its audio rather
+      // than upload it (taken before stopFastLoop so it can't).
+      keeperRef.current?.discard();
+      keeperRef.current = null;
+      // A journal stops cleanly on unmount: its file is closed (valid WAV)
+      // and its upload kicked off, detached — nothing kept is lost.
+      if (journalRef.current) void stopJournalSession();
       void stopFastLoop();
       teardownWebSocket();
       // Leaving the live screen: hand the audio session back to playback so a
       // replay elsewhere in the app isn't left silent by our record mode.
       void setPlaybackMode().catch(() => {});
     };
-  }, [teardownWebSocket, releaseCapture, stopFastLoop]);
+  }, [teardownWebSocket, releaseCapture, stopFastLoop, stopJournalSession]);
 
   const connectWebSocket = useCallback(
     (sessionId: string) => {
@@ -1500,11 +1815,35 @@ export function useAudioStream(
                 }
               }
             }
+          } else if (data.type === "nudge") {
+            // A nudge the SERVER computed about this user — today: call-mode
+            // "interrupting" (sustained talking-over on the merged timeline,
+            // server/calls.py; exact there, unobservable on a single mic).
+            // Same shape/semantics as the on-device policy's NudgeEvent:
+            // screen always, haptic on escalation only.
+            const level = typeof data.level === "number" ? data.level : 0;
+            const vectors = Array.isArray(data.vectors) ? (data.vectors as string[]) : [];
+            const nudge: NudgeEvent = {
+              channel: data.channel === "B" ? "B" : "A",
+              level,
+              t: typeof data.t === "number" ? data.t : 0,
+              vectors,
+            };
+            if (level > 0) {
+              setNudgeFlash(nudge);
+              escalationRef.current += 1;
+              setEscalationCount(escalationRef.current);
+              if (vectors.length > 0) void expoHaptics.nudge(level).catch(() => {});
+            }
           } else if (data.type === "tone_flag") {
             // Server-side tone analysis over a turn: rendered additively.
             const flag = data as ToneFlagEvent;
             toneFlagsRef.current.push(flag);
             setToneFlags((prev) => [flag, ...prev].slice(0, MAX_SUGGESTION_FEED));
+          } else if (data.type === "watch_connected") {
+            // Tier B: a paired watch's (companion) socket came or went on the
+            // server — the screen shows "nudges on your wrist" while present.
+            setWatchConnected(data.connected === true);
           } else if (data.type === "speaker_identity") {
             // The server's (possibly revised) identity for a label: relabel
             // every transcript line that carries it. A null display_name is
@@ -1726,6 +2065,7 @@ export function useAudioStream(
       // Frames start flowing from the worklet now, so open the gate before the
       // socket connects (frames buffer in pendingRef until the WS is OPEN).
       streamingRef.current = true;
+      beginAudioKeep(sessionId);
       shouldReconnect.current = true;
       setSessionActive(true);
       connectWebSocket(sessionId);
@@ -1737,8 +2077,85 @@ export function useAudioStream(
         await startFastLoop(sessionId, empathyLevel, primed);
       }
     },
-    [connectWebSocket, beginWebCapture, startFastLoop, liveCapability.capable],
+    [connectWebSocket, beginWebCapture, startFastLoop, beginAudioKeep, liveCapability.capable],
   );
+
+  /**
+   * Journal mode ("listen for my voice"): mic + the journal recorder, and
+   * NOTHING else — no WebSocket, no STT, no LLM, no TTS, no kept-audio WAV.
+   * Honest gates, in order: the phone app (not the browser), microphone
+   * permission, the models + a place to write, and an enrolled owner
+   * voiceprint (without one nothing could ever be kept). Every refusal
+   * lands in `journal.error` and opens no session.
+   */
+  const startJournalSession = useCallback(async (sessionId: string) => {
+    const fail = (error: string) => {
+      setJournal({ ...IDLE_JOURNAL_STATE, error });
+      sessionActiveRef.current = false;
+    };
+    const stream = micStreamRef.current;
+    if (Platform.OS === "web" || !stream) {
+      fail("The journal needs the phone app's microphone — it isn't available in the browser.");
+      return;
+    }
+    setJournal({ ...IDLE_JOURNAL_STATE, status: "starting" });
+    let granted = false;
+    try {
+      granted = (await requestRecordingPermissionsAsync()).granted;
+    } catch {
+      granted = false;
+    }
+    if (!granted) {
+      fail("Microphone permission denied — enable microphone access to start the journal.");
+      return;
+    }
+    let recorder: JournalRecorder;
+    try {
+      recorder = await makeJournalRef.current({
+        onState: (state) => {
+          // Only the running (or just-stopped) journal drives the screen.
+          if (journalRef.current === recorder || lastJournalRef.current === recorder) setJournal(state);
+        },
+      });
+    } catch (err) {
+      fail(`Journal unavailable: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+    if (!recorder.hasSelfPrint) {
+      fail("Enroll your voice first — the journal keeps only the stretches that match your voiceprint.");
+      return;
+    }
+    if (!sessionActiveRef.current) return; // Stopped while the models loaded.
+    try {
+      await prepareJournalAudioRef.current();
+      await stream.start();
+    } catch (err) {
+      fail(
+        err instanceof Error && err.message
+          ? `Microphone unavailable: ${err.message}`
+          : "Microphone unavailable — could not start audio capture.",
+      );
+      return;
+    }
+    sessionIdRef.current = sessionId;
+    sessionStartedAtRef.current = new Date().toISOString();
+    journalRef.current = recorder;
+    lastJournalRef.current = null;
+    streamingRef.current = true;
+    await recorder.start();
+    setJournal(recorder.stateSnapshot);
+    setSessionActive(true);
+    setIsRecording(true);
+    setConnectionStatus("idle"); // no server in this loop
+    // Best-effort foreground-service hold (Android); the journal runs
+    // without it. Taken AFTER the stream is up so it can never block it.
+    void holdBackgroundMicRef.current()
+      .then((hold) => {
+        if (journalRef.current === recorder) micHoldRef.current = hold;
+        else void hold?.release();
+      })
+      .catch(() => {});
+  }, []);
 
   const startSession = useCallback(
     async (
@@ -1771,12 +2188,14 @@ export function useAudioStream(
       setLiveStatus("");
       setLatencySummary("");
       setToneFlags([]);
+      setWatchConnected(false);
       setNudgeFlash(null);
       setSessionSummary(null);
       setLastEpisode(null);
       lastEpisodeRef.current = null;
       lastLoopRef.current = null;
       speakerNamesRef.current = {};
+      contrastLabelsRef.current = {};
       setSpeakerNames({});
       speakerLabelsRef.current = {};
       trackerRef.current = new PleasantnessTracker();
@@ -1804,6 +2223,13 @@ export function useAudioStream(
       // "you speak first" default.
       selfSpeakerRef.current = "Speaker A";
       setSelfSpeakerState("Speaker A");
+
+      if (sessionModeRef.current === "journal") {
+        // Mic + journal recorder only: no socket, no loop, no keeper.
+        await startJournalSession(sessionId);
+        return;
+      }
+      setJournal(IDLE_JOURNAL_STATE);
 
       if (Platform.OS === "web") {
         await startWebSession(sessionId, empathyLevel);
@@ -1873,6 +2299,7 @@ export function useAudioStream(
       }
 
       streamingRef.current = true;
+      beginAudioKeep(sessionId);
       setIsRecording(true);
 
       if (liveModeRef.current && liveCapability.capable) {
@@ -1887,7 +2314,9 @@ export function useAudioStream(
       teardownWebSocket,
       finishDrain,
       startWebSession,
+      startJournalSession,
       startFastLoop,
+      beginAudioKeep,
       liveCapability.capable,
     ],
   );
@@ -2305,11 +2734,15 @@ export function useAudioStream(
     clearNudgeFlash,
     latencySummary,
     toneFlags,
+    watchConnected,
     preflight,
     runPreflight,
     escalationCount,
     sessionSummary,
     lastEpisode,
+    audioKeep,
+    journal,
+    retryJournalUploads,
     speakerNames,
     displayNameOf,
     labelSpeaker,

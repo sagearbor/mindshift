@@ -15,20 +15,26 @@ import LiveTranscript from "../components/LiveTranscript";
 import TherapistTranscript from "../components/TherapistTranscript";
 import LiveModePicker, { LIVE_MODE_OPTIONS } from "../components/LiveModePicker";
 import LivePreflightPanel from "../components/LivePreflightPanel";
+import MoodCheck from "../components/MoodCheck";
 import SessionSummaryCard from "../components/SessionSummaryCard";
 import ScoreboardPanel from "../components/ScoreboardPanel";
 import WhoIsThisSheet, { type LiveLabelChoice } from "../components/WhoIsThisSheet";
 import CallPanel from "../components/CallPanel";
+import JournalPanel, { type JournalGate } from "../components/JournalPanel";
+import { IDLE_JOURNAL_STATE } from "../live/journalRecorder";
 import { IDLE_CALL_VIEW } from "../live/call/types";
 import { callApi } from "../live/call/callApi";
 import { probeIce, iceProbeUnavailable, type IceProbeResult } from "../live/call/iceProbe";
 import { useAudioStream, type TranscriptEntry } from "../hooks/useAudioStream";
 import { useAuthStore } from "../store/authStore";
+import { useDevModeStore } from "../store/devModeStore";
+import { useMoodStore } from "../store/moodStore";
 import { loadLiveMode, saveLiveMode } from "../live/modePrefs";
 import { loadScoreboardVisible, saveScoreboardVisible } from "../live/scoreboardPrefs";
+import { DEFAULT_KEEP_AUDIO, loadKeepAudio, saveKeepAudio } from "../live/keepAudioPrefs";
 import type { LiveMode } from "../live/localLlm";
 import type { CallRole } from "../live/call/types";
-import { listVoicePeople, type VoicePerson } from "../api/liveSessions";
+import { listVoicePeople, patchSessionMood, type VoicePerson } from "../api/liveSessions";
 import { getTherapistLink, type TherapistLink } from "../api/therapist";
 import * as apiClient from "../api/client";
 import type { VoicePerson as ApiVoicePerson } from "../api/client";
@@ -38,6 +44,15 @@ const STATUS_COLORS: Record<string, string> = {
   connecting: "#F59E0B",
   live: "#10B981",
   disconnected: "#EF4444",
+};
+
+/** Plain words for the header status when developer mode is off — the raw
+ *  socket state ("disconnected") reads as jargon to an invited tester. */
+const FRIENDLY_STATUS: Record<string, string> = {
+  idle: "ready",
+  connecting: "connecting…",
+  live: "listening",
+  disconnected: "offline",
 };
 
 interface LiveCoachScreenProps {
@@ -64,6 +79,14 @@ interface LiveCoachScreenProps {
   joinRole?: CallRole;
   /** The Answer tap consumed the code (so a re-render doesn't re-offer it). */
   onJoinCodeConsumed?: () => void;
+  /** "Hey Google, start my journal" (mindshift://journal/start|stop, wired in
+   *  App.tsx): "start" selects Journal mode and starts it — honoring the
+   *  existing gates (a missing owner voiceprint lands here with the gate
+   *  message visible instead; a mic failure shows the usual micError banner);
+   *  "stop" stops a running journal session. */
+  journalAction?: "start" | "stop" | null;
+  /** The action was executed (or ruled out) — so a re-render doesn't redo it. */
+  onJournalActionConsumed?: () => void;
 }
 
 export default function LiveCoachScreen({
@@ -72,7 +95,34 @@ export default function LiveCoachScreen({
   joinCode = null,
   joinRole = "participant",
   onJoinCodeConsumed,
+  journalAction = null,
+  onJournalActionConsumed,
 }: LiveCoachScreenProps = {}) {
+  // Keep this session's audio (default ON — see keepAudioPrefs.ts): read
+  // once per account before the hook needs it; the switch below changes it
+  // for the NEXT session (a running session keeps whatever it started with).
+  const keepAudioUserId = useAuthStore((s) => s.user?.uid ?? null);
+  const [keepAudio, setKeepAudio] = useState(DEFAULT_KEEP_AUDIO);
+  const keepAudioLoadedRef = useRef(false);
+  useEffect(() => {
+    let cancelled = false;
+    void loadKeepAudio(keepAudioUserId).then((on) => {
+      if (cancelled || keepAudioLoadedRef.current) return;
+      keepAudioLoadedRef.current = true;
+      setKeepAudio(on);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [keepAudioUserId]);
+  const handleKeepAudioToggle = useCallback(
+    (on: boolean) => {
+      setKeepAudio(on);
+      void saveKeepAudio(keepAudioUserId, on);
+    },
+    [keepAudioUserId],
+  );
+
   const {
     isRecording,
     sessionActive,
@@ -100,11 +150,14 @@ export default function LiveCoachScreen({
     clearNudgeFlash,
     latencySummary,
     toneFlags,
+    watchConnected,
     preflight,
     runPreflight,
     escalationCount,
     sessionSummary,
     lastEpisode,
+    journal,
+    retryJournalUploads,
     speakerNames,
     displayNameOf,
     labelSpeaker,
@@ -116,7 +169,7 @@ export default function LiveCoachScreen({
     setCallMuted,
     callRoute,
     setCallRoute,
-  } = useAudioStream();
+  } = useAudioStream({ keepAudio });
   const callView = call ?? IDLE_CALL_VIEW;
 
   const userId = useAuthStore((s) => s.user?.uid ?? null);
@@ -157,8 +210,9 @@ export default function LiveCoachScreen({
   // do (free on-device TTS; the fast loop additionally holds speech until
   // the room is quiet), therapist mode never does. The hook stops any
   // in-flight utterance when this flips to false.
+  // Journal mode never speaks either (nothing is coached while it listens).
   useEffect(() => {
-    setSpeechEnabled(sessionMode !== "therapist" && speakAloud);
+    setSpeechEnabled(sessionMode !== "therapist" && sessionMode !== "journal" && speakAloud);
   }, [sessionMode, speakAloud, setSpeechEnabled]);
 
   // Remember the mode per account (Sage's phone opens on the mode he used
@@ -169,7 +223,9 @@ export default function LiveCoachScreen({
     void loadLiveMode(userId).then((mode) => {
       if (cancelled || modeLoadedRef.current) return;
       modeLoadedRef.current = true;
-      setSessionMode?.(joinCode ? "call" : mode);
+      // A call invite or a journal start link overrides the remembered mode
+      // for this visit (neither is persisted — see handleModeChange).
+      setSessionMode?.(joinCode ? "call" : journalAction === "start" ? "journal" : mode);
     });
     return () => {
       cancelled = true;
@@ -180,6 +236,14 @@ export default function LiveCoachScreen({
     if (joinCode) setSessionMode?.("call");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [joinCode]);
+  // "Hey Google, start my journal": the start link selects Journal mode the
+  // same way an invite link selects Call mode — for this visit only, never
+  // persisted. (A stop link doesn't touch the mode: stopping must never
+  // silently re-mode a running non-journal session.)
+  useEffect(() => {
+    if (journalAction === "start") setSessionMode?.("journal");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [journalAction]);
 
   const handleModeChange = useCallback(
     (mode: LiveMode) => {
@@ -259,13 +323,27 @@ export default function LiveCoachScreen({
     if (liveCapable && liveMode) void runPreflight?.();
   }, [liveCapable, liveMode, runPreflight]);
 
+  // Voiceprint gate data. Refetches on a schedule while the gate is not
+  // "ok" (a fetch that raced sign-in or hit a cold instance must heal
+  // without the user leaving the screen — on-device 2026-08-30 the enroll
+  // banner showed to an enrolled owner and never went away).
+  const peopleRetryRef = useRef(0);
   useEffect(() => {
     let cancelled = false;
-    void listVoicePeople().then((res) => {
-      if (cancelled) return;
-      setPeople(res.people);
-      setPeopleError(res.error);
-    });
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const fetchPeople = () => {
+      void listVoicePeople().then((res) => {
+        if (cancelled) return;
+        setPeople(res.people);
+        setPeopleError(res.error);
+        const gateOk = res.people.some((p) => p.isSelf && Math.max(p.settings, p.enrollCount) >= 1);
+        if (!gateOk && peopleRetryRef.current < 5) {
+          peopleRetryRef.current += 1;
+          timer = setTimeout(fetchPeople, 4000 * peopleRetryRef.current);
+        }
+      });
+    };
+    fetchPeople();
     getTherapistLink()
       .then((l) => {
         if (!cancelled) setTherapist(l);
@@ -275,6 +353,7 @@ export default function LiveCoachScreen({
       });
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, []);
 
@@ -284,10 +363,19 @@ export default function LiveCoachScreen({
     if (sessionActive) {
       await stopSession();
     } else {
+      // A fresh session must never carry a PREVIOUS session's mood-check
+      // answers. `sessionSummary` non-null means a session already ended —
+      // this Start is for session N+1, so whatever the store holds is
+      // stale (the idle BEFORE check, gated on an empty transcript, only
+      // ever shows once per app open — it does not reappear between back-
+      // to-back sessions). When it's null, this is the very first Start and
+      // the store holds exactly the BEFORE answer just given for THIS
+      // session — resetting here would erase it before stop can read it.
+      if (sessionSummary) useMoodStore.getState().reset();
       const sessionId = `live-${Date.now()}`;
       await startSession(sessionId, empathyLevel, interjectLevel);
     }
-  }, [sessionActive, stopSession, startSession, empathyLevel, interjectLevel]);
+  }, [sessionActive, stopSession, startSession, empathyLevel, interjectLevel, sessionSummary]);
 
   // Flip the coached user's identity between the two diarized speakers. The
   // server labels the first voice it hears "Speaker A", so that's the default.
@@ -339,6 +427,32 @@ export default function LiveCoachScreen({
     );
   }, [onReviewTranscript, transcript]);
 
+  // Outcome engine (Workstream 4): CANDOR's single mood item, one tap
+  // before and one after. BEFORE rides to the server on the stop POST
+  // (useAudioStream reads the store directly at stop); AFTER PATCHes the
+  // stored episode the moment it's answered, since the POST above already
+  // happened before this check is even shown.
+  const beforeMood = useMoodStore((s) => s.before);
+  const afterMood = useMoodStore((s) => s.after);
+  const setBeforeMood = useMoodStore((s) => s.setBefore);
+  const setAfterMood = useMoodStore((s) => s.setAfter);
+  const handleBeforeMoodChange = useCallback(
+    (value: number | null) => {
+      // No episode exists yet to key persistence by — the pair is
+      // persisted once the AFTER half lands (see handleAfterMoodChange).
+      setBeforeMood(null, value);
+    },
+    [setBeforeMood],
+  );
+  const handleAfterMoodChange = useCallback(
+    (value: number | null) => {
+      const episodeId = lastEpisode?.episodeId ?? null;
+      setAfterMood(episodeId, value);
+      if (value !== null && episodeId) void patchSessionMood(episodeId, value);
+    },
+    [setAfterMood, lastEpisode],
+  );
+
   const handleEmpathyChange = useCallback(
     (value: number) => {
       setEmpathyLevel(value);
@@ -359,8 +473,79 @@ export default function LiveCoachScreen({
   );
 
   const statusColor = STATUS_COLORS[connectionStatus] || STATUS_COLORS.idle;
+  // Developer mode (Settings → Diagnostics): raw states, capability and
+  // latency lines. Off = the clean tester surface; nothing is lost, hidden.
+  const devMode = useDevModeStore((s) => s.devMode);
   const mode: LiveMode = sessionMode ?? "earpiece";
   const isCall = mode === "call";
+  // Journal mode ("listen for my voice"): no coaching, no transcript, no
+  // server while it runs — the screen collapses to the journal panel + Stop.
+  const isJournal = mode === "journal";
+  const journalState = journal ?? IDLE_JOURNAL_STATE;
+  // The honest gate: an enrolled OWNER voiceprint with at least one
+  // recording pooled into it. The hook re-checks at Start (the labeler's
+  // own `hasSelfPrint`); this decides what the idle screen says.
+  const journalGate: JournalGate = React.useMemo(() => {
+    if (people === null) return peopleError ? "unknown" : "checking";
+    if (people.length === 0 && peopleError) return "unknown";
+    const self = people.find((p) => p.isSelf);
+    if (!self) return "missing";
+    return Math.max(self.settings, self.enrollCount) >= 1 ? "ok" : "missing";
+  }, [people, peopleError]);
+  const journalBlocked = isJournal && !sessionActive && journalGate === "missing";
+  const handleRetryJournalUploads = useCallback(() => {
+    void retryJournalUploads?.();
+  }, [retryJournalUploads]);
+
+  // Deep-link executor ("Hey Google, start my journal"). Runs the delivered
+  // action at most once (the ref guards dependency churn until the parent's
+  // consume callback clears the prop; it re-arms when the prop clears), and
+  // honors the same gates as the buttons: "start" waits for the Journal mode
+  // override and the voiceprint gate check, then either starts the session or
+  // — on a missing owner print — lands with JournalPanel's gate message
+  // visible without starting. A mic-permission failure surfaces through
+  // startSession's own micError banner exactly as a manual tap would. "stop"
+  // only ever stops a running *journal* session.
+  const journalActionDoneRef = useRef(false);
+  useEffect(() => {
+    if (!journalAction) {
+      journalActionDoneRef.current = false;
+      return;
+    }
+    if (journalActionDoneRef.current) return;
+    if (journalAction === "stop") {
+      journalActionDoneRef.current = true;
+      onJournalActionConsumed?.();
+      if (sessionActive && mode === "journal") void stopSession();
+      return;
+    }
+    // "start": wait until the mode override has landed in the hook.
+    if (mode !== "journal") return;
+    if (sessionActive) {
+      // Already listening — nothing to start twice.
+      journalActionDoneRef.current = true;
+      onJournalActionConsumed?.();
+      return;
+    }
+    // Wait for the voiceprint gate to resolve; "missing" stays on screen with
+    // the gate message (never a silent failed start), anything else starts —
+    // the hook re-checks the gate at Start anyway (its own hasSelfPrint).
+    if (journalGate === "checking") return;
+    journalActionDoneRef.current = true;
+    onJournalActionConsumed?.();
+    if (journalGate === "missing") return;
+    void startSession(`live-${Date.now()}`, empathyLevel, interjectLevel);
+  }, [
+    journalAction,
+    mode,
+    sessionActive,
+    journalGate,
+    onJournalActionConsumed,
+    startSession,
+    stopSession,
+    empathyLevel,
+    interjectLevel,
+  ]);
   // A therapist observer (Therapist mode, or a therapist-role call) gets the
   // two-column observer layout and never sees "speak"/nudge affordances
   // aimed at themselves.
@@ -437,7 +622,7 @@ export default function LiveCoachScreen({
             style={[styles.statusText, { color: statusColor }]}
             numberOfLines={1}
           >
-            {connectionStatus}
+            {devMode ? connectionStatus : (FRIENDLY_STATUS[connectionStatus] ?? connectionStatus)}
           </Text>
         </View>
       </View>
@@ -447,7 +632,7 @@ export default function LiveCoachScreen({
           be meaningless. Tapping flips A↔B; the hint reminds the "you speak
           first" convention while idle. Therapist mode has no "you" on the
           mic, so the chip is hidden there. */}
-      {!isTherapist && !isCall && (sessionActive || transcript.length > 0) && (
+      {!isTherapist && !isCall && !isJournal && (sessionActive || transcript.length > 0) && (
         <View style={styles.identityRow}>
           <TouchableOpacity
             testID="self-speaker-chip"
@@ -507,7 +692,16 @@ export default function LiveCoachScreen({
 
       {/* On-device fast loop (Track 3): only offered when the device can run
           it (on-device STT present). Off = the legacy server path. */}
-      {liveCapable ? (
+      {isJournal ? (
+        <JournalPanel
+          state={journalState}
+          sessionActive={sessionActive}
+          gate={journalGate}
+          onRetryUploads={handleRetryJournalUploads}
+        />
+      ) : null}
+
+      {devMode && liveCapable && !isJournal ? (
         <View style={styles.modeRow} testID="live-mode-row">
           <Text style={styles.modeLabel}>On-device coaching</Text>
           <Switch
@@ -523,7 +717,7 @@ export default function LiveCoachScreen({
       ) : null}
 
       {/* What the loop actually loaded (or why it isn't running). */}
-      {liveStatus ? (
+      {devMode && liveStatus && !isJournal ? (
         <Text style={styles.speechUnavailableText} testID="live-status">
           {liveStatus}
         </Text>
@@ -533,7 +727,7 @@ export default function LiveCoachScreen({
           per account. A race to be nicer — both lines climbing is the win. */}
       {/* Speak aloud — only meaningful in a mode that would speak (therapist
           is always silent). Off keeps nudges on screen without any TTS. */}
-      {sessionMode !== "therapist" ? (
+      {sessionMode !== "therapist" && !isJournal ? (
         <View style={styles.modeRow} testID="speak-aloud-row">
           <Text style={styles.modeLabel}>Speak aloud</Text>
           <Switch
@@ -546,6 +740,20 @@ export default function LiveCoachScreen({
           </Text>
         </View>
       ) : null}
+      {isJournal ? null : (
+      <>
+      <View style={styles.modeRow} testID="keep-audio-row">
+        <Text style={styles.modeLabel}>Keep audio</Text>
+        <Switch
+          testID="keep-audio-switch"
+          value={keepAudio}
+          onValueChange={handleKeepAudioToggle}
+          disabled={liveStatus === "live"}
+        />
+        <Text style={styles.modeHint} numberOfLines={1}>
+          {keepAudio ? "saved with the session — replay + re-analyze" : "off — transcribed and thrown away"}
+        </Text>
+      </View>
       <View style={styles.modeRow} testID="scoreboard-row">
         <Text style={styles.modeLabel}>Scoreboard</Text>
         <Switch
@@ -570,6 +778,8 @@ export default function LiveCoachScreen({
           }
         />
       ) : null}
+      </>
+      )}
 
       {/* Who's talking: one chip per voice heard. Tap to name them ("Who is
           this?") — the name applies for the rest of the call at once. */}
@@ -594,7 +804,7 @@ export default function LiveCoachScreen({
       ) : null}
 
       {/* Session strip: mode + escalation count while live. */}
-      {sessionActive ? (
+      {sessionActive && !isJournal ? (
         <View style={styles.sessionStrip} testID="session-strip">
           <Text style={styles.sessionStripText}>{modeLabel}</Text>
           <Text
@@ -606,16 +816,29 @@ export default function LiveCoachScreen({
         </View>
       ) : null}
 
+      {/* Tier B: a paired watch has its (companion) nudge socket open on the
+          server — escalations on your own turns buzz the wrist even with this
+          phone pocketed. */}
+      {sessionActive && watchConnected ? (
+        <Text style={styles.watchConnectedText} testID="watch-connected">
+          ⌚ watch connected — nudges on your wrist
+        </Text>
+      ) : null}
+
       {/* Haptic nudge mirror: "you're getting loud/heated" on the user's own
           turn. Level 1–3 from the shared nudge policy. */}
       {nudgeFlash ? (
         <View style={styles.nudgeFlash} testID="nudge-flash">
           <Text style={styles.nudgeFlashText}>
-            {`Easy — level ${nudgeFlash.level}${
-              nudgeFlash.vectors.length > 0
-                ? ` (${nudgeFlash.vectors.join(", ").replace(/_/g, " ")})`
-                : ""
-            }`}
+            {devMode
+              ? `Easy — level ${nudgeFlash.level}${
+                  nudgeFlash.vectors.length > 0
+                    ? ` (${nudgeFlash.vectors.join(", ").replace(/_/g, " ")})`
+                    : ""
+                }`
+              : nudgeFlash.vectors.includes("interrupting")
+                ? "Let them finish"
+                : "Easy — take a breath"}
           </Text>
         </View>
       ) : null}
@@ -623,35 +846,39 @@ export default function LiveCoachScreen({
       {/* Server tone flag (additive to on-device coaching). */}
       {toneFlags && toneFlags.length > 0 ? (
         <Text style={styles.toneFlagText} testID="tone-flag">
-          {`⚠ ${toneFlags[0].speaker}: ${toneFlags[0].label} (${toneFlags[0].source} tone)`}
+          {devMode
+            ? `⚠ ${toneFlags[0].speaker}: ${toneFlags[0].label} (${toneFlags[0].source} tone)`
+            : `⚠ ${toneFlags[0].speaker}: ${toneFlags[0].label}`}
         </Text>
       ) : null}
 
       {/* Honest state: a spoken mode selected but this platform has no TTS —
           suggestions stay visual-only instead of silently pretending. */}
-      {!isTherapist && !speechAvailable ? (
+      {!isTherapist && !isJournal && !speechAvailable ? (
         <Text style={styles.speechUnavailableText} testID="speech-unavailable-note">
           Spoken suggestions aren&apos;t available on this platform — showing
           them on screen only.
         </Text>
       ) : null}
 
-      {/* Empathy slider */}
-      <EmpathySlider
-        value={empathyLevel}
-        onValueChange={handleEmpathyChange}
-      />
-
-      {/* How often the coach should interject */}
-      <InterjectSlider
-        value={interjectLevel}
-        onValueChange={handleInterjectChange}
-      />
+      {/* Empathy slider + interject: the coach's knobs — none in Journal mode. */}
+      {isJournal ? null : (
+        <>
+          <EmpathySlider
+            value={empathyLevel}
+            onValueChange={handleEmpathyChange}
+          />
+          <InterjectSlider
+            value={interjectLevel}
+            onValueChange={handleInterjectChange}
+          />
+        </>
+      )}
 
       {/* Idle: the honest pre-flight (what will run on this phone, who the
           loop expects to hear) and the short how-to. Disappears the moment a
           session starts or any transcript arrives. */}
-      {idle ? (
+      {idle && !isJournal ? (
         <>
           <LivePreflightPanel
             liveCapable={liveCapable}
@@ -696,11 +923,17 @@ export default function LiveCoachScreen({
               </Text>
             ) : null}
           </View>
+          {/* One-tap BEFORE mood check (CANDOR's single outcome item) —
+              right above the Start button, the app's therapy-evidence
+              primitive. Gone the moment a session starts (idle flips false)
+              or in Journal mode (excluded above). */}
+          <MoodCheck phase="before" value={beforeMood} onChange={handleBeforeMoodChange} />
         </>
       ) : null}
 
-      {/* Live transcript: two labelled columns in therapist mode. */}
-      {isTherapist ? (
+      {/* Live transcript: two labelled columns in therapist mode; none in
+          Journal mode (nothing is transcribed while it listens). */}
+      {isJournal ? null : isTherapist ? (
         <TherapistTranscript entries={transcript} onSpeakerPress={openWho} isNamed={isNamed} />
       ) : (
         <LiveTranscript entries={transcript} onSpeakerPress={openWho} isNamed={isNamed} />
@@ -724,7 +957,7 @@ export default function LiveCoachScreen({
           banner; responses render the usual SuggestionCard stack. Each entry
           says where it came from (the phone's fast loop or the cloud) — the
           local one lands first, the cloud one augments it. */}
-      {suggestions.length > 0 && (
+      {!isJournal && suggestions.length > 0 && (
         <ScrollView
           style={styles.suggestionsContainer}
           horizontal={false}
@@ -737,7 +970,7 @@ export default function LiveCoachScreen({
             // banner style) on top of this.
             const ageStyle =
               i === 0 ? styles.feedEntryNewest : styles.feedEntryOlder;
-            const sourceTag = entry.source ? (
+            const sourceTag = devMode && entry.source ? (
               <Text
                 style={[
                   styles.sourceTag,
@@ -792,19 +1025,24 @@ export default function LiveCoachScreen({
         </ScrollView>
       )}
 
-      {/* Session end: the summary card (duration, turns, escalations,
+      {/* Session end: the one-tap AFTER mood check (CANDOR's single
+          outcome item — PATCHes the stored episode the moment it's
+          answered) above the summary card (duration, turns, escalations,
           first-words latency) with "Share with my therapist" when linked. */}
-      {!sessionActive && sessionSummary ? (
-        <SessionSummaryCard
-          summary={sessionSummary}
-          episode={lastEpisode ?? null}
-          therapist={therapist}
-        />
+      {!sessionActive && !isJournal && sessionSummary ? (
+        <>
+          <MoodCheck phase="after" value={afterMood} onChange={handleAfterMoodChange} />
+          <SessionSummaryCard
+            summary={sessionSummary}
+            episode={lastEpisode ?? null}
+            therapist={therapist}
+          />
+        </>
       ) : null}
 
       {/* Latency report from the on-device loop (printed in full to the
           console at session end; the headline lands here). */}
-      {!sessionActive && latencySummary ? (
+      {devMode && !sessionActive && latencySummary ? (
         <Text style={styles.speechUnavailableText} testID="latency-summary">
           {latencySummary}
         </Text>
@@ -812,7 +1050,7 @@ export default function LiveCoachScreen({
 
       {/* Post-session review handoff: after a session ends with something to
           review, offer a prominent jump to the async-review Session screen. */}
-      {!sessionActive && transcript.length > 0 && (
+      {!sessionActive && !isJournal && transcript.length > 0 && (
         <TouchableOpacity
           testID="review-transcript-button"
           style={styles.reviewButton}
@@ -835,11 +1073,22 @@ export default function LiveCoachScreen({
           style={[
             styles.micButton,
             isRecording && styles.micButtonRecording,
+            journalBlocked && styles.micButtonDisabled,
           ]}
+          disabled={journalBlocked}
+          accessibilityState={{ disabled: journalBlocked }}
           onPress={isCall ? handleHangUp : handleToggle}
         >
           <Text style={styles.micButtonText}>
-            {isCall ? "Hang up" : sessionActive ? "Stop Listening" : "Start Listening"}
+            {isCall
+              ? "Hang up"
+              : isJournal
+                ? sessionActive
+                  ? "Stop Journal"
+                  : "Start Journal"
+                : sessionActive
+                  ? "Stop Listening"
+                  : "Start Listening"}
           </Text>
         </TouchableOpacity>
       )}
@@ -1064,6 +1313,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 4,
   },
+  watchConnectedText: {
+    fontSize: 12,
+    color: "#047857",
+    paddingHorizontal: 16,
+    paddingBottom: 4,
+  },
   suggestionsContainer: {
     maxHeight: 200,
     paddingBottom: 8,
@@ -1165,6 +1420,9 @@ const styles = StyleSheet.create({
   },
   micButtonRecording: {
     backgroundColor: "#EF4444",
+  },
+  micButtonDisabled: {
+    backgroundColor: "#9CA3AF",
   },
   micButtonText: {
     color: "#FFFFFF",

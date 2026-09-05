@@ -72,6 +72,10 @@ class SentinelController(
     private val accel: ScalarSource? = null,
     private val selectedSignal: () -> SignalKind = { SignalKind.VOLUME },
     private val pulseIntervalMs: () -> Long? = { DEFAULT_PULSE_INTERVAL_MS },
+    /** Tier B: the session id COMPANION mode opens its socket under (see [companionSessionId] —
+     *  deterministic per day+account in production, so a whole day of reconnects lands on one id).
+     *  Null falls back to [ids] like every other episode. Mic-using modes never read this. */
+    private val companionSessionId: (() -> String)? = null,
     nowMs: () -> Long = { System.currentTimeMillis() },
 ) {
     private val lock = Any()
@@ -108,6 +112,10 @@ class SentinelController(
     private var windowIndex: Long = 0
     private var wsEndSent = false
 
+    // Tier B (COMPANION): when the last JSON heartbeat went out — core-thread-only, same contract
+    // as windowIndex. Stamped on every (re)connect so a fresh socket waits a full interval.
+    private var lastHeartbeatAtMs: Long = 0L
+
     // Core-thread-only (same contract as `mode`/`stateMachine` above — written by tick(), read by
     // the `state` getter, both always on the single core thread): the live meter for whichever
     // signal `selectedSignal()` currently names. `null` whenever that signal has no reading yet
@@ -125,6 +133,12 @@ class SentinelController(
     // without reaching into this controller's private `obs`/`detector`. Set from `obs.voiced` at
     // the top of processWindow(); cleared in disarm() beside `meter`/`availability`.
     private var lastWindowVoiced: Boolean = false
+
+    // Deep duty cycle: the companion stillness fact — see ControllerState.lastWindowStill's own
+    // KDoc. Core-thread-only, same contract as `lastWindowVoiced` above; written once per
+    // processWindow() (in updateMeter, where the movement reading is already computed every
+    // window), cleared in disarm() beside it. `null` = no honest movement reading this window.
+    private var lastWindowStill: Boolean? = null
 
     // Core-thread-only, same contract as `meter` above (P4-3): the pulse-train verdict for the
     // *current* window — the pulse due this tick, or null (below threshold, pulses off, or gated
@@ -182,6 +196,7 @@ class SentinelController(
                 activePulse = activePulse,
                 availability = availability,
                 lastWindowVoiced = lastWindowVoiced,
+                lastWindowStill = lastWindowStill,
                 armedShoutTap = armedShoutTap,
                 retroCaptureAvailableSeconds = retroCaptureBuffer.availableSeconds(),
                 sparklineSignal = sparklineKind,
@@ -262,6 +277,7 @@ class SentinelController(
         // P5-3: same "stale across episodes" rationale — a disarmed sentinel reports nothing about
         // a window it isn't reading.
         lastWindowVoiced = false
+        lastWindowStill = null
         // Review fix (T6, v0.2.4): same "stale across episodes" rationale as meter/activePulse/
         // availability above — missed in the original pass. Without this, rearming showed up to
         // SPARKLINE_LENGTH ticks of the PREVIOUS session's loudness trace as if it were current,
@@ -298,6 +314,13 @@ class SentinelController(
 
     fun tick() {
         if (stateMachine.state == SentinelState.DISARMED) return
+
+        // Tier B: COMPANION never touches the mic — the phone listens; this tick only keeps the
+        // nudge socket alive (heartbeat + reconnect) and replays due PRD §6 reminders.
+        if (mode == Mode.COMPANION) {
+            companionTick()
+            return
+        }
 
         val window = mic.readWindow()
         if (window == null) {
@@ -432,6 +455,11 @@ class SentinelController(
         val hrReading = hrBpm?.let { hrTracker.observe(it) }
         val accelStddev = safeLatest(accel, "accel")
         val movementReading = accelStddev?.let { movementTracker.observe(it) }
+        // Deep duty cycle: publish this window's stillness verdict from the reading ALREADY
+        // computed above — no new sensor plumbing. Honest degradation end to end: no reading, or
+        // a reading with no established threshold yet, is `null` (never a fabricated "still"),
+        // and MicDutyCycle fails open on null — it never deepens without a real motion signal.
+        lastWindowStill = movementReading?.takeIf { it.threshold != null }?.let { !it.over }
         val speakingReading = speakingRateTracker.observe(Cadence.burstsPerSecond(window))
 
         val selected = selectedSignal()
@@ -530,6 +558,49 @@ class SentinelController(
         }
     }
 
+    // --- Tier B: companion (no-mic) session --------------------------------------------------
+
+    /**
+     * One ~1 s companion tick, driven by SentinelService's own postDelayed cadence (there is no
+     * blocking mic read to pace the loop in this mode). Three jobs, all fail-soft:
+     * reminder replays (the PRD §6 repeat schedule works exactly as in a mic episode — nudges
+     * arrive via the WS listener and set [HapticDirector]'s reminder level), the reconnect
+     * backoff (same [ReconnectPolicy]/[maybeAttemptReconnect] as a mic episode — COMPANION is
+     * always STREAMING while armed), and the 20 s JSON heartbeat that keeps a frames-free socket
+     * alive through NATs/idle reapers. Never reads the mic, never sends PCM.
+     */
+    private fun companionTick() {
+        replayDueReminder()
+        maybeAttemptReconnect()
+        val now = nowMsSupplier()
+        val (client, isOnline) = synchronized(lock) { ws to online }
+        if (client == null || !isOnline) return
+        if (now - lastHeartbeatAtMs < HEARTBEAT_INTERVAL_MS) return
+        try {
+            client.sendHeartbeat()
+            lastHeartbeatAtMs = now
+        } catch (t: Throwable) {
+            diag.log("error", "SentinelController", "sendHeartbeat failed: $t")
+            val delay = goOfflineAndArmReconnect()
+            diag.log("info", "EpisodeWs", "reconnect backoff armed: next attempt in ${delay}ms")
+        }
+    }
+
+    /** The id this session's socket opens under: COMPANION reuses the caller-supplied
+     *  deterministic id on every (re)connect (a companion session persists nothing server-side, so
+     *  one id per day reads better in logs than a UUID per reconnect); every other mode mints a
+     *  fresh episode id exactly as before. */
+    private fun nextEpisodeId(): String =
+        if (mode == Mode.COMPANION) (companionSessionId?.invoke() ?: ids.newId()) else ids.newId()
+
+    /** Post-open companion handshake: announce `{"type":"companion"}` (the server suppresses
+     *  persistence for this socket) and start the heartbeat clock. No-op for mic modes. */
+    private fun sendCompanionHelloIfApplicable(client: EpisodeWs) {
+        if (mode != Mode.COMPANION) return
+        client.sendCompanionHello()
+        lastHeartbeatAtMs = nowMsSupplier()
+    }
+
     // --- episode lifecycle -------------------------------------------------------------------
 
     private fun startStreaming() {
@@ -574,7 +645,8 @@ class SentinelController(
             // clobber a same-or-later onFailure's ws=null/online=false back to "healthy" — this
             // ordering guarantees onFailure, however fast, is always the last writer.
             synchronized(lock) { ws = client; online = true }
-            client.open(ids.newId(), buildListener(token))
+            client.open(nextEpisodeId(), buildListener(token))
+            sendCompanionHelloIfApplicable(client)
 
             val preamble = ringBuffer.snapshot()
             if (preamble.isNotEmpty()) {
@@ -643,7 +715,7 @@ class SentinelController(
         // far.
         var newId: String? = null
         try {
-            newId = ids.newId()
+            newId = nextEpisodeId()
             diag.log("info", "EpisodeWs", "reconnect attempt: episode=$newId")
             val client = wsFactory.create()
             val token = wsListenerGeneration.incrementAndGet()
@@ -653,6 +725,7 @@ class SentinelController(
             // writer for those two fields.
             synchronized(lock) { ws = client; online = true }
             client.open(newId, buildListener(token))
+            sendCompanionHelloIfApplicable(client)
             // Reached only if open() itself didn't throw synchronously (a throw here is caught
             // below, using reconnectPolicy's state as of BEFORE this attempt — see the catch
             // block). Reset the backoff ladder now, but NOT unconditionally: only if `online` is
@@ -1030,5 +1103,9 @@ class SentinelController(
          * setting — kept here too so a caller that doesn't wire a prefs-backed supplier (e.g. a
          * test) still gets pulses on by default, same posture as [selectedSignal]'s VOLUME default. */
         const val DEFAULT_PULSE_INTERVAL_MS = 250L
+
+        /** Tier B: companion JSON-heartbeat cadence — matches [EpisodeWsClient]'s own OkHttp
+         * `pingInterval` (20 s), the existing keepalive rhythm of this socket. */
+        const val HEARTBEAT_INTERVAL_MS = 20_000L
     }
 }

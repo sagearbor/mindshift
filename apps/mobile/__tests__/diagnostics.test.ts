@@ -10,6 +10,7 @@ import {
   newDiagnosticsId,
   sendDiagnostics,
   summarizeLatency,
+  summarizeSpeakerId,
   telemetryBody,
   useDiagnosticsStore,
   type SessionDiagnostics,
@@ -47,6 +48,34 @@ function session(over: Partial<SessionDiagnostics> = {}): SessionDiagnostics {
 beforeEach(() => {
   mockFetch.mockReset();
   useDiagnosticsStore.setState({ capability: null, capabilityReason: null, lastSession: null, sending: false, lastSent: null });
+});
+
+describe("summarizeSpeakerId", () => {
+  it("counts self turns by how they were reached, matched turns, voices and unknowns", () => {
+    const t = (speaker: string, isSelf: boolean | null, personId: string | null, matchBasis: string | null) => ({
+      speaker, isSelf, personId, matchBasis,
+    });
+    expect(
+      summarizeSpeakerId([
+        t("Speaker A", true, "self", "contrast"),
+        t("Speaker A", true, "self", "contrast"),
+        t("You", true, "self", "absolute"),
+        t("Speaker B", false, "mom", null), // a user binding: no voiceprint basis
+        t("Speaker C", false, null, null),
+        t("Unknown", null, null, null),
+      ]),
+    ).toEqual({
+      turns: 6,
+      selfTurns: 3,
+      selfByBasis: { contrast: 2, absolute: 1 },
+      matchedByBasis: { contrast: 2, absolute: 1, binding: 1 },
+      voices: 4,
+      unknownTurns: 1,
+    });
+    expect(summarizeSpeakerId([])).toEqual({
+      turns: 0, selfTurns: 0, selfByBasis: {}, matchedByBasis: {}, voices: 0, unknownTurns: 0,
+    });
+  });
 });
 
 describe("diagnostics", () => {
@@ -154,5 +183,63 @@ describe("diagnostics", () => {
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
     expect(body.events[0].data.last_session.sessionId).toBe("live-1");
     expect(body.events[0].data.uid).toBe("u1");
+  });
+});
+
+describe("device_diarization (on-phone voice separation) in the bundle", () => {
+  const event = {
+    recording_id: "r1",
+    engine: "B" as const,
+    k: 3,
+    k_eigengap: 3,
+    eigenvalues: [1, 0.9, 0.8, 0.2],
+    mean_pairwise_cosine: 0.21,
+    segments: [[0, 10, 0], [10, 20, 1], [20, 30, 2]] as [number, number, number][],
+    windows: 100,
+    windows_total: 110,
+    window_s: 1.5,
+    hop_s: 0.25,
+    gate_rms: 0.003,
+    speech_s: 25,
+    duration_s: 30,
+    download_ms: 800,
+    download_bytes: 960044,
+    embed_ms_mean: 40,
+    embed_ms_p90: 48,
+    cluster_ms: 60,
+    total_ms: 6000,
+    model_rev: "rev",
+    model_source: "cached",
+    device: { platform: "android", osVersion: "16", model: "Pixel 10", userAgent: null },
+    created_at: "2026-08-30T01:00:00.000Z",
+  };
+
+  it("is null on a plain bundle and carried verbatim when given", () => {
+    const plain = buildDiagnosticsPayload({ trigger: "manual", uid: null, email: null, capability: null, capabilityReason: null, lastSession: null });
+    expect(plain.device_diarization).toBeNull();
+    const withRun = buildDiagnosticsPayload({ trigger: "device_diarization", uid: "u", email: "e", capability: null, capabilityReason: null, lastSession: null, deviceDiarization: event });
+    expect(withRun.device_diarization).toEqual(event);
+    const body = telemetryBody(withRun);
+    expect(body.events[0].data.device_diarization).toEqual(event);
+    expect(body.events[0].message).toContain("device_diarization=r1 k=3 cos=0.21");
+    expect(body.events[0].tag).toBe("client_diagnostics");
+  });
+
+  it("sendDeviceDiarization posts its own record right away and later manual bundles carry it", async () => {
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({ ok: true, status: 200 });
+    useDiagnosticsStore.setState({ deviceDiarization: null, lastSent: null });
+    const outcome = await useDiagnosticsStore.getState().sendDeviceDiarization(event, { uid: "u", email: "e" });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.id).toMatch(DIAGNOSTICS_ID_RE);
+    const first = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(first.events[0].data.trigger).toBe("device_diarization");
+    expect(first.events[0].data.device_diarization.recording_id).toBe("r1");
+    expect(useDiagnosticsStore.getState().lastSent).toMatchObject({ id: outcome.id, trigger: "device_diarization", ok: true });
+
+    await useDiagnosticsStore.getState().send("manual", { uid: "u", email: "e" });
+    const second = JSON.parse(mockFetch.mock.calls[1][1].body);
+    expect(second.events[0].data.trigger).toBe("manual");
+    expect(second.events[0].data.device_diarization).toEqual(event);
   });
 });

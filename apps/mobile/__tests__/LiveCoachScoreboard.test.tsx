@@ -8,7 +8,7 @@ import renderer, { act, type ReactTestInstance } from "react-test-renderer";
  */
 const mockUseAudioStream = jest.fn();
 jest.mock("../src/hooks/useAudioStream", () => ({
-  useAudioStream: () => mockUseAudioStream(),
+  useAudioStream: (opts?: unknown) => mockUseAudioStream(opts),
 }));
 const mockListVoicePeople = jest.fn();
 jest.mock("../src/api/liveSessions", () => ({
@@ -27,6 +27,13 @@ const mockSaveScoreboard = jest.fn();
 jest.mock("../src/live/scoreboardPrefs", () => ({
   loadScoreboardVisible: (uid: string | null) => mockLoadScoreboard(uid),
   saveScoreboardVisible: (uid: string | null, on: boolean) => mockSaveScoreboard(uid, on),
+}));
+const mockLoadKeepAudio = jest.fn();
+const mockSaveKeepAudio = jest.fn();
+jest.mock("../src/live/keepAudioPrefs", () => ({
+  DEFAULT_KEEP_AUDIO: true,
+  loadKeepAudio: (uid: string | null) => mockLoadKeepAudio(uid),
+  saveKeepAudio: (uid: string | null, on: boolean) => mockSaveKeepAudio(uid, on),
 }));
 const mockClientPeople = jest.fn();
 jest.mock("../src/api/client", () => ({
@@ -132,6 +139,8 @@ beforeEach(() => {
   mockGetTherapistLink.mockReset().mockResolvedValue({ linked: false });
   mockLoadScoreboard.mockReset().mockResolvedValue(false);
   mockSaveScoreboard.mockReset().mockResolvedValue(undefined);
+  mockLoadKeepAudio.mockReset().mockResolvedValue(true);
+  mockSaveKeepAudio.mockReset().mockResolvedValue(undefined);
   mockClientPeople.mockReset().mockResolvedValue({
     available: true,
     storage_enabled: true,
@@ -263,5 +272,35 @@ describe("LiveCoachScreen mid-call naming", () => {
       isSelf: false,
       isNew: true,
     });
+  });
+});
+
+
+describe("LiveCoachScreen keep audio", () => {
+  it("is ON by default, is handed to the hook, and the toggle is remembered per account", async () => {
+    const comp = await mount();
+    const sw = queryAny(comp, "keep-audio-switch")!;
+    expect(sw.props.value).toBe(true);
+    expect(textOf(queryId(comp, "keep-audio-row"))).toContain("replay");
+    // The hook receives the current choice so the session keeps (or not) its audio.
+    const lastOpts = mockUseAudioStream.mock.calls.at(-1)?.[0] as { keepAudio?: boolean };
+    expect(lastOpts?.keepAudio).toBe(true);
+    await act(async () => {
+      sw.props.onValueChange(false);
+    });
+    expect(mockSaveKeepAudio).toHaveBeenCalledWith(null, false);
+    expect(queryAny(comp, "keep-audio-switch")!.props.value).toBe(false);
+    expect(textOf(queryId(comp, "keep-audio-row"))).toContain("thrown away");
+    const after = mockUseAudioStream.mock.calls.at(-1)?.[0] as { keepAudio?: boolean };
+    expect(after?.keepAudio).toBe(false);
+  });
+
+  it("loads the remembered OFF choice and cannot be flipped mid-session", async () => {
+    mockLoadKeepAudio.mockResolvedValue(false);
+    mockUseAudioStream.mockReturnValue(hookState({ liveStatus: "live" }));
+    const comp = await mount();
+    const sw = queryAny(comp, "keep-audio-switch")!;
+    expect(sw.props.value).toBe(false);
+    expect(sw.props.disabled).toBe(true);
   });
 });

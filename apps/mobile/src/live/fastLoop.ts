@@ -43,13 +43,16 @@ import { EnergyVad, SILERO_SAMPLE_RATE } from "./vad";
 import type { SegmenterConfig, Span } from "./segmenter";
 import { DEFAULT_SEGMENTER_CONFIG, StreamingSegmenter } from "./segmenter";
 import type { TurnProsody } from "./prosody";
-import { LIVE_MAX_PITCH_SECONDS, turnProsodyAsync } from "./prosody";
-import type { Embedder, EnrolledPerson, SpeakerLabeler, SpeakerVerdict } from "./speakerId";
+import { LIVE_MAX_PITCH_SECONDS, rmsDbfs, turnProsodyAsync } from "./prosody";
+import type { Embedder, EnrolledPerson, MatchBasis, SpeakerLabeler, SpeakerVerdict } from "./speakerId";
 import type { SpeechRecognizer } from "./stt";
 import { TranscriptAligner } from "./stt";
 import type { LiveMode, ProviderChain, TextTone } from "./localLlm";
-import type { HapticSink, NudgeEvent, NudgePolicy } from "./nudgePolicy";
-import { LoudnessBaseline, phoneNudgePolicy, selfTurnVectorEvents } from "./nudgePolicy";
+import type { HapticSink, NudgeEvent, NudgePolicy, VectorEvent } from "./nudgePolicy";
+import { aggressiveToneLevel, CoachRepeatGate, LoudnessBaseline, phoneNudgePolicy, yellingLevel } from "./nudgePolicy";
+import { liveTurnKind } from "./naturalTurn";
+import { turnActivationAsync, type TurnActivation } from "./activation";
+import { OVERLAP_PROBE_MIN_SECONDS, probeOverlapAsync, type OverlapSummary } from "./overlapProbe";
 import type { TurnLocalEvent } from "./types";
 
 export type SuggestionKind = "response" | "nudge";
@@ -96,6 +99,18 @@ export interface TurnLatency {
 
 export interface LocalTurn {
   index: number;
+  /** NaturalTurn tag (live/naturalTurn.ts): "backchannel" = a listener
+   *  noise ("yeah", "mhm") — recorded but never coached, never pooled
+   *  into voice clusters, and not counted as a conversational turn. */
+  kind: "primary" | "backchannel";
+  /** Vocal activation of the user's OWN turn (live/activation.ts; null on
+   *  other people's turns or when unmeasurable). Dark: recorded + shown in
+   *  Developer mode; nudges only with deps.activationNudges. */
+  activation: TurnActivation | null;
+  /** Single-mic overlap probe over a LONG self turn (live/overlapProbe.ts):
+   *  mixed-voice seconds inside the span. Dark — Developer mode only; null
+   *  on other turns, short turns, or without a voice model. */
+  overlap: OverlapSummary | null;
   speaker: string;
   text: string;
   /** false when only an interim STT result covered the span. */
@@ -108,6 +123,11 @@ export interface LocalTurn {
    *  binding); null for an unknown cluster. `speaker` stays the raw label. */
   displayName: string | null;
   matchScore: number | null;
+  /** How the voiceprint match was reached ("absolute" | "contrast"); null
+   *  for an unidentified cluster or a mid-call binding. A contrast identity
+   *  is REVISABLE: if a later cluster beats this one for the same person by
+   *  the margin, the person moves and this turn's identity is cleared. */
+  matchBasis: MatchBasis | null;
   prosody: TurnProsody;
   textTone: TextTone | null;
   suggestion: string | null;
@@ -138,6 +158,15 @@ export interface FastLoopDeps {
   onDegrade?: (stage: "vad", reason: string) => void;
   haptics?: HapticSink | null;
   policy?: NudgePolicy;
+  /** Don't-nag gate over the coach's own lines. Defaults to a real
+   *  CoachRepeatGate; pass `null` to disable (replay harnesses whose
+   *  scripted provider emits identical text, which a real LLM never would). */
+  repeatGate?: CoachRepeatGate | null;
+  /** Let the vocal-activation classifier drive nudges (instant haptic +
+   *  policy vector). Default false: activation is measured and recorded
+   *  per turn but never buzzes — owner tunes the ladder from real sessions
+   *  first (docs/plans/2026-09-04-naturalturn-conversation-quality.md WS3). */
+  activationNudges?: boolean;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   /** How long to wait for the recognizer to deliver a span's words. */
@@ -199,6 +228,12 @@ export class FastLoop {
   private readonly segmenter: StreamingSegmenter;
   private readonly aligner: TranscriptAligner;
   private readonly policy: NudgePolicy;
+  /** Don't-nag gate over the coach's own lines (nudgePolicy.ts; mirrors the
+   *  server's COACH_REPEAT_* rules). Owner finding 2026-08-26: the on-device
+   *  coach said the same line on two fragments of one sentence. null =
+   *  disabled (deps.repeatGate === null). */
+  private readonly repeatGate: CoachRepeatGate | null;
+  private readonly activationNudges: boolean;
   private readonly baseline = new LoudnessBaseline();
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -234,6 +269,8 @@ export class FastLoop {
   private vadQueue: Promise<void> = Promise.resolve();
   private turnQueue: Promise<void> = Promise.resolve();
   private turns: LocalTurn[] = [];
+  /** The labeler identity revision the past turns were last aligned to. */
+  private seenIdentityRevision = 0;
   private held: HeldSpeech | null = null;
   /** Audio seconds: end of the most recent speech frame / most recent
    *  frame — quiet is measured on the frame clock, like the segmenter. */
@@ -256,6 +293,8 @@ export class FastLoop {
     this.contextTurns = deps.contextTurns ?? 6;
     this.speakHoldMaxMs = deps.speakHoldMaxMs ?? 3000;
     this.speakQuietMs = deps.speakQuietMs ?? 0;
+    this.repeatGate = deps.repeatGate === undefined ? new CoachRepeatGate() : deps.repeatGate;
+    this.activationNudges = deps.activationNudges ?? false;
     this.historySamples = Math.round((deps.historySeconds ?? 30) * SILERO_SAMPLE_RATE);
     this.maxEmbedSamples = Math.round((deps.maxEmbedSeconds ?? MAX_EMBED_SECONDS) * SILERO_SAMPLE_RATE);
     this.maxPitchSeconds = deps.maxPitchSeconds ?? LIVE_MAX_PITCH_SECONDS;
@@ -356,6 +395,15 @@ export class FastLoop {
 
   /** Apply the mid-call bindings to a labeler verdict (pure w.r.t. state). */
   private applyBindings(verdict: SpeakerVerdict): SpeakerVerdict {
+    // The user's own naming of a raw cluster label outranks an INFERRED
+    // (contrast) identity on that label: "Speaker B is Mom" was said out
+    // loud; the contrast rule only concluded it.
+    if (verdict.basis === "contrast") {
+      const said = this.bindings.get(verdict.speaker);
+      if (said && said.personId !== verdict.personId) {
+        return { ...verdict, personId: said.personId, displayName: said.displayName, isSelf: said.isSelf, score: null, basis: null };
+      }
+    }
     // A voiceprint match on a person bound to a raw label → keep the raw
     // label on the wire (one key per voice for the whole session).
     if (verdict.personId !== null) {
@@ -390,8 +438,54 @@ export class FastLoop {
     return verdict;
   }
 
+  /**
+   * Carry a revised cluster identity back over the session's past turns
+   * (same in-place update `bindSpeaker` does). The labeler re-resolves who
+   * is who after every cluster update; a cluster can gain a person once a
+   * second cluster exists to contrast against, or lose it to a later
+   * cluster that beats it by the margin — a person is one voice. Turns on
+   * a label the USER bound, and turns matched outright (absolute), are
+   * never touched. Already-sent turn_local events are not re-sent: the raw
+   * label is the stable wire key, and the record shows the move.
+   */
+  private reattributeTurns(): void {
+    const labeler = this.deps.labeler;
+    if (!labeler || labeler.identityRevision === this.seenIdentityRevision) return;
+    this.seenIdentityRevision = labeler.identityRevision;
+    const assignments = labeler.clusterAssignments();
+    const someoneBoundAsSelf = Array.from(this.bindings.values()).some((b) => b.isSelf);
+    for (const turn of this.turns) {
+      if (turn.matchBasis === "absolute" || turn.speaker === "Unknown") continue;
+      if (this.bindings.has(turn.speaker)) continue;
+      const now = assignments.get(turn.speaker) ?? null;
+      if (now) {
+        if (turn.personId === now.personId && turn.matchBasis === now.basis) continue;
+        turn.personId = now.personId;
+        turn.displayName = now.displayName;
+        turn.isSelf = now.isSelf;
+        turn.matchScore = now.score;
+        turn.matchBasis = now.basis;
+      } else if (turn.matchBasis === "contrast") {
+        // Lost its person to a stronger cluster: back to an unidentified
+        // voice, with the same honesty rule the labeler applies.
+        turn.personId = null;
+        turn.displayName = null;
+        turn.isSelf = labeler.hasSelfPrint || someoneBoundAsSelf ? false : null;
+        turn.matchScore = null;
+        turn.matchBasis = null;
+      }
+    }
+  }
+
   get isRunning() {
     return this.running;
+  }
+
+  /** The turns finalized so far this session (live view; `stop()` returns
+   *  the same list in its summary). Identities on past turns may be revised
+   *  in place — see `reattributeTurns`. */
+  get turnsSoFar(): readonly LocalTurn[] {
+    return this.turns;
   }
 
   /** Session seconds by the audio clock (samples pushed so far). */
@@ -424,6 +518,7 @@ export class FastLoop {
     this.bindings = new Map();
     this.boundLabelOfPerson = new Map();
     this.speakerPools = new Map();
+    this.seenIdentityRevision = 0;
     this.segmenter.reset();
     this.aligner.reset();
     this.vad = this.deps.vad;
@@ -603,6 +698,22 @@ export class FastLoop {
       .catch(() => {});
   }
 
+  /** Deliver policy nudges: screen always; haptic on ESCALATION only
+   *  (`vectors` names what raised the level). A cooldown decay (level
+   *  2 -> 1, no vectors) updates the screen but never buzzes — before this
+   *  it buzzed if and only if the decay happened to land on the user's own
+   *  turn (replay-harness finding). */
+  private emitNudges(nudges: NudgeEvent[], alreadyBuzzedLevel = 0) {
+    for (const n of nudges) {
+      this.deps.onNudge?.(n);
+      // Screen always; haptic on ESCALATION only — and never re-buzz a level
+      // the instant tier already delivered this turn (`alreadyBuzzedLevel`).
+      if (n.level > alreadyBuzzedLevel && n.vectors.length > 0 && this.deps.haptics) {
+        void this.deps.haptics.nudge(n.level).catch(() => {});
+      }
+    }
+  }
+
   private sliceHistory(span: Span): Float32Array {
     const a = Math.round(span.start * SILERO_SAMPLE_RATE);
     const b = Math.round(span.end * SILERO_SAMPLE_RATE);
@@ -652,7 +763,7 @@ export class FastLoop {
     // Speaker-ID and STT are independent — run them together.
     const speakerPromise = (async (): Promise<{ verdict: SpeakerVerdict; ms: number }> => {
       const t0 = this.now();
-      let verdict: SpeakerVerdict = { speaker: "Unknown", personId: null, displayName: null, isSelf: null, score: null };
+      let verdict: SpeakerVerdict = { speaker: "Unknown", personId: null, displayName: null, isSelf: null, score: null, basis: null };
       if (this.deps.embedder && this.deps.labeler) {
         try {
           const embedPcm =
@@ -666,17 +777,14 @@ export class FastLoop {
       return { verdict, ms: this.now() - t0 };
     })();
     const textPromise = this.waitForText(span);
-    const [{ verdict: rawVerdict, ms: speakerMs }, aligned] = await Promise.all([speakerPromise, textPromise]);
+    // Identity resolves in ~65 ms (one ECAPA pass); the words can take 100x
+    // that (STT grace, then the LLM). The INSTANT nudge tier below rides
+    // identity alone — never the text.
+    const { verdict: rawVerdict, ms: speakerMs } = await speakerPromise;
     // Mid-call naming: a bound cluster carries its person from here on.
     const verdict = this.applyBindings(rawVerdict);
-    this.poolSpeakerAudio(verdict.speaker, pcm);
-
-    const tp0 = this.now();
-    const prosody = await turnProsodyAsync(pcm, SILERO_SAMPLE_RATE, aligned.text, duration, {
-      maxPitchSeconds: this.maxPitchSeconds,
-      sleep: this.sleep,
-    });
-    const prosodyMs = this.now() - tp0;
+    // This turn may have moved a person between clusters: past turns follow.
+    this.reattributeTurns();
 
     // Coaching identity: the voiceprint verdict when there is one, else the
     // "you speak first" convention (Speaker A) — never sent as is_self.
@@ -685,13 +793,76 @@ export class FastLoop {
       verdict.isSelf === true ||
       (verdict.isSelf === null && fallback !== null && verdict.speaker === fallback);
 
+    // INSTANT nudge tier (owner, 2026-09-03: "bare bones nudge now; the
+    // nuanced one may lag"): loudness over the user's own running baseline,
+    // straight off the raw span — no STT, no LLM in the path. The haptic
+    // fires HERE, ~a second after the turn closes, where the full pipeline's
+    // median-to-speak was ~6.8 s on-device. It buzzes on the rising edge
+    // only (level above what the policy already holds), and the single
+    // combined policy tick at end of turn (screen + text-tone escalation +
+    // cooldown decay) skips re-buzzing this same level.
+    let instantYellingLevel = 0;
+    let instantBuzzedLevel = 0;
+    let activation: TurnActivation | null = null;
+    if (coachedAsSelf) {
+      const db = rmsDbfs(pcm);
+      const over = this.baseline.observe(Number.isFinite(db) ? db : null);
+      instantYellingLevel = yellingLevel(over);
+      // Vocal activation (dark unless activationNudges): ~370 frames of F0
+      // over the last 3.7 s, cooperative — it overlaps the STT grace wait.
+      try {
+        activation = await turnActivationAsync(pcm, SILERO_SAMPLE_RATE, { sleep: this.sleep });
+      } catch {
+        activation = null;
+      }
+      const instantLevel = Math.max(
+        instantYellingLevel,
+        this.activationNudges && activation ? activation.level : 0,
+      );
+      if (instantLevel > (this.policy.current().A ?? 0) && this.deps.haptics) {
+        instantBuzzedLevel = instantLevel;
+        void this.deps.haptics.nudge(instantLevel).catch(() => {});
+      }
+    }
+
+    // Dark in-person overlap probe: only long self turns, only with a voice
+    // model; runs alongside the STT wait + LLM call (awaited just before the
+    // turn record), so it never delays coaching.
+    const overlapPromise: Promise<OverlapSummary | null> =
+      coachedAsSelf && duration >= OVERLAP_PROBE_MIN_SECONDS && this.deps.embedder && this.deps.labeler
+        ? probeOverlapAsync(
+            pcm,
+            SILERO_SAMPLE_RATE,
+            (w) => this.deps.embedder!.embed(w, SILERO_SAMPLE_RATE),
+            (e) => this.deps.labeler!.scoreWindow(e),
+          ).catch(() => null)
+        : Promise.resolve(null);
+
+    const aligned = await textPromise;
+
+    // NaturalTurn tag (words + duration): a backchannel is a listener noise,
+    // not a conversational turn. Only a FINAL transcript is trusted to
+    // suppress — an interim "oh" may finalize as a full sentence, and we
+    // never want to skip coaching on incomplete text. Pool speaker audio
+    // only for primary turns — quarter-second "yeah"s are exactly the
+    // scraps that used to pollute the per-speaker blends.
+    const turnKind = aligned.final ? liveTurnKind(aligned.text, duration) : "primary";
+    if (turnKind === "primary") this.poolSpeakerAudio(verdict.speaker, pcm);
+
+    const tp0 = this.now();
+    const prosody = await turnProsodyAsync(pcm, SILERO_SAMPLE_RATE, aligned.text, duration, {
+      maxPitchSeconds: this.maxPitchSeconds,
+      sleep: this.sleep,
+    });
+    const prosodyMs = this.now() - tp0;
+
     // Local LLM: only when there are words to coach on.
     let suggestion: string | null = null;
     let textTone: TextTone | null = null;
     let provider = "none";
     let llmMs = 0;
     let attempts: { provider: string; outcome: string }[] | undefined;
-    if (aligned.text) {
+    if (aligned.text && turnKind === "primary") {
       const tl0 = this.now();
       // The prompt names people the way the user does ("Mom", not
       // "Speaker B") once a binding or a voiceprint match says who they are.
@@ -719,7 +890,14 @@ export class FastLoop {
         suggestion = result.output.suggestion;
         textTone = result.output.textTone;
       }
+      // A line that re-issues one delivered within the cooldown becomes
+      // silence (tone still counts for the nudge policy below).
+      if (suggestion && this.repeatGate) {
+        suggestion = this.repeatGate.admit(suggestion, span.end, coachedAsSelf ? "nudge" : "response");
+      }
     }
+
+    const overlap = await overlapPromise;
 
     const latency: TurnLatency = {
       turn: index,
@@ -735,6 +913,9 @@ export class FastLoop {
     };
     const turn: LocalTurn = {
       index,
+      kind: turnKind,
+      activation,
+      overlap,
       speaker: verdict.speaker,
       text: aligned.text,
       transcriptFinal: aligned.final,
@@ -744,6 +925,7 @@ export class FastLoop {
       personId: verdict.personId,
       displayName: verdict.displayName,
       matchScore: verdict.score,
+      matchBasis: verdict.basis,
       prosody,
       textTone,
       suggestion,
@@ -755,20 +937,20 @@ export class FastLoop {
     this.turns.push(turn);
     this.latencyLog.push(latency);
 
-    // Nudge policy over the user's own delivery; other turns tick the clock.
-    const events = coachedAsSelf
-      ? selfTurnVectorEvents(span.end, this.baseline.observe(prosody.rms_dbfs), textTone ?? { frustration: null, defensiveness: null })
+    // Single combined policy tick per turn (yelling from the instant tier +
+    // the LLM's text tone): one hysteresis/cooldown machine drives the
+    // screen and any escalation the loudness haptic didn't already cover.
+    // Other turns tick the clock with no events (cooldown decay).
+    const nudgeEvents: VectorEvent[] = coachedAsSelf
+      ? [
+          { vector: "yelling", level: instantYellingLevel, t: span.end },
+          { vector: "aggressive_tone", level: aggressiveToneLevel(textTone?.frustration ?? null, textTone?.defensiveness ?? null), t: span.end },
+          ...(this.activationNudges && activation
+            ? [{ vector: "activation" as const, level: activation.level, t: span.end, value: activation.probability }]
+            : []),
+        ]
       : [];
-    for (const n of this.policy.onEvents(events, span.end)) {
-      this.deps.onNudge?.(n);
-      // Haptic on ESCALATION only (`vectors` names what raised the level).
-      // A cooldown decay (level 2 -> 1, no vectors) updates the screen but
-      // never buzzes — before this it buzzed if and only if the decay
-      // happened to land on the user's own turn (replay-harness finding).
-      if (n.level > 0 && n.vectors.length > 0 && this.deps.haptics) {
-        void this.deps.haptics.nudge(n.level).catch(() => {});
-      }
-    }
+    this.emitNudges(this.policy.onEvents(nudgeEvents, span.end), instantBuzzedLevel);
 
     if (suggestion && session.mode !== "therapist") {
       if (!this.quietEnoughToSpeak()) {
@@ -792,6 +974,9 @@ export class FastLoop {
         speaker: verdict.speaker,
         speaker_person_id: verdict.personId,
         speaker_match_score: verdict.score,
+        // "solo" is journal-only and never reaches turn_local (the wire
+        // Literal is absolute|contrast); narrow defensively.
+        speaker_match_basis: verdict.basis === "solo" ? null : verdict.basis,
         is_self: verdict.isSelf,
         text: aligned.text,
         start_time: span.start,

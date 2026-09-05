@@ -575,9 +575,17 @@ data_safety:
         POSTed to Deepgram Aura for text-to-speech. A therapist granted an episode
         can PLAY BACK its stored audio, not just read it.
       what_is_actually_kept: >
-        Live audio is never written to disk anywhere on the server — the only
-        retention is a 90-second in-memory ring buffer that dies with the socket.
-        Uploads are process-and-discard unless the user ticks consent AND storage
+        A live coaching session's audio is KEPT BY DEFAULT (owner decision,
+        2026-08-29): the phone writes the session's 16 kHz mono microphone audio
+        to a WAV in its cache while the session runs and, once the session is
+        saved, uploads it to POST /sessions/{id}/audio, where it is transcoded
+        to the same compressed AAC derivative an uploaded recording gets
+        (audio.m4a under recordings/{uid}/{id}/) so the episode can be replayed,
+        re-analyzed and used for voice learning. The user can turn this off per
+        account ("Keep audio" on the Live Coach screen, apps/mobile/src/live/
+        keepAudioPrefs.ts) — then nothing is written down: the live transcription
+        stream retains only a 90-second in-memory ring buffer that dies with the
+        socket. Uploads are process-and-discard unless the user ticks consent AND storage
         is enabled, and even then only a compressed AAC derivative is kept, never
         the original bytes. The watch domain is the exception: it stores raw PCM
         (captures/{account}/{id}.pcm in GCS, and base64 PCM inside Firestore
@@ -591,7 +599,9 @@ data_safety:
         - server/audio_pipeline.py:183,946-1016                     # PcmRingBuffer, 90 s, in-memory, dies with the connection
         - server/main.py:2830-2836,2945,3131-3135                   # triple-gated storage; consent defaults false
         - server/recordings_store.py:17-18,238-244                  # derivatives only, never the original bytes
-        - server/routers/sessions.py:556-562                        # live episodes: media_type "none", "no audio kept"
+        - server/routers/sessions.py:556-562                        # live episodes start as media_type "none" until the phone attaches audio
+        - server/routers/sessions.py (POST /sessions/{id}/audio)   # attach: WAV -> audio.m4a derivative, meta media_type "audio"
+        - apps/mobile/src/live/liveAudioKeeper.ts                  # phone-side WAV keeper (default on, keepAudioPrefs.ts)
         - server/watch/routers/captures.py:85-88,190                # captures/{account}/{id}.pcm — RAW PCM at rest
         - server/watch/store.py:37,56-84                            # pcm_b64 raw audio inside the Firestore doc
         - apps/mobile/src/api/client.ts:2031                        # POST /voice/enroll-direct (WAV upload)
@@ -911,8 +921,9 @@ store_listing:
       This app hears private conversations, so here is the short version, and the
       full version is at https://arborfam-hub.web.app/privacy.
 
-      • Nothing is stored unless you ask for it. A live coaching session keeps
-        no audio at all — audio is transcribed as it streams and thrown away.
+      • A live coaching session keeps its audio by default so you can replay
+        and re-analyze it — turn Keep audio off and it's transcribed as it
+        streams and thrown away. Nothing else is stored unless you ask for it.
       • Recordings are opt-in, one at a time, with a consent tick.
       • Your voice signature is a set of numbers, not a recording, and one tap
         in Settings deletes it.
