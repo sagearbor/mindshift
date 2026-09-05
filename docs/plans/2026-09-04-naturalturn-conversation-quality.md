@@ -109,3 +109,28 @@ CANDOR's surveys.csv for the joint publication.
 
 Each lands as its own commit(s) with tests; preview OTA per phase; nothing
 in this plan requires a native build.
+
+## Overnight results (2026-09-05) — what landed
+
+- **WS1 live path SHIPPED** (commits 71ee7fc, 3eb78fb; OTA e3ab3076): `naturalTurn.ts`
+  `liveTurnKind` tags each finalized turn; fastLoop skips coaching/LLM/pooling/
+  turn-count on backchannels (FINAL transcripts only). CoachRepeatGate wired.
+  Fixed a latent 2-tick bug in the 2026-09-03 instant tier (now one combined
+  policy tick + early de-duplicated loudness haptic).
+- **Port validation vs published NaturalTurn** (tmp/candor/analysis/port_validation.json,
+  40 convs): backchannel **precision 1.00**, **recall 0.064**, turn-count ratio 3.74,
+  boundary agreement 0.47. The low recall is the missing token→sentence
+  preprocessing stage (upstream `_create_sentences_from_tokens` +
+  `_collapse_short_pauses` run BEFORE containment). **WS6 server parity must port
+  that stage** to match their batch numbers; the live path (whole-turn text) is
+  unaffected.
+- **WS5 mining** (tmp/candor/analysis/): backchannels ~133/hr, yeah+mhm=60%,
+  vocab covers 95% mass, ASR writes "ok" (cue added). Gaps: median 0.33s.
+  **Steamroll finding reverses the naive plan** — sustained overlap correlates
+  *positively* with partner enjoyment (r=+0.09); mean gap correlates negatively
+  (r=−0.11). **WS2 becomes a long-GAP/disengagement insight, NOT an overlap
+  nudge.** No steamroll vector to be built until/unless data supports it.
+- **WS3 activation classifier trained** (tmp/ravdess/analysis/activation_model.json):
+  grouped-CV AUC 0.82 / acc 0.75, 8 features already computed by prosody.ts.
+  Weights export ready. NOT yet wired — awaiting owner OK to add dark to the
+  instant tier. Caveat: duration features partly encode RAVDESS acting.
