@@ -583,9 +583,12 @@ async def test_list_and_detail_happy_path(client, store):
         "mode", "session_id",
         # "Use these voices" (device-B segments applied) — None until applied.
         "speaker_segments_source", "speaker_segments_applied_at",
+        # Outcome engine (Workstream 4) — None for an upload / unanswered.
+        "mood_before", "mood_after",
     }
     assert d["manual_speaker_people"] == {}
     assert d["mode"] is None and d["session_id"] is None
+    assert d["mood_before"] is None and d["mood_after"] is None
     # Owner's own recording → not shared, no owner_email, empty shares.
     assert d["shared"] is False
     assert d["owner_email"] is None

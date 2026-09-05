@@ -3890,6 +3890,13 @@ async def get_recording(
         # id. None for uploads/links — additive, older clients ignore them.
         "mode": rec.get("mode"),
         "session_id": rec.get("session_id"),
+        # Outcome engine (Workstream 4): CANDOR's single mood item
+        # ("positive vs negative feelings right now", 1-9). mood_before
+        # rides in on the POST /sessions/live body; mood_after lands later
+        # via PATCH /sessions/live/{id}/mood. Both None when the check was
+        # skipped, or for anything that isn't a live session.
+        "mood_before": rec.get("mood_before"),
+        "mood_after": rec.get("mood_after"),
         "turns": rec.get("turns", []),
         "analysis": analysis,
         "episodes": stored_episodes,

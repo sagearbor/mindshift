@@ -1,6 +1,6 @@
 """Live-session router — Track 2 ("phone later analysis").
 
-Four endpoints, included from main.py with one line:
+Five endpoints, included from main.py with one line:
 
 * ``POST /sessions/live``          — Track 3-mobile POSTs a FINISHED live
                                      coaching session here at session end
@@ -15,7 +15,13 @@ Four endpoints, included from main.py with one line:
                                      and the "what you could have said"
                                      reflection run AFTERWARDS as a tracked
                                      background task — the 201 never waits on
-                                     an LLM.
+                                     an LLM. Optionally carries the outcome
+                                     engine's BEFORE mood check
+                                     (``mood_before``, CANDOR's 1-9 item).
+* ``PATCH /sessions/live/{id}/mood`` — the AFTER half of that same mood
+                                     check, answered a beat later (the phone
+                                     PATCHes it once the episode already
+                                     exists). Owner-only, live-episodes-only.
 * ``POST /episodes/{id}/reflect``  — on-demand "what you could have said" for
                                      the user's OWN turns of one episode (a
                                      live session OR an upload whose enrolled
@@ -186,6 +192,12 @@ class LiveSessionIn(BaseModel):
     # Escape hatches for a client that wants the record but not the spend.
     analyze: bool = True
     reflect: bool = True
+    # Outcome engine (Workstream 4): CANDOR's single mood item ("positive vs
+    # negative feelings right now", 1-9) answered BEFORE the session — it
+    # rides in on this same POST since the phone already has it at stop.
+    # ``mood_after`` (answered a beat later) is NOT here: see
+    # PATCH /sessions/live/{episode_id}/mood below.
+    mood_before: Optional[int] = Field(default=None, ge=1, le=9)
 
     @field_validator("started_at", "ended_at")
     @classmethod
@@ -247,6 +259,18 @@ class ReflectOut(BaseModel):
     could_have_said: list[ReflectionOut]
     cached: bool
     reflected_at: Optional[str]
+
+
+class MoodPatchIn(BaseModel):
+    """The AFTER half of the outcome-engine mood check (CANDOR's single
+    item, 1-9) — answered a beat after POST /sessions/live already stored
+    the episode (with or without ``mood_before``)."""
+    mood_after: int = Field(ge=1, le=9)
+
+
+class MoodOut(BaseModel):
+    episode_id: str
+    mood_after: int
 
 
 class SessionAudioAttachResponse(BaseModel):
@@ -535,6 +559,7 @@ async def ingest_live(
     context: str,
     analyze: bool,
     reflect: bool,
+    mood_before: int | None = None,
 ) -> LiveSessionOut:
     """Store one finished live session for ``uid`` and schedule its
     post-ingest analysis — the body of ``POST /sessions/live``, callable
@@ -620,6 +645,11 @@ async def ingest_live(
         meta["manual_speaker_labels"] = manual_names
     if manual_people:
         meta["manual_speaker_people"] = manual_people
+    # Outcome engine: the BEFORE mood rides in on this same POST (the phone
+    # already has it at stop). ``mood_after`` is never set here — see the
+    # PATCH below — and save_live_session() carries it over on a re-POST.
+    if mood_before is not None:
+        meta["mood_before"] = mood_before
     try:
         await store.save_live_session(
             uid, recording_id, meta=meta, turns=turns, analysis=analysis,
@@ -691,7 +721,38 @@ async def ingest_live_session(
         context=body.context,
         analyze=body.analyze,
         reflect=body.reflect,
+        mood_before=body.mood_before,
     )
+
+
+# ---------------------------------------------------------------------------
+# PATCH /sessions/live/{episode_id}/mood
+# ---------------------------------------------------------------------------
+
+@router.patch("/sessions/live/{episode_id}/mood", response_model=MoodOut)
+async def patch_session_mood(
+    request: Request,
+    episode_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    body: MoodPatchIn,
+    uid: str = Depends(get_current_uid),
+    _rl: None = Depends(_rate_limit),
+):
+    """Attach the AFTER mood check to a live episode once the user answers
+    it — the phone POSTs ``mood_before`` with the session at stop, but the
+    AFTER check is answered a moment later, once the episode already
+    exists. Owner-only (``get_recording`` is uid-scoped, so a foreign
+    episode reads as absent) and live-episodes-only, same honest 404 as
+    ``attach_live_audio`` for anything else (missing, foreign, or an
+    upload — moods are a live-session concept only)."""
+    store = _require_store(request)
+    rec = await store.get_recording(uid, episode_id)
+    source = rec.get("source") if isinstance(rec, dict) else None
+    if rec is None or not isinstance(source, dict) or source.get("type") != "live":
+        raise HTTPException(status_code=404, detail="Live session not found")
+    updated = await store.update_mood(uid, episode_id, mood_after=body.mood_after)
+    if updated is None:  # deleted between the read above and the write
+        raise HTTPException(status_code=404, detail="Live session not found")
+    return MoodOut(episode_id=episode_id, mood_after=body.mood_after)
 
 
 # ---------------------------------------------------------------------------

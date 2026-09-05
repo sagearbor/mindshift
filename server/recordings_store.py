@@ -444,6 +444,33 @@ class RecordingsStore:
         )
         return meta
 
+    # -- update mood (outcome engine, Workstream 4) ------------------------
+    async def update_mood(
+        self, uid: str, recording_id: str, *, mood_after: int,
+    ) -> dict | None:
+        """Attach the AFTER half of the mood check (CANDOR's single 1-9
+        item) to an already-stored live episode — the phone answers this a
+        beat after ``POST /sessions/live`` already stored ``mood_before``
+        on the same meta. Read-modify-write of meta.json only (same shape
+        as :meth:`update_title`); ``None`` when the recording does not
+        exist for this uid (→ 404)."""
+        return await asyncio.to_thread(
+            self._update_mood_sync, uid, recording_id, mood_after,
+        )
+
+    def _update_mood_sync(self, uid, recording_id, mood_after) -> dict | None:
+        blob = self._bucket.blob(
+            self._prefix(uid, recording_id) + "meta.json"
+        )
+        if not blob.exists():
+            return None
+        meta = json.loads(blob.download_as_bytes())
+        meta["mood_after"] = mood_after
+        blob.upload_from_string(
+            json.dumps(meta), content_type="application/json",
+        )
+        return meta
+
     # -- delete ------------------------------------------------------------
     async def delete_recording(self, uid: str, recording_id: str) -> bool:
         """Delete every object for a recording. ``False`` when none existed
@@ -891,7 +918,15 @@ class RecordingsStore:
         written = dict(meta)
         if meta_blob.exists():
             existing = json.loads(meta_blob.download_as_bytes())
-            for key in ("manual_speaker_labels", "manual_speaker_people", "shares"):
+            # "mood_after" (outcome engine, Workstream 4): set only by
+            # update_mood() after the episode exists — a re-POST's meta
+            # never carries it, so it must survive the same way a manual
+            # label does, or a retry would silently erase the user's
+            # already-answered AFTER check.
+            for key in (
+                "manual_speaker_labels", "manual_speaker_people", "shares",
+                "mood_after",
+            ):
                 if key in existing and key not in written:
                     written[key] = existing[key]
             if not written.get("title") and existing.get("title"):
