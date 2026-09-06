@@ -3779,10 +3779,14 @@ class GrowthGaps(BaseModel):
     ``total_recordings - identified_recordings``.
     """
 
-    #: Stored but never analysed — nothing has looked for anyone yet.
+    #: Nothing has looked for anyone yet: no analysis stored, or one with no
+    #: speaker labels in it (an analysis that never separated voices tells the
+    #: user exactly as little as no analysis at all).
     not_analyzed: int = 0
-    #: Analysed, and the user has MANUALLY named the speakers, and none of them
-    #: is them. Nothing to fix: it is somebody else's conversation.
+    #: Analysed, and the user has MANUALLY named EVERY speaker, and none of them
+    #: is them. Nothing to fix: it is somebody else's conversation. One unnamed
+    #: cluster is enough to disqualify this bucket — catch-up could still match
+    #: the user into it.
     not_your_conversation: int = 0
     #: Analysed, but no confident "you" and no manual verdict either. This is
     #: the bucket "Catch up my past recordings" exists for — a re-match of the
@@ -3890,10 +3894,13 @@ def _growth_gap_reason(rec: dict) -> str:
         _recording_speaker_ids(rec),
         _recording_manual_people(rec),
     )
-    # The user has personally named at least one speaker here and none of them
-    # is "you" — so this is somebody else's conversation, not a failure to
-    # match. Re-running the voiceprint against it would change nothing.
-    if any(
+    # "You're not in this one" is only honest when the user has personally
+    # named EVERY speaker and none of them is them. `any` was wrong: with three
+    # speakers, naming only "Alex" and leaving the rest as raw clusters would
+    # have been reported as somebody else's conversation — and the footer would
+    # then have withheld the catch-up sentence, even though catch-up could
+    # still match the user's voiceprint into an unnamed cluster.
+    if effective and all(
         entry.get("label_source") in _USER_STATED_LABEL_SOURCES
         for entry in effective.values()
     ):

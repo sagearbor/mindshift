@@ -28,6 +28,7 @@ that contract.
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from typing import Literal, Sequence
@@ -159,6 +160,17 @@ class CalmStreak:
 class PositiveResult:
     nudges: list[PositiveNudge]
     calm: CalmStreak
+
+
+def _half_up(x: float) -> int:
+    """Round like the phone's ``Math.round``, not like Python's ``round``.
+
+    These numbers reach the user inside the ``detail`` line ("let a 13 s turn
+    finish"), and Python's banker's rounding would print 12 where the phone
+    prints 13 for the same 12.5 s turn — a cross-runtime drift the golden file
+    cannot see, because it only asserts that a detail exists.
+    """
+    return math.floor(x + 0.5)
 
 
 def normalize_for_repair(text: str) -> str:
@@ -316,7 +328,7 @@ def detect_positive_nudges(
                 "E",
                 turn.end,
                 turn.index,
-                f"let a {round(turn.end - turn.start)} s turn finish with no cut-in",
+                f"let a {_half_up(turn.end - turn.start)} s turn finish with no cut-in",
             )
 
         # R: their answer. "Their tone softened NEXT turn" means the very next
@@ -334,7 +346,7 @@ def detect_positive_nudges(
                     "R",
                     turn.end,
                     repair_turn.index,
-                    f"repair language, then their tone fell {round(before - turn.tone_negativity)} points",
+                    f"repair language, then their tone fell {_half_up(before - turn.tone_negativity)} points",
                 )
             pending_repair = None
         if turn.tone_negativity is not None:

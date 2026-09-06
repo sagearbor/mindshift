@@ -772,7 +772,7 @@ export class FastLoop {
    * rather than overlapping it. Call mode's real overlap arrives as a server
    * `nudge` frame on a different path (server/calls.py), never as a local turn.
    */
-  private emitPositives(turn: LocalTurn, coachedAsSelf: boolean, instantYellingLevel: number) {
+  private emitPositives(turn: LocalTurn, coachedAsSelf: boolean, measuredLoudLevel: number | null) {
     const tone = turn.textTone;
     const scored = tone && (tone.frustration !== null || tone.defensiveness !== null || tone.sadness !== null);
     // Aggression drives the self side's heat; negative affect (aggression OR
@@ -799,8 +799,11 @@ export class FastLoop {
       isSelf: coachedAsSelf,
       text: turn.text,
       // The loudness rung is only measured against the coached user's own
-      // baseline, so it exists for their turns only.
-      loudLevel: coachedAsSelf ? instantYellingLevel : null,
+      // baseline, so it exists for their turns only — and only once there IS
+      // a baseline and the span had audible speech. Passing 0 for an
+      // unmeasurable turn would let a silent grunt right after a shout score
+      // as "heat 2 -> 0", i.e. a de-escalation the user never performed.
+      loudLevel: coachedAsSelf ? measuredLoudLevel : null,
       toneHeat,
       toneNegativity,
       cutIn: false,
@@ -909,12 +912,21 @@ export class FastLoop {
     // combined policy tick at end of turn (screen + text-tone escalation +
     // cooldown decay) skips re-buzzing this same level.
     let instantYellingLevel = 0;
+    // The MEASURED loudness rung, distinct from the number above: null when
+    // this turn's loudness could not be read at all (silence, or no baseline
+    // to compare against yet). `instantYellingLevel` has to stay 0 in those
+    // cases because it feeds the nudge policy, where 0 means "do not
+    // escalate" — but the positive detectors need to tell "quiet" from
+    // "unmeasurable", or a grunt after a shout scores as a de-escalation.
+    let measuredLoudLevel: number | null = null;
     let instantBuzzedLevel = 0;
     let activation: TurnActivation | null = null;
     if (coachedAsSelf) {
       const db = rmsDbfs(pcm);
+      const hadBaseline = this.baseline.value !== null;
       const over = this.baseline.observe(Number.isFinite(db) ? db : null);
       instantYellingLevel = yellingLevel(over);
+      if (Number.isFinite(db) && hadBaseline) measuredLoudLevel = instantYellingLevel;
       // Vocal activation (dark unless activationNudges): ~370 frames of F0
       // over the last 3.7 s, cooperative — it overlaps the STT grace wait.
       try {
@@ -1060,7 +1072,7 @@ export class FastLoop {
         ]
       : [];
     this.emitNudges(this.policy.onEvents(nudgeEvents, span.end), instantBuzzedLevel);
-    this.emitPositives(turn, coachedAsSelf, instantYellingLevel);
+    this.emitPositives(turn, coachedAsSelf, measuredLoudLevel);
 
     if (suggestion && session.mode !== "therapist") {
       if (!this.quietEnoughToSpeak()) {

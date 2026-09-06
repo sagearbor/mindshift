@@ -33,12 +33,6 @@ import { useDevModeStore } from "../store/devModeStore";
 import { NUDGE_VOCABULARY } from "../live/nudgeVocabulary";
 import { expoHaptics } from "../live/defaultDeps";
 
-/** Named so the Feel-the-patterns block reads as one thought, and so a test
- *  can assert the honesty note rather than a fragment of prose. */
-const WATCH_ONLY_NOTE =
-  "❤️ Pulse is watch-only — the phone has no heart-rate sensor, so what you feel " +
-  "here is the pattern, not a real reading. On a watch the ramp also gets stronger " +
-  "tap by tap; a phone can only change the rhythm.";
 import { useOtaStatus, type OtaStatus } from "../utils/otaUpdate";
 import { useDiagnosticsStore } from "../diagnostics/diagnostics";
 import {
@@ -47,6 +41,13 @@ import {
   saveExperimentalVoiceEngine,
 } from "../live/experimentalPrefs";
 import { formatDate, formatDateTime } from "../utils/dateDisplay";
+
+/** Named so the Feel-the-patterns block reads as one thought, and so a test
+ *  can assert the honesty note rather than a fragment of prose. */
+const WATCH_ONLY_NOTE =
+  "❤️ Pulse is watch-only — the phone has no heart-rate sensor, so what you feel " +
+  "here is the pattern, not a real reading. On a watch the ramp also gets stronger " +
+  "tap by tap; a phone can only change the rhythm.";
 
 /** Bare host (no scheme/path) of the configured backend, for the About row. */
 function backendHost(): string {

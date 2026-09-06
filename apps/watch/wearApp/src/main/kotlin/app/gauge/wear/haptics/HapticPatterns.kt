@@ -130,6 +130,7 @@ object HapticPatterns {
      */
     fun cueFor(channel: String, level: Int, code: String?): HapticCue? {
         if (level < 1 || level > 3) return null
+        if (isSilentByContract(code)) return null
         val wave = vocabularyWave(channel, level, code) ?: return cue(channel, level)
         return HapticCue.Waveform(wave.timingsMs, wave.amplitudes)
     }
@@ -138,8 +139,18 @@ object HapticPatterns {
      * own fallback — one source of truth, no drift (same rule as channel B in [waveformFallback]). */
     fun waveformFallbackFor(channel: String, level: Int, code: String?): HapticCue.Waveform? {
         if (level < 1 || level > 3) return null
+        if (isSilentByContract(code)) return null
         val wave = vocabularyWave(channel, level, code) ?: return waveformFallback(channel, level)
         return HapticCue.Waveform(wave.timingsMs, wave.amplitudes)
+    }
+
+    /** A code the vocabulary says must NEVER buzz (🧘 K: "buzzing someone to tell them nothing
+     * happened is the definition of a nag"). Distinct from "this code has no waveform override",
+     * which falls through to the channel cue — silence-by-contract must stay silent, and
+     * [cueFor] is public enough that a future caller will eventually hand it a K. */
+    private fun isSilentByContract(code: String?): Boolean {
+        val entry = code?.let { NudgeVocabulary.forCode(it) } ?: return false
+        return entry.haptic == null
     }
 
     /** The vocabulary's own waveform for this cue, or null when the channel cue should be used

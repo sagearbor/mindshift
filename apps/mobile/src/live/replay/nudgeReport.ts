@@ -261,6 +261,10 @@ export interface SceneScorecard {
    *  __tests__/activationGate.test.ts, and the reason `activationNudges` is
    *  still off. `activationFlaggedTurns` names them. */
   activationFalseFlags: number;
+  /** The SCRIPT turn indices those flags landed on — the same `#N` space every
+   *  other number in the report uses (loop fragments print as `↳N`). A flag on
+   *  a fragment that overlaps no scripted turn is reported as -1 rather than
+   *  silently borrowing a fragment index a reader would chase to the wrong row. */
   activationFlaggedTurns: number[];
   /** 💚 What the user did well: per-code counts of the positives that were
    *  actually DELIVERED, how many the two-minute cap withheld, and 🧘's
@@ -651,7 +655,7 @@ export function buildNudgeReport(r: ReplayResult, generatedAt = new Date().toISO
     callModeInterrupting: callMode.length,
     activationProbed: activations.length,
     activationFalseFlags: activationFalse.length,
-    activationFlaggedTurns: [...new Set(activationFalse.map((f) => f.index))].sort((a, b) => a - b),
+    activationFlaggedTurns: [...new Set(activationFalse.map((f) => f.scriptTurn ?? -1))].sort((a, b) => a - b),
     activationMaxProbability: activations.length ? Math.max(...activations.map((x) => x.probability)) : null,
     overlapProbed: overlaps.length,
     overlapMaxMixedSeconds: overlaps.length ? Math.max(...overlaps.map((o) => o.mixedSeconds)) : null,

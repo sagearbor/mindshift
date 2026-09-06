@@ -359,3 +359,21 @@ async def test_growth_a_transcript_name_is_not_the_user_saying_who_it_is(client,
     body = (await client.get("/growth", headers={"X-Test-Uid": "u1"})).json()
     assert body["gaps"]["could_not_find_you"] == 1
     assert body["gaps"]["not_your_conversation"] == 0
+
+
+async def test_growth_one_unnamed_speaker_keeps_the_recording_in_catch_up_range(client, store):
+    """"You're not in this one" needs the user to have named EVERYONE.
+
+    With three speakers and only "Alex" named, the user's voice may still be in
+    one of the two raw clusters — and the footer withholds the catch-up
+    sentence for `not_your_conversation`, so getting this wrong talks someone
+    out of the one action that would have worked.
+    """
+    store.add(
+        "u1", created_at=_iso(1), turns=TURNS_AB,
+        analysis=_analysis(me=None, speakers=("Speaker A", "Speaker B", "Speaker C")),
+        manual_speaker_labels={"Speaker A": "Alex"},
+    )
+    body = (await client.get("/growth", headers={"X-Test-Uid": "u1"})).json()
+    assert body["gaps"]["could_not_find_you"] == 1
+    assert body["gaps"]["not_your_conversation"] == 0

@@ -88,6 +88,7 @@ describe("positive_nudges.json golden vectors", () => {
     for (const required of [
       "de_escalation_after_a_spike",
       "de_escalation_must_land_within_two_of_your_turns",
+      "an_unmeasurable_turn_is_not_a_recovery",
       "listened_to_a_long_uninterrupted_turn",
       "cutting_in_forfeits_the_listened_badge",
       "repair_softens_the_other_person",

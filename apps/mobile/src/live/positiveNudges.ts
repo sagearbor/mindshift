@@ -371,7 +371,15 @@ export function calmStreak(alertNudgeTimes: readonly number[], sessionEndS: numb
 export class LivePositiveNudger {
   private readonly turns: PositiveTurn[] = [];
   private readonly alerts: number[] = [];
-  private emitted = 0;
+  /** Keys of detections already handed to the caller. A SET, not a count:
+   *  re-running over a longer conversation can RETRACT a detection — a new
+   *  fragment coalesces into the previous self turn and pushes its heat back
+   *  up to the spike, so the de-escalation that was already buzzed is no
+   *  longer believed. A positional counter would then slide backwards and
+   *  re-emit the next detection it saw. Keyed emission cannot: what has been
+   *  delivered stays delivered (a buzz cannot be unfelt), and nothing is
+   *  handed out twice. */
+  private readonly emitted = new Set<string>();
 
   constructor(private readonly capS?: number) {}
 
@@ -388,8 +396,13 @@ export class LivePositiveNudger {
   onTurn(turn: PositiveTurn): PositiveNudge[] {
     this.turns.push(turn);
     const all = detectPositiveNudges(coalesceTurns(this.turns), this.alerts, null, this.capS).nudges;
-    const fresh = all.slice(this.emitted);
-    this.emitted = all.length;
+    const fresh: PositiveNudge[] = [];
+    for (const n of all) {
+      const key = `${n.code}@${n.turnIndex}`;
+      if (this.emitted.has(key)) continue;
+      this.emitted.add(key);
+      fresh.push(n);
+    }
     return fresh;
   }
 

@@ -38,6 +38,30 @@ const summaryWithDynamics: SessionSummary = {
 const linked = { linked: true, therapist_email: "mom@example.com", status: "accepted" as const, auto_share: true };
 
 /** All rendered text, joined — RN splits interpolated strings into fragments. */
+/**
+ * Every tree created here is unmounted after its test.
+ *
+ * react-test-renderer keeps a mounted tree scheduled, and a state update that
+ * lands after Jest has torn the environment down throws "You are trying to
+ * `import` a file after the Jest environment has been torn down" — which in a
+ * multi-suite run kills the whole worker and takes unrelated suites with it.
+ * The share button's `finally { setSharing(false) }` is exactly such an
+ * update. Flushing and unmounting keeps it inside the test that caused it.
+ */
+const trees: renderer.ReactTestRenderer[] = [];
+
+function track(t: renderer.ReactTestRenderer): renderer.ReactTestRenderer {
+  trees.push(t);
+  return t;
+}
+
+afterEach(async () => {
+  await act(async () => {});
+  act(() => {
+    for (const t of trees.splice(0)) t.unmount();
+  });
+});
+
 function text(root: renderer.ReactTestRenderer) {
   return root.root
     .findAll((n) => typeof n.type === "string")
@@ -54,7 +78,7 @@ describe("SessionSummaryCard", () => {
   it("shows duration, turns, escalations, first-words latency and per-person turns", () => {
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<SessionSummaryCard summary={summary} episode={null} therapist={null} />);
+      root = track(renderer.create(<SessionSummaryCard summary={summary} episode={null} therapist={null} />));
     });
     const t = text(root!);
     expect(t).toContain("2m 14s");
@@ -67,13 +91,13 @@ describe("SessionSummaryCard", () => {
   it("nothing spoken (therapist mode / legacy path) reads as unknown, never 0", () => {
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(
+      root = track(renderer.create(
         <SessionSummaryCard
           summary={{ ...summary, firstWordsMedianMs: null, firstWordsBestMs: null, spokenTurns: 0, topProvider: null }}
           episode={null}
           therapist={null}
         />,
-      );
+      ));
     });
     const t = text(root!);
     expect(t).toContain("nothing spoken");
@@ -83,13 +107,13 @@ describe("SessionSummaryCard", () => {
   it("auto-shared at ingest: says so instead of offering the button", () => {
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(
+      root = track(renderer.create(
         <SessionSummaryCard
           summary={summary}
           episode={{ episodeId: "ep-1", postStatus: "created", sharedWith: ["Mom@Example.com"] }}
           therapist={linked}
         />,
-      );
+      ));
     });
     expect(text(root!)).toContain("Shared with mom@example.com automatically");
     expect(root!.root.findAllByProps({ testID: "summary-share-therapist" })).toHaveLength(0);
@@ -99,14 +123,14 @@ describe("SessionSummaryCard", () => {
     const share = jest.fn().mockResolvedValue({ shares: [] });
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(
+      root = track(renderer.create(
         <SessionSummaryCard
           summary={summary}
           episode={{ episodeId: "ep-1", postStatus: "created", sharedWith: [] }}
           therapist={{ ...linked, auto_share: false }}
           share={share}
         />,
-      );
+      ));
     });
     await act(async () => {
       await root!.root.findByProps({ testID: "summary-share-therapist" }).props.onPress();
@@ -119,14 +143,14 @@ describe("SessionSummaryCard", () => {
     const share = jest.fn().mockRejectedValue(Object.assign(new Error("x"), { detail: "no MindShift account with that email" }));
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(
+      root = track(renderer.create(
         <SessionSummaryCard
           summary={summary}
           episode={{ episodeId: "ep-1", postStatus: "created", sharedWith: [] }}
           therapist={linked}
           share={share}
         />,
-      );
+      ));
     });
     await act(async () => {
       await root!.root.findByProps({ testID: "summary-share-therapist" }).props.onPress();
@@ -150,7 +174,7 @@ describe("SessionSummaryCard", () => {
     useDevModeStore.setState({ devMode: false });
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<SessionSummaryCard summary={summary} episode={null} therapist={null} />);
+      root = track(renderer.create(<SessionSummaryCard summary={summary} episode={null} therapist={null} />));
     });
     const t = text(root!);
     expect(t).toContain("2m 14s");
@@ -162,9 +186,9 @@ describe("SessionSummaryCard", () => {
   it("developer mode on with dynamics: shows the response-gap/overlap block", () => {
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(
+      root = track(renderer.create(
         <SessionSummaryCard summary={summaryWithDynamics} episode={null} therapist={null} />,
-      );
+      ));
     });
     expect(root!.root.findAllByProps({ testID: "summary-dynamics" }).length).toBeGreaterThan(0);
     const t = text(root!);
@@ -179,7 +203,7 @@ describe("SessionSummaryCard", () => {
   it("developer mode on but no dynamics (legacy path, e.g. therapist mode): the block is hidden, not empty", () => {
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<SessionSummaryCard summary={summary} episode={null} therapist={null} />);
+      root = track(renderer.create(<SessionSummaryCard summary={summary} episode={null} therapist={null} />));
     });
     expect(root!.root.findAllByProps({ testID: "summary-dynamics" })).toHaveLength(0);
   });
@@ -188,9 +212,9 @@ describe("SessionSummaryCard", () => {
     useDevModeStore.setState({ devMode: false });
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(
+      root = track(renderer.create(
         <SessionSummaryCard summary={summaryWithDynamics} episode={null} therapist={null} />,
-      );
+      ));
     });
     expect(root!.root.findAllByProps({ testID: "summary-dynamics" })).toHaveLength(0);
     expect(text(root!)).not.toContain("Dynamics (dev)");
@@ -202,14 +226,14 @@ describe("SessionSummaryCard", () => {
     useDevModeStore.setState({ devMode: false });
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(
+      root = track(renderer.create(
         <SessionSummaryCard
           summary={summary}
           episode={null}
           therapist={null}
           positiveCounts={{ E: 2, D: 1 }}
         />,
-      );
+      ));
     });
     const t = text(root!);
     // Vocabulary order (D before E), not the order they happened in.
@@ -226,9 +250,9 @@ describe("SessionSummaryCard", () => {
     // the cap silences a cue, it does not erase what the user did.
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(
+      root = track(renderer.create(
         <SessionSummaryCard summary={summary} episode={null} therapist={null} positiveCounts={{ R: 1 }} />,
-      );
+      ));
     });
     expect(text(root!)).toContain("Repair");
   });
@@ -236,7 +260,7 @@ describe("SessionSummaryCard", () => {
   it("shows nothing at all when nothing was earned — an empty 'what you did well' is its own punishment", () => {
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<SessionSummaryCard summary={summary} episode={null} therapist={null} />);
+      root = track(renderer.create(<SessionSummaryCard summary={summary} episode={null} therapist={null} />));
     });
     expect(root!.root.findAllByProps({ testID: "summary-positives" })).toHaveLength(0);
     expect(text(root!)).not.toContain("What you did well");
@@ -255,9 +279,9 @@ describe("SessionSummaryCard", () => {
     // not from a stray count. Guarded so the card can't invent one.
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(
+      root = track(renderer.create(
         <SessionSummaryCard summary={summary} episode={null} therapist={null} positiveCounts={{}} />,
-      );
+      ));
     });
     expect(root!.root.findAllByProps({ testID: "summary-positive-K" })).toHaveLength(0);
   });

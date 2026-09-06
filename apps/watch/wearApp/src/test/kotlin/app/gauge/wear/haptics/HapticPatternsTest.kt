@@ -204,9 +204,21 @@ class HapticPatternsTest {
     }
 
     @Test
-    fun aCodeThatNeverBuzzesOrIsUnknownFallsBackToTheChannelCue() {
-        assertEquals(HapticPatterns.cue("A", 2), HapticPatterns.cueFor("A", 2, "K"))
+    fun aCodeThatMustNeverBuzzStaysSilentEvenOnAValidChannel() {
+        // 🧘 K has no cue by CONTRACT — falling through to channel A's click would
+        // buzz someone to tell them nothing happened, which is the nag the code exists to avoid.
+        for (level in 1..3) {
+            assertNull(HapticPatterns.cueFor("A", level, "K"), "K L$level must be silent")
+            assertNull(HapticPatterns.waveformFallbackFor("A", level, "K"), "K L$level fallback")
+        }
+    }
+
+    @Test
+    fun anUnknownCodeFallsBackToTheChannelCue() {
+        // Not the same thing: an unrecognised label means "this build doesn't know that code",
+        // and losing a real nudge over a label would be worse than playing a generic one.
         assertEquals(HapticPatterns.cue("A", 2), HapticPatterns.cueFor("A", 2, "Z"))
+        assertEquals(HapticPatterns.cue("A", 2), HapticPatterns.cueFor("A", 2, null))
         assertNull(HapticPatterns.cueFor("A", 0, "C"))
         assertNull(HapticPatterns.cueFor("A", 4, "C"))
     }

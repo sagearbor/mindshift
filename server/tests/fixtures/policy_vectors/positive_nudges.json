@@ -179,6 +179,47 @@
       }
     },
     {
+      "name": "an_unmeasurable_turn_is_not_a_recovery",
+      "description": "The failure a 0-as-a-guess produces. You shout, then grunt: the grunt is a backchannel, so no tone is scored, and its loudness is unreadable. If the loop reports loud_level 0 instead of null, that grunt scores as 'heat 2 -> 0' and the user is congratulated — buzzed, flashed and credited on the summary — for saying 'mm'. With null it spends one of the two turns and nothing fires.",
+      "turns": [
+        {
+          "index": 0,
+          "start": 0.0,
+          "end": 5.0,
+          "speaker": "You",
+          "is_self": true,
+          "text": "THAT IS NOT WHAT HAPPENED",
+          "loud_level": 2,
+          "tone_heat": null,
+          "tone_negativity": null,
+          "cut_in": false
+        },
+        {
+          "index": 1,
+          "start": 6.0,
+          "end": 7.0,
+          "speaker": "You",
+          "is_self": true,
+          "text": "",
+          "loud_level": null,
+          "tone_heat": null,
+          "tone_negativity": null,
+          "cut_in": false
+        }
+      ],
+      "alert_nudge_times": [
+        5.0
+      ],
+      "session_end_s": 60.0,
+      "expected": {
+        "nudges": [],
+        "calm": {
+          "longest_s": 55.0,
+          "badge": false
+        }
+      }
+    },
+    {
       "name": "a_sustained_spike_restarts_the_window",
       "description": "Staying hot is not a recovery in progress: each fresh spike at or above the current one restarts the two-turn window, so the eventual drop still counts.",
       "turns": [

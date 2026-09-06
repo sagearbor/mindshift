@@ -64,6 +64,7 @@ def test_coverage_of_required_scenarios():
     for required in (
         "de_escalation_after_a_spike",
         "de_escalation_must_land_within_two_of_your_turns",
+        "an_unmeasurable_turn_is_not_a_recovery",
         "listened_to_a_long_uninterrupted_turn",
         "cutting_in_forfeits_the_listened_badge",
         "repair_softens_the_other_person",
@@ -122,3 +123,16 @@ def test_self_heat_level_never_guesses_zero():
     assert self_heat_level(PositiveTurn(0, 0.0, 1.0, "You", True, "", 3, 10, 10, False)) == 3
     assert self_heat_level(PositiveTurn(0, 0.0, 1.0, "You", True, "", 0, None, None, False)) == 0
     assert self_heat_level(PositiveTurn(0, 0.0, 1.0, "You", True, "", None, 40, 40, False)) == 0
+
+
+def test_detail_lines_round_the_way_the_phone_does():
+    """`detail` reaches the user, and Python's round() is banker's while the
+    phone's Math.round() is half-up — a 12.5 s turn must not read as 12 here
+    and 13 there. The golden file only asserts a detail EXISTS, so this is the
+    only place the drift can be caught."""
+    turns = [
+        PositiveTurn(0, 0.0, 12.5, "Them", False, "one", 0, 20, 20, False),
+        PositiveTurn(1, 13.0, 15.0, "You", True, "mm", 0, 10, 10, False),
+    ]
+    got = detect_positive_nudges(turns, [], 30.0)
+    assert [n.detail for n in got.nudges] == ["let a 13 s turn finish with no cut-in"]
