@@ -78,3 +78,49 @@ every mode.
 | `📱 \| 📄 \| ⏳ \| ☁️` | voice separation on recordings (windows-first) |
 | `⌚ \| 📳 \| ⚡ \| ⌚` | watch journal sentinel |
 | `– \| 🔕 \| 🌙 \| ☁️` | CANDOR corpus mining |
+
+## The nudge VOCABULARY is a different thing (2026-09-06)
+
+The four tags above describe a FEATURE, for a reader of a doc. The nudge
+**vocabulary** describes a BEHAVIOUR, for the user, on their wrist and screen.
+They share emoji space, so keep them apart: 📱 in column 1 means "shown on the
+phone", 📈 in a nudge means "you got heated".
+
+The vocabulary is owner-approved and lives in ONE file —
+`server/tests/fixtures/policy_vectors/nudge_vocabulary.json` — replayed by the
+phone (`apps/mobile/src/live/nudgeVocabulary.ts`), the watch
+(`app.gauge.shared.NudgeVocabulary`) and the server
+(`server/nudge_vocabulary.py`). Never hand-type one of these emoji anywhere
+else; read it from the contract, so the wrist, the screen and a replay report
+cannot disagree.
+
+| icon | code | name | what it means | haptic |
+|---|---|---|---|---|
+| 📈 | H | Heated | you got loud, or your words got hot (yelling + aggressive tone are ONE family to the user; the detectors stay separate) | rising ramp, 1–3 taps |
+| 📉 | D | De-escalated | heat dropped a level within two turns of a spike | falling ramp, soft |
+| ✂️ | C | Cut in | sustained talking-over, not ordinary brief overlap | `• —`, `• • —`, `• • • —` |
+| 🎤 | A | Hogging | most of the airtime over the last two minutes | slow `— — —` |
+| 👂 | E | Listened | you let them finish a long turn with no cut-in | soft `••` |
+| 🤝 | R | Repair | you validated or apologised and their tone softened | soft `••` |
+| 🧘 | K | Calm streak | N minutes with no escalation — **summary badge, never live** | none, ever |
+| ❤️ | P | Pulse | heart rate well over resting (+15/25/35 bpm) — **watch only** | lub-dub |
+
+Rules that are part of the contract, not styling:
+
+- **Level 1–3 is carried by RHYTHM, never by intensity alone.** Brown &
+  Brewster: rhythm is identified ~93% of the time, intensity ~61% — and an
+  Android phone cannot vary vibration strength at all, so on a phone the
+  rhythm is the *only* channel. Amplitude only shapes a code's identity (H
+  rises, D falls).
+- **Positives are soft, unleveled and capped at one per two minutes** across
+  D/E/R together. A withheld positive still reaches the session summary: the
+  cap silences a cue, it does not erase what the user did.
+- **Alert codes are H C A P; positive codes are D E R K.** The order above is
+  the owner's, and it is also worst-first — which is how ties break when
+  several vectors fire at once.
+- Two codes share the soft `••` on purpose: the wrist says "that was good",
+  the screen says which good thing. Two barely-different soft double-taps
+  would be indistinguishable through a band anyway.
+
+To feel all eight: **Settings → Feel the patterns** (Developer mode).
+
