@@ -181,3 +181,16 @@ in this plan requires a native build.
 - Still open from the gap list: question detection; interim-text coaching
   guard on the phone (product tradeoff — owner call); smaller on-device model
   for the one-line nudge; validate the two dark probes on owner sessions.
+
+## Ideas backlog (logged, unbuilt)
+
+- **Moment marks (owner, 2026-09-05):** instead of only pre/post mood, let the
+  user rate *this moment* discreetly mid-conversation — e.g. tap-and-hold
+  under the table, hold length = intensity, with a haptic tick each 0.5–1 s so
+  it can be counted by feel without looking; also natural on the watch. Keep
+  the pre/post 1–9 item for CANDOR comparability; moment marks are a SEPARATE
+  timestamped signal ("here is where I felt it") — the ground truth that would
+  let us tune the dark probes (⟂ overlap, ⚡ intensity) against felt moments.
+  Concerns: precise 1–10 by hold length is unreliable (people miscount); a
+  coarse 3-level ladder (tap = ok, ~1.5 s = tense, ≥3 s = bad) is more honest.
+  Decide after the owner has tested pre/post.
