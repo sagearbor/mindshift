@@ -194,3 +194,32 @@ in this plan requires a native build.
   Concerns: precise 1–10 by hold length is unreliable (people miscount); a
   coarse 3-level ladder (tap = ok, ~1.5 s = tense, ≥3 s = bad) is more honest.
   Decide after the owner has tested pre/post.
+
+## 2026-09-06 overnight — verify from files, never the owner
+
+Owner rule (memory: verify-from-files-never-owner): every behavior is proven by
+file replay + a report + a test gate.
+
+- `📱 | 📝 | ⏳ | 📱` **Replay chart y-axis** (c45bdac + server 5f5190a): labeled
+  axis + selector — Heat (default) · Frustration · Defensiveness · Warmth ·
+  Sadness (per-turn text tone; live episodes only — uploads store no per-turn
+  tone, chips disabled honestly) · Loudness dBFS · Pitch Hz · Speech rate ·
+  Person (lane per speaker). Server `VoiceOut` now carries raw rms_dbfs /
+  pitch_hz / speech_rate for uploads. Proof: tmp/chart-proof/chart-proof.html
+  (24 charts from fixtures, dash y == app mapping, nulls not drawn).
+- `🎧⌚ | 📳 | ⚡ | 📱` **File-driven nudge report + gate** (aacfd04, 0ccdd59):
+  `replay/nudgeReport.ts` + `__tests__/replay.nudgeReport.test.ts` writes
+  tmp/nudge-report-<date>.html with earpiece + watch lanes per fixture.
+  Findings: family_real instant haptic fires 710 ms before the LLM tier; TTS
+  "shouts" are not louder than baseline (+1 dB) so only real recordings
+  exercise ⚡; steamroll column 0 on all fixtures (no self turn starts inside
+  another's ≥ 2 s); AMI clip A — windows engine hears 1 voice (eigengap), probe
+  53 s "mixed" which may be unseparated voices; clip B — 2 voices, 0 overlap.
+- **Contract fix** (airtime): fired L3 on the wearer's first sentence →
+  AIRTIME_MIN_SPEECH_S = 30 s floor (server + TS mirror).
+- Engine B on the TTS family scene heard 1 of 3 voices (dx-QWW7-QG8H, mean
+  cos 0.29 — synthetic voices too similar); AMI 2 of 4 (dx-KN9T-P5A4).
+  Deprioritized by owner in favor of axes + nudge verification.
+- Needs a phone: NOTHING for these two items. Still owner-only: Play Console
+  tester invite for Tafline; a real call-mode session to feel the steamroll
+  buzz (the report already proves the timing from files).
