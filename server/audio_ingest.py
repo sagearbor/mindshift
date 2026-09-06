@@ -505,22 +505,27 @@ def _parse_utterance_words(raw) -> list[dict]:
     return words
 
 
-# ASR word-confidence floor (NaturalTurn, Cooney & Reece 2025 — their review
-# of real transcripts found tokens under 0.6 are usually hallucinated or
-# mis-heard speech; confidence does not track accuracy linearly above that).
-# Words below it are dropped BEFORE any turn logic; a turn whose every word
-# drops is removed. 0 disables. Same threshold as
-# natural_turn.TOKEN_CONFIDENCE_THRESHOLD.
+# ASR word-confidence floor — OPT-IN, default OFF. NaturalTurn (Cooney &
+# Reece 2025) drops AWS Transcribe tokens under 0.6 as likely hallucinated.
+# Measured on OUR recordings with Deepgram nova-3 (2026-09-05, 279 words):
+# 4.3% of words sit under 0.6 and they are REAL words in noisy family audio
+# ("pasta" 0.45, "head" 0.51, "losing" 0.19, "I" 0.44) — the rule does not
+# transfer across vendors, and silently deleting real words from a transcript
+# the user reads is worse than an occasional hallucination. Keep the
+# machinery (a future placeholder like "…" would be the honest way to mark
+# dropped words) but ship it off. Set MINDSHIFT_ASR_CONFIDENCE_MIN=0.6 to
+# enable the paper's rule.
 ASR_CONFIDENCE_MIN_ENV = "MINDSHIFT_ASR_CONFIDENCE_MIN"
+ASR_CONFIDENCE_MIN_DEFAULT = 0.0
 
 
 def asr_confidence_min() -> float:
-    raw = os.getenv(ASR_CONFIDENCE_MIN_ENV, "0.6").strip()
+    raw = os.getenv(ASR_CONFIDENCE_MIN_ENV, str(ASR_CONFIDENCE_MIN_DEFAULT)).strip()
     try:
         v = float(raw)
     except ValueError:
-        return 0.6
-    return v if 0.0 <= v <= 1.0 else 0.6
+        return ASR_CONFIDENCE_MIN_DEFAULT
+    return v if 0.0 <= v <= 1.0 else ASR_CONFIDENCE_MIN_DEFAULT
 
 
 def drop_low_confidence_words(turn: dict, threshold: float) -> dict | None:

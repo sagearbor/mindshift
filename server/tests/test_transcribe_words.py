@@ -110,6 +110,7 @@ def test_malformed_words_are_dropped_not_fabricated(monkeypatch):
 
 
 def test_low_confidence_words_are_dropped_and_text_rebuilt(monkeypatch):
+    monkeypatch.setenv(audio_ingest.ASR_CONFIDENCE_MIN_ENV, "0.6")  # opt-in (default OFF)
     payload = {"results": {"utterances": [
         {"speaker": 0, "transcript": "You wanted the cat.", "start": 0.0, "end": 2.0,
          "words": [
@@ -130,8 +131,9 @@ def test_low_confidence_words_are_dropped_and_text_rebuilt(monkeypatch):
     assert "dropped_words" not in turns[0]
 
 
-def test_confidence_floor_zero_disables(monkeypatch):
-    monkeypatch.setenv(audio_ingest.ASR_CONFIDENCE_MIN_ENV, "0")
+def test_confidence_floor_is_off_by_default(monkeypatch):
+    # Measured 2026-09-05: Deepgram's sub-0.6 words on our audio are real words.
+    monkeypatch.delenv(audio_ingest.ASR_CONFIDENCE_MIN_ENV, raising=False)
     payload = {"results": {"utterances": [{
         "speaker": 0, "transcript": "hmm okay", "start": 0.0, "end": 1.0,
         "words": [{"word": "hmm", "start": 0.0, "end": 0.5, "confidence": 0.1},
