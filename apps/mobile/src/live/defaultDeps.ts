@@ -46,7 +46,7 @@ import { hapticFor } from "./nudgeVocabulary";
 /** The callbacks the hook supplies; everything else is wired here. */
 export type FastLoopHandlers = Pick<
   FastLoopDeps,
-  "speak" | "send" | "onTurn" | "onNudge" | "onSttError" | "onDegrade"
+  "speak" | "send" | "onTurn" | "onNudge" | "onPositiveNudge" | "onSttError" | "onDegrade"
 > & {
   /** Progress while the loop is being built ("Downloading voice model … 42 %").
    *  The web build uses it; native builds are quick enough not to. */

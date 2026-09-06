@@ -46,6 +46,7 @@ import { detectLiveCapability, type LiveCapability } from "../live/capability";
 import type { LiveMode } from "../live/localLlm";
 import type { NudgeEvent } from "../live/nudgePolicy";
 import { codeForVectors } from "../live/nudgeVocabulary";
+import type { PositiveNudge } from "../live/positiveNudges";
 import type {
   SpeakerIdentityEvent,
   ToneFlagEvent,
@@ -327,6 +328,12 @@ interface UseAudioStreamReturn {
    *  shows it briefly and clears it. */
   nudgeFlash: NudgeEvent | null;
   clearNudgeFlash: () => void;
+  /** 💚 The most recent DELIVERED positive nudge, for the on-screen flash. */
+  positiveFlash: PositiveNudge | null;
+  clearPositiveFlash: () => void;
+  /** Per-code counts of every positive DETECTED this session (cap-withheld
+   *  ones included — the cap silences a cue, it does not erase what happened). */
+  positiveCounts: Record<string, number>;
   /** One-line latency report after a live session ends. */
   latencySummary: string;
   /** Server tone flags (newest first), rendered additively in live mode. */
@@ -501,6 +508,14 @@ export function cloudAnswersOpenMoment(
   return false;
 }
 
+/** {"E": 2, "D": 1} over every positive DETECTED so far — the summary counts
+ *  what happened, not only what buzzed. */
+function countPositives(rows: readonly PositiveNudge[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const r of rows) out[r.code] = (out[r.code] ?? 0) + 1;
+  return out;
+}
+
 export function useAudioStream(
   options: UseAudioStreamOptions = {},
 ): UseAudioStreamReturn {
@@ -535,6 +550,13 @@ export function useAudioStream(
   const [sessionMode, setSessionModeState] = useState<LiveMode>("earpiece");
   const [liveStatus, setLiveStatus] = useState("");
   const [nudgeFlash, setNudgeFlash] = useState<NudgeEvent | null>(null);
+  /** 💚 The most recent thing the user did WELL (positiveNudges.ts). Only
+   *  DELIVERED ones reach the screen — a detection the two-minute cap withheld
+   *  still counts on the summary, but showing it would defeat the cap. */
+  const [positiveFlash, setPositiveFlash] = useState<PositiveNudge | null>(null);
+  /** Every positive DETECTION this session, for the summary card. */
+  const positivesRef = useRef<PositiveNudge[]>([]);
+  const [positiveCounts, setPositiveCounts] = useState<Record<string, number>>({});
   const [latencySummary, setLatencySummary] = useState("");
   const [toneFlags, setToneFlags] = useState<ToneFlagEvent[]>([]);
   // Tier B: the server says a paired watch socket is registered on its relay
@@ -1135,6 +1157,13 @@ export function useAudioStream(
             escalationRef.current += 1;
             setEscalationCount(escalationRef.current);
           }
+        },
+        onPositiveNudge: (positive) => {
+          positivesRef.current = [...positivesRef.current, positive];
+          setPositiveCounts(countPositives(positivesRef.current));
+          // The cap governs the INTERRUPTION — the buzz and the flash. A
+          // withheld positive still lands on the summary through the counts.
+          if (positive.delivered) setPositiveFlash(positive);
         },
         onSttError: (code, message) => {
           liveSttFailedRef.current = true;
@@ -2191,6 +2220,9 @@ export function useAudioStream(
       setToneFlags([]);
       setWatchConnected(false);
       setNudgeFlash(null);
+      setPositiveFlash(null);
+      positivesRef.current = [];
+      setPositiveCounts({});
       setSessionSummary(null);
       setLastEpisode(null);
       lastEpisodeRef.current = null;
@@ -2378,6 +2410,7 @@ export function useAudioStream(
   }, []);
 
   const clearNudgeFlash = useCallback(() => setNudgeFlash(null), []);
+  const clearPositiveFlash = useCallback(() => setPositiveFlash(null), []);
 
   const displayNameOf = useCallback(
     (speaker: string) => speakerNames[speaker]?.displayName ?? speaker,
@@ -2733,6 +2766,9 @@ export function useAudioStream(
     liveStatus,
     nudgeFlash,
     clearNudgeFlash,
+    positiveFlash,
+    clearPositiveFlash,
+    positiveCounts,
     latencySummary,
     toneFlags,
     watchConnected,

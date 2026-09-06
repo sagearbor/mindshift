@@ -742,3 +742,57 @@ describe("Experimental voice engine switch", () => {
     expect(queryId(comp, "experimental-voice-engine-switch")!.props.value).toBe(true);
   });
 });
+
+describe("Feel the patterns (the nudge haptic vocabulary)", () => {
+  const RN = require("react-native") as { Vibration: { vibrate: jest.Mock }; Platform: { OS: string } };
+
+  beforeEach(() => {
+    RN.Vibration.vibrate = jest.fn();
+    RN.Platform.OS = "android";
+  });
+
+  it("lists all eight codes, developer mode only", async () => {
+    useDevModeStore.setState({ devMode: false });
+    let comp = await render();
+    expect(comp.root.findAllByProps({ testID: "section-haptics" })).toHaveLength(0);
+
+    useDevModeStore.setState({ devMode: true });
+    comp = await render();
+    for (const code of ["H", "D", "C", "A", "E", "R", "K", "P"]) {
+      expect(comp.root.findAllByProps({ testID: `haptic-row-${code}` }).length).toBeGreaterThan(0);
+    }
+  });
+
+  it("plays the vocabulary's own waveform, verbatim, for the level tapped", async () => {
+    const comp = await render();
+    const play = comp.root.findByProps({ testID: "haptic-play-C-2" });
+    await act(async () => {
+      play.props.onPress();
+    });
+    // The exact array from server/tests/fixtures/policy_vectors/nudge_vocabulary.json
+    // — `• • —` at level 2. If this changes, the contract changed.
+    expect(RN.Vibration.vibrate).toHaveBeenCalledWith([0, 60, 170, 60, 170, 260]);
+  });
+
+  it("offers three levels for an alert and a single cue for a positive", async () => {
+    const comp = await render();
+    for (const level of [1, 2, 3]) {
+      expect(comp.root.findAllByProps({ testID: `haptic-play-H-${level}` }).length).toBeGreaterThan(0);
+    }
+    expect(comp.root.findAllByProps({ testID: "haptic-play-E-1" }).length).toBeGreaterThan(0);
+    expect(comp.root.findAllByProps({ testID: "haptic-play-E-2" })).toHaveLength(0);
+  });
+
+  it("says plainly that the calm streak never buzzes, instead of offering a silent button", async () => {
+    const comp = await render();
+    expect(comp.root.findAllByProps({ testID: "haptic-play-K-1" })).toHaveLength(0);
+    expect(textOf(comp.root.findByProps({ testID: "haptic-none-K" }))).toContain("summary badge only");
+  });
+
+  it("is honest that Pulse is a watch pattern the phone can only approximate", async () => {
+    const comp = await render();
+    const note = textOf(comp.root.findByProps({ testID: "haptic-vocabulary-note" }));
+    expect(note).toContain("watch-only");
+    expect(note).toContain("a phone can only change the rhythm");
+  });
+});

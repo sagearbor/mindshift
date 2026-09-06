@@ -2440,9 +2440,31 @@ export interface GrowthResult {
   /** How many of those identified the user's voice — the honest footer's "N
    *  of M". Equals points.length. */
   identified_recordings: number;
+  /** WHY the other `total_recordings - identified_recordings` are missing.
+   *  Three mutually exclusive buckets that sum to that difference. Zeroed on
+   *  an older server that omits the key, which reads as "we can't say" — the
+   *  footer then falls back to the plain N-of-M line. */
+  gaps: GrowthGaps;
   /** Track 2: per-person rows across sessions. Always an array — empty on
    *  older servers that omit the key. */
   people: GrowthPerson[];
+}
+
+/**
+ * Why a stored recording is not on the growth chart. "N of M identified your
+ * voice" was honest but useless: it left the user unable to tell "the app
+ * failed to find me" from "I am not in that recording", and only the first is
+ * something they can act on.
+ */
+export interface GrowthGaps {
+  /** Stored but never analysed — nothing has looked for anyone yet. */
+  not_analyzed: number;
+  /** Analysed, the user has NAMED the speakers themselves, and none is them.
+   *  Nothing to fix: somebody else's conversation. */
+  not_your_conversation: number;
+  /** Analysed, no confident "you", and no manual verdict either — the bucket
+   *  "Catch up my past recordings" exists for. */
+  could_not_find_you: number;
 }
 
 /**
@@ -2463,6 +2485,11 @@ export async function getGrowth(): Promise<GrowthResult> {
     points: Array.isArray(data.points) ? data.points : [],
     total_recordings: data.total_recordings ?? 0,
     identified_recordings: data.identified_recordings ?? 0,
+    gaps: {
+      not_analyzed: data.gaps?.not_analyzed ?? 0,
+      not_your_conversation: data.gaps?.not_your_conversation ?? 0,
+      could_not_find_you: data.gaps?.could_not_find_you ?? 0,
+    },
     people: Array.isArray(data.people) ? data.people : [],
   };
 }

@@ -3769,6 +3769,27 @@ class GrowthPoint(BaseModel):
     self_tone: Optional[dict] = None
 
 
+class GrowthGaps(BaseModel):
+    """WHY the recordings missing from the chart are missing.
+
+    "N of M recordings identified your voice" was honest but useless: it left
+    the user unable to tell "the app failed to find me" from "I am simply not
+    in that recording", and only the first of those is something they can act
+    on. These three buckets are mutually exclusive and sum to
+    ``total_recordings - identified_recordings``.
+    """
+
+    #: Stored but never analysed — nothing has looked for anyone yet.
+    not_analyzed: int = 0
+    #: Analysed, and the user has MANUALLY named the speakers, and none of them
+    #: is them. Nothing to fix: it is somebody else's conversation.
+    not_your_conversation: int = 0
+    #: Analysed, but no confident "you" and no manual verdict either. This is
+    #: the bucket "Catch up my past recordings" exists for — a re-match of the
+    #: enrolled voiceprint against labels that already exist, NOT a re-analysis.
+    could_not_find_you: int = 0
+
+
 class GrowthResponse(BaseModel):
     # Ascending by timestamp — ready for the time-axis chart.
     points: list[GrowthPoint]
@@ -3776,6 +3797,8 @@ class GrowthResponse(BaseModel):
     # == len(points); carried explicitly so the client's honest footer
     # ("N of M recordings identified your voice") never has to re-derive it.
     identified_recordings: int
+    # Why the other M - N are missing — see GrowthGaps.
+    gaps: GrowthGaps = Field(default_factory=GrowthGaps)
     # Track 2: "how do I sound with Mom vs with Asher" ACROSS sessions — one
     # row per identified person (person_id / identity-path name only; a raw
     # "Speaker B" is never merged across sessions). Empty when no live
@@ -3846,6 +3869,38 @@ def _growth_point(rec: dict) -> GrowthPoint | None:
     )
 
 
+#: Label sources that mean THE USER said who this speaker is (as opposed to
+#: the machine guessing or a name being read out of the transcript). Only these
+#: can justify "you are not in this recording".
+_USER_STATED_LABEL_SOURCES = {LABEL_SOURCE_MANUAL, LABEL_SOURCE_MANUAL_PERSON}
+
+
+def _growth_gap_reason(rec: dict) -> str:
+    """Which :class:`GrowthGaps` bucket a NON-identified recording belongs to.
+
+    Only called for recordings that produced no growth point, so "identified"
+    is never a possible answer here.
+    """
+    analysis = rec.get("analysis")
+    if not isinstance(analysis, dict) or not analysis.get("speaker_labels"):
+        return "not_analyzed"
+    effective = _effective_speaker_labels(
+        analysis.get("speaker_labels"),
+        rec.get("manual_speaker_labels") or {},
+        _recording_speaker_ids(rec),
+        _recording_manual_people(rec),
+    )
+    # The user has personally named at least one speaker here and none of them
+    # is "you" — so this is somebody else's conversation, not a failure to
+    # match. Re-running the voiceprint against it would change nothing.
+    if any(
+        entry.get("label_source") in _USER_STATED_LABEL_SOURCES
+        for entry in effective.values()
+    ):
+        return "not_your_conversation"
+    return "could_not_find_you"
+
+
 @app.get("/growth", response_model=GrowthResponse)
 async def get_growth(uid: str = Depends(get_current_uid)):
     """Aggregate the caller's stored recordings into "Your growth" points.
@@ -3860,12 +3915,25 @@ async def get_growth(uid: str = Depends(get_current_uid)):
     recs = await asyncio.gather(
         *(store_backend.get_recording(uid, rid) for rid in analyzed_ids)
     )
-    points = [p for rec in recs if rec is not None for p in [_growth_point(rec)] if p]
+    by_id = {rec["id"]: rec for rec in recs if rec is not None}
+    points = [p for rec in by_id.values() for p in [_growth_point(rec)] if p]
     points.sort(key=lambda p: p.timestamp)
+    identified_ids = {p.recording_id for p in points}
+    gaps = GrowthGaps()
+    for meta in metas:
+        rid = meta["id"]
+        if rid in identified_ids:
+            continue
+        # A meta with no analysis (or one whose document we couldn't load) is
+        # honestly "not analysed" — never silently dropped from the total.
+        rec = by_id.get(rid)
+        reason = _growth_gap_reason(rec) if rec is not None else "not_analyzed"
+        setattr(gaps, reason, getattr(gaps, reason) + 1)
     return GrowthResponse(
         points=points,
         total_recordings=len(metas),
         identified_recordings=len(points),
+        gaps=gaps,
         # Track 2 — per-person rows over the SAME identified recordings the
         # chart shows (a recording the user isn't confidently in has no
         # honest "how I sound with X" to contribute).

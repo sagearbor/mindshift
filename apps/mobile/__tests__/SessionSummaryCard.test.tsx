@@ -195,4 +195,70 @@ describe("SessionSummaryCard", () => {
     expect(root!.root.findAllByProps({ testID: "summary-dynamics" })).toHaveLength(0);
     expect(text(root!)).not.toContain("Dynamics (dev)");
   });
+
+  // --- 💚 what you did well ------------------------------------------------
+
+  it("names every positive code the session earned, with its icon and its count", () => {
+    useDevModeStore.setState({ devMode: false });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(
+        <SessionSummaryCard
+          summary={summary}
+          episode={null}
+          therapist={null}
+          positiveCounts={{ E: 2, D: 1 }}
+        />,
+      );
+    });
+    const t = text(root!);
+    // Vocabulary order (D before E), not the order they happened in.
+    expect(t.indexOf("De-escalated")).toBeLessThan(t.indexOf("Listened"));
+    expect(t).toContain("📉");
+    expect(t).toContain("👂");
+    expect(t).toContain("×2"); // two "Listened"
+    expect(t).not.toContain("×1"); // one is just "De-escalated"
+    expect(root!.root.findAllByProps({ testID: "summary-positive-R" })).toHaveLength(0);
+  });
+
+  it("counts every DETECTION, so a positive the two-minute cap withheld still lands here", () => {
+    // The card is handed the DETECTION counts by useAudioStream on purpose:
+    // the cap silences a cue, it does not erase what the user did.
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(
+        <SessionSummaryCard summary={summary} episode={null} therapist={null} positiveCounts={{ R: 1 }} />,
+      );
+    });
+    expect(text(root!)).toContain("Repair");
+  });
+
+  it("shows nothing at all when nothing was earned — an empty 'what you did well' is its own punishment", () => {
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(<SessionSummaryCard summary={summary} episode={null} therapist={null} />);
+    });
+    expect(root!.root.findAllByProps({ testID: "summary-positives" })).toHaveLength(0);
+    expect(text(root!)).not.toContain("What you did well");
+
+    act(() => {
+      root!.update(
+        <SessionSummaryCard summary={summary} episode={null} therapist={null} positiveCounts={{ E: 0 }} />,
+      );
+    });
+    expect(root!.root.findAllByProps({ testID: "summary-positives" })).toHaveLength(0);
+  });
+
+  it("never shows K as an earned badge from a code that cannot be delivered live", () => {
+    // 🧘 is a summary badge with no live detection behind it in this build:
+    // if it ever appears here it must come from a real calm-streak measure,
+    // not from a stray count. Guarded so the card can't invent one.
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = renderer.create(
+        <SessionSummaryCard summary={summary} episode={null} therapist={null} positiveCounts={{}} />,
+      );
+    });
+    expect(root!.root.findAllByProps({ testID: "summary-positive-K" })).toHaveLength(0);
+  });
 });

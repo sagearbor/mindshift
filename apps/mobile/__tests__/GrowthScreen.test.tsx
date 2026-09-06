@@ -56,6 +56,7 @@ function result(overrides: Partial<GrowthResult> = {}): GrowthResult {
     points: [],
     total_recordings: 0,
     identified_recordings: 0,
+    gaps: { not_analyzed: 0, not_your_conversation: 0, could_not_find_you: 0 },
     people: [],
     ...overrides,
   };

@@ -84,6 +84,44 @@ function filterLabel(f: PartnerFilter): string {
 }
 
 /**
+ * The honest footer under the chart.
+ *
+ * "N of M recordings identified your voice" was true and useless: it left the
+ * user unable to tell "the app failed to find me" (fixable — that is exactly
+ * what catch-up does) from "I am simply not in that recording" (nothing to
+ * fix). The server now splits the gap into three buckets, and this names each
+ * one that is non-zero, plus what catch-up actually costs — a re-match of the
+ * voiceprint against labels that already exist, not a re-analysis. Falls back
+ * to the plain line on an older server, which reports no buckets at all.
+ */
+export function growthFooter(result: GrowthResult): string {
+  const { identified_recordings: n, total_recordings: m, gaps } = result;
+  const head = `${n} of ${m} recording${m === 1 ? "" : "s"} identified your voice`;
+  const parts: string[] = [];
+  if (gaps.could_not_find_you > 0) {
+    parts.push(`${gaps.could_not_find_you} we couldn’t match to you`);
+  }
+  if (gaps.not_your_conversation > 0) {
+    parts.push(
+      `${gaps.not_your_conversation} you’re not in (you named the speakers yourself)`,
+    );
+  }
+  if (gaps.not_analyzed > 0) parts.push(`${gaps.not_analyzed} not analysed yet`);
+  if (parts.length === 0) return head;
+  const tail =
+    gaps.could_not_find_you > 0
+      ? " Catch-up re-matches your voiceprint against those — it doesn’t re-analyse anything, and it’s quick."
+      : "";
+  return `${head}. Of the rest: ${joinList(parts)}.${tail}`;
+}
+
+/** "a, b and c" — Intl.ListFormat is not on every RN runtime. */
+function joinList(parts: string[]): string {
+  if (parts.length <= 1) return parts[0] ?? "";
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+/**
  * The full "Your growth" chart: every stored recording where the user's own
  * voice was confidently identified, as a score-over-time dot chart with a
  * moving-average trend (≥5 scored points), filterable by conversation partner.
@@ -363,9 +401,7 @@ export default function GrowthScreen({
         </View>
 
         <Text style={styles.footer} testID="growth-footer">
-          {`${result.identified_recordings} of ${result.total_recordings} ` +
-            `recording${result.total_recordings === 1 ? "" : "s"} identified ` +
-            "your voice"}
+          {growthFooter(result)}
         </Text>
 
         {(toneDays.length > 0 || people.length > 0) && (

@@ -30,6 +30,15 @@ import Avatar from "../components/Avatar";
 import { useAuthStore } from "../store/authStore";
 import { useAvatarStore } from "../store/avatarStore";
 import { useDevModeStore } from "../store/devModeStore";
+import { NUDGE_VOCABULARY } from "../live/nudgeVocabulary";
+import { expoHaptics } from "../live/defaultDeps";
+
+/** Named so the Feel-the-patterns block reads as one thought, and so a test
+ *  can assert the honesty note rather than a fragment of prose. */
+const WATCH_ONLY_NOTE =
+  "❤️ Pulse is watch-only — the phone has no heart-rate sensor, so what you feel " +
+  "here is the pattern, not a real reading. On a watch the ramp also gets stronger " +
+  "tap by tap; a phone can only change the rhythm.";
 import { useOtaStatus, type OtaStatus } from "../utils/otaUpdate";
 import { useDiagnosticsStore } from "../diagnostics/diagnostics";
 import {
@@ -659,6 +668,59 @@ export default function AdvancedScreen({
 
       {devMode ? (
       <>
+      {/* "Feel the patterns" — the eight nudge cues, playable on demand.
+          A wearer cannot learn eight rhythms by earning them one at a time in
+          real arguments weeks apart; this puts the whole vocabulary in one
+          sitting. The waveforms come from the shared contract
+          (src/live/nudgeVocabulary.ts), so what you feel here is byte-for-byte
+          what a real nudge plays. */}
+      <Text style={styles.sectionHeading} testID="section-haptics">
+        Feel the patterns
+      </Text>
+      <View style={styles.row} testID="haptic-vocabulary">
+        <Text style={styles.rowSub}>
+          Tap a level to feel that cue. The rhythm is what tells you WHICH
+          behaviour and HOW bad — the phone can’t vary buzz strength, so every
+          level is a different rhythm, never just a harder tap.
+        </Text>
+        {NUDGE_VOCABULARY.map((entry) => (
+          <View key={entry.code} style={styles.hapticRow} testID={`haptic-row-${entry.code}`}>
+            <View style={styles.hapticText}>
+              <Text style={styles.rowTitle}>
+                {entry.icon} {entry.name}{" "}
+                <Text style={styles.hapticCode}>{entry.code}</Text>
+              </Text>
+              <Text style={styles.rowSub}>{entry.meaning}</Text>
+            </View>
+            <View style={styles.hapticButtons}>
+              {entry.haptic === null ? (
+                <Text style={styles.hapticNone} testID={`haptic-none-${entry.code}`}>
+                  no buzz{entry.summaryOnly ? " — summary badge only" : ""}
+                </Text>
+              ) : (
+                entry.levels.map((level) => (
+                  <TouchableOpacity
+                    key={level}
+                    testID={`haptic-play-${entry.code}-${level}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Play ${entry.name} level ${level}`}
+                    style={styles.hapticButton}
+                    onPress={() => void expoHaptics.nudge(level, entry.code).catch(() => {})}
+                  >
+                    <Text style={styles.hapticButtonText}>
+                      {entry.polarity === "positive" ? "play" : `L${level}`}
+                    </Text>
+                  </TouchableOpacity>
+                ))
+              )}
+            </View>
+          </View>
+        ))}
+        <Text style={styles.rowSub} testID="haptic-vocabulary-note">
+          {WATCH_ONLY_NOTE}
+        </Text>
+      </View>
+
       <Text style={styles.sectionHeading} testID="section-experimental">
         Experimental
       </Text>
@@ -923,6 +985,45 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#111827",
     marginBottom: 20,
+  },
+  hapticRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingTop: 10,
+  },
+  hapticText: {
+    flex: 1,
+  },
+  hapticCode: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#9CA3AF",
+  },
+  hapticButtons: {
+    flexDirection: "row",
+    gap: 6,
+    flexShrink: 0,
+  },
+  hapticButton: {
+    minWidth: 40,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#F9FAFB",
+    alignItems: "center",
+  },
+  hapticButtonText: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    color: "#374151",
+  },
+  hapticNone: {
+    fontSize: 12,
+    color: "#9CA3AF",
+    fontStyle: "italic",
   },
   row: {
     borderWidth: 1,

@@ -7,9 +7,14 @@ import type { LastEpisode } from "../hooks/useAudioStream";
 import type { TherapistLink } from "../api/therapist";
 import { postShare } from "../api/client";
 import { useDevModeStore } from "../store/devModeStore";
+import { NUDGE_VOCABULARY } from "../live/nudgeVocabulary";
 
 interface Props {
   summary: SessionSummary;
+  /** 💚 Per-code counts of every positive nudge DETECTED this session
+   *  (positiveNudges.ts) — cap-withheld ones included, because the
+   *  two-minute cap silences a cue, it does not erase what the user did. */
+  positiveCounts?: Record<string, number>;
   /** The server's record of this session (null on the legacy path). */
   episode: LastEpisode | null;
   /** The patient's therapist link (null while unknown / not linked). */
@@ -33,12 +38,13 @@ function humanizeShareError(err: unknown): string {
 }
 
 /**
- * The end-of-session card: duration, turns per person, escalations, and the
+ * The end-of-session card: duration, turns per person, escalations, what the
+ * user did WELL (💚 the positive vocabulary), and the
  * measured first-words latency (median / best — from the fast loop's per-
  * turn log; "—" when the phone never spoke), plus "Share with my therapist"
  * when a therapist is linked and the episode wasn't auto-shared already.
  */
-export default function SessionSummaryCard({ summary, episode, therapist, share }: Props) {
+export default function SessionSummaryCard({ summary, episode, therapist, share, positiveCounts }: Props) {
   const [sharing, setSharing] = useState(false);
   const [sharedTo, setSharedTo] = useState<string | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
@@ -65,6 +71,11 @@ export default function SessionSummaryCard({ summary, episode, therapist, share 
   // Developer mode off: no latency stat, no provider tag — a tester reads
   // duration/turns/escalations and the share button, nothing else.
   const devMode = useDevModeStore((s) => s.devMode);
+  // In the vocabulary's own order (worst-first for alerts, which puts the
+  // positives in the owner's approved order too), so the card is stable.
+  const earned = NUDGE_VOCABULARY.filter((e) => e.polarity === "positive")
+    .map((entry) => ({ entry, count: positiveCounts?.[entry.code] ?? 0 }))
+    .filter((row) => row.count > 0);
   return (
     <View style={styles.card} testID="session-summary">
       <Text style={styles.title}>Session summary</Text>
@@ -90,6 +101,23 @@ export default function SessionSummaryCard({ summary, episode, therapist, share 
           />
         ) : null}
       </View>
+      {/* 💚 What you did well. Shown only when there IS something — an empty
+          "0 good things" row would be its own small punishment, and the
+          escalation count above already carries the bad news. Names and icons
+          come from the shared nudge vocabulary, so this row, the wrist and a
+          replay report cannot disagree. */}
+      {earned.length > 0 ? (
+        <View style={styles.positives} testID="summary-positives">
+          <Text style={styles.positivesTitle}>What you did well</Text>
+          {earned.map(({ entry, count }) => (
+            <Text key={entry.code} style={styles.positivesLine} testID={`summary-positive-${entry.code}`}>
+              {entry.icon} <Text style={styles.positivesName}>{entry.name}</Text>
+              {count > 1 ? ` ×${count}` : ""} — {entry.meaning}
+            </Text>
+          ))}
+        </View>
+      ) : null}
+
       {summary.turnsBySpeaker.length > 0 ? (
         <Text style={styles.people} testID="summary-people">
           {summary.turnsBySpeaker.map((s) => `${s.speaker}: ${s.turns}`).join(" · ")}
@@ -225,6 +253,29 @@ const styles = StyleSheet.create({
   people: {
     fontSize: 12.5,
     color: "#374151",
+  },
+  positives: {
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#E5E7EB",
+    gap: 3,
+  },
+  positivesTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#047857",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  positivesLine: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: "#374151",
+  },
+  positivesName: {
+    fontWeight: "700",
+    color: "#065F46",
   },
   dynamics: {
     backgroundColor: "#F9FAFB",

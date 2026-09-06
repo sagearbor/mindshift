@@ -149,6 +149,9 @@ export default function LiveCoachScreen({
     liveStatus,
     nudgeFlash,
     clearNudgeFlash,
+    positiveFlash,
+    clearPositiveFlash,
+    positiveCounts,
     latencySummary,
     toneFlags,
     watchConnected,
@@ -206,6 +209,15 @@ export default function LiveCoachScreen({
     const timer = setTimeout(() => clearNudgeFlash?.(), 1500);
     return () => clearTimeout(timer);
   }, [nudgeFlash, clearNudgeFlash]);
+
+  // 💚 The same treatment for a positive, held a little longer: a correction
+  // wants to be gone before you finish the sentence, a "that landed well"
+  // is worth reading.
+  useEffect(() => {
+    if (!positiveFlash) return;
+    const timer = setTimeout(() => clearPositiveFlash?.(), 2500);
+    return () => clearTimeout(timer);
+  }, [positiveFlash, clearPositiveFlash]);
 
   // The mode decides whether the coach speaks: earpiece, in person and call
   // do (free on-device TTS; the fast loop additionally holds speech until
@@ -850,6 +862,21 @@ export default function LiveCoachScreen({
         </View>
       ) : null}
 
+      {/* 💚 The positive mirror of the nudge flash. Green, softer, and never
+          shown for a detection the two-minute cap withheld — the cap governs
+          the interruption, and a flash is an interruption. */}
+      {positiveFlash ? (
+        <View style={styles.positiveFlash} testID="positive-flash">
+          <Text style={styles.positiveFlashText}>
+            {(() => {
+              const entry = vocabularyForCode(positiveFlash.code);
+              const head = `${entry?.icon ?? "💚"} ${entry?.flashText ?? entry?.name ?? "Nice"}`;
+              return devMode ? `${head} — ${positiveFlash.detail}` : head;
+            })()}
+          </Text>
+        </View>
+      ) : null}
+
       {/* Server tone flag (additive to on-device coaching). */}
       {toneFlags && toneFlags.length > 0 ? (
         <Text style={styles.toneFlagText} testID="tone-flag">
@@ -1043,6 +1070,7 @@ export default function LiveCoachScreen({
             summary={sessionSummary}
             episode={lastEpisode ?? null}
             therapist={therapist}
+            positiveCounts={positiveCounts}
           />
         </>
       ) : null}
@@ -1313,6 +1341,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     color: "#991B1B",
+  },
+  positiveFlash: {
+    backgroundColor: "#D1FAE5",
+    borderLeftWidth: 4,
+    borderLeftColor: "#10B981",
+    marginHorizontal: 16,
+    marginBottom: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  positiveFlashText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#065F46",
   },
   toneFlagText: {
     fontSize: 12,
