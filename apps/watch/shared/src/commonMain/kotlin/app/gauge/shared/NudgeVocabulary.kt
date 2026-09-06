@@ -69,6 +69,14 @@ object NudgeVocabulary {
     /** Pattern-wide never-merge silence floor; mirrors the wear app's `HapticPatterns.MIN_GAP_MS`. */
     const val MIN_GAP_MS = 170L
 
+    /** The softest cue a wrist can actually feel: 50 ms at amplitude 180. Not a style choice — it
+     * is this app's own measured device finding (the v0.1–v0.2.3 raw waveforms at 40 ms /
+     * amplitude 120–180 proved barely perceptible on a real Pixel Watch, and `HapticPatterns`'
+     * pulse floor band was raised to exactly this). Every ON slot in the vocabulary is at or above
+     * it, positives included: a cue nobody can feel is not a soft cue, it is a missing one. */
+    const val MIN_ON_MS = 50L
+    const val MIN_AMPLITUDE = 180
+
     /** At most one positive cue per this many seconds, across D/E/R together — so praise can
      * never become its own nag. */
     const val POSITIVE_CAP_S = 120.0
@@ -117,7 +125,7 @@ object NudgeVocabulary {
             watchOnly = false,
             levels = listOf(1),
             // A FALLING ramp — the mirror of H, and the only cue that fades.
-            haptic = mapOf(1 to w(listOf(0L, 70L, 170L, 70L, 170L, 70L), listOf(0, 190, 0, 140, 0, 90))),
+            haptic = mapOf(1 to w(listOf(0L, 70L, 170L, 70L, 170L, 70L), listOf(0, 230, 0, 200, 0, 180))),
         ),
         NudgeVocabularyEntry(
             code = "C",
@@ -133,11 +141,13 @@ object NudgeVocabulary {
             summaryOnly = false,
             watchOnly = false,
             levels = listOf(1, 2, 3),
-            // `• —`, `• • —`, `• • • —`: short tap(s) then one long "stop" buzz.
+            // `• —`, `• • —`, `• • • —`: short tap(s) then one long "stop" buzz. The short taps
+            // are 75 ms, not 60 — a "short" tap under the perceptibility floor turns `• —` into a
+            // plain buzz.
             haptic = mapOf(
-                1 to w(listOf(0L, 60L, 170L, 260L), listOf(0, 255, 0, 200)),
-                2 to w(listOf(0L, 60L, 170L, 60L, 170L, 260L), listOf(0, 255, 0, 255, 0, 200)),
-                3 to w(listOf(0L, 60L, 170L, 60L, 170L, 60L, 170L, 260L), listOf(0, 255, 0, 255, 0, 255, 0, 200)),
+                1 to w(listOf(0L, 75L, 170L, 260L), listOf(0, 255, 0, 200)),
+                2 to w(listOf(0L, 75L, 170L, 75L, 170L, 260L), listOf(0, 255, 0, 255, 0, 200)),
+                3 to w(listOf(0L, 75L, 170L, 75L, 170L, 75L, 170L, 260L), listOf(0, 255, 0, 255, 0, 255, 0, 200)),
             ),
         ),
         NudgeVocabularyEntry(
@@ -179,7 +189,7 @@ object NudgeVocabulary {
             levels = listOf(1),
             // Soft `••` — deliberately the same cue as R: the wrist says "that was good", the
             // screen says which good thing.
-            haptic = mapOf(1 to w(listOf(0L, 50L, 170L, 50L), listOf(0, 110, 0, 110))),
+            haptic = mapOf(1 to w(listOf(0L, 50L, 170L, 50L), listOf(0, 180, 0, 180))),
         ),
         NudgeVocabularyEntry(
             code = "R",
@@ -194,7 +204,7 @@ object NudgeVocabulary {
             summaryOnly = false,
             watchOnly = false,
             levels = listOf(1),
-            haptic = mapOf(1 to w(listOf(0L, 50L, 170L, 50L), listOf(0, 110, 0, 110))),
+            haptic = mapOf(1 to w(listOf(0L, 50L, 170L, 50L), listOf(0, 180, 0, 180))),
         ),
         NudgeVocabularyEntry(
             code = "K",

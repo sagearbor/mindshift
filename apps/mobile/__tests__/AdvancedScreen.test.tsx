@@ -771,7 +771,7 @@ describe("Feel the patterns (the nudge haptic vocabulary)", () => {
     });
     // The exact array from server/tests/fixtures/policy_vectors/nudge_vocabulary.json
     // — `• • —` at level 2. If this changes, the contract changed.
-    expect(RN.Vibration.vibrate).toHaveBeenCalledWith([0, 60, 170, 60, 170, 260]);
+    expect(RN.Vibration.vibrate).toHaveBeenCalledWith([0, 75, 170, 75, 170, 260]);
   });
 
   it("offers three levels for an alert and a single cue for a positive", async () => {

@@ -42,6 +42,8 @@ class NudgeVocabularyVectorsTest {
         val constants = doc["constants"]!!.jsonObject
         assertEquals(NudgeVocabulary.MIN_GAP_MS, constants["min_gap_ms"]!!.jsonPrimitive.long)
         assertEquals(NudgeVocabulary.POSITIVE_CAP_S, constants["positive_cap_s"]!!.jsonPrimitive.double)
+        assertEquals(NudgeVocabulary.MIN_ON_MS, constants["min_on_ms"]!!.jsonPrimitive.long)
+        assertEquals(NudgeVocabulary.MIN_AMPLITUDE, constants["min_amplitude"]!!.jsonPrimitive.int)
         val exceptions = doc["_schema"]!!.jsonObject["haptic_encoding"]!!.jsonObject["haptic_gap_exceptions"]!!
             .jsonArray.map { it.jsonPrimitive.content }
         assertEquals(NudgeVocabulary.HAPTIC_GAP_EXCEPTIONS, exceptions)
@@ -136,8 +138,11 @@ class NudgeVocabularyVectorsTest {
                             assertTrue(ms >= floor, "${e.code} L$level gap ${ms}ms merges two taps")
                         }
                     } else {
-                        assertTrue(ms > 0, "${e.code} L$level slot $i must vibrate")
-                        assertTrue(a[i] in 1..255, "${e.code} L$level amplitude ${a[i]}")
+                        assertTrue(a[i] <= 255, "${e.code} L$level amplitude ${a[i]}")
+                        // The measured perceptibility floor — it binds the soft positives too: a
+                        // cue nobody can feel is not a soft cue, it is a missing one.
+                        assertTrue(ms >= NudgeVocabulary.MIN_ON_MS, "${e.code} L$level tap ${ms}ms is under the floor")
+                        assertTrue(a[i] >= NudgeVocabulary.MIN_AMPLITUDE, "${e.code} L$level amplitude ${a[i]} is under the floor")
                     }
                 }
             }

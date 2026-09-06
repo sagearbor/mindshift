@@ -10,7 +10,9 @@ import {
   hapticFor,
   HAPTIC_GAP_EXCEPTIONS,
   iconFor,
+  MIN_AMPLITUDE,
   MIN_GAP_MS,
+  MIN_ON_MS,
   NUDGE_VOCABULARY,
   POSITIVE_CAP_S,
   PositiveNudgeGate,
@@ -41,7 +43,7 @@ interface EntrySpec {
 }
 interface VocabDoc {
   _schema: { version: number; haptic_encoding: { haptic_gap_exceptions: string[] } };
-  constants: { min_gap_ms: number; positive_cap_s: number };
+  constants: { min_gap_ms: number; positive_cap_s: number; min_on_ms: number; min_amplitude: number };
   vocabulary: EntrySpec[];
   cases: Record<string, unknown>[];
 }
@@ -54,6 +56,8 @@ describe("nudge_vocabulary.json golden contract", () => {
     expect(doc._schema.version).toBe(1);
     expect(doc.constants.min_gap_ms).toBe(MIN_GAP_MS);
     expect(doc.constants.positive_cap_s).toBe(POSITIVE_CAP_S);
+    expect(doc.constants.min_on_ms).toBe(MIN_ON_MS);
+    expect(doc.constants.min_amplitude).toBe(MIN_AMPLITUDE);
     expect(doc._schema.haptic_encoding.haptic_gap_exceptions).toEqual([...HAPTIC_GAP_EXCEPTIONS]);
   });
 
@@ -121,8 +125,11 @@ describe("nudge_vocabulary.json golden contract", () => {
             }
           } else {
             expect(ms).toBeGreaterThan(0);
-            expect(a[i]).toBeGreaterThanOrEqual(1);
             expect(a[i]).toBeLessThanOrEqual(255);
+            // The measured perceptibility floor — it binds the soft positives
+            // too: a cue nobody can feel is not a soft cue, it is a missing one.
+            expect({ code: e.code, lvl, ms: ms >= MIN_ON_MS }).toEqual({ code: e.code, lvl, ms: true });
+            expect({ code: e.code, lvl, amp: a[i] >= MIN_AMPLITUDE }).toEqual({ code: e.code, lvl, amp: true });
           }
         });
       }

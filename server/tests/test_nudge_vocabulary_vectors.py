@@ -16,7 +16,9 @@ import pytest
 
 from nudge_vocabulary import (
     HAPTIC_GAP_EXCEPTIONS,
+    MIN_AMPLITUDE,
     MIN_GAP_MS,
+    MIN_ON_MS,
     NUDGE_VOCABULARY,
     POSITIVE_CAP_S,
     PositiveNudgeGate,
@@ -36,6 +38,8 @@ def test_schema_version_and_constants():
     assert DOC["_schema"]["version"] == 1
     assert DOC["constants"]["min_gap_ms"] == MIN_GAP_MS
     assert DOC["constants"]["positive_cap_s"] == POSITIVE_CAP_S
+    assert DOC["constants"]["min_on_ms"] == MIN_ON_MS
+    assert DOC["constants"]["min_amplitude"] == MIN_AMPLITUDE
     assert tuple(DOC["_schema"]["haptic_encoding"]["haptic_gap_exceptions"]) == HAPTIC_GAP_EXCEPTIONS
 
 
@@ -97,6 +101,11 @@ def test_waveforms_are_well_formed(entry):
                     assert ms >= floor, f"{entry.code} L{level} gap {ms}ms merges two taps"
             else:  # ON slot
                 assert ms > 0 and 1 <= amp <= 255, (entry.code, level, i)
+                # The measured perceptibility floor. A cue nobody can feel is
+                # not a soft cue, it is a missing one — so this binds the soft
+                # positives too, not just the alerts.
+                assert ms >= MIN_ON_MS, f"{entry.code} L{level} tap {ms}ms is under the floor"
+                assert amp >= MIN_AMPLITUDE, f"{entry.code} L{level} amplitude {amp} is under the floor"
 
 
 def test_level_is_carried_by_rhythm():

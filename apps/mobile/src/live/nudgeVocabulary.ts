@@ -59,6 +59,15 @@ export interface NudgeVocabularyEntry {
 /** Pattern-wide never-merge silence floor (the watch's HapticPatterns.MIN_GAP_MS). */
 export const MIN_GAP_MS = 170;
 
+/** The softest cue a wrist can actually feel: 50 ms at amplitude 180. Not a
+ *  style choice — it is this app's own measured device finding (the watch's
+ *  v0.1–v0.2.3 raw waveforms at 40 ms / amplitude 120–180 proved barely
+ *  perceptible on a real Pixel Watch). Every ON slot in the vocabulary is at
+ *  or above it, positives included: a cue nobody can feel is not a soft cue,
+ *  it is a missing one. */
+export const MIN_ON_MS = 50;
+export const MIN_AMPLITUDE = 180;
+
 /** At most one positive haptic per this many seconds, across D/E/R together —
  *  so praise can never become its own nag. */
 export const POSITIVE_CAP_S = 120.0;
@@ -104,8 +113,11 @@ export const NUDGE_VOCABULARY: readonly NudgeVocabularyEntry[] = [
     summaryOnly: false,
     watchOnly: false,
     levels: [1],
-    // A FALLING ramp — the mirror of H, and the only cue that fades.
-    haptic: { 1: { timingsMs: [0, 70, 170, 70, 170, 70], amplitudes: [0, 190, 0, 140, 0, 90] } },
+    // A FALLING ramp — the mirror of H, and the only cue that fades. It starts
+    // below the alert codes' 255 so it reads as approval, and bottoms out AT
+    // the perceptibility floor rather than below it: the last tap of a fade is
+    // the one most likely to be missed.
+    haptic: { 1: { timingsMs: [0, 70, 170, 70, 170, 70], amplitudes: [0, 230, 0, 200, 0, 180] } },
   },
   {
     code: "C",
@@ -123,9 +135,11 @@ export const NUDGE_VOCABULARY: readonly NudgeVocabularyEntry[] = [
     levels: [1, 2, 3],
     haptic: {
       // `• —`, `• • —`, `• • • —`: short tap(s) then one long "stop" buzz.
-      1: { timingsMs: [0, 60, 170, 260], amplitudes: [0, 255, 0, 200] },
-      2: { timingsMs: [0, 60, 170, 60, 170, 260], amplitudes: [0, 255, 0, 255, 0, 200] },
-      3: { timingsMs: [0, 60, 170, 60, 170, 60, 170, 260], amplitudes: [0, 255, 0, 255, 0, 255, 0, 200] },
+      // The short taps are 75 ms, not 60 — a "short" tap under the
+      // perceptibility floor turns `• —` into a plain buzz.
+      1: { timingsMs: [0, 75, 170, 260], amplitudes: [0, 255, 0, 200] },
+      2: { timingsMs: [0, 75, 170, 75, 170, 260], amplitudes: [0, 255, 0, 255, 0, 200] },
+      3: { timingsMs: [0, 75, 170, 75, 170, 75, 170, 260], amplitudes: [0, 255, 0, 255, 0, 255, 0, 200] },
     },
   },
   {
@@ -162,9 +176,10 @@ export const NUDGE_VOCABULARY: readonly NudgeVocabularyEntry[] = [
     summaryOnly: false,
     watchOnly: false,
     levels: [1],
-    // Soft `••` — deliberately the same cue as R: the wrist says "that was
-    // good", the screen says which good thing.
-    haptic: { 1: { timingsMs: [0, 50, 170, 50], amplitudes: [0, 110, 0, 110] } },
+    // Soft `••` at exactly the perceptibility floor — the softest thing in the
+    // set a wrist can still feel. Deliberately the same cue as R: the wrist
+    // says "that was good", the screen says which good thing.
+    haptic: { 1: { timingsMs: [0, 50, 170, 50], amplitudes: [0, 180, 0, 180] } },
   },
   {
     code: "R",
@@ -179,7 +194,7 @@ export const NUDGE_VOCABULARY: readonly NudgeVocabularyEntry[] = [
     summaryOnly: false,
     watchOnly: false,
     levels: [1],
-    haptic: { 1: { timingsMs: [0, 50, 170, 50], amplitudes: [0, 110, 0, 110] } },
+    haptic: { 1: { timingsMs: [0, 50, 170, 50], amplitudes: [0, 180, 0, 180] } },
   },
   {
     code: "K",

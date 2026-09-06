@@ -24,7 +24,10 @@
       "wear_os": "`VibrationEffect.createWaveform(timings_ms, amplitudes, -1)` — the watch feels rhythm AND the ramp.",
       "why_rhythm_carries_the_level": "Brown & Brewster: rhythm is identified ~93% of the time, intensity ~61%. So level 1/2/3 differ in how many taps/how long, never in loudness alone; amplitude only shapes a code's identity (H rises, D falls).",
       "never_merge_gap_ms": "170 — the pattern-wide silence floor (apps/watch/.../HapticPatterns.kt MIN_GAP_MS): two taps closer than this smear into one buzz on a watch band. The ONE deliberate exception is P's lub-dub (120 ms), where the near-merge IS the heartbeat identity; `haptic_gap_exceptions` lists it so a linter can't 'fix' it.",
-      "haptic_gap_exceptions": ["pulse"]
+      "haptic_gap_exceptions": [
+        "pulse"
+      ],
+      "perceptibility_floor": "Perceptibility floor: 50 ms at amplitude 180. Not a style choice — it is this app's own measured device finding (apps/watch/.../HapticPatterns.kt: the v0.1–v0.2.3 raw waveforms at 40 ms / amplitude 120–180 proved BARELY PERCEPTIBLE on the real Pixel Watch, and the pulse train's floor band was raised to (50 ms, 180) as the perceptible minimum). Every ON slot in this file is at or above it, including the soft positives: a cue nobody can feel is not a soft cue, it is a missing one."
     },
     "positive_rules": {
       "cap_seconds": 120,
@@ -34,7 +37,9 @@
   },
   "constants": {
     "min_gap_ms": 170,
-    "positive_cap_s": 120.0
+    "positive_cap_s": 120.0,
+    "min_on_ms": 50,
+    "min_amplitude": 180
   },
   "vocabulary": [
     {
@@ -45,15 +50,62 @@
       "name": "Heated",
       "meaning": "You got loud, or your words got hot. Yelling and aggressive tone are one family to the user (the detectors stay separate underneath).",
       "polarity": "alert",
-      "sources": ["yelling", "aggressive_tone", "activation"],
+      "sources": [
+        "yelling",
+        "aggressive_tone",
+        "activation"
+      ],
       "flash_text": "Take it down a notch",
       "summary_only": false,
       "watch_only": false,
-      "levels": [1, 2, 3],
+      "levels": [
+        1,
+        2,
+        3
+      ],
       "haptic": {
-        "1": {"timings_ms": [0, 75], "amplitudes": [0, 255]},
-        "2": {"timings_ms": [0, 75, 170, 75], "amplitudes": [0, 210, 0, 255]},
-        "3": {"timings_ms": [0, 100, 170, 100, 170, 100], "amplitudes": [0, 200, 0, 230, 0, 255]}
+        "1": {
+          "timings_ms": [
+            0,
+            75
+          ],
+          "amplitudes": [
+            0,
+            255
+          ]
+        },
+        "2": {
+          "timings_ms": [
+            0,
+            75,
+            170,
+            75
+          ],
+          "amplitudes": [
+            0,
+            210,
+            0,
+            255
+          ]
+        },
+        "3": {
+          "timings_ms": [
+            0,
+            100,
+            170,
+            100,
+            170,
+            100
+          ],
+          "amplitudes": [
+            0,
+            200,
+            0,
+            230,
+            0,
+            255
+          ]
+        }
       },
       "haptic_note": "A RISING ramp — the cue itself builds. Owner's phrasing was 'worse = two faster ramps in the same duration'; under the 170 ms never-merge floor two full ramps cannot fit in one ramp's duration on a watch actuator, so the level is carried by the number of taps in the ramp (1 / 2 / 3) — the rhythm the wearer actually discriminates. This IS the shipped watch channel-A ladder; the only change from v0 is that level 2 now ramps (210 -> 255) instead of two flat 255 taps."
     },
@@ -69,11 +121,30 @@
       "flash_text": "Nice recovery",
       "summary_only": false,
       "watch_only": false,
-      "levels": [1],
+      "levels": [
+        1
+      ],
       "haptic": {
-        "1": {"timings_ms": [0, 70, 170, 70, 170, 70], "amplitudes": [0, 190, 0, 140, 0, 90]}
+        "1": {
+          "timings_ms": [
+            0,
+            70,
+            170,
+            70,
+            170,
+            70
+          ],
+          "amplitudes": [
+            0,
+            230,
+            0,
+            200,
+            0,
+            180
+          ]
+        }
       },
-      "haptic_note": "A FALLING ramp — the mirror of H, and the only cue in the set that fades. Soft throughout (never above 190) so it reads as approval, not alarm."
+      "haptic_note": "A FALLING ramp — the mirror of H, and the only cue in the set that fades. It starts below the alert codes' 255 so it still reads as approval, and BOTTOMS OUT at the perceptibility floor (180) rather than below it: the last tap of a fade is the one most likely to be missed."
     },
     {
       "code": "C",
@@ -83,17 +154,74 @@
       "name": "Cut in",
       "meaning": "You started talking over them and kept going — sustained overlap, not the brief overlap of ordinary engagement.",
       "polarity": "alert",
-      "sources": ["interrupting"],
+      "sources": [
+        "interrupting"
+      ],
       "flash_text": "Let them finish",
       "summary_only": false,
       "watch_only": false,
-      "levels": [1, 2, 3],
+      "levels": [
+        1,
+        2,
+        3
+      ],
       "haptic": {
-        "1": {"timings_ms": [0, 60, 170, 260], "amplitudes": [0, 255, 0, 200]},
-        "2": {"timings_ms": [0, 60, 170, 60, 170, 260], "amplitudes": [0, 255, 0, 255, 0, 200]},
-        "3": {"timings_ms": [0, 60, 170, 60, 170, 60, 170, 260], "amplitudes": [0, 255, 0, 255, 0, 255, 0, 200]}
+        "1": {
+          "timings_ms": [
+            0,
+            75,
+            170,
+            260
+          ],
+          "amplitudes": [
+            0,
+            255,
+            0,
+            200
+          ]
+        },
+        "2": {
+          "timings_ms": [
+            0,
+            75,
+            170,
+            75,
+            170,
+            260
+          ],
+          "amplitudes": [
+            0,
+            255,
+            0,
+            255,
+            0,
+            200
+          ]
+        },
+        "3": {
+          "timings_ms": [
+            0,
+            75,
+            170,
+            75,
+            170,
+            75,
+            170,
+            260
+          ],
+          "amplitudes": [
+            0,
+            255,
+            0,
+            255,
+            0,
+            255,
+            0,
+            200
+          ]
+        }
       },
-      "haptic_note": "Owner's `• —`: short tap(s) then one long 'stop' buzz. The level adds short taps ahead of the long one (`• —`, `• • —`, `• • • —`) so the cue stays under 900 ms at every level while the rhythm still escalates."
+      "haptic_note": "Owner's `• —`: short tap(s) then one long 'stop' buzz. The level adds short taps ahead of the long one (`• —`, `• • —`, `• • • —`) so the cue stays under 900 ms at every level while the rhythm still escalates. The short taps are 75 ms, not 60: 60 ms is under the measured perceptibility floor, and a 'short' tap nobody feels turns `• —` into a plain buzz."
     },
     {
       "code": "A",
@@ -103,15 +231,72 @@
       "name": "Hogging",
       "meaning": "You have been taking most of the airtime over the last two minutes.",
       "polarity": "alert",
-      "sources": ["airtime"],
+      "sources": [
+        "airtime"
+      ],
       "flash_text": "Give them the floor",
       "summary_only": false,
       "watch_only": false,
-      "levels": [1, 2, 3],
+      "levels": [
+        1,
+        2,
+        3
+      ],
       "haptic": {
-        "1": {"timings_ms": [0, 250, 300, 250], "amplitudes": [0, 180, 0, 180]},
-        "2": {"timings_ms": [0, 250, 300, 250, 300, 250], "amplitudes": [0, 180, 0, 180, 0, 180]},
-        "3": {"timings_ms": [0, 250, 300, 250, 300, 250, 300, 250], "amplitudes": [0, 180, 0, 180, 0, 180, 0, 180]}
+        "1": {
+          "timings_ms": [
+            0,
+            250,
+            300,
+            250
+          ],
+          "amplitudes": [
+            0,
+            180,
+            0,
+            180
+          ]
+        },
+        "2": {
+          "timings_ms": [
+            0,
+            250,
+            300,
+            250,
+            300,
+            250
+          ],
+          "amplitudes": [
+            0,
+            180,
+            0,
+            180,
+            0,
+            180
+          ]
+        },
+        "3": {
+          "timings_ms": [
+            0,
+            250,
+            300,
+            250,
+            300,
+            250,
+            300,
+            250
+          ],
+          "amplitudes": [
+            0,
+            180,
+            0,
+            180,
+            0,
+            180,
+            0,
+            180
+          ]
+        }
       },
       "haptic_note": "Owner's slow `— — —`: long, unhurried, evenly spaced buzzes — the opposite of H's crisp taps, because 'you're talking too much' is not an emergency. Level 2 is the canonical three."
     },
@@ -127,11 +312,26 @@
       "flash_text": null,
       "summary_only": false,
       "watch_only": false,
-      "levels": [1],
+      "levels": [
+        1
+      ],
       "haptic": {
-        "1": {"timings_ms": [0, 50, 170, 50], "amplitudes": [0, 110, 0, 110]}
+        "1": {
+          "timings_ms": [
+            0,
+            50,
+            170,
+            50
+          ],
+          "amplitudes": [
+            0,
+            180,
+            0,
+            180
+          ]
+        }
       },
-      "haptic_note": "Owner's soft `••`. Deliberately identical to R: the WRIST says 'that was good', the SCREEN says which good thing. Two barely-different soft double-taps would be indistinguishable through a band anyway (the intensity-discrimination finding above), so pretending otherwise would be dishonest."
+      "haptic_note": "Owner's soft `••`, at exactly the perceptibility floor (50 ms, amplitude 180) — the softest thing in the set that a wrist can still feel. Deliberately identical to R: the WRIST says 'that was good', the SCREEN says which good thing. Two barely-different soft double-taps would be indistinguishable through a band anyway, so pretending otherwise would be dishonest."
     },
     {
       "code": "R",
@@ -145,9 +345,24 @@
       "flash_text": null,
       "summary_only": false,
       "watch_only": false,
-      "levels": [1],
+      "levels": [
+        1
+      ],
       "haptic": {
-        "1": {"timings_ms": [0, 50, 170, 50], "amplitudes": [0, 110, 0, 110]}
+        "1": {
+          "timings_ms": [
+            0,
+            50,
+            170,
+            50
+          ],
+          "amplitudes": [
+            0,
+            180,
+            0,
+            180
+          ]
+        }
       },
       "haptic_note": "Owner's soft `••` — the same cue as E on purpose; see E."
     },
@@ -163,7 +378,9 @@
       "flash_text": null,
       "summary_only": true,
       "watch_only": false,
-      "levels": [1],
+      "levels": [
+        1
+      ],
       "haptic": null,
       "haptic_note": "No cue, ever. Buzzing someone to tell them nothing happened is the definition of a nag; K is a badge on the summary."
     },
@@ -175,15 +392,84 @@
       "name": "Pulse",
       "meaning": "Your heart rate jumped well over your resting rate (+15 / +25 / +35 bpm).",
       "polarity": "alert",
-      "sources": ["hr_spike"],
+      "sources": [
+        "hr_spike"
+      ],
       "flash_text": null,
       "summary_only": false,
       "watch_only": true,
-      "levels": [1, 2, 3],
+      "levels": [
+        1,
+        2,
+        3
+      ],
       "haptic": {
-        "1": {"timings_ms": [0, 90, 120, 150], "amplitudes": [0, 190, 0, 240]},
-        "2": {"timings_ms": [0, 90, 120, 150, 400, 90, 120, 150], "amplitudes": [0, 190, 0, 240, 0, 190, 0, 240]},
-        "3": {"timings_ms": [0, 90, 120, 150, 400, 90, 120, 150, 400, 90, 120, 150], "amplitudes": [0, 190, 0, 240, 0, 190, 0, 240, 0, 190, 0, 240]}
+        "1": {
+          "timings_ms": [
+            0,
+            90,
+            120,
+            150
+          ],
+          "amplitudes": [
+            0,
+            190,
+            0,
+            240
+          ]
+        },
+        "2": {
+          "timings_ms": [
+            0,
+            90,
+            120,
+            150,
+            400,
+            90,
+            120,
+            150
+          ],
+          "amplitudes": [
+            0,
+            190,
+            0,
+            240,
+            0,
+            190,
+            0,
+            240
+          ]
+        },
+        "3": {
+          "timings_ms": [
+            0,
+            90,
+            120,
+            150,
+            400,
+            90,
+            120,
+            150,
+            400,
+            90,
+            120,
+            150
+          ],
+          "amplitudes": [
+            0,
+            190,
+            0,
+            240,
+            0,
+            190,
+            0,
+            240,
+            0,
+            190,
+            0,
+            240
+          ]
+        }
       },
       "haptic_note": "Owner's lub-dub double thump: a short beat then a longer one, 120 ms apart — BELOW the 170 ms never-merge floor on purpose, because the near-merge is exactly what makes it read as a heartbeat rather than two taps. The level is how many heartbeats you feel. Watch-only: the phone has no HR sensor."
     }
@@ -192,43 +478,105 @@
     {
       "name": "every_code_is_unique_and_stable",
       "description": "The eight owner-approved codes, in owner order. A runtime that cannot produce this exact list is out of contract.",
-      "expected_codes": ["H", "D", "C", "A", "E", "R", "K", "P"]
+      "expected_codes": [
+        "H",
+        "D",
+        "C",
+        "A",
+        "E",
+        "R",
+        "K",
+        "P"
+      ]
     },
     {
       "name": "alert_codes_have_three_levels_positives_have_one",
       "description": "Escalation is an alert-only idea. Positives are a single soft cue plus a cap.",
-      "expected_alert_codes": ["H", "C", "A", "P"],
-      "expected_positive_codes": ["D", "E", "R", "K"]
+      "expected_alert_codes": [
+        "H",
+        "C",
+        "A",
+        "P"
+      ],
+      "expected_positive_codes": [
+        "D",
+        "E",
+        "R",
+        "K"
+      ]
     },
     {
       "name": "waveforms_are_well_formed",
-      "description": "For every code with a haptic, at every level: timings_ms and amplitudes are the same length, an even length (OFF/ON pairs), timings_ms[0] == 0, every OFF slot has amplitude 0, every ON slot has amplitude 1..255 and duration > 0, and every internal OFF gap is >= constants.min_gap_ms unless the vector is listed in _schema.haptic_encoding.haptic_gap_exceptions."
+      "description": "For every code with a haptic, at every level: timings_ms and amplitudes are the same length, an even length (OFF/ON pairs), timings_ms[0] == 0, every OFF slot has amplitude 0, every ON slot has amplitude 1..255 and duration > 0, and every internal OFF gap is >= constants.min_gap_ms unless the vector is listed in _schema.haptic_encoding.haptic_gap_exceptions. Also: every ON slot lasts at least constants.min_on_ms and reaches at least constants.min_amplitude — the measured perceptibility floor."
     },
     {
       "name": "level_is_carried_by_rhythm",
       "description": "For every alert code, the total ON time strictly increases with the level — so the cue is discriminable by duration/count alone, with amplitude switched off (which is what an Android phone feels).",
       "expected_on_ms": {
-        "H": [75, 150, 300],
-        "C": [320, 380, 440],
-        "A": [500, 750, 1000],
-        "P": [240, 480, 720]
+        "H": [
+          75,
+          150,
+          300
+        ],
+        "C": [
+          335,
+          410,
+          485
+        ],
+        "A": [
+          500,
+          750,
+          1000
+        ],
+        "P": [
+          240,
+          480,
+          720
+        ]
       }
     },
     {
       "name": "positive_cap_is_one_per_two_minutes",
       "description": "A positive-nudge gate fed these (t, code) offers must admit exactly `expected_admitted`. The cap is shared across D/E/R (K never reaches the gate). t is session seconds.",
       "offers": [
-        {"t": 10.0, "code": "E"},
-        {"t": 40.0, "code": "D"},
-        {"t": 100.0, "code": "R"},
-        {"t": 130.0, "code": "D"},
-        {"t": 131.0, "code": "E"},
-        {"t": 400.0, "code": "R"}
+        {
+          "t": 10.0,
+          "code": "E"
+        },
+        {
+          "t": 40.0,
+          "code": "D"
+        },
+        {
+          "t": 100.0,
+          "code": "R"
+        },
+        {
+          "t": 130.0,
+          "code": "D"
+        },
+        {
+          "t": 131.0,
+          "code": "E"
+        },
+        {
+          "t": 400.0,
+          "code": "R"
+        }
       ],
       "expected_admitted": [
-        {"t": 10.0, "code": "E"},
-        {"t": 130.0, "code": "D"},
-        {"t": 400.0, "code": "R"}
+        {
+          "t": 10.0,
+          "code": "E"
+        },
+        {
+          "t": 130.0,
+          "code": "D"
+        },
+        {
+          "t": 400.0,
+          "code": "R"
+        }
       ]
     }
   ]

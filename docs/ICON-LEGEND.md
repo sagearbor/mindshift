@@ -112,6 +112,11 @@ Rules that are part of the contract, not styling:
   Android phone cannot vary vibration strength at all, so on a phone the
   rhythm is the *only* channel. Amplitude only shapes a code's identity (H
   rises, D falls).
+- **Every tap clears the measured perceptibility floor** — 50 ms at amplitude
+  180. The watch's v0.1–v0.2.3 cues (40 ms at 120–180) proved *barely
+  perceptible* on a real Pixel Watch, so the soft positives sit exactly at the
+  floor rather than below it: a cue nobody can feel is not a soft cue, it is a
+  missing one.
 - **Positives are soft, unleveled and capped at one per two minutes** across
   D/E/R together. A withheld positive still reaches the session summary: the
   cap silences a cue, it does not erase what the user did.
