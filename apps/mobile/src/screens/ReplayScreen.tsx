@@ -35,7 +35,8 @@ import CouldHaveSaidList from "../components/CouldHaveSaidList";
 import ScoreboardPanel from "../components/ScoreboardPanel";
 import { scoreSession } from "../live/pleasantness";
 import { modeLabel } from "./toneTrends";
-import HeatChart from "../components/HeatChart";
+import HeatChart, { DEFAULT_CHART_METRIC, type ChartMetric } from "../components/HeatChart";
+import { loadChartMetric, saveChartMetric } from "../components/chartMetricPrefs";
 import MediaPlayer, { MediaPlayerHandle } from "../components/MediaPlayer";
 import {
   speakerSegments,
@@ -206,6 +207,24 @@ export default function ReplayScreen({
   // player's position callbacks must reach it without re-renders.
   const [isolatedSpeaker, setIsolatedSpeaker] = useState<string | null>(null);
   const [auditioning, setAuditioning] = useState(false);
+
+  // --- Chart y-axis metric (heat / loudness / pitch / speech rate) ---
+  // Controlled here so the choice persists per device (chartMetricPrefs) and
+  // the next recording opens on the same axis. Fail-open to heat.
+  const [chartMetric, setChartMetric] = useState<ChartMetric>(DEFAULT_CHART_METRIC);
+  useEffect(() => {
+    let cancelled = false;
+    void loadChartMetric().then((m) => {
+      if (!cancelled) setChartMetric(m);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const handleChartMetricChange = useCallback((m: ChartMetric) => {
+    setChartMetric(m);
+    void saveChartMetric(m);
+  }, []);
   const auditionRef = useRef<SegmentAudition | null>(null);
   // Stretch: for video, overlay the chart on the bottom third of the frame.
   const [overlayMode, setOverlayMode] = useState(false);
@@ -841,6 +860,12 @@ export default function ReplayScreen({
       onSeekToTurn={handleSeekToTurn}
       isolatedSpeaker={isolatedSpeaker}
       onIsolateSpeaker={handleIsolateSpeaker}
+      // Live sessions store the phone's per-turn prosody + text tone on the
+      // turns; an upload's prosody numbers ride on perTurn[i].voice (read
+      // inside the chart) and it has no per-turn tone.
+      turnFacts={turns.map((t) => ({ prosody: t.prosody, text_tone: t.text_tone }))}
+      metric={chartMetric}
+      onMetricChange={handleChartMetricChange}
     />
   ) : null;
 

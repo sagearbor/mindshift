@@ -349,6 +349,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/live/{episode_id}/mood": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Patch Session Mood
+         * @description Attach the AFTER mood check to a live episode once the user answers
+         *     it — the phone POSTs ``mood_before`` with the session at stop, but the
+         *     AFTER check is answered a moment later, once the episode already
+         *     exists. Owner-only (``get_recording`` is uid-scoped, so a foreign
+         *     episode reads as absent) and live-episodes-only, same honest 404 as
+         *     ``attach_live_audio`` for anything else (missing, foreign, or an
+         *     upload — moods are a live-session concept only).
+         */
+        patch: operations["patch_session_mood_sessions_live__episode_id__mood_patch"];
+        trace?: never;
+    };
     "/sessions/{recording_id}/audio": {
         parameters: {
             query?: never;
@@ -1798,6 +1824,20 @@ export interface paths {
          *     labels, and stored derivatives are preserved
          *     (recordings_store.overwrite_analysis).
          *
+         *     APPLIED VOICES ARE KEPT (2026-08-30): when the recording carries a voice
+         *     segmentation applied from the phone (meta ``speaker_segments``, set by
+         *     POST …/reanalyze-with-segments), re-analysis re-runs WITH those segments
+         *     — the stored transcript's words regrouped by them, the local diarization
+         *     cross-check skipped — exactly as applying them did, so "Re-analyze with
+         *     the latest engine" never turns a hand-checked 7-voice result back into
+         *     whatever the server hears today. The segments' provenance stamps and the
+         *     manual speaker names are untouched (the speaker ids do not change).
+         *     Pass ``?fresh=true`` (or a JSON body ``{"fresh": true}``) to ignore the
+         *     applied segments and run the local voice diarization afresh; the applied
+         *     segments stay on the meta for a later re-apply. 422 when the applied
+         *     segments no longer regroup the stored transcript into a valid analysis
+         *     input (the detail says to use fresh=true).
+         *
          *     503 when storage is disabled (a job has nowhere to live); uid-scoped 404 for
          *     an unknown/foreign recording (never confirming another user's); 422 when the
          *     recording has no stored audio to re-analyze.
@@ -2148,6 +2188,8 @@ export interface components {
             start_time?: number | null;
             /** End Time */
             end_time?: number | null;
+            /** Kind */
+            kind?: string | null;
         };
         /** AnalyzeUploadResponse */
         AnalyzeUploadResponse: {
@@ -3097,6 +3139,8 @@ export interface components {
              * @default true
              */
             reflect: boolean;
+            /** Mood Before */
+            mood_before?: number | null;
         };
         /** LiveSessionOut */
         LiveSessionOut: {
@@ -3181,6 +3225,23 @@ export interface components {
             delta_vs_self?: number | null;
             /** Improving */
             improving?: boolean | null;
+        };
+        /** MoodOut */
+        MoodOut: {
+            /** Episode Id */
+            episode_id: string;
+            /** Mood After */
+            mood_after: number;
+        };
+        /**
+         * MoodPatchIn
+         * @description The AFTER half of the outcome-engine mood check (CANDOR's single
+         *     item, 1-9) — answered a beat after POST /sessions/live already stored
+         *     the episode (with or without ``mood_before``).
+         */
+        MoodPatchIn: {
+            /** Mood After */
+            mood_after: number;
         };
         /** NoteIn */
         NoteIn: {
@@ -3307,6 +3368,18 @@ export interface components {
             nudges: number;
             /** Escalations */
             escalations: number;
+        };
+        /**
+         * ReanalyzeRequest
+         * @description Optional body of POST /recordings/{id}/reanalyze (the same flag is
+         *     accepted as the ``?fresh=`` query parameter).
+         */
+        ReanalyzeRequest: {
+            /**
+             * Fresh
+             * @default false
+             */
+            fresh: boolean;
         };
         /**
          * ReanalyzeWithSegmentsRequest
@@ -3759,6 +3832,8 @@ export interface components {
             start_time?: number | null;
             /** End Time */
             end_time?: number | null;
+            /** Kind */
+            kind?: string | null;
         };
         /** TriggerOut */
         TriggerOut: {
@@ -4042,6 +4117,12 @@ export interface components {
             pitch_label: string | null;
             /** Rate Label */
             rate_label: string;
+            /** Rms Dbfs */
+            rms_dbfs?: number | null;
+            /** Pitch Hz */
+            pitch_hz?: number | null;
+            /** Speech Rate */
+            speech_rate?: number | null;
         };
         /** VoicePair */
         VoicePair: {
@@ -4636,6 +4717,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LiveSessionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_session_mood_sessions_live__episode_id__mood_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                episode_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoodPatchIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MoodOut"];
                 };
             };
             /** @description Validation Error */
@@ -7280,7 +7398,10 @@ export interface operations {
     };
     reanalyze_recording_recordings__recording_id__reanalyze_post: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Ignore the recording's applied voice segmentation (speaker_segments) and run the local voice diarization afresh. */
+                fresh?: boolean;
+            };
             header?: {
                 authorization?: string;
             };
@@ -7289,7 +7410,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ReanalyzeRequest"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             202: {

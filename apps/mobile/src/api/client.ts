@@ -82,6 +82,15 @@ export interface Voice {
   // server refuses to invent a reading for silence/noise.
   pitch_label: "low" | "mid" | "high" | null;
   rate_label: "slow" | "normal" | "fast";
+  // The RAW numbers behind the labels (server/prosody.py), so the Replay
+  // chart can plot them on a labeled axis. Same shape + units as a live
+  // turn's `RecordingTurn.prosody`: RMS level in dBFS (0 = full scale),
+  // median F0 in Hz (null when unvoiced), words per second. All optional —
+  // absent on analyses stored before the server carried them, null when
+  // that number could not be measured for the turn.
+  rms_dbfs?: number | null;
+  pitch_hz?: number | null;
+  speech_rate?: number | null;
 }
 
 export interface AnalyzePerTurn {
