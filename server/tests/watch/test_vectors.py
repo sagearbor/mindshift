@@ -78,3 +78,15 @@ def test_airtime_excludes_silence_from_denominator():
     airtime = [e for e in evs if e.vector == "airtime"]
     assert airtime and airtime[0].level == 3               # 55s self / 60s total speech ≈ 0.92
     assert airtime[0].value == pytest.approx(55 / 60, abs=0.01)
+
+
+def test_airtime_needs_minimum_speech():
+    """The wearer's first sentence is 100% of the speech so far — that must
+    not read as dominating (file-driven nudge report, 2026-09-06)."""
+    from watch.vectors import AIRTIME_MIN_SPEECH_S
+    eng = VectorEngine(BASE)
+    assert not [e for e in eng.push_diarization([("self", 0.0, 6.0)]) if e.vector == "airtime"]
+    assert not [e for e in eng.push_diarization([("other", 6.5, 12.0), ("self", 12.5, 20.0)]) if e.vector == "airtime"]
+    # Past the floor a real hog still fires.
+    evs = eng.push_diarization([("self", 21.0, 21.0 + AIRTIME_MIN_SPEECH_S)])
+    assert any(e.vector == "airtime" and e.level >= 2 for e in evs)

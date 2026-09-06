@@ -62,6 +62,11 @@ HR_SPIKE_LEVELS: tuple[tuple[float, int], ...] = ((35.0, 3), (25.0, 2), (15.0, 1
 # server/tests/fixtures/policy_vectors/interrupting.json.
 INTERRUPT_LEVELS: tuple[tuple[float, int], ...] = ((6.0, 3), (4.0, 2), (2.0, 1))
 AIRTIME_WINDOW_S = 120.0
+# Minimum evidence before airtime can fire: at least this much total speech
+# (self + others) inside the window. Found by the file-driven nudge report
+# (2026-09-06): without a floor the wearer's FIRST sentence is 100% of the
+# speech so far and buzzed level 3 four seconds into every conversation.
+AIRTIME_MIN_SPEECH_S = 30.0
 AIRTIME_LEVELS: tuple[tuple[float, int], ...] = ((0.9, 3), (0.75, 2), (0.6, 1))
 
 # Bounded history length (in windows) for the live-session running-median
@@ -301,8 +306,8 @@ class VectorEngine:
                 other_speech += overlap
 
         total_speech = self_speech + other_speech
-        if total_speech <= 0:
-            return []
+        if total_speech < AIRTIME_MIN_SPEECH_S:
+            return []  # too little conversation to call anyone a hog
 
         share = self_speech / total_speech
         level = _level_for(share, AIRTIME_LEVELS)

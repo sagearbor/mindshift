@@ -268,6 +268,10 @@ export interface NudgeReport {
 
 /** server/watch/vectors.py AIRTIME_WINDOW_S / AIRTIME_LEVELS. */
 export const AIRTIME_WINDOW_S = 120;
+/** server/watch/vectors.py AIRTIME_MIN_SPEECH_S: no airtime verdict until
+ *  this much speech (self + others) sits in the window — the wearer's first
+ *  sentence must not read as dominating. */
+export const AIRTIME_MIN_SPEECH_S = 30;
 export const AIRTIME_LEVELS: [number, number][] = [
   [0.9, 3],
   [0.75, 2],
@@ -304,7 +308,7 @@ export function airtimeEvents(turns: { speaker: string; start: number; end: numb
       else other += ov;
     }
     const total = self + other;
-    if (total <= 0) continue;
+    if (total < AIRTIME_MIN_SPEECH_S) continue; // too little conversation to call anyone a hog
     const share = self / total;
     const level = airtimeLevel(share);
     if (level > 0) out.push({ vector: "airtime", level, t: now, value: Math.round(share * 1000) / 1000 });
