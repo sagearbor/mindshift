@@ -45,6 +45,7 @@ import { useMoodStore } from "../store/moodStore";
 import { detectLiveCapability, type LiveCapability } from "../live/capability";
 import type { LiveMode } from "../live/localLlm";
 import type { NudgeEvent } from "../live/nudgePolicy";
+import { codeForVectors } from "../live/nudgeVocabulary";
 import type {
   SpeakerIdentityEvent,
   ToneFlagEvent,
@@ -1833,7 +1834,7 @@ export function useAudioStream(
               setNudgeFlash(nudge);
               escalationRef.current += 1;
               setEscalationCount(escalationRef.current);
-              if (vectors.length > 0) void expoHaptics.nudge(level).catch(() => {});
+              if (vectors.length > 0) void expoHaptics.nudge(level, codeForVectors(vectors)).catch(() => {});
             }
           } else if (data.type === "tone_flag") {
             // Server-side tone analysis over a turn: rendered additively.

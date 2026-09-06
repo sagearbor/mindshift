@@ -1,6 +1,7 @@
 package app.gauge.wear.haptics
 
 import app.gauge.shared.NudgeHapticSchedule
+import app.gauge.shared.NudgeVocabulary
 
 /**
  * Device-tuned system effects channel A's cues map onto. SDK-agnostic on purpose (no android
@@ -95,7 +96,12 @@ object HapticPatterns {
         return when (channel) {
             "A" -> when (level) {
                 1 -> HapticCue.Waveform(listOf(0L, 75L), listOf(0, 255))
-                2 -> HapticCue.Waveform(listOf(0L, 75L, MIN_GAP_MS, 75L), listOf(0, 255, 0, 255))
+                // Rising, like level 3's — the Heated code ramps at every level it can ramp at
+                // (nudge vocabulary, 2026-09-06); the ramp itself lives in the shared schedule.
+                2 -> {
+                    val ramp = NudgeHapticSchedule.planFor(2).amplitudeRamp
+                    HapticCue.Waveform(listOf(0L, 75L, MIN_GAP_MS, 75L), listOf(0, ramp[0], 0, ramp[1]))
+                }
                 // Escalating: three 100ms taps whose amplitudes rise tap over tap (200 -> 230 ->
                 // 255, from the shared schedule) so the cue itself builds — the composed-click
                 // path above can't scale per primitive, so the ramp lives in the fallback only.
@@ -110,6 +116,44 @@ object HapticPatterns {
             "B" -> cue("B", level) as? HapticCue.Waveform
             else -> null
         }
+    }
+
+    /**
+     * The cue for a nudge that carries a VOCABULARY code (nudge_vocabulary.json, mirrored by
+     * [app.gauge.shared.NudgeVocabulary]) — so the wrist says WHICH behaviour, not just how bad:
+     * a cut-in is `• —`, hogging is a slow `— — —`, a heart-rate spike is a lub-dub.
+     *
+     * **H** (Heated) deliberately keeps the shipped channel cues rather than a raw waveform: H IS
+     * channel A's ladder, and its predefined/composed clicks are OEM-tuned to the actual actuator
+     * (the v0.2.4 device finding) — a raw waveform would feel worse, not better. A null or
+     * unrecognised code falls back to [cue] for the same reason: never lose a nudge over a label.
+     */
+    fun cueFor(channel: String, level: Int, code: String?): HapticCue? {
+        if (level < 1 || level > 3) return null
+        val wave = vocabularyWave(channel, level, code) ?: return cue(channel, level)
+        return HapticCue.Waveform(wave.timingsMs, wave.amplitudes)
+    }
+
+    /** The raw-waveform fallback matching [cueFor]. A vocabulary cue IS a waveform, so it is its
+     * own fallback — one source of truth, no drift (same rule as channel B in [waveformFallback]). */
+    fun waveformFallbackFor(channel: String, level: Int, code: String?): HapticCue.Waveform? {
+        if (level < 1 || level > 3) return null
+        val wave = vocabularyWave(channel, level, code) ?: return waveformFallback(channel, level)
+        return HapticCue.Waveform(wave.timingsMs, wave.amplitudes)
+    }
+
+    /** The vocabulary's own waveform for this cue, or null when the channel cue should be used
+     * instead. Null for: no code; **H**, which IS channel A's OEM-tuned ladder (see [cueFor]);
+     * a code with no cue (K) or an unknown one; and — the subtle case — a code arriving on the
+     * WRONG lane. The two channels must stay distinguishable by feel alone (class KDoc), so a
+     * channel-A code relayed on channel B plays B's smooth buzz, not A's crisp rhythm. Each
+     * code's home lane is B for the watch-only ones (P: heart rate) and A for the rest. */
+    private fun vocabularyWave(channel: String, level: Int, code: String?): app.gauge.shared.HapticWaveform? {
+        if (code == null || code == "H") return null
+        val entry = NudgeVocabulary.forCode(code) ?: return null
+        val homeChannel = if (entry.watchOnly) "B" else "A"
+        if (homeChannel != channel) return null
+        return NudgeVocabulary.hapticFor(code, level)
     }
 
     /**

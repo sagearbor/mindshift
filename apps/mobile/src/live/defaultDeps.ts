@@ -41,6 +41,7 @@ import {
   type ProviderName,
 } from "./localLlm";
 import type { HapticSink } from "./nudgePolicy";
+import { hapticFor } from "./nudgeVocabulary";
 
 /** The callbacks the hook supplies; everything else is wired here. */
 export type FastLoopHandlers = Pick<
@@ -91,8 +92,39 @@ function tryRequire<T>(load: () => T): T | null {
   }
 }
 
+/**
+ * The production haptic sink.
+ *
+ * Android gets the nudge VOCABULARY's own waveform for the code
+ * (nudgeVocabulary.ts): React Native's `Vibration.vibrate(pattern)` takes
+ * exactly the [wait, buzz, wait, buzz, …] array the contract stores, so the
+ * rhythm the watch plays and the rhythm the phone plays are the same array of
+ * numbers. RN cannot vary amplitude, which is precisely why every level
+ * difference in that contract is a rhythm difference.
+ *
+ * Everything else — iOS, web, a code with no cue, an unknown code — falls
+ * back to expo-haptics' single light/medium/heavy impact, which is what
+ * shipped before the vocabulary. A missing haptic engine is silent; the
+ * on-screen flash still shows.
+ */
 export const expoHaptics: HapticSink = {
-  async nudge(level) {
+  async nudge(level, code) {
+    const wave = code ? hapticFor(code, level) : null;
+    if (wave) {
+      const RN = tryRequire(
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        () => require("react-native") as typeof import("react-native"),
+      );
+      // Only Android honours a pattern; iOS's Vibration ignores the timings.
+      if (RN?.Platform?.OS === "android" && RN.Vibration) {
+        try {
+          RN.Vibration.vibrate(wave.timingsMs);
+          return;
+        } catch {
+          // Fall through to the impact below rather than losing the nudge.
+        }
+      }
+    }
     try {
       const Haptics = tryRequire(
         // eslint-disable-next-line @typescript-eslint/no-require-imports

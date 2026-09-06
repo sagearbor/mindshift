@@ -546,7 +546,7 @@ private fun CenterSparkline(uiState: GlanceUi, onToggle: () -> Unit) {
 private fun previewEpisodeState() = GlanceUi(
     armedLabel = "Episode",
     ringColor = 0xFFEF6C00,
-    vectorIcon = "📢",
+    vectorIcon = "📈",
     sparklineNorm = listOf(0.2f, 0.35f, 0.3f, 0.5f, 0.8f, 0.6f, 0.45f, 0.7f, 0.95f, 0.75f, 0.5f, 0.35f, 0.4f, 0.6f, 0.85f),
     sparklineThresholdFrac = 0.5f,
     mode = Mode.STANDARD,

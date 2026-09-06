@@ -624,7 +624,9 @@ describe("LiveCoachScreen", () => {
     });
     const rendered = JSON.stringify(root!.toJSON());
     expect(root!.root.findByProps({ testID: "nudge-flash" })).toBeTruthy();
-    expect(rendered).toContain("Easy — level 2 (aggressive tone, yelling)");
+    // Dev mode names the vocabulary code (📈 Heated) plus the raw detector
+    // vectors underneath it — src/live/nudgeVocabulary.ts.
+    expect(rendered).toContain("📈 Heated — level 2 (aggressive tone, yelling)");
     expect(rendered).toContain("median segment-end");
     act(() => {
       jest.advanceTimersByTime(1500);

@@ -1,5 +1,6 @@
 package app.gauge.wear.ui
 
+import app.gauge.shared.NudgeVocabulary
 import app.gauge.shared.sentinel.Mode
 import app.gauge.shared.sentinel.SentinelState
 import app.gauge.shared.sentinel.params
@@ -362,14 +363,18 @@ private fun meterFraction(value: Double, threshold: Double, span: MeterSpan): Fl
     return ((value - low) / width).toFloat().coerceIn(0f, 1f)
 }
 
-private fun vectorIconFor(vector: String): String? = when (vector) {
-    "yelling" -> "📢"
-    "aggressive_tone" -> "🔥"
-    "interrupting" -> "✂️"
-    "airtime" -> "🎤"
-    "hr_spike" -> "❤️"
-    else -> null
-}
+/**
+ * The glance icon for a firing detector vector, straight from the shared nudge VOCABULARY
+ * (`app.gauge.shared.NudgeVocabulary`, contract:
+ * `server/tests/fixtures/policy_vectors/nudge_vocabulary.json`) — so the wrist, the phone screen
+ * and a replay report cannot show three different emoji for the same behaviour.
+ *
+ * Changed 2026-09-06 (owner-approved vocabulary): `yelling` 📢 and `aggressive_tone` 🔥 were two
+ * icons for what a wearer experiences as ONE thing; they are now the single Heated family 📈. The
+ * detectors stay separate underneath. Unknown vectors still return null — a missing mapping shows
+ * as no icon rather than a silently wrong one.
+ */
+private fun vectorIconFor(vector: String): String? = NudgeVocabulary.iconFor(vector)
 
 /** "-24.0dB" / "72.0bpm" / "3.5" / "1.2b/s" — one decimal place, unit suffix per [SignalKind]
  * (MOVEMENT's accelerometer stddev has no natural unit, so its suffix is empty). Moved here from

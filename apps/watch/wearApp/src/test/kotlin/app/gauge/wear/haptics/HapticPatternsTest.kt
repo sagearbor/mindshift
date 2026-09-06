@@ -1,6 +1,7 @@
 package app.gauge.wear.haptics
 
 import app.gauge.shared.NudgeHapticSchedule
+import app.gauge.shared.NudgeVocabulary
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -81,8 +82,10 @@ class HapticPatternsTest {
             HapticCue.Waveform(listOf(0L, 75L), listOf(0, 255)),
             HapticPatterns.waveformFallback("A", 1),
         )
+        // Nudge vocabulary (2026-09-06): level 2 RAMPS too (210 -> 255) — the Heated code 📈 is a
+        // rising ramp at every level it can ramp at, not just level 3.
         assertEquals(
-            HapticCue.Waveform(listOf(0L, 75L, 170L, 75L), listOf(0, 255, 0, 255)),
+            HapticCue.Waveform(listOf(0L, 75L, 170L, 75L), listOf(0, 210, 0, 255)),
             HapticPatterns.waveformFallback("A", 2),
         )
         // Track 1: level 3's fallback RAMPS (PRD §6 "escalating") — 200 -> 230 -> 255, from
@@ -149,5 +152,62 @@ class HapticPatternsTest {
     @Test
     fun armedShoutTapIsTheFloorBand() {
         assertEquals(HapticPatterns.pulseBandFor(0.0), HapticPatterns.ARMED_SHOUT_TAP)
+    }
+
+    // --- the nudge vocabulary ------------------------------------------------------------------
+
+    @Test
+    fun channelAIsTheHeatedVocabulary() {
+        // H's cue in the shared contract IS channel A's fallback ladder, at every level — the one
+        // place the two could drift apart.
+        for (level in 1..3) {
+            val h = NudgeVocabulary.hapticFor("H", level)!!
+            val fallback = HapticPatterns.waveformFallback("A", level)!!
+            assertEquals(h.timingsMs, fallback.timingsMs, "H L$level timings")
+            assertEquals(h.amplitudes, fallback.amplitudes, "H L$level amplitudes")
+        }
+    }
+
+    @Test
+    fun heatedKeepsTheOemTunedChannelCue() {
+        // H must NOT degrade to a raw waveform: predefined/composed clicks are tuned to the real
+        // actuator, and a waveform would feel worse (the v0.2.4 device finding).
+        for (level in 1..3) {
+            assertEquals(HapticPatterns.cue("A", level), HapticPatterns.cueFor("A", level, "H"))
+            assertEquals(HapticPatterns.cue("A", level), HapticPatterns.cueFor("A", level, null))
+        }
+    }
+
+    @Test
+    fun aCodeOnItsHomeChannelPlaysItsOwnRhythm() {
+        for (code in listOf("C", "A")) {
+            val wave = NudgeVocabulary.hapticFor(code, 2)!!
+            assertEquals(
+                HapticCue.Waveform(wave.timingsMs, wave.amplitudes),
+                HapticPatterns.cueFor("A", 2, code),
+                "code $code on channel A",
+            )
+        }
+        val pulse = NudgeVocabulary.hapticFor("P", 2)!!
+        assertEquals(
+            HapticCue.Waveform(pulse.timingsMs, pulse.amplitudes),
+            HapticPatterns.cueFor("B", 2, "P"),
+        )
+    }
+
+    @Test
+    fun aCodeOnTheWrongLaneKeepsThatLanesFeel() {
+        // The two channels must stay distinguishable by feel alone: a channel-A code relayed on
+        // channel B plays B's smooth buzz, never A's crisp rhythm.
+        assertEquals(HapticPatterns.cue("B", 2), HapticPatterns.cueFor("B", 2, "C"))
+        assertEquals(HapticPatterns.cue("A", 2), HapticPatterns.cueFor("A", 2, "P"))
+    }
+
+    @Test
+    fun aCodeThatNeverBuzzesOrIsUnknownFallsBackToTheChannelCue() {
+        assertEquals(HapticPatterns.cue("A", 2), HapticPatterns.cueFor("A", 2, "K"))
+        assertEquals(HapticPatterns.cue("A", 2), HapticPatterns.cueFor("A", 2, "Z"))
+        assertNull(HapticPatterns.cueFor("A", 0, "C"))
+        assertNull(HapticPatterns.cueFor("A", 4, "C"))
     }
 }

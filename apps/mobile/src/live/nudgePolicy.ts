@@ -334,8 +334,16 @@ export class CoachRepeatGate {
   }
 }
 
-/** The haptic seam (expo-haptics in production, a spy in tests). */
+/** The haptic seam (the vocabulary waveforms in production, a spy in tests). */
 export interface HapticSink {
-  /** Level 1..3 -> light/medium/heavy; must never throw. */
-  nudge(level: number): Promise<void>;
+  /**
+   * Play the cue for this escalation. `code` is the nudge-vocabulary letter
+   * the firing vectors map to (nudgeVocabulary.ts `codeForVectors`) — with it,
+   * Android plays that code's own rhythm (`• —` for a cut-in, slow `— — —`
+   * for hogging, a rising ramp for heat) so the wrist/phone says WHICH
+   * behaviour, not just how bad. Without it (or on a platform that cannot
+   * play a pattern) the sink falls back to a level 1..3 light/medium/heavy
+   * impact. Must never throw.
+   */
+  nudge(level: number, code?: string | null): Promise<void>;
 }

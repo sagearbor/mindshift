@@ -49,6 +49,7 @@ import type { SpeechRecognizer } from "./stt";
 import { TranscriptAligner } from "./stt";
 import type { LiveMode, ProviderChain, TextTone } from "./localLlm";
 import type { HapticSink, NudgeEvent, NudgePolicy, VectorEvent } from "./nudgePolicy";
+import { codeForVectors } from "./nudgeVocabulary";
 import { aggressiveToneLevel, CoachRepeatGate, LoudnessBaseline, phoneNudgePolicy, yellingLevel } from "./nudgePolicy";
 import { liveTurnKind } from "./naturalTurn";
 import { turnActivationAsync, type TurnActivation } from "./activation";
@@ -709,7 +710,9 @@ export class FastLoop {
       // Screen always; haptic on ESCALATION only — and never re-buzz a level
       // the instant tier already delivered this turn (`alreadyBuzzedLevel`).
       if (n.level > alreadyBuzzedLevel && n.vectors.length > 0 && this.deps.haptics) {
-        void this.deps.haptics.nudge(n.level).catch(() => {});
+        // The vocabulary code says WHICH behaviour: the wrist plays a cut-in's
+        // `• —` rather than a generic buzz (nudgeVocabulary.ts).
+        void this.deps.haptics.nudge(n.level, codeForVectors(n.vectors)).catch(() => {});
       }
     }
   }
@@ -821,7 +824,9 @@ export class FastLoop {
       );
       if (instantLevel > (this.policy.current().A ?? 0) && this.deps.haptics) {
         instantBuzzedLevel = instantLevel;
-        void this.deps.haptics.nudge(instantLevel).catch(() => {});
+        // The instant tier only ever measures loudness/activation — both are
+        // the Heated family, so the cue is H's rising ramp.
+        void this.deps.haptics.nudge(instantLevel, "H").catch(() => {});
       }
     }
 

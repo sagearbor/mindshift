@@ -33,6 +33,7 @@ import { loadLiveMode, saveLiveMode } from "../live/modePrefs";
 import { loadScoreboardVisible, saveScoreboardVisible } from "../live/scoreboardPrefs";
 import { DEFAULT_KEEP_AUDIO, loadKeepAudio, saveKeepAudio } from "../live/keepAudioPrefs";
 import type { LiveMode } from "../live/localLlm";
+import { codeForVectors, vocabularyForCode } from "../live/nudgeVocabulary";
 import type { CallRole } from "../live/call/types";
 import { listVoicePeople, patchSessionMood, type VoicePerson } from "../api/liveSessions";
 import { getTherapistLink, type TherapistLink } from "../api/therapist";
@@ -825,20 +826,26 @@ export default function LiveCoachScreen({
         </Text>
       ) : null}
 
-      {/* Haptic nudge mirror: "you're getting loud/heated" on the user's own
-          turn. Level 1–3 from the shared nudge policy. */}
+      {/* Haptic nudge mirror. Icon + line come from the shared nudge
+          VOCABULARY (src/live/nudgeVocabulary.ts), so the emoji here, the one
+          on the watch glance and the one in a replay report are the same
+          contract — never three hand-typed emoji. Level 1–3 from the shared
+          nudge policy; a decay (no vectors) keeps the generic line. */}
       {nudgeFlash ? (
         <View style={styles.nudgeFlash} testID="nudge-flash">
           <Text style={styles.nudgeFlashText}>
-            {devMode
-              ? `Easy — level ${nudgeFlash.level}${
+            {(() => {
+              const entry = vocabularyForCode(codeForVectors(nudgeFlash.vectors) ?? "");
+              const icon = entry ? `${entry.icon} ` : "";
+              if (devMode) {
+                const raw =
                   nudgeFlash.vectors.length > 0
                     ? ` (${nudgeFlash.vectors.join(", ").replace(/_/g, " ")})`
-                    : ""
-                }`
-              : nudgeFlash.vectors.includes("interrupting")
-                ? "Let them finish"
-                : "Easy — take a breath"}
+                    : "";
+                return `${icon}${entry?.name ?? "Easy"} — level ${nudgeFlash.level}${raw}`;
+              }
+              return `${icon}${entry?.flashText ?? "Easy — take a breath"}`;
+            })()}
           </Text>
         </View>
       ) : null}
