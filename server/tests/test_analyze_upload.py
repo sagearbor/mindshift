@@ -156,6 +156,20 @@ async def test_upload_happy_path_with_voice_labels(client):
     assert energies[2] == "loud"
     assert energies[5] == "quiet"
 
+    # The RAW numbers behind the labels ride along (the Replay chart's y-axis
+    # choices): dBFS orders exactly like the fixture amplitudes, the 180 Hz
+    # tone's pitch is measured, and speech rate is words / turn duration.
+    dbfs = [pt["voice"]["rms_dbfs"] for pt in data["per_turn"]]
+    assert all(isinstance(v, float) for v in dbfs)
+    assert dbfs[2] > dbfs[4] > dbfs[1] > dbfs[3] > dbfs[0] > dbfs[5]
+    # amp 0.5 sine → rms 0.354 → −9.03 dBFS (float PCM, 0 dBFS = full scale).
+    assert abs(dbfs[2] - (-9.03)) < 0.15
+    for pt, turn in zip(data["per_turn"], MOCK_TURNS):
+        assert abs(pt["voice"]["pitch_hz"] - 180.0) <= 15.0
+        words = len(turn["text"].split())
+        dur = turn["end_time"] - turn["start_time"]
+        assert pt["voice"]["speech_rate"] == pytest.approx(words / dur, abs=1e-3)
+
     # Prosody succeeded → no degrade note.
     assert data["voice_analysis"] is None
 

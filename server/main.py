@@ -489,6 +489,16 @@ class VoiceOut(BaseModel):
     energy_label: str
     pitch_label: Optional[str]
     rate_label: str
+    # The RAW numbers behind the labels (prosody.label_turns), so the Replay
+    # chart can plot them on a labeled axis. Same shape + units as a live
+    # turn's TurnProsody (models/audio.py): RMS level in dBFS (0 = full scale;
+    # None for digital silence), median F0 in Hz (None when unvoiced), words
+    # per second. All optional with None defaults so analyses stored before
+    # these existed still validate, and the client treats absent as "not
+    # measured", never as 0.
+    rms_dbfs: Optional[float] = None
+    pitch_hz: Optional[float] = None
+    speech_rate: Optional[float] = None
 
 
 class PerTurnOut(BaseModel):
@@ -2640,6 +2650,9 @@ async def _run_analysis(
                     energy_label=voice_labels[i]["energy_label"],
                     pitch_label=voice_labels[i]["pitch_label"],
                     rate_label=voice_labels[i]["rate_label"],
+                    rms_dbfs=voice_labels[i].get("rms_dbfs"),
+                    pitch_hz=voice_labels[i].get("f0_median"),
+                    speech_rate=voice_labels[i].get("speech_rate"),
                 )
             ),
         )
