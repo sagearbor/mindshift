@@ -255,6 +255,13 @@ export interface SceneScorecard {
     /** Segment end → first spoken word, over the coached user's turns. */
     nudgeToSpeakMs: Stat | null;
   };
+  /** ⚡ How many fragments the DARK vocal-activation classifier would have
+   *  flagged (level >= 1) on turns nobody expects a nudge on — i.e. its false
+   *  positives, out of its own training corpus. The other half of the gate in
+   *  __tests__/activationGate.test.ts, and the reason `activationNudges` is
+   *  still off. `activationFlaggedTurns` names them. */
+  activationFalseFlags: number;
+  activationFlaggedTurns: number[];
   /** 💚 What the user did well: per-code counts of the positives that were
    *  actually DELIVERED, how many the two-minute cap withheld, and 🧘's
    *  longest quiet run. */
@@ -606,6 +613,13 @@ export function buildNudgeReport(r: ReplayResult, generatedAt = new Date().toISO
       ? "nobody (unknown clusters only)"
       : "speaker-ID off";
   const activations = fragments.map((f) => f.activation).filter((a): a is NonNullable<FragmentRow["activation"]> => a !== null);
+  // ⚡ Fragments the DARK classifier would have nudged on, sitting inside a
+  // turn the script expects NOTHING for. Out of RAVDESS this is where the
+  // classifier's real error rate shows up.
+  const expectedTurns = new Set(turns.filter((t) => t.expected).map((t) => t.index));
+  const activationFalse = fragments.filter(
+    (f) => (f.activation?.level ?? 0) > 0 && !(f.scriptTurn !== null && expectedTurns.has(f.scriptTurn)),
+  );
   const overlaps = fragments.map((f) => f.overlap).filter((o): o is NonNullable<FragmentRow["overlap"]> => o !== null);
   const a = r.attribution;
   const scorecard: SceneScorecard = {
@@ -636,6 +650,8 @@ export function buildNudgeReport(r: ReplayResult, generatedAt = new Date().toISO
     },
     callModeInterrupting: callMode.length,
     activationProbed: activations.length,
+    activationFalseFlags: activationFalse.length,
+    activationFlaggedTurns: [...new Set(activationFalse.map((f) => f.index))].sort((a, b) => a - b),
     activationMaxProbability: activations.length ? Math.max(...activations.map((x) => x.probability)) : null,
     overlapProbed: overlaps.length,
     overlapMaxMixedSeconds: overlaps.length ? Math.max(...overlaps.map((o) => o.mixedSeconds)) : null,
@@ -1104,7 +1120,11 @@ function scorecardHtml(rep: NudgeReport, gate: NudgeGate | null): string {
     `${tag("📱", "📳", "⚡", "📱")} <b>Instant loudness haptic</b>: ${s.instantHaptics} fired${lead ? `, ${fmt.stat(lead)} ahead of the LLM tier` : ""} · ${s.instantBeforePolicy === null ? "no self turn crossed +6 dB over baseline (nothing for the instant tier to do)" : s.instantBeforePolicy ? '<span class="ok">always before the LLM-tier nudge</span>' : '<span class="bad">NOT before the LLM tier</span>'}`,
     `${tag("🎧", "🗣️", "🧠", "📱")} <b>LLM-tier nudge lag</b> (turn end → emission): ${fmt.stat(s.policyLagMs)} · policy-tier haptics ${s.policyHaptics}`,
     `${tag("📱", "📳", "🧠", "☁️")} <b>Call-mode equivalent (steamroll)</b>: ${s.callModeInterrupting} interrupting event(s) from the ground-truth timings${s.callModeInterrupting === 0 ? " — no self turn starts inside another turn and lasts ≥ 2 s" : ""}`,
-    `${tag("📱", "👓", "⚡", "📱")} <b>Dark probes</b>: activation measured on ${s.activationProbed} fragment(s)${s.activationMaxProbability !== null ? `, max ${fmt.pct(s.activationMaxProbability)}` : ""} · overlap probe on ${s.overlapProbed} long self turn(s)${s.overlapMaxMixedSeconds !== null ? `, max mixed ${s.overlapMaxMixedSeconds.toFixed(1)} s` : ""}`,
+    `${tag("📱", "👓", "⚡", "📱")} <b>Dark probes</b>: activation measured on ${s.activationProbed} fragment(s)${s.activationMaxProbability !== null ? `, max ${fmt.pct(s.activationMaxProbability)}` : ""}${
+      s.activationFalseFlags
+        ? ` · <span class="bad">would have nudged on ${s.activationFalseFlags} turn(s) nobody expects one on (#${s.activationFlaggedTurns.join(", #")})</span> — this is why ⚡ is still dark`
+        : ' · <span class="ok">no false flag</span>'
+    } · overlap probe on ${s.overlapProbed} long self turn(s)${s.overlapMaxMixedSeconds !== null ? `, max mixed ${s.overlapMaxMixedSeconds.toFixed(1)} s` : ""}`,
     positivesLine(rep),
     ...(missLine(rep) ? [missLine(rep) as string] : []),
     `${tag("📱", "📝", "⚡", "📱")} <b>Who is who</b>: ${s.attribution.correct}/${s.attribution.total} turns, self ${s.attribution.selfCorrect}/${s.attribution.selfTotal} · enrolled: ${escapeHtml(s.enrolled)} · loop turns ${s.loopTurns} (${s.coachedFragments} coached as you) for ${s.scriptTurns} scripted`,

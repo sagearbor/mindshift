@@ -162,8 +162,50 @@ maybe("nudge verification from recorded files (real Silero + ECAPA, scripted STT
     if (ravdessWav) scenes[RAVDESS_SCENE] = loadScene(ravdessWav);
   }, 60_000);
 
+  /**
+   * ⚡ The OUT-OF-CORPUS half of the activation gate (the in-corpus half lives
+   * in activationGate.test.ts, where it passes at AUC 1.000 with zero false
+   * flags over 288 RAVDESS clips).
+   *
+   * These are the same numbers over real speech, through the real loop. They
+   * are PINNED rather than merely asserted non-zero, because the whole point
+   * is that they must go to zero before `activationNudges` can flip — an
+   * improvement to the classifier has to show up here as a diff.
+   *
+   * As of 2026-09-06: three false flags across the pack, two of them on the
+   * owner's own family recording, at LEVEL 2, on "Okay, this is Sage talking
+   * or dad" and "I'm about to head off" — ordinary calm narration. (Its third
+   * measured self turn is the one that genuinely escalates, so it is not
+   * counted here.) The diagnosis is in
+   * FastLoopDeps.activationNudges' doc: the model's two strongest features are
+   * voiced/unvoiced DURATION, standardized against RAVDESS clips that carry a
+   * second of silence at each end, so a real conversational turn — nearly all
+   * speech — reads as "worked up" for its length alone.
+   */
+  const ACTIVATION_FALSE_FLAGS: Record<string, number> = {
+    scene_couple_escalation: 0,
+    scene_family3: 0,
+    scene_meeting4: 1,
+    scene_ravdess_pair: 0,
+    family_real: 2,
+  };
+
   afterAll(() => {
     if (reports.length === 0) return;
+    for (const rep of reports) {
+      const want = ACTIVATION_FALSE_FLAGS[rep.scene];
+      if (want === undefined) continue;
+      const got = rep.scorecard.activationFalseFlags;
+      console.log(`⚡ activation false flags on ${rep.scene}: ${got} (turns #${rep.scorecard.activationFlaggedTurns.join(", #")})`);
+      if (want !== got) {
+        throw new Error(
+          `⚡ activation false flags on ${rep.scene}: ${got}, pinned ${want} ` +
+            `(turns #${rep.scorecard.activationFlaggedTurns.join(", #")}). If this went DOWN the ` +
+            "classifier improved — update the pin, and once every scene reaches 0 the " +
+            "activationNudges flag can finally flip (see FastLoopDeps.activationNudges).",
+        );
+      }
+    }
     const generatedAt = new Date().toISOString();
     let ami: AmiVectorsJson | null = null;
     if (fs.existsSync(AMI_JSON)) ami = JSON.parse(fs.readFileSync(AMI_JSON, "utf8")) as AmiVectorsJson;

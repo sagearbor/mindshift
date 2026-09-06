@@ -175,10 +175,28 @@ export interface FastLoopDeps {
    *  CoachRepeatGate; pass `null` to disable (replay harnesses whose
    *  scripted provider emits identical text, which a real LLM never would). */
   repeatGate?: CoachRepeatGate | null;
-  /** Let the vocal-activation classifier drive nudges (instant haptic +
-   *  policy vector). Default false: activation is measured and recorded
-   *  per turn but never buzzes — owner tunes the ladder from real sessions
-   *  first (docs/plans/2026-09-04-naturalturn-conversation-quality.md WS3). */
+  /**
+   * Let the dark vocal-activation classifier (live/activation.ts) escalate
+   * the nudge policy. Default FALSE, and it must stay false until the gate in
+   * __tests__/activationGate.test.ts passes on BOTH halves.
+   *
+   * On RAVDESS it looks finished: ROC-AUC 1.000 separating angry-strong from
+   * calm/neutral-normal, and zero of 192 calm clips reach the first rung
+   * (worst calm p = 0.62 against a 0.75 threshold). On real speech it is
+   * catastrophic: on the owner's own family recording it flags EVERY self
+   * turn it measures at level 2, including "Okay, this is Sage talking, I'm
+   * about to head off" — a coach that buzzes at you for saying hello. Two of
+   * the four TTS scenes flag a calm turn too.
+   *
+   * The diagnosis (2026-09-06, measured, not guessed): the model's two
+   * strongest coefficients are voiced and unvoiced DURATION, standardized
+   * against RAVDESS clips that carry about a second of silence at each end.
+   * A real conversational turn is nearly all speech, so its voiced duration
+   * lands far above the training mean and the classifier reads "long
+   * continuous speech" as "worked up". It is a clip-shape detector that
+   * happens to work inside its own corpus. Retraining on real conversational
+   * audio — or dropping the duration features — comes before this flag flips.
+   */
   activationNudges?: boolean;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
