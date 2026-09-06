@@ -29,7 +29,7 @@ import { phoneNudgePolicy, type NudgeEvent } from "../nudgePolicy";
 import type { OnnxSessionFactory } from "../ort";
 import type { TurnLocalEvent } from "../types";
 import { int16ToFloat32, readWav16kMono } from "./wav";
-import { parseSceneMeta, type ReplayScript } from "./meta";
+import { parseSceneMeta, type ExpectedNudge, type ReplayScript } from "./meta";
 import { InflightTracker, VirtualClock } from "./virtualClock";
 import {
   DEFAULT_STT_OPTIONS,
@@ -114,7 +114,10 @@ export interface SceneInput {
  * test_recording_<scene>.wav` + `_meta.json`) or take a WAV path with its
  * `<stem>_meta.json` beside it (or an explicit `metaPath`).
  */
-export function loadScene(nameOrWav: string, opts: { metaPath?: string; selfSpeaker?: string | null } = {}): SceneInput {
+export function loadScene(
+  nameOrWav: string,
+  opts: { metaPath?: string; selfSpeaker?: string | null; expectedNudges?: ExpectedNudge[] } = {},
+): SceneInput {
   let wavPath: string;
   let name: string;
   if (nameOrWav.endsWith(".wav")) {
@@ -128,7 +131,7 @@ export function loadScene(nameOrWav: string, opts: { metaPath?: string; selfSpea
   const metaPath = opts.metaPath ?? wavPath.replace(/\.wav$/, "_meta.json");
   if (!fs.existsSync(metaPath)) throw new Error(`scene: no meta at ${metaPath} (write one: see replay/meta.ts)`);
   const raw = JSON.parse(fs.readFileSync(metaPath, "utf8")) as unknown;
-  const script = parseSceneMeta(raw, { name, selfSpeaker: opts.selfSpeaker });
+  const script = parseSceneMeta(raw, { name, selfSpeaker: opts.selfSpeaker, expectedNudges: opts.expectedNudges });
   const pcm = readWav16kMono(wavPath);
   return { name, wavPath, script, pcm, pcmF32: int16ToFloat32(pcm) };
 }
@@ -230,6 +233,23 @@ async function nodeFactory(): Promise<OnnxSessionFactory> {
 // Result
 // ---------------------------------------------------------------------------
 
+/** One haptic the loop asked for, on the virtual clock. The instant
+ *  loudness tier fires ~40 ms after the turn closes (identity only); the
+ *  policy tier fires after STT + LLM — `nudgeReport.ts` tells them apart. */
+export interface HapticFire {
+  level: number;
+  atMs: number;
+  /** The same instant on the audio timeline (seconds). */
+  atSec: number;
+}
+
+/** A NudgeEvent plus the virtual clock at which the loop emitted it
+ *  (`t` is the audio second the turn closed; `atMs` is when the words and
+ *  the tone were in — the LLM tier's latency is the difference). */
+export interface NudgeEmission extends NudgeEvent {
+  atMs: number;
+}
+
 export interface ReplayResult {
   scene: string;
   mode: LiveMode;
@@ -242,6 +262,8 @@ export interface ReplayResult {
   spoken: SpokenLine[];
   nudges: NudgeEvent[];
   haptics: number[];
+  hapticLog: HapticFire[];
+  nudgeLog: NudgeEmission[];
   policyLog: PolicyCall[];
   latencyLog: TurnLatency[];
   stt: { emitted: number; finals: number };
@@ -307,11 +329,13 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
   });
   const llm = new ProviderChain([os, bundled, cloudProvider()], ["os", "bundled", "cloud"], () => clock.now());
   const spokenLog = new SpokenLog(clock, () => vad.lastVerdict);
-  const policy = recordingPolicy(phoneNudgePolicy());
+  const policy = recordingPolicy(phoneNudgePolicy(), () => clock.now());
   const sent: TurnLocalEvent[] = [];
   const turns: LocalTurn[] = [];
   const nudges: NudgeEvent[] = [];
   const haptics: number[] = [];
+  const hapticLog: HapticFire[] = [];
+  const nudgeLog: NudgeEmission[] = [];
 
   const loop: FastLoop = new FastLoop({
     vad,
@@ -322,8 +346,16 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
     speak: spokenLog.speak,
     send: (e) => sent.push(e),
     onTurn: (t) => turns.push(t),
-    onNudge: (n) => nudges.push(n),
-    haptics: { nudge: async (level) => void haptics.push(level) },
+    onNudge: (n) => {
+      nudges.push(n);
+      nudgeLog.push({ ...n, atMs: clock.now() });
+    },
+    haptics: {
+      nudge: async (level) => {
+        haptics.push(level);
+        hapticLog.push({ level, atMs: clock.now(), atSec: clock.now() / 1000 });
+      },
+    },
     policy,
     // The scripted provider repeats lines a real LLM would vary; the
     // repeat-gate is measured directly in liveFastLoop, not here.
@@ -391,6 +423,8 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
     spoken: spokenLog.lines,
     nudges,
     haptics,
+    hapticLog,
+    nudgeLog,
     policyLog: policy.log,
     latencyLog: summary.latencyLog,
     stt: { emitted: recognizer?.emitted.length ?? 0, finals: recognizer?.emitted.filter((e) => e.isFinal).length ?? 0 },
