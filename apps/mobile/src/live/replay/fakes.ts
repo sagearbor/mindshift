@@ -336,6 +336,10 @@ export class TrackedEmbedder implements Embedder {
 
 export interface PolicyCall {
   t: number;
+  /** Virtual clock (ms) at which the loop ticked the policy — the END of
+   *  the turn's pipeline (after STT + LLM), where `t` is the audio second
+   *  the turn closed. The gap between the two is the LLM tier's lag. */
+  atMs: number;
   events: VectorEvent[];
   /** Highest raw event level handed to the policy this call (0 when the
    *  turn wasn't the coached user's). */
@@ -346,8 +350,9 @@ export interface PolicyCall {
 
 /** A NudgePolicy that records every call — the loop only reports the
  *  hysteresis-filtered events, but scoring against `expected_nudges` needs
- *  the per-turn escalation level too. */
-export function recordingPolicy(inner: NudgePolicy): NudgePolicy & { log: PolicyCall[] } {
+ *  the per-turn escalation level too. `now` stamps each call with the
+ *  virtual clock (NaN when not supplied). */
+export function recordingPolicy(inner: NudgePolicy, now: () => number = () => NaN): NudgePolicy & { log: PolicyCall[] } {
   const log: PolicyCall[] = [];
   const spy = Object.create(inner) as NudgePolicy & { log: PolicyCall[] };
   spy.log = log;
@@ -355,6 +360,7 @@ export function recordingPolicy(inner: NudgePolicy): NudgePolicy & { log: Policy
     const emitted = inner.onEvents(events, t);
     log.push({
       t,
+      atMs: now(),
       events,
       rawLevel: events.reduce((m, e) => Math.max(m, e.level), 0),
       emitted,
