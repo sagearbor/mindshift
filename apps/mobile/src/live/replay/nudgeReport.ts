@@ -51,6 +51,9 @@ import {
   type NudgeEvent,
   type VectorEvent,
 } from "../nudgePolicy";
+import { vocabularyForCode } from "../nudgeVocabulary";
+import { POSITIVE_CAP_S } from "../nudgeVocabulary";
+import type { CalmStreak } from "../positiveNudges";
 import type { ReplayScript } from "./meta";
 import { matchLoopTurns, median, type NudgeOutcome } from "./score";
 import type { ReplayResult } from "./sceneReplay";
@@ -129,7 +132,25 @@ export interface FragmentRow {
   scriptTurn: number | null;
   nudges: NudgeRow[];
   haptics: HapticRow[];
+  /** The positives this turn earned (delivered or cap-dropped). */
+  positives: PositiveRow[];
   earpiece: EarpieceLane;
+}
+
+/** 💚 One thing the user did WELL (positiveNudges.ts), as the replay saw it. */
+export interface PositiveRow {
+  code: string;
+  icon: string;
+  name: string;
+  /** Audio second the detection landed on. */
+  t: number;
+  /** Virtual clock at delivery. */
+  atMs: number;
+  loopTurn: number;
+  scriptTurn: number | null;
+  /** False when the two-minute cap dropped it — detected, never felt. */
+  delivered: boolean;
+  detail: string;
 }
 
 /** ⌚ One watch escalation (buzz) or decay (face only). */
@@ -234,6 +255,15 @@ export interface SceneScorecard {
     /** Segment end → first spoken word, over the coached user's turns. */
     nudgeToSpeakMs: Stat | null;
   };
+  /** 💚 What the user did well: per-code counts of the positives that were
+   *  actually DELIVERED, how many the two-minute cap withheld, and 🧘's
+   *  longest quiet run. */
+  positives: {
+    delivered: Record<string, number>;
+    suppressed: number;
+    calmStreakS: number;
+    calmBadge: boolean;
+  };
   watch: {
     buzzes: number;
     byVector: Record<string, number>;
@@ -257,6 +287,10 @@ export interface NudgeReport {
   extraFragments: FragmentRow[];
   nudges: NudgeRow[];
   haptics: HapticRow[];
+  /** Every positive DETECTION, cap-dropped ones included. */
+  positives: PositiveRow[];
+  /** 🧘 the longest run of the session with no alert escalation. */
+  calm: CalmStreak;
   callMode: VectorEvent[];
   watch: WatchLane;
   scorecard: SceneScorecard;
@@ -344,6 +378,13 @@ export function firstWords(text: string, n = 8): string {
   return words.length <= n ? words.join(" ") : `${words.slice(0, n).join(" ")}…`;
 }
 
+/** Tally a list of strings — {"E": 2, "D": 1}, in first-seen order. */
+function countBy(codes: string[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const c of codes) out[c] = (out[c] ?? 0) + 1;
+  return out;
+}
+
 function stat(xs: number[]): Stat | null {
   if (xs.length === 0) return null;
   return { min: Math.min(...xs), median: median(xs), max: Math.max(...xs), n: xs.length };
@@ -396,7 +437,32 @@ export function buildNudgeReport(r: ReplayResult, generatedAt = new Date().toISO
   // is the instant loudness tier, which fires between the previous turn's
   // policy tick and its own — so its turn is the first policy call at or
   // after the buzz.
-  const haptics: HapticRow[] = r.hapticLog.map((h) => {
+  // Positives ride the same haptic sink on the device but are a different
+  // lane entirely: they are soft, unleveled and capped, and pinning them
+  // against the alert policy's escalations would be nonsense.
+  const alertLog = r.hapticLog.filter((h) => {
+    const entry = h.code ? vocabularyForCode(h.code) : null;
+    return entry?.polarity !== "positive";
+  });
+  // --- 💚 positives ----------------------------------------------------------
+  // What the user did WELL. Every detection is listed, cap-dropped ones
+  // included, so a reader can see the praise the two-minute cap withheld.
+  const positives: PositiveRow[] = r.positives.map((pos) => {
+    const entry = vocabularyForCode(pos.code);
+    return {
+      code: pos.code,
+      icon: entry?.icon ?? "?",
+      name: entry?.name ?? pos.code,
+      t: r3(pos.t),
+      atMs: pos.atMs,
+      loopTurn: pos.turnIndex,
+      scriptTurn: loopToScript[pos.turnIndex] ?? null,
+      delivered: pos.delivered,
+      detail: pos.detail,
+    };
+  });
+
+  const haptics: HapticRow[] = alertLog.map((h) => {
     const policyMatch = r.nudgeLog.find((n) => n.atMs === h.atMs && n.level === h.level && n.vectors.length > 0);
     if (policyMatch) {
       const loopTurn = loopByEnd(policyMatch.t);
@@ -464,6 +530,7 @@ export function buildNudgeReport(r: ReplayResult, generatedAt = new Date().toISO
       scriptTurn: loopToScript[i],
       nudges: nudges.filter((n) => n.loopTurn === i),
       haptics: haptics.filter((h) => h.loopTurn === i),
+      positives: positives.filter((pos) => pos.loopTurn === i),
       earpiece: earpieceLane(lt, i, nudges, haptics),
     };
   });
@@ -561,6 +628,12 @@ export function buildNudgeReport(r: ReplayResult, generatedAt = new Date().toISO
     instantBeforePolicy,
     policyLagMs: stat(nudges.filter((n) => !n.decay).map((n) => n.lagMs)),
     attribution: { correct: a.correct, total: a.total, selfCorrect: a.selfCorrect, selfTotal: a.selfTotal },
+    positives: {
+      delivered: countBy(positives.filter((pos) => pos.delivered).map((pos) => pos.code)),
+      suppressed: positives.filter((pos) => !pos.delivered).length,
+      calmStreakS: r1(r.calm.longestS),
+      calmBadge: r.calm.badge,
+    },
     callModeInterrupting: callMode.length,
     activationProbed: activations.length,
     activationMaxProbability: activations.length ? Math.max(...activations.map((x) => x.probability)) : null,
@@ -600,6 +673,8 @@ export function buildNudgeReport(r: ReplayResult, generatedAt = new Date().toISO
     extraFragments: fragments.filter((f) => f.scriptTurn === null),
     nudges,
     haptics,
+    positives,
+    calm: r.calm,
     callMode,
     watch,
     scorecard,
@@ -704,6 +779,23 @@ export function gateFailures(report: NudgeReport, gate: NudgeGate): string[] {
       .map((h) => `L${h.level}@${h.atSec.toFixed(2)}s`);
     out.push(`${s.scene}: instant haptic did not precede the LLM tier: ${late.join(", ") || "(ordering)"}`);
   }
+  // 💚 positives: soft, unleveled, and never more often than the cap allows —
+  // praise on a loop is its own nag, and that is the one way a positive can
+  // do harm.
+  const delivered = report.positives.filter((pos) => pos.delivered);
+  for (let i = 1; i < delivered.length; i++) {
+    const gapS = delivered[i].t - delivered[i - 1].t;
+    if (gapS < POSITIVE_CAP_S) {
+      out.push(
+        `${s.scene}: positives ${delivered[i - 1].code}@${delivered[i - 1].t.toFixed(1)}s and ${delivered[i].code}@${delivered[i].t.toFixed(1)}s are ${gapS.toFixed(1)}s apart, under the ${POSITIVE_CAP_S}s cap`,
+      );
+    }
+  }
+  const unknown = report.positives.filter((pos) => vocabularyForCode(pos.code)?.polarity !== "positive");
+  if (unknown.length) {
+    out.push(`${s.scene}: ${unknown.length} positive row(s) carry a non-positive code: ${unknown.map((pos) => pos.code).join(", ")}`);
+  }
+
   const offSelf = report.watch.buzzes.filter((b) => !b.onSelfTurn);
   if (offSelf.length) {
     out.push(`${s.scene}: watch lane buzzed on a non-self turn: ${offSelf.map((b) => `L${b.level}[${b.vectors.join(",")}]@${b.t.toFixed(2)}s`).join(", ")}`);
@@ -915,7 +1007,14 @@ function sceneTimelineSvg(rep: NudgeReport): string {
   for (const b of rep.watch.decays) {
     parts.push(`<text class="mark" x="${(x(b.t) - 6).toFixed(1)}" y="${yWatch}" opacity=".5"><title>watch face decay to L${b.level}</title>↓</text>`);
   }
-  parts.push(`<text class="tick" x="0" y="10">🎧 row: ⚡ instant haptic · 🗣️ spoken nudge line · 🧠 on-screen nudge · ↓ decay &nbsp; ⌚ row: wrist buzz &nbsp; lanes: ⟂ call-mode steamroll · ✓/✗/FP verdicts · light dash = script, dark = loop (blue = coached as you)</text>`);
+  // 💚 positives ride the 🎧 row: they are felt in the same place, and seeing
+  // them next to the complaints is the whole point of the lane.
+  for (const pos of rep.positives) {
+    const suppressed = pos.delivered ? "" : ' opacity=".35"';
+    const why = pos.delivered ? "" : " — DETECTED but withheld by the 2-minute cap";
+    parts.push(`<text class="mark" x="${(x(pos.t) - 6).toFixed(1)}" y="${yEar}"${suppressed}><title>${escapeHtml(pos.name)} (${pos.code}) at ${pos.t.toFixed(2)}s: ${escapeHtml(pos.detail)}${why}</title>${pos.icon}</text>`);
+  }
+  parts.push(`<text class="tick" x="0" y="10">🎧 row: ⚡ instant haptic · 🗣️ spoken nudge line · 🧠 on-screen nudge · ↓ decay · 📉👂🤝 positives (faded = withheld by the cap) &nbsp; ⌚ row: wrist buzz &nbsp; lanes: ⟂ call-mode steamroll · ✓/✗/FP verdicts · light dash = script, dark = loop (blue = coached as you)</text>`);
   parts.push("</svg></div>");
   return parts.join("");
 }
@@ -950,6 +1049,16 @@ function earpieceCell(f: FragmentRow): string {
   return bits.join("<br>");
 }
 
+/** 💚 cell: the positives this fragment earned, faded when the cap withheld them. */
+function positiveCell(rows: PositiveRow[]): string {
+  return rows
+    .map(
+      (pos) =>
+        `<span title="${escapeHtml(pos.detail)}${pos.delivered ? "" : " — withheld by the 2-minute cap"}"${pos.delivered ? "" : ' style="opacity:.45"'}>${pos.icon} <b>${escapeHtml(pos.name)}</b>@${pos.t.toFixed(1)}s</span>`,
+    )
+    .join("<br>");
+}
+
 function watchCell(buzzes: WatchBuzz[]): string {
   return buzzes.map((b) => `<b>⌚L${b.level}</b>[${b.vectors.join(",")}]@${b.t.toFixed(2)}s${b.onSelfTurn ? "" : ' <span class="bad">not you!</span>'}`).join("<br>");
 }
@@ -958,24 +1067,24 @@ function fragmentRows(t: TurnRow, watch: WatchLane): string {
   return t.fragments
     .map((f) => {
       const wb = watch.buzzes.filter((b) => b.loopTurn === f.index);
-      return `<tr class="frag"><td>↳${f.index}</td><td>${escapeHtml(f.label)}${f.coachedAsSelf ? " ★" : ""}${f.kind === "backchannel" ? " (backchannel)" : ""}</td><td>${f.start.toFixed(2)}–${f.end.toFixed(2)}</td><td class="txt">${escapeHtml(f.text)}${f.transcriptFinal ? "" : " <i>(interim)</i>"}</td><td>${fmt.db(f.dbOverBaseline)}</td><td>${levelCell(f.instantLevel)}</td><td>${f.coachedAsSelf ? levelCell(f.toneLevel) : "·"}</td><td>${f.activation ? `${fmt.pct(f.activation.probability)} ${f.activation.level ? `L${f.activation.level}` : ""}` : "–"}</td><td>${f.overlap ? `${f.overlap.mixedSeconds.toFixed(1)}s / run ${f.overlap.longestMixedRunSeconds.toFixed(1)}s` : "–"}</td><td>${f.policy ? `${f.policy.rawLevel}→${f.policy.levelAfter}` : "–"}</td><td>${earpieceCell(f)}</td><td>${watchCell(wb)}</td><td></td></tr>`;
+      return `<tr class="frag"><td>↳${f.index}</td><td>${escapeHtml(f.label)}${f.coachedAsSelf ? " ★" : ""}${f.kind === "backchannel" ? " (backchannel)" : ""}</td><td>${f.start.toFixed(2)}–${f.end.toFixed(2)}</td><td class="txt">${escapeHtml(f.text)}${f.transcriptFinal ? "" : " <i>(interim)</i>"}</td><td>${fmt.db(f.dbOverBaseline)}</td><td>${levelCell(f.instantLevel)}</td><td>${f.coachedAsSelf ? levelCell(f.toneLevel) : "·"}</td><td>${f.activation ? `${fmt.pct(f.activation.probability)} ${f.activation.level ? `L${f.activation.level}` : ""}` : "–"}</td><td>${f.overlap ? `${f.overlap.mixedSeconds.toFixed(1)}s / run ${f.overlap.longestMixedRunSeconds.toFixed(1)}s` : "–"}</td><td>${f.policy ? `${f.policy.rawLevel}→${f.policy.levelAfter}` : "–"}</td><td>${earpieceCell(f)}</td><td>${watchCell(wb)}</td><td>${positiveCell(f.positives)}</td><td></td></tr>`;
     })
     .join("");
 }
 
 function turnTable(rep: NudgeReport): string {
-  const head = `<tr><th>#</th><th>who</th><th>when</th><th>words</th><th title="dB over your own running baseline">dB over</th><th title="instant loudness tier level">⚡lvl</th><th title="text-tone level from the LLM's frustration/defensiveness">🧠tone</th><th title="vocal activation probability (dark)">⚡% dark</th><th title="single-mic overlap probe: mixed-voice seconds (dark)">⟂ dark</th><th title="policy raw level → level held after">policy</th><th title="what you would feel in the earpiece / on the phone: instant haptic, screen nudge, spoken line">🎧 earpiece</th><th title="what the wrist would buzz (acoustic-only policy run)">⌚ watch</th><th title="call-mode equivalent: interruptingEvents over the ground-truth timings">⟂ call</th></tr>`;
+  const head = `<tr><th>#</th><th>who</th><th>when</th><th>words</th><th title="dB over your own running baseline">dB over</th><th title="instant loudness tier level">⚡lvl</th><th title="text-tone level from the LLM's frustration/defensiveness">🧠tone</th><th title="vocal activation probability (dark)">⚡% dark</th><th title="single-mic overlap probe: mixed-voice seconds (dark)">⟂ dark</th><th title="policy raw level → level held after">policy</th><th title="what you would feel in the earpiece / on the phone: instant haptic, screen nudge, spoken line">🎧 earpiece</th><th title="what the wrist would buzz (acoustic-only policy run)">⌚ watch</th><th title="what you did well: D de-escalated, E listened, R repair (faded = withheld by the 2-minute cap)">💚 well</th><th title="call-mode equivalent: interruptingEvents over the ground-truth timings">⟂ call</th></tr>`;
   const rows = rep.turns
     .map((t) => {
       const call = t.callMode.map((e) => `L${e.level} ${e.value}s`).join(" ");
       const who = `${escapeHtml(t.speaker)}${t.isSelf ? " (you)" : ""}${t.attributionOk ? "" : ` <span class="warn" title="loop heard ${escapeHtml(t.predicted ?? "nobody")}">≠${escapeHtml(t.predicted ?? "?")}</span>`}`;
       const lane = t.watchLevel > 0 && t.earpieceLevel === 0 ? '<br><span class="warn">⌚ only</span>' : t.earpieceLevel > 0 && t.watchLevel === 0 ? '<br><span class="warn">🎧 only</span>' : "";
-      const main = `<tr class="${t.isSelf ? "self" : ""}"><td><b>${t.index}</b></td><td>${who}</td><td>${t.start.toFixed(1)}–${t.end.toFixed(1)}</td><td class="txt">${escapeHtml(t.text)}${t.emotion ? ` <span style="opacity:.6">[${escapeHtml(t.emotion)}]</span>` : ""}</td><td>${fmt.db(t.dbOverBaselineMax)}</td><td>${levelCell(t.instantLevelMax)}</td><td>${levelCell(t.toneLevelMax)}</td><td>${t.activationMax ? fmt.pct(t.activationMax.probability) : "–"}</td><td>${t.overlapMax ? `${t.overlapMax.mixedSeconds.toFixed(1)}s` : "–"}</td><td>${t.level}${t.verdict !== "quiet" ? `<br>${verdictCell(t.verdict, t.expected)}` : ""}</td><td>${t.earpieceLevel ? `<b>L${t.earpieceLevel}</b>` : "·"}${lane}</td><td>${t.watchLevel ? `<b>L${t.watchLevel}</b>` : "·"}</td><td>${call || (t.isSelf ? "·" : "")}</td></tr>`;
+      const main = `<tr class="${t.isSelf ? "self" : ""}"><td><b>${t.index}</b></td><td>${who}</td><td>${t.start.toFixed(1)}–${t.end.toFixed(1)}</td><td class="txt">${escapeHtml(t.text)}${t.emotion ? ` <span style="opacity:.6">[${escapeHtml(t.emotion)}]</span>` : ""}</td><td>${fmt.db(t.dbOverBaselineMax)}</td><td>${levelCell(t.instantLevelMax)}</td><td>${levelCell(t.toneLevelMax)}</td><td>${t.activationMax ? fmt.pct(t.activationMax.probability) : "–"}</td><td>${t.overlapMax ? `${t.overlapMax.mixedSeconds.toFixed(1)}s` : "–"}</td><td>${t.level}${t.verdict !== "quiet" ? `<br>${verdictCell(t.verdict, t.expected)}` : ""}</td><td>${t.earpieceLevel ? `<b>L${t.earpieceLevel}</b>` : "·"}${lane}</td><td>${t.watchLevel ? `<b>L${t.watchLevel}</b>` : "·"}</td><td>${positiveCell(rep.positives.filter((pos) => pos.scriptTurn === t.index))}</td><td>${call || (t.isSelf ? "·" : "")}</td></tr>`;
       return main + fragmentRows(t, rep.watch);
     })
     .join("");
   const extra = rep.extraFragments.length
-    ? `<tr><td colspan="13" style="color:var(--muted)">${rep.extraFragments.length} loop turn(s) outside every scripted turn: ${rep.extraFragments.map((f) => `#${f.index} ${f.start.toFixed(1)}–${f.end.toFixed(1)} ${escapeHtml(f.label)}`).join("; ")}</td></tr>`
+    ? `<tr><td colspan="14" style="color:var(--muted)">${rep.extraFragments.length} loop turn(s) outside every scripted turn: ${rep.extraFragments.map((f) => `#${f.index} ${f.start.toFixed(1)}–${f.end.toFixed(1)} ${escapeHtml(f.label)}`).join("; ")}</td></tr>`
     : "";
   return `<div class="scroll"><table>${head}${rows}${extra}</table></div><div style="font-size:12px;color:var(--muted)">★ = the loop coached this fragment as you · ↳ rows are the loop's own turns (the segmenter cuts scripted turns at 300 ms pauses) · dB over = loudness over your own running median · ⚡% and ⟂ are dark probes (measured, never buzzing) · 🗣️ = nudge line spoken to you, 💬 = a response suggested on someone else's turn</div>`;
 }
@@ -996,17 +1105,57 @@ function scorecardHtml(rep: NudgeReport, gate: NudgeGate | null): string {
     `${tag("🎧", "🗣️", "🧠", "📱")} <b>LLM-tier nudge lag</b> (turn end → emission): ${fmt.stat(s.policyLagMs)} · policy-tier haptics ${s.policyHaptics}`,
     `${tag("📱", "📳", "🧠", "☁️")} <b>Call-mode equivalent (steamroll)</b>: ${s.callModeInterrupting} interrupting event(s) from the ground-truth timings${s.callModeInterrupting === 0 ? " — no self turn starts inside another turn and lasts ≥ 2 s" : ""}`,
     `${tag("📱", "👓", "⚡", "📱")} <b>Dark probes</b>: activation measured on ${s.activationProbed} fragment(s)${s.activationMaxProbability !== null ? `, max ${fmt.pct(s.activationMaxProbability)}` : ""} · overlap probe on ${s.overlapProbed} long self turn(s)${s.overlapMaxMixedSeconds !== null ? `, max mixed ${s.overlapMaxMixedSeconds.toFixed(1)} s` : ""}`,
+    positivesLine(rep),
+    ...(missLine(rep) ? [missLine(rep) as string] : []),
     `${tag("📱", "📝", "⚡", "📱")} <b>Who is who</b>: ${s.attribution.correct}/${s.attribution.total} turns, self ${s.attribution.selfCorrect}/${s.attribution.selfTotal} · enrolled: ${escapeHtml(s.enrolled)} · loop turns ${s.loopTurns} (${s.coachedFragments} coached as you) for ${s.scriptTurns} scripted`,
     `${tag("🎧", "🗣️", "🧠", "📱")} <b>Never talks over you</b>: spoken over live speech ${s.spokenOverSpeech === 0 ? '<span class="ok">0</span>' : `<span class="bad">${s.spokenOverSpeech}</span>`}`,
   ];
   return `<ul class="feat">${items.map((i) => `<li>${i}</li>`).join("")}</ul>${fails.length ? `<div class="bad">Gate failures:<br>${fails.map(escapeHtml).join("<br>")}</div>` : ""}`;
 }
 
+/**
+ * A line for every expected nudge that did NOT fire, with the reason visible
+ * from the report's own numbers. A miss is the failure a user actually
+ * notices — "I shouted and it said nothing" — so it gets its own line rather
+ * than a number in a row of counts.
+ */
+function missLine(rep: NudgeReport): string | null {
+  const missed = rep.turns.filter((t) => t.verdict === "miss");
+  if (!missed.length) return null;
+  const parts = missed.map((t) => {
+    const why = t.isSelf && t.fragments.length && t.fragments.every((f) => !f.coachedAsSelf)
+      ? "the loop did not recognise this as YOUR voice"
+      : t.instantLevelMax === 0 && t.toneLevelMax === 0
+        ? "neither loudness nor text tone crossed a rung"
+        : "the policy held the level it was already at";
+    return `#${t.index} ${escapeHtml(t.speaker)} “${escapeHtml(firstWords(t.text, 6))}” (${escapeHtml(t.expected ?? "?")}) — ${why}`;
+  });
+  return `${tag("📱", "📳", "🧠", "📱")} <b class="bad">Expected but never fired</b>: ${parts.join(" · ")}`;
+}
+
+/** 💚 The other half of the coach: what the user did WELL. Reads the same way
+ *  whether nothing was earned (which is itself a finding) or several were. */
+function positivesLine(rep: NudgeReport): string {
+  const p = rep.scorecard.positives;
+  const delivered = rep.positives.filter((pos) => pos.delivered);
+  const detail = delivered.length
+    ? delivered
+        .map((pos) => `${pos.icon} <b>${escapeHtml(pos.name)}</b>@${pos.t.toFixed(1)}s <span style="opacity:.7">(${escapeHtml(pos.detail)})</span>`)
+        .join(" · ")
+    : "nothing earned — no recovery, no long turn let run, no repair that landed";
+  const withheld = p.suppressed
+    ? ` · <span class="warn">${p.suppressed} more detected but withheld</span> (one positive per ${POSITIVE_CAP_S / 60} min, so praise never becomes its own nag)`
+    : "";
+  const calm = `🧘 longest calm streak ${fmt.s(p.calmStreakS)}${p.calmBadge ? ' <span class="ok">badge</span>' : " (no badge — under 5 min)"}`;
+  return `${tag("📱", "📳", "🧠", "📱")} <b>Positives — what you did well</b>: ${detail}${withheld} · ${calm}`;
+}
+
 export function renderSceneSection(rep: NudgeReport, gate: NudgeGate | null, open = true): string {
   const s = rep.scorecard;
   const fails = gate ? gateFailures(rep, gate) : [];
   const color = gate ? (fails.length ? "var(--bad)" : "var(--done)") : "var(--todo)";
-  const right = `hit ${s.hits}/${s.expected} · fp ${s.falsePositives} · 🎧 ${s.earpiece.instantHaptics + s.earpiece.screenNudges} · ⌚ ${s.watch.buzzes}`;
+  const earned = rep.positives.filter((pos) => pos.delivered).length;
+  const right = `hit ${s.hits}/${s.expected} · fp ${s.falsePositives} · 🎧 ${s.earpiece.instantHaptics + s.earpiece.screenNudges} · ⌚ ${s.watch.buzzes} · 💚 ${earned}`;
   return `<details${open ? " open" : ""}><summary><span class="dot" style="background:${color}"></span><span class="t">${tag("📱", "📳", "🧠", "📱")} ${escapeHtml(rep.scene)} <span style="font-weight:400;color:var(--muted)">${rep.mode} · ${fmt.s(rep.durationSec)} · you = ${escapeHtml(rep.selfSpeaker ?? "–")}</span></span><span class="d">${right}</span></summary>
 <div class="body">
 ${sceneTimelineSvg(rep)}

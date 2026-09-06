@@ -26,6 +26,8 @@ import { SileroVad, EnergyVad, type FrameVad } from "../vad";
 import { EcapaEmbedder, SpeakerLabeler, type Embedder } from "../speakerId";
 import { cloudProvider, ProviderChain, type LiveMode } from "../localLlm";
 import { phoneNudgePolicy, type NudgeEvent } from "../nudgePolicy";
+import { vocabularyForCode } from "../nudgeVocabulary";
+import type { CalmStreak, PositiveNudge } from "../positiveNudges";
 import type { OnnxSessionFactory } from "../ort";
 import type { TurnLocalEvent } from "../types";
 import { int16ToFloat32, readWav16kMono } from "./wav";
@@ -241,12 +243,22 @@ export interface HapticFire {
   atMs: number;
   /** The same instant on the audio timeline (seconds). */
   atSec: number;
+  /** The nudge-vocabulary code the loop asked for ("H", "C", "A" for an
+   *  alert; "D", "E", "R" for a positive), or null when it asked for a plain
+   *  level. Positives ride the same sink but are a different lane — the
+   *  scene invariants and the report split on this. */
+  code: string | null;
 }
 
 /** A NudgeEvent plus the virtual clock at which the loop emitted it
  *  (`t` is the audio second the turn closed; `atMs` is when the words and
  *  the tone were in — the LLM tier's latency is the difference). */
 export interface NudgeEmission extends NudgeEvent {
+  atMs: number;
+}
+
+/** A positive nudge plus the virtual clock at which the loop delivered it. */
+export interface PositiveEmission extends PositiveNudge {
   atMs: number;
 }
 
@@ -261,8 +273,18 @@ export interface ReplayResult {
   sent: TurnLocalEvent[];
   spoken: SpokenLine[];
   nudges: NudgeEvent[];
+  /** ALERT haptic levels, in order — the lane the scene invariants pin
+   *  against the policy's escalations. */
   haptics: number[];
   hapticLog: HapticFire[];
+  /** The soft cues the four POSITIVE codes earned (the ones the two-minute
+   *  cap let through). */
+  positiveHaptics: HapticFire[];
+  /** Every positive DETECTION, cap-dropped ones included (`delivered:
+   *  false`) — what the user nearly felt. */
+  positives: PositiveEmission[];
+  /** 🧘 the longest run of the session with no alert escalation. */
+  calm: CalmStreak;
   nudgeLog: NudgeEmission[];
   policyLog: PolicyCall[];
   latencyLog: TurnLatency[];
@@ -335,6 +357,8 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
   const nudges: NudgeEvent[] = [];
   const haptics: number[] = [];
   const hapticLog: HapticFire[] = [];
+  const positiveHaptics: HapticFire[] = [];
+  const positives: PositiveEmission[] = [];
   const nudgeLog: NudgeEmission[] = [];
 
   const loop: FastLoop = new FastLoop({
@@ -351,11 +375,17 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
       nudgeLog.push({ ...n, atMs: clock.now() });
     },
     haptics: {
-      nudge: async (level) => {
-        haptics.push(level);
-        hapticLog.push({ level, atMs: clock.now(), atSec: clock.now() / 1000 });
+      nudge: async (level, code) => {
+        const entry = code ? vocabularyForCode(code) : null;
+        const fire: HapticFire = { level, atMs: clock.now(), atSec: clock.now() / 1000, code: code ?? null };
+        // Alerts and positives share one sink on the device; the scene
+        // invariants and the report treat them as separate lanes.
+        if (entry?.polarity === "positive") positiveHaptics.push(fire);
+        else haptics.push(level);
+        hapticLog.push(fire);
       },
     },
+    onPositiveNudge: (n) => positives.push({ ...n, atMs: clock.now() }),
     policy,
     // The scripted provider repeats lines a real LLM would vary; the
     // repeat-gate is measured directly in liveFastLoop, not here.
@@ -424,6 +454,9 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
     nudges,
     haptics,
     hapticLog,
+    positiveHaptics,
+    positives,
+    calm: loop.positiveSummary(scene.pcm.length / 16000).calm,
     nudgeLog,
     policyLog: policy.log,
     latencyLog: summary.latencyLog,

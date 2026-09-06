@@ -33,8 +33,9 @@ import {
   type ReplayResult,
   type SceneInput,
 } from "../src/live/replay/sceneReplay";
-import { SCENE_PACK } from "../src/live/replay/cli";
+import { RAVDESS_SCENE, SCENE_PACK } from "../src/live/replay/cli";
 import { parseSceneMeta } from "../src/live/replay/meta";
+import { cosine, CROSS_MATCH_THRESHOLD, MATCH_THRESHOLD } from "../src/live/speakerId";
 import {
   buildNudgeReport,
   callModeInterrupting,
@@ -47,6 +48,17 @@ import {
 
 const ecapaPath = findEcapaModel();
 const maybe = ecapaPath ? describe : describe.skip;
+
+/**
+ * The RAVDESS scene lives in tmp/, never in the repo: its source corpus is
+ * CC BY-NC-SA 4.0 (non-commercial, share-alike), so a derivative WAV must not
+ * sit inside a commercial product tree. Rebuild it in a few seconds with
+ * `python scripts/make_ravdess_scene.py`; without it this one test skips
+ * honestly, exactly like the whole file does without the ECAPA model.
+ */
+const RAVDESS_WAV = path.join(REPO_ROOT, "tmp", "ravdess-scene", `test_recording_${RAVDESS_SCENE}.wav`);
+const ravdessWav = fs.existsSync(RAVDESS_WAV) ? RAVDESS_WAV : null;
+const withRavdess = ravdessWav ? it : it.skip;
 
 const WRITE = process.env.MINDSHIFT_NUDGE_REPORT !== "0" && !process.env.CI;
 const OUT_DIR = process.env.MINDSHIFT_NUDGE_REPORT_DIR ?? path.join(REPO_ROOT, "tmp");
@@ -77,6 +89,9 @@ export function pinnedHitsFromScenesTest(src: string, scenes: string[]): Record<
   return out;
 }
 
+/** The positive half of the vocabulary — K never reaches a haptic sink. */
+const POSITIVE_CODES = ["D", "E", "R"];
+
 const PINNED = pinnedHitsFromScenesTest(fs.readFileSync(path.join(__dirname, "replay.scenes.test.ts"), "utf8"), SCENE_PACK);
 
 /**
@@ -94,9 +109,20 @@ const FAMILY_REAL_NUDGES = [
   { afterTurnIndex: 6, level: "mild" as const, reason: "owner raises his voice (+6.2 dB over baseline) while saying 'I'm arguing now'" },
 ];
 
+/**
+ * The RAVDESS scene's ground truth is in its OWN meta (written by
+ * scripts/make_ravdess_scene.py from the corpus's per-clip labels), so unlike
+ * family_real nothing has to be restated here — `expected_nudges` and
+ * `expected_positive_nudges` both come off disk.
+ */
 const GATES: Record<string, NudgeGate> = {
   ...Object.fromEntries(SCENE_PACK.map((s) => [s, { minHits: PINNED[s] }])),
   family_real: { minHits: FAMILY_REAL_NUDGES.length },
+  // 0, not 1: the shout this fixture exists for is a DOCUMENTED MISS today —
+  // the loop does not recognise the coached user while they are shouting. The
+  // test below measures exactly why, and asserts the miss, so the day that is
+  // fixed this file fails loudly instead of silently passing at a weaker bar.
+  [RAVDESS_SCENE]: { minHits: 0 },
 };
 
 describe("nudge report: pure pieces", () => {
@@ -133,6 +159,7 @@ maybe("nudge verification from recorded files (real Silero + ECAPA, scripted STT
     for (const n of SCENE_PACK) scenes[n] = loadScene(n);
     scenes.family_real = loadScene("family_real", { selfSpeaker: "Sage", expectedNudges: FAMILY_REAL_NUDGES });
     expect(scenes.family_real.script.expectedNudges).toHaveLength(GATES.family_real.minHits);
+    if (ravdessWav) scenes[RAVDESS_SCENE] = loadScene(ravdessWav);
   }, 60_000);
 
   afterAll(() => {
@@ -191,6 +218,17 @@ maybe("nudge verification from recorded files (real Silero + ECAPA, scripted STT
     expect(rep.watch.allOnSelfTurns).toBe(true);
     // 🎧 Every instant haptic is on the earpiece lane of exactly one fragment.
     expect(rep.turns.flatMap((t) => t.fragments).filter((f) => f.earpiece.instantHaptic).length + rep.extraFragments.filter((f) => f.earpiece.instantHaptic).length).toBe(s.instantHaptics);
+    // 💚 Positives are a separate lane on the same sink: every DELIVERED one
+    // has a soft cue behind it, none is leveled, and each is reported.
+    expect(rep.positives.filter((p) => p.delivered).length).toBe(r.positiveHaptics.length);
+    for (const h of r.positiveHaptics) {
+      expect(h.level).toBe(1);
+      expect(POSITIVE_CODES).toContain(h.code);
+    }
+    expect(rep.positives.every((p) => p.detail.length > 0)).toBe(true);
+    expect(
+      Object.values(s.positives.delivered).reduce((a, b) => a + b, 0) + s.positives.suppressed,
+    ).toBe(rep.positives.length);
     return rep;
   };
 
@@ -205,6 +243,93 @@ maybe("nudge verification from recorded files (real Silero + ECAPA, scripted STT
     const rep = gateScene(await replayScene(scenes.scene_family3, { mode: "earpiece", models, enrollFrom: pool("scene_family3") }));
     expect(rep.turns[9].verdict).toBe("hit");
     expect(rep.turns[7].level).toBe(0);
+  }, 120_000);
+
+  withRavdess("scene_ravdess_pair / earpiece: REAL voices — a 15 s turn the user lets run (E) and the recovery after the shout (D); the shout itself is the DOCUMENTED MISS, and this measures exactly why", async () => {
+    // The one fixture with a real dynamic range and a real long turn.
+    // Replayed WITHOUT the TTS pack's enrollment pool: these are different
+    // human beings, so the loop has to find them from this recording alone.
+    const r = await replayScene(scenes[RAVDESS_SCENE], { mode: "earpiece", models, enrollFrom: [] });
+    const rep = gateScene(r);
+    const meta = JSON.parse(
+      fs.readFileSync(RAVDESS_WAV.replace(/\.wav$/, "_meta.json"), "utf8"),
+    ) as {
+      measured: { angry_spike_db_over_baseline: number; longest_partner_turn_sec: number };
+      expected_positive_nudges: { code: string }[];
+    };
+    // The two properties no TTS scene has, asserted from the fixture's own
+    // measurements so a regenerated fixture cannot quietly lose them.
+    expect(meta.measured.angry_spike_db_over_baseline).toBeGreaterThan(14);
+    expect(meta.measured.longest_partner_turn_sec).toBeGreaterThanOrEqual(12);
+
+    // ---------------------------------------------------------------------
+    // THE DOCUMENTED MISS (2026-09-06). The loudest moment in the recording —
+    // a real +28 dB shout — raises NO nudge, because the loop does not
+    // recognise the coached user while they are shouting. Not a threshold to
+    // nudge down: see the measurement below.
+    // ---------------------------------------------------------------------
+    const shout = rep.turns.find((t) => t.expected === "strong")!;
+    expect(shout.verdict).toBe("miss");
+    expect(shout.isSelf).toBe(true);
+    // …and the loop put it on somebody else's lane entirely:
+    expect(shout.fragments.every((f) => !f.coachedAsSelf)).toBe(true);
+    expect(rep.scorecard.falsePositives).toBe(0);
+
+    // WHY, measured here so the diagnosis can never go stale. A shouted turn
+    // sits at ~0.36 cosine to the same person's calm print — far below the
+    // 0.65 absolute bar and even below the 0.40 contrast bar — while calm
+    // turns sit at ~0.9. It is still an order of magnitude closer to the user
+    // than to the other speaker (~0.05), so the information IS there; what
+    // blocks it is that `identifyClusters` gives each person at most ONE
+    // cluster, and the calm cluster has already taken them. Lowering either
+    // bar to ~0.36 would start attributing strangers' shouting to the user,
+    // which is the one failure a nudge must never make — so the fix is
+    // multi-prototype voiceprints (a person owning a calm AND a raised
+    // cluster), not a threshold change. That is a cross-runtime contract
+    // change (speakerId.ts + server/speaker_id.py + speakerCrossMatch.json)
+    // and is deliberately NOT bundled into this change.
+    const emb = models.embedder!;
+    const scene = scenes[RAVDESS_SCENE];
+    const pcmAt = (a: number, b: number) => scene.pcmF32.subarray(Math.round(a * 16000), Math.round(b * 16000));
+    const selfTurns = scene.script.turns.filter((t) => t.speaker === scene.script.selfSpeaker);
+    const calm = selfTurns.filter((t) => t.emotionCoarse !== "angry");
+    const angry = selfTurns.find((t) => t.emotionCoarse === "angry")!;
+    const calmVecs = await Promise.all(calm.map((t) => emb.embed(pcmAt(t.start, t.end), 16000)));
+    const calmCentroid = new Float32Array(calmVecs[0].length);
+    for (const v of calmVecs) for (let i = 0; i < v.length; i++) calmCentroid[i] += v[i] / calmVecs.length;
+    const shoutVec = await emb.embed(pcmAt(angry.start, angry.end), 16000);
+    const partnerVecs = await Promise.all(
+      scene.script.turns.filter((t) => t.speaker !== scene.script.selfSpeaker).slice(0, 3).map((t) => emb.embed(pcmAt(t.start, t.end), 16000)),
+    );
+    const toSelf = cosine(shoutVec, calmCentroid);
+    const toPartner = Math.max(...partnerVecs.map((v) => cosine(shoutVec, v)));
+    console.log(
+      `ravdess shout identity: cosine to own calm print ${toSelf.toFixed(3)} ` +
+        `(absolute bar ${MATCH_THRESHOLD}, contrast bar ${CROSS_MATCH_THRESHOLD}), to the other speaker ${toPartner.toFixed(3)}; ` +
+        `calm-to-calm ${calmVecs.map((v) => cosine(v, calmCentroid).toFixed(2)).join("/")}`,
+    );
+    expect(toSelf).toBeLessThan(MATCH_THRESHOLD); // the miss
+    expect(toSelf).toBeLessThan(CROSS_MATCH_THRESHOLD); // and the contrast rule can't save it
+    expect(toSelf).toBeGreaterThan(toPartner + 0.2); // but the signal is unambiguous
+    for (const v of calmVecs) expect(cosine(v, calmCentroid)).toBeGreaterThan(0.8);
+
+    // 💚 👂 E works end to end on real voices: a 15 s turn the loop's VAD cut
+    // into six fragments, coalesced back into one turn nobody interrupted.
+    const listened = rep.positives.find((p) => p.code === "E");
+    expect(listened).toBeDefined();
+    expect(listened!.delivered).toBe(true);
+    expect(listened!.detail).toMatch(/1[2-9] s turn finish with no cut-in/);
+
+    // 📉 D is the COLLATERAL DAMAGE of the same identity miss, and worth
+    // stating separately because it is the more expensive half: the fixture's
+    // spec expects a de-escalation right after the shout, and the user really
+    // does go from a +28 dB shout to their quietest turn in the recording —
+    // but a recovery needs a spike to recover FROM, and the spike was filed
+    // under someone else. So one identity failure costs both the nudge that
+    // should have fired AND the credit for pulling it back. Fixing the
+    // voiceprint fixes both, and this assertion flips when it does.
+    expect(meta.expected_positive_nudges.map((p) => p.code).sort()).toEqual(["D", "E"]);
+    expect(rep.positives.map((p) => p.code)).toEqual(["E"]);
   }, 120_000);
 
   it("scene_meeting4 / earpiece: mild@11 hit; strong@13 is the documented miss (the shout does not match the calm print), still no false positive", async () => {

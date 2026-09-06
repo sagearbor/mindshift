@@ -50,6 +50,13 @@ import { TranscriptAligner } from "./stt";
 import type { LiveMode, ProviderChain, TextTone } from "./localLlm";
 import type { HapticSink, NudgeEvent, NudgePolicy, VectorEvent } from "./nudgePolicy";
 import { codeForVectors } from "./nudgeVocabulary";
+import {
+  LivePositiveNudger,
+  type CalmStreak,
+  type PositiveCode,
+  type PositiveNudge,
+  type PositiveTurn,
+} from "./positiveNudges";
 import { aggressiveToneLevel, CoachRepeatGate, LoudnessBaseline, phoneNudgePolicy, yellingLevel } from "./nudgePolicy";
 import { liveTurnKind } from "./naturalTurn";
 import { turnActivationAsync, type TurnActivation } from "./activation";
@@ -153,6 +160,11 @@ export interface FastLoopDeps {
   send: (event: TurnLocalEvent) => void;
   onTurn: (turn: LocalTurn) => void;
   onNudge?: (nudge: NudgeEvent) => void;
+  /** A positive nudge the user EARNED (positiveNudges.ts). Called for every
+   *  detection, including ones the two-minute cap dropped (`delivered:
+   *  false`) — the screen and the report both want to know what was nearly
+   *  felt, and only `delivered` ones buzz. */
+  onPositiveNudge?: (nudge: PositiveNudge) => void;
   /** Called when STT fails after start (so the UI can say so honestly). */
   onSttError?: (code: string, message: string) => void;
   /** A stage fell back mid-session (today: the VAD to the energy rule). */
@@ -270,6 +282,15 @@ export class FastLoop {
   private vadQueue: Promise<void> = Promise.resolve();
   private turnQueue: Promise<void> = Promise.resolve();
   private turns: LocalTurn[] = [];
+  /** The four codes that say what the user did WELL (positiveNudges.ts). Runs
+   *  the SAME function a replay runs over the recorded file, so the nudge
+   *  report cannot claim a behaviour the device does not have. */
+  private positives = new LivePositiveNudger();
+  /** Per-code tally for the session summary. Counts every DETECTION, not
+   *  just the ones that buzzed: the two-minute cap is about not interrupting
+   *  someone twice in a minute, not about hiding what they did. A fight where
+   *  you de-escalated AND repaired should still say both at the end. */
+  private positiveCounts: Record<PositiveCode, number> = { D: 0, E: 0, R: 0 };
   /** The labeler identity revision the past turns were last aligned to. */
   private seenIdentityRevision = 0;
   private held: HeldSpeech | null = null;
@@ -512,6 +533,8 @@ export class FastLoop {
     this.pending = new Float32Array(0);
     this.history = [];
     this.turns = [];
+    this.positives = new LivePositiveNudger();
+    this.positiveCounts = { D: 0, E: 0, R: 0 };
     this.held = null;
     this.lastSpeechEnd = -Infinity;
     this.lastFrameEnd = 0;
@@ -707,6 +730,8 @@ export class FastLoop {
   private emitNudges(nudges: NudgeEvent[], alreadyBuzzedLevel = 0) {
     for (const n of nudges) {
       this.deps.onNudge?.(n);
+      // An escalation (not a decay) is what 🧘 measures the quiet between.
+      if (n.level > 0 && n.vectors.length > 0) this.positives.onAlert(n.t);
       // Screen always; haptic on ESCALATION only — and never re-buzz a level
       // the instant tier already delivered this turn (`alreadyBuzzedLevel`).
       if (n.level > alreadyBuzzedLevel && n.vectors.length > 0 && this.deps.haptics) {
@@ -715,6 +740,67 @@ export class FastLoop {
         void this.deps.haptics.nudge(n.level, codeForVectors(n.vectors)).catch(() => {});
       }
     }
+  }
+
+  /**
+   * Feed one finalized turn to the positive detectors and deliver what it
+   * earned: a soft haptic (the code's own cue) plus the screen, for every
+   * detection the two-minute cap let through. Detections the cap dropped are
+   * still reported with `delivered: false` — the screen shows nothing, but a
+   * replay can show what was nearly felt.
+   *
+   * `cutIn` is honestly false here: on one microphone the segmenter never
+   * produces overlapping turns, so a cut-in truncates the other person's turn
+   * rather than overlapping it. Call mode's real overlap arrives as a server
+   * `nudge` frame on a different path (server/calls.py), never as a local turn.
+   */
+  private emitPositives(turn: LocalTurn, coachedAsSelf: boolean, instantYellingLevel: number) {
+    const tone = turn.textTone;
+    const scored = tone && (tone.frustration !== null || tone.defensiveness !== null || tone.sadness !== null);
+    // Aggression drives the self side's heat; negative affect (aggression OR
+    // sadness) is what a repair is measured against, because the person you
+    // shouted at goes hurt, not aggressive.
+    const toneHeat =
+      tone && (tone.frustration !== null || tone.defensiveness !== null)
+        ? Math.max(tone.frustration ?? 0, tone.defensiveness ?? 0)
+        : null;
+    const toneNegativity = scored
+      ? Math.max(tone!.frustration ?? 0, tone!.defensiveness ?? 0, tone!.sadness ?? 0)
+      : null;
+    const observation: PositiveTurn = {
+      index: turn.index,
+      start: turn.startTime,
+      end: turn.endTime,
+      // The identity the loop ACTED on, not the raw cluster label. Those are
+      // not the same thing: an unmatched cluster keeps the label "Speaker A"
+      // even when the coached user is also being matched into it, so grouping
+      // on the raw label merged the user's own turns into their partner's and
+      // handed out an undeserved "you let them finish" (caught by the file
+      // replay of scene_couple_escalation, 2026-09-06).
+      speaker: coachedAsSelf ? "self" : (turn.personId ?? turn.speaker),
+      isSelf: coachedAsSelf,
+      text: turn.text,
+      // The loudness rung is only measured against the coached user's own
+      // baseline, so it exists for their turns only.
+      loudLevel: coachedAsSelf ? instantYellingLevel : null,
+      toneHeat,
+      toneNegativity,
+      cutIn: false,
+    };
+    for (const n of this.positives.onTurn(observation)) {
+      this.deps.onPositiveNudge?.(n);
+      this.positiveCounts[n.code] += 1;
+      // Only a DELIVERED positive buzzes; a withheld one still reaches the
+      // summary (and the report) through the tally above.
+      if (n.delivered) void this.deps.haptics?.nudge(1, n.code).catch(() => {});
+    }
+  }
+
+  /** What the user earned this session: per-code DETECTION counts (the cap
+   *  silences a cue, it does not erase the achievement) and 🧘's longest quiet
+   *  run. `sessionEndS` is the session's last audio second. */
+  positiveSummary(sessionEndS: number): { counts: Record<PositiveCode, number>; calm: CalmStreak } {
+    return { counts: { ...this.positiveCounts }, calm: this.positives.calm(sessionEndS) };
   }
 
   private sliceHistory(span: Span): Float32Array {
@@ -956,6 +1042,7 @@ export class FastLoop {
         ]
       : [];
     this.emitNudges(this.policy.onEvents(nudgeEvents, span.end), instantBuzzedLevel);
+    this.emitPositives(turn, coachedAsSelf, instantYellingLevel);
 
     if (suggestion && session.mode !== "therapist") {
       if (!this.quietEnoughToSpeak()) {
