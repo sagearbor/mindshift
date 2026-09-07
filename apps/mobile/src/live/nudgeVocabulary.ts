@@ -93,7 +93,7 @@ export const NUDGE_VOCABULARY: readonly NudgeVocabularyEntry[] = [
     watchOnly: false,
     levels: [1, 2, 3],
     haptic: {
-      1: { timingsMs: [0, 120], amplitudes: [0, 255] },
+      1: { timingsMs: [0, 200], amplitudes: [0, 255] },
       2: { timingsMs: [0, 70, 170, 150], amplitudes: [0, 210, 0, 255] },
       3: { timingsMs: [0, 60, 170, 110, 170, 200], amplitudes: [0, 200, 0, 230, 0, 255] },
     },

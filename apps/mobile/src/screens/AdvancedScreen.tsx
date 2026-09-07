@@ -49,6 +49,15 @@ const WATCH_ONLY_NOTE =
   "here is the pattern, not a real reading. On a watch the ramp also gets stronger " +
   "tap by tap; a phone can only change the rhythm.";
 
+/** What this page does NOT do. Worth stating: the first question asked of it
+ *  was "does this also buzz the watch, and should the screen flash?" — and
+ *  guessing the answer wrong makes a working feature look broken. */
+const HAPTIC_SCOPE_NOTE =
+  "This is THIS phone only. It does not buzz a paired watch — the watch has its " +
+  "own “Feel the patterns” list in its Settings — and it deliberately doesn’t " +
+  "flash the screen: in a real session the matching icon and line appear on " +
+  "Live Coach, and here the point is to learn the buzz on its own.";
+
 /** Bare host (no scheme/path) of the configured backend, for the About row. */
 function backendHost(): string {
   const raw = process.env.EXPO_PUBLIC_API_URL || "";
@@ -717,6 +726,9 @@ export default function AdvancedScreen({
             </View>
           </View>
         ))}
+        <Text style={styles.rowSub} testID="haptic-scope-note">
+          {HAPTIC_SCOPE_NOTE}
+        </Text>
         <Text style={styles.rowSub} testID="haptic-vocabulary-note">
           {WATCH_ONLY_NOTE}
         </Text>

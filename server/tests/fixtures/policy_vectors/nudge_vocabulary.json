@@ -68,7 +68,7 @@
         "1": {
           "timings_ms": [
             0,
-            120
+            200
           ],
           "amplitudes": [
             0,
@@ -108,7 +108,7 @@
           ]
         }
       },
-      "haptic_note": "A RISING ramp, expressed in TAP LENGTH: 60 -> 110 -> 200 ms, each tap longer than the last. It was expressed in AMPLITUDE until 2026-09-06, which was a design error: an Android phone cannot vary vibration strength at all, so the rising ramp and D's falling ramp reached the motor as the same three taps and the owner could not tell them apart on the device. Amplitude still rises on top, because a watch CAN play it — the rhythm carries the meaning, the amplitude reinforces it. Level 1 is a single 120 ms tap: 75 ms alone was reported as 'does nothing' on a Pixel."
+      "haptic_note": "A RISING ramp, expressed in TAP LENGTH: 60 -> 110 -> 200 ms, each tap longer than the last. It was expressed in AMPLITUDE until 2026-09-06, which was a design error: an Android phone cannot vary vibration strength at all, so the rising ramp and D's falling ramp reached the motor as the same three taps and the owner could not tell them apart on the device. Amplitude still rises on top, because a watch CAN play it — the rhythm carries the meaning, the amplitude reinforces it. Level 1 is a single 200 ms tap, and the phone renders it as the OEM's TUNED impact rather than this raw waveform (see defaultDeps.expoHaptics). 75 ms was reported as 'does nothing' on a Pixel, and so was 120 ms: a modern phone's actuator produces almost nothing from a short unshaped buzz, which is the same finding the watch made in v0.2.4 when its 40 ms raw taps proved imperceptible and were replaced by tuned effects. It is still ONE tap, which is what separates level 1 from 2 and 3."
     },
     {
       "code": "D",
@@ -519,7 +519,7 @@
       "description": "For every alert code, the total ON time strictly increases with the level — so the cue is discriminable by duration/count alone, with amplitude switched off (which is what an Android phone feels).",
       "expected_on_ms": {
         "H": [
-          120,
+          200,
           220,
           370
         ],

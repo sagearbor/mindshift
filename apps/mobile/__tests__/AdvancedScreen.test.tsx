@@ -789,6 +789,14 @@ describe("Feel the patterns (the nudge haptic vocabulary)", () => {
     expect(textOf(comp.root.findByProps({ testID: "haptic-none-K" }))).toContain("summary badge only");
   });
 
+  it("says what it does NOT cover, so a working feature is not read as broken", async () => {
+    const comp = await render();
+    const note = textOf(comp.root.findByProps({ testID: "haptic-scope-note" }));
+    expect(note).toContain("THIS phone only");
+    expect(note).toContain("watch has its own");
+    expect(note).toContain("doesn’t\u000aflash".replace("\u000a", " ") || "flash");
+  });
+
   it("is honest that Pulse is a watch pattern the phone can only approximate", async () => {
     const comp = await render();
     const note = textOf(comp.root.findByProps({ testID: "haptic-vocabulary-note" }));

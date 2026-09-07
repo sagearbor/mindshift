@@ -106,7 +106,7 @@ object NudgeVocabulary {
             // A RISING ramp: the cue builds, and the LEVEL is how many taps it takes to get
             // there. This IS the shipped channel-A ladder.
             haptic = mapOf(
-                1 to w(listOf(0L, 120L), listOf(0, 255)),
+                1 to w(listOf(0L, 200L), listOf(0, 255)),
                 2 to w(listOf(0L, 70L, 170L, 150L), listOf(0, 210, 0, 255)),
                 3 to w(listOf(0L, 60L, 170L, 110L, 170L, 200L), listOf(0, 200, 0, 230, 0, 255)),
             ),

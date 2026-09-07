@@ -111,26 +111,35 @@ async function recordPhrase(
 }
 
 describe("VoiceTrainingFlow — phrase progression", () => {
-  it("ships four ordinary prompts and one RAISED one, last", () => {
-    expect(PROMPTS).toHaveLength(5);
+  it("ships four ordinary prompts and TWO raised ones, last", () => {
+    expect(PROMPTS).toHaveLength(6);
     for (const p of PROMPTS) {
       expect(typeof p.text).toBe("string");
       expect(p.text.length).toBeGreaterThan(20);
     }
-    // The raised take is last on purpose: someone who stops before it still
-    // ends up with a complete ordinary print, exactly as before.
-    expect(PROMPTS.slice(0, 4).map((p) => p.register)).toEqual(["normal", "normal", "normal", "normal"]);
-    expect(PROMPTS[4].register).toBe("raised");
-    // ...and it has to SAY it is different, or people will read it normally
-    // and the second prototype will be a duplicate of the first.
-    expect(PROMPTS[4].instruction).toMatch(/LOUDLY/);
+    // The raised takes are last on purpose: someone who stops before them
+    // still ends up with a complete ordinary print, exactly as before.
+    expect(PROMPTS.slice(0, 4).every((p) => p.register === "normal")).toBe(true);
+    const raised = PROMPTS.filter((p) => p.register === "raised");
+    // TWO, not one. The server needs 3 s of ACTUAL speech per upload
+    // (speaker_id.MIN_ENROLL_SECONDS) and the raised takes are their own
+    // upload — one short shouted line gave 1.3 s on the owner's phone and was
+    // rejected outright. Shouted speech is also FASTER than ordinary speech,
+    // so the lines have to be long as well as plural.
+    expect(raised).toHaveLength(2);
+    for (const p of raised) {
+      expect(p.text.length).toBeGreaterThan(60);
+      // Each has to SAY it is different, or people read them normally and the
+      // second prototype is just a duplicate of the first.
+      expect(p.instruction).toMatch(/loud/i);
+    }
   });
 
-  it("shows phrase 1 of 5, records, and advances phrase by phrase", async () => {
+  it("shows phrase 1 of 6, records, and advances phrase by phrase", async () => {
     const { deps, sources } = makeDeps();
     const { comp } = await render(deps);
 
-    expect(textOf(queryId(comp, "vt-progress")!)).toContain("1 of 5");
+    expect(textOf(queryId(comp, "vt-progress")!)).toContain("1 of 6");
     // An ordinary prompt carries no shouting instruction.
     expect(queryId(comp, "vt-instruction")).toBeNull();
     expect(textOf(queryId(comp, "vt-phrase")!)).toContain(PHRASES[0]);
@@ -147,7 +156,7 @@ describe("VoiceTrainingFlow — phrase progression", () => {
     await act(async () => queryId(comp, "vt-stop")!.props.onPress());
     // Mic released between phrases; on to phrase 2.
     expect(sources[0].started).toBe(false);
-    expect(textOf(queryId(comp, "vt-progress")!)).toContain("2 of 5");
+    expect(textOf(queryId(comp, "vt-progress")!)).toContain("2 of 6");
     expect(textOf(queryId(comp, "vt-phrase")!)).toContain(PHRASES[1]);
 
     act(() => comp.unmount());
@@ -159,14 +168,14 @@ describe("VoiceTrainingFlow — phrase progression", () => {
 
     // Stop with almost nothing captured (< MIN_TAKE_MS).
     await recordPhrase(comp, sources, MIN_TAKE_MS / 1000 / 10);
-    expect(textOf(queryId(comp, "vt-progress")!)).toContain("1 of 5");
+    expect(textOf(queryId(comp, "vt-progress")!)).toContain("1 of 6");
     expect(queryId(comp, "vt-take-note")).toBeTruthy();
     expect(textOf(queryId(comp, "vt-take-note")!)).toMatch(/didn.t hear/i);
 
     // A proper take clears the note and advances.
     await recordPhrase(comp, sources, 3);
     expect(queryId(comp, "vt-take-note")).toBeNull();
-    expect(textOf(queryId(comp, "vt-progress")!)).toContain("2 of 5");
+    expect(textOf(queryId(comp, "vt-progress")!)).toContain("2 of 6");
 
     act(() => comp.unmount());
   });
@@ -196,7 +205,7 @@ describe("VoiceTrainingFlow — upload & outcomes", () => {
     const { deps, sources, saved } = makeDeps();
     const { comp, handlers } = await render(deps);
 
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
       await recordPhrase(comp, sources, 3);
     }
 
@@ -225,7 +234,7 @@ describe("VoiceTrainingFlow — upload & outcomes", () => {
     expect(v.getUint32(24, true)).toBe(16000);
     expect(v.getUint32(40, true)).toBe(4 * 3 * 16000 * 2);
     const raised = new DataView(saved[1].buffer, saved[1].byteOffset, saved[1].byteLength);
-    expect(raised.getUint32(40, true)).toBe(3 * 16000 * 2);
+    expect(raised.getUint32(40, true)).toBe(2 * 3 * 16000 * 2);
 
     // Success is stated with the server's real count, then handed back.
     const success = queryId(comp, "vt-success")!;
@@ -259,7 +268,7 @@ describe("VoiceTrainingFlow — upload & outcomes", () => {
     const { deps, sources } = makeDeps({ enroll });
     const { comp } = await render(deps);
 
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
       await recordPhrase(comp, sources, 3);
     }
     expect(queryId(comp, "vt-error")).toBeTruthy();
@@ -279,7 +288,7 @@ describe("VoiceTrainingFlow — upload & outcomes", () => {
     const { deps, sources } = makeDeps({ enroll });
     const { comp } = await render(deps);
 
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
       await recordPhrase(comp, sources, 3);
     }
     expect(textOf(queryId(comp, "vt-error")!)).toMatch(/couldn.t upload/i);
@@ -287,7 +296,7 @@ describe("VoiceTrainingFlow — upload & outcomes", () => {
 
     // Start over returns to phrase 1 with the takes discarded.
     await act(async () => queryId(comp, "vt-start-over")!.props.onPress());
-    expect(textOf(queryId(comp, "vt-progress")!)).toContain("1 of 5");
+    expect(textOf(queryId(comp, "vt-progress")!)).toContain("1 of 6");
 
     act(() => comp.unmount());
   });
@@ -347,7 +356,7 @@ describe("VoiceTrainingFlow — permission & cancel", () => {
     const { deps, sources } = makeDeps({ enroll });
     const { comp } = await render(deps);
 
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
       await recordPhrase(comp, sources, 3);
     }
     expect(queryId(comp, "vt-error")).toBeTruthy();
@@ -359,5 +368,26 @@ describe("VoiceTrainingFlow — permission & cancel", () => {
     expect(queryId(comp, "vt-success")).toBeTruthy();
 
     act(() => comp.unmount());
+  });
+
+  it("every register's prompts hold enough speech to clear the server's floor", () => {
+    // The bug this pins (2026-09-07): the raised take is its OWN upload, and
+    // the server needs MIN_ENROLL_SECONDS = 3 s of ACTUAL speech per upload.
+    // One short shouted line measured 1.3 s on the owner's phone and was
+    // rejected — the enrollment simply failed at the last step, after four
+    // phrases had already been read.
+    //
+    // Estimated at a DELIBERATELY pessimistic 4.5 words/second: shouted speech
+    // is faster than ordinary speech, and the floor counts voiced frames, not
+    // clip length. Ordinary speech runs nearer 2.5-3 w/s, so this is roughly a
+    // 1.7x safety margin on the normal group too.
+    const FAST_WORDS_PER_SEC = 4.5;
+    const MIN_ENROLL_SECONDS = 3;
+    for (const register of ["normal", "raised"] as const) {
+      const words = PROMPTS.filter((p) => p.register === register)
+        .reduce((n, p) => n + p.text.trim().split(/\s+/).length, 0);
+      const seconds = words / FAST_WORDS_PER_SEC;
+      expect({ register, ok: seconds >= MIN_ENROLL_SECONDS * 1.5 }).toEqual({ register, ok: true });
+    }
   });
 });

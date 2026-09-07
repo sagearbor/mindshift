@@ -112,7 +112,7 @@ NUDGE_VOCABULARY: tuple[NudgeVocabularyEntry, ...] = (
         # A RISING ramp: the cue builds, and the LEVEL is how many taps it takes
         # to get there. This IS the shipped watch channel-A ladder.
         haptic={
-            1: _w([0, 120], [0, 255]),
+            1: _w([0, 200], [0, 255]),
             2: _w([0, 70, 170, 150], [0, 210, 0, 255]),
             3: _w([0, 60, 170, 110, 170, 200], [0, 200, 0, 230, 0, 255]),
         },

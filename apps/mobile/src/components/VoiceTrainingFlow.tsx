@@ -55,11 +55,18 @@ export const PROMPTS: VoicePrompt[] = [
   { text: "Please pass the water jug before the soup gets cold, would you?", register: "normal" },
   { text: "When the weather turns bright and clear, we like to walk down by the river.", register: "normal" },
   {
-    text: "I already told you, that is not what happened!",
+    text: "I already told you — that is not what happened, and you are not even listening to me!",
     register: "raised",
     instruction:
-      "Last one — say this LOUDLY, the way you would in an argument. " +
-      "This is the only way the coach can tell it's you when you raise your voice.",
+      "Two loud ones to finish. Say this the way you would in a real argument — " +
+      "properly raised, not just firm. Take your time: read the whole line.",
+  },
+  {
+    text: "Stop interrupting me for one second and let me finish what I am trying to say!",
+    register: "raised",
+    instruction:
+      "Last one, loud again. This is the only way the coach can tell it's you " +
+      "when you raise your voice.",
   },
 ];
 
@@ -312,16 +319,25 @@ export default function VoiceTrainingFlow({
       if (!mountedRef.current) return;
       const status = (e as { status?: number }).status;
       const msg = e instanceof Error ? e.message : "";
+      // The ordinary group uploads first, so a failure on the raised one means
+      // the everyday voiceprint is already stored. Saying so matters: without
+      // it the screen reads as "enrollment failed" and a user starts over,
+      // re-recording four phrases that already landed.
+      const ordinaryLanded = uploadedRef.current.has("normal");
       // A real server reason (422 not enough speech, 413 too large, 503 voice
       // ID unavailable) is shown verbatim; transport failures get an honest
       // generic line. Both offer a retry — the takes are still in memory.
       const hasDetail =
         typeof status === "number" && status > 0 && msg.length > 0 &&
         !msg.startsWith("API error");
+      const detail = hasDetail
+        ? msg
+        : "Couldn’t upload your voice sample — check your connection and try again.";
       setErrorText(
-        hasDetail
-          ? msg
-          : "Couldn’t upload your voice sample — check your connection and try again.",
+        ordinaryLanded
+          ? `Your everyday voice is saved. Only the loud sample failed: ${detail} ` +
+            "Try again — “Try again” re-sends just the loud part."
+          : detail,
       );
       setStage("error");
     }

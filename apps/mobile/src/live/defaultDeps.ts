@@ -110,7 +110,16 @@ function tryRequire<T>(load: () => T): T | null {
 export const expoHaptics: HapticSink = {
   async nudge(level, code) {
     const wave = code ? hapticFor(code, level) : null;
-    if (wave) {
+    // A cue that is ONE tap is rendered as the OEM's tuned impact, never as a
+    // raw buzz. Measured on the owner's Pixel (2026-09-07): a single 75 ms
+    // pattern was reported as "does nothing", and so was 120 ms. A modern
+    // phone's actuator produces almost nothing from a short unshaped
+    // `Vibration.vibrate` — which is the SAME finding the watch made in
+    // v0.2.4, when its 40 ms raw taps proved imperceptible and were replaced
+    // by system-tuned effects. Multi-tap cues stay raw patterns, because
+    // rhythm is what they are for and expo-haptics cannot express one.
+    const taps = wave ? wave.timingsMs.filter((_, i) => i % 2 === 1).length : 0;
+    if (wave && taps > 1) {
       const RN = tryRequire(
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         () => require("react-native") as typeof import("react-native"),
@@ -130,13 +139,29 @@ export const expoHaptics: HapticSink = {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         () => require("expo-haptics") as typeof import("expo-haptics"),
       );
-      if (!Haptics) return;
+      if (!Haptics) {
+        // No tuned effects available: a raw pattern is better than silence,
+        // even for a single tap.
+        if (wave) {
+          const RN = tryRequire(
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            () => require("react-native") as typeof import("react-native"),
+          );
+          if (RN?.Platform?.OS === "android" && RN.Vibration) RN.Vibration.vibrate(wave.timingsMs);
+        }
+        return;
+      }
+      // A single-tap CUE is always the strongest single tap the OEM offers:
+      // it is already the mildest thing in the vocabulary by virtue of being
+      // one tap, and making it quiet as well is how it became unnoticeable.
       const style =
-        level >= 3
+        taps === 1
           ? Haptics.ImpactFeedbackStyle.Heavy
-          : level === 2
-            ? Haptics.ImpactFeedbackStyle.Medium
-            : Haptics.ImpactFeedbackStyle.Light;
+          : level >= 3
+            ? Haptics.ImpactFeedbackStyle.Heavy
+            : level === 2
+              ? Haptics.ImpactFeedbackStyle.Medium
+              : Haptics.ImpactFeedbackStyle.Light;
       await Haptics.impactAsync(style);
     } catch {
       // No haptic engine (simulator, web): the on-screen flash still shows.
