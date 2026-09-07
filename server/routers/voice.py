@@ -83,6 +83,7 @@ import logging
 import os
 import time
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import (
     APIRouter, Depends, File, Form, HTTPException, Path, Query, Request, UploadFile,
@@ -250,10 +251,14 @@ def _profile_response(
     always served: it gates the phone's contrast match exactly as it gates
     the server's."""
     embedding: list[float] | None = None
+    raised_embedding: list[float] | None = None
     if include_embedding:
         blend = speaker_id.current_blend(profile)
         if blend is not None:
             embedding = [float(x) for x in speaker_id.l2_normalize(blend).tolist()]
+        raised = speaker_id.raised_blend(profile)
+        if raised is not None:
+            raised_embedding = [float(x) for x in speaker_id.l2_normalize(raised).tolist()]
     return VoiceProfileResponse(
         available=available,
         storage_enabled=storage_enabled,
@@ -267,6 +272,7 @@ def _profile_response(
         model=profile.get("model"),
         dim=profile.get("dim"),
         embedding=embedding,
+        raised_embedding=raised_embedding,
         samples=[
             VoiceSampleOut(
                 id=str(s.get("id")),
@@ -504,6 +510,12 @@ class VoiceProfileResponse(BaseModel):
     # so every pre-existing response is byte-identical to before and the
     # default remains "the raw signature never leaves the server".
     embedding: list[float] | None = Field(default=None, exclude_if=lambda v: v is None)
+    # The same person's RAISED voiceprint, when they have enrolled one — a
+    # SECOND prototype, never averaged into `embedding`. Served under the same
+    # opt-in and dropped entirely when absent, which is the state of every
+    # profile enrolled before 2026-09-07. See speaker_id.raised_blend for why
+    # a shout needs its own vector rather than a looser threshold on this one.
+    raised_embedding: list[float] | None = Field(default=None, exclude_if=lambda v: v is None)
 
 
 class DeleteSampleResponse(BaseModel):
@@ -730,6 +742,11 @@ class DirectEnrollResponse(BaseModel):
     )
 
 
+#: Provenance shown on the People screen for a raised-voice sample, so a user
+#: can see WHY one of their samples looks different from the others.
+RAISED_GUIDED_NOTE = "guided enrollment (raised voice)"
+
+
 @router.post("/enroll-direct", response_model=DirectEnrollResponse)
 async def enroll_voice_direct(
     request: Request,
@@ -743,6 +760,14 @@ async def enroll_voice_direct(
     display_name: str | None = Form(
         default=None, min_length=1, max_length=speaker_id.DISPLAY_NAME_MAX,
     ),
+    # The VOICE this clip was recorded in. "raised" stores it as a separate
+    # prototype instead of blending it into the ordinary print — a person's
+    # shout sits about as far from their calm voice as a different speaker
+    # does, so averaging the two produces a midpoint that matches neither.
+    # Defaults to ordinary speech, so every existing client is unchanged.
+    # Named voice_register, not register: pydantic's BaseModel already has a
+    # `register` attribute and FastAPI's generated form model would shadow it.
+    voice_register: Literal["normal", "raised"] = Form(default="normal"),
     uid: str = Depends(get_current_uid),
     _rl: None = Depends(_rate_limit),
 ) -> DirectEnrollResponse:
@@ -816,8 +841,10 @@ async def enroll_voice_direct(
     )
     profile = speaker_id.new_profile(
         embedding, existing,
-        recording_id=None, speaker=None, now_iso=now_iso, note=GUIDED_NOTE,
+        recording_id=None, speaker=None, now_iso=now_iso,
+        note=RAISED_GUIDED_NOTE if voice_register == speaker_id.RAISED_REGISTER else GUIDED_NOTE,
         person_id=resolved_pid, display_name=resolved_name,
+        register=voice_register,
     )
     await store.write_voiceprint(uid, profile)
     logger.info(

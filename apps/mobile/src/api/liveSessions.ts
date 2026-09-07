@@ -143,6 +143,10 @@ interface VoiceprintWire {
   is_self?: boolean;
   embedding?: number[] | null;
   voiceprint?: number[] | null;
+  /** The same person's RAISED voiceprint (a second prototype), when they have
+   *  enrolled one. Absent on an older server and on every profile enrolled
+   *  before 2026-09-07. */
+  raised_embedding?: number[] | null;
   dim?: number | null;
   model?: string | null;
   /** Distinct recordings pooled into the print (gates the contrast match). */
@@ -159,6 +163,15 @@ export interface VoiceprintsResult {
  *  for any future cached copy. A person whose vector length disagrees with
  *  the server's own `dim` is dropped (a corrupt print must not silently
  *  match nobody / everybody). */
+/** A wire vector we are willing to match against: right length, all finite. */
+function isUsableVector(vec: unknown, dim: number): vec is number[] {
+  return (
+    Array.isArray(vec) &&
+    vec.length === dim &&
+    vec.every((x) => typeof x === "number" && Number.isFinite(x))
+  );
+}
+
 export function parseVoiceprints(data: unknown): EnrolledPerson[] {
   const list: VoiceprintWire[] = Array.isArray(data)
     ? (data as VoiceprintWire[])
@@ -175,6 +188,10 @@ export function parseVoiceprints(data: unknown): EnrolledPerson[] {
       displayName: p.display_name || (p.is_self ? "You" : p.person_id),
       isSelf: Boolean(p.is_self),
       embedding: emb,
+      // Validated the same way as the ordinary print — a raised print of the
+      // wrong length is dropped rather than matched against, and dropping it
+      // only costs the shout, never the calm voice.
+      raisedEmbedding: isUsableVector(p.raised_embedding, p.dim ?? emb.length) ? p.raised_embedding! : null,
       model: p.model ?? null,
       dim: typeof p.dim === "number" ? p.dim : emb.length,
       // Absent on an older server => 1: the contrast match stays off for

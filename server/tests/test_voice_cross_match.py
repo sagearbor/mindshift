@@ -145,24 +145,36 @@ def test_phone_parity_fixture_matches_this_implementation():
     fixture = json.loads(_PARITY.read_text())
     assert fixture["constants"] == {
         "match_threshold": speaker_id.MATCH_THRESHOLD,
+        "raised_match_threshold": speaker_id.RAISED_MATCH_THRESHOLD,
         "cross_match_threshold": speaker_id.CROSS_MATCH_THRESHOLD,
         "cross_match_margin": speaker_id.CROSS_MATCH_MARGIN,
         "cross_match_min_settings": speaker_id.CROSS_MATCH_MIN_SETTINGS,
     }
     names = {c["name"] for c in fixture["cases"]}
-    # The three shapes the phone must reproduce, at minimum.
+    # The shapes the phone must reproduce, at minimum.
     assert {"absolute_0.80_vs_0.10", "contrast_poker_0.42_vs_0.19_0.12",
-            "reject_margin_0.45_vs_0.35"} <= names
+            "reject_margin_0.45_vs_0.35",
+            # The raised prototype (2026-09-07): the shouted cluster is claimed,
+            # a near-miss is not, the relaxation is bounded to one speaker per
+            # prototype, and a profile WITHOUT a raised print is untouched.
+            "raised_print_claims_the_shouted_cluster_too",
+            "a_shout_below_the_raised_bar_is_still_nobody",
+            "one_speaker_per_prototype_not_two_shouts",
+            "no_raised_print_behaves_exactly_as_before"} <= names
     for case in fixture["cases"]:
+        raised = {pid: np.asarray(p["raised_embedding"], dtype=np.float32)
+                  for pid, p in case["people"].items() if p.get("raised_embedding")}
         rep = speaker_id.identify_from_embeddings(
             {sp: np.asarray(v, dtype=np.float32) for sp, v in case["speakers"].items()},
             {pid: np.asarray(p["embedding"], dtype=np.float32) for pid, p in case["people"].items()},
-            people={pid: {k: v for k, v in p.items() if k != "embedding"}
+            people={pid: {k: v for k, v in p.items() if k not in ("embedding", "raised_embedding")}
                     for pid, p in case["people"].items()},
+            raised_voiceprints=raised or None,
         )
         assert rep["matched"] == case["expected"]["matched"], case["name"]
         assert {sp: e["match_basis"] for sp, e in rep["speakers"].items()} == case["expected"]["basis"], case["name"]
         assert {sp: e["scores"] for sp, e in rep["speakers"].items()} == case["expected"]["scores"], case["name"]
+        assert {sp: e.get("raised_scores", {}) for sp, e in rep["speakers"].items()} == case["expected"]["raised_scores"], case["name"]
 
 
 # ---------------------------------------------------------------------------
@@ -236,3 +248,90 @@ def test_single_setting_print_never_false_matches_poker_night():
         others = {k: v for k, v in scores.items() if k != "P6"}
         assert max(others.values()) < speaker_id.CROSS_MATCH_THRESHOLD, scores
         assert not any(sp != "P6" for sp in rep["matched"]), (rep["matched"], scores)
+
+
+# ---------------------------------------------------------------------------
+# The RAISED prototype (2026-09-07) — a person's shouting voice, stored and
+# matched separately from their ordinary one.
+# ---------------------------------------------------------------------------
+
+def _sample(vec, *, sid, register=None):
+    s = {"id": sid, "embedding": [float(x) for x in vec],
+         "recording_id": None, "speaker": None, "at": "2026-09-07T00:00:00+00:00"}
+    if register:
+        s["register"] = register
+    return s
+
+
+def test_raised_samples_never_dilute_the_ordinary_print():
+    """The reason the two are kept apart at all.
+
+    Averaging a calm print with a shouted one gives a midpoint that matches
+    NEITHER — which is exactly why "keep folding new audio into the one print"
+    cannot converge on something that works. `current_blend` must therefore
+    return the same vector whether or not a raised sample was ever enrolled.
+    """
+    calm_a = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+    calm_b = np.array([0.98, 0.199, 0.0], dtype=np.float32)
+    shout = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+    calm_only = {"embedding": [1.0, 0.0, 0.0], "samples": [
+        _sample(calm_a, sid="a"), _sample(calm_b, sid="b"),
+    ]}
+    with_raised = {"embedding": [1.0, 0.0, 0.0], "samples": [
+        _sample(calm_a, sid="a"), _sample(calm_b, sid="b"),
+        _sample(shout, sid="c", register=speaker_id.RAISED_REGISTER),
+    ]}
+    assert np.allclose(
+        speaker_id.current_blend(calm_only), speaker_id.current_blend(with_raised),
+    )
+    # ...and the raised one is available on its own.
+    assert speaker_id.raised_blend(calm_only) is None
+    assert np.allclose(speaker_id.raised_blend(with_raised), shout)
+
+
+def test_new_profile_tags_a_raised_sample_and_keeps_it_out_of_the_blend():
+    calm = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+    shout = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+    p1 = speaker_id.new_profile(
+        calm, None, recording_id=None, speaker=None,
+        now_iso="2026-09-07T00:00:00+00:00", sample_id="a",
+    )
+    p2 = speaker_id.new_profile(
+        shout, p1, recording_id=None, speaker=None,
+        now_iso="2026-09-07T00:00:01+00:00", sample_id="b",
+        register=speaker_id.RAISED_REGISTER,
+    )
+    assert p2["samples"][1]["register"] == speaker_id.RAISED_REGISTER
+    assert "register" not in p2["samples"][0]
+    # The blend is still the calm voice, not the midpoint of the two.
+    assert np.allclose(speaker_id.l2_normalize(np.asarray(p2["embedding"])), calm)
+    assert np.allclose(speaker_id.raised_blend(p2), shout)
+
+
+def test_a_shouted_cluster_is_matched_only_with_a_raised_print():
+    """End to end through the matcher: the same two clusters, the same person,
+    and the ONLY difference is whether they enrolled a raised voice."""
+    calm_print = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+    raised_print = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+    clusters = {
+        # Their ordinary voice, and their shout: far from the calm print, and
+        # squarely on the raised one.
+        "Calm": np.array([0.98, 0.10, 0.17], dtype=np.float32),
+        "Shout": np.array([0.30, 0.95, 0.09], dtype=np.float32),
+    }
+    people = {"self": {"display_name": "You", "is_self": True, "settings": 1}}
+
+    without = speaker_id.identify_from_embeddings(clusters, {"self": calm_print}, people=people)
+    assert without["matched"] == {"Calm": "self"}, "unchanged for a profile with no raised print"
+
+    with_raised = speaker_id.identify_from_embeddings(
+        clusters, {"self": calm_print}, people=people,
+        raised_voiceprints={"self": raised_print},
+    )
+    assert with_raised["matched"] == {"Calm": "self", "Shout": "self"}
+    assert with_raised["speakers"]["Shout"]["match_basis"] == "raised"
+    assert with_raised["speakers"]["Calm"]["match_basis"] == "absolute"
+    # The score reported for a raised match is the RAISED cosine, not the calm
+    # one — they answer different questions and a reader must not conflate them.
+    assert with_raised["speakers"]["Shout"]["raised_scores"]["self"] >= speaker_id.RAISED_MATCH_THRESHOLD
+    assert with_raised["speakers"]["Shout"]["scores"]["self"] < speaker_id.MATCH_THRESHOLD

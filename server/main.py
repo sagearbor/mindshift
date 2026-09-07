@@ -2748,7 +2748,7 @@ async def _emit_progress(
         await progress(status, note, duration_seconds)
 
 
-async def _load_voiceprints(uid: str) -> tuple[dict, dict] | None:
+async def _load_voiceprints(uid: str) -> tuple[dict, dict, dict] | None:
     """Every voiceprint the user enrolled — ``({person_id: blend}, {person_id:
     {display_name, is_self, settings}})`` — or ``None`` when storage is off,
     the read failed, or nobody is enrolled. ``settings`` is the number of
@@ -2765,6 +2765,7 @@ async def _load_voiceprints(uid: str) -> tuple[dict, dict] | None:
     import numpy as np
 
     voiceprints: dict[str, "np.ndarray"] = {}
+    raised: dict[str, "np.ndarray"] = {}
     people: dict[str, dict] = {}
     for profile in profiles or []:
         if not isinstance(profile, dict) or not isinstance(profile.get("embedding"), list):
@@ -2777,6 +2778,12 @@ async def _load_voiceprints(uid: str) -> tuple[dict, dict] | None:
         if blend is None:
             continue
         voiceprints[pid] = blend
+        # The same person's RAISED print, when they have enrolled one. A second
+        # prototype, never averaged into the blend above — see
+        # speaker_id.raised_blend.
+        raised_blend = speaker_id.raised_blend(profile)
+        if raised_blend is not None:
+            raised[pid] = raised_blend
         people[pid] = {
             "display_name": profile.get("display_name"),
             "is_self": bool(profile.get("is_self", pid == speaker_id.SELF_PERSON_ID)),
@@ -2784,7 +2791,7 @@ async def _load_voiceprints(uid: str) -> tuple[dict, dict] | None:
         }
     if not voiceprints:
         return None
-    return voiceprints, people
+    return voiceprints, people, raised
 
 
 async def _identify_enrolled_speakers(
@@ -2814,11 +2821,12 @@ async def _identify_enrolled_speakers(
     loaded = await _load_voiceprints(uid)
     if loaded is None:
         return None
-    voiceprints, people = loaded
+    voiceprints, people, raised = loaded
     try:
         return await asyncio.to_thread(
             speaker_id.identify_speakers_multi,
             pcm, sr, [t.model_dump() for t in turns], voiceprints, people=people,
+            raised_voiceprints=raised or None,
         )
     except Exception:  # noqa: BLE001 — matching is optional; degrade to no label
         logger.warning("Speaker identification failed for uid=%s", uid, exc_info=True)
@@ -2837,10 +2845,11 @@ async def _identify_enrolled_speakers_from_embeddings(
     loaded = await _load_voiceprints(uid)
     if loaded is None:
         return None
-    voiceprints, people = loaded
+    voiceprints, people, raised = loaded
     try:
         return speaker_id.identify_from_embeddings(
             speaker_embeddings, voiceprints, people=people,
+            raised_voiceprints=raised or None,
         )
     except Exception:  # noqa: BLE001 — matching is optional; degrade to no label
         logger.warning(

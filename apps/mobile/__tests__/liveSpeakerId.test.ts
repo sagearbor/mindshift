@@ -10,6 +10,7 @@ import {
   cosine,
   CROSS_MATCH_MARGIN,
   CROSS_MATCH_MIN_SETTINGS,
+  RAISED_MATCH_THRESHOLD,
   CROSS_MATCH_THRESHOLD,
   EcapaEmbedder,
   ECAPA_DIM,
@@ -79,12 +80,16 @@ describe("assignSpeakers (diarize.py parity)", () => {
 
 interface ParityCase {
   name: string;
-  people: Record<string, { display_name: string; is_self: boolean; settings: number; embedding: number[] }>;
+  people: Record<
+    string,
+    { display_name: string; is_self: boolean; settings: number; embedding: number[]; raised_embedding?: number[] }
+  >;
   speakers: Record<string, number[]>;
   expected: {
     matched: Record<string, string>;
-    basis: Record<string, "absolute" | "contrast" | null>;
+    basis: Record<string, "absolute" | "raised" | "contrast" | null>;
     scores: Record<string, Record<string, number>>;
+    raised_scores: Record<string, Record<string, number>>;
   };
 }
 
@@ -99,12 +104,24 @@ describe("identifyClusters (speaker_id.identify_from_embeddings parity)", () => 
   it("uses the server's constants", () => {
     expect(fixture.constants).toEqual({
       match_threshold: MATCH_THRESHOLD,
+      raised_match_threshold: RAISED_MATCH_THRESHOLD,
       cross_match_threshold: CROSS_MATCH_THRESHOLD,
       cross_match_margin: CROSS_MATCH_MARGIN,
       cross_match_min_settings: CROSS_MATCH_MIN_SETTINGS,
     });
     expect(fixture.cases.map((c) => c.name)).toEqual(
-      expect.arrayContaining(["absolute_0.80_vs_0.10", "contrast_poker_0.42_vs_0.19_0.12", "reject_margin_0.45_vs_0.35"]),
+      expect.arrayContaining([
+        "absolute_0.80_vs_0.10",
+        "contrast_poker_0.42_vs_0.19_0.12",
+        "reject_margin_0.45_vs_0.35",
+        // The raised prototype: the shouted cluster is claimed, a near-miss
+        // is not, the relaxation is bounded, and a profile without a raised
+        // print behaves exactly as it always did.
+        "raised_print_claims_the_shouted_cluster_too",
+        "a_shout_below_the_raised_bar_is_still_nobody",
+        "one_speaker_per_prototype_not_two_shouts",
+        "no_raised_print_behaves_exactly_as_before",
+      ]),
     );
   });
 
@@ -114,6 +131,7 @@ describe("identifyClusters (speaker_id.identify_from_embeddings parity)", () => 
       displayName: p.display_name,
       isSelf: p.is_self,
       embedding: p.embedding,
+      raisedEmbedding: p.raised_embedding ?? null,
       settings: p.settings,
     }));
     const clusters = new Map(Object.entries(c.speakers));
@@ -123,7 +141,10 @@ describe("identifyClusters (speaker_id.identify_from_embeddings parity)", () => 
     for (const label of clusters.keys()) basis[label] = got.get(label)?.basis ?? null;
     for (const [label, id] of got) {
       matched[label] = id.personId;
-      expect(id.score).toBeCloseTo(c.expected.scores[label][id.personId], 4);
+      // A raised match reports the score against the RAISED print — the two
+      // tables answer different questions and must not be conflated.
+      const table = id.basis === "raised" ? c.expected.raised_scores : c.expected.scores;
+      expect(id.score).toBeCloseTo(table[label][id.personId], 4);
     }
     expect(matched).toEqual(c.expected.matched);
     expect(basis).toEqual(c.expected.basis);

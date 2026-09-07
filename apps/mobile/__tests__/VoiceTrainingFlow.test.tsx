@@ -8,6 +8,7 @@ jest.setTimeout(120000);
 import VoiceTrainingFlow, {
   MIN_TAKE_MS,
   PHRASES,
+  PROMPTS,
   type VoiceTrainingDeps,
 } from "../src/components/VoiceTrainingFlow";
 import type { PcmFrame, PcmSource } from "../src/recorder/pcmSource";
@@ -110,19 +111,28 @@ async function recordPhrase(
 }
 
 describe("VoiceTrainingFlow — phrase progression", () => {
-  it("ships exactly four short prompted phrases", () => {
-    expect(PHRASES).toHaveLength(4);
-    for (const p of PHRASES) {
-      expect(typeof p).toBe("string");
-      expect(p.length).toBeGreaterThan(20);
+  it("ships four ordinary prompts and one RAISED one, last", () => {
+    expect(PROMPTS).toHaveLength(5);
+    for (const p of PROMPTS) {
+      expect(typeof p.text).toBe("string");
+      expect(p.text.length).toBeGreaterThan(20);
     }
+    // The raised take is last on purpose: someone who stops before it still
+    // ends up with a complete ordinary print, exactly as before.
+    expect(PROMPTS.slice(0, 4).map((p) => p.register)).toEqual(["normal", "normal", "normal", "normal"]);
+    expect(PROMPTS[4].register).toBe("raised");
+    // ...and it has to SAY it is different, or people will read it normally
+    // and the second prototype will be a duplicate of the first.
+    expect(PROMPTS[4].instruction).toMatch(/LOUDLY/);
   });
 
-  it("shows phrase 1 of 4, records, and advances phrase by phrase", async () => {
+  it("shows phrase 1 of 5, records, and advances phrase by phrase", async () => {
     const { deps, sources } = makeDeps();
     const { comp } = await render(deps);
 
-    expect(textOf(queryId(comp, "vt-progress")!)).toContain("1 of 4");
+    expect(textOf(queryId(comp, "vt-progress")!)).toContain("1 of 5");
+    // An ordinary prompt carries no shouting instruction.
+    expect(queryId(comp, "vt-instruction")).toBeNull();
     expect(textOf(queryId(comp, "vt-phrase")!)).toContain(PHRASES[0]);
     expect(queryId(comp, "vt-stop")).toBeNull();
 
@@ -137,7 +147,7 @@ describe("VoiceTrainingFlow — phrase progression", () => {
     await act(async () => queryId(comp, "vt-stop")!.props.onPress());
     // Mic released between phrases; on to phrase 2.
     expect(sources[0].started).toBe(false);
-    expect(textOf(queryId(comp, "vt-progress")!)).toContain("2 of 4");
+    expect(textOf(queryId(comp, "vt-progress")!)).toContain("2 of 5");
     expect(textOf(queryId(comp, "vt-phrase")!)).toContain(PHRASES[1]);
 
     act(() => comp.unmount());
@@ -149,14 +159,14 @@ describe("VoiceTrainingFlow — phrase progression", () => {
 
     // Stop with almost nothing captured (< MIN_TAKE_MS).
     await recordPhrase(comp, sources, MIN_TAKE_MS / 1000 / 10);
-    expect(textOf(queryId(comp, "vt-progress")!)).toContain("1 of 4");
+    expect(textOf(queryId(comp, "vt-progress")!)).toContain("1 of 5");
     expect(queryId(comp, "vt-take-note")).toBeTruthy();
     expect(textOf(queryId(comp, "vt-take-note")!)).toMatch(/didn.t hear/i);
 
     // A proper take clears the note and advances.
     await recordPhrase(comp, sources, 3);
     expect(queryId(comp, "vt-take-note")).toBeNull();
-    expect(textOf(queryId(comp, "vt-progress")!)).toContain("2 of 4");
+    expect(textOf(queryId(comp, "vt-progress")!)).toContain("2 of 5");
 
     act(() => comp.unmount());
   });
@@ -182,25 +192,40 @@ describe("VoiceTrainingFlow — phrase progression", () => {
 });
 
 describe("VoiceTrainingFlow — upload & outcomes", () => {
-  it("after the 4th phrase uploads ONE wav of all takes and reports the count", async () => {
+  it("uploads the ordinary takes as ONE wav and the raised take SEPARATELY", async () => {
     const { deps, sources, saved } = makeDeps();
     const { comp, handlers } = await render(deps);
 
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 5; i++) {
       await recordPhrase(comp, sources, 3);
     }
 
-    // One upload of one wav containing all four 3s takes.
-    expect(deps.enroll).toHaveBeenCalledTimes(1);
-    expect(deps.enroll).toHaveBeenCalledWith(
+    // TWO uploads, not one. The raised clip must never be concatenated with
+    // the ordinary ones — the server keeps it as a separate prototype, and
+    // averaging the two would give a print that matches neither voice.
+    expect(deps.enroll).toHaveBeenCalledTimes(2);
+    expect(deps.enroll).toHaveBeenNthCalledWith(
+      1,
       "file:///cache/guided-enrollment.wav",
       "guided-enrollment.wav",
+      undefined,
+      undefined,
     );
-    expect(saved).toHaveLength(1);
-    const wav = saved[0];
-    const v = new DataView(wav.buffer, wav.byteOffset, wav.byteLength);
+    expect(deps.enroll).toHaveBeenNthCalledWith(
+      2,
+      // The fake saveWav returns one fixed path; what matters is the NAME and
+      // the register the raised clip is uploaded under.
+      "file:///cache/guided-enrollment.wav",
+      "guided-enrollment-raised.wav",
+      undefined,
+      "raised",
+    );
+    expect(saved).toHaveLength(2);
+    const v = new DataView(saved[0].buffer, saved[0].byteOffset, saved[0].byteLength);
     expect(v.getUint32(24, true)).toBe(16000);
     expect(v.getUint32(40, true)).toBe(4 * 3 * 16000 * 2);
+    const raised = new DataView(saved[1].buffer, saved[1].byteOffset, saved[1].byteLength);
+    expect(raised.getUint32(40, true)).toBe(3 * 16000 * 2);
 
     // Success is stated with the server's real count, then handed back.
     const success = queryId(comp, "vt-success")!;
@@ -224,7 +249,7 @@ describe("VoiceTrainingFlow — upload & outcomes", () => {
           status: 422,
         }),
       )
-      .mockResolvedValueOnce({
+      .mockResolvedValue({
         enrolled: true,
         enroll_count: 1,
         dim: 192,
@@ -234,14 +259,16 @@ describe("VoiceTrainingFlow — upload & outcomes", () => {
     const { deps, sources } = makeDeps({ enroll });
     const { comp } = await render(deps);
 
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 5; i++) {
       await recordPhrase(comp, sources, 3);
     }
     expect(queryId(comp, "vt-error")).toBeTruthy();
     expect(textOf(queryId(comp, "vt-error")!)).toContain("not enough speech");
 
+    // Retry re-sends the ordinary group (which failed) AND then the raised
+    // one, which had not been attempted yet: 1 failure + 2 = 3.
     await act(async () => queryId(comp, "vt-retry-upload")!.props.onPress());
-    expect(enroll).toHaveBeenCalledTimes(2);
+    expect(enroll).toHaveBeenCalledTimes(3);
     expect(queryId(comp, "vt-success")).toBeTruthy();
 
     act(() => comp.unmount());
@@ -252,7 +279,7 @@ describe("VoiceTrainingFlow — upload & outcomes", () => {
     const { deps, sources } = makeDeps({ enroll });
     const { comp } = await render(deps);
 
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 5; i++) {
       await recordPhrase(comp, sources, 3);
     }
     expect(textOf(queryId(comp, "vt-error")!)).toMatch(/couldn.t upload/i);
@@ -260,7 +287,7 @@ describe("VoiceTrainingFlow — upload & outcomes", () => {
 
     // Start over returns to phrase 1 with the takes discarded.
     await act(async () => queryId(comp, "vt-start-over")!.props.onPress());
-    expect(textOf(queryId(comp, "vt-progress")!)).toContain("1 of 4");
+    expect(textOf(queryId(comp, "vt-progress")!)).toContain("1 of 5");
 
     act(() => comp.unmount());
   });
@@ -306,6 +333,30 @@ describe("VoiceTrainingFlow — permission & cancel", () => {
     await act(async () => queryId(comp, "vt-cancel")!.props.onPress());
     expect(sources[0].started).toBe(false);
     expect(handlers.onCancel).toHaveBeenCalledTimes(1);
+
+    act(() => comp.unmount());
+  });
+  it("a retry never re-uploads a group that already landed", async () => {
+    // The ordinary clip succeeds, the raised one fails. Retrying must send ONLY
+    // the raised clip — re-sending the ordinary one would store it twice.
+    const enroll = jest
+      .fn()
+      .mockResolvedValueOnce({ enrolled: true, enroll_count: 1, dim: 192, updated_at: "t", stored: "s" })
+      .mockRejectedValueOnce(Object.assign(new Error("network"), { status: 0 }))
+      .mockResolvedValue({ enrolled: true, enroll_count: 2, dim: 192, updated_at: "t", stored: "s" });
+    const { deps, sources } = makeDeps({ enroll });
+    const { comp } = await render(deps);
+
+    for (let i = 0; i < 5; i++) {
+      await recordPhrase(comp, sources, 3);
+    }
+    expect(queryId(comp, "vt-error")).toBeTruthy();
+    expect(enroll).toHaveBeenCalledTimes(2);
+
+    await act(async () => queryId(comp, "vt-retry-upload")!.props.onPress());
+    expect(enroll).toHaveBeenCalledTimes(3);
+    expect(enroll.mock.calls[2][3]).toBe("raised");
+    expect(queryId(comp, "vt-success")).toBeTruthy();
 
     act(() => comp.unmount());
   });

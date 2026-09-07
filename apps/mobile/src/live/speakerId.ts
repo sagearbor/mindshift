@@ -33,6 +33,20 @@ import { float32Tensor } from "./ort";
 
 export const MATCH_THRESHOLD = 0.65;
 /**
+ * The bar a cluster must clear against a person's RAISED print
+ * (`EnrolledPerson.raisedEmbedding`). Higher than [MATCH_THRESHOLD] on
+ * purpose, and this is the least obvious number in the file: shouting
+ * COMPRESSES individual differences — everyone's raised voice is more alike
+ * than everyone's calm voice — so a raised print is a LESS discriminative
+ * print and cannot reuse the calm bar. Measured over 24 speakers
+ * (`__tests__/speakerShoutIdentity.test.ts`): at 0.65 the raised print
+ * recognises every speaker's own shout but also accepts 6 of 552 strangers';
+ * at 0.74 it still recognises 24/24 and accepts NONE. 0.74 is the lowest bar
+ * that is clean, and 0.76/0.78/0.80 are equally clean, so there is headroom
+ * above it rather than a cliff.
+ */
+export const RAISED_MATCH_THRESHOLD = 0.74;
+/**
  * Cross-recording ("contrast") match — ports of server/speaker_id.py's
  * CROSS_MATCH_* (read the calibration note there). The same person scores
  * only 0.24-0.45 against a print from ANOTHER room/mic (the owner's real
@@ -55,7 +69,7 @@ export const CROSS_MATCH_MIN_SETTINGS = 2;
  *  at >= CROSS_MATCH_THRESHOLD against a >= 2-recording self print —
  *  contrast can't run without a second voice, and a stranger measured
  *  <= 0.28 across settings. Never used for live coaching verdicts. */
-export type MatchBasis = "absolute" | "contrast" | "solo";
+export type MatchBasis = "absolute" | "raised" | "contrast" | "solo";
 // Merge threshold for the ONLINE (live, on-device) unknown-speaker clustering.
 // LOWER than the server/batch value (server/watch/diarize.py keeps 0.55) on
 // purpose: live turns are short and the on-device ECAPA embedding of the SAME
@@ -94,8 +108,27 @@ export interface EnrolledPerson {
   personId: string;
   displayName: string;
   isSelf: boolean;
-  /** L2-normalized (or raw — cosine normalizes defensively) voiceprint. */
+  /** L2-normalized (or raw — cosine normalizes defensively) voiceprint of the
+   *  person's ORDINARY speaking voice. This is what enrollment captures. */
   embedding: ArrayLike<number>;
+  /**
+   * The same person's RAISED voice, as a second prototype — or null/absent,
+   * which is the normal state for anyone enrolled before 2026-09-07 and for
+   * anyone whose enrollment audio held no clearly-louder passage.
+   *
+   * Why a person needs two prints rather than one averaged one, measured over
+   * 24 speakers in `__tests__/speakerShoutIdentity.test.ts`: shouting moves the
+   * embedding about as far as changing speaker does. A person's own shout sits
+   * a median 0.393 from their calm print while a STRANGER's shout reaches
+   * 0.375 against it, so the two distributions overlap and no single threshold
+   * separates them — the best operating point recognises 46% of your own
+   * shouts while misattributing 20% of other people's. Averaging the two modes
+   * into one print is worse still: the midpoint matches neither, which is why
+   * "keep adding to the print over time" cannot converge. Kept as a separate
+   * prototype and matched at [RAISED_MATCH_THRESHOLD], the same 24 speakers
+   * give 24/24 own shouts and 0 of 552 impostors.
+   */
+  raisedEmbedding?: ArrayLike<number> | null;
   /** "<source>@<revision>" the server embedded this print with (its
    *  `model` field); null/absent for a legacy profile. speakerIdSetup.ts
    *  refuses to match a print against a model of a different revision. */
@@ -165,6 +198,8 @@ export interface ClusterIdentity {
 
 export interface IdentifyOptions {
   matchThreshold?: number;
+  /** Bar against a person's RAISED print; see [RAISED_MATCH_THRESHOLD]. */
+  raisedMatchThreshold?: number;
   crossMatchThreshold?: number;
   crossMatchMargin?: number;
   crossMatchMinSettings?: number;
@@ -180,13 +215,24 @@ function scoreOf(a: ArrayLike<number>, b: ArrayLike<number>): number {
  * Pure port of speaker_id.identify_from_embeddings over already-computed
  * cluster embeddings: which cluster is which enrolled person, and why.
  *
- * Two ways a (cluster, person) pair clears the bar — ABSOLUTE (cosine >=
- * `MATCH_THRESHOLD`) or CONTRAST (the four conditions on `CROSS_MATCH_*`
- * above). Assignment is greedy one-to-one, highest score first: each cluster
- * gets at most one person and each person wins at most one cluster (if the
- * clustering split one voice in two, only the stronger half is labeled).
- * Ties break deterministically (cluster label, then person id). Below both
- * bars => absent from the result. Parity is pinned by
+ * Three ways a (cluster, person) pair clears the bar — ABSOLUTE (cosine >=
+ * `MATCH_THRESHOLD` against the person's ordinary print), RAISED (>=
+ * `RAISED_MATCH_THRESHOLD` against their raised print, when they have one),
+ * or CONTRAST (the four conditions on `CROSS_MATCH_*` above). Assignment is
+ * greedy one-to-one, highest score first: each cluster gets at most one
+ * person, and each person wins at most one cluster PER PROTOTYPE.
+ *
+ * That last clause is the 2026-09-07 change and the whole point of the raised
+ * print. Strict one-to-one meant a person's calm cluster took them and their
+ * shouted cluster could then never be them, however well it scored — so the
+ * loudest moment in a conversation, the one most worth nudging, was silently
+ * filed under a stranger. A voice that splits into a calm cluster and a raised
+ * cluster is one person speaking two ways, and it is now allowed to be. Each
+ * prototype still wins at most one cluster, so a person can never absorb an
+ * unbounded number of them.
+ *
+ * Ties break deterministically (cluster label, then person id). Below every
+ * bar => absent from the result. Parity is pinned by
  * __tests__/fixtures/speakerCrossMatch.json, generated from the Python.
  */
 export function identifyClusters(
@@ -198,24 +244,48 @@ export function identifyClusters(
   const crossThreshold = opts.crossMatchThreshold ?? CROSS_MATCH_THRESHOLD;
   const margin = opts.crossMatchMargin ?? CROSS_MATCH_MARGIN;
   const minSettings = opts.crossMatchMinSettings ?? CROSS_MATCH_MIN_SETTINGS;
-  const prints = people.map((person) => ({ person, vec: l2Normalize(person.embedding) }));
+  const raisedThreshold = opts.raisedMatchThreshold ?? RAISED_MATCH_THRESHOLD;
+  const prints = people.map((person) => ({
+    person,
+    vec: l2Normalize(person.embedding),
+    raised: person.raisedEmbedding ? l2Normalize(person.raisedEmbedding) : null,
+  }));
   const labels = Array.from(clusterEmbeddings.keys());
-  // scores[label][personId]
+  // scores[label][personId] — always the ORDINARY print. The contrast rule's
+  // margin arithmetic is defined on it, and mixing a raised score into that
+  // comparison would compare two different questions.
   const scores = new Map<string, Map<string, number>>();
+  const raisedScores = new Map<string, Map<string, number>>();
   for (const label of labels) {
     const emb = clusterEmbeddings.get(label) as ArrayLike<number>;
     const row = new Map<string, number>();
-    for (const { person, vec } of prints) row.set(person.personId, scoreOf(emb, vec));
+    const raisedRow = new Map<string, number>();
+    for (const { person, vec, raised } of prints) {
+      row.set(person.personId, scoreOf(emb, vec));
+      if (raised) raisedRow.set(person.personId, scoreOf(emb, raised));
+    }
     scores.set(label, row);
+    raisedScores.set(label, raisedRow);
   }
-  const candidates: { score: number; label: string; personId: string; basis: MatchBasis }[] = [];
+  // `prototype` is what the person spends on this cluster: "calm" or "raised".
+  // Each is spendable once, which is what replaces strict one-to-one.
+  const candidates: { score: number; label: string; personId: string; basis: MatchBasis; prototype: string }[] = [];
   for (const label of labels) {
     const row = scores.get(label) as Map<string, number>;
+    const raisedRow = raisedScores.get(label) as Map<string, number>;
     for (const { person } of prints) {
       const pid = person.personId;
       const score = row.get(pid) as number;
+      const raisedScore = raisedRow.get(pid);
       if (score >= threshold) {
-        candidates.push({ score, label, personId: pid, basis: "absolute" });
+        candidates.push({ score, label, personId: pid, basis: "absolute", prototype: "calm" });
+        continue;
+      }
+      // The same voice, raised. Only when the person actually has a raised
+      // print — nobody gets one by default, so this can never loosen matching
+      // for an existing profile.
+      if (raisedScore !== undefined && raisedScore >= raisedThreshold) {
+        candidates.push({ score: raisedScore, label, personId: pid, basis: "raised", prototype: "raised" });
         continue;
       }
       if (score < crossThreshold || labels.length < 2) continue;
@@ -226,7 +296,9 @@ export function identifyClusters(
         if (other === label) continue;
         runnerUp = Math.max(runnerUp, (scores.get(other) as Map<string, number>).get(pid) as number);
       }
-      if (score - runnerUp >= margin) candidates.push({ score, label, personId: pid, basis: "contrast" });
+      if (score - runnerUp >= margin) {
+        candidates.push({ score, label, personId: pid, basis: "contrast", prototype: "calm" });
+      }
     }
   }
   candidates.sort((a, b) => {
@@ -236,11 +308,15 @@ export function identifyClusters(
     return 0;
   });
   const matched = new Map<string, ClusterIdentity>();
-  const takenPeople = new Set<string>();
+  // Keyed by person AND prototype: "p1|calm" and "p1|raised" are separate
+  // spends, so one voice may claim its calm cluster and its shouted one — and
+  // no more than that.
+  const takenPrototypes = new Set<string>();
   for (const c of candidates) {
-    if (matched.has(c.label) || takenPeople.has(c.personId)) continue;
+    const key = `${c.personId}|${c.prototype}`;
+    if (matched.has(c.label) || takenPrototypes.has(key)) continue;
     matched.set(c.label, { personId: c.personId, basis: c.basis, score: c.score });
-    takenPeople.add(c.personId);
+    takenPrototypes.add(key);
   }
   return matched;
 }

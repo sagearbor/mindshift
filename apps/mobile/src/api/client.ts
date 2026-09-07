@@ -2124,6 +2124,13 @@ export async function enrollVoiceDirect(
   // form fields are omitted for the owner so older servers see the same
   // upload as before.
   person?: { personId: string; displayName?: string | null },
+  // The VOICE this clip was recorded in. "raised" asks the server to keep it
+  // as a SECOND prototype rather than blend it into the ordinary print — a
+  // person's shout sits about as far from their calm voice as a different
+  // speaker does, so one averaged print matches neither. Omitted for ordinary
+  // speech, which keeps the upload byte-identical for every existing caller
+  // and for an older server.
+  register?: "normal" | "raised",
 ): Promise<DirectEnrollResult> {
   const form = new FormData();
   if (Platform.OS === "web") {
@@ -2135,6 +2142,7 @@ export async function enrollVoiceDirect(
     form.append("person_id", person.personId);
     if (person.displayName) form.append("display_name", person.displayName);
   }
+  if (register === "raised") form.append("voice_register", register);
   const token = await getFreshToken();
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;

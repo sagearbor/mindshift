@@ -15,7 +15,7 @@ export interface TurnLocalEvent {
   /** WHY the person was matched: "absolute" (>= 0.65) or "contrast" (the
    *  in-session cross-recording rule, speakerId.ts CROSS_MATCH_*); null
    *  when no voiceprint matched (a mid-call binding has no basis). */
-  speaker_match_basis: "absolute" | "contrast" | null;
+  speaker_match_basis: "absolute" | "raised" | "contrast" | null;
   is_self: boolean | null;
   text: string;
   start_time: number;

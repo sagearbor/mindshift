@@ -117,6 +117,17 @@ UNKNOWN_SPEAKER = "Unknown"
 # the honest failure direction — a false "You" is still the cardinal sin.
 # Every match records its ``match_basis`` ("absolute" | "contrast") so a
 # contrast match is never mistaken for a 0.65 one. All env-overridable.
+# The bar a speaker must clear against a person's RAISED print, when they have
+# one. Higher than MATCH_THRESHOLD on purpose, and it is the least obvious
+# number here: shouting COMPRESSES individual differences — everyone's raised
+# voice is more alike than everyone's calm voice — so a raised print is a LESS
+# discriminative print and cannot reuse the calm bar. Measured over 24 RAVDESS
+# speakers (apps/mobile/__tests__/speakerShoutIdentity.test.ts): at 0.65 the
+# raised print recognises every speaker's own shout but also accepts 6 of 552
+# strangers'; at 0.74 it still recognises 24/24 and accepts none. 0.74 is the
+# lowest clean bar, and 0.76-0.80 are equally clean, so there is headroom above
+# it rather than a cliff.
+RAISED_MATCH_THRESHOLD = float(os.getenv("MINDSHIFT_VOICE_RAISED_MATCH_THRESHOLD", "0.74"))
 CROSS_MATCH_THRESHOLD = float(os.getenv("MINDSHIFT_VOICE_CROSS_MATCH_THRESHOLD", "0.40"))
 CROSS_MATCH_MARGIN = float(os.getenv("MINDSHIFT_VOICE_CROSS_MATCH_MARGIN", "0.15"))
 CROSS_MATCH_MIN_SETTINGS = int(os.getenv("MINDSHIFT_VOICE_CROSS_MATCH_MIN_SETTINGS", "2"))
@@ -604,6 +615,7 @@ def identify_speakers_multi(
     *,
     threshold: float = MATCH_THRESHOLD,
     people: dict[str, dict] | None = None,
+    raised_voiceprints: dict[str, np.ndarray] | None = None,
 ) -> dict:
     """Match every diarized speaker against EVERY enrolled person (blocking).
 
@@ -631,6 +643,7 @@ def identify_speakers_multi(
         embeddings[speaker] = emb
     return identify_from_embeddings(
         embeddings, voiceprints, threshold=threshold, people=people,
+        raised_voiceprints=raised_voiceprints,
     )
 
 
@@ -640,6 +653,8 @@ def identify_from_embeddings(
     *,
     threshold: float = MATCH_THRESHOLD,
     people: dict[str, dict] | None = None,
+    raised_voiceprints: dict[str, np.ndarray] | None = None,
+    raised_threshold: float = RAISED_MATCH_THRESHOLD,
 ) -> dict:
     """Score already-computed per-speaker embeddings against every enrolled
     person (pure — no audio, no torch). Also what ``/voice/catch-up`` runs
@@ -647,9 +662,15 @@ def identify_from_embeddings(
     recording after the print improves costs a few dot products, not a
     decode + re-embed.
 
-    Two ways a (speaker, person) pair clears the bar:
+    Three ways a (speaker, person) pair clears the bar:
 
-    * ABSOLUTE — cosine ≥ ``threshold`` (:data:`MATCH_THRESHOLD`).
+    * ABSOLUTE — cosine ≥ ``threshold`` (:data:`MATCH_THRESHOLD`) against the
+      person's ordinary print.
+    * RAISED — cosine ≥ :data:`RAISED_MATCH_THRESHOLD` against their RAISED
+      print, when ``raised_voiceprints`` carries one for them. A person's own
+      shout sits about as far from their calm print as a different speaker
+      does (measured: median 0.393 own vs 0.375 worst stranger), so it is a
+      second prototype rather than a looser threshold on the first.
     * CONTRAST — cosine ≥ :data:`CROSS_MATCH_THRESHOLD`, AND the person's
       print pools ≥ :data:`CROSS_MATCH_MIN_SETTINGS` distinct recordings
       (``people[pid]["settings"]``; unknown counts as 1), AND at least two
@@ -657,12 +678,17 @@ def identify_from_embeddings(
       score for that person by ≥ :data:`CROSS_MATCH_MARGIN`. See the
       constants' calibration note for the real-recording numbers.
 
-    Assignment is a greedy one-to-one matching, highest score first: each
-    speaker gets at most one person (a voice is one person), each person wins
-    at most one speaker (a person is one voice — two diarized clusters can't
-    both be "Alex"; if the diarizer split one voice in two, only the stronger
-    half is labeled and the other stays generic, honestly). Ties break
-    deterministically (speaker id, then person id). Below both bars → no
+    Assignment is greedy, highest score first: each speaker gets at most one
+    person (a voice is one person), and each person wins at most one speaker
+    PER PROTOTYPE. That last clause changed on 2026-09-07. It used to be one
+    speaker per person full stop — "a person is one voice" — and that is what
+    made a shouted cluster unlabelable: the person's calm cluster had already
+    taken them, so the loudest turns in a conversation, the ones most worth
+    coaching, were filed under a stranger. A voice that splits into a calm
+    cluster and a raised one is one person speaking two ways, and it is now
+    allowed to be; a person with no raised print still wins exactly one
+    speaker, so nothing changes for an existing profile. Ties break
+    deterministically (speaker id, then person id). Below every bar → no
     label, ever; the scores are always kept so a near-miss is inspectable::
 
         {
@@ -695,6 +721,11 @@ def identify_from_embeddings(
     the SELF person only and are omitted/None when no self print was supplied.
     """
     prints = {pid: l2_normalize(vec) for pid, vec in voiceprints.items()}
+    raised_prints = {
+        pid: l2_normalize(vec)
+        for pid, vec in (raised_voiceprints or {}).items()
+        if pid in prints
+    }
     meta = {pid: _person_meta(pid, people) for pid in prints}
     has_self = SELF_PERSON_ID in prints
 
@@ -702,8 +733,12 @@ def identify_from_embeddings(
     for speaker, emb in speaker_embeddings.items():
         emb = l2_normalize(np.asarray(emb, dtype=np.float32))
         scores = {pid: round(cosine(emb, vec), 4) for pid, vec in prints.items()}
+        raised_scores = {pid: round(cosine(emb, vec), 4) for pid, vec in raised_prints.items()}
         entry: dict = {
             "scores": scores,
+            # Kept even when nothing matched, like `scores` — the whole point
+            # of the raised print is auditability of the loudest turns.
+            **({"raised_scores": raised_scores} if raised_scores else {}),
             "matched_person_id": None,
             "is_self": False,
             "display_name": None,
@@ -715,11 +750,17 @@ def identify_from_embeddings(
             entry["is_you"] = False
         scored[speaker] = entry
 
-    candidates: list[tuple[float, str, str, str]] = []
+    # (score, speaker, person, basis, prototype). `prototype` is what the person
+    # spends on this speaker — "calm" or "raised" — and each is spendable once.
+    candidates: list[tuple[float, str, str, str, str]] = []
     for speaker, entry in scored.items():
         for pid, score in entry["scores"].items():
             if score >= threshold:
-                candidates.append((score, speaker, pid, "absolute"))
+                candidates.append((score, speaker, pid, "absolute", "calm"))
+                continue
+            raised_score = entry.get("raised_scores", {}).get(pid)
+            if raised_score is not None and raised_score >= raised_threshold:
+                candidates.append((raised_score, speaker, pid, "raised", "raised"))
                 continue
             if score < CROSS_MATCH_THRESHOLD or len(scored) < 2:
                 continue
@@ -730,17 +771,19 @@ def identify_from_embeddings(
                 other["scores"][pid] for sp, other in scored.items() if sp != speaker
             )
             if score - runner_up >= CROSS_MATCH_MARGIN:
-                candidates.append((score, speaker, pid, "contrast"))
+                candidates.append((score, speaker, pid, "contrast", "calm"))
 
-    # Greedy one-to-one: best pair first; a taken speaker or person is skipped.
+    # Greedy: best pair first; a taken speaker, or a person's already-spent
+    # prototype, is skipped. Keyed by (person, prototype) rather than person, so
+    # one voice may claim its calm cluster AND its shouted one — and no more.
     candidates.sort(key=lambda c: (-c[0], c[1], c[2]))
     matched: dict[str, str] = {}
-    taken_people: set[str] = set()
-    for _score, speaker, pid, basis in candidates:
-        if speaker in matched or pid in taken_people:
+    taken_prototypes: set[tuple[str, str]] = set()
+    for _score, speaker, pid, basis, prototype in candidates:
+        if speaker in matched or (pid, prototype) in taken_prototypes:
             continue
         matched[speaker] = pid
-        taken_people.add(pid)
+        taken_prototypes.add((pid, prototype))
         entry = scored[speaker]
         entry["matched_person_id"] = pid
         entry["is_self"] = meta[pid]["is_self"]
@@ -755,6 +798,7 @@ def identify_from_embeddings(
     return {
         "matched_speaker": self_speaker,
         "match_threshold": threshold,
+        "raised_match_threshold": raised_threshold,
         "cross_match_threshold": CROSS_MATCH_THRESHOLD,
         "cross_match_margin": CROSS_MATCH_MARGIN,
         "model": f"{ECAPA_SOURCE}@{ECAPA_REVISION}",
@@ -963,6 +1007,45 @@ def blend_samples(samples: list[dict]) -> np.ndarray:
     return l2_normalize(np.mean(centroids, axis=0))
 
 
+#: Marks a sample recorded in a deliberately LOUD voice. Its own prototype, not
+#: part of the ordinary blend — see :func:`raised_blend`.
+RAISED_REGISTER = "raised"
+
+
+def raised_blend(profile: dict | None) -> "np.ndarray | None":
+    """The person's RAISED voiceprint — blended from samples tagged
+    ``register="raised"`` — or ``None`` when they have none, which is the state
+    of every profile enrolled before 2026-09-07.
+
+    Kept apart from :func:`current_blend` rather than averaged into it. A
+    person's own shout sits a median 0.393 from their calm print while a
+    STRANGER's shout reaches 0.375 against it, so the two are distinct MODES,
+    not noise around one point; their midpoint matches neither, which is why
+    "just keep folding new audio into the print" cannot converge. Measured over
+    24 speakers in apps/mobile/__tests__/speakerShoutIdentity.test.ts, where two
+    prototypes recognise 24/24 own shouts with 0 of 552 impostors accepted (at
+    :data:`RAISED_MATCH_THRESHOLD`, which is deliberately HIGHER than the
+    ordinary bar — shouting compresses individual differences, so a raised
+    print is a less discriminative print).
+    """
+    if not isinstance(profile, dict):
+        return None
+    samples = profile.get("samples")
+    if not isinstance(samples, list):
+        return None
+    raised = [
+        x for x in samples
+        if isinstance(x, dict) and x.get("register") == RAISED_REGISTER
+        and isinstance(x.get("embedding"), list) and x["embedding"]
+    ]
+    if not raised:
+        return None
+    try:
+        return blend_samples(raised)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def current_blend(profile: dict | None) -> "np.ndarray | None":
     """The voiceprint a stored profile matches with TODAY: re-blended from its
     per-sample vectors under the current :func:`blend_samples` rule when it
@@ -979,7 +1062,12 @@ def current_blend(profile: dict | None) -> "np.ndarray | None":
     samples = profile.get("samples")
     if isinstance(samples, list) and samples:
         try:
-            return blend_samples([s for s in samples if isinstance(s, dict)])
+            usable = [s for s in samples if isinstance(s, dict)]
+            # Raised samples have their own prototype and must not dilute this
+            # one; if a profile somehow holds nothing else, fall back to all of
+            # them rather than returning nothing.
+            ordinary = [s for s in usable if s.get("register") != RAISED_REGISTER] or usable
+            return blend_samples(ordinary)
         except (KeyError, TypeError, ValueError):
             pass
     return np.asarray(stored, dtype=np.float32)
@@ -1094,6 +1182,7 @@ def new_profile(
     person_id: str | None = None,
     display_name: str | None = None,
     seconds: float | None = None,
+    register: str | None = None,
 ) -> dict:
     """Build the stored v2 voiceprint document: append this enrollment as an
     individual sample and recompute the blend over ALL samples. Pure (no I/O) so
@@ -1114,6 +1203,14 @@ def new_profile(
     stored on the sample as provenance when known (the People screen shows
     "12 s from <recording>"); omitted (not null) otherwise so older samples
     are byte-identical.
+
+    ``register`` is the VOICE the sample was recorded in: ``"raised"`` for a
+    deliberately loud one, omitted for ordinary speech. Raised samples are
+    excluded from the ordinary blend and pooled separately by
+    :func:`raised_blend` — a person's shout sits about as far from their calm
+    print as a different speaker does, so folding it into one average produces
+    a midpoint that matches neither (measured over 24 speakers in
+    apps/mobile/__tests__/speakerShoutIdentity.test.ts).
     """
     existing_v2 = as_person(existing, person_id=person_id, display_name=display_name)
     person = as_person(
@@ -1133,8 +1230,15 @@ def new_profile(
         sample["note"] = note
     if seconds is not None:
         sample["seconds"] = round(float(seconds), 1)
+    if register == RAISED_REGISTER:
+        sample["register"] = RAISED_REGISTER
     samples.append(sample)
-    blended = blend_samples(samples)
+    # A raised sample never dilutes the ordinary print. If EVERY sample is
+    # raised — nothing but a shout has ever been enrolled — the ordinary blend
+    # falls back to all of them rather than being undefined, because a print
+    # of a shout is still better than no print at all.
+    ordinary = [x for x in samples if x.get("register") != RAISED_REGISTER] or samples
+    blended = blend_samples(ordinary)
     created_at = (existing_v2 or {}).get("created_at") or now_iso
     return {
         "version": PROFILE_VERSION,

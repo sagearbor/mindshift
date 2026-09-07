@@ -32,10 +32,10 @@ describe("fetchVoiceprints", () => {
     expect(init.headers["Content-Type"]).toBeUndefined();
     expect(res.error).toBeNull();
     expect(res.people).toEqual([
-      { personId: "self", displayName: "You", isSelf: true, embedding: [1, 0, 0], model: "ecapa@rev", dim: 3, settings: 2 },
+      { personId: "self", displayName: "You", isSelf: true, embedding: [1, 0, 0], raisedEmbedding: null, model: "ecapa@rev", dim: 3, settings: 2 },
       // No `settings` on the wire (older server) => 1: the contrast match
       // stays off for that print rather than trusting an unreported count.
-      { personId: "mom", displayName: "Mom", isSelf: false, embedding: [0, 1, 0], model: "ecapa@rev", dim: 3, settings: 1 },
+      { personId: "mom", displayName: "Mom", isSelf: false, embedding: [0, 1, 0], raisedEmbedding: null, model: "ecapa@rev", dim: 3, settings: 1 },
     ]);
   });
 
@@ -63,7 +63,7 @@ describe("fetchVoiceprints", () => {
 describe("parseVoiceprints", () => {
   it("accepts a bare array or {people}, the legacy `voiceprint` key, and fills display names", () => {
     expect(parseVoiceprints([{ person_id: "p", voiceprint: [0, 1] }])).toEqual([
-      { personId: "p", displayName: "p", isSelf: false, embedding: [0, 1], model: null, dim: 2, settings: 1 },
+      { personId: "p", displayName: "p", isSelf: false, embedding: [0, 1], raisedEmbedding: null, model: null, dim: 2, settings: 1 },
     ]);
     expect(parseVoiceprints({ people: [{ person_id: "self", is_self: true, embedding: [1] }] })[0]).toMatchObject({
       displayName: "You",
@@ -78,5 +78,29 @@ describe("parseVoiceprints", () => {
     expect(parseVoiceprints([{ person_id: "b", embedding: [1, "x"] as unknown as number[] }])).toEqual([]);
     expect(parseVoiceprints([{ person_id: "c", embedding: [1, Number.NaN] }])).toEqual([]);
     expect(parseVoiceprints([{ person_id: "d", embedding: [] }, { embedding: [1] } as never])).toEqual([]);
+  });
+});
+
+describe("parseVoiceprints — the raised prototype", () => {
+  it("carries a raised print through when the server sends one", () => {
+    const [person] = parseVoiceprints({
+      people: [{ ...SELF, raised_embedding: [0, 1, 0] }],
+    });
+    expect(person.raisedEmbedding).toEqual([0, 1, 0]);
+  });
+
+  it("drops a malformed raised print without losing the ordinary one", () => {
+    // Dropping it costs the shout, never the calm voice — so a corrupt second
+    // prototype must degrade to "no raised print", not to "no print".
+    for (const bad of [[1, 0], [1, 0, Number.NaN], "nope", null, undefined]) {
+      const [person] = parseVoiceprints({ people: [{ ...SELF, raised_embedding: bad }] });
+      expect(person.embedding).toEqual([1, 0, 0]);
+      expect(person.raisedEmbedding).toBeNull();
+    }
+  });
+
+  it("is null on a server that predates it", () => {
+    const [person] = parseVoiceprints({ people: [SELF] });
+    expect(person.raisedEmbedding).toBeNull();
   });
 });

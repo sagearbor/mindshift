@@ -190,13 +190,17 @@ class TurnLocalEvent(BaseModel):
     speaker_person_id: str | None = Field(default=None, max_length=TURN_PERSON_ID_MAX, description="Matched person/profile id, if any")
     speaker_match_score: float | None = Field(default=None, allow_inf_nan=False, description="Voiceprint similarity that produced the match")
     # WHY the phone called this voice that person: "absolute" (cosine >= the
-    # 0.65 bar) or "contrast" (>= 0.40, a multi-recording print, and this
-    # voice beat every other voice in the session for that person by the
-    # margin — speaker_id.CROSS_MATCH_*). Null when no voiceprint matched (a
-    # mid-call binding carries a person without a basis). Recorded so a
-    # contrast "You" is never mistaken for a 0.65 one when reading the record.
-    speaker_match_basis: Literal["absolute", "contrast"] | None = Field(
-        default=None, description="How the voiceprint match was reached: absolute cosine or in-session contrast",
+    # 0.65 bar against their ordinary print), "raised" (>= 0.74 against their
+    # RAISED print — the same person shouting, which sits about as far from
+    # their calm print as a different speaker does), or "contrast" (>= 0.40, a
+    # multi-recording print, and this voice beat every other voice in the
+    # session for that person by the margin — speaker_id.CROSS_MATCH_*). Null
+    # when no voiceprint matched (a mid-call binding carries a person without a
+    # basis). Recorded so a contrast or raised "You" is never mistaken for a
+    # 0.65 one when reading the record — a raised match in particular is the
+    # one worth auditing, since it is how the loudest turns get attributed.
+    speaker_match_basis: Literal["absolute", "raised", "contrast"] | None = Field(
+        default=None, description="How the voiceprint match was reached: absolute cosine, the raised-voice print, or in-session contrast",
     )
     is_self: bool | None = Field(default=None, description="True/False when the phone could decide; null when it couldn't")
     text: str = Field(max_length=TURN_TEXT_MAX)
