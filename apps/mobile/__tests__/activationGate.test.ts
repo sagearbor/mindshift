@@ -40,6 +40,7 @@ import {
   activationLevel,
   turnActivationAsync,
 } from "../src/live/activation";
+import { readCorpusWavTo16k } from "../src/live/replay/corpusWav";
 import { REPO_ROOT } from "../src/live/replay/sceneReplay";
 
 const RAVDESS = path.join(REPO_ROOT, "tmp", "ravdess", "audio");
@@ -68,51 +69,6 @@ function listClips(): Clip[] {
       if (p.length !== 7) continue;
       out.push({ file: path.join(actorDir, name), emotion: p[2], intensity: p[3], actor: Number(p[6]) });
     }
-  }
-  return out;
-}
-
-/** RAVDESS ships 48 kHz mono 16-bit; read it straight and decimate by 3 with a
- *  short FIR low-pass, which is enough for an 8-number prosody summary (the
- *  training pipeline used scipy's resample_poly on the same clips). */
-function read16k(file: string): Float32Array {
-  const buf = fs.readFileSync(file);
-  let pos = 12;
-  let dataOffset = -1;
-  let dataLen = 0;
-  let sr = 0;
-  while (pos + 8 <= buf.length) {
-    const id = buf.toString("ascii", pos, pos + 4);
-    const size = buf.readUInt32LE(pos + 4);
-    if (id === "fmt ") sr = buf.readUInt32LE(pos + 12);
-    if (id === "data") {
-      dataOffset = pos + 8;
-      dataLen = size;
-      break;
-    }
-    pos += 8 + size + (size % 2);
-  }
-  if (dataOffset < 0) throw new Error(`no data chunk in ${file}`);
-  const n = Math.floor(dataLen / 2);
-  const raw = new Float32Array(n);
-  for (let i = 0; i < n; i++) raw[i] = buf.readInt16LE(dataOffset + i * 2) / 32768;
-  if (sr === 16000) return raw;
-  const factor = Math.round(sr / 16000);
-  // 3-tap moving average per output sample, then decimate — an anti-alias
-  // good enough for F0/energy statistics, and deterministic.
-  const outLen = Math.floor(n / factor);
-  const out = new Float32Array(outLen);
-  for (let i = 0; i < outLen; i++) {
-    let acc = 0;
-    let count = 0;
-    for (let k = 0; k < factor; k++) {
-      const j = i * factor + k;
-      if (j < n) {
-        acc += raw[j];
-        count++;
-      }
-    }
-    out[i] = count ? acc / count : 0;
   }
   return out;
 }
@@ -159,7 +115,7 @@ maybe("⚡ vocal-activation gate (RAVDESS, the phone's own implementation)", () 
     // long scored p = 0.997 and p = 0.9998 and would have buzzed at level 3.
     probs = [];
     for (const clip of [...heated, ...calm]) {
-      const pcm = read16k(clip.file);
+      const pcm = readCorpusWavTo16k(clip.file);
       const act = await turnActivationAsync(pcm, 16000, { sleep: async () => {} });
       probs.push({ p: act?.probability ?? 0, label: clip.emotion === "05" ? 1 : 0, clip });
     }
