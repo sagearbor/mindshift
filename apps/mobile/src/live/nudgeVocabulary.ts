@@ -93,11 +93,9 @@ export const NUDGE_VOCABULARY: readonly NudgeVocabularyEntry[] = [
     watchOnly: false,
     levels: [1, 2, 3],
     haptic: {
-      // A RISING ramp: the cue itself builds, and the LEVEL is how many taps
-      // it takes to get there. This is the shipped watch channel-A ladder.
-      1: { timingsMs: [0, 75], amplitudes: [0, 255] },
-      2: { timingsMs: [0, 75, 170, 75], amplitudes: [0, 210, 0, 255] },
-      3: { timingsMs: [0, 100, 170, 100, 170, 100], amplitudes: [0, 200, 0, 230, 0, 255] },
+      1: { timingsMs: [0, 120], amplitudes: [0, 255] },
+      2: { timingsMs: [0, 70, 170, 150], amplitudes: [0, 210, 0, 255] },
+      3: { timingsMs: [0, 60, 170, 110, 170, 200], amplitudes: [0, 200, 0, 230, 0, 255] },
     },
   },
   {
@@ -117,7 +115,9 @@ export const NUDGE_VOCABULARY: readonly NudgeVocabularyEntry[] = [
     // below the alert codes' 255 so it reads as approval, and bottoms out AT
     // the perceptibility floor rather than below it: the last tap of a fade is
     // the one most likely to be missed.
-    haptic: { 1: { timingsMs: [0, 70, 170, 70, 170, 70], amplitudes: [0, 230, 0, 200, 0, 180] } },
+    haptic: {
+      1: { timingsMs: [0, 200, 170, 110, 170, 60], amplitudes: [0, 230, 0, 200, 0, 180] },
+    },
   },
   {
     code: "C",
@@ -134,12 +134,9 @@ export const NUDGE_VOCABULARY: readonly NudgeVocabularyEntry[] = [
     watchOnly: false,
     levels: [1, 2, 3],
     haptic: {
-      // `• —`, `• • —`, `• • • —`: short tap(s) then one long "stop" buzz.
-      // The short taps are 75 ms, not 60 — a "short" tap under the
-      // perceptibility floor turns `• —` into a plain buzz.
-      1: { timingsMs: [0, 75, 170, 260], amplitudes: [0, 255, 0, 200] },
-      2: { timingsMs: [0, 75, 170, 75, 170, 260], amplitudes: [0, 255, 0, 255, 0, 200] },
-      3: { timingsMs: [0, 75, 170, 75, 170, 75, 170, 260], amplitudes: [0, 255, 0, 255, 0, 255, 0, 200] },
+      1: { timingsMs: [0, 60, 170, 300], amplitudes: [0, 255, 0, 200] },
+      2: { timingsMs: [0, 60, 170, 60, 170, 300], amplitudes: [0, 255, 0, 255, 0, 200] },
+      3: { timingsMs: [0, 60, 170, 60, 170, 60, 170, 300], amplitudes: [0, 255, 0, 255, 0, 255, 0, 200] },
     },
   },
   {
@@ -156,8 +153,6 @@ export const NUDGE_VOCABULARY: readonly NudgeVocabularyEntry[] = [
     watchOnly: false,
     levels: [1, 2, 3],
     haptic: {
-      // Slow `— — —`: long, unhurried buzzes — "you're talking a lot" is not
-      // an emergency, so it must not feel like H's crisp taps.
       1: { timingsMs: [0, 250, 300, 250], amplitudes: [0, 180, 0, 180] },
       2: { timingsMs: [0, 250, 300, 250, 300, 250], amplitudes: [0, 180, 0, 180, 0, 180] },
       3: { timingsMs: [0, 250, 300, 250, 300, 250, 300, 250], amplitudes: [0, 180, 0, 180, 0, 180, 0, 180] },
@@ -179,7 +174,9 @@ export const NUDGE_VOCABULARY: readonly NudgeVocabularyEntry[] = [
     // Soft `••` at exactly the perceptibility floor — the softest thing in the
     // set a wrist can still feel. Deliberately the same cue as R: the wrist
     // says "that was good", the screen says which good thing.
-    haptic: { 1: { timingsMs: [0, 50, 170, 50], amplitudes: [0, 180, 0, 180] } },
+    haptic: {
+      1: { timingsMs: [0, 50, 170, 50], amplitudes: [0, 180, 0, 180] },
+    },
   },
   {
     code: "R",
@@ -194,7 +191,9 @@ export const NUDGE_VOCABULARY: readonly NudgeVocabularyEntry[] = [
     summaryOnly: false,
     watchOnly: false,
     levels: [1],
-    haptic: { 1: { timingsMs: [0, 50, 170, 50], amplitudes: [0, 180, 0, 180] } },
+    haptic: {
+      1: { timingsMs: [0, 50, 170, 50, 170, 50], amplitudes: [0, 180, 0, 180, 0, 180] },
+    },
   },
   {
     code: "K",
@@ -226,14 +225,9 @@ export const NUDGE_VOCABULARY: readonly NudgeVocabularyEntry[] = [
     watchOnly: true,
     levels: [1, 2, 3],
     haptic: {
-      // Lub-dub: a short beat then a longer one 120 ms apart — under
-      // MIN_GAP_MS on purpose, because the near-merge is the heartbeat.
-      1: { timingsMs: [0, 90, 120, 150], amplitudes: [0, 190, 0, 240] },
-      2: { timingsMs: [0, 90, 120, 150, 400, 90, 120, 150], amplitudes: [0, 190, 0, 240, 0, 190, 0, 240] },
-      3: {
-        timingsMs: [0, 90, 120, 150, 400, 90, 120, 150, 400, 90, 120, 150],
-        amplitudes: [0, 190, 0, 240, 0, 190, 0, 240, 0, 190, 0, 240],
-      },
+      1: { timingsMs: [0, 90, 100, 150], amplitudes: [0, 190, 0, 240] },
+      2: { timingsMs: [0, 90, 100, 150, 400, 90, 100, 150], amplitudes: [0, 190, 0, 240, 0, 190, 0, 240] },
+      3: { timingsMs: [0, 90, 100, 150, 400, 90, 100, 150, 400, 90, 100, 150], amplitudes: [0, 190, 0, 240, 0, 190, 0, 240, 0, 190, 0, 240] },
     },
   },
 ];

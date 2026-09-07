@@ -195,4 +195,53 @@ class NudgeVocabularyVectorsTest {
         assertNull(NudgeVocabulary.hapticFor("H", 0))
         assertNull(NudgeVocabulary.hapticFor("H", 4))
     }
+
+    private fun taps(w: HapticWaveform) = w.timingsMs.filterIndexed { i, _ -> i % 2 == 1 }
+    private fun gaps(w: HapticWaveform) = w.timingsMs.filterIndexed { i, _ -> i % 2 == 0 }.drop(1)
+
+    /** Would a PHONE be unable to tell these two cues apart? Amplitude is removed on purpose:
+     * React Native can only switch an Android motor on and off, so strength is not a channel
+     * there at all — and the watch must not drift from cues the phone cannot express. */
+    private fun confusable(a: HapticWaveform, b: HapticWaveform, gapMs: Long, ratio: Double): Boolean {
+        val ta = taps(a)
+        val tb = taps(b)
+        if (ta.size != tb.size) return false
+        if (gaps(a).zip(gaps(b)).any { (x, y) -> kotlin.math.abs(x - y) >= gapMs }) return false
+        return ta.zip(tb).all { (x, y) -> maxOf(x, y).toDouble() / minOf(x, y) < ratio }
+    }
+
+    @Test
+    fun noTwoCuesAreConfusable() {
+        // The bug the owner found by hand (2026-09-06): 📈 level 3 was three 100 ms taps and 📉
+        // was three 70 ms taps, differing ONLY in amplitude — so on a phone both were "three taps
+        // 170 ms apart" and read as the same cue. 👂 and 🤝 were byte-for-byte identical.
+        val case = cases(loadDoc()).getValue("no_two_cues_are_confusable")
+        val gapMs = case["confusable_gap_ms"]!!.jsonPrimitive.long
+        val ratio = case["confusable_tap_ratio"]!!.jsonPrimitive.double
+        val cues = NudgeVocabulary.ALL.flatMap { e ->
+            (e.haptic ?: emptyMap()).entries.sortedBy { it.key }.map { "${e.code} L${it.key}" to it.value }
+        }
+        val pairs = mutableListOf<List<String>>()
+        for (i in cues.indices) {
+            for (j in i + 1 until cues.size) {
+                if (confusable(cues[i].second, cues[j].second, gapMs, ratio)) {
+                    pairs.add(listOf(cues[i].first, cues[j].first))
+                }
+            }
+        }
+        val expected = case["expected_confusable_pairs"]!!.jsonArray.map { row ->
+            row.jsonArray.map { it.jsonPrimitive.content }
+        }
+        assertEquals(expected, pairs)
+    }
+
+    @Test
+    fun theRisingAndFallingRampsAreOppositesInTapLength() {
+        val rising = taps(NudgeVocabulary.hapticFor("H", 3)!!)
+        val falling = taps(NudgeVocabulary.hapticFor("D", 1)!!)
+        assertEquals(rising.sorted(), rising, "H must get longer tap by tap")
+        assertEquals(falling.sortedDescending(), falling, "D must get shorter tap by tap")
+        assertEquals(rising.reversed(), falling, "the two must be exact mirrors")
+        assertTrue(rising.max().toDouble() / rising.min() >= 3.0, "the ramp must be felt, not measured")
+    }
 }

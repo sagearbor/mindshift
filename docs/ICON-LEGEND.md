@@ -96,22 +96,28 @@ cannot disagree.
 
 | icon | code | name | what it means | haptic |
 |---|---|---|---|---|
-| 📈 | H | Heated | you got loud, or your words got hot (yelling + aggressive tone are ONE family to the user; the detectors stay separate) | rising ramp, 1–3 taps |
-| 📉 | D | De-escalated | heat dropped a level within two turns of a spike | falling ramp, soft |
+| 📈 | H | Heated | you got loud, or your words got hot (yelling + aggressive tone are ONE family to the user; the detectors stay separate) | taps that get LONGER: 60→110→200 ms |
+| 📉 | D | De-escalated | heat dropped a level within two turns of a spike | taps that get SHORTER: 200→110→60 ms |
 | ✂️ | C | Cut in | sustained talking-over, not ordinary brief overlap | `• —`, `• • —`, `• • • —` |
 | 🎤 | A | Hogging | most of the airtime over the last two minutes | slow `— — —` |
 | 👂 | E | Listened | you let them finish a long turn with no cut-in | soft `••` |
-| 🤝 | R | Repair | you validated or apologised and their tone softened | soft `••` |
+| 🤝 | R | Repair | you validated or apologised and their tone softened | soft `•••` |
 | 🧘 | K | Calm streak | N minutes with no escalation — **summary badge, never live** | none, ever |
 | ❤️ | P | Pulse | heart rate well over resting (+15/25/35 bpm) — **watch only** | lub-dub |
 
 Rules that are part of the contract, not styling:
 
-- **Level 1–3 is carried by RHYTHM, never by intensity alone.** Brown &
-  Brewster: rhythm is identified ~93% of the time, intensity ~61% — and an
-  Android phone cannot vary vibration strength at all, so on a phone the
-  rhythm is the *only* channel. Amplitude only shapes a code's identity (H
-  rises, D falls).
+- **Rhythm carries EVERYTHING — level and identity.** Brown & Brewster: rhythm
+  is identified ~93% of the time, intensity ~61%. More bluntly, an Android
+  phone cannot vary vibration strength *at all* — React Native can only switch
+  the motor on and off — so any two cues that differ only in strength are
+  literally the same cue there. That is not theory: 📈 level 3 and 📉 originally
+  differed only in amplitude, and the first time they were felt on a real Pixel
+  the verdict was *"heated L3 = de-escalated, I can't tell a diff"*. Rising and
+  falling are now expressed in tap LENGTH; amplitude is a bonus the watch gets
+  on top. **No two cues may be confusable** with amplitude removed — same tap
+  count, gaps within 50 ms, every tap within 1.5× — and that is a test on all
+  three runtimes, not a guideline.
 - **Every tap clears the measured perceptibility floor** — 50 ms at amplitude
   180. The watch's v0.1–v0.2.3 cues (40 ms at 120–180) proved *barely
   perceptible* on a real Pixel Watch, so the soft positives sit exactly at the
@@ -123,9 +129,12 @@ Rules that are part of the contract, not styling:
 - **Alert codes are H C A P; positive codes are D E R K.** The order above is
   the owner's, and it is also worst-first — which is how ties break when
   several vectors fire at once.
-- Two codes share the soft `••` on purpose: the wrist says "that was good",
-  the screen says which good thing. Two barely-different soft double-taps
-  would be indistinguishable through a band anyway.
+- 👂 and 🤝 were originally the same soft `••`, on the theory that the wrist
+  says "that was good" and the screen says which. On the device they were
+  indistinguishable — and a phone in a pocket has no screen to check — so 🤝
+  gained a third tap. Same family, same softness, its own rhythm.
 
-To feel all eight: **Settings → Feel the patterns** (Developer mode).
+To feel all eight: **Settings → Feel the patterns** — on the phone (Developer
+mode) *and* on the watch. Test both: they do not feel the same, and only the
+watch reinforces the ramps with amplitude.
 

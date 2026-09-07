@@ -77,23 +77,27 @@ class HapticPatternsTest {
     // --- fallbacks -----------------------------------------------------------------------------
 
     @Test
-    fun channelAFallbacksAreFullAmplitudeLongTaps() {
-        assertEquals(
-            HapticCue.Waveform(listOf(0L, 75L), listOf(0, 255)),
-            HapticPatterns.waveformFallback("A", 1),
-        )
-        // Nudge vocabulary (2026-09-06): level 2 RAMPS too (210 -> 255) — the Heated code 📈 is a
-        // rising ramp at every level it can ramp at, not just level 3.
-        assertEquals(
-            HapticCue.Waveform(listOf(0L, 75L, 170L, 75L), listOf(0, 210, 0, 255)),
-            HapticPatterns.waveformFallback("A", 2),
-        )
-        // Track 1: level 3's fallback RAMPS (PRD §6 "escalating") — 200 -> 230 -> 255, from
-        // NudgeHapticSchedule.ESCALATING_RAMP, still full-scale by the last tap.
-        assertEquals(
-            HapticCue.Waveform(listOf(0L, 100L, 170L, 100L, 170L, 100L), listOf(0, 200, 0, 230, 0, 255)),
-            HapticPatterns.waveformFallback("A", 3),
-        )
+    fun channelAFallbacksAreTheHeatedVocabularyVerbatim() {
+        // Channel A IS 📈 Heated, so its fallback is the contract's waveform, not a restatement.
+        // Restating it is exactly how the two drifted apart on 2026-09-06.
+        for (level in 1..3) {
+            val h = NudgeVocabulary.hapticFor("H", level)!!
+            assertEquals(HapticCue.Waveform(h.timingsMs, h.amplitudes), HapticPatterns.waveformFallback("A", level))
+        }
+    }
+
+    @Test
+    fun channelAFallbacksStayConsistentWithTheSharedSchedule() {
+        // The schedule owns the tap COUNT and the amplitude ramp; the vocabulary owns the tap
+        // LENGTHS. Both have to keep agreeing or one of the two is lying about the cue.
+        for (level in 1..3) {
+            val plan = NudgeHapticSchedule.planFor(level)
+            val wave = HapticPatterns.waveformFallback("A", level)!!
+            val taps = wave.timingsMs.filterIndexed { i, _ -> i % 2 == 1 }
+            assertEquals(plan.pulses, taps.size, "level $level tap count")
+            assertEquals(plan.amplitudeRamp, wave.amplitudes.filterIndexed { i, _ -> i % 2 == 1 }, "level $level ramp")
+            assertTrue(taps.all { it >= NudgeVocabulary.MIN_ON_MS }, "level $level taps must be perceptible")
+        }
     }
 
     @Test
@@ -155,18 +159,6 @@ class HapticPatternsTest {
     }
 
     // --- the nudge vocabulary ------------------------------------------------------------------
-
-    @Test
-    fun channelAIsTheHeatedVocabulary() {
-        // H's cue in the shared contract IS channel A's fallback ladder, at every level — the one
-        // place the two could drift apart.
-        for (level in 1..3) {
-            val h = NudgeVocabulary.hapticFor("H", level)!!
-            val fallback = HapticPatterns.waveformFallback("A", level)!!
-            assertEquals(h.timingsMs, fallback.timingsMs, "H L$level timings")
-            assertEquals(h.amplitudes, fallback.amplitudes, "H L$level amplitudes")
-        }
-    }
 
     @Test
     fun heatedKeepsTheOemTunedChannelCue() {

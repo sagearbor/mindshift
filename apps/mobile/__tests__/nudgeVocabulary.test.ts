@@ -178,4 +178,61 @@ describe("nudge_vocabulary.json golden contract", () => {
     expect(hapticFor("H", 0)).toBeNull();
     expect(hapticFor("H", 4)).toBeNull();
   });
+
+  // --- the bug the owner found by hand, now a gate ------------------------
+
+  const taps = (t: number[]) => t.filter((_, i) => i % 2 === 1);
+  const gaps = (t: number[]) => t.filter((_, i) => i % 2 === 0).slice(1);
+
+  /** Would a PHONE be unable to tell these two cues apart? Amplitude is
+   *  removed on purpose: React Native can only switch an Android motor on and
+   *  off, so strength is not a channel there at all. */
+  const confusable = (a: number[], b: number[], gapMs: number, ratio: number) => {
+    const ta = taps(a);
+    const tb = taps(b);
+    if (ta.length !== tb.length) return false;
+    const ga = gaps(a);
+    const gb = gaps(b);
+    if (ga.some((x, i) => Math.abs(x - gb[i]) >= gapMs)) return false;
+    return ta.every((x, i) => Math.max(x, tb[i]) / Math.min(x, tb[i]) < ratio);
+  };
+
+  it("no two cues are confusable once amplitude is removed", () => {
+    // Shipped 📈 level 3 was three 100 ms taps and 📉 was three 70 ms taps —
+    // they differed ONLY in amplitude, so both reached the motor as "three taps
+    // 170 ms apart" and the owner reported them as the same cue. 👂 and 🤝 were
+    // byte-for-byte identical.
+    const c = CASES.no_two_cues_are_confusable as {
+      confusable_gap_ms: number;
+      confusable_tap_ratio: number;
+      expected_confusable_pairs: string[][];
+    };
+    const cues = NUDGE_VOCABULARY.filter((e) => e.haptic).flatMap((e) =>
+      Object.entries(e.haptic!).map(([lvl, w]) => [`${e.code} L${lvl}`, w.timingsMs] as const),
+    );
+    const pairs: string[][] = [];
+    for (let i = 0; i < cues.length; i++) {
+      for (let j = i + 1; j < cues.length; j++) {
+        if (confusable(cues[i][1], cues[j][1], c.confusable_gap_ms, c.confusable_tap_ratio)) {
+          pairs.push([cues[i][0], cues[j][0]]);
+        }
+      }
+    }
+    expect(pairs).toEqual(c.expected_confusable_pairs);
+  });
+
+  it("the rising and falling ramps are opposites in tap LENGTH, not just strength", () => {
+    const rising = taps(hapticFor("H", 3)!.timingsMs);
+    const falling = taps(hapticFor("D", 1)!.timingsMs);
+    expect(rising).toEqual([...rising].sort((a, b) => a - b));
+    expect(falling).toEqual([...falling].sort((a, b) => b - a));
+    expect(falling).toEqual([...rising].reverse());
+    // ...and by enough to feel, not a few milliseconds.
+    expect(Math.max(...rising) / Math.min(...rising)).toBeGreaterThanOrEqual(3);
+  });
+
+  it("the first Heated tap is long enough to notice on a phone", () => {
+    // 75 ms was reported as "does nothing" on a Pixel (2026-09-06).
+    expect(hapticFor("H", 1)!.timingsMs[1]).toBeGreaterThanOrEqual(100);
+  });
 });

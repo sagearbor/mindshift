@@ -106,9 +106,9 @@ object NudgeVocabulary {
             // A RISING ramp: the cue builds, and the LEVEL is how many taps it takes to get
             // there. This IS the shipped channel-A ladder.
             haptic = mapOf(
-                1 to w(listOf(0L, 75L), listOf(0, 255)),
-                2 to w(listOf(0L, 75L, 170L, 75L), listOf(0, 210, 0, 255)),
-                3 to w(listOf(0L, 100L, 170L, 100L, 170L, 100L), listOf(0, 200, 0, 230, 0, 255)),
+                1 to w(listOf(0L, 120L), listOf(0, 255)),
+                2 to w(listOf(0L, 70L, 170L, 150L), listOf(0, 210, 0, 255)),
+                3 to w(listOf(0L, 60L, 170L, 110L, 170L, 200L), listOf(0, 200, 0, 230, 0, 255)),
             ),
         ),
         NudgeVocabularyEntry(
@@ -125,7 +125,9 @@ object NudgeVocabulary {
             watchOnly = false,
             levels = listOf(1),
             // A FALLING ramp — the mirror of H, and the only cue that fades.
-            haptic = mapOf(1 to w(listOf(0L, 70L, 170L, 70L, 170L, 70L), listOf(0, 230, 0, 200, 0, 180))),
+            haptic = mapOf(
+                1 to w(listOf(0L, 200L, 170L, 110L, 170L, 60L), listOf(0, 230, 0, 200, 0, 180)),
+            ),
         ),
         NudgeVocabularyEntry(
             code = "C",
@@ -145,9 +147,9 @@ object NudgeVocabulary {
             // are 75 ms, not 60 — a "short" tap under the perceptibility floor turns `• —` into a
             // plain buzz.
             haptic = mapOf(
-                1 to w(listOf(0L, 75L, 170L, 260L), listOf(0, 255, 0, 200)),
-                2 to w(listOf(0L, 75L, 170L, 75L, 170L, 260L), listOf(0, 255, 0, 255, 0, 200)),
-                3 to w(listOf(0L, 75L, 170L, 75L, 170L, 75L, 170L, 260L), listOf(0, 255, 0, 255, 0, 255, 0, 200)),
+                1 to w(listOf(0L, 60L, 170L, 300L), listOf(0, 255, 0, 200)),
+                2 to w(listOf(0L, 60L, 170L, 60L, 170L, 300L), listOf(0, 255, 0, 255, 0, 200)),
+                3 to w(listOf(0L, 60L, 170L, 60L, 170L, 60L, 170L, 300L), listOf(0, 255, 0, 255, 0, 255, 0, 200)),
             ),
         ),
         NudgeVocabularyEntry(
@@ -168,10 +170,7 @@ object NudgeVocabulary {
             haptic = mapOf(
                 1 to w(listOf(0L, 250L, 300L, 250L), listOf(0, 180, 0, 180)),
                 2 to w(listOf(0L, 250L, 300L, 250L, 300L, 250L), listOf(0, 180, 0, 180, 0, 180)),
-                3 to w(
-                    listOf(0L, 250L, 300L, 250L, 300L, 250L, 300L, 250L),
-                    listOf(0, 180, 0, 180, 0, 180, 0, 180),
-                ),
+                3 to w(listOf(0L, 250L, 300L, 250L, 300L, 250L, 300L, 250L), listOf(0, 180, 0, 180, 0, 180, 0, 180)),
             ),
         ),
         NudgeVocabularyEntry(
@@ -189,7 +188,9 @@ object NudgeVocabulary {
             levels = listOf(1),
             // Soft `••` — deliberately the same cue as R: the wrist says "that was good", the
             // screen says which good thing.
-            haptic = mapOf(1 to w(listOf(0L, 50L, 170L, 50L), listOf(0, 180, 0, 180))),
+            haptic = mapOf(
+                1 to w(listOf(0L, 50L, 170L, 50L), listOf(0, 180, 0, 180)),
+            ),
         ),
         NudgeVocabularyEntry(
             code = "R",
@@ -204,7 +205,9 @@ object NudgeVocabulary {
             summaryOnly = false,
             watchOnly = false,
             levels = listOf(1),
-            haptic = mapOf(1 to w(listOf(0L, 50L, 170L, 50L), listOf(0, 180, 0, 180))),
+            haptic = mapOf(
+                1 to w(listOf(0L, 50L, 170L, 50L, 170L, 50L), listOf(0, 180, 0, 180, 0, 180)),
+            ),
         ),
         NudgeVocabularyEntry(
             code = "K",
@@ -238,12 +241,9 @@ object NudgeVocabulary {
             // Lub-dub: a short beat then a longer one 120 ms apart — under MIN_GAP_MS on purpose,
             // because the near-merge is the heartbeat.
             haptic = mapOf(
-                1 to w(listOf(0L, 90L, 120L, 150L), listOf(0, 190, 0, 240)),
-                2 to w(listOf(0L, 90L, 120L, 150L, 400L, 90L, 120L, 150L), listOf(0, 190, 0, 240, 0, 190, 0, 240)),
-                3 to w(
-                    listOf(0L, 90L, 120L, 150L, 400L, 90L, 120L, 150L, 400L, 90L, 120L, 150L),
-                    listOf(0, 190, 0, 240, 0, 190, 0, 240, 0, 190, 0, 240),
-                ),
+                1 to w(listOf(0L, 90L, 100L, 150L), listOf(0, 190, 0, 240)),
+                2 to w(listOf(0L, 90L, 100L, 150L, 400L, 90L, 100L, 150L), listOf(0, 190, 0, 240, 0, 190, 0, 240)),
+                3 to w(listOf(0L, 90L, 100L, 150L, 400L, 90L, 100L, 150L, 400L, 90L, 100L, 150L), listOf(0, 190, 0, 240, 0, 190, 0, 240, 0, 190, 0, 240)),
             ),
         ),
     )

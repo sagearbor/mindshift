@@ -94,25 +94,12 @@ object HapticPatterns {
     fun waveformFallback(channel: String, level: Int): HapticCue.Waveform? {
         if (level < 1 || level > 3) return null
         return when (channel) {
-            "A" -> when (level) {
-                1 -> HapticCue.Waveform(listOf(0L, 75L), listOf(0, 255))
-                // Rising, like level 3's — the Heated code ramps at every level it can ramp at
-                // (nudge vocabulary, 2026-09-06); the ramp itself lives in the shared schedule.
-                2 -> {
-                    val ramp = NudgeHapticSchedule.planFor(2).amplitudeRamp
-                    HapticCue.Waveform(listOf(0L, 75L, MIN_GAP_MS, 75L), listOf(0, ramp[0], 0, ramp[1]))
-                }
-                // Escalating: three 100ms taps whose amplitudes rise tap over tap (200 -> 230 ->
-                // 255, from the shared schedule) so the cue itself builds — the composed-click
-                // path above can't scale per primitive, so the ramp lives in the fallback only.
-                else -> {
-                    val ramp = NudgeHapticSchedule.planFor(3).amplitudeRamp
-                    HapticCue.Waveform(
-                        listOf(0L, 100L, MIN_GAP_MS, 100L, MIN_GAP_MS, 100L),
-                        listOf(0, ramp[0], 0, ramp[1], 0, ramp[2]),
-                    )
-                }
-            }
+            // Channel A IS the Heated family, so its fallback is READ from the shared vocabulary
+            // rather than restated here. It used to be restated, and on 2026-09-06 that drifted:
+            // the vocabulary moved H's rising ramp into tap LENGTH (60 -> 110 -> 200 ms) because a
+            // phone cannot play amplitude, and this file kept three equal 100 ms taps. Delegating
+            // is the only way the wrist and the phone can be the same gesture.
+            "A" -> NudgeVocabulary.hapticFor("H", level)?.let { HapticCue.Waveform(it.timingsMs, it.amplitudes) }
             "B" -> cue("B", level) as? HapticCue.Waveform
             else -> null
         }

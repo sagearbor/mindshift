@@ -151,3 +151,62 @@ def test_alert_levels_out_of_range_are_silent_not_clamped():
     safe failure for a haptic (the watch's fail direction)."""
     assert haptic_for("H", 0) is None
     assert haptic_for("H", 4) is None
+
+
+def _taps(w):
+    return w.timings_ms[1::2]
+
+
+def _gaps(w):
+    return w.timings_ms[2::2]
+
+
+def _confusable(a, b, gap_ms: int, ratio: float) -> bool:
+    """Would a PHONE be unable to tell these two cues apart?
+
+    Amplitude is removed on purpose: React Native can only switch an Android
+    motor on and off, so strength is not a channel there at all.
+    """
+    ta, tb = _taps(a), _taps(b)
+    if len(ta) != len(tb):
+        return False
+    if any(abs(x - y) >= gap_ms for x, y in zip(_gaps(a), _gaps(b))):
+        return False
+    return all(max(x, y) / min(x, y) < ratio for x, y in zip(ta, tb))
+
+
+def test_no_two_cues_are_confusable():
+    """The case the owner found by hand on 2026-09-06.
+
+    Shipped 📈 level 3 was three 100 ms taps and 📉 was three 70 ms taps — they
+    differed ONLY in amplitude, which a phone ignores, so both reached the motor
+    as "three taps 170 ms apart" and read as the same cue. 👂 and 🤝 were
+    byte-for-byte identical. No two cues may be confusable again.
+    """
+    case = CASES["no_two_cues_are_confusable"]
+    gap_ms, ratio = case["confusable_gap_ms"], case["confusable_tap_ratio"]
+    cues = [
+        (f"{e.code} L{level}", wave)
+        for e in NUDGE_VOCABULARY
+        if e.haptic
+        for level, wave in sorted(e.haptic.items())
+    ]
+    pairs = [
+        [a, b]
+        for i, (a, wa) in enumerate(cues)
+        for (b, wb) in cues[i + 1:]
+        if _confusable(wa, wb, gap_ms, ratio)
+    ]
+    assert pairs == case["expected_confusable_pairs"]
+
+
+def test_the_rising_and_falling_ramps_are_opposites_in_tap_length():
+    """H rises and D falls in the one dimension every device can play. Encoding
+    that in amplitude alone is what produced "heated L3 = de-escalated"."""
+    rising = _taps(haptic_for("H", 3))
+    falling = _taps(haptic_for("D", 1))
+    assert list(rising) == sorted(rising), "H must get longer tap by tap"
+    assert list(falling) == sorted(falling, reverse=True), "D must get shorter tap by tap"
+    assert list(falling) == list(reversed(rising)), "the two must be exact mirrors"
+    # ...and the difference has to be big enough to feel, not a few milliseconds.
+    assert max(rising) / min(rising) >= 3.0

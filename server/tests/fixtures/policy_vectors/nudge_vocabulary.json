@@ -22,12 +22,13 @@
       "form": "One waveform per level. `timings_ms` alternates OFF, ON, OFF, ON, … starting with an initial delay (always 0). `amplitudes` is the same length; 0 in the OFF slots, 1..255 in the ON slots.",
       "android_phone": "React Native `Vibration.vibrate(timings_ms)` — RN's Android pattern IS [wait, vibrate, wait, vibrate, …], so `timings_ms` is passed verbatim. RN cannot vary amplitude, so the phone feels the RHYTHM only; this is why the level is carried by rhythm and never by intensity.",
       "wear_os": "`VibrationEffect.createWaveform(timings_ms, amplitudes, -1)` — the watch feels rhythm AND the ramp.",
-      "why_rhythm_carries_the_level": "Brown & Brewster: rhythm is identified ~93% of the time, intensity ~61%. So level 1/2/3 differ in how many taps/how long, never in loudness alone; amplitude only shapes a code's identity (H rises, D falls).",
+      "why_rhythm_carries_the_level": "Brown & Brewster: rhythm is identified ~93% of the time, intensity ~61%. And on an Android PHONE amplitude does not exist at all — React Native can only switch the motor on and off — so any two cues that differ only in strength are literally the same cue there. That is not theory: shipping a rising ramp and a falling ramp that differed only in amplitude produced 'heated L3 = de-escalated, I cant tell a diff' on the owner's Pixel the first time he felt them (2026-09-06). Level, and identity, are carried by tap COUNT and tap LENGTH; amplitude is a bonus the watch gets on top.",
       "never_merge_gap_ms": "170 — the pattern-wide silence floor (apps/watch/.../HapticPatterns.kt MIN_GAP_MS): two taps closer than this smear into one buzz on a watch band. The ONE deliberate exception is P's lub-dub (120 ms), where the near-merge IS the heartbeat identity; `haptic_gap_exceptions` lists it so a linter can't 'fix' it.",
       "haptic_gap_exceptions": [
         "pulse"
       ],
-      "perceptibility_floor": "Perceptibility floor: 50 ms at amplitude 180. Not a style choice — it is this app's own measured device finding (apps/watch/.../HapticPatterns.kt: the v0.1–v0.2.3 raw waveforms at 40 ms / amplitude 120–180 proved BARELY PERCEPTIBLE on the real Pixel Watch, and the pulse train's floor band was raised to (50 ms, 180) as the perceptible minimum). Every ON slot in this file is at or above it, including the soft positives: a cue nobody can feel is not a soft cue, it is a missing one."
+      "perceptibility_floor": "Perceptibility floor: 50 ms at amplitude 180. Not a style choice — it is this app's own measured device finding (apps/watch/.../HapticPatterns.kt: the v0.1–v0.2.3 raw waveforms at 40 ms / amplitude 120–180 proved BARELY PERCEPTIBLE on the real Pixel Watch, and the pulse train's floor band was raised to (50 ms, 180) as the perceptible minimum). Every ON slot in this file is at or above it, including the soft positives: a cue nobody can feel is not a soft cue, it is a missing one.",
+      "distinguishability": "Two cues are CONFUSABLE when a phone cannot separate them: same number of taps, every corresponding gap within 50 ms, and every corresponding tap within a factor of 1.5. No two cues in this file may be confusable — enforced by the `no_two_cues_are_confusable` case on all three runtimes, which is the test that would have caught the shipped H/D collision."
     },
     "positive_rules": {
       "cap_seconds": 120,
@@ -67,7 +68,7 @@
         "1": {
           "timings_ms": [
             0,
-            75
+            120
           ],
           "amplitudes": [
             0,
@@ -77,9 +78,9 @@
         "2": {
           "timings_ms": [
             0,
-            75,
+            70,
             170,
-            75
+            150
           ],
           "amplitudes": [
             0,
@@ -91,11 +92,11 @@
         "3": {
           "timings_ms": [
             0,
-            100,
+            60,
             170,
-            100,
+            110,
             170,
-            100
+            200
           ],
           "amplitudes": [
             0,
@@ -107,7 +108,7 @@
           ]
         }
       },
-      "haptic_note": "A RISING ramp — the cue itself builds. Owner's phrasing was 'worse = two faster ramps in the same duration'; under the 170 ms never-merge floor two full ramps cannot fit in one ramp's duration on a watch actuator, so the level is carried by the number of taps in the ramp (1 / 2 / 3) — the rhythm the wearer actually discriminates. This IS the shipped watch channel-A ladder; the only change from v0 is that level 2 now ramps (210 -> 255) instead of two flat 255 taps."
+      "haptic_note": "A RISING ramp, expressed in TAP LENGTH: 60 -> 110 -> 200 ms, each tap longer than the last. It was expressed in AMPLITUDE until 2026-09-06, which was a design error: an Android phone cannot vary vibration strength at all, so the rising ramp and D's falling ramp reached the motor as the same three taps and the owner could not tell them apart on the device. Amplitude still rises on top, because a watch CAN play it — the rhythm carries the meaning, the amplitude reinforces it. Level 1 is a single 120 ms tap: 75 ms alone was reported as 'does nothing' on a Pixel."
     },
     {
       "code": "D",
@@ -128,11 +129,11 @@
         "1": {
           "timings_ms": [
             0,
-            70,
+            200,
             170,
-            70,
+            110,
             170,
-            70
+            60
           ],
           "amplitudes": [
             0,
@@ -144,7 +145,7 @@
           ]
         }
       },
-      "haptic_note": "A FALLING ramp — the mirror of H, and the only cue in the set that fades. It starts below the alert codes' 255 so it still reads as approval, and BOTTOMS OUT at the perceptibility floor (180) rather than below it: the last tap of a fade is the one most likely to be missed."
+      "haptic_note": "A FALLING ramp — the exact mirror of H's, 200 -> 110 -> 60 ms, so the two are opposites in the one dimension every device can play. Starts below the alert codes' 255 and bottoms out AT the perceptibility floor, never below it: the last tap of a fade is the one most likely to be missed."
     },
     {
       "code": "C",
@@ -169,9 +170,9 @@
         "1": {
           "timings_ms": [
             0,
-            75,
+            60,
             170,
-            260
+            300
           ],
           "amplitudes": [
             0,
@@ -183,11 +184,11 @@
         "2": {
           "timings_ms": [
             0,
-            75,
+            60,
             170,
-            75,
+            60,
             170,
-            260
+            300
           ],
           "amplitudes": [
             0,
@@ -201,13 +202,13 @@
         "3": {
           "timings_ms": [
             0,
-            75,
+            60,
             170,
-            75,
+            60,
             170,
-            75,
+            60,
             170,
-            260
+            300
           ],
           "amplitudes": [
             0,
@@ -221,7 +222,7 @@
           ]
         }
       },
-      "haptic_note": "Owner's `• —`: short tap(s) then one long 'stop' buzz. The level adds short taps ahead of the long one (`• —`, `• • —`, `• • • —`) so the cue stays under 900 ms at every level while the rhythm still escalates. The short taps are 75 ms, not 60: 60 ms is under the measured perceptibility floor, and a 'short' tap nobody feels turns `• —` into a plain buzz."
+      "haptic_note": "Owner's `• —`: short tap(s) then one long 'stop' buzz. The level adds short taps ahead of the long one (`• —`, `• • —`, `• • • —`). The long buzz is 300 ms — five times the short taps — so the shape survives on a phone, where nothing but duration is left."
     },
     {
       "code": "A",
@@ -298,7 +299,7 @@
           ]
         }
       },
-      "haptic_note": "Owner's slow `— — —`: long, unhurried, evenly spaced buzzes — the opposite of H's crisp taps, because 'you're talking too much' is not an emergency. Level 2 is the canonical three."
+      "haptic_note": "Owner's slow `— — —`: long, unhurried, evenly spaced buzzes — the opposite of H's crisp taps, because 'you're talking a lot' is not an emergency. Level 2 is the canonical three."
     },
     {
       "code": "E",
@@ -331,7 +332,7 @@
           ]
         }
       },
-      "haptic_note": "Owner's soft `••`, at exactly the perceptibility floor (50 ms, amplitude 180) — the softest thing in the set that a wrist can still feel. Deliberately identical to R: the WRIST says 'that was good', the SCREEN says which good thing. Two barely-different soft double-taps would be indistinguishable through a band anyway, so pretending otherwise would be dishonest."
+      "haptic_note": "Owner's soft `••`, at exactly the perceptibility floor (50 ms) — the softest thing in the set a wrist can still feel."
     },
     {
       "code": "R",
@@ -354,9 +355,13 @@
             0,
             50,
             170,
+            50,
+            170,
             50
           ],
           "amplitudes": [
+            0,
+            180,
             0,
             180,
             0,
@@ -364,7 +369,7 @@
           ]
         }
       },
-      "haptic_note": "Owner's soft `••` — the same cue as E on purpose; see E."
+      "haptic_note": "Owner's soft `•••`. Approved as `••`, the same cue as E, on the theory that the wrist says 'that was good' and the screen says which. On the device the owner could not tell them apart (2026-09-06) — and a phone in a pocket has no screen to check — so R gained a third tap. Same family, same softness, its own rhythm. Revert to two taps if the owner prefers the original."
     },
     {
       "code": "K",
@@ -408,7 +413,7 @@
           "timings_ms": [
             0,
             90,
-            120,
+            100,
             150
           ],
           "amplitudes": [
@@ -422,11 +427,11 @@
           "timings_ms": [
             0,
             90,
-            120,
+            100,
             150,
             400,
             90,
-            120,
+            100,
             150
           ],
           "amplitudes": [
@@ -444,15 +449,15 @@
           "timings_ms": [
             0,
             90,
-            120,
+            100,
             150,
             400,
             90,
-            120,
+            100,
             150,
             400,
             90,
-            120,
+            100,
             150
           ],
           "amplitudes": [
@@ -471,7 +476,7 @@
           ]
         }
       },
-      "haptic_note": "Owner's lub-dub double thump: a short beat then a longer one, 120 ms apart — BELOW the 170 ms never-merge floor on purpose, because the near-merge is exactly what makes it read as a heartbeat rather than two taps. The level is how many heartbeats you feel. Watch-only: the phone has no HR sensor."
+      "haptic_note": "Owner's lub-dub double thump: a short beat then a longer one, 100 ms apart — BELOW the 170 ms never-merge floor on purpose, because the near-merge is exactly what makes it read as a heartbeat rather than two taps. The level is how many heartbeats you feel."
     }
   ],
   "cases": [
@@ -514,14 +519,14 @@
       "description": "For every alert code, the total ON time strictly increases with the level — so the cue is discriminable by duration/count alone, with amplitude switched off (which is what an Android phone feels).",
       "expected_on_ms": {
         "H": [
-          75,
-          150,
-          300
+          120,
+          220,
+          370
         ],
         "C": [
-          335,
-          410,
-          485
+          360,
+          420,
+          480
         ],
         "A": [
           500,
@@ -578,6 +583,13 @@
           "code": "R"
         }
       ]
+    },
+    {
+      "name": "no_two_cues_are_confusable",
+      "description": "The case that would have caught the bug the owner found by hand. With amplitude removed — which is exactly what an Android phone does — no two cues in this file may share a rhythm. Confusable means: the same number of taps, AND every corresponding gap within `confusable_gap_ms`, AND every corresponding tap within a factor of `confusable_tap_ratio`. Before this rule, H level 3 (three 100 ms taps) and D (three 70 ms taps) differed only in amplitude and reached the motor identically, and E and R were byte-for-byte the same array.",
+      "confusable_gap_ms": 50,
+      "confusable_tap_ratio": 1.5,
+      "expected_confusable_pairs": []
     }
   ]
 }
