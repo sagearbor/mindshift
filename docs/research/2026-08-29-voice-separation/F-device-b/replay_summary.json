@@ -1,0 +1,468 @@
+{
+ "machine": {
+  "platform": "darwin 24.6.0",
+  "arch": "arm64",
+  "cpu": "Apple M4",
+  "cores": 10,
+  "node": "v26.7.0"
+ },
+ "ecapa_model": "ecapa_0f99f2d0ebe89ac095bcc5903c4dd8f72b367286.onnx",
+ "fixtures": {
+  "family_real": {
+   "seconds": 29.57,
+   "k_true": 2,
+   "speech_seconds": 20.49,
+   "gate_rms": 0.0052,
+   "windows_kept": 110,
+   "windows_total": 113,
+   "hop_s": 0.25,
+   "variants": {
+    "b8": {
+     "k": 2,
+     "k_eigengap": 2,
+     "eigenvalues": [
+      25.05058,
+      22.143434,
+      9.654444,
+      8.392734,
+      7.437573,
+      5.246996,
+      4.914438,
+      4.215942,
+      3.509533
+     ],
+     "n_segments": 6,
+     "pred_file": "pred_family_real_b8.json"
+    },
+    "prod6": {
+     "k": 2,
+     "k_eigengap": 2,
+     "eigenvalues": [
+      25.05058,
+      22.143434,
+      9.654444,
+      8.392734,
+      7.437573,
+      5.246996,
+      4.914438
+     ],
+     "n_segments": 6,
+     "pred_file": "pred_family_real_prod6.json"
+    }
+   },
+   "embed_ms_per_window": {
+    "n": 110,
+    "mean_ms": 15.08,
+    "median_ms": 15.08,
+    "p90_ms": 15.51
+   },
+   "timings_ms": {
+    "gate": 1.2,
+    "embed": 1658.898,
+    "cluster": 26.038,
+    "smooth": 0.324,
+    "total": 1686.526,
+    "wall": 1686.622
+   }
+  },
+  "poker6": {
+   "seconds": 30.12,
+   "k_true": 6,
+   "speech_seconds": 24.93,
+   "gate_rms": 0.0047,
+   "windows_kept": 109,
+   "windows_total": 115,
+   "hop_s": 0.25,
+   "variants": {
+    "b8": {
+     "k": 7,
+     "k_eigengap": 7,
+     "eigenvalues": [
+      19.293213,
+      15.491348,
+      12.742632,
+      12.400791,
+      9.834263,
+      8.573194,
+      7.147684,
+      4.015899,
+      2.85215
+     ],
+     "n_segments": 9,
+     "pred_file": "pred_poker6_b8.json"
+    },
+    "prod6": {
+     "k": 4,
+     "k_eigengap": 4,
+     "eigenvalues": [
+      19.293213,
+      15.491348,
+      12.742632,
+      12.400791,
+      9.834263,
+      8.573194,
+      7.147684
+     ],
+     "n_segments": 8,
+     "pred_file": "pred_poker6_prod6.json"
+    }
+   },
+   "embed_ms_per_window": {
+    "n": 109,
+    "mean_ms": 15.17,
+    "median_ms": 15.02,
+    "p90_ms": 15.85
+   },
+   "timings_ms": {
+    "gate": 0.8,
+    "embed": 1653.761,
+    "cluster": 70.104,
+    "smooth": 0.182,
+    "total": 1724.883,
+    "wall": 1724.888
+   }
+  },
+  "openai": {
+   "seconds": 70.4,
+   "k_true": 2,
+   "speech_seconds": 47.88,
+   "gate_rms": 0.003,
+   "windows_kept": 266,
+   "windows_total": 276,
+   "hop_s": 0.25,
+   "variants": {
+    "b8": {
+     "k": 2,
+     "k_eigengap": 2,
+     "eigenvalues": [
+      75.466971,
+      67.960043,
+      22.668213,
+      8.427821,
+      7.373751,
+      6.582474,
+      5.304334,
+      5.023923,
+      4.435372
+     ],
+     "n_segments": 10,
+     "pred_file": "pred_openai_b8.json"
+    },
+    "prod6": {
+     "k": 2,
+     "k_eigengap": 2,
+     "eigenvalues": [
+      75.466971,
+      67.960043,
+      22.668213,
+      8.427821,
+      7.373751,
+      6.582474,
+      5.304334
+     ],
+     "n_segments": 10,
+     "pred_file": "pred_openai_prod6.json"
+    }
+   },
+   "embed_ms_per_window": {
+    "n": 266,
+    "mean_ms": 15.48,
+    "median_ms": 15.13,
+    "p90_ms": 16.45
+   },
+   "timings_ms": {
+    "gate": 2.7,
+    "embed": 4118.451,
+    "cluster": 81.925,
+    "smooth": 0.027,
+    "total": 4203.142,
+    "wall": 4203.148
+   }
+  },
+  "gptaudio": {
+   "seconds": 74.7,
+   "k_true": 2,
+   "speech_seconds": 51.63,
+   "gate_rms": 0.003,
+   "windows_kept": 286,
+   "windows_total": 293,
+   "hop_s": 0.25,
+   "variants": {
+    "b8": {
+     "k": 2,
+     "k_eigengap": 2,
+     "eigenvalues": [
+      74.272605,
+      67.907786,
+      19.398488,
+      11.713573,
+      10.056324,
+      8.786287,
+      8.085763,
+      6.186417,
+      5.317495
+     ],
+     "n_segments": 10,
+     "pred_file": "pred_gptaudio_b8.json"
+    },
+    "prod6": {
+     "k": 2,
+     "k_eigengap": 2,
+     "eigenvalues": [
+      74.272605,
+      67.907786,
+      19.398488,
+      11.713573,
+      10.056324,
+      8.786287,
+      8.085763
+     ],
+     "n_segments": 10,
+     "pred_file": "pred_gptaudio_prod6.json"
+    }
+   },
+   "embed_ms_per_window": {
+    "n": 286,
+    "mean_ms": 15.27,
+    "median_ms": 15.25,
+    "p90_ms": 15.68
+   },
+   "timings_ms": {
+    "gate": 1.8,
+    "embed": 4367.817,
+    "cluster": 82.359,
+    "smooth": 0.029,
+    "total": 4452.045,
+    "wall": 4452.052
+   }
+  },
+  "scene_couple": {
+   "seconds": 69.57,
+   "k_true": 2,
+   "speech_seconds": 46.56,
+   "gate_rms": 0.003,
+   "windows_kept": 268,
+   "windows_total": 273,
+   "hop_s": 0.25,
+   "variants": {
+    "b8": {
+     "k": 2,
+     "k_eigengap": 2,
+     "eigenvalues": [
+      72.105082,
+      66.446669,
+      13.196457,
+      11.077516,
+      9.55055,
+      8.287465,
+      7.000652,
+      6.620995,
+      5.695941
+     ],
+     "n_segments": 13,
+     "pred_file": "pred_scene_couple_b8.json"
+    },
+    "prod6": {
+     "k": 2,
+     "k_eigengap": 2,
+     "eigenvalues": [
+      72.105082,
+      66.446669,
+      13.196457,
+      11.077516,
+      9.55055,
+      8.287465,
+      7.000652
+     ],
+     "n_segments": 13,
+     "pred_file": "pred_scene_couple_prod6.json"
+    }
+   },
+   "embed_ms_per_window": {
+    "n": 268,
+    "mean_ms": 15.31,
+    "median_ms": 15.23,
+    "p90_ms": 16.2
+   },
+   "timings_ms": {
+    "gate": 0.9,
+    "embed": 4103.509,
+    "cluster": 70.622,
+    "smooth": 0.029,
+    "total": 4175.043,
+    "wall": 4175.049
+   }
+  },
+  "scene_family3": {
+   "seconds": 67.06,
+   "k_true": 3,
+   "speech_seconds": 47.31,
+   "gate_rms": 0.003,
+   "windows_kept": 263,
+   "windows_total": 263,
+   "hop_s": 0.25,
+   "variants": {
+    "b8": {
+     "k": 3,
+     "k_eigengap": 3,
+     "eigenvalues": [
+      62.049671,
+      58.45705,
+      56.537177,
+      9.546812,
+      6.974135,
+      4.908624,
+      4.273939,
+      4.055457,
+      3.239938
+     ],
+     "n_segments": 15,
+     "pred_file": "pred_scene_family3_b8.json"
+    },
+    "prod6": {
+     "k": 3,
+     "k_eigengap": 3,
+     "eigenvalues": [
+      62.049671,
+      58.45705,
+      56.537177,
+      9.546812,
+      6.974135,
+      4.908624,
+      4.273939
+     ],
+     "n_segments": 15,
+     "pred_file": "pred_scene_family3_prod6.json"
+    }
+   },
+   "embed_ms_per_window": {
+    "n": 263,
+    "mean_ms": 15.32,
+    "median_ms": 15.09,
+    "p90_ms": 15.75
+   },
+   "timings_ms": {
+    "gate": 0.8,
+    "embed": 4029.247,
+    "cluster": 64.431,
+    "smooth": 0.025,
+    "total": 4094.544,
+    "wall": 4094.552
+   }
+  },
+  "scene_meeting4": {
+   "seconds": 82.88,
+   "k_true": 4,
+   "speech_seconds": 58.53,
+   "gate_rms": 0.003,
+   "windows_kept": 326,
+   "windows_total": 326,
+   "hop_s": 0.25,
+   "variants": {
+    "b8": {
+     "k": 3,
+     "k_eigengap": 3,
+     "eigenvalues": [
+      79.830635,
+      70.576024,
+      54.810266,
+      18.043783,
+      12.208864,
+      6.732642,
+      6.388665,
+      5.610074,
+      4.465657
+     ],
+     "n_segments": 16,
+     "pred_file": "pred_scene_meeting4_b8.json"
+    },
+    "prod6": {
+     "k": 3,
+     "k_eigengap": 3,
+     "eigenvalues": [
+      79.830635,
+      70.576024,
+      54.810266,
+      18.043783,
+      12.208864,
+      6.732642,
+      6.388665
+     ],
+     "n_segments": 16,
+     "pred_file": "pred_scene_meeting4_prod6.json"
+    }
+   },
+   "embed_ms_per_window": {
+    "n": 326,
+    "mean_ms": 15.41,
+    "median_ms": 15.29,
+    "p90_ms": 15.94
+   },
+   "timings_ms": {
+    "gate": 1,
+    "embed": 5023.221,
+    "cluster": 122.01,
+    "smooth": 0.03,
+    "total": 5146.286,
+    "wall": 5146.292
+   }
+  },
+  "maggiano3": {
+   "seconds": 42.63,
+   "k_true": 3,
+   "speech_seconds": 35.94,
+   "gate_rms": 0.003,
+   "windows_kept": 162,
+   "windows_total": 165,
+   "hop_s": 0.25,
+   "variants": {
+    "b8": {
+     "k": 3,
+     "k_eigengap": 3,
+     "eigenvalues": [
+      37.603229,
+      23.050349,
+      17.078734,
+      9.584131,
+      8.161216,
+      7.275893,
+      6.363151,
+      5.974361,
+      5.391912
+     ],
+     "n_segments": 15,
+     "pred_file": "pred_maggiano3_b8.json"
+    },
+    "prod6": {
+     "k": 3,
+     "k_eigengap": 3,
+     "eigenvalues": [
+      37.603229,
+      23.050349,
+      17.078734,
+      9.584131,
+      8.161216,
+      7.275893,
+      6.363151
+     ],
+     "n_segments": 15,
+     "pred_file": "pred_maggiano3_prod6.json"
+    }
+   },
+   "embed_ms_per_window": {
+    "n": 162,
+    "mean_ms": 15.48,
+    "median_ms": 15.36,
+    "p90_ms": 16.56
+   },
+   "timings_ms": {
+    "gate": 0.5,
+    "embed": 2507.513,
+    "cluster": 16.67,
+    "smooth": 0.017,
+    "total": 2524.708,
+    "wall": 2524.715
+   }
+  }
+ }
+}

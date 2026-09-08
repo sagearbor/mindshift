@@ -3,6 +3,36 @@ import renderer, { act, type ReactTestInstance } from "react-test-renderer";
 import ScoreboardPanel, { leadCopy } from "../src/components/ScoreboardPanel";
 import type { Scoreboard } from "../src/live/pleasantness";
 
+/**
+ * Unmount every tree this file creates.
+ *
+ * react-test-renderer keeps a mounted tree scheduled, and a state update that
+ * lands AFTER Jest tears the environment down throws "You are trying to
+ * `import` a file after the Jest environment has been torn down" — which is
+ * not a test failure but a WORKER CRASH, taking every unrelated suite sharing
+ * that worker with it. That is why running the whole suite at once used to
+ * fail a handful of random files that each passed on their own.
+ */
+const __trees: renderer.ReactTestRenderer[] = [];
+function track<T extends renderer.ReactTestRenderer>(t: T): T {
+  __trees.push(t);
+  return t;
+}
+afterEach(async () => {
+  await act(async () => {});
+  act(() => {
+    for (const t of __trees.splice(0)) {
+      try {
+        t.unmount();
+      } catch {
+        // A tree a test already unmounted, or one whose teardown throws, must
+        // not fail the test that otherwise passed.
+      }
+    }
+  });
+});
+
+
 function queryId(comp: renderer.ReactTestRenderer, id: string): ReactTestInstance | null {
   const found = comp.root.findAll((n) => typeof n.type === "string" && n.props?.testID === id);
   return found.length > 0 ? found[0] : null;
@@ -28,7 +58,7 @@ const board: Scoreboard = {
 async function mount(props: React.ComponentProps<typeof ScoreboardPanel>) {
   let comp!: renderer.ReactTestRenderer;
   await act(async () => {
-    comp = renderer.create(<ScoreboardPanel {...props} />);
+    comp = track(renderer.create(<ScoreboardPanel {...props} />));
   });
   return comp;
 }

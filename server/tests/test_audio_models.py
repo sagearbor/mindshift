@@ -191,6 +191,15 @@ class TestTurnLocalEvent:
         with pytest.raises(ValidationError):
             TurnLocalEvent.model_validate(_turn_local(text_tone={"label": "l" * 65}))
 
+    def test_match_basis_is_optional_and_closed(self):
+        assert TurnLocalEvent.model_validate(_turn_local()).speaker_match_basis is None
+        for basis in ("absolute", "contrast"):
+            ev = TurnLocalEvent.model_validate(_turn_local(speaker_match_basis=basis, is_self=True))
+            assert ev.speaker_match_basis == basis
+            assert json.loads(ev.model_dump_json())["speaker_match_basis"] == basis
+        with pytest.raises(ValidationError):
+            TurnLocalEvent.model_validate(_turn_local(speaker_match_basis="guess"))
+
     @pytest.mark.parametrize("field", ["start_time", "end_time", "speaker_match_score"])
     @pytest.mark.parametrize("value", [float("inf"), float("nan")])
     def test_non_finite_numbers_rejected(self, field, value):

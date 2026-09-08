@@ -1,0 +1,530 @@
+{
+ "family_real": {
+  "p31_default": {
+   "raw": 0.552,
+   "unlabelled": 0.101,
+   "gapfilled": 0.615,
+   "k_pred": 4,
+   "k_true": 2,
+   "owner_purity_gapfilled": 0.995
+  },
+  "p31_oracle_k": {
+   "raw": 0.877,
+   "unlabelled": 0.101,
+   "gapfilled": 0.964,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": 0.969
+  },
+  "seg_pyannote__oracle_labels": {
+   "raw": 0.878,
+   "unlabelled": 0.101,
+   "gapfilled": 0.965,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": 0.97
+  },
+  "seg_pyannote__ecapa__pyclust_oracle_k": {
+   "raw": 0.877,
+   "unlabelled": 0.101,
+   "gapfilled": 0.964,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": 0.969
+  },
+  "seg_pyannote__ecapa__ours_avglink_oracle_k": {
+   "raw": 0.877,
+   "unlabelled": 0.101,
+   "gapfilled": 0.964,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": 0.969
+  },
+  "seg_pyannote__wespeaker__ours_avglink_oracle_k": {
+   "raw": 0.877,
+   "unlabelled": 0.101,
+   "gapfilled": 0.964,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": 0.969
+  },
+  "tuned_thr__wespeaker": {
+   "raw": 0.552,
+   "unlabelled": 0.101,
+   "gapfilled": 0.615,
+   "k_pred": 4,
+   "k_true": 2,
+   "owner_purity_gapfilled": 0.995
+  },
+  "tuned_thr__ecapa": {
+   "raw": 0.552,
+   "unlabelled": 0.101,
+   "gapfilled": 0.615,
+   "k_pred": 4,
+   "k_true": 2,
+   "owner_purity_gapfilled": 0.995
+  }
+ },
+ "poker6": {
+  "p31_default": {
+   "raw": 0.355,
+   "unlabelled": 0.32,
+   "gapfilled": 0.408,
+   "k_pred": 4,
+   "k_true": 6,
+   "owner_purity_gapfilled": 0.254
+  },
+  "p31_oracle_k": {
+   "raw": 0.355,
+   "unlabelled": 0.32,
+   "gapfilled": 0.408,
+   "k_pred": 4,
+   "k_true": 6,
+   "owner_purity_gapfilled": 0.254
+  },
+  "seg_pyannote__oracle_labels": {
+   "raw": 0.559,
+   "unlabelled": 0.32,
+   "gapfilled": 0.791,
+   "k_pred": 6,
+   "k_true": 6,
+   "owner_purity_gapfilled": 0.931
+  },
+  "seg_pyannote__ecapa__pyclust_oracle_k": {
+   "raw": 0.447,
+   "unlabelled": 0.32,
+   "gapfilled": 0.573,
+   "k_pred": 5,
+   "k_true": 6,
+   "owner_purity_gapfilled": 1.0
+  },
+  "seg_pyannote__ecapa__ours_avglink_oracle_k": {
+   "raw": 0.524,
+   "unlabelled": 0.32,
+   "gapfilled": 0.719,
+   "k_pred": 6,
+   "k_true": 6,
+   "owner_purity_gapfilled": 0.931
+  },
+  "seg_pyannote__wespeaker__ours_avglink_oracle_k": {
+   "raw": 0.549,
+   "unlabelled": 0.32,
+   "gapfilled": 0.715,
+   "k_pred": 5,
+   "k_true": 6,
+   "owner_purity_gapfilled": 0.931
+  },
+  "tuned_thr__wespeaker": {
+   "raw": 0.355,
+   "unlabelled": 0.32,
+   "gapfilled": 0.408,
+   "k_pred": 4,
+   "k_true": 6,
+   "owner_purity_gapfilled": 0.254
+  },
+  "tuned_thr__ecapa": {
+   "raw": 0.447,
+   "unlabelled": 0.32,
+   "gapfilled": 0.573,
+   "k_pred": 5,
+   "k_true": 6,
+   "owner_purity_gapfilled": 1.0
+  }
+ },
+ "openai": {
+  "p31_default": {
+   "raw": 0.91,
+   "unlabelled": 0.09,
+   "gapfilled": 0.988,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": null
+  },
+  "p31_oracle_k": {
+   "raw": 0.91,
+   "unlabelled": 0.09,
+   "gapfilled": 0.988,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": null
+  },
+  "seg_pyannote__oracle_labels": {
+   "raw": 0.91,
+   "unlabelled": 0.09,
+   "gapfilled": 0.988,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": null
+  },
+  "seg_pyannote__ecapa__pyclust_oracle_k": {
+   "raw": 0.91,
+   "unlabelled": 0.09,
+   "gapfilled": 0.988,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": null
+  },
+  "seg_pyannote__ecapa__ours_avglink_oracle_k": {
+   "raw": 0.91,
+   "unlabelled": 0.09,
+   "gapfilled": 0.988,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": null
+  },
+  "seg_pyannote__wespeaker__ours_avglink_oracle_k": {
+   "raw": 0.91,
+   "unlabelled": 0.09,
+   "gapfilled": 0.988,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": null
+  },
+  "tuned_thr__wespeaker": {
+   "raw": 0.91,
+   "unlabelled": 0.09,
+   "gapfilled": 0.988,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": null
+  },
+  "tuned_thr__ecapa": {
+   "raw": 0.91,
+   "unlabelled": 0.09,
+   "gapfilled": 0.988,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": null
+  }
+ },
+ "gptaudio": {
+  "p31_default": {
+   "raw": 0.834,
+   "unlabelled": 0.077,
+   "gapfilled": 0.893,
+   "k_pred": 3,
+   "k_true": 2,
+   "owner_purity_gapfilled": null
+  },
+  "p31_oracle_k": {
+   "raw": 0.923,
+   "unlabelled": 0.077,
+   "gapfilled": 0.995,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": null
+  },
+  "seg_pyannote__oracle_labels": {
+   "raw": 0.923,
+   "unlabelled": 0.077,
+   "gapfilled": 0.995,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": null
+  },
+  "seg_pyannote__ecapa__pyclust_oracle_k": {
+   "raw": 0.923,
+   "unlabelled": 0.077,
+   "gapfilled": 0.995,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": null
+  },
+  "seg_pyannote__ecapa__ours_avglink_oracle_k": {
+   "raw": 0.923,
+   "unlabelled": 0.077,
+   "gapfilled": 0.995,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": null
+  },
+  "seg_pyannote__wespeaker__ours_avglink_oracle_k": {
+   "raw": 0.923,
+   "unlabelled": 0.077,
+   "gapfilled": 0.995,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": null
+  },
+  "tuned_thr__wespeaker": {
+   "raw": 0.649,
+   "unlabelled": 0.077,
+   "gapfilled": 0.687,
+   "k_pred": 5,
+   "k_true": 2,
+   "owner_purity_gapfilled": null
+  },
+  "tuned_thr__ecapa": {
+   "raw": 0.649,
+   "unlabelled": 0.077,
+   "gapfilled": 0.687,
+   "k_pred": 5,
+   "k_true": 2,
+   "owner_purity_gapfilled": null
+  }
+ },
+ "scene_couple": {
+  "p31_default": {
+   "raw": 0.95,
+   "unlabelled": 0.05,
+   "gapfilled": 1.0,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": 1.0
+  },
+  "p31_oracle_k": {
+   "raw": 0.95,
+   "unlabelled": 0.05,
+   "gapfilled": 1.0,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": 1.0
+  },
+  "seg_pyannote__oracle_labels": {
+   "raw": 0.95,
+   "unlabelled": 0.05,
+   "gapfilled": 1.0,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": 1.0
+  },
+  "seg_pyannote__ecapa__pyclust_oracle_k": {
+   "raw": 0.95,
+   "unlabelled": 0.05,
+   "gapfilled": 1.0,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": 1.0
+  },
+  "seg_pyannote__ecapa__ours_avglink_oracle_k": {
+   "raw": 0.95,
+   "unlabelled": 0.05,
+   "gapfilled": 1.0,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": 1.0
+  },
+  "seg_pyannote__wespeaker__ours_avglink_oracle_k": {
+   "raw": 0.95,
+   "unlabelled": 0.05,
+   "gapfilled": 1.0,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": 1.0
+  },
+  "tuned_thr__wespeaker": {
+   "raw": 0.95,
+   "unlabelled": 0.05,
+   "gapfilled": 1.0,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": 1.0
+  },
+  "tuned_thr__ecapa": {
+   "raw": 0.95,
+   "unlabelled": 0.05,
+   "gapfilled": 1.0,
+   "k_pred": 2,
+   "k_true": 2,
+   "owner_purity_gapfilled": 1.0
+  }
+ },
+ "scene_family3": {
+  "p31_default": {
+   "raw": 0.904,
+   "unlabelled": 0.051,
+   "gapfilled": 0.955,
+   "k_pred": 3,
+   "k_true": 3,
+   "owner_purity_gapfilled": 1.0
+  },
+  "p31_oracle_k": {
+   "raw": 0.904,
+   "unlabelled": 0.051,
+   "gapfilled": 0.955,
+   "k_pred": 3,
+   "k_true": 3,
+   "owner_purity_gapfilled": 1.0
+  },
+  "seg_pyannote__oracle_labels": {
+   "raw": 0.904,
+   "unlabelled": 0.051,
+   "gapfilled": 0.955,
+   "k_pred": 3,
+   "k_true": 3,
+   "owner_purity_gapfilled": 1.0
+  },
+  "seg_pyannote__ecapa__pyclust_oracle_k": {
+   "raw": 0.948,
+   "unlabelled": 0.051,
+   "gapfilled": 0.995,
+   "k_pred": 3,
+   "k_true": 3,
+   "owner_purity_gapfilled": 1.0
+  },
+  "seg_pyannote__ecapa__ours_avglink_oracle_k": {
+   "raw": 0.948,
+   "unlabelled": 0.051,
+   "gapfilled": 0.995,
+   "k_pred": 3,
+   "k_true": 3,
+   "owner_purity_gapfilled": 1.0
+  },
+  "seg_pyannote__wespeaker__ours_avglink_oracle_k": {
+   "raw": 0.326,
+   "unlabelled": 0.051,
+   "gapfilled": 0.361,
+   "k_pred": 1,
+   "k_true": 3,
+   "owner_purity_gapfilled": null
+  },
+  "tuned_thr__wespeaker": {
+   "raw": 0.904,
+   "unlabelled": 0.051,
+   "gapfilled": 0.955,
+   "k_pred": 3,
+   "k_true": 3,
+   "owner_purity_gapfilled": 1.0
+  },
+  "tuned_thr__ecapa": {
+   "raw": 0.948,
+   "unlabelled": 0.051,
+   "gapfilled": 0.995,
+   "k_pred": 3,
+   "k_true": 3,
+   "owner_purity_gapfilled": 1.0
+  }
+ },
+ "scene_meeting4": {
+  "p31_default": {
+   "raw": 0.771,
+   "unlabelled": 0.052,
+   "gapfilled": 0.809,
+   "k_pred": 3,
+   "k_true": 4,
+   "owner_purity_gapfilled": 1.0
+  },
+  "p31_oracle_k": {
+   "raw": 0.7,
+   "unlabelled": 0.052,
+   "gapfilled": 0.738,
+   "k_pred": 4,
+   "k_true": 4,
+   "owner_purity_gapfilled": 1.0
+  },
+  "seg_pyannote__oracle_labels": {
+   "raw": 0.895,
+   "unlabelled": 0.052,
+   "gapfilled": 0.944,
+   "k_pred": 4,
+   "k_true": 4,
+   "owner_purity_gapfilled": 1.0
+  },
+  "seg_pyannote__ecapa__pyclust_oracle_k": {
+   "raw": 0.684,
+   "unlabelled": 0.052,
+   "gapfilled": 0.721,
+   "k_pred": 4,
+   "k_true": 4,
+   "owner_purity_gapfilled": 1.0
+  },
+  "seg_pyannote__ecapa__ours_avglink_oracle_k": {
+   "raw": 0.76,
+   "unlabelled": 0.052,
+   "gapfilled": 0.796,
+   "k_pred": 3,
+   "k_true": 4,
+   "owner_purity_gapfilled": 1.0
+  },
+  "seg_pyannote__wespeaker__ours_avglink_oracle_k": {
+   "raw": 0.57,
+   "unlabelled": 0.052,
+   "gapfilled": 0.597,
+   "k_pred": 2,
+   "k_true": 4,
+   "owner_purity_gapfilled": 1.0
+  },
+  "tuned_thr__wespeaker": {
+   "raw": 0.771,
+   "unlabelled": 0.052,
+   "gapfilled": 0.809,
+   "k_pred": 3,
+   "k_true": 4,
+   "owner_purity_gapfilled": 1.0
+  },
+  "tuned_thr__ecapa": {
+   "raw": 0.754,
+   "unlabelled": 0.052,
+   "gapfilled": 0.793,
+   "k_pred": 3,
+   "k_true": 4,
+   "owner_purity_gapfilled": 1.0
+  }
+ },
+ "maggiano3": {
+  "p31_default": {
+   "raw": 0.522,
+   "unlabelled": 0.131,
+   "gapfilled": 0.59,
+   "k_pred": 4,
+   "k_true": 3,
+   "owner_purity_gapfilled": 0.645
+  },
+  "p31_oracle_k": {
+   "raw": 0.569,
+   "unlabelled": 0.131,
+   "gapfilled": 0.637,
+   "k_pred": 3,
+   "k_true": 3,
+   "owner_purity_gapfilled": 0.645
+  },
+  "seg_pyannote__oracle_labels": {
+   "raw": 0.544,
+   "unlabelled": 0.131,
+   "gapfilled": 0.618,
+   "k_pred": 3,
+   "k_true": 3,
+   "owner_purity_gapfilled": 0.617
+  },
+  "seg_pyannote__ecapa__pyclust_oracle_k": {
+   "raw": 0.576,
+   "unlabelled": 0.131,
+   "gapfilled": 0.653,
+   "k_pred": 3,
+   "k_true": 3,
+   "owner_purity_gapfilled": 0.65
+  },
+  "seg_pyannote__ecapa__ours_avglink_oracle_k": {
+   "raw": 0.566,
+   "unlabelled": 0.131,
+   "gapfilled": 0.63,
+   "k_pred": 3,
+   "k_true": 3,
+   "owner_purity_gapfilled": 0.619
+  },
+  "seg_pyannote__wespeaker__ours_avglink_oracle_k": {
+   "raw": 0.546,
+   "unlabelled": 0.131,
+   "gapfilled": 0.61,
+   "k_pred": 3,
+   "k_true": 3,
+   "owner_purity_gapfilled": 0.605
+  },
+  "tuned_thr__wespeaker": {
+   "raw": 0.522,
+   "unlabelled": 0.131,
+   "gapfilled": 0.59,
+   "k_pred": 4,
+   "k_true": 3,
+   "owner_purity_gapfilled": 0.645
+  },
+  "tuned_thr__ecapa": {
+   "raw": 0.576,
+   "unlabelled": 0.131,
+   "gapfilled": 0.653,
+   "k_pred": 3,
+   "k_true": 3,
+   "owner_purity_gapfilled": 0.65
+  }
+ }
+}

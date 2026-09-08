@@ -429,3 +429,49 @@ async def test_enrollment_after_migration_keeps_legacy_sample(
     ids = [s["id"] for s in stored["samples"]]
     assert ids[0] == speaker_id.LEGACY_SAMPLE_ID
     assert len(ids) == 2
+
+
+# ---------------------------------------------------------------------------
+# Per-RECORDING blending (2026-08-27) — breadth of settings, not tap count
+# ---------------------------------------------------------------------------
+
+def test_blend_is_per_recording_not_per_sample():
+    """Three samples from the same recording form ONE centroid; a lone sample
+    from another recording weighs the same as all three together (45°), not
+    1:3. The owner's real print had 3 of 5 samples from one restaurant clip."""
+    p = None
+    for i in range(3):
+        p = speaker_id.new_profile(
+            E_X, p, recording_id="r1", speaker="Speaker A", now_iso=f"t{i}",
+            sample_id=f"s{i}",
+        )
+    p = speaker_id.new_profile(
+        E_Y, p, recording_id="r2", speaker="Speaker B", now_iso="t3",
+        sample_id="s3",
+    )
+    v = np.asarray(p["embedding"], dtype=np.float32)
+    assert np.isclose(np.linalg.norm(v), 1.0)
+    assert v[0] == pytest.approx(v[1], abs=1e-6)  # 45°: r1 and r2 weigh equally
+    assert p["enroll_count"] == 4
+    assert speaker_id.profile_settings(p) == 2
+
+
+def test_guided_samples_are_each_their_own_setting():
+    a = speaker_id.new_profile(
+        E_X, None, recording_id=None, speaker=None, now_iso="t0",
+        sample_id="g1", note="guided enrollment",
+    )
+    b = speaker_id.new_profile(
+        E_Y, a, recording_id=None, speaker=None, now_iso="t1",
+        sample_id="g2", note="guided enrollment",
+    )
+    assert speaker_id.profile_settings(b) == 2
+    v = np.asarray(b["embedding"], dtype=np.float32)
+    assert v[0] == pytest.approx(v[1], abs=1e-6)
+
+
+def test_profile_settings_edge_cases():
+    assert speaker_id.profile_settings(None) == 0
+    assert speaker_id.profile_settings({}) == 0
+    # A v1 print (blend only, no samples) is one setting.
+    assert speaker_id.profile_settings({"embedding": [1.0, 0.0]}) == 1

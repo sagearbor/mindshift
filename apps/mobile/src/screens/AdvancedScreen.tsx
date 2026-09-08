@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
+  Switch,
 } from "react-native";
 
 import Constants from "expo-constants";
@@ -28,9 +29,34 @@ import TherapistLinkCard from "../components/TherapistLinkCard";
 import Avatar from "../components/Avatar";
 import { useAuthStore } from "../store/authStore";
 import { useAvatarStore } from "../store/avatarStore";
+import { useDevModeStore } from "../store/devModeStore";
+import { NUDGE_VOCABULARY } from "../live/nudgeVocabulary";
+import { expoHaptics } from "../live/defaultDeps";
+
 import { useOtaStatus, type OtaStatus } from "../utils/otaUpdate";
 import { useDiagnosticsStore } from "../diagnostics/diagnostics";
+import {
+  DEFAULT_EXPERIMENTAL_VOICE_ENGINE,
+  loadExperimentalVoiceEngine,
+  saveExperimentalVoiceEngine,
+} from "../live/experimentalPrefs";
 import { formatDate, formatDateTime } from "../utils/dateDisplay";
+
+/** Named so the Feel-the-patterns block reads as one thought, and so a test
+ *  can assert the honesty note rather than a fragment of prose. */
+const WATCH_ONLY_NOTE =
+  "❤️ Pulse is watch-only — the phone has no heart-rate sensor, so what you feel " +
+  "here is the pattern, not a real reading. On a watch the ramp also gets stronger " +
+  "tap by tap; a phone can only change the rhythm.";
+
+/** What this page does NOT do. Worth stating: the first question asked of it
+ *  was "does this also buzz the watch, and should the screen flash?" — and
+ *  guessing the answer wrong makes a working feature look broken. */
+const HAPTIC_SCOPE_NOTE =
+  "This is THIS phone only. It does not buzz a paired watch — the watch has its " +
+  "own “Feel the patterns” list in its Settings — and it deliberately doesn’t " +
+  "flash the screen: in a real session the matching icon and line appear on " +
+  "Live Coach, and here the point is to learn the buzz on its own.";
 
 /** Bare host (no scheme/path) of the configured backend, for the About row. */
 function backendHost(): string {
@@ -190,6 +216,37 @@ export default function AdvancedScreen({
   const handleSendDiagnostics = useCallback(() => {
     void sendDiagnostics("manual", { uid: user?.uid ?? null, email: user?.email ?? null });
   }, [sendDiagnostics, user?.uid, user?.email]);
+
+  // Experimental voice engine (src/live/experimentalPrefs): reveals the
+  // "Separate voices on this phone" row on a recording's replay. Per
+  // account, off by default; the switch reflects the stored choice.
+  const experimentalUid = user?.uid ?? null;
+  // Developer mode (store/devModeStore.ts): reveals every diagnostic detail
+  // — the Experimental section, backend/update-id About rows, latency and
+  // capability lines across the app. Per account, off by default.
+  const devMode = useDevModeStore((s) => s.devMode);
+  const setDevMode = useDevModeStore((s) => s.setDevMode);
+  const handleDevMode = useCallback(
+    (on: boolean) => setDevMode(experimentalUid, on),
+    [setDevMode, experimentalUid],
+  );
+  const [experimentalVoiceEngine, setExperimentalVoiceEngine] = useState(DEFAULT_EXPERIMENTAL_VOICE_ENGINE);
+  useEffect(() => {
+    let cancelled = false;
+    void loadExperimentalVoiceEngine(experimentalUid).then((on) => {
+      if (!cancelled) setExperimentalVoiceEngine(on);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [experimentalUid]);
+  const handleExperimentalVoiceEngine = useCallback(
+    (on: boolean) => {
+      setExperimentalVoiceEngine(on);
+      void saveExperimentalVoiceEngine(experimentalUid, on);
+    },
+    [experimentalUid],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -596,7 +653,7 @@ export default function AdvancedScreen({
           label="Update"
           value={otaSummary(ota)}
         />
-        {ota.updateId ? (
+        {devMode && ota.updateId ? (
           <AboutRow
             testID="about-update-id"
             label="Update ID"
@@ -607,18 +664,122 @@ export default function AdvancedScreen({
           testID="about-account"
           label="Signed in as"
           value={accountEmail}
+          last={!devMode}
         />
-        <AboutRow
-          testID="about-backend"
-          label="Backend"
-          value={backendHost()}
-          last
-        />
+        {devMode ? (
+          <AboutRow
+            testID="about-backend"
+            label="Backend"
+            value={backendHost()}
+            last
+          />
+        ) : null}
       </View>
+
+      {devMode ? (
+      <>
+      {/* "Feel the patterns" — the eight nudge cues, playable on demand.
+          A wearer cannot learn eight rhythms by earning them one at a time in
+          real arguments weeks apart; this puts the whole vocabulary in one
+          sitting. The waveforms come from the shared contract
+          (src/live/nudgeVocabulary.ts), so what you feel here is byte-for-byte
+          what a real nudge plays. */}
+      <Text style={styles.sectionHeading} testID="section-haptics">
+        Feel the patterns
+      </Text>
+      <View style={styles.row} testID="haptic-vocabulary">
+        <Text style={styles.rowSub}>
+          Tap a level to feel that cue. The rhythm is what tells you WHICH
+          behaviour and HOW bad — the phone can’t vary buzz strength, so every
+          level is a different rhythm, never just a harder tap.
+        </Text>
+        {NUDGE_VOCABULARY.map((entry) => (
+          <View key={entry.code} style={styles.hapticRow} testID={`haptic-row-${entry.code}`}>
+            <View style={styles.hapticText}>
+              <Text style={styles.rowTitle}>
+                {entry.icon} {entry.name}{" "}
+                <Text style={styles.hapticCode}>{entry.code}</Text>
+              </Text>
+              <Text style={styles.rowSub}>{entry.meaning}</Text>
+            </View>
+            <View style={styles.hapticButtons}>
+              {entry.haptic === null ? (
+                <Text style={styles.hapticNone} testID={`haptic-none-${entry.code}`}>
+                  no buzz{entry.summaryOnly ? " — summary badge only" : ""}
+                </Text>
+              ) : (
+                entry.levels.map((level) => (
+                  <TouchableOpacity
+                    key={level}
+                    testID={`haptic-play-${entry.code}-${level}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Play ${entry.name} level ${level}`}
+                    style={styles.hapticButton}
+                    onPress={() => void expoHaptics.nudge(level, entry.code).catch(() => {})}
+                  >
+                    <Text style={styles.hapticButtonText}>
+                      {entry.polarity === "positive" ? "play" : `L${level}`}
+                    </Text>
+                  </TouchableOpacity>
+                ))
+              )}
+            </View>
+          </View>
+        ))}
+        <Text style={styles.rowSub} testID="haptic-scope-note">
+          {HAPTIC_SCOPE_NOTE}
+        </Text>
+        <Text style={styles.rowSub} testID="haptic-vocabulary-note">
+          {WATCH_ONLY_NOTE}
+        </Text>
+      </View>
+
+      <Text style={styles.sectionHeading} testID="section-experimental">
+        Experimental
+      </Text>
+      <View style={styles.row} testID="experimental-voice-engine-row">
+        <View style={styles.switchRow}>
+          <View style={styles.switchText}>
+            <Text style={styles.rowTitle}>Experimental voice engine</Text>
+            <Text style={styles.rowSub}>
+              {experimentalVoiceEngine
+                ? "On — a recording’s replay offers “Separate voices on this phone (engine B)”. Research only; the result is sent as diagnostics."
+                : "Off — the on-phone voice-separation row stays hidden on replays."}
+            </Text>
+          </View>
+          <Switch
+            testID="experimental-voice-engine-switch"
+            value={experimentalVoiceEngine}
+            onValueChange={handleExperimentalVoiceEngine}
+          />
+        </View>
+      </View>
+      </>
+      ) : null}
 
       <Text style={styles.sectionHeading} testID="section-diagnostics">
         Diagnostics
       </Text>
+      {/* Developer mode: the clean-vs-full switch itself lives here so a
+          tester can be walked to it in one breath ("Settings → Diagnostics →
+          Developer mode"). Everything it reveals existed before it did. */}
+      <View style={styles.row} testID="developer-mode-row">
+        <View style={styles.switchRow}>
+          <View style={styles.switchText}>
+            <Text style={styles.rowTitle}>Developer mode</Text>
+            <Text style={styles.rowSub}>
+              {devMode
+                ? "On — showing diagnostic codes, latency and engine details everywhere."
+                : "Off — hides diagnostic codes, latency and engine details. Turn on to see everything."}
+            </Text>
+          </View>
+          <Switch
+            testID="developer-mode-switch"
+            value={devMode}
+            onValueChange={handleDevMode}
+          />
+        </View>
+      </View>
       <TouchableOpacity
         testID="advanced-send-diagnostics"
         accessibilityRole="button"
@@ -629,13 +790,15 @@ export default function AdvancedScreen({
       >
         <Text style={styles.rowTitle}>{diagSending ? "Sending diagnostics…" : "Send diagnostics"}</Text>
         <Text style={styles.rowSub}>
-          {diagLastSession
-            ? `Last session: ${diagLastSession.mode} · ${diagLastSession.turns} turns · ` +
-              `${diagLastSession.errors.length === 0 ? "no errors" : `${diagLastSession.errors.length} problem(s)`}` +
-              (diagLastSession.latency.medianToSpeakMs !== null
-                ? ` · median ${diagLastSession.latency.medianToSpeakMs} ms to speak`
-                : "")
-            : "No live session yet this launch — sends the capability check and app/device facts."}
+          {!devMode
+            ? "Something not working? Send a technical report — nothing you said is included."
+            : diagLastSession
+              ? `Last session: ${diagLastSession.mode} · ${diagLastSession.turns} turns · ` +
+                `${diagLastSession.errors.length === 0 ? "no errors" : `${diagLastSession.errors.length} problem(s)`}` +
+                (diagLastSession.latency.medianToSpeakMs !== null
+                  ? ` · median ${diagLastSession.latency.medianToSpeakMs} ms to speak`
+                  : "")
+              : "No live session yet this launch — sends the capability check and app/device facts."}
         </Text>
         {diagLastSent ? (
           <Text
@@ -836,6 +999,45 @@ const styles = StyleSheet.create({
     color: "#111827",
     marginBottom: 20,
   },
+  hapticRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingTop: 10,
+  },
+  hapticText: {
+    flex: 1,
+  },
+  hapticCode: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#9CA3AF",
+  },
+  hapticButtons: {
+    flexDirection: "row",
+    gap: 6,
+    flexShrink: 0,
+  },
+  hapticButton: {
+    minWidth: 40,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#F9FAFB",
+    alignItems: "center",
+  },
+  hapticButtonText: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    color: "#374151",
+  },
+  hapticNone: {
+    fontSize: 12,
+    color: "#9CA3AF",
+    fontStyle: "italic",
+  },
   row: {
     borderWidth: 1,
     borderColor: "#D1D5DB",
@@ -856,6 +1058,15 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     lineHeight: 19,
     color: "#6B7280",
+  },
+  switchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  switchText: {
+    flex: 1,
   },
   watchPairedStatus: {
     marginTop: 6,

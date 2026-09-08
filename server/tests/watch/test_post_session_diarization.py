@@ -51,7 +51,10 @@ async def _store_with(ls, *, profile=True):
     return s
 
 
-TURNS = [("self", 0.0, 50.0), ("other-1", 49.0, 55.0), ("self", 54.0, 90.0)]
+# Self keeps talking 4 s into other-1's turn (54-58): sustained talking-over
+# under the CANDOR-calibrated ladder (vectors.INTERRUPT_LEVELS: >= 2 s). A
+# 1 s cut-in, the old fixture, is ordinary overlap and no longer fires.
+TURNS = [("self", 0.0, 50.0), ("other-1", 49.0, 58.0), ("self", 54.0, 90.0)]
 
 
 def test_diarization_activates_interrupting_and_airtime():

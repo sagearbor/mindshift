@@ -34,7 +34,18 @@ jest.mock("expo-file-system", () => {
       }
     }
     delete() {}
-    moveSync(_dest: unknown) {}
+    moveSync(dest: { uri: string }) {
+      (globalThis as Record<string, unknown>).__fileOps = [
+        ...(((globalThis as Record<string, unknown>).__fileOps as unknown[]) ?? []),
+        { op: "move", from: this.uri, to: dest.uri },
+      ];
+    }
+    copy(dest: { uri: string }) {
+      (globalThis as Record<string, unknown>).__fileOps = [
+        ...(((globalThis as Record<string, unknown>).__fileOps as unknown[]) ?? []),
+        { op: "copy", from: this.uri, to: dest.uri },
+      ];
+    }
   }
   return {
     __esModule: true,
@@ -43,6 +54,28 @@ jest.mock("expo-file-system", () => {
     Paths: { document: { uri: "file:///doc" } },
   };
 });
+
+// The in-app photo grid reads the roll through expo-media-library/legacy
+// (getAssetsAsync / getAssetInfoAsync) — the shared setup only mocks the
+// main entry, so mock the legacy subpath here.
+jest.mock("expo-media-library/legacy", () => ({
+  __esModule: true,
+  MediaType: { photo: "photo" },
+  SortBy: { creationTime: "creationTime" },
+  getAssetsAsync: jest.fn().mockResolvedValue({
+    assets: [
+      { id: "a1", uri: "file:///roll/one.jpg" },
+      { id: "a2", uri: "file:///roll/two.jpg" },
+    ],
+    endCursor: "a2",
+    hasNextPage: false,
+    totalCount: 2,
+  }),
+  getAssetInfoAsync: jest.fn(async (id: string) => ({
+    id,
+    localUri: `file:///roll/local-${id}.jpg`,
+  })),
+}));
 
 const originalOS = Platform.OS;
 
@@ -217,7 +250,7 @@ describe("AvatarCaptureScreen — capture, preview, Use/Retake", () => {
     });
     await act(async () => {});
 
-    expect(persistPhoto).toHaveBeenCalledWith("file:///captured-selfie.jpg");
+    expect(persistPhoto).toHaveBeenCalledWith("file:///captured-selfie.jpg", "camera");
     expect(useAvatarStore.getState().uri).toBe(
       "file:///doc/avatar/profile.jpg",
     );
@@ -346,5 +379,90 @@ describe("AvatarCaptureScreen — web", () => {
     act(() => queryId(comp, "avatar-capture-web-back")!.props.onPress());
     expect(onBack).toHaveBeenCalledTimes(1);
     act(() => comp.unmount());
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Choose from your photos — no camera needed (the owner asked from a dark room)
+// ---------------------------------------------------------------------------
+
+const deniedHook = () => [
+  { granted: false, status: "denied", canAskAgain: true },
+  jest.fn().mockResolvedValue({ granted: false, status: "denied" }),
+  jest.fn().mockResolvedValue({ granted: false, status: "denied" }),
+];
+
+async function renderNative(props: Partial<React.ComponentProps<typeof AvatarCaptureScreen>> = {}) {
+  let comp!: renderer.ReactTestRenderer;
+  await act(async () => {
+    comp = renderer.create(
+      <AvatarCaptureScreen onBack={jest.fn()} onSaved={jest.fn()} {...props} />,
+    );
+  });
+  return comp;
+}
+
+describe("AvatarCaptureScreen — choose from your photos", () => {
+  beforeEach(() => {
+    (globalThis as Record<string, unknown>).__fileOps = [];
+  });
+
+  it("is offered even when the camera is denied — a photo you already have needs no camera", async () => {
+    (Camera.useCameraPermissions as jest.Mock).mockImplementation(deniedHook);
+    const comp = await renderNative();
+    expect(queryId(comp, "avatar-permission-gate")).not.toBeNull();
+    const choose = queryId(comp, "avatar-choose-library");
+    expect(choose).not.toBeNull();
+    await act(async () => choose!.props.onPress());
+    expect(queryId(comp, "photo-library-picker")).not.toBeNull();
+    expect(queryId(comp, "photo-library-thumb-a1")).not.toBeNull();
+    expect(queryId(comp, "photo-library-thumb-a2")).not.toBeNull();
+  });
+
+  it("picking a photo shows the preview with 'Choose another', and Use COPIES it (never moves the user's original)", async () => {
+    const onSaved = jest.fn();
+    const persistPhoto = jest.fn(async (uri: string, source?: string) =>
+      defaultPersistPhoto(uri, source as "camera" | "library"),
+    );
+    const comp = await renderNative({ onSaved, deps: { persistPhoto } });
+    await act(async () => queryId(comp, "avatar-choose-library")!.props.onPress());
+    await act(async () => queryId(comp, "photo-library-thumb-a2")!.props.onPress());
+    // Preview shows the resolved local file (iOS ph:// assets need localUri).
+    expect(queryId(comp, "avatar-preview-image")!.props.source.uri).toBe(
+      "file:///roll/local-a2.jpg",
+    );
+    expect(queryId(comp, "avatar-retake-button")).not.toBeNull();
+    await act(async () => queryId(comp, "avatar-use-button")!.props.onPress());
+    expect(persistPhoto).toHaveBeenCalledWith("file:///roll/local-a2.jpg", "library");
+    const ops = (globalThis as Record<string, unknown>).__fileOps as { op: string; from: string }[];
+    expect(ops).toEqual([
+      { op: "copy", from: "file:///roll/local-a2.jpg", to: "file:///doc/avatar/profile.jpg" },
+    ]);
+    expect(useAvatarStore.getState().uri?.split("?")[0]).toBe("file:///doc/avatar/profile.jpg");
+    expect(onSaved).toHaveBeenCalledTimes(1);
+  });
+
+  it("a camera capture still MOVES its temp file", async () => {
+    await defaultPersistPhoto("file:///captured-selfie.jpg");
+    const ops = (globalThis as Record<string, unknown>).__fileOps as { op: string }[];
+    expect(ops.map((o) => o.op)).toEqual(["move"]);
+  });
+
+  it("'Choose another' returns to the photo grid, not the camera", async () => {
+    const comp = await renderNative();
+    await act(async () => queryId(comp, "avatar-choose-library")!.props.onPress());
+    await act(async () => queryId(comp, "photo-library-thumb-a1")!.props.onPress());
+    await act(async () => queryId(comp, "avatar-retake-button")!.props.onPress());
+    expect(queryId(comp, "photo-library-picker")).not.toBeNull();
+    expect(queryId(comp, "avatar-camera-view")).toBeNull();
+  });
+
+  it("Back from the grid returns to the camera without choosing", async () => {
+    const comp = await renderNative();
+    await act(async () => queryId(comp, "avatar-choose-library")!.props.onPress());
+    await act(async () => queryId(comp, "avatar-back")!.props.onPress());
+    expect(queryId(comp, "avatar-camera-view")).not.toBeNull();
+    expect(queryId(comp, "avatar-preview-image")).toBeNull();
   });
 });

@@ -8,6 +8,36 @@ import {
   unlinkTherapist,
 } from "../src/api/therapist";
 
+/**
+ * Unmount every tree this file creates.
+ *
+ * react-test-renderer keeps a mounted tree scheduled, and a state update that
+ * lands AFTER Jest tears the environment down throws "You are trying to
+ * `import` a file after the Jest environment has been torn down" — which is
+ * not a test failure but a WORKER CRASH, taking every unrelated suite sharing
+ * that worker with it. That is why running the whole suite at once used to
+ * fail a handful of random files that each passed on their own.
+ */
+const __trees: renderer.ReactTestRenderer[] = [];
+function track<T extends renderer.ReactTestRenderer>(t: T): T {
+  __trees.push(t);
+  return t;
+}
+afterEach(async () => {
+  await act(async () => {});
+  act(() => {
+    for (const t of __trees.splice(0)) {
+      try {
+        t.unmount();
+      } catch {
+        // A tree a test already unmounted, or one whose teardown throws, must
+        // not fail the test that otherwise passed.
+      }
+    }
+  });
+});
+
+
 jest.mock("../src/api/therapist", () => ({
   getTherapistLink: jest.fn(),
   setTherapistLink: jest.fn(),
@@ -41,7 +71,7 @@ describe("TherapistLinkCard", () => {
     mockSet.mockResolvedValue({ linked: true, therapist_email: "mom@example.com", status: "pending", auto_share: true });
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<TherapistLinkCard />);
+      root = track(renderer.create(<TherapistLinkCard />));
     });
     await flush();
     expect(text(root!)).toContain("Enter your therapist’s MindShift account email");
@@ -66,7 +96,7 @@ describe("TherapistLinkCard", () => {
     mockSet.mockRejectedValue(Object.assign(new Error("x"), { status: 404, detail: "no MindShift account with that email" }));
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<TherapistLinkCard />);
+      root = track(renderer.create(<TherapistLinkCard />));
     });
     await flush();
     act(() => {
@@ -84,7 +114,7 @@ describe("TherapistLinkCard", () => {
     mockAuto.mockResolvedValueOnce({ linked: true, therapist_email: "mom@example.com", status: "accepted", auto_share: false });
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<TherapistLinkCard />);
+      root = track(renderer.create(<TherapistLinkCard />));
     });
     await flush();
     expect(text(root!)).toContain("· accepted");
@@ -113,7 +143,7 @@ describe("TherapistLinkCard", () => {
     mockGet.mockRejectedValue(Object.assign(new Error("x"), { status: 401 }));
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<TherapistLinkCard />);
+      root = track(renderer.create(<TherapistLinkCard />));
     });
     await flush();
     expect(text(root!)).toContain("Couldn’t load your therapist link (Please sign in again.)");

@@ -285,6 +285,20 @@ def _on_relay_done(fut: asyncio.Future) -> None:
         logger.warning("watch relay: emit failed (socket gone?)", exc_info=exc)
 
 
+def push_vector_events(uid: str, events: list[VectorEvent], t: float) -> bool:
+    """Feed already-computed vector events (e.g. call-mode ``interrupting``
+    from server/calls.py) into ``uid``'s live watch session — the wrist
+    runs its own NudgePolicy over them exactly like phone turn_local
+    vectors. Returns False (no-op) when no watch is live for the account."""
+    if not events:
+        return False
+    session = live_session_for(uid)
+    if session is None:
+        return False
+    _schedule(session, events, t)
+    return True
+
+
 def _schedule(session: LiveWatchSession, events: list[VectorEvent], t: float) -> None:
     """Run ``session.emit`` on the socket's loop from wherever we're called."""
     if session.loop.is_closed():

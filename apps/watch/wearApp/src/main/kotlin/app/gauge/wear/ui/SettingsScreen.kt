@@ -15,6 +15,7 @@ import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.ScalingLazyColumn
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.rememberScalingLazyListState
+import app.gauge.shared.NudgeVocabulary
 import app.gauge.wear.control.DiagLog
 import app.gauge.wear.haptics.HapticDirector
 import app.gauge.wear.haptics.HapticPatterns
@@ -26,7 +27,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * The settings screen (P4-3): three sections — "Feel the buzzes" (v0.2.4 demo, see below),
+ * The settings screen (P4-3): "Feel the buzzes" (v0.2.4 demo, see below), "Feel the patterns"
+ * (the nudge vocabulary, 2026-09-06),
  * "Center display" ([CENTER_DISPLAY_OPTIONS] -> [GaugePrefs.setCenterDisplay] — v0.2.4 Addendum 2's
  * sparkline-vs-dial switcher; this Settings row is the ONLY way to switch — the center tap itself
  * is always the arm/disarm toggle on both views, see [GlanceScreen]'s own gesture-contract KDoc),
@@ -77,6 +79,41 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                 )
             }
         }
+        // "Feel the patterns" (2026-09-06): the nudge VOCABULARY on the wrist. The phone has the
+        // same page, but the two devices do not feel the same — a phone cannot vary vibration
+        // strength at all, so the watch is the only place H's rising ramp and D's falling one are
+        // reinforced by amplitude as well as tap length. Testing them on a phone alone would have
+        // said the design works when only half of it does.
+        item { Text(text = "Feel the patterns", style = MaterialTheme.typography.caption1) }
+        for (entry in NudgeVocabulary.ALL) {
+            val haptic = entry.haptic
+            if (haptic == null) {
+                // 🧘 never buzzes by contract — say so rather than offer a silent chip.
+                item {
+                    Text(
+                        text = "${entry.icon} ${entry.name} — no buzz",
+                        style = MaterialTheme.typography.caption3,
+                    )
+                }
+                continue
+            }
+            for (level in haptic.keys.sorted()) {
+                item {
+                    Chip(
+                        modifier = Modifier.fillMaxWidth(),
+                        label = {
+                            Text(
+                                if (entry.levels.size > 1) "${entry.icon} ${entry.name} · $level"
+                                else "${entry.icon} ${entry.name}",
+                            )
+                        },
+                        colors = ChipDefaults.secondaryChipColors(),
+                        onClick = { demoDirector.demoCode(entry.code, level) },
+                    )
+                }
+            }
+        }
+
         item {
             Chip(
                 modifier = Modifier.fillMaxWidth(),

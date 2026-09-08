@@ -1,0 +1,202 @@
+{
+ "_doc": "interrupting = sustained mutual speech (server/watch/vectors.py interrupting_events; apps/mobile/src/live/nudgePolicy.ts interruptingEvents). Turns are [start,end] seconds. Replayed by server/tests/watch/test_vectors.py and apps/mobile/__tests__/liveInterruptingVectors.test.ts.",
+ "levels": [
+  [
+   6.0,
+   3
+  ],
+  [
+   4.0,
+   2
+  ],
+  [
+   2.0,
+   1
+  ]
+ ],
+ "cases": [
+  {
+   "name": "brief overlap at a speaker change is normal (no event)",
+   "self": [
+    [
+     10.0,
+     20.0
+    ]
+   ],
+   "other": [
+    [
+     5.0,
+     10.4
+    ]
+   ],
+   "events": []
+  },
+  {
+   "name": "self starts 1.0 s before the other ends: still normal",
+   "self": [
+    [
+     54.0,
+     90.0
+    ]
+   ],
+   "other": [
+    [
+     49.0,
+     55.0
+    ]
+   ],
+   "events": []
+  },
+  {
+   "name": "2.0 s of mutual speech -> level 1 (t = self start, value = overlap)",
+   "self": [
+    [
+     10.0,
+     30.0
+    ]
+   ],
+   "other": [
+    [
+     5.0,
+     12.0
+    ]
+   ],
+   "events": [
+    {
+     "level": 1,
+     "t": 10.0,
+     "value": 2.0
+    }
+   ]
+  },
+  {
+   "name": "4.5 s -> level 2",
+   "self": [
+    [
+     10.0,
+     30.0
+    ]
+   ],
+   "other": [
+    [
+     5.0,
+     14.5
+    ]
+   ],
+   "events": [
+    {
+     "level": 2,
+     "t": 10.0,
+     "value": 4.5
+    }
+   ]
+  },
+  {
+   "name": "self keeps going 6 s+ while the other is still talking -> level 3",
+   "self": [
+    [
+     54.0,
+     90.0
+    ]
+   ],
+   "other": [
+    [
+     49.0,
+     61.0
+    ]
+   ],
+   "events": [
+    {
+     "level": 3,
+     "t": 54.0,
+     "value": 7.0
+    }
+   ]
+  },
+  {
+   "name": "self ends first: overlap is bounded by self's own end (3 s -> level 1)",
+   "self": [
+    [
+     10.0,
+     13.0
+    ]
+   ],
+   "other": [
+    [
+     5.0,
+     30.0
+    ]
+   ],
+   "events": [
+    {
+     "level": 1,
+     "t": 10.0,
+     "value": 3.0
+    }
+   ]
+  },
+  {
+   "name": "self did not start inside the other's turn (the other cut in): no event about self",
+   "self": [
+    [
+     5.0,
+     20.0
+    ]
+   ],
+   "other": [
+    [
+     10.0,
+     30.0
+    ]
+   ],
+   "events": []
+  },
+  {
+   "name": "two others both talked over: one event per other turn self started inside",
+   "self": [
+    [
+     10.0,
+     30.0
+    ]
+   ],
+   "other": [
+    [
+     5.0,
+     13.0
+    ],
+    [
+     8.0,
+     16.0
+    ]
+   ],
+   "events": [
+    {
+     "level": 1,
+     "t": 10.0,
+     "value": 3.0
+    },
+    {
+     "level": 3,
+     "t": 10.0,
+     "value": 6.0
+    }
+   ]
+  },
+  {
+   "name": "exact boundary: starting AT the other's end is not inside it",
+   "self": [
+    [
+     12.0,
+     30.0
+    ]
+   ],
+   "other": [
+    [
+     5.0,
+     12.0
+    ]
+   ],
+   "events": []
+  }
+ ]
+}

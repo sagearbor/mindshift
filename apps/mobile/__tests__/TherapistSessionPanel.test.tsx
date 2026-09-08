@@ -6,6 +6,36 @@ import TherapistSessionPanel, {
 } from "../src/components/TherapistSessionPanel";
 import type { SavedSession } from "../src/store/dashboardStore";
 
+/**
+ * Unmount every tree this file creates.
+ *
+ * react-test-renderer keeps a mounted tree scheduled, and a state update that
+ * lands AFTER Jest tears the environment down throws "You are trying to
+ * `import` a file after the Jest environment has been torn down" — which is
+ * not a test failure but a WORKER CRASH, taking every unrelated suite sharing
+ * that worker with it. That is why running the whole suite at once used to
+ * fail a handful of random files that each passed on their own.
+ */
+const __trees: renderer.ReactTestRenderer[] = [];
+function track<T extends renderer.ReactTestRenderer>(t: T): T {
+  __trees.push(t);
+  return t;
+}
+afterEach(async () => {
+  await act(async () => {});
+  act(() => {
+    for (const t of __trees.splice(0)) {
+      try {
+        t.unmount();
+      } catch {
+        // A tree a test already unmounted, or one whose teardown throws, must
+        // not fail the test that otherwise passed.
+      }
+    }
+  });
+});
+
+
 jest.mock("../src/api/therapist", () => ({
   getSessionNote: jest.fn(),
   putSessionNote: jest.fn(),
@@ -59,9 +89,9 @@ describe("TherapistSessionPanel", () => {
     const saveNote = jest.fn().mockResolvedValue({ text: "Earlier note. Defensive about work." });
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(
+      root = track(renderer.create(
         <TherapistSessionPanel session={session} loadNote={loadNote} saveNote={saveNote} />,
-      );
+      ));
     });
     await flush();
     expect(loadNote).toHaveBeenCalledWith("e1");
@@ -89,9 +119,9 @@ describe("TherapistSessionPanel", () => {
     const saveNote = jest.fn().mockRejectedValue(new Error("503"));
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(
+      root = track(renderer.create(
         <TherapistSessionPanel session={{ ...session, turns: [] }} loadNote={loadNote} saveNote={saveNote} />,
-      );
+      ));
     });
     await flush();
     expect(text(root!)).toContain("No escalations flagged");

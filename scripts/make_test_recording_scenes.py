@@ -14,6 +14,13 @@ speaker-phone mode) all test against ONE shared pack:
                      One escalation by a NON-self speaker (nudge must NOT
                      fire) and one brief self flare (defensive_rising) that
                      should produce exactly one mild nudge.
+  positive_repair    2 voices (self + partner), ~65s, 12 turns. The POSITIVE
+                     scene: one LONG partner turn nobody interrupts (code E),
+                     two self flares, then a genuine apology the partner
+                     audibly accepts (codes D and R). Added 2026-09-06 —
+                     the other three scenes contain nothing a coach could
+                     praise, so the positive detectors had no file to prove
+                     themselves on.
   meeting4           4 voices (self + 3), ~80s, 17 turns, mostly neutral,
                      with one shout_angry by self late — exercises speaker-
                      count discovery at k=4 plus a late escalation over a
@@ -212,6 +219,60 @@ SCENES: dict[str, dict] = {
             N(8, "strong", "self cold_contempt: contempt is the most corrosive "
                            "delivery (Gottman's 'four horsemen'); still strong even "
                            "though the volume dropped"),
+        ],
+    ),
+    "positive_repair": dict(
+        filename="test_recording_scene_positive_repair.wav",
+        summary=("2 voices, self + partner. The POSITIVE-code scene: partner "
+                 "holds the floor for a long uninterrupted turn (E), self "
+                 "flares twice, then pulls it back (D) with a real apology "
+                 "the partner audibly accepts (R). Built for "
+                 "apps/mobile/src/live/positiveNudges.ts — the other three "
+                 "scenes contain nothing a coach could praise."),
+        silence_gap_sec=0.4,
+        speakers={
+            "Speaker A": dict(voice=SELF_VOICE, is_self=True, role="self"),
+            "Speaker B": dict(voice="coral", is_self=False, role="partner"),
+        },
+        turns=[
+            T("Speaker A", "calm_open",
+              "Can I run something by you? I've been chewing on it all week."),
+            # THE long turn (~40 words, ~16 s): the whole point of code E is
+            # that you let someone hold the floor. No other scene has one.
+            T("Speaker B", "calm_neutral",
+              "Okay. So on Tuesday, when I got back from my mother's, I walked in and "
+              "the whole evening was already planned out without me, and I stood in "
+              "the kitchen for about ten minutes waiting for somebody to ask me how "
+              "the drive went, and nobody did, and I know that sounds small, but it "
+              "has been the same every single week since March."),
+            T("Speaker A", "calm_neutral",
+              "Okay. I didn't realise it landed like that."),
+            T("Speaker B", "calm_guarded",
+              "Because you were on your phone the entire time I was talking."),
+            T("Speaker A", "tense_rising",
+              "I was answering my boss. That is not the same as ignoring you."),
+            T("Speaker B", "defensive_rising",
+              "It is when it happens every single night of the week."),
+            T("Speaker A", "shout_angry",
+              "EVERY NIGHT? I HAVE BEEN HOME BY SIX EVERY DAY THIS WEEK!"),
+            T("Speaker B", "hurt_sad",
+              "Please don't shout at me. I'm standing right here."),
+            # The repair: heat drops (D) AND the lexicon matches (R's trigger).
+            T("Speaker A", "repair_apology",
+              "You're right. I'm sorry. That was on me, and it wasn't fair."),
+            # ...and the partner audibly softens, which is what makes it an R
+            # rather than just the words.
+            T("Speaker B", "calm_close",
+              "Thank you. That actually helps more than you know."),
+            T("Speaker A", "warm_happy",
+              "Tomorrow, dinner, no phones on the table. Just us."),
+            T("Speaker B", "warm_happy",
+              "I would really like that."),
+        ],
+        expected_nudges=[
+            N(4, "mild", "self tense_rising: first sign of self escalating — a light "
+                         "'watch your tone' nudge, not an intervention"),
+            N(6, "strong", "self shout_angry: shouted spike — strongest possible nudge"),
         ],
     ),
     "family3": dict(

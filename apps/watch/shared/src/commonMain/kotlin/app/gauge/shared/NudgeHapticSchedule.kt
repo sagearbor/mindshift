@@ -72,6 +72,13 @@ object NudgeHapticSchedule {
      * (its fallback taps are 255), so even the first tap of the ramp is unmistakable. */
     val ESCALATING_RAMP: List<Int> = listOf(200, 230, 255)
 
+    /** Level 2's ramp. Was flat (255, 255) before the owner-approved nudge vocabulary
+     * (2026-09-06): the Heated code 📈 is defined as a RISING ramp at every level it can ramp at,
+     * so a double tap that gets louder is the same gesture as level 3's triple, one tap shorter.
+     * Pinned against the cross-runtime contract by
+     * `NudgeVocabularyVectorsTest` / `HapticPatternsTest.channelAFallbacksAreTheHeatedVocabulary`. */
+    val DOUBLE_RAMP: List<Int> = listOf(210, 255)
+
     /** Calm score (0..100, clamped) -> nudge level 0..3. See class KDoc for the boundary rule. */
     fun levelForScore(score: Int): Int {
         val s = score.coerceIn(0, 100)
@@ -88,7 +95,7 @@ object NudgeHapticSchedule {
     fun planFor(level: Int): NudgeHapticPlan = when (level.coerceIn(0, 3)) {
         0 -> NudgeHapticPlan(0, NudgeHapticPattern.NONE, pulses = 0, repeatIntervalMs = null, amplitudeRamp = emptyList())
         1 -> NudgeHapticPlan(1, NudgeHapticPattern.SINGLE_SOFT, pulses = 1, repeatIntervalMs = LEVEL_1_REPEAT_MS, amplitudeRamp = listOf(255))
-        2 -> NudgeHapticPlan(2, NudgeHapticPattern.DOUBLE, pulses = 2, repeatIntervalMs = LEVEL_2_REPEAT_MS, amplitudeRamp = listOf(255, 255))
+        2 -> NudgeHapticPlan(2, NudgeHapticPattern.DOUBLE, pulses = 2, repeatIntervalMs = LEVEL_2_REPEAT_MS, amplitudeRamp = DOUBLE_RAMP)
         else -> NudgeHapticPlan(3, NudgeHapticPattern.ESCALATING, pulses = 3, repeatIntervalMs = LEVEL_3_REPEAT_MS, amplitudeRamp = ESCALATING_RAMP)
     }
 

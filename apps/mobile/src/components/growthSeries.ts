@@ -46,8 +46,18 @@ export function timeToX(
   window: ZoomWindow,
   geom: ChartGeom,
 ): number {
+  return timeMsToX(Date.parse(timestamp), window, geom);
+}
+
+/** Same mapping for an already-parsed epoch-ms instant (axis ticks share the
+ *  dots' geometry, so a tick and the dot recorded at that instant line up). */
+export function timeMsToX(
+  t: number,
+  window: ZoomWindow,
+  geom: ChartGeom,
+): number {
   if (window.end - window.start <= 0) return geom.width / 2;
-  return secondsToX(Date.parse(timestamp), window, geom);
+  return secondsToX(t, window, geom);
 }
 
 /** Map a 0–100 score into chart y (top = 100). */
@@ -110,4 +120,148 @@ export function filterPoints(
     case "unidentified":
       return points.filter((p) => p.partner_names.length === 0);
   }
+}
+
+// --- Date axis ticks --------------------------------------------------------
+// The x axis is real time, so its labels must be real calendar boundaries
+// (midnights / first-of-months), not "older … newer". Ticks are chosen from
+// the window's span: day labels ("Aug 20") for short windows, month labels
+// ("Aug", with the year wherever it changes) once the window is long enough
+// that individual days would just be noise.
+
+export interface DateTick {
+  /** Epoch ms — map with `timeMsToX` against the same window as the dots. */
+  t: number;
+  label: string;
+}
+
+export interface DateTickOptions {
+  /** Place boundaries + name days in UTC instead of the device's local time
+   *  zone. On device the default (local) is the honest choice — a recording
+   *  made at 11pm belongs to *that* day; tests pass `utc: true` so the
+   *  expected labels don't depend on the machine running them. */
+  utc?: boolean;
+}
+
+const DAY_MS = 86_400_000;
+/** Up to this span, ticks sit on day boundaries and carry day labels. */
+export const DAY_TICKS_MAX_SPAN_MS = 60 * DAY_MS;
+const MONTHS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+interface Calendar {
+  year(t: number): number;
+  month(t: number): number;
+  day(t: number): number;
+  /** Midnight at the start of the given calendar date. */
+  make(y: number, m: number, d: number): number;
+}
+
+const LOCAL: Calendar = {
+  year: (t) => new Date(t).getFullYear(),
+  month: (t) => new Date(t).getMonth(),
+  day: (t) => new Date(t).getDate(),
+  make: (y, m, d) => new Date(y, m, d).getTime(),
+};
+
+const UTC: Calendar = {
+  year: (t) => new Date(t).getUTCFullYear(),
+  month: (t) => new Date(t).getUTCMonth(),
+  day: (t) => new Date(t).getUTCDate(),
+  make: (y, m, d) => Date.UTC(y, m, d),
+};
+
+function dayLabel(t: number, cal: Calendar): string {
+  return `${MONTHS[cal.month(t)]} ${cal.day(t)}`;
+}
+
+function dayKey(t: number, cal: Calendar): string {
+  return `${cal.year(t)}-${cal.month(t)}-${cal.day(t)}`;
+}
+
+/** Keep at most `max` of `items`, spread evenly, always keeping the first. */
+function thin<T>(items: T[], max: number): T[] {
+  if (max <= 0) return [];
+  if (items.length <= max) return items;
+  const step = Math.ceil(items.length / max);
+  return items.filter((_, i) => i % step === 0);
+}
+
+/**
+ * Pick "nice" date ticks for an epoch-ms window, never more than `maxTicks`.
+ *
+ *  - zero span → a single day label at the point itself;
+ *  - span ≤ DAY_TICKS_MAX_SPAN_MS → day labels: the window's first and last
+ *    dates are always present (at the window's own ends), plus the midnights
+ *    in between, thinned evenly to fit `maxTicks`;
+ *  - longer → month labels on first-of-month boundaries inside the window,
+ *    thinned evenly; the year is appended on the first tick and wherever it
+ *    changes, but only when the window actually crosses a year boundary.
+ */
+export function dateTicks(
+  window: ZoomWindow,
+  maxTicks: number,
+  opts: DateTickOptions = {},
+): DateTick[] {
+  const cal = opts.utc ? UTC : LOCAL;
+  const { start, end } = window;
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return [];
+  const max = Math.max(1, Math.floor(maxTicks));
+  const span = end - start;
+
+  if (span <= 0) return [{ t: start, label: dayLabel(start, cal) }];
+
+  if (span <= DAY_TICKS_MAX_SPAN_MS) {
+    const first: DateTick = { t: start, label: dayLabel(start, cal) };
+    if (dayKey(start, cal) === dayKey(end, cal)) return [first];
+    const last: DateTick = { t: end, label: dayLabel(end, cal) };
+    if (max === 1) return [first];
+    if (max === 2) return [first, last];
+    // Interior midnights strictly inside the window, excluding the two dates
+    // the ends already name — and anything hugging an end so closely its label
+    // would collide with first/last.
+    const minGap = span * 0.08;
+    const interior: DateTick[] = [];
+    let t = cal.make(cal.year(start), cal.month(start), cal.day(start) + 1);
+    while (t < end) {
+      const key = dayKey(t, cal);
+      if (
+        key !== dayKey(start, cal) &&
+        key !== dayKey(end, cal) &&
+        t - start >= minGap &&
+        end - t >= minGap
+      ) {
+        interior.push({ t, label: dayLabel(t, cal) });
+      }
+      t = cal.make(cal.year(t), cal.month(t), cal.day(t) + 1);
+    }
+    return [first, ...thin(interior, max - 2), last];
+  }
+
+  // Month mode.
+  const boundaries: number[] = [];
+  let y = cal.year(start);
+  let m = cal.month(start);
+  let t = cal.make(y, m, 1);
+  if (t < start) {
+    m += 1;
+    t = cal.make(y, m, 1);
+  }
+  while (t <= end) {
+    boundaries.push(t);
+    m += 1;
+    t = cal.make(y, m, 1); // Date normalises month overflow into the next year
+  }
+  const kept = thin(boundaries, max);
+  const crossesYear = cal.year(start) !== cal.year(end);
+  let prevYear: number | null = null;
+  return kept.map((b) => {
+    const year = cal.year(b);
+    const withYear = crossesYear && (prevYear === null || year !== prevYear);
+    prevYear = year;
+    const name = MONTHS[cal.month(b)];
+    return { t: b, label: withYear ? `${name} ${year}` : name };
+  });
 }

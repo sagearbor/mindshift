@@ -1,0 +1,615 @@
+{
+  "_schema": {
+    "version": 1,
+    "subject": "The nudge VOCABULARY — what the user is told, per behaviour: icon, one-letter code, name, on-screen flash text, and the wrist/phone haptic. Mirrors: server/nudge_vocabulary.py, apps/mobile/src/live/nudgeVocabulary.ts, apps/watch/shared/.../NudgeVocabulary.kt.",
+    "description": "Owner-approved 2026-09-06 (wrapups/20260906-1200-nudge-vocabulary-and-file-proofs.yaml `approved_vocabulary_2026-09-06`). The nudge POLICY (nudge_policy.json) decides WHEN and at WHAT LEVEL something fires; this file decides what that firing LOOKS and FEELS like. They are separate on purpose: a threshold change must never silently restyle the cue, and a restyle must never move a threshold. Every runtime that shows or plays a nudge reads its icon/name/flash text and its haptic from here — no second copy of an emoji or a millisecond anywhere in the repo.",
+    "entries": {
+      "code": "one uppercase letter, stable forever — the compact form used in reports, chart markers and telemetry. H D C A E R K P",
+      "vector": "snake_case id used in code and on the wire",
+      "icon": "the single emoji shown on the phone, the watch glance and in reports",
+      "color": "\"red\" | \"green\" | \"neutral\" — the semantic colour, not a hex value (each runtime maps it to its own palette)",
+      "name": "short human label (title case)",
+      "meaning": "one sentence a user could read",
+      "polarity": "\"alert\" (something to correct) | \"positive\" (something you did well)",
+      "sources": "the detector vector names (server/watch/vectors.py, apps/mobile/src/live/nudgePolicy.ts) that raise this code. [] means the detector lives only in the positive-nudge pass (positiveNudges.ts / server/positive_nudges.py)",
+      "flash_text": "the on-screen line, or null when the icon alone is the message",
+      "summary_only": "true = never fires live; it is a badge on the post-session summary (K)",
+      "watch_only": "true = the phone has no sensor for it (P: heart rate)",
+      "levels": "1..3 for alert codes (the policy's escalation levels); positives are unleveled and always carry level 1",
+      "haptic": "null (no cue at all) or {level: {timings_ms, amplitudes}} — see `haptic_encoding`"
+    },
+    "haptic_encoding": {
+      "form": "One waveform per level, as parallel `timings_ms` / `amplitudes` arrays. Entry 0 is the initial delay (always 0 ms, amplitude 0). After that, a segment with amplitude 0 is SILENCE and a segment with amplitude 1..255 vibrates. Consecutive vibrating segments are ONE continuous buzz whose strength changes inside it — a SWELL — not separate taps: that is how the positive codes are shaped, and it is the one thing a wrist can do that a phone cannot.",
+      "android_phone": "React Native can only switch an Android motor on and off, so the phone plays the waveform's RUNS: consecutive vibrating segments merge into one buzz of their combined length (`phonePattern` in nudgeVocabulary.ts, mirrored on the other runtimes). A swell therefore reaches the phone as a single smooth buzz — still unlike the negatives' sharp taps, just without the shape. The merged pattern IS React Native's `Vibration.vibrate` argument. A cue that merges to a single run is played as the OEM's tuned impact instead, because a short raw buzz is imperceptible on a modern actuator.",
+      "wear_os": "`VibrationEffect.createWaveform(timings_ms, amplitudes, -1)` — the watch plays the waveform verbatim, including the swells, which is why the positives feel categorically different there.",
+      "why_rhythm_carries_the_level": "Brown & Brewster: rhythm is identified ~93% of the time, intensity ~61%. And on an Android PHONE amplitude does not exist at all — React Native can only switch the motor on and off — so any two cues that differ only in strength are literally the same cue there. That is not theory: shipping a rising ramp and a falling ramp that differed only in amplitude produced 'heated L3 = de-escalated, I cant tell a diff' on the owner's Pixel the first time he felt them (2026-09-06). Level, and identity, are carried by tap COUNT and tap LENGTH; amplitude is a bonus the watch gets on top.",
+      "never_merge_gap_ms": "170 — the pattern-wide silence floor (apps/watch/.../HapticPatterns.kt MIN_GAP_MS): two taps closer than this smear into one buzz on a watch band. The ONE deliberate exception is P's lub-dub (120 ms), where the near-merge IS the heartbeat identity; `haptic_gap_exceptions` lists it so a linter can't 'fix' it.",
+      "haptic_gap_exceptions": [
+        "pulse"
+      ],
+      "perceptibility_floor": "Perceptibility floor: 50 ms at amplitude 180. Not a style choice — it is this app's own measured device finding (apps/watch/.../HapticPatterns.kt: the v0.1–v0.2.3 raw waveforms at 40 ms / amplitude 120–180 proved BARELY PERCEPTIBLE on the real Pixel Watch, and the pulse train's floor band was raised to (50 ms, 180) as the perceptible minimum). Every RUN in this file is at or above it (its total length and its PEAK amplitude; a swell is allowed to start and end below the floor, because the whole run is one felt buzz), including the soft positives: a cue nobody can feel is not a soft cue, it is a missing one.",
+      "distinguishability": "Two cues are CONFUSABLE when a phone cannot separate them, so the comparison is made on the MERGED (run) pattern, not the raw segments: same number of runs, every corresponding gap within `confusable_gap_ms`, and every corresponding run within a factor of `confusable_tap_ratio`. No two cues in this file may be confusable — enforced by the `no_two_cues_are_confusable` case on all three runtimes."
+    },
+    "positive_rules": {
+      "cap_seconds": 120,
+      "description": "A positive cue is soft and rate-limited: at most one positive haptic per `cap_seconds` across ALL positive codes (D, E, R), so praise can never become its own nag. K never buzzes at all. Enforced by the positive-nudge gate on each runtime and pinned by `cases` below."
+    },
+    "cases": "Replay cases for the level->waveform mapping and the positive cap, so all three runtimes are proven to render the same thing."
+  },
+  "constants": {
+    "min_gap_ms": 170,
+    "positive_cap_s": 120.0,
+    "min_on_ms": 50,
+    "min_amplitude": 180
+  },
+  "vocabulary": [
+    {
+      "code": "H",
+      "vector": "heated",
+      "icon": "📈",
+      "color": "red",
+      "name": "Heated",
+      "meaning": "You got loud, or your words got hot. Yelling and aggressive tone are one family to the user (the detectors stay separate underneath).",
+      "polarity": "alert",
+      "sources": [
+        "yelling",
+        "aggressive_tone",
+        "activation"
+      ],
+      "flash_text": "Take it down a notch",
+      "summary_only": false,
+      "watch_only": false,
+      "levels": [
+        1,
+        2,
+        3
+      ],
+      "haptic": {
+        "1": {
+          "timings_ms": [
+            0,
+            200
+          ],
+          "amplitudes": [
+            0,
+            255
+          ]
+        },
+        "2": {
+          "timings_ms": [
+            0,
+            70,
+            170,
+            150
+          ],
+          "amplitudes": [
+            0,
+            210,
+            0,
+            255
+          ]
+        },
+        "3": {
+          "timings_ms": [
+            0,
+            60,
+            170,
+            110,
+            170,
+            200
+          ],
+          "amplitudes": [
+            0,
+            200,
+            0,
+            230,
+            0,
+            255
+          ]
+        }
+      },
+      "haptic_note": "A RISING ramp, expressed in TAP LENGTH: 60 -> 110 -> 200 ms, each tap longer than the last. It was expressed in AMPLITUDE until 2026-09-06, which was a design error: an Android phone cannot vary vibration strength at all, so the rising ramp and D's falling ramp reached the motor as the same three taps and the owner could not tell them apart on the device. Amplitude still rises on top, because a watch CAN play it — the rhythm carries the meaning, the amplitude reinforces it. Level 1 is a single 200 ms tap, and the phone renders it as the OEM's TUNED impact rather than this raw waveform (see defaultDeps.expoHaptics). 75 ms was reported as 'does nothing' on a Pixel, and so was 120 ms: a modern phone's actuator produces almost nothing from a short unshaped buzz, which is the same finding the watch made in v0.2.4 when its 40 ms raw taps proved imperceptible and were replaced by tuned effects. It is still ONE tap, which is what separates level 1 from 2 and 3."
+    },
+    {
+      "code": "D",
+      "vector": "de_escalated",
+      "icon": "📉",
+      "color": "green",
+      "name": "De-escalated",
+      "meaning": "Heat or loudness dropped a level within two turns of a spike — you pulled it back.",
+      "polarity": "positive",
+      "sources": [],
+      "flash_text": "Nice recovery",
+      "summary_only": false,
+      "watch_only": false,
+      "levels": [
+        1
+      ],
+      "haptic": {
+        "1": {
+          "timings_ms": [
+            0,
+            200,
+            170,
+            110,
+            170,
+            60
+          ],
+          "amplitudes": [
+            0,
+            230,
+            0,
+            200,
+            0,
+            180
+          ]
+        }
+      },
+      "haptic_note": "A FALLING ramp — the exact mirror of H's, 200 -> 110 -> 60 ms, so the two are opposites in the one dimension every device can play. Starts below the alert codes' 255 and bottoms out AT the perceptibility floor, never below it: the last tap of a fade is the one most likely to be missed."
+    },
+    {
+      "code": "C",
+      "vector": "cut_in",
+      "icon": "✂️",
+      "color": "red",
+      "name": "Cut in",
+      "meaning": "You started talking over them and kept going — sustained overlap, not the brief overlap of ordinary engagement.",
+      "polarity": "alert",
+      "sources": [
+        "interrupting"
+      ],
+      "flash_text": "Let them finish",
+      "summary_only": false,
+      "watch_only": false,
+      "levels": [
+        1,
+        2,
+        3
+      ],
+      "haptic": {
+        "1": {
+          "timings_ms": [
+            0,
+            60,
+            170,
+            300
+          ],
+          "amplitudes": [
+            0,
+            255,
+            0,
+            200
+          ]
+        },
+        "2": {
+          "timings_ms": [
+            0,
+            60,
+            170,
+            60,
+            170,
+            300
+          ],
+          "amplitudes": [
+            0,
+            255,
+            0,
+            255,
+            0,
+            200
+          ]
+        },
+        "3": {
+          "timings_ms": [
+            0,
+            60,
+            170,
+            60,
+            170,
+            60,
+            170,
+            300
+          ],
+          "amplitudes": [
+            0,
+            255,
+            0,
+            255,
+            0,
+            255,
+            0,
+            200
+          ]
+        }
+      },
+      "haptic_note": "Owner's `• —`: short tap(s) then one long 'stop' buzz. The level adds short taps ahead of the long one (`• —`, `• • —`, `• • • —`). The long buzz is 300 ms — five times the short taps — so the shape survives on a phone, where nothing but duration is left."
+    },
+    {
+      "code": "A",
+      "vector": "hogging",
+      "icon": "🎤",
+      "color": "red",
+      "name": "Hogging",
+      "meaning": "You have been taking most of the airtime over the last two minutes.",
+      "polarity": "alert",
+      "sources": [
+        "airtime"
+      ],
+      "flash_text": "Give them the floor",
+      "summary_only": false,
+      "watch_only": false,
+      "levels": [
+        1,
+        2,
+        3
+      ],
+      "haptic": {
+        "1": {
+          "timings_ms": [
+            0,
+            250,
+            300,
+            250
+          ],
+          "amplitudes": [
+            0,
+            180,
+            0,
+            180
+          ]
+        },
+        "2": {
+          "timings_ms": [
+            0,
+            250,
+            300,
+            250,
+            300,
+            250
+          ],
+          "amplitudes": [
+            0,
+            180,
+            0,
+            180,
+            0,
+            180
+          ]
+        },
+        "3": {
+          "timings_ms": [
+            0,
+            250,
+            300,
+            250,
+            300,
+            250,
+            300,
+            250
+          ],
+          "amplitudes": [
+            0,
+            180,
+            0,
+            180,
+            0,
+            180,
+            0,
+            180
+          ]
+        }
+      },
+      "haptic_note": "Owner's slow `— — —`: long, unhurried, evenly spaced buzzes — the opposite of H's crisp taps, because 'you're talking a lot' is not an emergency. Level 2 is the canonical three."
+    },
+    {
+      "code": "E",
+      "vector": "listened",
+      "icon": "👂",
+      "color": "green",
+      "name": "Listened",
+      "meaning": "You let them finish a long turn without cutting in.",
+      "polarity": "positive",
+      "sources": [],
+      "flash_text": null,
+      "summary_only": false,
+      "watch_only": false,
+      "levels": [
+        1
+      ],
+      "haptic": {
+        "1": {
+          "timings_ms": [
+            0,
+            60,
+            60,
+            60,
+            170,
+            60,
+            60,
+            60
+          ],
+          "amplitudes": [
+            0,
+            120,
+            190,
+            120,
+            0,
+            120,
+            190,
+            120
+          ]
+        }
+      },
+      "haptic_note": "TWO soft swells. Every positive is a SWELL — one continuous buzz that rises and falls inside itself — and every alert is discrete TAPS, so the two families are told apart by texture before you have counted anything. That split is owner-directed (2026-09-07, on a Pixel Watch: \"i would want positive to be very diff than negative\") and replaced an earlier `••` that was too close to 🤝's `•••` to tell apart. A phone cannot vary strength, so it feels two smooth buzzes rather than two shaped ones — still unlike the sharp taps of an alert."
+    },
+    {
+      "code": "R",
+      "vector": "repair",
+      "icon": "🤝",
+      "color": "green",
+      "name": "Repair",
+      "meaning": "You validated or apologised and their tone softened on the next turn.",
+      "polarity": "positive",
+      "sources": [],
+      "flash_text": null,
+      "summary_only": false,
+      "watch_only": false,
+      "levels": [
+        1
+      ],
+      "haptic": {
+        "1": {
+          "timings_ms": [
+            0,
+            60,
+            60,
+            60,
+            170,
+            60,
+            60,
+            60,
+            170,
+            60,
+            60,
+            60
+          ],
+          "amplitudes": [
+            0,
+            120,
+            190,
+            120,
+            0,
+            120,
+            190,
+            120,
+            0,
+            120,
+            190,
+            120
+          ]
+        }
+      },
+      "haptic_note": "THREE soft swells — the same texture as 👂, one swell longer, because a repair is the rarer and larger thing. See 👂 for why the positives are swells at all."
+    },
+    {
+      "code": "K",
+      "vector": "calm_streak",
+      "icon": "🧘",
+      "color": "green",
+      "name": "Calm streak",
+      "meaning": "N minutes with no escalation at all.",
+      "polarity": "positive",
+      "sources": [],
+      "flash_text": null,
+      "summary_only": true,
+      "watch_only": false,
+      "levels": [
+        1
+      ],
+      "haptic": null,
+      "haptic_note": "No cue, ever. Buzzing someone to tell them nothing happened is the definition of a nag; K is a badge on the summary."
+    },
+    {
+      "code": "P",
+      "vector": "pulse",
+      "icon": "❤️",
+      "color": "red",
+      "name": "Pulse",
+      "meaning": "Your heart rate jumped well over your resting rate (+15 / +25 / +35 bpm).",
+      "polarity": "alert",
+      "sources": [
+        "hr_spike"
+      ],
+      "flash_text": null,
+      "summary_only": false,
+      "watch_only": true,
+      "levels": [
+        1,
+        2,
+        3
+      ],
+      "haptic": {
+        "1": {
+          "timings_ms": [
+            0,
+            90,
+            100,
+            150
+          ],
+          "amplitudes": [
+            0,
+            190,
+            0,
+            240
+          ]
+        },
+        "2": {
+          "timings_ms": [
+            0,
+            90,
+            100,
+            150,
+            400,
+            90,
+            100,
+            150
+          ],
+          "amplitudes": [
+            0,
+            190,
+            0,
+            240,
+            0,
+            190,
+            0,
+            240
+          ]
+        },
+        "3": {
+          "timings_ms": [
+            0,
+            90,
+            100,
+            150,
+            400,
+            90,
+            100,
+            150,
+            400,
+            90,
+            100,
+            150
+          ],
+          "amplitudes": [
+            0,
+            190,
+            0,
+            240,
+            0,
+            190,
+            0,
+            240,
+            0,
+            190,
+            0,
+            240
+          ]
+        }
+      },
+      "haptic_note": "Owner's lub-dub double thump: a short beat then a longer one, 100 ms apart — BELOW the 170 ms never-merge floor on purpose, because the near-merge is exactly what makes it read as a heartbeat rather than two taps. The level is how many heartbeats you feel."
+    }
+  ],
+  "cases": [
+    {
+      "name": "every_code_is_unique_and_stable",
+      "description": "The eight owner-approved codes, in owner order. A runtime that cannot produce this exact list is out of contract.",
+      "expected_codes": [
+        "H",
+        "D",
+        "C",
+        "A",
+        "E",
+        "R",
+        "K",
+        "P"
+      ]
+    },
+    {
+      "name": "alert_codes_have_three_levels_positives_have_one",
+      "description": "Escalation is an alert-only idea. Positives are a single soft cue plus a cap.",
+      "expected_alert_codes": [
+        "H",
+        "C",
+        "A",
+        "P"
+      ],
+      "expected_positive_codes": [
+        "D",
+        "E",
+        "R",
+        "K"
+      ]
+    },
+    {
+      "name": "waveforms_are_well_formed",
+      "description": "For every code with a haptic, at every level: timings_ms and amplitudes are the same length, entry 0 is a zero-length zero-amplitude delay, every later segment has a positive duration, and every amplitude is 0..255. Then, per RUN (a maximal stretch of consecutive vibrating segments): its total duration is at least constants.min_on_ms and its peak amplitude at least constants.min_amplitude. Silences BETWEEN runs are at least constants.min_gap_ms unless the vector is listed in _schema.haptic_encoding.haptic_gap_exceptions."
+    },
+    {
+      "name": "level_is_carried_by_rhythm",
+      "description": "For every alert code, the total ON time strictly increases with the level — so the cue is discriminable by duration/count alone, with amplitude switched off (which is what an Android phone feels).",
+      "expected_on_ms": {
+        "H": [
+          200,
+          220,
+          370
+        ],
+        "C": [
+          360,
+          420,
+          480
+        ],
+        "A": [
+          500,
+          750,
+          1000
+        ],
+        "P": [
+          240,
+          480,
+          720
+        ]
+      }
+    },
+    {
+      "name": "positive_cap_is_one_per_two_minutes",
+      "description": "A positive-nudge gate fed these (t, code) offers must admit exactly `expected_admitted`. The cap is shared across D/E/R (K never reaches the gate). t is session seconds.",
+      "offers": [
+        {
+          "t": 10.0,
+          "code": "E"
+        },
+        {
+          "t": 40.0,
+          "code": "D"
+        },
+        {
+          "t": 100.0,
+          "code": "R"
+        },
+        {
+          "t": 130.0,
+          "code": "D"
+        },
+        {
+          "t": 131.0,
+          "code": "E"
+        },
+        {
+          "t": 400.0,
+          "code": "R"
+        }
+      ],
+      "expected_admitted": [
+        {
+          "t": 10.0,
+          "code": "E"
+        },
+        {
+          "t": 130.0,
+          "code": "D"
+        },
+        {
+          "t": 400.0,
+          "code": "R"
+        }
+      ]
+    },
+    {
+      "name": "no_two_cues_are_confusable",
+      "description": "The case that would have caught the bug the owner found by hand. With amplitude removed — which is exactly what an Android phone does — no two cues in this file may share a rhythm. Confusable means: the same number of taps, AND every corresponding gap within `confusable_gap_ms`, AND every corresponding tap within a factor of `confusable_tap_ratio`. Before this rule, H level 3 (three 100 ms taps) and D (three 70 ms taps) differed only in amplitude and reached the motor identically, and E and R were byte-for-byte the same array.",
+      "confusable_gap_ms": 50,
+      "confusable_tap_ratio": 1.5,
+      "expected_confusable_pairs": []
+    }
+  ]
+}

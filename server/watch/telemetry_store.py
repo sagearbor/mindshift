@@ -39,7 +39,38 @@ def clamp_event(e: TelemetryEvent) -> TelemetryEvent:
     clamped.message = _clamp_str(clamped.message, MAX_MESSAGE_CHARS)
     if clamped.stack is not None:
         clamped.stack = _clamp_str(clamped.stack, MAX_STACK_CHARS)
+    if clamped.data is not None:
+        clamped.data = firestore_safe(clamped.data)
     return clamped
+
+
+def firestore_safe(value):
+    """Rewrite ``value`` so Firestore accepts it: an array may not directly
+    contain another array ("Property data contains an invalid nested
+    entity" — the 500 the phone's ``device_diarization`` event hit on
+    2026-08-30 with ``segments: [[start, end, label], ...]``). A list nested
+    directly in a list becomes an object: a ``[number, number, label]``
+    triple becomes ``{"start", "end", "label"}`` (the shape a segment reader
+    wants), anything else ``{"items": [...]}``. Dicts and scalars pass
+    through; the rewrite recurses so deeper nests are covered too."""
+    if isinstance(value, dict):
+        return {str(k): firestore_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        out = []
+        for item in value:
+            if isinstance(item, (list, tuple)):
+                if (
+                    len(item) == 3
+                    and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in item[:2])
+                    and isinstance(item[2], (str, int))
+                ):
+                    out.append({"start": item[0], "end": item[1], "label": item[2]})
+                else:
+                    out.append({"items": firestore_safe(list(item))})
+            else:
+                out.append(firestore_safe(item))
+        return out
+    return value
 
 
 def _event_account(e: TelemetryEvent) -> str | None:

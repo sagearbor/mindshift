@@ -100,6 +100,50 @@ export function summarizeLatency(log: readonly TurnLatency[]): LatencySummary {
   };
 }
 
+/**
+ * Who the loop thought was talking, and WHY — the session-level view of the
+ * per-turn `speaker_match_basis` the phone sends on every turn_local.
+ * Answers the diagnostics question "was the owner ever called self, and was
+ * that the 0.65 bar or the in-session contrast rule?" without the turns.
+ */
+export interface SpeakerIdSummary {
+  /** Turns the loop finalized. */
+  turns: number;
+  /** Turns carried as the owner (is_self true). */
+  selfTurns: number;
+  /** selfTurns by how: "absolute" | "contrast" | "binding" (named by the
+   *  user / no voiceprint basis). */
+  selfByBasis: Record<string, number>;
+  /** Turns matched to ANY enrolled person, by basis (same keys). */
+  matchedByBasis: Record<string, number>;
+  /** Distinct raw labels ("Speaker A", "You", …) excluding "Unknown" — how
+   *  many voices the loop kept apart. */
+  voices: number;
+  /** Turns with no identity at all ("Unknown": unembeddable or too short). */
+  unknownTurns: number;
+}
+
+export function summarizeSpeakerId(
+  turns: readonly { speaker: string; isSelf: boolean | null; personId: string | null; matchBasis: string | null }[],
+): SpeakerIdSummary {
+  const selfByBasis: Record<string, number> = {};
+  const matchedByBasis: Record<string, number> = {};
+  const voices = new Set<string>();
+  let selfTurns = 0;
+  let unknownTurns = 0;
+  for (const t of turns) {
+    if (t.speaker === "Unknown") unknownTurns += 1;
+    else voices.add(t.speaker);
+    const basis = t.matchBasis ?? "binding";
+    if (t.personId !== null) matchedByBasis[basis] = (matchedByBasis[basis] ?? 0) + 1;
+    if (t.isSelf === true) {
+      selfTurns += 1;
+      selfByBasis[basis] = (selfByBasis[basis] ?? 0) + 1;
+    }
+  }
+  return { turns: turns.length, selfTurns, selfByBasis, matchedByBasis, voices: voices.size, unknownTurns };
+}
+
 export interface SessionDiagnostics {
   sessionId: string;
   mode: string;
@@ -107,6 +151,9 @@ export interface SessionDiagnostics {
   endedAt: string;
   turns: number;
   latency: LatencySummary;
+  /** Speaker-ID outcome of the loop's turns; absent on the legacy (no
+   *  on-device loop) path and in records written before it existed. */
+  speakerId?: SpeakerIdSummary | null;
   /** What the loop said it loaded (the status line), or why it didn't run. */
   liveStatus: string;
   onDevice: boolean;
@@ -180,10 +227,52 @@ export function collectAppInfo(): AppInfo {
   };
 }
 
+/**
+ * One run of the on-phone voice-separation engine over a stored recording
+ * (live/deviceDiarization.ts — approach B post-hoc on the phone). Posted as
+ * its own diagnostics record the moment it finishes (trigger
+ * "device_diarization") AND carried on every later bundle, so
+ * `scripts/diagnostics_tail.py --id dx-…` prints it and
+ * `--score-rubric <rubric.json>` scores `segments` against a per-second
+ * rubric with the bake-off scorer. `segments` are `[start_s, end_s, label]`
+ * over the whole clip (labels 0..k-1, the app's "Speaker A/B/…" order).
+ */
+export interface DeviceDiarizationEvent {
+  recording_id: string;
+  engine: "B";
+  k: number;
+  k_eigengap: number;
+  eigenvalues: number[];
+  /** Mean cosine over every pair of window embeddings (null under two
+   *  windows). ~1.0 means every window embedded to the SAME vector — a
+   *  model / audio-path fault, not a one-voice recording. */
+  mean_pairwise_cosine: number | null;
+  segments: [number, number, number][];
+  windows: number;
+  windows_total: number;
+  window_s: number;
+  hop_s: number;
+  gate_rms: number;
+  speech_s: number;
+  duration_s: number;
+  download_ms: number;
+  download_bytes: number;
+  embed_ms_mean: number | null;
+  embed_ms_p90: number | null;
+  cluster_ms: number;
+  total_ms: number;
+  model_rev: string | null;
+  model_source: string | null;
+  device: DeviceInfo;
+  created_at: string;
+}
+
+export type DiagnosticsTrigger = "manual" | "auto" | "device_diarization";
+
 export interface DiagnosticsPayload {
   diagnostics_id: string;
   created_at: string;
-  trigger: "manual" | "auto";
+  trigger: DiagnosticsTrigger;
   uid: string | null;
   email: string | null;
   app: AppInfo;
@@ -191,15 +280,18 @@ export interface DiagnosticsPayload {
   capability: FastLoopCapabilities | null;
   capability_reason: string | null;
   last_session: SessionDiagnostics | null;
+  /** The latest on-phone voice-separation run, when one happened this launch. */
+  device_diarization?: DeviceDiarizationEvent | null;
 }
 
 export interface BuildPayloadInput {
-  trigger: "manual" | "auto";
+  trigger: DiagnosticsTrigger;
   uid: string | null;
   email: string | null;
   capability: FastLoopCapabilities | null;
   capabilityReason: string | null;
   lastSession: SessionDiagnostics | null;
+  deviceDiarization?: DeviceDiarizationEvent | null;
   id?: string;
   now?: () => Date;
 }
@@ -216,6 +308,7 @@ export function buildDiagnosticsPayload(input: BuildPayloadInput): DiagnosticsPa
     capability: input.capability,
     capability_reason: input.capabilityReason,
     last_session: input.lastSession,
+    device_diarization: input.deviceDiarization ?? null,
   };
 }
 
@@ -226,6 +319,7 @@ export function telemetryBody(payload: DiagnosticsPayload): {
   events: { level: string; tag: string; message: string; stack: null; ts: string; data: DiagnosticsPayload }[];
 } {
   const errors = payload.last_session?.errors ?? [];
+  const dd = payload.device_diarization;
   return {
     device: `phone:${payload.device.platform}:${payload.uid ?? "anon"}`,
     app_version: payload.app.version ?? "unknown",
@@ -235,7 +329,8 @@ export function telemetryBody(payload: DiagnosticsPayload): {
         tag: DIAGNOSTICS_TAG,
         message:
           `${DIAGNOSTICS_TAG} ${payload.diagnostics_id} uid=${payload.uid ?? "-"} email=${payload.email ?? "-"}` +
-          (errors.length > 0 ? ` errors=${errors.join(" | ")}` : ""),
+          (errors.length > 0 ? ` errors=${errors.join(" | ")}` : "") +
+          (dd ? ` device_diarization=${dd.recording_id} k=${dd.k} cos=${dd.mean_pairwise_cosine ?? "-"}` : ""),
         stack: null,
         ts: payload.created_at,
         data: payload,
@@ -269,18 +364,25 @@ export interface DiagnosticsState {
   capability: FastLoopCapabilities | null;
   capabilityReason: string | null;
   lastSession: SessionDiagnostics | null;
+  /** The latest on-phone voice-separation run (rides on every later bundle). */
+  deviceDiarization: DeviceDiarizationEvent | null;
   sending: boolean;
-  lastSent: { id: string; at: string; trigger: "manual" | "auto"; ok: boolean; error: string | null } | null;
+  lastSent: { id: string; at: string; trigger: DiagnosticsTrigger; ok: boolean; error: string | null } | null;
   setCapability: (capability: FastLoopCapabilities | null, reason: string | null) => void;
   recordSession: (session: SessionDiagnostics) => void;
   /** Build + POST. Resolves with the outcome; also kept in `lastSent`. */
   send: (trigger: "manual" | "auto", who: { uid: string | null; email: string | null }) => Promise<SendOutcome>;
+  /** Remember a voice-separation run AND post it right away as its own
+   *  record (trigger "device_diarization") so its id can be read off the
+   *  replay screen. Never throws. */
+  sendDeviceDiarization: (event: DeviceDiarizationEvent, who: { uid: string | null; email: string | null }) => Promise<SendOutcome>;
 }
 
 export const useDiagnosticsStore = create<DiagnosticsState>((set, get) => ({
   capability: null,
   capabilityReason: null,
   lastSession: null,
+  deviceDiarization: null,
   sending: false,
   lastSent: null,
   setCapability: (capability, reason) => set({ capability, capabilityReason: reason }),
@@ -294,6 +396,7 @@ export const useDiagnosticsStore = create<DiagnosticsState>((set, get) => ({
       capability: state.capability,
       capabilityReason: state.capabilityReason,
       lastSession: state.lastSession,
+      deviceDiarization: state.deviceDiarization,
     });
     set({ sending: true });
     const outcome = await sendDiagnostics(payload);
@@ -303,6 +406,30 @@ export const useDiagnosticsStore = create<DiagnosticsState>((set, get) => ({
         id: outcome.id,
         at: payload.created_at,
         trigger,
+        ok: outcome.ok,
+        error: outcome.ok ? null : outcome.error,
+      },
+    });
+    return outcome;
+  },
+  sendDeviceDiarization: async (event, who) => {
+    set({ deviceDiarization: event });
+    const state = get();
+    const payload = buildDiagnosticsPayload({
+      trigger: "device_diarization",
+      uid: who.uid,
+      email: who.email,
+      capability: state.capability,
+      capabilityReason: state.capabilityReason,
+      lastSession: state.lastSession,
+      deviceDiarization: event,
+    });
+    const outcome = await sendDiagnostics(payload);
+    set({
+      lastSent: {
+        id: outcome.id,
+        at: payload.created_at,
+        trigger: "device_diarization",
         ok: outcome.ok,
         error: outcome.ok ? null : outcome.error,
       },

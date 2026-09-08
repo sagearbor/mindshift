@@ -3,6 +3,7 @@ package app.gauge.shared
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 
 /**
  * Kotlin mirrors of the server's wire contract (server/models.py), decoded via
@@ -95,6 +96,12 @@ data class TelemetryEventOut(
     val message: String,
     val stack: String? = null,
     val ts: String,
+    /** Structured payload mirroring the server's additive `TelemetryEventIn.data`
+     * (server/watch/routers/telemetry.py, `data: dict | None`) — the phone's
+     * "Send diagnostics" pioneered it; the watch now uses it for the journal
+     * battery/counter series. `null` (the default) is omitted-equivalent for
+     * older readers, so every existing event construction site is unchanged. */
+    val data: JsonObject? = null,
 )
 
 @Serializable

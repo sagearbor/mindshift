@@ -16,6 +16,12 @@ Usage
   python scripts/diagnostics_tail.py --uid <firebase uid> --limit 3
   python scripts/diagnostics_tail.py --id dx-7K3M-P9QA
   python scripts/diagnostics_tail.py --email ... --raw      # full JSON
+  python scripts/diagnostics_tail.py --id dx-... \\
+      --score-rubric tmp/private_fixtures/maggiano3/rubric.json --owner dad
+      # + frame accuracy of the record's on-phone voice separation
+      #   (``device_diarization``, the replay screen's "Separate voices on
+      #   this phone" row) against a per-second rubric, scored exactly as
+      #   the 2026-08-29 bake-off (docs/research/.../score.py)
 
 ``--base-url`` (or ``MINDSHIFT_API_URL``) defaults to the production
 Cloud Run URL. ``GET /telemetry`` is unauthenticated (an inherited owner
@@ -107,6 +113,17 @@ def summarize(event: dict) -> str:
         if lat.get("byOutcome"):
             # WHY each local rung did/didn't answer, e.g. {"os:refused": 12}.
             lines.append(f"   attempt outcomes={json.dumps(lat.get('byOutcome'))}")
+        sid_sum = s.get("speakerId")
+        if sid_sum:
+            # Was the owner ever called "self", and HOW: absolute (>= 0.65),
+            # contrast (the in-session cross-recording rule) or a binding
+            # the user made. Per-turn `speaker_match_basis` is in turns.json.
+            lines.append(
+                f"   speaker-id: self {sid_sum.get('selfTurns')}/{sid_sum.get('turns')} turns "
+                f"by={json.dumps(sid_sum.get('selfByBasis') or {})} "
+                f"matched={json.dumps(sid_sum.get('matchedByBasis') or {})} "
+                f"voices={sid_sum.get('voices')} unknown={sid_sum.get('unknownTurns')}"
+            )
         for key, sample in (lat.get("outcomeSamples") or {}).items():
             # The actual error/refusal text (e.g. the Gemini Nano exception).
             lines.append(f"     {key}: {sample}")
@@ -126,7 +143,97 @@ def summarize(event: dict) -> str:
         lines.append("   errors: " + (" | ".join(errs) if errs else "none"))
     else:
         lines.append("   (no session in this record)")
+    dd = data.get("device_diarization")
+    if dd:
+        lines.extend(summarize_device_diarization(dd))
     return "\n".join(lines)
+
+
+def _label(index: int) -> str:
+    """The app's cluster naming (speakerId.unknownLabel): 0 → Speaker A."""
+    return f"Speaker {chr(65 + index % 26)}"
+
+
+def _segment_triples(segs) -> list:
+    """Segments as ``(start, end, label)`` whichever shape they were stored in:
+    the phone sends ``[[start, end, label], ...]``; the server rewrites nested
+    arrays for Firestore into ``[{"start", "end", "label"}, ...]``."""
+    out = []
+    for s in segs or []:
+        if isinstance(s, dict):
+            out.append((float(s["start"]), float(s["end"]), s["label"]))
+        elif isinstance(s, (list, tuple)) and len(s) >= 3:
+            out.append((float(s[0]), float(s[1]), s[2]))
+    return out
+
+
+def summarize_device_diarization(dd: dict, max_segments: int = 40) -> list[str]:
+    """The on-phone voice-separation run (apps/mobile/src/live/
+    deviceDiarization.ts) carried in ``data.device_diarization``."""
+    dev = dd.get("device") or {}
+    segs = _segment_triples(dd.get("segments"))
+    lines = [
+        f"   device_diarization: recording {dd.get('recording_id')} engine {dd.get('engine')} "
+        f"k={dd.get('k')} (eigengap {dd.get('k_eigengap')}) runs={len(segs)} "
+        f"windows={dd.get('windows')}/{dd.get('windows_total')} @ {dd.get('hop_s')} s hop "
+        f"gate={dd.get('gate_rms')} speech={dd.get('speech_s')} s of {dd.get('duration_s')} s",
+        f"     timings: download {_ms(dd.get('download_ms'))} ({dd.get('download_bytes')} B) · "
+        f"embed {dd.get('embed_ms_mean')} ms/window (p90 {dd.get('embed_ms_p90')}) · "
+        f"cluster {_ms(dd.get('cluster_ms'))} · total {_ms(dd.get('total_ms'))}",
+        f"     model {dd.get('model_rev')} ({dd.get('model_source')})  device {dev.get('platform')} "
+        f"{dev.get('osVersion') or ''} {dev.get('model') or ''}  at {dd.get('created_at')}",
+        f"     eigenvalues {dd.get('eigenvalues')}",
+    ]
+    shown = segs[:max_segments]
+    lines.append("     segments: " + " | ".join(f"{s:.2f}-{e:.2f} {_label(int(lab))}" for s, e, lab in shown)
+                 + (f" … (+{len(segs) - len(shown)} more)" if len(segs) > len(shown) else ""))
+    return lines
+
+
+def _bakeoff_score_module():
+    """``score`` from docs/research/2026-08-29-voice-separation (the shared
+    bake-off scorer), imported by path so this script needs no package."""
+    import importlib.util
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(root, "docs", "research", "2026-08-29-voice-separation", "score.py")
+    spec = importlib.util.spec_from_file_location("bakeoff_score", path)
+    if spec is None or spec.loader is None:
+        raise FileNotFoundError(path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def load_rubric(path: str) -> list:
+    """A per-second listen-through rubric ``{"segments": [{"start", "end",
+    "speaker"}]}`` (speaker may be a list for overlap — either is credited)
+    → the scorer's ``[(start, end, label | (labels...)), ...]``."""
+    with open(path, encoding="utf-8") as fh:
+        rub = json.load(fh)
+    segs = rub["segments"] if isinstance(rub, dict) else rub
+    out = []
+    for seg in segs:
+        sp = seg["speaker"]
+        out.append((float(seg["start"]), float(seg["end"]), tuple(sp) if isinstance(sp, list) else sp))
+    return out
+
+
+def score_against_rubric(dd: dict, rubric_path: str, owner: str | None) -> str:
+    """Frame accuracy of the phone's segments against the rubric, exactly as
+    the bake-off scored every approach (score.py: 10 ms frames, best
+    one-to-one label mapping, rubric speech only)."""
+    score = _bakeoff_score_module()
+    gt = load_rubric(rubric_path)
+    pred = [(s, e, _label(int(lab)) if not isinstance(lab, str) else lab) for s, e, lab in _segment_triples(dd.get("segments"))]
+    res = score.score_segments(gt, pred, owner)
+    recall = " ".join(f"{k}={v}" for k, v in (res.get("per_gt_recall") or {}).items())
+    return (
+        f"   rubric {os.path.basename(rubric_path)}: frame accuracy {res['frame_accuracy']} "
+        f"k {res['k_pred']}/{res['k_true']} owner purity {res['owner_purity']} "
+        f"unlabelled {res['unlabelled_frac']}\n"
+        f"     mapping {json.dumps(res['mapping'])}\n"
+        f"     recall {recall}"
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -139,6 +246,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--limit", type=int, default=1, help="how many records to print (newest first)")
     ap.add_argument("--scan", type=int, default=1000, help="how many telemetry events to fetch (max 1000)")
     ap.add_argument("--raw", action="store_true", help="print the full JSON payloads")
+    ap.add_argument(
+        "--score-rubric", metavar="RUBRIC_JSON",
+        help="score each record's device_diarization segments against a per-second rubric "
+             "({segments: [{start, end, speaker}]}) with the bake-off scorer",
+    )
+    ap.add_argument("--owner", help="the rubric label that is the phone's owner (for owner purity)")
     args = ap.parse_args(argv)
     if not (args.uid or args.email or args.diag_id or args.device):
         ap.error("give --uid, --email, --id or --device")
@@ -157,6 +270,12 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(e, indent=2, sort_keys=True))
         else:
             print(summarize(e))
+        if args.score_rubric:
+            dd = (e.get("data") or {}).get("device_diarization")
+            if dd:
+                print(score_against_rubric(dd, args.score_rubric, args.owner))
+            else:
+                print("   (no device_diarization in this record — nothing to score)")
     return 0
 
 

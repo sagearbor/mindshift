@@ -59,7 +59,14 @@ function pt(overrides: Partial<GrowthPoint> = {}): GrowthPoint {
 }
 
 function result(overrides: Partial<GrowthResult> = {}): GrowthResult {
-  return { points: [], total_recordings: 0, identified_recordings: 0, people: [], ...overrides };
+  return {
+    points: [],
+    total_recordings: 0,
+    identified_recordings: 0,
+    gaps: { not_analyzed: 0, not_your_conversation: 0, could_not_find_you: 0 },
+    people: [],
+    ...overrides,
+  };
 }
 
 async function render() {
@@ -116,7 +123,8 @@ describe("GrowthScreen — How you sound", () => {
         }),
       ],
       total_recordings: 2,
-      identified_recordings: 2,
+      gaps: { not_analyzed: 0, not_your_conversation: 0, could_not_find_you: 0 },
+    identified_recordings: 2,
       people: [
         { person_id: "p-mom", display_name: "Mom", sessions: 1, scored_turns: 3,
           labels: { warm: 1, frustrated: 1, defensive: 1 }, escalation_count: 2 },

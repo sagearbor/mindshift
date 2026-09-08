@@ -75,6 +75,15 @@ class FakeStore:
         }
         return rid
 
+    async def save_transcript(self, uid, recording_id, transcript):
+
+        # transcript.json — the RAW STT output cached for re-analysis.
+
+        self.transcript_saves = getattr(self, "transcript_saves", [])
+
+        self.transcript_saves.append((uid, recording_id, transcript))
+
+
     async def save_recording(self, uid, *, audio_m4a, video_360p, original_filename,
                              original_content_type, original_bytes, duration_seconds,
                              turns, analysis, source=None, title=None, storage_note=None):

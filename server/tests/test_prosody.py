@@ -70,6 +70,33 @@ def test_loud_window_labelled_louder_than_quiet_window():
     assert labels[2]["energy_label"] == "loud"
     # And the raw RMS strictly orders the same way.
     assert labels[0]["rms"] < labels[1]["rms"] < labels[2]["rms"]
+    # ... as does the dBFS the Replay chart plots, which is exactly
+    # 20*log10(rms) of float PCM — the phone's live rmsDbfs definition.
+    assert labels[0]["rms_dbfs"] < labels[1]["rms_dbfs"] < labels[2]["rms_dbfs"]
+    for lbl in labels:
+        assert abs(lbl["rms_dbfs"] - 20.0 * np.log10(lbl["rms"])) < 0.02
+    # A 0.5-amplitude sine has RMS 0.5/sqrt(2) ≈ 0.354 → −9.03 dBFS.
+    assert abs(labels[2]["rms_dbfs"] - (-9.03)) < 0.1
+
+
+# ---------------------------------------------------------------------------
+# rms → dBFS: the absolute loudness number behind the relative label
+# ---------------------------------------------------------------------------
+
+def test_rms_to_dbfs_matches_full_scale_reference():
+    """Full scale (rms 1.0) is 0 dBFS; half scale is −6.02 dB; silence has
+    no reading (None), never −inf on the wire."""
+    assert prosody.rms_to_dbfs(1.0) == 0.0
+    assert abs(prosody.rms_to_dbfs(0.5) - (-6.0206)) < 1e-3
+    assert prosody.rms_to_dbfs(0.0) is None
+    assert prosody.rms_to_dbfs(-1.0) is None
+
+
+def test_label_turns_silent_turn_has_no_dbfs():
+    feats = [{"rms": 0.0, "f0_median": None, "f0_std": None, "voiced_fraction": 0.0}]
+    turns = [{"text": "hi", "start_time": 0.0, "end_time": 1.0}]
+    labels = prosody.label_turns(feats, turns)
+    assert labels[0]["rms_dbfs"] is None
 
 
 # ---------------------------------------------------------------------------

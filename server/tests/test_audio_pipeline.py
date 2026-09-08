@@ -2736,6 +2736,57 @@ class TestTurnLocalEnrichment:
             ws.send_text(json.dumps({"type": "stop"}))
             assert json.loads(ws.receive_text())["type"] == "session_complete"
 
+    def test_watch_connected_frames_follow_the_relay_registry(
+        self, local_first_env, monkeypatch,
+    ):
+        """Tier B: the phone is told when a watch (companion) socket is
+        registered on the relay for its uid — one `watch_connected` frame per
+        CHANGE, checked on the turn cadence; no frames while nothing changes
+        (a watchless session sees none at all)."""
+        class PresenceRelay(FakeRelay):
+            def __init__(self) -> None:
+                super().__init__()
+                self.present = False
+
+            def live_session_for(self, uid):
+                return object() if self.present else None
+
+        relay = PresenceRelay()
+        monkeypatch.setattr(audio_pipeline, "watch_relay", relay)
+        client = _inject(StoppableTranscriber())
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            _stream_one_second(ws)
+            # No watch: the first turn yields its suggestion and NO
+            # watch_connected frame (False == the session's initial state).
+            ws.send_text(json.dumps(_turn_local(text="turn 0")))
+            _, seen = recv_until(ws, lambda m: m["type"] == "suggestion")
+            assert not [m for m in seen if m["type"] == "watch_connected"]
+
+            # A companion socket registers on the relay -> the next turn's
+            # enrichment reports it.
+            relay.present = True
+            ws.send_text(json.dumps(_turn_local(text="turn 1")))
+            frame, _ = recv_until(ws, lambda m: m["type"] == "watch_connected", limit=20)
+            assert frame == {"type": "watch_connected", "connected": True}
+
+            # Unchanged presence -> no repeat frame with the following turn.
+            ws.send_text(json.dumps(_turn_local(text="turn 2")))
+            _, seen = recv_until(
+                ws,
+                lambda m: m["type"] == "suggestion" and m.get("utterance_text") == "turn 2",
+                limit=20,
+            )
+            assert not [m for m in seen if m["type"] == "watch_connected"]
+
+            # The watch drops -> exactly one False frame.
+            relay.present = False
+            ws.send_text(json.dumps(_turn_local(text="turn 3")))
+            frame, _ = recv_until(ws, lambda m: m["type"] == "watch_connected", limit=20)
+            assert frame == {"type": "watch_connected", "connected": False}
+
+            ws.send_text(json.dumps({"type": "stop"}))
+            recv_until(ws, lambda m: m["type"] == "session_complete", limit=20)
+
     # -- review 2026-08-24: enrichment is bounded per session -----------------
 
     def test_inflight_enrichment_is_capped(self, local_first_env, monkeypatch, caplog):

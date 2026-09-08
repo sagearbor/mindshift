@@ -190,7 +190,10 @@ def create_watch_test_app(
     # something this assembly function needs to gate the mount on — see the
     # module docstring's B7 paragraph. Every route requires strict_auth_dep,
     # same I2/I3 posture as groups.
-    app.include_router(make_captures_router(resolved_store, blobs, strict_auth_dep))
+    # `diarizer=` (journal A/B): threaded through so tests can hand the journal
+    # self-filtering hook a fake DiarizationService; None (the default) leaves
+    # journal captures honestly unfiltered ("diarization_unavailable").
+    app.include_router(make_captures_router(resolved_store, blobs, strict_auth_dep, diarizer=diarizer))
 
     # Task B8: pairing router — CONDITIONALLY mounted, unlike REST/groups/
     # captures above (see module docstring's Task B8 paragraph for why a

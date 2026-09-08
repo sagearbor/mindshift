@@ -99,6 +99,15 @@ open class WatchApiClient(
             extraHeaders = mapOf("Content-Encoding" to "gzip"),
         ) { wireJson.decodeFromString(Capture.serializer(), it) }
 
+    /** `PUT /captures/{id}/labels` — [labelsJson] must already be a serialized JSON OBJECT (the
+     * server 422s anything else). The journal path PUTs its `{"journal": true, ...}` labels
+     * BEFORE uploading audio, deliberately: the server's journal processing hook fires off the
+     * audio-upload success path and only for captures already labeled `journal` at that moment. */
+    open suspend fun putCaptureLabels(captureId: String, labelsJson: String): ApiResult<Capture> =
+        call("PUT", "/captures/$captureId/labels", body = labelsJson.toRequestBody(JSON_MEDIA_TYPE)) {
+            wireJson.decodeFromString(Capture.serializer(), it)
+        }
+
     open suspend fun claimLegacy(): ApiResult<ClaimLegacyResponse> =
         call("POST", "/me/claim-legacy", body = "{}".toRequestBody(JSON_MEDIA_TYPE)) {
             wireJson.decodeFromString(ClaimLegacyResponse.serializer(), it)

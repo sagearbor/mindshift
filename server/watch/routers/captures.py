@@ -48,6 +48,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field, StrictBool
 
+from watch import journal
 from watch.auth import AuthDep, Principal
 from watch.blobs import BlobStore
 from watch.models import SELF_PARTICIPANT_ID, Capture, ConsentRecord
@@ -127,8 +128,16 @@ async def _get_owned_or_404(store: LiveSessionStore, capture_id: str, account: s
 
 
 def make_captures_router(
-    store: LiveSessionStore, blobs: BlobStore | None, full_auth_dep: AuthDep
+    store: LiveSessionStore, blobs: BlobStore | None, full_auth_dep: AuthDep, diarizer=None,
+    journal_recording_sink=None,
 ) -> APIRouter:
+    """``diarizer`` (journal A/B): the shared ``DiarizationService`` (or ``None``)
+    handed to ``watch/journal.py``'s self-filtering pass, spawned off the
+    audio-upload success path for captures labeled ``journal: true`` — the same
+    single shared instance ``build_watch_routers()`` gives the WS and
+    live-sessions routers. Defaults to ``None`` (no filtering runs; the journal
+    hook still stamps nothing for non-journal captures) so every existing
+    caller/test is unaffected."""
     router = APIRouter()
 
     @router.post("/captures", response_model=Capture)
@@ -194,6 +203,15 @@ def make_captures_router(
         cap.upload_encoding = "gzip" if is_gzip else None
         cap.status = "stored"
         await store.put_capture(cap)
+        if journal.is_journal_capture(cap.labels):
+            # Journal A/B: the watch PUTs its `{"journal": true, ...}` labels
+            # BEFORE uploading audio precisely so they're visible right here on
+            # the upload success path — spawn the self-filter + 48h-retention
+            # pass (fire-and-forget with a strong task reference, mirroring
+            # ws.py's _spawn_live_session_analysis).
+            journal.spawn_journal_processing(
+                cap.id, store, blobs, diarizer, journal_recording_sink,
+            )
         return cap
 
     @router.get("/captures", response_model=list[Capture])

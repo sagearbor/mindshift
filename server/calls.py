@@ -543,6 +543,10 @@ class Participant:
     # linked therapist via auto-share, the in-call therapist directly).
     shared_with: list[str] = field(default_factory=list)
     turn_count: int = 0
+    # Per-member NudgePolicy for call-mode vectors the SERVER computes from
+    # the merged timeline (today: ``interrupting`` — sustained talking-over,
+    # see Call._coach_overlap). Lazily built; None for the therapist.
+    nudge_policy: Any = None
 
     @property
     def label(self) -> str:
@@ -1014,7 +1018,70 @@ class Call:
             if len(self.turns) > CALL_MAX_TURNS:
                 del self.turns[:-CALL_MAX_TURNS]
             await self._deliver(uid, row)
+            await self._coach_overlap(uid, row)
             return row
+
+    async def _coach_overlap(self, uid: str, row: dict) -> None:
+        """Sustained talking-over on the merged call timeline — the
+        ``interrupting`` vector (server/watch/vectors.py::interrupting_events,
+        CANDOR-calibrated: >= 2 s of mutual speech) — computed for every
+        COACHED member against the row that just arrived, run through that
+        member's own NudgePolicy (hysteresis/cooldown), and delivered as a
+        ``nudge`` frame to their phone (haptic + flash) and, via the watch
+        relay, to their wrist. A call is the one live setting with a separate
+        stream per party, so this is exact here where a single phone mic can
+        only guess. Never raises into push_turn."""
+        try:
+            from nudge_policy import NudgePolicy
+            from watch.models import VectorSubscription
+            from watch.vectors import interrupting_events
+        except Exception:  # noqa: BLE001 — a build without the watch package coaches nothing
+            return
+        new_span = (float(row["start_time"]), float(row["end_time"]))
+        t = new_span[1]
+        for member in self.coached():
+            if member.endpoint is None:
+                continue
+            if member.uid == uid:
+                self_spans = [new_span]
+                other_spans = [
+                    (float(r["start_time"]), float(r["end_time"]))
+                    for r in self.turns
+                    if r["participant_uid"] != uid and r is not row
+                ]
+            else:
+                self_spans = [
+                    (float(r["start_time"]), float(r["end_time"]))
+                    for r in self.turns
+                    if r["participant_uid"] == member.uid
+                ]
+                other_spans = [new_span]
+            events = interrupting_events(self_spans, other_spans)
+            if not events:
+                continue
+            if member.nudge_policy is None:
+                member.nudge_policy = NudgePolicy(
+                    [VectorSubscription(vector="interrupting", channel="A")], channels=["A"],
+                )
+            for n in member.nudge_policy.on_events(events, t):
+                payload = {
+                    "type": "nudge",
+                    "channel": n.channel,
+                    "level": n.level,
+                    "t": n.t,
+                    "vectors": list(n.vectors),
+                    "detail": events[-1].detail,
+                }
+                try:
+                    await self._send(member, payload)
+                except Exception:  # noqa: BLE001 — a dead phone socket never sinks the call
+                    logger.debug("call %s: nudge to %s not delivered", self.call_id, member.uid)
+            try:
+                from watch import relay as watch_relay
+
+                watch_relay.push_vector_events(member.uid, events, t)
+            except Exception:  # noqa: BLE001 — no watch relay in this build
+                pass
 
     def turns_for(self, viewer_uid: str, session_id: str) -> list[dict]:
         """The merged transcript as ``viewer_uid``'s episode stores it: own

@@ -1,0 +1,208 @@
+{
+ "family_real": {
+  "n_windows": 110,
+  "speakers": [
+   "Asher",
+   "Sage"
+  ],
+  "matrix": {
+   "Asher|Asher": 0.305,
+   "Asher|Sage": 0.079,
+   "Sage|Asher": 0.079,
+   "Sage|Sage": 0.289
+  },
+  "within_mean": 0.297,
+  "within_min": 0.289,
+  "cross_mean": 0.079,
+  "cross_max": 0.079,
+  "oracle_centroid_window_acc": 0.96
+ },
+ "gptaudio": {
+  "n_windows": 286,
+  "speakers": [
+   "Speaker A",
+   "Speaker B"
+  ],
+  "matrix": {
+   "Speaker A|Speaker A": 0.286,
+   "Speaker A|Speaker B": 0.092,
+   "Speaker B|Speaker A": 0.092,
+   "Speaker B|Speaker B": 0.339
+  },
+  "within_mean": 0.312,
+  "within_min": 0.286,
+  "cross_mean": 0.092,
+  "cross_max": 0.092,
+  "oracle_centroid_window_acc": 0.993
+ },
+ "maggiano3": {
+  "n_windows": 162,
+  "speakers": [
+   "asher",
+   "dad",
+   "mom"
+  ],
+  "matrix": {
+   "asher|asher": 0.199,
+   "asher|dad": 0.108,
+   "asher|mom": 0.053,
+   "dad|asher": 0.108,
+   "dad|dad": 0.245,
+   "dad|mom": 0.082,
+   "mom|asher": 0.053,
+   "mom|dad": 0.082,
+   "mom|mom": 0.163
+  },
+  "within_mean": 0.202,
+  "within_min": 0.163,
+  "cross_mean": 0.081,
+  "cross_max": 0.108,
+  "oracle_centroid_window_acc": 0.837
+ },
+ "openai": {
+  "n_windows": 266,
+  "speakers": [
+   "Speaker A",
+   "Speaker B"
+  ],
+  "matrix": {
+   "Speaker A|Speaker A": 0.349,
+   "Speaker A|Speaker B": 0.103,
+   "Speaker B|Speaker A": 0.103,
+   "Speaker B|Speaker B": 0.445
+  },
+  "within_mean": 0.397,
+  "within_min": 0.349,
+  "cross_mean": 0.103,
+  "cross_max": 0.103,
+  "oracle_centroid_window_acc": 1.0
+ },
+ "poker6": {
+  "n_windows": 109,
+  "speakers": [
+   "Player1",
+   "Player2",
+   "Player3",
+   "Player4",
+   "Player5",
+   "Player6"
+  ],
+  "matrix": {
+   "Player1|Player1": 0.498,
+   "Player1|Player2": -0.002,
+   "Player1|Player3": -0.034,
+   "Player1|Player4": 0.039,
+   "Player1|Player5": 0.057,
+   "Player1|Player6": 0.012,
+   "Player2|Player1": -0.002,
+   "Player2|Player2": 0.409,
+   "Player2|Player3": 0.142,
+   "Player2|Player4": 0.116,
+   "Player2|Player5": 0.06,
+   "Player2|Player6": 0.088,
+   "Player3|Player1": -0.034,
+   "Player3|Player2": 0.142,
+   "Player3|Player3": 0.382,
+   "Player3|Player4": 0.04,
+   "Player3|Player5": -0.02,
+   "Player3|Player6": 0.081,
+   "Player4|Player1": 0.039,
+   "Player4|Player2": 0.116,
+   "Player4|Player3": 0.04,
+   "Player4|Player4": 0.412,
+   "Player4|Player5": 0.009,
+   "Player4|Player6": 0.037,
+   "Player5|Player1": 0.057,
+   "Player5|Player2": 0.06,
+   "Player5|Player3": -0.02,
+   "Player5|Player4": 0.009,
+   "Player5|Player5": 0.314,
+   "Player5|Player6": -0.016,
+   "Player6|Player1": 0.012,
+   "Player6|Player2": 0.088,
+   "Player6|Player3": 0.081,
+   "Player6|Player4": 0.037,
+   "Player6|Player5": -0.016,
+   "Player6|Player6": 0.321
+  },
+  "within_mean": 0.389,
+  "within_min": 0.314,
+  "cross_mean": 0.041,
+  "cross_max": 0.142,
+  "oracle_centroid_window_acc": 0.927
+ },
+ "scene_couple": {
+  "n_windows": 268,
+  "speakers": [
+   "Speaker A",
+   "Speaker B"
+  ],
+  "matrix": {
+   "Speaker A|Speaker A": 0.381,
+   "Speaker A|Speaker B": 0.124,
+   "Speaker B|Speaker A": 0.124,
+   "Speaker B|Speaker B": 0.368
+  },
+  "within_mean": 0.374,
+  "within_min": 0.368,
+  "cross_mean": 0.124,
+  "cross_max": 0.124,
+  "oracle_centroid_window_acc": 0.992
+ },
+ "scene_family3": {
+  "n_windows": 263,
+  "speakers": [
+   "Speaker A",
+   "Speaker B",
+   "Speaker C"
+  ],
+  "matrix": {
+   "Speaker A|Speaker A": 0.429,
+   "Speaker A|Speaker B": 0.061,
+   "Speaker A|Speaker C": 0.124,
+   "Speaker B|Speaker A": 0.061,
+   "Speaker B|Speaker B": 0.39,
+   "Speaker B|Speaker C": 0.148,
+   "Speaker C|Speaker A": 0.124,
+   "Speaker C|Speaker B": 0.148,
+   "Speaker C|Speaker C": 0.457
+  },
+  "within_mean": 0.425,
+  "within_min": 0.39,
+  "cross_mean": 0.111,
+  "cross_max": 0.148,
+  "oracle_centroid_window_acc": 0.996
+ },
+ "scene_meeting4": {
+  "n_windows": 326,
+  "speakers": [
+   "Speaker A",
+   "Speaker B",
+   "Speaker C",
+   "Speaker D"
+  ],
+  "matrix": {
+   "Speaker A|Speaker A": 0.401,
+   "Speaker A|Speaker B": 0.122,
+   "Speaker A|Speaker C": 0.117,
+   "Speaker A|Speaker D": 0.126,
+   "Speaker B|Speaker A": 0.122,
+   "Speaker B|Speaker B": 0.398,
+   "Speaker B|Speaker C": 0.168,
+   "Speaker B|Speaker D": 0.316,
+   "Speaker C|Speaker A": 0.117,
+   "Speaker C|Speaker B": 0.168,
+   "Speaker C|Speaker C": 0.415,
+   "Speaker C|Speaker D": 0.164,
+   "Speaker D|Speaker A": 0.126,
+   "Speaker D|Speaker B": 0.316,
+   "Speaker D|Speaker C": 0.164,
+   "Speaker D|Speaker D": 0.42
+  },
+  "within_mean": 0.408,
+  "within_min": 0.398,
+  "cross_mean": 0.169,
+  "cross_max": 0.316,
+  "oracle_centroid_window_acc": 0.983
+ }
+}

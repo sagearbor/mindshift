@@ -1,5 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
+  AppState,
   View,
   Text,
   TouchableOpacity,
@@ -35,6 +42,7 @@ import {
   toneChipColors,
   topLabels,
 } from "./toneTrends";
+import { catchUpErrorMessage } from "./catchUpError";
 
 const PRIMARY = "#4A90D9";
 const INK = "#111827";
@@ -73,6 +81,44 @@ function filterLabel(f: PartnerFilter): string {
     case "unidentified":
       return "Unidentified partner";
   }
+}
+
+/**
+ * The honest footer under the chart.
+ *
+ * "N of M recordings identified your voice" was true and useless: it left the
+ * user unable to tell "the app failed to find me" (fixable — that is exactly
+ * what catch-up does) from "I am simply not in that recording" (nothing to
+ * fix). The server now splits the gap into three buckets, and this names each
+ * one that is non-zero, plus what catch-up actually costs — a re-match of the
+ * voiceprint against labels that already exist, not a re-analysis. Falls back
+ * to the plain line on an older server, which reports no buckets at all.
+ */
+export function growthFooter(result: GrowthResult): string {
+  const { identified_recordings: n, total_recordings: m, gaps } = result;
+  const head = `${n} of ${m} recording${m === 1 ? "" : "s"} identified your voice`;
+  const parts: string[] = [];
+  if (gaps.could_not_find_you > 0) {
+    parts.push(`${gaps.could_not_find_you} we couldn’t match to you`);
+  }
+  if (gaps.not_your_conversation > 0) {
+    parts.push(
+      `${gaps.not_your_conversation} you’re not in (you named the speakers yourself)`,
+    );
+  }
+  if (gaps.not_analyzed > 0) parts.push(`${gaps.not_analyzed} not analysed yet`);
+  if (parts.length === 0) return head;
+  const tail =
+    gaps.could_not_find_you > 0
+      ? " Catch-up re-matches your voiceprint against those — it doesn’t re-analyse anything, and it’s quick."
+      : "";
+  return `${head}. Of the rest: ${joinList(parts)}.${tail}`;
+}
+
+/** "a, b and c" — Intl.ListFormat is not on every RN runtime. */
+function joinList(parts: string[]): string {
+  if (parts.length <= 1) return parts[0] ?? "";
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
 }
 
 /**
@@ -147,20 +193,43 @@ export default function GrowthScreen({
     };
   }, []);
 
+  // Catch-up runs for a long time (the server re-embeds every speaker of up
+  // to 25 recordings). If the user backgrounds the app meanwhile, the OS drops
+  // the socket and the fetch rejects with a transport error — but the server
+  // keeps going and persists matches per recording. So: remember that we
+  // came back to the foreground with a catch-up in flight, and once the
+  // request settles (either way) re-read growth so whatever DID get
+  // identified shows up instead of a stale chart under a scary banner.
+  const catchUpInFlight = useRef(false);
+  const reloadAfterCatchUp = useRef(false);
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active" && catchUpInFlight.current) {
+        reloadAfterCatchUp.current = true;
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
   const handleCatchUp = useCallback(() => {
     setCatchingUp(true);
     setCatchUpError(null);
+    catchUpInFlight.current = true;
+    reloadAfterCatchUp.current = false;
     catchUpVoice()
       .then((res) => {
         setCatchUpResult(res);
         load(); // pull the newly identified points in immediately
       })
-      .catch(() => {
-        setCatchUpError(
-          "Couldn’t check your past recordings. Please try again.",
-        );
+      .catch((err: unknown) => {
+        setCatchUpError(catchUpErrorMessage(err));
+        if (reloadAfterCatchUp.current) load(); // partial progress is real
       })
-      .finally(() => setCatchingUp(false));
+      .finally(() => {
+        catchUpInFlight.current = false;
+        reloadAfterCatchUp.current = false;
+        setCatchingUp(false);
+      });
   }, [load]);
 
   const filters = useMemo<PartnerFilter[]>(() => {
@@ -322,20 +391,17 @@ export default function GrowthScreen({
               width={chartWidth}
               height={220}
               dotRadius={4}
+              axes
               onPressPoint={(p) => onOpenRecording(p.recording_id)}
             />
           )}
-          <View style={styles.axisRow}>
-            <Text style={styles.axisText}>older</Text>
-            <Text style={styles.axisText}>score 0–100 · tap a dot to open it</Text>
-            <Text style={styles.axisText}>newer</Text>
-          </View>
+          <Text style={styles.axisHint} testID="growth-axis-hint">
+            tap a dot to open it
+          </Text>
         </View>
 
         <Text style={styles.footer} testID="growth-footer">
-          {`${result.identified_recordings} of ${result.total_recordings} ` +
-            `recording${result.total_recordings === 1 ? "" : "s"} identified ` +
-            "your voice"}
+          {growthFooter(result)}
         </Text>
 
         {(toneDays.length > 0 || people.length > 0) && (
@@ -593,14 +659,11 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingVertical: 48,
   },
-  axisRow: {
+  axisHint: {
     marginTop: 6,
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  axisText: {
     fontSize: 11,
     color: "#9CA3AF",
+    textAlign: "right",
   },
   footer: {
     marginTop: 12,

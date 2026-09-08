@@ -1,6 +1,7 @@
 package app.gauge.shared.telemetry
 
 import app.gauge.shared.TelemetryEventOut
+import kotlinx.serialization.json.JsonObject
 
 /**
  * Fixed-capacity, thread-safe ring buffer of telemetry events, kept entirely
@@ -16,13 +17,15 @@ class DebugRing(capacity: Int = 200) {
     private val lock = Any()
     private val events = ArrayDeque<TelemetryEventOut>(this.capacity)
 
-    fun add(level: String, tag: String, message: String, ts: String, stack: String? = null) {
+    fun add(level: String, tag: String, message: String, ts: String, stack: String? = null, data: JsonObject? = null) {
         if (capacity <= 0) return
         synchronized(lock) {
             if (events.size >= capacity) {
                 events.removeFirst()
             }
-            events.addLast(TelemetryEventOut(level = level, tag = tag, message = message, stack = stack, ts = ts))
+            events.addLast(
+                TelemetryEventOut(level = level, tag = tag, message = message, stack = stack, ts = ts, data = data),
+            )
         }
     }
 

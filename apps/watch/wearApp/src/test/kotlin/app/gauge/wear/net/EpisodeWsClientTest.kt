@@ -158,6 +158,61 @@ class EpisodeWsClientTest {
         server.shutdown()
     }
 
+    private fun listenerStub() = object : EpisodeWsClient.Listener {
+        override fun onVectorEvent(e: VectorEvent) {}
+        override fun onNudge(n: NudgeEvent) {}
+        override fun onEpisodeSaved(id: String) {}
+        override fun onFailure(t: Throwable) {}
+        override fun onClosed() {}
+    }
+
+    // Tier B: a paired device token upgrades the URL to the server-preferred `?token=` form —
+    // URL-encoded, since the token is an opaque string that may carry reserved characters.
+    @Test fun tokenAuthUrlPreferredOverLegacyAccount() {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {}))
+        val client = EpisodeWsClient(
+            server.url("/").toString().replace("http", "ws").trimEnd('/'), "acct", token = "tok+en/1",
+        )
+        client.open("e6", listenerStub())
+        val recorded = server.takeRequest()
+        assertEquals("/ws/live-session/e6?token=tok%2Ben%2F1", recorded.path)
+        client.cancel()
+        server.shutdown()
+    }
+
+    // Tier B: no token (unpaired watch) keeps the legacy `?account=` URL byte-identical.
+    @Test fun noTokenFallsBackToLegacyAccountUrl() {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {}))
+        val client = EpisodeWsClient(server.url("/").toString().replace("http", "ws").trimEnd('/'), "acct")
+        client.open("e6", listenerStub())
+        assertEquals("/ws/live-session/e6?account=acct", server.takeRequest().path)
+        client.cancel()
+        server.shutdown()
+    }
+
+    @Test fun companionHelloAndHeartbeatFramesAreSentAsJson() {
+        val server = MockWebServer()
+        val frames = mutableListOf<String>()
+        val latch = CountDownLatch(2)
+        server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+            override fun onMessage(ws: WebSocket, text: String) {
+                frames.add(text)
+                latch.countDown()
+            }
+        }))
+        val client = EpisodeWsClient(server.url("/").toString().replace("http", "ws").trimEnd('/'), "acct")
+        client.open("e7", listenerStub())
+        client.sendCompanionHello()
+        client.sendHeartbeat()
+        assertTrue(latch.await(5, TimeUnit.SECONDS))
+        assertEquals("""{"type":"companion"}""", frames[0])
+        assertEquals("""{"type":"heartbeat"}""", frames[1])
+        client.cancel()
+        server.shutdown()
+    }
+
     // Task 12.5: an HTTP-level handshake rejection (no WebSocket upgrade at all) must surface its
     // status code in the Throwable reaching the Listener — this is the exact diagnostic payload
     // Task 12.5 exists to produce (see EpisodeWsClient.onFailure's "handshake ${response.code}"

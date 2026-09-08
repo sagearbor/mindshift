@@ -70,4 +70,43 @@ object GaugePrefs {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putString(KEY_CENTER_DISPLAY, value).apply()
     }
+
+    private const val KEY_JOURNAL_MODE = "journal_mode"
+    private const val KEY_JOURNAL_CONSENT_TS = "journal_consent_ts"
+
+    /** A/B journal toggle ("Journal — keep what I say"): whether auto retro-capture uploads are
+     * on. `true` is only ever written together with a consent timestamp ([enableJournal]) and
+     * both are cleared together ([disableJournal]) — the pair is the ON-state consent artifact
+     * the service's upload path gates on ([journalConsentTs] non-null), mirroring
+     * [app.gauge.wear.capture.RetroCaptureUploader]'s "no consent artifact → no upload"
+     * structural rule for the manual path. */
+    fun journalMode(context: Context): Boolean =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_JOURNAL_MODE, false)
+
+    /** ISO timestamp of the wearer's journal consent confirmation, or `null` when journal mode
+     * is off (or was never consented). Cleared by [disableJournal] — consent is session-long for
+     * the toggle's ON stretch, never carried across an off/on cycle. */
+    fun journalConsentTs(context: Context): String? =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_JOURNAL_CONSENT_TS, null)
+
+    /** Turns journal mode ON, storing [consentTsIso] (the wearer's explicit "Confirm" tap time)
+     * atomically with the flag — there is no way to enable journal mode without minting the
+     * consent artifact, by construction. */
+    fun enableJournal(context: Context, consentTsIso: String) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_JOURNAL_MODE, true)
+            .putString(KEY_JOURNAL_CONSENT_TS, consentTsIso)
+            .apply()
+    }
+
+    /** Turns journal mode OFF and clears the stored consent — the next ON requires a fresh
+     * confirmation. */
+    fun disableJournal(context: Context) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_JOURNAL_MODE, false)
+            .remove(KEY_JOURNAL_CONSENT_TS)
+            .apply()
+    }
 }

@@ -1,0 +1,2020 @@
+{
+ "experiment": "E-on-device: the phone's live SpeakerLabeler replayed on the bake-off fixtures + on-device ECAPA cost",
+ "scorer": "docs/research/2026-08-29-voice-separation/score.py (10 ms frames, best 1:1 mapping, GT speech only)",
+ "labeler": "apps/mobile/src/live/speakerId.ts SpeakerLabeler, no enrolled people; 'Unknown' turns (short-segment guard) left unlabelled",
+ "variants": {
+  "live": "real loop via apps/mobile/src/live/replay/sceneReplay.ts: 100 ms frames -> Silero VAD -> StreamingSegmenter (gap 0.3 s, min 0.6 s) -> ECAPA ONNX on the last <=10 s -> SpeakerLabeler",
+  "gt": "ground-truth utterance boundaries fed as segments (perfect segmenter), same embed + labeler",
+  "energy": "phone's fallback EnergyVad segmentation (energySpeechSegments: -45 dBFS, 0.25 s frames, same merge/min), same embed + labeler",
+  "@0.48": "CLUSTER_THRESHOLD as shipped (2026-08-26 tuning)",
+  "@0.55": "the pre-tuning value (server/batch still uses it)"
+ },
+ "fixtures": {
+  "family_real": {
+   "seconds": 29.568,
+   "k_true": 2,
+   "gt_segments": 8,
+   "live_turns": 6,
+   "energy_segments": 3,
+   "live_turns_per_minute": 12.175,
+   "live_embedded_seconds_per_minute": 45.649,
+   "scores": {
+    "live@0.48": {
+     "k_true": 2,
+     "k_pred": 3,
+     "frame_accuracy": 0.68,
+     "unlabelled_frac": 0.146,
+     "mapping": {
+      "Speaker B": "Asher",
+      "Speaker A": "Sage"
+     },
+     "per_gt_recall": {
+      "Asher": 0.252,
+      "Sage": 0.965
+     },
+     "owner_purity": 0.847,
+     "fixture": "family_real",
+     "pred_file": "pred_family_real_live_t048.json",
+     "n_segments": 6,
+     "n_unknown": 1,
+     "accuracy_on_labelled": 0.796
+    },
+    "live@0.55": {
+     "k_true": 2,
+     "k_pred": 4,
+     "frame_accuracy": 0.479,
+     "unlabelled_frac": 0.146,
+     "mapping": {
+      "Speaker B": "Asher",
+      "Speaker A": "Sage"
+     },
+     "per_gt_recall": {
+      "Asher": 0.252,
+      "Sage": 0.631
+     },
+     "owner_purity": 0.784,
+     "fixture": "family_real",
+     "pred_file": "pred_family_real_live_t055.json",
+     "n_segments": 6,
+     "n_unknown": 1,
+     "accuracy_on_labelled": 0.561
+    },
+    "gt@0.48": {
+     "k_true": 2,
+     "k_pred": 4,
+     "frame_accuracy": 0.735,
+     "unlabelled_frac": 0.049,
+     "mapping": {
+      "Speaker D": "Asher",
+      "Speaker A": "Sage"
+     },
+     "per_gt_recall": {
+      "Asher": 0.337,
+      "Sage": 1.0
+     },
+     "owner_purity": 1.0,
+     "fixture": "family_real",
+     "pred_file": "pred_family_real_gt_t048.json",
+     "n_segments": 8,
+     "n_unknown": 2,
+     "accuracy_on_labelled": 0.773
+    },
+    "gt@0.55": {
+     "k_true": 2,
+     "k_pred": 4,
+     "frame_accuracy": 0.735,
+     "unlabelled_frac": 0.049,
+     "mapping": {
+      "Speaker D": "Asher",
+      "Speaker A": "Sage"
+     },
+     "per_gt_recall": {
+      "Asher": 0.337,
+      "Sage": 1.0
+     },
+     "owner_purity": 1.0,
+     "fixture": "family_real",
+     "pred_file": "pred_family_real_gt_t055.json",
+     "n_segments": 8,
+     "n_unknown": 2,
+     "accuracy_on_labelled": 0.773
+    },
+    "energy@0.48": {
+     "k_true": 2,
+     "k_pred": 1,
+     "frame_accuracy": 0.599,
+     "unlabelled_frac": 0.014,
+     "mapping": {
+      "Speaker A": "Sage"
+     },
+     "per_gt_recall": {
+      "Asher": 0.0,
+      "Sage": 0.997
+     },
+     "owner_purity": 0.608,
+     "fixture": "family_real",
+     "pred_file": "pred_family_real_energy_t048.json",
+     "n_segments": 3,
+     "n_unknown": 0,
+     "accuracy_on_labelled": 0.608
+    },
+    "energy@0.55": {
+     "k_true": 2,
+     "k_pred": 1,
+     "frame_accuracy": 0.599,
+     "unlabelled_frac": 0.014,
+     "mapping": {
+      "Speaker A": "Sage"
+     },
+     "per_gt_recall": {
+      "Asher": 0.0,
+      "Sage": 0.997
+     },
+     "owner_purity": 0.608,
+     "fixture": "family_real",
+     "pred_file": "pred_family_real_energy_t055.json",
+     "n_segments": 3,
+     "n_unknown": 0,
+     "accuracy_on_labelled": 0.608
+    },
+    "live_filled@0.48": {
+     "k_true": 2,
+     "k_pred": 3,
+     "frame_accuracy": 0.729,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker C": "Asher",
+      "Speaker A": "Sage"
+     },
+     "per_gt_recall": {
+      "Asher": 0.322,
+      "Sage": 1.0
+     },
+     "owner_purity": 0.793,
+     "fixture": "family_real",
+     "pred_file": "pred_family_real_livefilled_t048.json"
+    },
+    "live_filled@0.55": {
+     "k_true": 2,
+     "k_pred": 4,
+     "frame_accuracy": 0.518,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker D": "Asher",
+      "Speaker A": "Sage"
+     },
+     "per_gt_recall": {
+      "Asher": 0.322,
+      "Sage": 0.649
+     },
+     "owner_purity": 0.721,
+     "fixture": "family_real",
+     "pred_file": "pred_family_real_livefilled_t055.json"
+    }
+   }
+  },
+  "poker6": {
+   "seconds": 30.123,
+   "k_true": 6,
+   "gt_segments": 6,
+   "live_turns": 7,
+   "energy_segments": 3,
+   "live_turns_per_minute": 13.943,
+   "live_embedded_seconds_per_minute": 40.602,
+   "scores": {
+    "live@0.48": {
+     "k_true": 6,
+     "k_pred": 6,
+     "frame_accuracy": 0.549,
+     "unlabelled_frac": 0.366,
+     "mapping": {
+      "Speaker A": "Player1",
+      "Speaker B": "Player2",
+      "Speaker C": "Player3",
+      "Speaker D": "Player4",
+      "Speaker E": "Player5",
+      "Speaker F": "Player6"
+     },
+     "per_gt_recall": {
+      "Player1": 0.466,
+      "Player2": 0.33,
+      "Player3": 0.664,
+      "Player4": 0.532,
+      "Player5": 0.748,
+      "Player6": 0.557
+     },
+     "owner_purity": 1.0,
+     "fixture": "poker6",
+     "pred_file": "pred_poker6_live_t048.json",
+     "n_segments": 7,
+     "n_unknown": 1,
+     "accuracy_on_labelled": 0.866
+    },
+    "live@0.55": {
+     "k_true": 6,
+     "k_pred": 6,
+     "frame_accuracy": 0.549,
+     "unlabelled_frac": 0.366,
+     "mapping": {
+      "Speaker A": "Player1",
+      "Speaker B": "Player2",
+      "Speaker C": "Player3",
+      "Speaker D": "Player4",
+      "Speaker E": "Player5",
+      "Speaker F": "Player6"
+     },
+     "per_gt_recall": {
+      "Player1": 0.466,
+      "Player2": 0.33,
+      "Player3": 0.664,
+      "Player4": 0.532,
+      "Player5": 0.748,
+      "Player6": 0.557
+     },
+     "owner_purity": 1.0,
+     "fixture": "poker6",
+     "pred_file": "pred_poker6_live_t055.json",
+     "n_segments": 7,
+     "n_unknown": 1,
+     "accuracy_on_labelled": 0.866
+    },
+    "gt@0.48": {
+     "k_true": 6,
+     "k_pred": 6,
+     "frame_accuracy": 1.0,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker A": "Player1",
+      "Speaker B": "Player2",
+      "Speaker C": "Player3",
+      "Speaker D": "Player4",
+      "Speaker E": "Player5",
+      "Speaker F": "Player6"
+     },
+     "per_gt_recall": {
+      "Player1": 1.0,
+      "Player2": 1.0,
+      "Player3": 1.0,
+      "Player4": 1.0,
+      "Player5": 1.0,
+      "Player6": 1.0
+     },
+     "owner_purity": 1.0,
+     "fixture": "poker6",
+     "pred_file": "pred_poker6_gt_t048.json",
+     "n_segments": 6,
+     "n_unknown": 0,
+     "accuracy_on_labelled": 1.0
+    },
+    "gt@0.55": {
+     "k_true": 6,
+     "k_pred": 6,
+     "frame_accuracy": 1.0,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker A": "Player1",
+      "Speaker B": "Player2",
+      "Speaker C": "Player3",
+      "Speaker D": "Player4",
+      "Speaker E": "Player5",
+      "Speaker F": "Player6"
+     },
+     "per_gt_recall": {
+      "Player1": 1.0,
+      "Player2": 1.0,
+      "Player3": 1.0,
+      "Player4": 1.0,
+      "Player5": 1.0,
+      "Player6": 1.0
+     },
+     "owner_purity": 1.0,
+     "fixture": "poker6",
+     "pred_file": "pred_poker6_gt_t055.json",
+     "n_segments": 6,
+     "n_unknown": 0,
+     "accuracy_on_labelled": 1.0
+    },
+    "energy@0.48": {
+     "k_true": 6,
+     "k_pred": 3,
+     "frame_accuracy": 0.328,
+     "unlabelled_frac": 0.1,
+     "mapping": {
+      "Speaker A": "Player1",
+      "Speaker B": "Player2",
+      "Speaker C": "Player6"
+     },
+     "per_gt_recall": {
+      "Player1": 0.55,
+      "Player2": 0.4,
+      "Player3": 0.0,
+      "Player4": 0.0,
+      "Player5": 0.0,
+      "Player6": 1.0
+     },
+     "owner_purity": 0.229,
+     "fixture": "poker6",
+     "pred_file": "pred_poker6_energy_t048.json",
+     "n_segments": 3,
+     "n_unknown": 0,
+     "accuracy_on_labelled": 0.364
+    },
+    "energy@0.55": {
+     "k_true": 6,
+     "k_pred": 3,
+     "frame_accuracy": 0.328,
+     "unlabelled_frac": 0.1,
+     "mapping": {
+      "Speaker A": "Player1",
+      "Speaker B": "Player2",
+      "Speaker C": "Player6"
+     },
+     "per_gt_recall": {
+      "Player1": 0.55,
+      "Player2": 0.4,
+      "Player3": 0.0,
+      "Player4": 0.0,
+      "Player5": 0.0,
+      "Player6": 1.0
+     },
+     "owner_purity": 0.229,
+     "fixture": "poker6",
+     "pred_file": "pred_poker6_energy_t055.json",
+     "n_segments": 3,
+     "n_unknown": 0,
+     "accuracy_on_labelled": 0.364
+    },
+    "live_filled@0.48": {
+     "k_true": 6,
+     "k_pred": 6,
+     "frame_accuracy": 0.837,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker A": "Player1",
+      "Speaker B": "Player2",
+      "Speaker C": "Player3",
+      "Speaker D": "Player4",
+      "Speaker E": "Player5",
+      "Speaker F": "Player6"
+     },
+     "per_gt_recall": {
+      "Player1": 1.0,
+      "Player2": 0.72,
+      "Player3": 0.704,
+      "Player4": 0.64,
+      "Player5": 0.956,
+      "Player6": 1.0
+     },
+     "owner_purity": 0.959,
+     "fixture": "poker6",
+     "pred_file": "pred_poker6_livefilled_t048.json"
+    },
+    "live_filled@0.55": {
+     "k_true": 6,
+     "k_pred": 6,
+     "frame_accuracy": 0.837,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker A": "Player1",
+      "Speaker B": "Player2",
+      "Speaker C": "Player3",
+      "Speaker D": "Player4",
+      "Speaker E": "Player5",
+      "Speaker F": "Player6"
+     },
+     "per_gt_recall": {
+      "Player1": 1.0,
+      "Player2": 0.72,
+      "Player3": 0.704,
+      "Player4": 0.64,
+      "Player5": 0.956,
+      "Player6": 1.0
+     },
+     "owner_purity": 0.959,
+     "fixture": "poker6",
+     "pred_file": "pred_poker6_livefilled_t055.json"
+    }
+   }
+  },
+  "openai": {
+   "seconds": 70.4,
+   "k_true": 2,
+   "gt_segments": 10,
+   "live_turns": 26,
+   "energy_segments": 19,
+   "live_turns_per_minute": 22.159,
+   "live_embedded_seconds_per_minute": 43.391,
+   "scores": {
+    "live@0.48": {
+     "k_true": 2,
+     "k_pred": 4,
+     "frame_accuracy": 0.666,
+     "unlabelled_frac": 0.289,
+     "mapping": {
+      "Speaker B": "Speaker A",
+      "Speaker C": "Speaker B"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.681,
+      "Speaker B": 0.648
+     },
+     "owner_purity": null,
+     "fixture": "openai",
+     "pred_file": "pred_openai_live_t048.json",
+     "n_segments": 26,
+     "n_unknown": 3,
+     "accuracy_on_labelled": 0.937
+    },
+    "live@0.55": {
+     "k_true": 2,
+     "k_pred": 5,
+     "frame_accuracy": 0.623,
+     "unlabelled_frac": 0.306,
+     "mapping": {
+      "Speaker B": "Speaker A",
+      "Speaker C": "Speaker B"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.634,
+      "Speaker B": 0.611
+     },
+     "owner_purity": null,
+     "fixture": "openai",
+     "pred_file": "pred_openai_live_t055.json",
+     "n_segments": 26,
+     "n_unknown": 4,
+     "accuracy_on_labelled": 0.898
+    },
+    "gt@0.48": {
+     "k_true": 2,
+     "k_pred": 2,
+     "frame_accuracy": 1.0,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker A": "Speaker A",
+      "Speaker B": "Speaker B"
+     },
+     "per_gt_recall": {
+      "Speaker A": 1.0,
+      "Speaker B": 1.0
+     },
+     "owner_purity": null,
+     "fixture": "openai",
+     "pred_file": "pred_openai_gt_t048.json",
+     "n_segments": 10,
+     "n_unknown": 0,
+     "accuracy_on_labelled": 1.0
+    },
+    "gt@0.55": {
+     "k_true": 2,
+     "k_pred": 2,
+     "frame_accuracy": 1.0,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker A": "Speaker A",
+      "Speaker B": "Speaker B"
+     },
+     "per_gt_recall": {
+      "Speaker A": 1.0,
+      "Speaker B": 1.0
+     },
+     "owner_purity": null,
+     "fixture": "openai",
+     "pred_file": "pred_openai_gt_t055.json",
+     "n_segments": 10,
+     "n_unknown": 0,
+     "accuracy_on_labelled": 1.0
+    },
+    "energy@0.48": {
+     "k_true": 2,
+     "k_pred": 3,
+     "frame_accuracy": 0.803,
+     "unlabelled_frac": 0.174,
+     "mapping": {
+      "Speaker A": "Speaker A",
+      "Speaker B": "Speaker B"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.814,
+      "Speaker B": 0.791
+     },
+     "owner_purity": null,
+     "fixture": "openai",
+     "pred_file": "pred_openai_energy_t048.json",
+     "n_segments": 19,
+     "n_unknown": 1,
+     "accuracy_on_labelled": 0.972
+    },
+    "energy@0.55": {
+     "k_true": 2,
+     "k_pred": 4,
+     "frame_accuracy": 0.766,
+     "unlabelled_frac": 0.174,
+     "mapping": {
+      "Speaker A": "Speaker A",
+      "Speaker B": "Speaker B"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.744,
+      "Speaker B": 0.791
+     },
+     "owner_purity": null,
+     "fixture": "openai",
+     "pred_file": "pred_openai_energy_t055.json",
+     "n_segments": 19,
+     "n_unknown": 1,
+     "accuracy_on_labelled": 0.927
+    },
+    "live_filled@0.48": {
+     "k_true": 2,
+     "k_pred": 4,
+     "frame_accuracy": 0.875,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker B": "Speaker A",
+      "Speaker C": "Speaker B"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.822,
+      "Speaker B": 0.937
+     },
+     "owner_purity": null,
+     "fixture": "openai",
+     "pred_file": "pred_openai_livefilled_t048.json"
+    },
+    "live_filled@0.55": {
+     "k_true": 2,
+     "k_pred": 5,
+     "frame_accuracy": 0.831,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker B": "Speaker A",
+      "Speaker C": "Speaker B"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.764,
+      "Speaker B": 0.909
+     },
+     "owner_purity": null,
+     "fixture": "openai",
+     "pred_file": "pred_openai_livefilled_t055.json"
+    }
+   }
+  },
+  "gptaudio": {
+   "seconds": 74.7,
+   "k_true": 2,
+   "gt_segments": 10,
+   "live_turns": 20,
+   "energy_segments": 19,
+   "live_turns_per_minute": 16.064,
+   "live_embedded_seconds_per_minute": 43.823,
+   "scores": {
+    "live@0.48": {
+     "k_true": 2,
+     "k_pred": 3,
+     "frame_accuracy": 0.658,
+     "unlabelled_frac": 0.253,
+     "mapping": {
+      "Speaker A": "Speaker A",
+      "Speaker B": "Speaker B"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.662,
+      "Speaker B": 0.654
+     },
+     "owner_purity": null,
+     "fixture": "gptaudio",
+     "pred_file": "pred_gptaudio_live_t048.json",
+     "n_segments": 20,
+     "n_unknown": 1,
+     "accuracy_on_labelled": 0.881
+    },
+    "live@0.55": {
+     "k_true": 2,
+     "k_pred": 5,
+     "frame_accuracy": 0.489,
+     "unlabelled_frac": 0.288,
+     "mapping": {
+      "Speaker A": "Speaker A",
+      "Speaker B": "Speaker B"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.632,
+      "Speaker B": 0.333
+     },
+     "owner_purity": null,
+     "fixture": "gptaudio",
+     "pred_file": "pred_gptaudio_live_t055.json",
+     "n_segments": 20,
+     "n_unknown": 3,
+     "accuracy_on_labelled": 0.687
+    },
+    "gt@0.48": {
+     "k_true": 2,
+     "k_pred": 2,
+     "frame_accuracy": 1.0,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker A": "Speaker A",
+      "Speaker B": "Speaker B"
+     },
+     "per_gt_recall": {
+      "Speaker A": 1.0,
+      "Speaker B": 1.0
+     },
+     "owner_purity": null,
+     "fixture": "gptaudio",
+     "pred_file": "pred_gptaudio_gt_t048.json",
+     "n_segments": 10,
+     "n_unknown": 0,
+     "accuracy_on_labelled": 1.0
+    },
+    "gt@0.55": {
+     "k_true": 2,
+     "k_pred": 3,
+     "frame_accuracy": 0.898,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker A": "Speaker A",
+      "Speaker B": "Speaker B"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.805,
+      "Speaker B": 1.0
+     },
+     "owner_purity": null,
+     "fixture": "gptaudio",
+     "pred_file": "pred_gptaudio_gt_t055.json",
+     "n_segments": 10,
+     "n_unknown": 0,
+     "accuracy_on_labelled": 0.898
+    },
+    "energy@0.48": {
+     "k_true": 2,
+     "k_pred": 3,
+     "frame_accuracy": 0.737,
+     "unlabelled_frac": 0.174,
+     "mapping": {
+      "Speaker A": "Speaker A",
+      "Speaker B": "Speaker B"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.681,
+      "Speaker B": 0.799
+     },
+     "owner_purity": null,
+     "fixture": "gptaudio",
+     "pred_file": "pred_gptaudio_energy_t048.json",
+     "n_segments": 19,
+     "n_unknown": 0,
+     "accuracy_on_labelled": 0.892
+    },
+    "energy@0.55": {
+     "k_true": 2,
+     "k_pred": 5,
+     "frame_accuracy": 0.701,
+     "unlabelled_frac": 0.174,
+     "mapping": {
+      "Speaker A": "Speaker A",
+      "Speaker B": "Speaker B"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.681,
+      "Speaker B": 0.724
+     },
+     "owner_purity": null,
+     "fixture": "gptaudio",
+     "pred_file": "pred_gptaudio_energy_t055.json",
+     "n_segments": 19,
+     "n_unknown": 0,
+     "accuracy_on_labelled": 0.849
+    },
+    "live_filled@0.48": {
+     "k_true": 2,
+     "k_pred": 3,
+     "frame_accuracy": 0.865,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker A": "Speaker A",
+      "Speaker B": "Speaker B"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.804,
+      "Speaker B": 0.933
+     },
+     "owner_purity": null,
+     "fixture": "gptaudio",
+     "pred_file": "pred_gptaudio_livefilled_t048.json"
+    },
+    "live_filled@0.55": {
+     "k_true": 2,
+     "k_pred": 5,
+     "frame_accuracy": 0.685,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker A": "Speaker A",
+      "Speaker B": "Speaker B"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.795,
+      "Speaker B": 0.565
+     },
+     "owner_purity": null,
+     "fixture": "gptaudio",
+     "pred_file": "pred_gptaudio_livefilled_t055.json"
+    }
+   }
+  },
+  "scene_couple": {
+   "seconds": 69.566,
+   "k_true": 2,
+   "gt_segments": 13,
+   "live_turns": 30,
+   "energy_segments": 20,
+   "live_turns_per_minute": 25.875,
+   "live_embedded_seconds_per_minute": 41.758,
+   "scores": {
+    "live@0.48": {
+     "k_true": 2,
+     "k_pred": 2,
+     "frame_accuracy": 0.699,
+     "unlabelled_frac": 0.301,
+     "mapping": {
+      "Speaker A": "Speaker A",
+      "Speaker B": "Speaker B"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.677,
+      "Speaker B": 0.723
+     },
+     "owner_purity": 1.0,
+     "fixture": "scene_couple",
+     "pred_file": "pred_scene_couple_live_t048.json",
+     "n_segments": 30,
+     "n_unknown": 4,
+     "accuracy_on_labelled": 1.0
+    },
+    "live@0.55": {
+     "k_true": 2,
+     "k_pred": 5,
+     "frame_accuracy": 0.499,
+     "unlabelled_frac": 0.395,
+     "mapping": {
+      "Speaker A": "Speaker A",
+      "Speaker B": "Speaker B"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.397,
+      "Speaker B": 0.612
+     },
+     "owner_purity": 1.0,
+     "fixture": "scene_couple",
+     "pred_file": "pred_scene_couple_live_t055.json",
+     "n_segments": 30,
+     "n_unknown": 10,
+     "accuracy_on_labelled": 0.825
+    },
+    "gt@0.48": {
+     "k_true": 2,
+     "k_pred": 2,
+     "frame_accuracy": 1.0,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker A": "Speaker A",
+      "Speaker B": "Speaker B"
+     },
+     "per_gt_recall": {
+      "Speaker A": 1.0,
+      "Speaker B": 1.0
+     },
+     "owner_purity": 1.0,
+     "fixture": "scene_couple",
+     "pred_file": "pred_scene_couple_gt_t048.json",
+     "n_segments": 13,
+     "n_unknown": 0,
+     "accuracy_on_labelled": 1.0
+    },
+    "gt@0.55": {
+     "k_true": 2,
+     "k_pred": 2,
+     "frame_accuracy": 1.0,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker A": "Speaker A",
+      "Speaker B": "Speaker B"
+     },
+     "per_gt_recall": {
+      "Speaker A": 1.0,
+      "Speaker B": 1.0
+     },
+     "owner_purity": 1.0,
+     "fixture": "scene_couple",
+     "pred_file": "pred_scene_couple_gt_t055.json",
+     "n_segments": 13,
+     "n_unknown": 0,
+     "accuracy_on_labelled": 1.0
+    },
+    "energy@0.48": {
+     "k_true": 2,
+     "k_pred": 4,
+     "frame_accuracy": 0.63,
+     "unlabelled_frac": 0.196,
+     "mapping": {
+      "Speaker A": "Speaker A",
+      "Speaker B": "Speaker B"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.671,
+      "Speaker B": 0.584
+     },
+     "owner_purity": 0.829,
+     "fixture": "scene_couple",
+     "pred_file": "pred_scene_couple_energy_t048.json",
+     "n_segments": 20,
+     "n_unknown": 2,
+     "accuracy_on_labelled": 0.784
+    },
+    "energy@0.55": {
+     "k_true": 2,
+     "k_pred": 6,
+     "frame_accuracy": 0.564,
+     "unlabelled_frac": 0.207,
+     "mapping": {
+      "Speaker A": "Speaker A",
+      "Speaker B": "Speaker B"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.568,
+      "Speaker B": 0.56
+     },
+     "owner_purity": 0.804,
+     "fixture": "scene_couple",
+     "pred_file": "pred_scene_couple_energy_t055.json",
+     "n_segments": 20,
+     "n_unknown": 3,
+     "accuracy_on_labelled": 0.711
+    },
+    "live_filled@0.48": {
+     "k_true": 2,
+     "k_pred": 2,
+     "frame_accuracy": 0.97,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker A": "Speaker A",
+      "Speaker B": "Speaker B"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.958,
+      "Speaker B": 0.983
+     },
+     "owner_purity": 0.985,
+     "fixture": "scene_couple",
+     "pred_file": "pred_scene_couple_livefilled_t048.json"
+    },
+    "live_filled@0.55": {
+     "k_true": 2,
+     "k_pred": 5,
+     "frame_accuracy": 0.79,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker A": "Speaker A",
+      "Speaker B": "Speaker B"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.683,
+      "Speaker B": 0.909
+     },
+     "owner_purity": 0.978,
+     "fixture": "scene_couple",
+     "pred_file": "pred_scene_couple_livefilled_t055.json"
+    }
+   }
+  },
+  "scene_family3": {
+   "seconds": 67.063,
+   "k_true": 3,
+   "gt_segments": 15,
+   "live_turns": 24,
+   "energy_segments": 7,
+   "live_turns_per_minute": 21.472,
+   "live_embedded_seconds_per_minute": 48.842,
+   "scores": {
+    "live@0.48": {
+     "k_true": 3,
+     "k_pred": 5,
+     "frame_accuracy": 0.433,
+     "unlabelled_frac": 0.264,
+     "mapping": {
+      "Speaker D": "Speaker A",
+      "Speaker B": "Speaker B",
+      "Speaker A": "Speaker C"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.379,
+      "Speaker B": 0.271,
+      "Speaker C": 0.674
+     },
+     "owner_purity": 1.0,
+     "fixture": "scene_family3",
+     "pred_file": "pred_scene_family3_live_t048.json",
+     "n_segments": 24,
+     "n_unknown": 6,
+     "accuracy_on_labelled": 0.588
+    },
+    "live@0.55": {
+     "k_true": 3,
+     "k_pred": 6,
+     "frame_accuracy": 0.407,
+     "unlabelled_frac": 0.264,
+     "mapping": {
+      "Speaker E": "Speaker A",
+      "Speaker B": "Speaker B",
+      "Speaker A": "Speaker C"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.301,
+      "Speaker B": 0.271,
+      "Speaker C": 0.674
+     },
+     "owner_purity": 1.0,
+     "fixture": "scene_family3",
+     "pred_file": "pred_scene_family3_live_t055.json",
+     "n_segments": 24,
+     "n_unknown": 6,
+     "accuracy_on_labelled": 0.553
+    },
+    "gt@0.48": {
+     "k_true": 3,
+     "k_pred": 3,
+     "frame_accuracy": 1.0,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker A": "Speaker C",
+      "Speaker B": "Speaker B",
+      "Speaker C": "Speaker A"
+     },
+     "per_gt_recall": {
+      "Speaker A": 1.0,
+      "Speaker B": 1.0,
+      "Speaker C": 1.0
+     },
+     "owner_purity": 1.0,
+     "fixture": "scene_family3",
+     "pred_file": "pred_scene_family3_gt_t048.json",
+     "n_segments": 15,
+     "n_unknown": 0,
+     "accuracy_on_labelled": 1.0
+    },
+    "gt@0.55": {
+     "k_true": 3,
+     "k_pred": 3,
+     "frame_accuracy": 1.0,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker A": "Speaker C",
+      "Speaker B": "Speaker B",
+      "Speaker C": "Speaker A"
+     },
+     "per_gt_recall": {
+      "Speaker A": 1.0,
+      "Speaker B": 1.0,
+      "Speaker C": 1.0
+     },
+     "owner_purity": 1.0,
+     "fixture": "scene_family3",
+     "pred_file": "pred_scene_family3_gt_t055.json",
+     "n_segments": 15,
+     "n_unknown": 0,
+     "accuracy_on_labelled": 1.0
+    },
+    "energy@0.48": {
+     "k_true": 3,
+     "k_pred": 3,
+     "frame_accuracy": 0.413,
+     "unlabelled_frac": 0.064,
+     "mapping": {
+      "Speaker A": "Speaker C",
+      "Speaker B": "Speaker B",
+      "Speaker C": "Speaker A"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.097,
+      "Speaker B": 0.733,
+      "Speaker C": 0.372
+     },
+     "owner_purity": 1.0,
+     "fixture": "scene_family3",
+     "pred_file": "pred_scene_family3_energy_t048.json",
+     "n_segments": 7,
+     "n_unknown": 1,
+     "accuracy_on_labelled": 0.441
+    },
+    "energy@0.55": {
+     "k_true": 3,
+     "k_pred": 3,
+     "frame_accuracy": 0.413,
+     "unlabelled_frac": 0.064,
+     "mapping": {
+      "Speaker A": "Speaker C",
+      "Speaker B": "Speaker B",
+      "Speaker C": "Speaker A"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.097,
+      "Speaker B": 0.733,
+      "Speaker C": 0.372
+     },
+     "owner_purity": 1.0,
+     "fixture": "scene_family3",
+     "pred_file": "pred_scene_family3_energy_t055.json",
+     "n_segments": 7,
+     "n_unknown": 1,
+     "accuracy_on_labelled": 0.441
+    },
+    "live_filled@0.48": {
+     "k_true": 3,
+     "k_pred": 5,
+     "frame_accuracy": 0.52,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker D": "Speaker A",
+      "Speaker B": "Speaker B",
+      "Speaker A": "Speaker C"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.499,
+      "Speaker B": 0.341,
+      "Speaker C": 0.747
+     },
+     "owner_purity": 0.926,
+     "fixture": "scene_family3",
+     "pred_file": "pred_scene_family3_livefilled_t048.json"
+    },
+    "live_filled@0.55": {
+     "k_true": 3,
+     "k_pred": 6,
+     "frame_accuracy": 0.483,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker E": "Speaker A",
+      "Speaker B": "Speaker B",
+      "Speaker A": "Speaker C"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.383,
+      "Speaker B": 0.341,
+      "Speaker C": 0.747
+     },
+     "owner_purity": 0.906,
+     "fixture": "scene_family3",
+     "pred_file": "pred_scene_family3_livefilled_t055.json"
+    }
+   }
+  },
+  "scene_meeting4": {
+   "seconds": 82.885,
+   "k_true": 4,
+   "gt_segments": 17,
+   "live_turns": 34,
+   "energy_segments": 12,
+   "live_turns_per_minute": 24.612,
+   "live_embedded_seconds_per_minute": 47.024,
+   "scores": {
+    "live@0.48": {
+     "k_true": 4,
+     "k_pred": 5,
+     "frame_accuracy": 0.628,
+     "unlabelled_frac": 0.16,
+     "mapping": {
+      "Speaker D": "Speaker A",
+      "Speaker A": "Speaker B",
+      "Speaker B": "Speaker C",
+      "Speaker C": "Speaker D"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.705,
+      "Speaker B": 0.803,
+      "Speaker C": 0.81,
+      "Speaker D": 0.0
+     },
+     "owner_purity": 1.0,
+     "fixture": "scene_meeting4",
+     "pred_file": "pred_scene_meeting4_live_t048.json",
+     "n_segments": 34,
+     "n_unknown": 1,
+     "accuracy_on_labelled": 0.748
+    },
+    "live@0.55": {
+     "k_true": 4,
+     "k_pred": 6,
+     "frame_accuracy": 0.738,
+     "unlabelled_frac": 0.215,
+     "mapping": {
+      "Speaker E": "Speaker A",
+      "Speaker A": "Speaker B",
+      "Speaker B": "Speaker C",
+      "Speaker C": "Speaker D"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.644,
+      "Speaker B": 0.711,
+      "Speaker C": 0.81,
+      "Speaker D": 0.851
+     },
+     "owner_purity": 1.0,
+     "fixture": "scene_meeting4",
+     "pred_file": "pred_scene_meeting4_live_t055.json",
+     "n_segments": 34,
+     "n_unknown": 5,
+     "accuracy_on_labelled": 0.94
+    },
+    "gt@0.48": {
+     "k_true": 4,
+     "k_pred": 3,
+     "frame_accuracy": 0.818,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker A": "Speaker B",
+      "Speaker B": "Speaker C",
+      "Speaker C": "Speaker A"
+     },
+     "per_gt_recall": {
+      "Speaker A": 1.0,
+      "Speaker B": 1.0,
+      "Speaker C": 1.0,
+      "Speaker D": 0.0
+     },
+     "owner_purity": 1.0,
+     "fixture": "scene_meeting4",
+     "pred_file": "pred_scene_meeting4_gt_t048.json",
+     "n_segments": 17,
+     "n_unknown": 0,
+     "accuracy_on_labelled": 0.818
+    },
+    "gt@0.55": {
+     "k_true": 4,
+     "k_pred": 3,
+     "frame_accuracy": 0.818,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker A": "Speaker B",
+      "Speaker B": "Speaker C",
+      "Speaker C": "Speaker A"
+     },
+     "per_gt_recall": {
+      "Speaker A": 1.0,
+      "Speaker B": 1.0,
+      "Speaker C": 1.0,
+      "Speaker D": 0.0
+     },
+     "owner_purity": 1.0,
+     "fixture": "scene_meeting4",
+     "pred_file": "pred_scene_meeting4_gt_t055.json",
+     "n_segments": 17,
+     "n_unknown": 0,
+     "accuracy_on_labelled": 0.818
+    },
+    "energy@0.48": {
+     "k_true": 4,
+     "k_pred": 5,
+     "frame_accuracy": 0.428,
+     "unlabelled_frac": 0.103,
+     "mapping": {
+      "Speaker C": "Speaker A",
+      "Speaker A": "Speaker B",
+      "Speaker D": "Speaker C",
+      "Speaker B": "Speaker D"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.464,
+      "Speaker B": 0.77,
+      "Speaker C": 0.103,
+      "Speaker D": 0.215
+     },
+     "owner_purity": 0.589,
+     "fixture": "scene_meeting4",
+     "pred_file": "pred_scene_meeting4_energy_t048.json",
+     "n_segments": 12,
+     "n_unknown": 3,
+     "accuracy_on_labelled": 0.477
+    },
+    "energy@0.55": {
+     "k_true": 4,
+     "k_pred": 6,
+     "frame_accuracy": 0.43,
+     "unlabelled_frac": 0.103,
+     "mapping": {
+      "Speaker C": "Speaker A",
+      "Speaker A": "Speaker B",
+      "Speaker E": "Speaker C",
+      "Speaker B": "Speaker D"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.39,
+      "Speaker B": 0.77,
+      "Speaker C": 0.214,
+      "Speaker D": 0.215
+     },
+     "owner_purity": 0.697,
+     "fixture": "scene_meeting4",
+     "pred_file": "pred_scene_meeting4_energy_t055.json",
+     "n_segments": 12,
+     "n_unknown": 3,
+     "accuracy_on_labelled": 0.479
+    },
+    "live_filled@0.48": {
+     "k_true": 4,
+     "k_pred": 5,
+     "frame_accuracy": 0.758,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker D": "Speaker A",
+      "Speaker A": "Speaker B",
+      "Speaker B": "Speaker C",
+      "Speaker C": "Speaker D"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.827,
+      "Speaker B": 0.992,
+      "Speaker C": 0.978,
+      "Speaker D": 0.0
+     },
+     "owner_purity": 0.972,
+     "fixture": "scene_meeting4",
+     "pred_file": "pred_scene_meeting4_livefilled_t048.json"
+    },
+    "live_filled@0.55": {
+     "k_true": 4,
+     "k_pred": 6,
+     "frame_accuracy": 0.921,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker E": "Speaker A",
+      "Speaker A": "Speaker B",
+      "Speaker B": "Speaker C",
+      "Speaker C": "Speaker D"
+     },
+     "per_gt_recall": {
+      "Speaker A": 0.823,
+      "Speaker B": 0.935,
+      "Speaker C": 1.0,
+      "Speaker D": 0.968
+     },
+     "owner_purity": 0.929,
+     "fixture": "scene_meeting4",
+     "pred_file": "pred_scene_meeting4_livefilled_t055.json"
+    }
+   }
+  },
+  "maggiano3": {
+   "seconds": 42.628,
+   "k_true": 3,
+   "gt_segments": 21,
+   "live_turns": 7,
+   "energy_segments": 5,
+   "live_turns_per_minute": 9.853,
+   "live_embedded_seconds_per_minute": 44.117,
+   "scores": {
+    "live@0.48": {
+     "k_true": 3,
+     "k_pred": 3,
+     "frame_accuracy": 0.369,
+     "unlabelled_frac": 0.259,
+     "mapping": {
+      "Speaker A": "asher",
+      "Speaker B": "dad",
+      "Speaker C": "mom"
+     },
+     "per_gt_recall": {
+      "asher": 0.264,
+      "dad": 0.295,
+      "mom": 0.541
+     },
+     "owner_purity": 1.0,
+     "fixture": "maggiano3",
+     "pred_file": "pred_maggiano3_live_t048.json",
+     "n_segments": 7,
+     "n_unknown": 2,
+     "accuracy_on_labelled": 0.498
+    },
+    "live@0.55": {
+     "k_true": 3,
+     "k_pred": 5,
+     "frame_accuracy": 0.329,
+     "unlabelled_frac": 0.259,
+     "mapping": {
+      "Speaker A": "asher",
+      "Speaker C": "dad",
+      "Speaker D": "mom"
+     },
+     "per_gt_recall": {
+      "asher": 0.231,
+      "dad": 0.295,
+      "mom": 0.449
+     },
+     "owner_purity": 1.0,
+     "fixture": "maggiano3",
+     "pred_file": "pred_maggiano3_live_t055.json",
+     "n_segments": 7,
+     "n_unknown": 2,
+     "accuracy_on_labelled": 0.444
+    },
+    "gt@0.48": {
+     "k_true": 3,
+     "k_pred": 10,
+     "frame_accuracy": 0.392,
+     "unlabelled_frac": 0.199,
+     "mapping": {
+      "Speaker B": "asher",
+      "Speaker A": "dad",
+      "Speaker D": "mom"
+     },
+     "per_gt_recall": {
+      "asher": 0.326,
+      "dad": 0.44,
+      "mom": 0.381
+     },
+     "owner_purity": 1.0,
+     "fixture": "maggiano3",
+     "pred_file": "pred_maggiano3_gt_t048.json",
+     "n_segments": 21,
+     "n_unknown": 10,
+     "accuracy_on_labelled": 0.489
+    },
+    "gt@0.55": {
+     "k_true": 3,
+     "k_pred": 10,
+     "frame_accuracy": 0.392,
+     "unlabelled_frac": 0.199,
+     "mapping": {
+      "Speaker B": "asher",
+      "Speaker A": "dad",
+      "Speaker D": "mom"
+     },
+     "per_gt_recall": {
+      "asher": 0.326,
+      "dad": 0.44,
+      "mom": 0.381
+     },
+     "owner_purity": 1.0,
+     "fixture": "maggiano3",
+     "pred_file": "pred_maggiano3_gt_t055.json",
+     "n_segments": 21,
+     "n_unknown": 10,
+     "accuracy_on_labelled": 0.489
+    },
+    "energy@0.48": {
+     "k_true": 3,
+     "k_pred": 2,
+     "frame_accuracy": 0.379,
+     "unlabelled_frac": 0.089,
+     "mapping": {
+      "Speaker A": "dad",
+      "Speaker B": "mom"
+     },
+     "per_gt_recall": {
+      "asher": 0.0,
+      "dad": 0.61,
+      "mom": 0.381
+     },
+     "owner_purity": 0.396,
+     "fixture": "maggiano3",
+     "pred_file": "pred_maggiano3_energy_t048.json",
+     "n_segments": 5,
+     "n_unknown": 1,
+     "accuracy_on_labelled": 0.416
+    },
+    "energy@0.55": {
+     "k_true": 3,
+     "k_pred": 4,
+     "frame_accuracy": 0.418,
+     "unlabelled_frac": 0.089,
+     "mapping": {
+      "Speaker A": "asher",
+      "Speaker C": "dad",
+      "Speaker D": "mom"
+     },
+     "per_gt_recall": {
+      "asher": 0.233,
+      "dad": 0.321,
+      "mom": 0.661
+     },
+     "owner_purity": 0.529,
+     "fixture": "maggiano3",
+     "pred_file": "pred_maggiano3_energy_t055.json",
+     "n_segments": 5,
+     "n_unknown": 1,
+     "accuracy_on_labelled": 0.459
+    },
+    "live_filled@0.48": {
+     "k_true": 3,
+     "k_pred": 3,
+     "frame_accuracy": 0.453,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker A": "asher",
+      "Speaker B": "dad",
+      "Speaker C": "mom"
+     },
+     "per_gt_recall": {
+      "asher": 0.349,
+      "dad": 0.329,
+      "mom": 0.67
+     },
+     "owner_purity": 0.656,
+     "fixture": "maggiano3",
+     "pred_file": "pred_maggiano3_livefilled_t048.json"
+    },
+    "live_filled@0.55": {
+     "k_true": 3,
+     "k_pred": 5,
+     "frame_accuracy": 0.392,
+     "unlabelled_frac": 0.0,
+     "mapping": {
+      "Speaker A": "asher",
+      "Speaker C": "dad",
+      "Speaker D": "mom"
+     },
+     "per_gt_recall": {
+      "asher": 0.279,
+      "dad": 0.329,
+      "mom": 0.546
+     },
+     "owner_purity": 0.656,
+     "fixture": "maggiano3",
+     "pred_file": "pred_maggiano3_livefilled_t055.json"
+    }
+   }
+  }
+ },
+ "bakeoff": {
+  "family_real": {
+   "production_gt_boundaries": {
+    "k_true": 2,
+    "k_pred": 2,
+    "frame_accuracy": 1.0,
+    "owner_purity": 1.0,
+    "unlabelled_frac": 0.0
+   },
+   "A_auto_k": {
+    "k_true": 2,
+    "k_pred": 2,
+    "frame_accuracy": 0.894,
+    "owner_purity": 0.991,
+    "unlabelled_frac": 0.02
+   },
+   "A_k_given": {
+    "k_true": 2,
+    "k_pred": 2,
+    "frame_accuracy": 0.894,
+    "owner_purity": 0.991,
+    "unlabelled_frac": 0.02
+   },
+   "B_w1.5_h0.25_spec_p0.80": {
+    "k_true": null,
+    "k_pred": 2,
+    "frame_accuracy": 0.959,
+    "owner_purity": 0.969,
+    "unlabelled_frac": null,
+    "stage": "merged"
+   },
+   "C_pyannote_default": {
+    "k_true": 2,
+    "k_pred": 4,
+    "frame_accuracy": 0.552,
+    "owner_purity": 0.994,
+    "unlabelled_frac": 0.101
+   }
+  },
+  "poker6": {
+   "production_gt_boundaries": {
+    "k_true": 6,
+    "k_pred": 6,
+    "frame_accuracy": 1.0,
+    "owner_purity": 1.0,
+    "unlabelled_frac": 0.0
+   },
+   "A_auto_k": {
+    "k_true": 6,
+    "k_pred": 5,
+    "frame_accuracy": 0.409,
+    "owner_purity": 0.545,
+    "unlabelled_frac": 0.065
+   },
+   "A_k_given": {
+    "k_true": 6,
+    "k_pred": 6,
+    "frame_accuracy": 0.455,
+    "owner_purity": 0.545,
+    "unlabelled_frac": 0.065
+   },
+   "B_w1.5_h0.25_spec_p0.80": {
+    "k_true": null,
+    "k_pred": 7,
+    "frame_accuracy": 0.809,
+    "owner_purity": 1.0,
+    "unlabelled_frac": null,
+    "stage": "merged"
+   },
+   "C_pyannote_default": {
+    "k_true": 6,
+    "k_pred": 4,
+    "frame_accuracy": 0.355,
+    "owner_purity": null,
+    "unlabelled_frac": 0.32
+   }
+  },
+  "openai": {
+   "production_gt_boundaries": {
+    "k_true": 2,
+    "k_pred": 2,
+    "frame_accuracy": 1.0,
+    "owner_purity": null,
+    "unlabelled_frac": 0.0
+   },
+   "A_auto_k": {
+    "k_true": 2,
+    "k_pred": 2,
+    "frame_accuracy": 0.993,
+    "owner_purity": null,
+    "unlabelled_frac": 0.001
+   },
+   "A_k_given": {
+    "k_true": 2,
+    "k_pred": 2,
+    "frame_accuracy": 0.993,
+    "owner_purity": null,
+    "unlabelled_frac": 0.001
+   },
+   "B_w1.5_h0.25_spec_p0.80": {
+    "k_true": null,
+    "k_pred": 2,
+    "frame_accuracy": 0.994,
+    "owner_purity": null,
+    "unlabelled_frac": null,
+    "stage": "merged"
+   },
+   "C_pyannote_default": {
+    "k_true": 2,
+    "k_pred": 2,
+    "frame_accuracy": 0.91,
+    "owner_purity": null,
+    "unlabelled_frac": 0.09
+   }
+  },
+  "gptaudio": {
+   "production_gt_boundaries": {
+    "k_true": 2,
+    "k_pred": 2,
+    "frame_accuracy": 1.0,
+    "owner_purity": null,
+    "unlabelled_frac": 0.0
+   },
+   "A_auto_k": {
+    "k_true": 2,
+    "k_pred": 2,
+    "frame_accuracy": 0.993,
+    "owner_purity": null,
+    "unlabelled_frac": 0.002
+   },
+   "A_k_given": {
+    "k_true": 2,
+    "k_pred": 2,
+    "frame_accuracy": 0.993,
+    "owner_purity": null,
+    "unlabelled_frac": 0.002
+   },
+   "B_w1.5_h0.25_spec_p0.80": {
+    "k_true": null,
+    "k_pred": 2,
+    "frame_accuracy": 0.984,
+    "owner_purity": null,
+    "unlabelled_frac": null,
+    "stage": "merged"
+   },
+   "C_pyannote_default": {
+    "k_true": 2,
+    "k_pred": 3,
+    "frame_accuracy": 0.834,
+    "owner_purity": null,
+    "unlabelled_frac": 0.077
+   }
+  },
+  "scene_couple": {
+   "production_gt_boundaries": {
+    "k_true": 2,
+    "k_pred": 2,
+    "frame_accuracy": 1.0,
+    "owner_purity": 1.0,
+    "unlabelled_frac": 0.0
+   },
+   "A_auto_k": {
+    "k_true": 2,
+    "k_pred": 2,
+    "frame_accuracy": 1.0,
+    "owner_purity": 1.0,
+    "unlabelled_frac": 0.0
+   },
+   "A_k_given": {
+    "k_true": 2,
+    "k_pred": 2,
+    "frame_accuracy": 1.0,
+    "owner_purity": 1.0,
+    "unlabelled_frac": 0.0
+   },
+   "B_w1.5_h0.25_spec_p0.80": {
+    "k_true": null,
+    "k_pred": 2,
+    "frame_accuracy": 0.986,
+    "owner_purity": 0.975,
+    "unlabelled_frac": null,
+    "stage": "merged"
+   },
+   "C_pyannote_default": {
+    "k_true": 2,
+    "k_pred": 2,
+    "frame_accuracy": 0.95,
+    "owner_purity": 1.0,
+    "unlabelled_frac": 0.05
+   }
+  },
+  "scene_family3": {
+   "production_gt_boundaries": {
+    "k_true": 3,
+    "k_pred": 3,
+    "frame_accuracy": 1.0,
+    "owner_purity": 1.0,
+    "unlabelled_frac": 0.0
+   },
+   "A_auto_k": {
+    "k_true": 3,
+    "k_pred": 2,
+    "frame_accuracy": 0.663,
+    "owner_purity": 0.997,
+    "unlabelled_frac": 0.002
+   },
+   "A_k_given": {
+    "k_true": 3,
+    "k_pred": 3,
+    "frame_accuracy": 0.901,
+    "owner_purity": 0.997,
+    "unlabelled_frac": 0.002
+   },
+   "B_w1.5_h0.25_spec_p0.80": {
+    "k_true": null,
+    "k_pred": 3,
+    "frame_accuracy": 0.99,
+    "owner_purity": 0.995,
+    "unlabelled_frac": null,
+    "stage": "merged"
+   },
+   "C_pyannote_default": {
+    "k_true": 3,
+    "k_pred": 3,
+    "frame_accuracy": 0.904,
+    "owner_purity": 1.0,
+    "unlabelled_frac": 0.051
+   }
+  },
+  "scene_meeting4": {
+   "production_gt_boundaries": {
+    "k_true": 4,
+    "k_pred": 2,
+    "frame_accuracy": 0.597,
+    "owner_purity": 1.0,
+    "unlabelled_frac": 0.0
+   },
+   "A_auto_k": {
+    "k_true": 4,
+    "k_pred": 2,
+    "frame_accuracy": 0.595,
+    "owner_purity": 0.979,
+    "unlabelled_frac": 0.002
+   },
+   "A_k_given": {
+    "k_true": 4,
+    "k_pred": 4,
+    "frame_accuracy": 0.745,
+    "owner_purity": 0.979,
+    "unlabelled_frac": 0.002
+   },
+   "B_w1.5_h0.25_spec_p0.80": {
+    "k_true": null,
+    "k_pred": 3,
+    "frame_accuracy": 0.809,
+    "owner_purity": 0.978,
+    "unlabelled_frac": null,
+    "stage": "merged"
+   },
+   "C_pyannote_default": {
+    "k_true": 4,
+    "k_pred": 3,
+    "frame_accuracy": 0.771,
+    "owner_purity": 1.0,
+    "unlabelled_frac": 0.052
+   }
+  },
+  "maggiano3": {
+   "production_gt_boundaries": {
+    "k_true": 3,
+    "k_pred": 3,
+    "frame_accuracy": 0.833,
+    "owner_purity": 0.84,
+    "unlabelled_frac": 0.0
+   },
+   "production_transcript_7utt": {
+    "k_true": 3,
+    "k_pred": 3,
+    "frame_accuracy": 0.702,
+    "owner_purity": 0.796,
+    "unlabelled_frac": 0.07
+   },
+   "production_transcript_8utt": {
+    "k_true": 3,
+    "k_pred": 3,
+    "frame_accuracy": 0.671,
+    "owner_purity": 0.792,
+    "unlabelled_frac": 0.083
+   },
+   "A_auto_k": {
+    "k_true": 3,
+    "k_pred": 2,
+    "frame_accuracy": 0.598,
+    "owner_purity": 0.502,
+    "unlabelled_frac": 0.0
+   },
+   "A_k_given": {
+    "k_true": 3,
+    "k_pred": 3,
+    "frame_accuracy": 0.708,
+    "owner_purity": 0.73,
+    "unlabelled_frac": 0.0
+   },
+   "B_w1.5_h0.25_spec_p0.80": {
+    "k_true": null,
+    "k_pred": 3,
+    "frame_accuracy": 0.761,
+    "owner_purity": 0.801,
+    "unlabelled_frac": null,
+    "stage": "merged"
+   },
+   "C_pyannote_default": {
+    "k_true": 3,
+    "k_pred": 4,
+    "frame_accuracy": 0.522,
+    "owner_purity": 0.718,
+    "unlabelled_frac": 0.131
+   }
+  }
+ },
+ "latency": {
+  "machine": {
+   "platform": "darwin 24.6.0",
+   "arch": "arm64",
+   "cpu": "Apple M4",
+   "cores": 10,
+   "node": "v26.7.0",
+   "onnxruntime_node": "1.24.3"
+  },
+  "ecapa_model": "ecapa_0f99f2d0ebe89ac095bcc5903c4dd8f72b367286.onnx",
+  "ecapa_model_bytes": 84188645,
+  "window_sec": 1.5,
+  "sample_rate": 16000,
+  "intra_op_1_thread": {
+   "ecapa_1p5s_window": {
+    "n": 100,
+    "mean_ms": 14.94,
+    "median_ms": 14.95,
+    "p90_ms": 15.09,
+    "min_ms": 14.66,
+    "max_ms": 16.08
+   },
+   "ecapa_other_windows": {
+    "0.5s": {
+     "n": 20,
+     "mean_ms": 7.55,
+     "median_ms": 7.55,
+     "p90_ms": 7.71,
+     "min_ms": 7.44,
+     "max_ms": 7.71
+    },
+    "1s": {
+     "n": 20,
+     "mean_ms": 10.65,
+     "median_ms": 10.66,
+     "p90_ms": 10.81,
+     "min_ms": 10.38,
+     "max_ms": 10.83
+    },
+    "3s": {
+     "n": 20,
+     "mean_ms": 24.92,
+     "median_ms": 24.84,
+     "p90_ms": 25.14,
+     "min_ms": 24.75,
+     "max_ms": 25.93
+    },
+    "5s": {
+     "n": 20,
+     "mean_ms": 39.44,
+     "median_ms": 39.39,
+     "p90_ms": 39.78,
+     "min_ms": 39.26,
+     "max_ms": 40.04
+    },
+    "10s": {
+     "n": 20,
+     "mean_ms": 78.82,
+     "median_ms": 78.74,
+     "p90_ms": 79.41,
+     "min_ms": 78.55,
+     "max_ms": 79.54
+    }
+   },
+   "per_minute_of_audio": {
+    "hop_0p25s": {
+     "windows": 240,
+     "seconds_of_compute_mean": 3.59,
+     "seconds_of_compute_p90": 3.62
+    },
+    "hop_0p5s": {
+     "windows": 120,
+     "seconds_of_compute_mean": 1.79,
+     "seconds_of_compute_p90": 1.81
+    }
+   }
+  },
+  "silero_1_thread": {
+   "per_512_frame": {
+    "n": 200,
+    "mean_ms": 0.09,
+    "median_ms": 0.09,
+    "p90_ms": 0.1,
+    "min_ms": 0.09,
+    "max_ms": 0.2
+   },
+   "frames_per_minute": 1875,
+   "seconds_of_compute_per_minute_mean": 0.17
+  },
+  "intra_op_default": {
+   "ecapa_1p5s_window": {
+    "n": 100,
+    "mean_ms": 15.25,
+    "median_ms": 14.83,
+    "p90_ms": 17.6,
+    "min_ms": 14.44,
+    "max_ms": 18.56
+   },
+   "ecapa_other_windows": {
+    "0.5s": {
+     "n": 20,
+     "mean_ms": 9.59,
+     "median_ms": 9.64,
+     "p90_ms": 10.13,
+     "min_ms": 9.22,
+     "max_ms": 10.39
+    },
+    "1s": {
+     "n": 20,
+     "mean_ms": 12.96,
+     "median_ms": 12.94,
+     "p90_ms": 13.14,
+     "min_ms": 12.85,
+     "max_ms": 13.17
+    },
+    "3s": {
+     "n": 20,
+     "mean_ms": 24.37,
+     "median_ms": 23.93,
+     "p90_ms": 25.93,
+     "min_ms": 23.77,
+     "max_ms": 26.73
+    },
+    "5s": {
+     "n": 20,
+     "mean_ms": 50.32,
+     "median_ms": 50.29,
+     "p90_ms": 50.84,
+     "min_ms": 49.67,
+     "max_ms": 51.1
+    },
+    "10s": {
+     "n": 20,
+     "mean_ms": 87.77,
+     "median_ms": 88.01,
+     "p90_ms": 95.2,
+     "min_ms": 75.05,
+     "max_ms": 106.78
+    }
+   },
+   "per_minute_of_audio": {
+    "hop_0p25s": {
+     "windows": 240,
+     "seconds_of_compute_mean": 3.66,
+     "seconds_of_compute_p90": 4.22
+    },
+    "hop_0p5s": {
+     "windows": 120,
+     "seconds_of_compute_mean": 1.83,
+     "seconds_of_compute_p90": 2.11
+    }
+   }
+  }
+ },
+ "mean_frame_accuracy": {
+  "live@0.48": 0.585,
+  "live@0.55": 0.514,
+  "gt@0.48": 0.868,
+  "gt@0.55": 0.855,
+  "energy@0.48": 0.54,
+  "energy@0.55": 0.527,
+  "live_filled@0.48": 0.751,
+  "live_filled@0.55": 0.682
+ },
+ "mean_accuracy_on_labelled": {
+  "live@0.48": 0.789,
+  "live@0.55": 0.722,
+  "gt@0.48": 0.885,
+  "gt@0.55": 0.872,
+  "energy@0.48": 0.619,
+  "energy@0.55": 0.605
+ },
+ "live_loop_cost": {
+  "family_real": {
+   "turns_per_minute": 12.175,
+   "embedded_audio_seconds_per_minute": 45.649,
+   "ecapa_compute_seconds_per_minute_mac": 0.42,
+   "silero_seam_compute_seconds_per_minute_mac": 1.122
+  },
+  "poker6": {
+   "turns_per_minute": 13.943,
+   "embedded_audio_seconds_per_minute": 40.602,
+   "ecapa_compute_seconds_per_minute_mac": 0.359,
+   "silero_seam_compute_seconds_per_minute_mac": 0.813
+  },
+  "openai": {
+   "turns_per_minute": 22.159,
+   "embedded_audio_seconds_per_minute": 43.391,
+   "ecapa_compute_seconds_per_minute_mac": 0.418,
+   "silero_seam_compute_seconds_per_minute_mac": 1.084
+  },
+  "gptaudio": {
+   "turns_per_minute": 16.064,
+   "embedded_audio_seconds_per_minute": 43.823,
+   "ecapa_compute_seconds_per_minute_mac": 0.388,
+   "silero_seam_compute_seconds_per_minute_mac": 0.88
+  },
+  "scene_couple": {
+   "turns_per_minute": 25.875,
+   "embedded_audio_seconds_per_minute": 41.758,
+   "ecapa_compute_seconds_per_minute_mac": 0.444,
+   "silero_seam_compute_seconds_per_minute_mac": 1.33
+  },
+  "scene_family3": {
+   "turns_per_minute": 21.472,
+   "embedded_audio_seconds_per_minute": 48.842,
+   "ecapa_compute_seconds_per_minute_mac": 0.445,
+   "silero_seam_compute_seconds_per_minute_mac": 1.199
+  },
+  "scene_meeting4": {
+   "turns_per_minute": 24.612,
+   "embedded_audio_seconds_per_minute": 47.024,
+   "ecapa_compute_seconds_per_minute_mac": 0.468,
+   "silero_seam_compute_seconds_per_minute_mac": 1.327
+  },
+  "maggiano3": {
+   "turns_per_minute": 9.853,
+   "embedded_audio_seconds_per_minute": 44.117,
+   "ecapa_compute_seconds_per_minute_mac": 0.367,
+   "silero_seam_compute_seconds_per_minute_mac": 0.909
+  }
+ },
+ "pixel_extrapolation": {
+  "basis": "Mac CPU (Apple M4) numbers x an ASSUMED 2-4x Pixel 10 factor; lower bound 1.6x from Geekbench 6 single-core (Tensor G5 ~62-63% of M4, cpu-monkey/nanoreview); ORT-on-Android ECAPA never measured",
+  "factor_range": [
+   2,
+   4
+  ],
+  "ecapa_1p5s_window_ms_range": [
+   29.9,
+   59.8
+  ],
+  "hop_0p25s_seconds_per_minute_range": [
+   7.2,
+   14.3
+  ],
+  "hop_0p5s_seconds_per_minute_range": [
+   3.6,
+   7.2
+  ],
+  "session_30min_minutes_range_hop_0p25s": [
+   3.6,
+   7.2
+  ],
+  "session_30min_minutes_range_hop_0p5s": [
+   1.8,
+   3.6
+  ]
+ }
+}

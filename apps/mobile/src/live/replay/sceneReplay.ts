@@ -26,10 +26,12 @@ import { SileroVad, EnergyVad, type FrameVad } from "../vad";
 import { EcapaEmbedder, SpeakerLabeler, type Embedder } from "../speakerId";
 import { cloudProvider, ProviderChain, type LiveMode } from "../localLlm";
 import { phoneNudgePolicy, type NudgeEvent } from "../nudgePolicy";
+import { vocabularyForCode } from "../nudgeVocabulary";
+import type { CalmStreak, PositiveNudge } from "../positiveNudges";
 import type { OnnxSessionFactory } from "../ort";
 import type { TurnLocalEvent } from "../types";
 import { int16ToFloat32, readWav16kMono } from "./wav";
-import { parseSceneMeta, type ReplayScript } from "./meta";
+import { parseSceneMeta, type ExpectedNudge, type ReplayScript } from "./meta";
 import { InflightTracker, VirtualClock } from "./virtualClock";
 import {
   DEFAULT_STT_OPTIONS,
@@ -114,7 +116,10 @@ export interface SceneInput {
  * test_recording_<scene>.wav` + `_meta.json`) or take a WAV path with its
  * `<stem>_meta.json` beside it (or an explicit `metaPath`).
  */
-export function loadScene(nameOrWav: string, opts: { metaPath?: string; selfSpeaker?: string | null } = {}): SceneInput {
+export function loadScene(
+  nameOrWav: string,
+  opts: { metaPath?: string; selfSpeaker?: string | null; expectedNudges?: ExpectedNudge[] } = {},
+): SceneInput {
   let wavPath: string;
   let name: string;
   if (nameOrWav.endsWith(".wav")) {
@@ -128,7 +133,7 @@ export function loadScene(nameOrWav: string, opts: { metaPath?: string; selfSpea
   const metaPath = opts.metaPath ?? wavPath.replace(/\.wav$/, "_meta.json");
   if (!fs.existsSync(metaPath)) throw new Error(`scene: no meta at ${metaPath} (write one: see replay/meta.ts)`);
   const raw = JSON.parse(fs.readFileSync(metaPath, "utf8")) as unknown;
-  const script = parseSceneMeta(raw, { name, selfSpeaker: opts.selfSpeaker });
+  const script = parseSceneMeta(raw, { name, selfSpeaker: opts.selfSpeaker, expectedNudges: opts.expectedNudges });
   const pcm = readWav16kMono(wavPath);
   return { name, wavPath, script, pcm, pcmF32: int16ToFloat32(pcm) };
 }
@@ -230,6 +235,33 @@ async function nodeFactory(): Promise<OnnxSessionFactory> {
 // Result
 // ---------------------------------------------------------------------------
 
+/** One haptic the loop asked for, on the virtual clock. The instant
+ *  loudness tier fires ~40 ms after the turn closes (identity only); the
+ *  policy tier fires after STT + LLM — `nudgeReport.ts` tells them apart. */
+export interface HapticFire {
+  level: number;
+  atMs: number;
+  /** The same instant on the audio timeline (seconds). */
+  atSec: number;
+  /** The nudge-vocabulary code the loop asked for ("H", "C", "A" for an
+   *  alert; "D", "E", "R" for a positive), or null when it asked for a plain
+   *  level. Positives ride the same sink but are a different lane — the
+   *  scene invariants and the report split on this. */
+  code: string | null;
+}
+
+/** A NudgeEvent plus the virtual clock at which the loop emitted it
+ *  (`t` is the audio second the turn closed; `atMs` is when the words and
+ *  the tone were in — the LLM tier's latency is the difference). */
+export interface NudgeEmission extends NudgeEvent {
+  atMs: number;
+}
+
+/** A positive nudge plus the virtual clock at which the loop delivered it. */
+export interface PositiveEmission extends PositiveNudge {
+  atMs: number;
+}
+
 export interface ReplayResult {
   scene: string;
   mode: LiveMode;
@@ -241,7 +273,19 @@ export interface ReplayResult {
   sent: TurnLocalEvent[];
   spoken: SpokenLine[];
   nudges: NudgeEvent[];
+  /** ALERT haptic levels, in order — the lane the scene invariants pin
+   *  against the policy's escalations. */
   haptics: number[];
+  hapticLog: HapticFire[];
+  /** The soft cues the four POSITIVE codes earned (the ones the two-minute
+   *  cap let through). */
+  positiveHaptics: HapticFire[];
+  /** Every positive DETECTION, cap-dropped ones included (`delivered:
+   *  false`) — what the user nearly felt. */
+  positives: PositiveEmission[];
+  /** 🧘 the longest run of the session with no alert escalation. */
+  calm: CalmStreak;
+  nudgeLog: NudgeEmission[];
   policyLog: PolicyCall[];
   latencyLog: TurnLatency[];
   stt: { emitted: number; finals: number };
@@ -307,11 +351,15 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
   });
   const llm = new ProviderChain([os, bundled, cloudProvider()], ["os", "bundled", "cloud"], () => clock.now());
   const spokenLog = new SpokenLog(clock, () => vad.lastVerdict);
-  const policy = recordingPolicy(phoneNudgePolicy());
+  const policy = recordingPolicy(phoneNudgePolicy(), () => clock.now());
   const sent: TurnLocalEvent[] = [];
   const turns: LocalTurn[] = [];
   const nudges: NudgeEvent[] = [];
   const haptics: number[] = [];
+  const hapticLog: HapticFire[] = [];
+  const positiveHaptics: HapticFire[] = [];
+  const positives: PositiveEmission[] = [];
+  const nudgeLog: NudgeEmission[] = [];
 
   const loop: FastLoop = new FastLoop({
     vad,
@@ -322,9 +370,26 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
     speak: spokenLog.speak,
     send: (e) => sent.push(e),
     onTurn: (t) => turns.push(t),
-    onNudge: (n) => nudges.push(n),
-    haptics: { nudge: async (level) => void haptics.push(level) },
+    onNudge: (n) => {
+      nudges.push(n);
+      nudgeLog.push({ ...n, atMs: clock.now() });
+    },
+    haptics: {
+      nudge: async (level, code) => {
+        const entry = code ? vocabularyForCode(code) : null;
+        const fire: HapticFire = { level, atMs: clock.now(), atSec: clock.now() / 1000, code: code ?? null };
+        // Alerts and positives share one sink on the device; the scene
+        // invariants and the report treat them as separate lanes.
+        if (entry?.polarity === "positive") positiveHaptics.push(fire);
+        else haptics.push(level);
+        hapticLog.push(fire);
+      },
+    },
+    onPositiveNudge: (n) => positives.push({ ...n, atMs: clock.now() }),
     policy,
+    // The scripted provider repeats lines a real LLM would vary; the
+    // repeat-gate is measured directly in liveFastLoop, not here.
+    repeatGate: null,
     now: () => clock.now(),
     sleep: (ms) => clock.sleep(ms),
     sttGraceMs: opts.sttGraceMs,
@@ -388,6 +453,11 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
     spoken: spokenLog.lines,
     nudges,
     haptics,
+    hapticLog,
+    positiveHaptics,
+    positives,
+    calm: loop.positiveSummary(scene.pcm.length / 16000).calm,
+    nudgeLog,
     policyLog: policy.log,
     latencyLog: summary.latencyLog,
     stt: { emitted: recognizer?.emitted.length ?? 0, finals: recognizer?.emitted.filter((e) => e.isFinal).length ?? 0 },
@@ -535,12 +605,12 @@ export function formatReport(r: ReplayResult): string {
   });
   lines.push("");
   lines.push(`   loop turns (${r.turns.length}):`);
-  lines.push(`   ${pad("#", 3)} ${pad("start", 7)} ${pad("end", 7)} ${pad("speaker", 12)} ${pad("self", 5)} ${pad("score", 6)} ${pad("dBFS", 6)} ${pad("via", 8)} ${pad("speak", 8)} text   (?X = the loop's own unknown cluster X)`);
+  lines.push(`   ${pad("#", 3)} ${pad("start", 7)} ${pad("end", 7)} ${pad("speaker", 12)} ${pad("self", 5)} ${pad("score", 6)} ${pad("basis", 6)} ${pad("dBFS", 6)} ${pad("via", 8)} ${pad("speak", 8)} text   (?X = the loop's own unknown cluster X; basis abs/ctr = how the voiceprint matched)`);
   r.turns.forEach((lt) => {
     const speakMs = lt.latency.toSpeakMs;
     lines.push(
       `   ${pad(String(lt.index), 3)} ${pad(lt.startTime.toFixed(2), 7)} ${pad(lt.endTime.toFixed(2), 7)} ${pad(lt.personId ? lt.speaker : lt.speaker === "Unknown" ? "Unknown" : `?${lt.speaker}`, 12)} ${pad(lt.isSelf === null ? "?" : lt.isSelf ? "yes" : "no", 5)} ` +
-        `${pad(lt.matchScore === null ? "-" : lt.matchScore.toFixed(2), 6)} ${pad(lt.prosody.rms_dbfs === null ? "-" : lt.prosody.rms_dbfs.toFixed(0), 6)} ${pad(lt.provider, 8)} ` +
+        `${pad(lt.matchScore === null ? "-" : lt.matchScore.toFixed(2), 6)} ${pad(lt.matchBasis === "absolute" ? "abs" : lt.matchBasis === "contrast" ? "ctr" : "-", 6)} ${pad(lt.prosody.rms_dbfs === null ? "-" : lt.prosody.rms_dbfs.toFixed(0), 6)} ${pad(lt.provider, 8)} ` +
         `${pad(speakMs === null ? (lt.suggestion ? "held/x" : "") : `${Math.round(speakMs)}${lt.latency.held ? "h" : ""}`, 8)} ${(lt.text || "").slice(0, 50)}${lt.transcriptFinal ? "" : " (interim)"}`,
     );
   });

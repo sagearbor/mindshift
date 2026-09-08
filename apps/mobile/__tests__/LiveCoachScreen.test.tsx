@@ -77,7 +77,42 @@ function responseEntry(
 
 const flush = () => act(async () => { await Promise.resolve(); });
 
+import { useDevModeStore } from "../src/store/devModeStore";
+
+/**
+ * Unmount every tree this file creates.
+ *
+ * react-test-renderer keeps a mounted tree scheduled, and a state update that
+ * lands AFTER Jest tears the environment down throws "You are trying to
+ * `import` a file after the Jest environment has been torn down" — which is
+ * not a test failure but a WORKER CRASH, taking every unrelated suite sharing
+ * that worker with it. That is why running the whole suite at once used to
+ * fail a handful of random files that each passed on their own.
+ */
+const __trees: renderer.ReactTestRenderer[] = [];
+function track<T extends renderer.ReactTestRenderer>(t: T): T {
+  __trees.push(t);
+  return t;
+}
+afterEach(async () => {
+  await act(async () => {});
+  act(() => {
+    for (const t of __trees.splice(0)) {
+      try {
+        t.unmount();
+      } catch {
+        // A tree a test already unmounted, or one whose teardown throws, must
+        // not fail the test that otherwise passed.
+      }
+    }
+  });
+});
+
+
 beforeEach(() => {
+  // Most of this suite asserts the full diagnostic surface (and its
+  // snapshots predate developer mode) — run it as the owner does, dev ON.
+  useDevModeStore.setState({ devMode: true });
   mockUseAudioStream.mockReturnValue({ ...defaultHookState });
   mockListVoicePeople.mockReset().mockResolvedValue({ people: [], error: null });
   mockGetTherapistLink.mockReset().mockResolvedValue({ linked: false });
@@ -85,11 +120,34 @@ beforeEach(() => {
   mockSaveLiveMode.mockReset().mockResolvedValue(undefined);
 });
 
+describe("LiveCoachScreen — developer mode off (clean tester surface)", () => {
+  it("plain status word; capability, latency and mode-row chrome hidden", async () => {
+    useDevModeStore.setState({ devMode: false });
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      liveStatus: "On-device: Silero VAD · speaker-ID off (no model)",
+      latencySummary: "p50 1200ms to speak",
+    });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = track(renderer.create(<LiveCoachScreen />));
+    });
+    await flush();
+    const json = JSON.stringify(root!.toJSON());
+    expect(json).toContain("ready"); // friendly word, not the raw "idle"
+    expect(json).not.toContain("speaker-ID");
+    expect(json).not.toContain("p50 1200ms");
+    expect(root!.root.findAllByProps({ testID: "live-mode-row" })).toHaveLength(0);
+    expect(root!.root.findAllByProps({ testID: "live-status" })).toHaveLength(0);
+    expect(root!.root.findByProps({ testID: "preflight-plain" })).toBeTruthy();
+  });
+});
+
 describe("LiveCoachScreen", () => {
   it("renders initial idle state", async () => {
     let component: renderer.ReactTestRenderer;
     act(() => {
-      component = renderer.create(<LiveCoachScreen />);
+      component = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     expect(component!.toJSON()).toMatchSnapshot();
@@ -123,7 +181,7 @@ describe("LiveCoachScreen", () => {
 
     let component: renderer.ReactTestRenderer;
     act(() => {
-      component = renderer.create(<LiveCoachScreen />);
+      component = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     expect(component!.toJSON()).toMatchSnapshot();
@@ -137,7 +195,7 @@ describe("LiveCoachScreen", () => {
 
     let component: renderer.ReactTestRenderer;
     act(() => {
-      component = renderer.create(<LiveCoachScreen />);
+      component = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     expect(component!.toJSON()).toMatchSnapshot();
@@ -151,7 +209,7 @@ describe("LiveCoachScreen", () => {
 
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     const banner = root!.root.findByProps({ testID: "mic-error-banner" });
@@ -164,7 +222,7 @@ describe("LiveCoachScreen", () => {
   it("hides the mic error banner when there is no error", async () => {
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     expect(
@@ -177,7 +235,7 @@ describe("LiveCoachScreen", () => {
     mockUseAudioStream.mockReturnValue({ ...defaultHookState, setSpeechEnabled });
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     expect(setSpeechEnabled).toHaveBeenLastCalledWith(true);
@@ -196,7 +254,7 @@ describe("LiveCoachScreen", () => {
     mockUseAudioStream.mockReturnValue({ ...defaultHookState, setSessionMode });
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     // The persisted mode is applied on mount.
@@ -224,7 +282,7 @@ describe("LiveCoachScreen", () => {
     const setSessionMode = jest.fn();
     mockUseAudioStream.mockReturnValue({ ...defaultHookState, setSessionMode });
     act(() => {
-      renderer.create(<LiveCoachScreen />);
+      track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     expect(setSessionMode).toHaveBeenCalledWith("speaker");
@@ -238,7 +296,7 @@ describe("LiveCoachScreen", () => {
 
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     expect(root!.root.findByProps({ testID: "speech-unavailable-note" })).toBeTruthy();
@@ -252,7 +310,7 @@ describe("LiveCoachScreen", () => {
   it("hides the unavailable note when TTS works", async () => {
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     expect(root!.root.findAllByProps({ testID: "speech-unavailable-note" })).toHaveLength(0);
@@ -266,7 +324,7 @@ describe("LiveCoachScreen", () => {
     });
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     const slider = root!.root.findByProps({ testID: "interject-slider" });
@@ -284,7 +342,7 @@ describe("LiveCoachScreen", () => {
     });
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     act(() => {
@@ -307,7 +365,7 @@ describe("LiveCoachScreen", () => {
     });
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     // Host nodes only — RN's <View> also yields a composite node carrying
@@ -332,7 +390,7 @@ describe("LiveCoachScreen", () => {
     });
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     const tagCloud = root!.root.findByProps({ testID: "suggestion-source-2" });
@@ -351,7 +409,7 @@ describe("LiveCoachScreen", () => {
     });
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     act(() => {
@@ -363,7 +421,7 @@ describe("LiveCoachScreen", () => {
   it("hides the identity chip before any session — and always in therapist mode", async () => {
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     expect(root!.root.findAllByProps({ testID: "self-speaker-chip" })).toHaveLength(0);
@@ -375,7 +433,7 @@ describe("LiveCoachScreen", () => {
   it("shows the pre-flight panel + explainer only when idle with no transcript", async () => {
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     expect(root!.root.findByProps({ testID: "idle-explainer" })).toBeTruthy();
@@ -387,10 +445,23 @@ describe("LiveCoachScreen", () => {
     expect(root!.root.findAllByProps({ testID: "live-preflight" })).toHaveLength(0);
   });
 
+  it("the BEFORE mood check shows while idle and disappears once a session starts", async () => {
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = track(renderer.create(<LiveCoachScreen />));
+    });
+    await flush();
+    expect(root!.root.findByProps({ testID: "mood-check-before" })).toBeTruthy();
+
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, sessionActive: true });
+    act(() => root!.update(<LiveCoachScreen />));
+    expect(root!.root.findAllByProps({ testID: "mood-check-before" })).toHaveLength(0);
+  });
+
   it("pre-flight tells the truth: no on-device STT here, so the server labels voices", async () => {
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     const text = JSON.stringify(root!.toJSON());
@@ -417,7 +488,7 @@ describe("LiveCoachScreen", () => {
     });
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     expect(runPreflight).toHaveBeenCalled();
@@ -437,7 +508,7 @@ describe("LiveCoachScreen", () => {
     });
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     expect(root!.root.findByProps({ testID: "whos-here-self" })).toBeTruthy();
@@ -445,7 +516,7 @@ describe("LiveCoachScreen", () => {
 
     mockListVoicePeople.mockResolvedValue({ people: [], error: null });
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     expect(root!.root.findByProps({ testID: "whos-here-empty" })).toBeTruthy();
@@ -463,7 +534,7 @@ describe("LiveCoachScreen", () => {
     });
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen onReviewTranscript={onReviewTranscript} />);
+      root = track(renderer.create(<LiveCoachScreen onReviewTranscript={onReviewTranscript} />));
     });
     await flush();
     act(() => {
@@ -486,7 +557,7 @@ describe("LiveCoachScreen", () => {
     });
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     expect(root!.root.findByProps({ testID: "nudge-banner" })).toBeTruthy();
@@ -499,7 +570,7 @@ describe("LiveCoachScreen", () => {
   it("hides the on-device switch when the device can't run the fast loop", async () => {
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     expect(root!.root.findAllByProps({ testID: "live-mode-row" })).toHaveLength(0);
@@ -515,7 +586,7 @@ describe("LiveCoachScreen", () => {
     });
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     const sw = root!.root.findByProps({ testID: "live-mode-switch" });
@@ -556,7 +627,7 @@ describe("LiveCoachScreen", () => {
     });
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     expect(root!.root.findByProps({ testID: "therapist-transcript" })).toBeTruthy();
@@ -579,11 +650,13 @@ describe("LiveCoachScreen", () => {
     });
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     const rendered = JSON.stringify(root!.toJSON());
     expect(root!.root.findByProps({ testID: "nudge-flash" })).toBeTruthy();
-    expect(rendered).toContain("Easy — level 2 (aggressive tone, yelling)");
+    // Dev mode names the vocabulary code (📈 Heated) plus the raw detector
+    // vectors underneath it — src/live/nudgeVocabulary.ts.
+    expect(rendered).toContain("📈 Heated — level 2 (aggressive tone, yelling)");
     expect(rendered).toContain("median segment-end");
     act(() => {
       jest.advanceTimersByTime(1500);
@@ -611,7 +684,7 @@ describe("LiveCoachScreen", () => {
     });
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     const text = root!.root
@@ -624,5 +697,7 @@ describe("LiveCoachScreen", () => {
     expect(text).toContain("640 ms");
     expect(text).toContain("You: 3 · Mom: 2 · via os");
     expect(root!.root.findByProps({ testID: "summary-share-therapist" })).toBeTruthy();
+    // The AFTER mood check shows alongside the summary.
+    expect(root!.root.findByProps({ testID: "mood-check-after" })).toBeTruthy();
   });
 });
