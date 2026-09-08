@@ -1163,7 +1163,21 @@ export function useAudioStream(
           setPositiveCounts(countPositives(positivesRef.current));
           // The cap governs the INTERRUPTION — the buzz and the flash. A
           // withheld positive still lands on the summary through the counts.
-          if (positive.delivered) setPositiveFlash(positive);
+          if (positive.delivered) {
+            setPositiveFlash(positive);
+            // ...and the wrist. Without this the watch carries alert vectors
+            // only, so a user with the phone in a pocket feels every
+            // complaint and no praise — a pure complaint channel, which is
+            // worse than having no positives at all. The phone stays the
+            // only detector (the cap has already run here), so the flash and
+            // the buzz can never disagree; the server just relays. Silent if
+            // no watch is paired — the server no-ops and never acks.
+            if (wsRef.current?.readyState === WebSocket.OPEN) {
+              wsRef.current.send(
+                JSON.stringify({ type: "positive", code: positive.code, t: positive.t }),
+              );
+            }
+          }
         },
         onSttError: (code, message) => {
           liveSttFailedRef.current = true;

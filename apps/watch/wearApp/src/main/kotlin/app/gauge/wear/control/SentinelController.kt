@@ -1,6 +1,7 @@
 package app.gauge.wear.control
 
 import app.gauge.shared.NudgeEvent
+import app.gauge.shared.PositiveEvent
 import app.gauge.shared.NudgeStateMachine
 import app.gauge.shared.VectorEvent
 import app.gauge.shared.sentinel.Mode
@@ -989,6 +990,28 @@ class SentinelController(
                 }
             } catch (t: Throwable) {
                 diag.log("error", "SentinelController", "onNudge failed: $t")
+            }
+        }
+
+        override fun onPositive(p: PositiveEvent) {
+            // Praise. Same threading and fail-soft rules as onNudge (OkHttp's reader thread,
+            // HapticDirector's state isn't synchronized), but deliberately NOT the same
+            // bookkeeping: a positive sets no channel level and arms no reminder, because it is
+            // unleveled by contract and a wrist that repeats "well done" every two minutes is
+            // worse than one that never said it. It IS suppressed while the local pulse train is
+            // actively covering channel A — someone feeling proportional shout-taps right now is
+            // not in a moment to be congratulated, and the phone has already flashed it.
+            try {
+                synchronized(lock) {
+                    if (wsListenerGeneration.get() != token) return
+                    if (pulseIntervalMs() != null && pulseTrainActivelyCovering()) {
+                        diag.log("info", "Haptics", "positive ${p.code} suppressed (pulse train covering)")
+                        return
+                    }
+                    haptics.playPositive(p.code)
+                }
+            } catch (t: Throwable) {
+                diag.log("error", "SentinelController", "onPositive failed: $t")
             }
         }
 

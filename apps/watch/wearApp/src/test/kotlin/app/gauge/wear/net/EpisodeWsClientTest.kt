@@ -1,6 +1,7 @@
 package app.gauge.wear.net
 
 import app.gauge.shared.NudgeEvent
+import app.gauge.shared.PositiveEvent
 import app.gauge.shared.VectorEvent
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -50,6 +51,52 @@ class EpisodeWsClientTest {
         assertEquals(2, nudges.first().level); assertEquals("A", nudges.first().channel)
         assertEquals("e1", saved)
         assertTrue(received.any { it.startsWith("binary:32000") })
+        server.shutdown()
+    }
+
+    @Test fun decodesPositiveFrame() {
+        // The praise lane. It arrives as its OWN frame type rather than a nudge with a code,
+        // because a nudge carries a channel and a level and feeds the escalation machinery —
+        // and praise has neither.
+        val server = MockWebServer()
+        val positives = mutableListOf<PositiveEvent>()
+        val latch = CountDownLatch(1)
+        server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+            override fun onOpen(ws: WebSocket, r: Response) {
+                ws.send("""{"type":"positive","code":"E","t":41.5}""")
+            }
+        }))
+        val c = EpisodeWsClient(server.url("/").toString().replace("http", "ws").trimEnd('/'), "a")
+        c.open("e3", object : EpisodeWsClient.Listener {
+            override fun onVectorEvent(e: VectorEvent) {}
+            override fun onNudge(n: NudgeEvent) {}
+            override fun onPositive(p: PositiveEvent) { positives.add(p); latch.countDown() }
+            override fun onEpisodeSaved(id: String) {}
+            override fun onFailure(t: Throwable) {}; override fun onClosed() {}
+        })
+        assertTrue(latch.await(5, TimeUnit.SECONDS))
+        assertEquals("E", positives.single().code)
+        assertEquals(41.5, positives.single().t)
+        server.shutdown()
+    }
+
+    @Test fun positiveFrameIsIgnoredByAListenerThatDoesNotWantIt() {
+        // The default no-op on the interface: an older listener keeps working and simply never
+        // hears praise, instead of the client crashing on a frame it wasn't written for.
+        val server = MockWebServer(); var saved: String? = null; val latch = CountDownLatch(1)
+        server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+            override fun onOpen(ws: WebSocket, r: Response) {
+                ws.send("""{"type":"positive","code":"E","t":1.0}""")
+                ws.send("""{"type":"live_session_saved","live_session_id":"e4","status":"captured"}""")
+            }
+        }))
+        val c = EpisodeWsClient(server.url("/").toString().replace("http", "ws").trimEnd('/'), "a")
+        c.open("e4", object : EpisodeWsClient.Listener {
+            override fun onVectorEvent(e: VectorEvent) {}; override fun onNudge(n: NudgeEvent) {}
+            override fun onEpisodeSaved(id: String) { saved = id; latch.countDown() }
+            override fun onFailure(t: Throwable) {}; override fun onClosed() {}
+        })
+        assertTrue(latch.await(5, TimeUnit.SECONDS)); assertEquals("e4", saved)
         server.shutdown()
     }
 

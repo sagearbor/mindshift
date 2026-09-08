@@ -51,7 +51,7 @@ import {
   type NudgeEvent,
   type VectorEvent,
 } from "../nudgePolicy";
-import { vocabularyForCode } from "../nudgeVocabulary";
+import { hapticFor, vocabularyFor, vocabularyForCode } from "../nudgeVocabulary";
 import { POSITIVE_CAP_S } from "../nudgeVocabulary";
 import type { CalmStreak } from "../positiveNudges";
 import type { ReplayScript } from "./meta";
@@ -165,10 +165,27 @@ export interface WatchBuzz {
   onSelfTurn: boolean;
 }
 
+/** ⌚ One praise cue relayed to the wrist (nudge vocabulary D/E/R). */
+export interface WatchPositive {
+  /** Audio second the phone delivered it. */
+  t: number;
+  code: string;
+  icon: string;
+  detail: string;
+  /** The waveform the wrist plays — a swell, not a tap. Always the level-1
+   *  cue: a positive is unleveled by contract. */
+  timingsMs: number[];
+}
+
 export interface WatchLane {
   /** The acoustic-only inputs, in the order the policy saw them. */
   events: VectorEvent[];
   buzzes: WatchBuzz[];
+  /** Praise the wrist feels. Deliberately NOT derived from `events`: it never
+   *  touches the policy, carries no level and arms no reminder. Before this
+   *  lane existed the wrist was a pure complaint channel — every escalation
+   *  reached it and no praise ever did. */
+  positives: WatchPositive[];
   decays: WatchBuzz[];
   byVector: Record<string, number>;
   /** Script turns where the wrist buzzes but the earpiece lane has nothing
@@ -277,6 +294,8 @@ export interface SceneScorecard {
   };
   watch: {
     buzzes: number;
+    /** Praise cues relayed to the wrist (= the phone's DELIVERED positives). */
+    positives: number;
     byVector: Record<string, number>;
     watchOnlyTurns: number[];
     earpieceOnlyTurns: number[];
@@ -547,7 +566,7 @@ export function buildNudgeReport(r: ReplayResult, generatedAt = new Date().toISO
   });
 
   // --- ⌚ watch lane -----------------------------------------------------------
-  const watch = buildWatchLane(script, r.turns, fragments, loopToScript);
+  const watch = buildWatchLane(script, r.turns, fragments, loopToScript, positives);
 
   // --- script turns ---------------------------------------------------------
   const callMode = callModeInterrupting(script);
@@ -673,6 +692,7 @@ export function buildNudgeReport(r: ReplayResult, generatedAt = new Date().toISO
     },
     watch: {
       buzzes: watch.buzzes.length,
+      positives: watch.positives.length,
       byVector: watch.byVector,
       watchOnlyTurns: watch.watchOnlyTurns,
       earpieceOnlyTurns: watch.earpieceOnlyTurns,
@@ -725,7 +745,13 @@ function earpieceLane(lt: LocalTurn, i: number, nudges: NudgeRow[], haptics: Hap
  * start of each ground-truth self turn that talks over someone for >= 2 s
  * and `airtime` at the end of self turns whose share clears 60 %.
  */
-function buildWatchLane(script: ReplayScript, loopTurns: LocalTurn[], fragments: FragmentRow[], loopToScript: (number | null)[]): WatchLane {
+function buildWatchLane(
+  script: ReplayScript,
+  loopTurns: LocalTurn[],
+  fragments: FragmentRow[],
+  loopToScript: (number | null)[],
+  positives: PositiveRow[],
+): WatchLane {
   const self = script.selfSpeaker;
   const ticks = new Map<number, VectorEvent[]>();
   const add = (t: number, e: VectorEvent | null) => {
@@ -763,9 +789,28 @@ function buildWatchLane(script: ReplayScript, loopTurns: LocalTurn[], fragments:
   const buzzes = rows.filter((b) => !b.decay);
   const byVector: Record<string, number> = {};
   for (const b of buzzes) for (const v of b.vectors) byVector[v] = (byVector[v] ?? 0) + 1;
+  // 💚 Praise reaches the wrist over its own wire (the `positive` frame the
+  // phone sends and watch/relay.py forwards), so it is derived from what the
+  // PHONE delivered, not from `events`. Cap-dropped positives are excluded on
+  // purpose: the two-minute cap governs the interruption on every device, and
+  // a wrist buzz for something the phone deliberately stayed quiet about would
+  // be the cap leaking out the side. Note these are NOT constrained to the
+  // wearer's own turns — 👂 "you let them finish" is earned during someone
+  // else's turn by definition, which is exactly why the "never on a non-self
+  // turn" gate below applies to buzzes only.
+  const watchPositives: WatchPositive[] = positives
+    .filter((pos) => pos.delivered)
+    .map((pos) => ({
+      t: pos.t,
+      code: pos.code,
+      icon: pos.icon,
+      detail: pos.detail,
+      timingsMs: hapticFor(pos.code, 1)?.timingsMs ?? [],
+    }));
   return {
     events,
     buzzes,
+    positives: watchPositives,
     decays: rows.filter((b) => b.decay),
     byVector,
     watchOnlyTurns: [],
@@ -814,6 +859,25 @@ export function gateFailures(report: NudgeReport, gate: NudgeGate): string[] {
   const unknown = report.positives.filter((pos) => vocabularyForCode(pos.code)?.polarity !== "positive");
   if (unknown.length) {
     out.push(`${s.scene}: ${unknown.length} positive row(s) carry a non-positive code: ${unknown.map((pos) => pos.code).join(", ")}`);
+  }
+
+  // ⌚💚 The wrist must feel exactly the praise the phone delivered — no more
+  // (a buzz for a cap-dropped positive would leak the cap), no less (a wrist
+  // that only ever complains is worse than one that says nothing), and never
+  // through the alert lane (a positive that set a level would be repeated by
+  // PRD §6's reminder every two minutes).
+  const deliveredCodes = delivered.map((pos) => `${pos.code}@${pos.t.toFixed(2)}`);
+  const wristCodes = report.watch.positives.map((pos) => `${pos.code}@${pos.t.toFixed(2)}`);
+  if (deliveredCodes.join("|") !== wristCodes.join("|")) {
+    out.push(`${s.scene}: wrist praise [${wristCodes.join(", ")}] does not match the phone's delivered positives [${deliveredCodes.join(", ")}]`);
+  }
+  const silentPraise = report.watch.positives.filter((pos) => pos.timingsMs.length === 0);
+  if (silentPraise.length) {
+    out.push(`${s.scene}: ${silentPraise.length} wrist praise cue(s) have no waveform: ${silentPraise.map((pos) => pos.code).join(", ")}`);
+  }
+  const praiseInAlertLane = report.watch.buzzes.filter((b) => b.vectors.some((v) => vocabularyFor(v)?.polarity === "positive"));
+  if (praiseInAlertLane.length) {
+    out.push(`${s.scene}: praise entered the watch ALERT lane at ${praiseInAlertLane.map((b) => `${b.t.toFixed(2)}s`).join(", ")} — it would set a level and repeat on the §6 reminder`);
   }
 
   const offSelf = report.watch.buzzes.filter((b) => !b.onSelfTurn);

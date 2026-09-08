@@ -223,6 +223,16 @@ def make_ws_router(
             for n in nudges:
                 await websocket.send_json({"type": "nudge", **n.model_dump()})
 
+        async def send_positive(code: str, t: float) -> None:
+            """Praise, straight to the wrist. Deliberately NOT [emit]: a
+            positive is unleveled by contract, so it must not enter
+            ``vector_events``, must not run through ``policy`` (which would
+            raise channel A and then repeat itself every two minutes via PRD
+            §6), and must not be recorded as a nudge. The watch plays it via
+            HapticDirector.playPositive, which enforces the same rule on its
+            own side."""
+            await websocket.send_json({"type": "positive", "code": code, "t": t})
+
         # Track 1 (2026-08-24): expose THIS connection's engine + emit to the
         # phone->watch relay (watch/relay.py) for as long as the socket is
         # open, so a hostile-tone self turn the PHONE heard can escalate the
@@ -235,6 +245,7 @@ def make_ws_router(
             live_session_id=live_session_id,
             engine=engine,
             emit=emit,
+            send_positive=send_positive,
             loop=asyncio.get_running_loop(),
         )
         register_live_session(relay_session)

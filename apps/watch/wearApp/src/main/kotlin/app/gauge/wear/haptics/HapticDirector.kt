@@ -2,6 +2,7 @@ package app.gauge.wear.haptics
 
 import app.gauge.shared.NudgeEvent
 import app.gauge.shared.NudgeHapticSchedule
+import app.gauge.shared.NudgePolarity
 import app.gauge.shared.NudgeVocabulary
 import app.gauge.wear.control.DiagLog
 import app.gauge.wear.control.NOOP_DIAG
@@ -165,6 +166,27 @@ open class HapticDirector(
     }
 
     /**
+     * Play a POSITIVE cue (nudge vocabulary D/E/R) — something the wearer did
+     * well.
+     *
+     * Deliberately not [onNudge]. A positive is unleveled by contract, must
+     * never move channel A's level, and must NEVER be re-fired by the PRD §6
+     * reminder: a wrist that repeats "well done" every two minutes is worse
+     * than one that never said it. So this touches no dedupe and no reminder
+     * state at all — it just plays, fail-soft, like every other path here.
+     *
+     * Silently does nothing for a code that never buzzes (🧘 K) or an
+     * unrecognised one, which is the honest answer rather than a generic buzz.
+     */
+    fun playPositive(code: String) {
+        val entry = NudgeVocabulary.forCode(code) ?: return
+        if (entry.polarity != NudgePolarity.POSITIVE) return
+        if (NudgeVocabulary.hapticFor(code, 1) == null) return
+        val cue = HapticPatterns.cueFor(POSITIVE_CHANNEL, 1, code) ?: return
+        play(POSITIVE_CHANNEL, 1, cue, HapticPatterns.waveformFallbackFor(POSITIVE_CHANNEL, 1, code))
+    }
+
+    /**
      * P4-3: fires a single local proportional pulse (channel A's pulse train — see [PulseEngine]
      * KDoc), completely independent of [onNudge]'s channel/level dedupe above. Falls back to a
      * fixed max amplitude when the device has no amplitude control (honest degradation — see
@@ -237,5 +259,9 @@ open class HapticDirector(
         const val TAG = "HapticDirector"
         /** The lane PRD §6's repeat schedule applies to — the wearer's own escalation. */
         const val REMINDER_CHANNEL = "A"
+        /** Positives ride the wearer's own lane (they are about the wearer), but
+         * only for cue SELECTION — [playPositive] never touches that lane's
+         * level or its reminder. */
+        const val POSITIVE_CHANNEL = "A"
     }
 }

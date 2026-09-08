@@ -1,6 +1,7 @@
 package app.gauge.wear.net
 
 import app.gauge.shared.NudgeEvent
+import app.gauge.shared.PositiveEvent
 import app.gauge.shared.VectorEvent
 import app.gauge.shared.wireJson
 import kotlinx.serialization.json.Json
@@ -55,6 +56,10 @@ class EpisodeWsClient(
     interface Listener {
         fun onVectorEvent(e: VectorEvent)
         fun onNudge(n: NudgeEvent)
+
+        /** Something the wearer did well. Default no-op so an older listener
+         *  keeps compiling and simply ignores praise. */
+        fun onPositive(p: PositiveEvent) {}
         fun onEpisodeSaved(id: String)
         fun onFailure(t: Throwable)
         fun onClosed()
@@ -127,6 +132,7 @@ class EpisodeWsClient(
             when (obj["type"]?.jsonPrimitive?.content) {
                 "vector_event" -> listener.onVectorEvent(wireJson.decodeFromString(VectorEvent.serializer(), text))
                 "nudge" -> listener.onNudge(wireJson.decodeFromString(NudgeEvent.serializer(), text))
+                "positive" -> listener.onPositive(wireJson.decodeFromString(PositiveEvent.serializer(), text))
                 "live_session_saved" -> {
                     val id = obj["live_session_id"]?.jsonPrimitive?.content
                     if (id != null) listener.onEpisodeSaved(id)

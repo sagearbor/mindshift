@@ -2856,6 +2856,16 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                             await ctx.call.push_turn(ctx.uid, event)
                         except calls.CallError as exc:
                             await send_json({"error": f"turn_local: {exc.detail}"})
+                elif msg_type == "positive":
+                    # The phone DELIVERED a positive cue (nudge vocabulary
+                    # D/E/R) and wants the wrist to feel it too. The phone
+                    # stays the only detector — its own two-minute cap has
+                    # already run, and a second detector here could disagree
+                    # with the flash the user just saw. Silent by design:
+                    # there is no ack, because the phone has already buzzed
+                    # and flashed, and a wearer with no watch must not see an
+                    # error for a feature that simply isn't there.
+                    _relay_positive(ctx, payload)
                 elif msg_type == "speaker_label":
                     # Mid-call naming ("Speaker B is Mom"): applied to this
                     # running session; the phone persists it at session end.
@@ -3275,6 +3285,29 @@ async def _relay_turn_local(
     result = push(ctx.uid, event, tone_flag=tone_flag)
     if inspect.isawaitable(result):
         await result
+
+
+def _relay_positive(ctx: SessionContext, payload: dict) -> None:
+    """Hand a phone-delivered positive to the watch relay.
+
+    Fail-soft and synchronous: the relay schedules its own send onto the
+    watch socket's loop, so nothing here can block the phone's hot path, and
+    a malformed/absent code just returns. ``t`` is the phone's own session
+    clock — the wrist plays praise immediately and never schedules from it,
+    so the two devices' epochs never have to agree (unlike the alert lane,
+    where the relay deliberately re-stamps with the watch's clock because
+    NudgePolicy's cooldown hysteresis needs one monotonic source)."""
+    if watch_relay is None or not ctx.uid:
+        return
+    push = getattr(watch_relay, "push_positive", None)
+    if push is None:
+        return
+    code = payload.get("code")
+    if not isinstance(code, str):
+        return
+    t = payload.get("t")
+    with contextlib.suppress(Exception):
+        push(ctx.uid, code, float(t) if isinstance(t, (int, float)) else 0.0)
 
 
 async def _notify_watch_connected(ctx: SessionContext, send_json) -> None:

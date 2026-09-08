@@ -220,7 +220,7 @@ maybe("nudge verification from recorded files (real Silero + ECAPA, scripted STT
           `instant haptics ${s.instantHaptics}${s.instantLeadMs ? ` lead median ${s.instantLeadMs.median} ms` : ""}; LLM lag median ${s.policyLagMs?.median ?? "-"} ms; ` +
           `call-mode interrupting ${s.callModeInterrupting}; activation max ${s.activationMaxProbability ?? "-"}; overlap probed ${s.overlapProbed}\n` +
           `   🎧 earpiece: instant ${s.earpiece.instantHaptics}, screen nudges ${s.earpiece.screenNudges}, spoken nudge lines ${s.earpiece.spokenNudges} (median ${s.earpiece.nudgeToSpeakMs?.median ?? "-"} ms after the turn), responses ${s.earpiece.spokenResponses}\n` +
-          `   ⌚ watch: buzzes ${s.watch.buzzes} ${JSON.stringify(s.watch.byVector)}; watch-only turns [${s.watch.watchOnlyTurns}], earpiece-only turns [${s.watch.earpieceOnlyTurns}], both [${s.watch.bothTurns}]; all on self turns ${s.watch.allOnSelfTurns}`,
+          `   ⌚ watch: buzzes ${s.watch.buzzes} ${JSON.stringify(s.watch.byVector)}; watch-only turns [${s.watch.watchOnlyTurns}], earpiece-only turns [${s.watch.earpieceOnlyTurns}], both [${s.watch.bothTurns}]; all on self turns ${s.watch.allOnSelfTurns}; praise felt on the wrist ${s.watch.positives}`,
       );
     }
     if (!WRITE) {
@@ -271,6 +271,13 @@ maybe("nudge verification from recorded files (real Silero + ECAPA, scripted STT
       expect(POSITIVE_CODES).toContain(h.code);
     }
     expect(rep.positives.every((p) => p.detail.length > 0)).toBe(true);
+    // ⌚ ...and the wrist feels them too. Until 2026-09-08 the relay carried
+    // alert vectors only, so a user with the phone in a pocket felt every
+    // complaint and no praise. Delivered-only (the cap must not leak) and
+    // every cue must have a real waveform behind it.
+    expect(rep.watch.positives.map((p) => p.code)).toEqual(rep.positives.filter((p) => p.delivered).map((p) => p.code));
+    expect(rep.watch.positives.every((p) => p.timingsMs.length > 0)).toBe(true);
+    expect(s.watch.positives).toBe(rep.positives.filter((p) => p.delivered).length);
     expect(
       Object.values(s.positives.delivered).reduce((a, b) => a + b, 0) + s.positives.suppressed,
     ).toBe(rep.positives.length);

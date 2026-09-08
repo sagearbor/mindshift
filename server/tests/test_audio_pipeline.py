@@ -2084,13 +2084,19 @@ class FakeVoiceprintStore:
 
 
 class FakeRelay:
-    """Track 1's relay surface: push_turn_local(uid, event, *, tone_flag=None)."""
+    """Track 1's relay surface: push_turn_local(uid, event, *, tone_flag=None),
+    plus the praise lane push_positive(uid, code, t)."""
 
     def __init__(self) -> None:
         self.calls: list[dict] = []
+        self.positives: list[dict] = []
 
     def push_turn_local(self, uid: str, event, *, tone_flag=None) -> None:
         self.calls.append({"uid": uid, "event": event, "tone_flag": tone_flag})
+
+    def push_positive(self, uid: str, code: str, t: float) -> bool:
+        self.positives.append({"uid": uid, "code": code, "t": t})
+        return True
 
 
 @pytest.fixture
@@ -2506,6 +2512,62 @@ class TestPcmRingBuffer:
 def _stream_one_second(ws) -> None:
     for _ in range(10):
         ws.send_bytes(FRAME_100MS)
+
+
+class TestPositiveRelay:
+    """The praise lane: the phone DELIVERED a positive and wants the wrist to
+    feel it too. Before this existed the watch relay carried alert vectors
+    only, so a wearer with the phone in a pocket felt every complaint and no
+    praise. The server is a courier here — the phone is the only detector, so
+    the flash on the screen and the buzz on the wrist cannot disagree."""
+
+    def _send(self, monkeypatch, relay, payload: dict) -> None:
+        monkeypatch.setattr(audio_pipeline, "watch_relay", relay)
+        client = _inject(StoppableTranscriber())
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_text(json.dumps(payload))
+            ws.send_text(json.dumps({"type": "stop"}))
+            while json.loads(ws.receive_text())["type"] != "session_complete":
+                pass
+
+    def test_positive_frame_is_relayed_to_the_wrist(self, local_first_env, monkeypatch):
+        relay = FakeRelay()
+        self._send(monkeypatch, relay, {"type": "positive", "code": "E", "t": 41.5})
+        assert relay.positives == [{"uid": "test-user", "code": "E", "t": 41.5}]
+
+    def test_positive_frame_never_acks_or_errors(self, local_first_env, monkeypatch):
+        """No ack on purpose: the phone has already buzzed and flashed, and a
+        user with no watch must not see an error for a feature that simply
+        isn't there. A malformed one is dropped just as quietly — praise is
+        never worth interrupting a live session over."""
+        relay = FakeRelay()
+        monkeypatch.setattr(audio_pipeline, "watch_relay", relay)
+        client = _inject(StoppableTranscriber())
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            for payload in (
+                {"type": "positive", "code": "E", "t": 1.0},
+                {"type": "positive"},                       # no code
+                {"type": "positive", "code": 7},            # not a string
+                {"type": "positive", "code": "E", "t": "x"},  # unusable clock
+            ):
+                ws.send_text(json.dumps(payload))
+            ws.send_text(json.dumps({"type": "stop"}))
+            frames = []
+            while True:
+                msg = json.loads(ws.receive_text())
+                if msg["type"] == "session_complete":
+                    break
+                frames.append(msg)
+        assert not any("error" in f for f in frames), frames
+        # Only the well-formed ones travelled; the bad clock degrades to 0.0
+        # rather than being dropped (the wrist plays praise immediately and
+        # never schedules from t, so an unusable clock costs nothing).
+        assert [(p["code"], p["t"]) for p in relay.positives] == [("E", 1.0), ("E", 0.0)]
+
+    def test_positive_without_a_relay_module_is_a_noop(self, local_first_env, monkeypatch):
+        """No watch build in this checkout: the frame must be swallowed, not
+        crash the live session."""
+        self._send(monkeypatch, None, {"type": "positive", "code": "E", "t": 1.0})
 
 
 class TestTurnLocalEnrichment:

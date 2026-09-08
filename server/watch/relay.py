@@ -82,6 +82,7 @@ from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
 from models.audio import ToneFlagEvent, TurnLocalEvent, TurnTextTone
+from nudge_vocabulary import vocabulary_for_code
 from watch.models import VectorEvent, VectorName
 from watch.vectors import (
     RUNNING_STAT_WINDOW,
@@ -110,6 +111,9 @@ TONE_VECTOR: VectorName = "aggressive_tone"
 TONE_FLAG_MIN_CONFIDENCE = 0.5
 
 Emit = Callable[[list[VectorEvent], float], Awaitable[None]]
+#: ws.py's per-connection "send one positive frame" closure — a raw send that
+#: touches neither the session's vector log nor its NudgePolicy.
+SendPositive = Callable[[str, float], Awaitable[None]]
 
 
 # ----------------------------------------------------------------- pure --
@@ -215,6 +219,13 @@ class LiveWatchSession:
     engine: VectorEngine
     emit: Emit
     loop: asyncio.AbstractEventLoop
+    # Praise's own wire, deliberately NOT ``emit``. ``emit`` runs everything
+    # it is given through this session's NudgePolicy, which is the ALERT
+    # escalation machine: a positive sent that way would raise channel A's
+    # level and then be repeated by PRD §6's reminder every two minutes.
+    # None for a session opened before this existed (and in tests that don't
+    # care) — ``push_positive`` then reports False rather than guessing.
+    send_positive: SendPositive | None = None
     # Phone-side loudness history for the no-enrollment fallback baseline.
     # Deliberately SEPARATE from engine._rms_db_history: the phone's mic
     # gain is not the watch's, so mixing the two would corrupt the watch's
@@ -285,6 +296,33 @@ def _on_relay_done(fut: asyncio.Future) -> None:
         logger.warning("watch relay: emit failed (socket gone?)", exc_info=exc)
 
 
+def push_positive(uid: str, code: str, t: float) -> bool:
+    """Relay one POSITIVE cue (nudge vocabulary D/E/R) to ``uid``'s wrist.
+
+    The wrist used to be a pure complaint channel: this module carried
+    ``VectorEvent``s only, so a wearer with the phone in a pocket felt every
+    escalation and no praise. The phone is still the only DETECTOR (one
+    detector, so the flash on the screen and the buzz on the wrist can never
+    disagree); this just carries the verdict.
+
+    Bypasses ``emit``/``NudgePolicy`` on purpose — see ``send_positive``.
+    Codes are checked against the shared vocabulary here as well as on the
+    watch: a bad code should die at the relay, not travel.
+
+    Returns False (no-op) for an unknown/alert/never-buzzing code, or when no
+    watch is live for the account.
+    """
+    entry = vocabulary_for_code(code)
+    if entry is None or entry.polarity != "positive" or entry.haptic is None:
+        logger.debug("watch relay: refusing to relay %r as a positive", code)
+        return False
+    session = live_session_for(uid)
+    if session is None or session.send_positive is None:
+        return False
+    _schedule_coro(session, session.send_positive(code, t))
+    return True
+
+
 def push_vector_events(uid: str, events: list[VectorEvent], t: float) -> bool:
     """Feed already-computed vector events (e.g. call-mode ``interrupting``
     from server/calls.py) into ``uid``'s live watch session — the wrist
@@ -304,7 +342,17 @@ def _schedule(session: LiveWatchSession, events: list[VectorEvent], t: float) ->
     if session.loop.is_closed():
         logger.debug("watch relay: loop for %s already closed; dropping %d event(s)", session.account_id, len(events))
         return
-    coro = session.emit(events, t)
+    _schedule_coro(session, session.emit(events, t))
+
+
+def _schedule_coro(session: LiveWatchSession, coro) -> None:
+    """Run one already-built coroutine on the socket's own loop, from
+    whatever loop/thread we happen to be on. A websocket may only be touched
+    from its own loop, and the phone's pipeline is not on it."""
+    if session.loop.is_closed():
+        logger.debug("watch relay: loop for %s already closed; dropping a frame", session.account_id)
+        coro.close()
+        return
     try:
         current = asyncio.get_running_loop()
     except RuntimeError:

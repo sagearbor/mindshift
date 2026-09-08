@@ -37,6 +37,23 @@ data class NudgeEvent(
     val vectors: List<String> = emptyList(),
 )
 
+/**
+ * Server -> watch: something the wearer did WELL (nudge vocabulary D/E/R).
+ *
+ * Deliberately NOT a [NudgeEvent]. A nudge carries a channel and a level and
+ * feeds the escalation machinery; a positive has neither — it is unleveled by
+ * contract, it must never move channel A's level, and it must never be
+ * repeated by the PRD §6 reminder. Sending praise down the nudge path would do
+ * all three, and a wrist that re-buzzes "well done" every two minutes is worse
+ * than one that never said it.
+ */
+@Serializable
+data class PositiveEvent(
+    /** A vocabulary code: "D", "E" or "R". "K" never reaches a wrist. */
+    val code: String,
+    val t: Double = 0.0,
+)
+
 @Serializable
 data class VectorSubscription(
     val vector: String,

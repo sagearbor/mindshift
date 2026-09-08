@@ -262,3 +262,95 @@ def test_phone_turn_nudges_a_live_watch_socket_from_another_thread():
 
     # After the socket is gone, the same call is a no-op, not an error.
     relay.push_turn_local("alice", _turn(text_tone=TurnTextTone(frustration=99)))
+
+
+# ------------------------------------------------------- positives (praise) --
+#
+# Before push_positive existed the relay carried VectorEvents only, so a wearer
+# with the phone in a pocket felt every complaint and no praise: the wrist was a
+# pure complaint channel. These cases pin the fix AND its limits — praise must
+# reach the wrist without ever entering the escalation machinery.
+
+class _PositiveRecorder(_Recorder):
+    def __init__(self, subs=None):
+        super().__init__(subs)
+        self.positives: list[tuple[str, float]] = []
+
+    async def send_positive(self, code, t):
+        self.positives.append((code, t))
+
+
+def _positive_session(engine, recorder, account="alice"):
+    return relay.LiveWatchSession(
+        account_id=account, live_session_id="ls-1", engine=engine, emit=recorder.emit,
+        send_positive=recorder.send_positive, loop=asyncio.get_running_loop(),
+    )
+
+
+def test_push_positive_reaches_the_wrist_without_touching_the_policy():
+    async def run():
+        engine = VectorEngine(None)
+        rec = _PositiveRecorder()
+        relay.register_live_session(_positive_session(engine, rec))
+
+        assert relay.push_positive("alice", "E", 41.5) is True
+        await _settle()
+        assert rec.positives == [("E", 41.5)]
+        # The whole point: no vector event, no nudge, no level.
+        assert rec.calls == []
+        assert rec.nudges == []
+        assert rec.policy.current() == {"A": 0, "B": 0}
+
+    asyncio.run(run())
+
+
+def test_push_positive_refuses_anything_that_is_not_praise():
+    """A bad code must die at the relay rather than travel. H is an ALERT
+    (relaying it here would launder a complaint as praise) and K is silent by
+    contract (buzzing to say nothing happened is the definition of a nag)."""
+    async def run():
+        rec = _PositiveRecorder()
+        relay.register_live_session(_positive_session(VectorEngine(None), rec))
+        for code in ("H", "C", "A", "P", "K", "", "zzz", "e"):
+            assert relay.push_positive("alice", code, 1.0) is False, code
+        await _settle()
+        assert rec.positives == []
+
+    asyncio.run(run())
+
+
+def test_push_positive_without_a_live_watch_is_a_noop():
+    assert relay.push_positive("nobody", "E", 1.0) is False
+
+
+def test_push_positive_on_a_session_that_cannot_send_is_a_noop():
+    """A socket opened before this path existed has no send_positive. It must
+    report False, not fall back to emit — falling back would escalate."""
+    async def run():
+        rec = _PositiveRecorder()
+        relay.register_live_session(_session(VectorEngine(None), rec))  # no send_positive
+        assert relay.push_positive("alice", "E", 1.0) is False
+        await _settle()
+        assert rec.calls == [] and rec.positives == []
+
+    asyncio.run(run())
+
+
+def test_positive_frame_reaches_a_live_watch_socket_from_another_thread():
+    """End to end: watch WS open on the app's loop; the phone pipeline (this
+    thread) delivers a positive; a `positive` frame comes down the wire and
+    NOTHING is persisted as a nudge."""
+    store = MemoryLiveSessionStore()
+    client = TestClient(create_watch_test_app(store=store, allow_legacy=True))
+    with client.websocket_connect("/ws/live-session/e-praise?account=alice") as ws:
+        assert relay.push_positive("alice", "R", 12.0) is True
+        frame = json.loads(ws.receive_text())
+        assert frame == {"type": "positive", "code": "R", "t": 12.0}
+
+        ws.send_text(json.dumps({"type": "end"}))
+        saved = json.loads(ws.receive_text())
+        assert saved["type"] == "live_session_saved"
+
+    ls = asyncio.run(store.get_live_session("e-praise"))
+    assert ls is not None
+    assert ls.vector_events == [] and ls.nudge_events == [], "praise is not an escalation"
