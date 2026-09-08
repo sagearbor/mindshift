@@ -5,6 +5,20 @@
  * of these numbers. Workstream 2 of
  * docs/plans/2026-09-04-naturalturn-conversation-quality.md.
  *
+ * DELIBERATELY STILL DARK after the 2026-09-07 review of every dark signal,
+ * and this one is dark for a different reason than the others. It is not
+ * unvalidated — the numbers are simple arithmetic over turn timings and are
+ * exactly right. What is weak is the CLAIM that would have to accompany them:
+ * the effect these gaps were mined for correlates with enjoyment at r ≈ -0.11
+ * (CANDOR, 850 h). Showing someone "your median response gap was 0.42 s
+ * against a norm of 0.50 s" invites them to read a meaning that a correlation
+ * that small cannot carry, and the app's own rule is that a measurement is
+ * only shown when it earns the user's attention. Two ways it could earn it:
+ * an effect measured on THIS user's own sessions rather than a corpus
+ * average, or a threshold beyond which the association is strong rather than
+ * detectable. Neither exists yet, so the numbers stay where a developer can
+ * read them and a user is not asked to act on them.
+ *
  * Why gaps, not overlap, are the headline: CANDOR analysis (see below) found
  * brief overlap is a NORMAL feature of fluent conversation, uncorrelated
  * with harm, while long response gaps are the real anti-signal. An earlier

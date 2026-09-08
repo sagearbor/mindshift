@@ -10,6 +10,36 @@ import { MemoryFs } from "../src/recorder/memoryFs";
 import { RecorderSessionStore } from "../src/recorder/sessionStore";
 import type { RecordedAudioFile, RecorderPort } from "../src/recorder/types";
 
+/**
+ * Unmount every tree this file creates.
+ *
+ * react-test-renderer keeps a mounted tree scheduled, and a state update that
+ * lands AFTER Jest tears the environment down throws "You are trying to
+ * `import` a file after the Jest environment has been torn down" — which is
+ * not a test failure but a WORKER CRASH, taking every unrelated suite sharing
+ * that worker with it. That is why running the whole suite at once used to
+ * fail a handful of random files that each passed on their own.
+ */
+const __trees: renderer.ReactTestRenderer[] = [];
+function track<T extends renderer.ReactTestRenderer>(t: T): T {
+  __trees.push(t);
+  return t;
+}
+afterEach(async () => {
+  await act(async () => {});
+  act(() => {
+    for (const t of __trees.splice(0)) {
+      try {
+        t.unmount();
+      } catch {
+        // A tree a test already unmounted, or one whose teardown throws, must
+        // not fail the test that otherwise passed.
+      }
+    }
+  });
+});
+
+
 const SEGMENT_MS = 4000;
 
 function wavBytes(tag: number): Uint8Array {
@@ -127,9 +157,9 @@ async function mount(deps: AudioRecorderDeps, onComplete = jest.fn()) {
   const onBack = jest.fn();
   let comp!: renderer.ReactTestRenderer;
   await act(async () => {
-    comp = renderer.create(
+    comp = track(renderer.create(
       <AudioRecordScreen onBack={onBack} onComplete={onComplete} deps={deps} />,
-    );
+    ));
   });
   return { comp, onBack, onComplete };
 }

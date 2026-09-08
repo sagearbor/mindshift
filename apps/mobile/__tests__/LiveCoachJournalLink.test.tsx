@@ -34,6 +34,36 @@ jest.mock("../src/api/client", () => ({
 import LiveCoachScreen from "../src/screens/LiveCoachScreen";
 import { IDLE_JOURNAL_STATE, type JournalState } from "../src/live/journalRecorder";
 
+/**
+ * A safety net over this file's own explicit unmounts.
+ *
+ * Unmounting on the happy path is not enough: a test that fails, or returns
+ * early, leaves its tree mounted, and a state update landing after Jest tears
+ * the environment down throws "You are trying to `import` a file after the
+ * Jest environment has been torn down" — a WORKER CRASH that takes unrelated
+ * suites with it. Double-unmounting is harmless here (it is caught), so this
+ * can sit alongside the explicit ones.
+ */
+const __trees: renderer.ReactTestRenderer[] = [];
+function track<T extends renderer.ReactTestRenderer>(t: T): T {
+  __trees.push(t);
+  return t;
+}
+afterEach(async () => {
+  await act(async () => {});
+  act(() => {
+    for (const t of __trees.splice(0)) {
+      try {
+        t.unmount();
+      } catch {
+        // Already unmounted by the test, or a throwing teardown — either way
+        // it must not fail a test that otherwise passed.
+      }
+    }
+  });
+});
+
+
 function makeHook(overrides: Record<string, unknown> = {}) {
   return {
     isRecording: false,
@@ -83,7 +113,7 @@ const flush = () => act(async () => { await Promise.resolve(); });
 function render(props: React.ComponentProps<typeof LiveCoachScreen>) {
   let root: renderer.ReactTestRenderer;
   act(() => {
-    root = renderer.create(<LiveCoachScreen {...props} />);
+    root = track(renderer.create(<LiveCoachScreen {...props} />));
   });
   return root!;
 }

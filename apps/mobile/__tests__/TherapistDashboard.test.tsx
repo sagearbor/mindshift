@@ -4,6 +4,33 @@ import TherapistDashboard from "../src/screens/TherapistDashboard";
 import { useDashboardStore } from "../src/store/dashboardStore";
 import { listDashboardSessions } from "../src/api/client";
 
+/**
+ * Unmount every tree this file creates.
+ *
+ * A tree left mounted at teardown can flush a state update after Jest has torn
+ * the environment down, which throws "You are trying to `import` a file after
+ * the Jest environment has been torn down" — a WORKER CRASH that takes
+ * unrelated suites with it, not a local failure.
+ */
+const __trees: renderer.ReactTestRenderer[] = [];
+function track<T extends renderer.ReactTestRenderer>(t: T): T {
+  __trees.push(t);
+  return t;
+}
+afterEach(async () => {
+  await act(async () => {});
+  act(() => {
+    for (const t of __trees.splice(0)) {
+      try {
+        t.unmount();
+      } catch {
+        // Never let a teardown failure fail a test that passed.
+      }
+    }
+  });
+});
+
+
 // The dashboard's mount-time fetch is a real, authenticated GET /sessions
 // (Track 2). Mock it like every other screen test mocks the client so the
 // snapshots below stay a pure render of the store state set in each test
@@ -99,9 +126,7 @@ describe("TherapistDashboard", () => {
   it("renders empty state", () => {
     let component: renderer.ReactTestRenderer;
     act(() => {
-      component = renderer
-        .create(<TherapistDashboard onSelectSession={jest.fn()} />)
-        ;
+      component = track(renderer.create(<TherapistDashboard onSelectSession={jest.fn()} />));
     });
     expect(component!.toJSON()).toMatchSnapshot();
   });
@@ -113,9 +138,7 @@ describe("TherapistDashboard", () => {
 
     let component: renderer.ReactTestRenderer;
     act(() => {
-      component = renderer
-        .create(<TherapistDashboard onSelectSession={jest.fn()} />)
-        ;
+      component = track(renderer.create(<TherapistDashboard onSelectSession={jest.fn()} />));
     });
     expect(component!.toJSON()).toMatchSnapshot();
   });
@@ -127,9 +150,7 @@ describe("TherapistDashboard", () => {
 
     let component: renderer.ReactTestRenderer;
     act(() => {
-      component = renderer
-        .create(<TherapistDashboard onSelectSession={jest.fn()} />)
-        ;
+      component = track(renderer.create(<TherapistDashboard onSelectSession={jest.fn()} />));
     });
     expect(component!.toJSON()).toMatchSnapshot();
   });
@@ -144,9 +165,7 @@ describe("TherapistDashboard", () => {
 
     let component: renderer.ReactTestRenderer;
     act(() => {
-      component = renderer
-        .create(<TherapistDashboard onSelectSession={jest.fn()} />)
-        ;
+      component = track(renderer.create(<TherapistDashboard onSelectSession={jest.fn()} />));
     });
     expect(component!.toJSON()).toMatchSnapshot();
   });

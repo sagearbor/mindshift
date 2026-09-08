@@ -6,6 +6,36 @@ import GrowthScreen from "../src/screens/GrowthScreen";
 import { getGrowth, getVoiceProfile } from "../src/api/client";
 import type { GrowthResult } from "../src/api/client";
 
+/**
+ * Unmount every tree this file creates.
+ *
+ * react-test-renderer keeps a mounted tree scheduled, and a state update that
+ * lands AFTER Jest tears the environment down throws "You are trying to
+ * `import` a file after the Jest environment has been torn down" — which is
+ * not a test failure but a WORKER CRASH, taking every unrelated suite sharing
+ * that worker with it. That is why running the whole suite at once used to
+ * fail a handful of random files that each passed on their own.
+ */
+const __trees: renderer.ReactTestRenderer[] = [];
+function track<T extends renderer.ReactTestRenderer>(t: T): T {
+  __trees.push(t);
+  return t;
+}
+afterEach(async () => {
+  await act(async () => {});
+  act(() => {
+    for (const t of __trees.splice(0)) {
+      try {
+        t.unmount();
+      } catch {
+        // A tree a test already unmounted, or one whose teardown throws, must
+        // not fail the test that otherwise passed.
+      }
+    }
+  });
+});
+
+
 jest.mock("../src/api/client", () => ({
   getGrowth: jest.fn(),
   getVoiceProfile: jest.fn(),
@@ -47,7 +77,7 @@ describe("GrowthScreen — pull to refresh", () => {
     mockGrowth.mockResolvedValueOnce(result(1));
     let comp: renderer.ReactTestRenderer;
     act(() => {
-      comp = renderer.create(<GrowthScreen onOpenRecording={jest.fn()} onOpenRecordings={jest.fn()} />);
+      comp = track(renderer.create(<GrowthScreen onOpenRecording={jest.fn()} onOpenRecordings={jest.fn()} />));
     });
     await flush();
     expect(mockGrowth).toHaveBeenCalledTimes(1);
