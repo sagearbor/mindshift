@@ -157,6 +157,24 @@ TONE_AUDIO_ENV = "MINDSHIFT_TONE_AUDIO"
 TONE_MODES = ("off", "dark", "on")
 # DEFAULT = "dark", set by the owner's rule from the measured evals (round 1
 # AND round 2, see module docstring): computes and logs, never surfaced.
+# "dark" = compute and log, never surface. NOT "off": the default exists so a
+# deployment that installs the optional deps starts measuring rather than
+# guessing.
+#
+# Status 2026-09-07: the deployed server has MINDSHIFT_TONE_AUDIO=off, so this
+# signal is not running in production at all. Before it is turned on, it needs
+# the SECOND half of the gate that vocal activation failed and then passed —
+# see FastLoopDeps.activationNudges. Its 0.81 AUC / 83% was measured on the
+# ACTED fixture pack, which is exactly the kind of in-corpus number that told
+# us activation was ready when it was not; that model turned out to be reading
+# recording gain, and only a real recording exposed it.
+#
+# What would settle it: run the per-speaker delta over server/tests/fixtures/
+# audio/test_recording_family_real.wav (real speech, real room) and confirm it
+# does not escalate on the calm turns. The design is already the right shape
+# for that — a per-speaker DELTA against that speaker's own running baseline is
+# inherently invariant to voice and to level, which is precisely the property
+# activation v2 had to be rebuilt to get.
 DEFAULT_TONE_MODE = "dark"
 
 # IEMOCAP's 4 classes mapped to the plain words the rest of the product uses.

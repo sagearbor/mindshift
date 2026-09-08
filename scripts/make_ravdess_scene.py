@@ -266,6 +266,68 @@ def main() -> int:
     audio = np.concatenate(pieces)
     total = audio.size / TARGET_SR
 
+    # --- the ENROLMENT clip -------------------------------------------------
+    # Separate audio from the conversation, exactly as in the app: the user
+    # reads four ordinary phrases and then two LOUD ones (VoiceTrainingFlow),
+    # and the loud pair becomes their raised prototype. Built from RAVDESS
+    # statement 01, which the scene above never uses, so nothing in the
+    # conversation is also in the enrolment — the same separation a real user
+    # has, and the reason the replay can prove the raised print end to end
+    # instead of assuming it.
+    enrol_spec = [
+        ("01", "01", "01", "01"), ("02", "01", "01", "01"),   # ordinary
+        ("02", "02", "01", "02"), ("01", "01", "01", "02"),   # ordinary
+        ("05", "02", "01", "01"), ("05", "02", "01", "02"),   # LOUD
+    ]
+    enrol_pieces, enrol_meta = [], []
+    for j, clip in enumerate(enrol_spec):
+        path = clip_path(SELF_ACTOR, clip)
+        if not path.exists():
+            sys.exit(f"missing RAVDESS clip: {path}")
+        body = trim_edge_silence(read_16k(ffmpeg, path), TARGET_SR)
+        if j > 0:
+            enrol_pieces.append(turn_gap)
+        enrol_pieces.append(body)
+        label, coarse = EMOTION[clip[0]]
+        enrol_meta.append({
+            "speaker": SELF_LABEL,
+            "text": STATEMENT[clip[2]],
+            "scripted_emotion": f"{label}_{'strong' if clip[1] == '02' else 'normal'}",
+            "emotion_coarse": coarse,
+            "instruction": f"RAVDESS actor {SELF_ACTOR:02d}, enrolment take",
+            "register": "raised" if clip[0] == "05" else "normal",
+            "ravdess_clips": [path.name],
+            "duration_sec": round(body.size / TARGET_SR, 4),
+            "rms_dbfs": round(rms_dbfs(body), 2),
+        })
+    enrol_audio = np.concatenate(enrol_pieces)
+    enrol_wav = OUT_WAV.with_name("test_recording_scene_ravdess_enrol.wav")
+    write_wav(enrol_wav, enrol_audio, TARGET_SR)
+    loud = [m["rms_dbfs"] for m in enrol_meta if m["register"] == "raised"]
+    quiet = [m["rms_dbfs"] for m in enrol_meta if m["register"] == "normal"]
+    enrol_wav.with_name(enrol_wav.stem + "_meta.json").write_text(json.dumps({
+        "_note": (
+            "ENROLMENT audio for the RAVDESS scene's self speaker — the replay's stand-in for "
+            "voice training. Four ordinary takes then two LOUD ones, from RAVDESS statement 01, "
+            "which the conversation never uses: enrolment and conversation share no audio, exactly "
+            "as they do for a real user. The loud pair is what becomes the raised prototype."
+        ),
+        "variant": "ravdess-enrolment",
+        "scene": "ravdess_enrol",
+        "sample_rate": TARGET_SR,
+        "silence_gap_sec": TURN_GAP,
+        "num_speakers_true": 1,
+        "self_speaker": SELF_LABEL,
+        "speakers": {SELF_LABEL: {"voice": f"ravdess_actor_{SELF_ACTOR:02d}", "is_self": True, "role": "self"}},
+        "turns": enrol_meta,
+        "measured": {
+            "raised_over_normal_db": round(float(np.median(loud) - np.median(quiet)), 2),
+            "note": "The gap the raised prototype is split on (enroll.ts needs >= 6 dB over the median).",
+        },
+    }, indent=2) + "\n")
+    print(f"  enrolment clip: {len(enrol_meta)} takes, loud is "
+          f"{np.median(loud) - np.median(quiet):+.1f} dB over the ordinary ones")
+
     # The measurement that justifies the whole fixture: how much louder the
     # spike actually is than the same actor's calm turns.
     self_turns = [t for t in turns_meta if t["speaker"] == SELF_LABEL]
