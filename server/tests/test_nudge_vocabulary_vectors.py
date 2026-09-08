@@ -91,21 +91,26 @@ def test_alert_codes_have_three_levels_positives_have_one():
 def test_waveforms_are_well_formed(entry):
     for level, wave in entry.haptic.items():
         t, a = wave.timings_ms, wave.amplitudes
-        assert len(t) == len(a) and len(t) % 2 == 0 and len(t) >= 2, (entry.code, level)
-        assert t[0] == 0, "the pattern must open with a zero delay (RN's Vibration shape)"
+        assert len(t) == len(a) and len(t) >= 2, (entry.code, level)
+        assert t[0] == 0 and a[0] == 0, "the pattern must open with a zero delay"
         for i, (ms, amp) in enumerate(zip(t, a, strict=True)):
-            if i % 2 == 0:  # OFF slot
-                assert amp == 0, (entry.code, level, i)
-                if i > 0:
-                    floor = 0 if entry.vector in HAPTIC_GAP_EXCEPTIONS else MIN_GAP_MS
-                    assert ms >= floor, f"{entry.code} L{level} gap {ms}ms merges two taps"
-            else:  # ON slot
-                assert ms > 0 and 1 <= amp <= 255, (entry.code, level, i)
-                # The measured perceptibility floor. A cue nobody can feel is
-                # not a soft cue, it is a missing one — so this binds the soft
-                # positives too, not just the alerts.
-                assert ms >= MIN_ON_MS, f"{entry.code} L{level} tap {ms}ms is under the floor"
-                assert amp >= MIN_AMPLITUDE, f"{entry.code} L{level} amplitude {amp} is under the floor"
+            if i == 0:
+                continue
+            assert ms > 0, (entry.code, level, i)
+            assert 0 <= amp <= 255, (entry.code, level, i)
+        # Per RUN — a swell is ONE felt buzz, so the perceptibility floor binds
+        # its total length and its PEAK, not each segment inside it.
+        for run_ms, peak in wave.runs:
+            assert run_ms >= MIN_ON_MS, f"{entry.code} L{level} run {run_ms}ms is under the floor"
+            assert peak >= MIN_AMPLITUDE, f"{entry.code} L{level} peak {peak} is under the floor"
+        # Silences BETWEEN runs must not let two buzzes smear into one.
+        floor = 0 if entry.vector in HAPTIC_GAP_EXCEPTIONS else MIN_GAP_MS
+        seen_run = False
+        for ms, amp in zip(t[1:], a[1:], strict=True):
+            if amp > 0:
+                seen_run = True
+            elif seen_run:
+                assert ms >= floor, f"{entry.code} L{level} gap {ms}ms merges two buzzes"
 
 
 def test_level_is_carried_by_rhythm():
@@ -154,11 +159,14 @@ def test_alert_levels_out_of_range_are_silent_not_clamped():
 
 
 def _taps(w):
-    return w.timings_ms[1::2]
+    """What a PHONE feels as separate buzzes — a swell counts as one."""
+    return [ms for ms, _ in w.runs]
 
 
 def _gaps(w):
-    return w.timings_ms[2::2]
+    """Silences between those buzzes."""
+    pattern = w.phone_pattern
+    return pattern[2::2]
 
 
 def _confusable(a, b, gap_ms: int, ratio: float) -> bool:
@@ -210,3 +218,42 @@ def test_the_rising_and_falling_ramps_are_opposites_in_tap_length():
     assert list(falling) == list(reversed(rising)), "the two must be exact mirrors"
     # ...and the difference has to be big enough to feel, not a few milliseconds.
     assert max(rising) / min(rising) >= 3.0
+
+
+def test_positives_are_swells_and_alerts_are_taps():
+    """The texture split the owner asked for (2026-09-07, on a Pixel Watch):
+    "i would want positive to be very diff than negative". A positive is one
+    continuous buzz that rises and falls INSIDE itself; an alert is discrete
+    taps at a flat level. On a watch that is felt immediately, before any
+    counting; on a phone the swell survives as a smoother, longer buzz."""
+    def has_swell(wave):
+        # A run built from more than one segment, with the strength changing.
+        segments, changed, count = 0, False, 0
+        last = None
+        for t, amp in zip(wave.timings_ms[1:], wave.amplitudes[1:]):
+            if amp > 0:
+                count += 1
+                if last is not None and amp != last:
+                    changed = True
+                last = amp
+            else:
+                segments = max(segments, count)
+                count, last = 0, None
+        return changed and max(segments, count) > 1
+
+    for entry in NUDGE_VOCABULARY:
+        if entry.haptic is None or entry.code == "D":
+            continue  # D mirrors H's ramp by design; see its haptic_note.
+        for wave in entry.haptic.values():
+            assert has_swell(wave) == (entry.polarity == "positive"), entry.code
+
+
+def test_phone_pattern_merges_a_swell_into_one_buzz():
+    """What React Native actually sends. A swell has no internal shape there,
+    so it must arrive as ONE buzz of the run's length — not as three taps,
+    which is what passing the raw timings would produce."""
+    listened = haptic_for("E", 1)
+    assert listened.phone_pattern == [0, 180, 170, 180]
+    assert [ms for ms, _ in listened.runs] == [180, 180]
+    # An alert is unchanged by merging — it has no consecutive vibrating slots.
+    assert haptic_for("C", 1).phone_pattern == list(haptic_for("C", 1).timings_ms)

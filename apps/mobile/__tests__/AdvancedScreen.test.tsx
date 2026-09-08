@@ -774,6 +774,16 @@ describe("Feel the patterns (the nudge haptic vocabulary)", () => {
     expect(RN.Vibration.vibrate).toHaveBeenCalledWith([0, 60, 170, 60, 170, 300]);
   });
 
+  it("sends a positive as ONE merged buzz per swell, not its internal shape", async () => {
+    // A swell's segments would otherwise reach the motor as separate taps —
+    // the opposite of the smooth texture that makes a positive feel positive.
+    const comp = await render();
+    await act(async () => {
+      comp.root.findByProps({ testID: "haptic-play-E-1" }).props.onPress();
+    });
+    expect(RN.Vibration.vibrate).toHaveBeenCalledWith([0, 180, 170, 180]);
+  });
+
   it("offers three levels for an alert and a single cue for a positive", async () => {
     const comp = await render();
     for (const level of [1, 2, 3]) {

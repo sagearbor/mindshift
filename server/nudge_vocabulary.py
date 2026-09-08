@@ -60,7 +60,42 @@ class HapticWaveform:
     @property
     def on_ms(self) -> int:
         """Total vibrating time — what an amplitude-blind phone actually feels."""
-        return sum(self.timings_ms[1::2])
+        return sum(t for t, a in zip(self.timings_ms[1:], self.amplitudes[1:]) if a > 0)
+
+    @property
+    def runs(self) -> list[tuple[int, int]]:
+        """Maximal stretches of vibrating segments as ``(duration_ms, peak)`` —
+        what a wearer feels as "taps", a swell counting as ONE."""
+        out: list[tuple[int, int]] = []
+        cur: tuple[int, int] | None = None
+        for t, a in zip(self.timings_ms[1:], self.amplitudes[1:]):
+            if a > 0:
+                cur = (t, a) if cur is None else (cur[0] + t, max(cur[1], a))
+            elif cur is not None:
+                out.append(cur)
+                cur = None
+        if cur is not None:
+            out.append(cur)
+        return out
+
+    @property
+    def phone_pattern(self) -> list[int]:
+        """The waveform as an Android phone plays it: vibrating segments merged
+        into single buzzes, silences kept. React Native can only switch the
+        motor on and off, so a swell's internal shape does not exist there."""
+        out = [self.timings_ms[0] if self.timings_ms else 0]
+        run = 0
+        for t, a in zip(self.timings_ms[1:], self.amplitudes[1:]):
+            if a > 0:
+                run += t
+                continue
+            if run:
+                out.append(run)
+                run = 0
+            out.append(t)
+        if run:
+            out.append(run)
+        return out
 
 
 @dataclass(frozen=True)
@@ -197,7 +232,7 @@ NUDGE_VOCABULARY: tuple[NudgeVocabularyEntry, ...] = (
         # Soft `••` — deliberately the same cue as R: the wrist says "that was
         # good", the screen says which good thing.
         haptic={
-            1: _w([0, 50, 170, 50], [0, 180, 0, 180]),
+            1: _w([0, 60, 60, 60, 170, 60, 60, 60], [0, 120, 190, 120, 0, 120, 190, 120]),
         },
     ),
     NudgeVocabularyEntry(
@@ -214,7 +249,7 @@ NUDGE_VOCABULARY: tuple[NudgeVocabularyEntry, ...] = (
         watch_only=False,
         levels=(1,),
         haptic={
-            1: _w([0, 50, 170, 50, 170, 50], [0, 180, 0, 180, 0, 180]),
+            1: _w([0, 60, 60, 60, 170, 60, 60, 60, 170, 60, 60, 60], [0, 120, 190, 120, 0, 120, 190, 120, 0, 120, 190, 120]),
         },
     ),
     NudgeVocabularyEntry(

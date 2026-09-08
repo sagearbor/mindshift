@@ -41,7 +41,7 @@ import {
   type ProviderName,
 } from "./localLlm";
 import type { HapticSink } from "./nudgePolicy";
-import { hapticFor } from "./nudgeVocabulary";
+import { hapticFor, hapticRuns, phonePattern } from "./nudgeVocabulary";
 
 /** The callbacks the hook supplies; everything else is wired here. */
 export type FastLoopHandlers = Pick<
@@ -118,7 +118,9 @@ export const expoHaptics: HapticSink = {
     // v0.2.4, when its 40 ms raw taps proved imperceptible and were replaced
     // by system-tuned effects. Multi-tap cues stay raw patterns, because
     // rhythm is what they are for and expo-haptics cannot express one.
-    const taps = wave ? wave.timingsMs.filter((_, i) => i % 2 === 1).length : 0;
+    // Runs, not raw segments: a swell is ONE buzz, and sending its internal
+    // shape to React Native would play it as three separate taps.
+    const taps = wave ? hapticRuns(wave).length : 0;
     if (wave && taps > 1) {
       const RN = tryRequire(
         // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -127,7 +129,7 @@ export const expoHaptics: HapticSink = {
       // Only Android honours a pattern; iOS's Vibration ignores the timings.
       if (RN?.Platform?.OS === "android" && RN.Vibration) {
         try {
-          RN.Vibration.vibrate(wave.timingsMs);
+          RN.Vibration.vibrate(phonePattern(wave));
           return;
         } catch {
           // Fall through to the impact below rather than losing the nudge.
@@ -147,7 +149,7 @@ export const expoHaptics: HapticSink = {
             // eslint-disable-next-line @typescript-eslint/no-require-imports
             () => require("react-native") as typeof import("react-native"),
           );
-          if (RN?.Platform?.OS === "android" && RN.Vibration) RN.Vibration.vibrate(wave.timingsMs);
+          if (RN?.Platform?.OS === "android" && RN.Vibration) RN.Vibration.vibrate(phonePattern(wave));
         }
         return;
       }

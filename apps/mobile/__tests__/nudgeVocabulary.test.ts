@@ -13,6 +13,8 @@ import {
   MIN_AMPLITUDE,
   MIN_GAP_MS,
   MIN_ON_MS,
+  hapticRuns,
+  phonePattern,
   NUDGE_VOCABULARY,
   POSITIVE_CAP_S,
   PositiveNudgeGate,
@@ -113,25 +115,27 @@ describe("nudge_vocabulary.json golden contract", () => {
       for (const [lvl, wave] of Object.entries(e.haptic!)) {
         const { timingsMs: t, amplitudes: a } = wave;
         expect(t.length).toBe(a.length);
-        expect(t.length % 2).toBe(0);
         expect(t.length).toBeGreaterThanOrEqual(2);
         expect(t[0]).toBe(0);
-        t.forEach((ms, i) => {
-          if (i % 2 === 0) {
-            expect(a[i]).toBe(0);
-            if (i > 0) {
-              const floor = HAPTIC_GAP_EXCEPTIONS.includes(e.vector) ? 0 : MIN_GAP_MS;
-              expect({ code: e.code, lvl, gap: ms >= floor }).toEqual({ code: e.code, lvl, gap: true });
-            }
-          } else {
-            expect(ms).toBeGreaterThan(0);
-            expect(a[i]).toBeLessThanOrEqual(255);
-            // The measured perceptibility floor — it binds the soft positives
-            // too: a cue nobody can feel is not a soft cue, it is a missing one.
-            expect({ code: e.code, lvl, ms: ms >= MIN_ON_MS }).toEqual({ code: e.code, lvl, ms: true });
-            expect({ code: e.code, lvl, amp: a[i] >= MIN_AMPLITUDE }).toEqual({ code: e.code, lvl, amp: true });
-          }
-        });
+        expect(a[0]).toBe(0);
+        for (let i = 1; i < t.length; i++) {
+          expect(t[i]).toBeGreaterThan(0);
+          expect(a[i]).toBeGreaterThanOrEqual(0);
+          expect(a[i]).toBeLessThanOrEqual(255);
+        }
+        // Per RUN — a swell is ONE felt buzz, so the perceptibility floor
+        // binds its total length and its PEAK, not each segment inside it.
+        for (const run of hapticRuns(wave)) {
+          expect({ code: e.code, lvl, ok: run.ms >= MIN_ON_MS }).toEqual({ code: e.code, lvl, ok: true });
+          expect({ code: e.code, lvl, ok: run.peak >= MIN_AMPLITUDE }).toEqual({ code: e.code, lvl, ok: true });
+        }
+        // Silences BETWEEN runs must not let two buzzes smear into one.
+        const floor = HAPTIC_GAP_EXCEPTIONS.includes(e.vector) ? 0 : MIN_GAP_MS;
+        let seenRun = false;
+        for (let i = 1; i < t.length; i++) {
+          if (a[i] > 0) seenRun = true;
+          else if (seenRun) expect({ code: e.code, lvl, ok: t[i] >= floor }).toEqual({ code: e.code, lvl, ok: true });
+        }
       }
     },
   );
@@ -139,7 +143,7 @@ describe("nudge_vocabulary.json golden contract", () => {
   it("the level is carried by rhythm — ON time strictly grows, amplitude aside", () => {
     const expected = CASES.level_is_carried_by_rhythm.expected_on_ms as Record<string, number[]>;
     const onMs = (code: string, lvl: number) =>
-      hapticFor(code, lvl)!.timingsMs.filter((_, i) => i % 2 === 1).reduce((s, x) => s + x, 0);
+      hapticRuns(hapticFor(code, lvl)!).reduce((s, r) => s + r.ms, 0);
     for (const [code, want] of Object.entries(expected)) {
       const got = [1, 2, 3].map((l) => onMs(code, l));
       expect({ code, got }).toEqual({ code, got: want });
@@ -181,6 +185,7 @@ describe("nudge_vocabulary.json golden contract", () => {
 
   // --- the bug the owner found by hand, now a gate ------------------------
 
+  // What a PHONE feels: consecutive vibrating segments are one buzz.
   const taps = (t: number[]) => t.filter((_, i) => i % 2 === 1);
   const gaps = (t: number[]) => t.filter((_, i) => i % 2 === 0).slice(1);
 
@@ -207,8 +212,9 @@ describe("nudge_vocabulary.json golden contract", () => {
       confusable_tap_ratio: number;
       expected_confusable_pairs: string[][];
     };
+    // Compared on the MERGED pattern, because that is what the phone plays.
     const cues = NUDGE_VOCABULARY.filter((e) => e.haptic).flatMap((e) =>
-      Object.entries(e.haptic!).map(([lvl, w]) => [`${e.code} L${lvl}`, w.timingsMs] as const),
+      Object.entries(e.haptic!).map(([lvl, w]) => [`${e.code} L${lvl}`, phonePattern(w)] as const),
     );
     const pairs: string[][] = [];
     for (let i = 0; i < cues.length; i++) {
@@ -222,8 +228,8 @@ describe("nudge_vocabulary.json golden contract", () => {
   });
 
   it("the rising and falling ramps are opposites in tap LENGTH, not just strength", () => {
-    const rising = taps(hapticFor("H", 3)!.timingsMs);
-    const falling = taps(hapticFor("D", 1)!.timingsMs);
+    const rising = hapticRuns(hapticFor("H", 3)!).map((r) => r.ms);
+    const falling = hapticRuns(hapticFor("D", 1)!).map((r) => r.ms);
     expect(rising).toEqual([...rising].sort((a, b) => a - b));
     expect(falling).toEqual([...falling].sort((a, b) => b - a));
     expect(falling).toEqual([...rising].reverse());
@@ -234,5 +240,47 @@ describe("nudge_vocabulary.json golden contract", () => {
   it("the first Heated tap is long enough to notice on a phone", () => {
     // 75 ms was reported as "does nothing" on a Pixel (2026-09-06).
     expect(hapticFor("H", 1)!.timingsMs[1]).toBeGreaterThanOrEqual(100);
+  });
+
+  it("positives are SWELLS and alerts are taps — the texture split", () => {
+    // Owner, 2026-09-07, on a Pixel Watch: "i would want positive to be very
+    // diff than negative". A positive is one continuous buzz that rises and
+    // falls inside itself; an alert is discrete taps at a flat level.
+    const hasSwell = (w: { timingsMs: number[]; amplitudes: number[] }) => {
+      let count = 0;
+      let longest = 0;
+      let changed = false;
+      let last: number | null = null;
+      for (let i = 1; i < w.amplitudes.length; i++) {
+        if (w.amplitudes[i] > 0) {
+          count++;
+          if (last !== null && w.amplitudes[i] !== last) changed = true;
+          last = w.amplitudes[i];
+        } else {
+          longest = Math.max(longest, count);
+          count = 0;
+          last = null;
+        }
+      }
+      return changed && Math.max(longest, count) > 1;
+    };
+    for (const e of NUDGE_VOCABULARY) {
+      if (!e.haptic || e.code === "D") continue; // D mirrors H's ramp by design.
+      for (const wave of Object.values(e.haptic)) {
+        expect({ code: e.code, swell: hasSwell(wave) }).toEqual({
+          code: e.code,
+          swell: e.polarity === "positive",
+        });
+      }
+    }
+  });
+
+  it("phonePattern merges a swell into ONE buzz", () => {
+    // What React Native actually sends. Passing the raw timings would make a
+    // swell arrive as three separate taps — the opposite of the intent.
+    expect(phonePattern(hapticFor("E", 1)!)).toEqual([0, 180, 170, 180]);
+    expect(hapticRuns(hapticFor("E", 1)!).map((r) => r.ms)).toEqual([180, 180]);
+    // An alert has no consecutive vibrating slots, so merging changes nothing.
+    expect(phonePattern(hapticFor("C", 1)!)).toEqual(hapticFor("C", 1)!.timingsMs);
   });
 });

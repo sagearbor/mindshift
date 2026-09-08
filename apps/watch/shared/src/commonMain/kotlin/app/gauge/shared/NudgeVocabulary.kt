@@ -34,10 +34,46 @@ enum class NudgePolarity { ALERT, POSITIVE }
 /** The semantic colour, not a hex value — each surface maps it to its own palette. */
 enum class NudgeColor { RED, GREEN, NEUTRAL }
 
-/** One playable cue. See [NudgeVocabulary]'s file KDoc for the encoding. */
+/**
+ * One playable cue. Entry 0 is the initial delay (always 0). After that a segment with amplitude 0
+ * is SILENCE and one with amplitude 1..255 vibrates; CONSECUTIVE vibrating segments are one
+ * continuous buzz whose strength changes inside it — a swell — not separate taps. The watch plays
+ * this verbatim; a phone can only switch the motor on and off, so it plays [phonePattern].
+ */
 data class HapticWaveform(val timingsMs: List<Long>, val amplitudes: List<Int>) {
     /** Total vibrating time — what an amplitude-blind phone actually feels. */
-    val onMs: Long get() = timingsMs.filterIndexed { i, _ -> i % 2 == 1 }.sum()
+    val onMs: Long get() = timingsMs.zip(amplitudes).drop(1).filter { it.second > 0 }.sumOf { it.first }
+
+    /** Maximal stretches of vibrating segments as (duration, peak) — what a wearer feels as
+     * "taps", a swell counting as ONE. */
+    val runs: List<Pair<Long, Int>> get() {
+        val out = mutableListOf<Pair<Long, Int>>()
+        var cur: Pair<Long, Int>? = null
+        for ((t, a) in timingsMs.zip(amplitudes).drop(1)) {
+            cur = if (a > 0) {
+                cur?.let { it.first + t to maxOf(it.second, a) } ?: (t to a)
+            } else {
+                cur?.let { out.add(it) }
+                null
+            }
+        }
+        cur?.let { out.add(it) }
+        return out
+    }
+
+    /** The waveform as an Android PHONE plays it: vibrating segments merged into single buzzes,
+     * silences kept. Kept here so the watch can assert the phone's view of the same cue. */
+    val phonePattern: List<Long> get() {
+        val out = mutableListOf(timingsMs.firstOrNull() ?: 0L)
+        var run = 0L
+        for ((t, a) in timingsMs.zip(amplitudes).drop(1)) {
+            if (a > 0) { run += t; continue }
+            if (run > 0L) { out.add(run); run = 0L }
+            out.add(t)
+        }
+        if (run > 0L) out.add(run)
+        return out
+    }
 }
 
 data class NudgeVocabularyEntry(
@@ -189,7 +225,7 @@ object NudgeVocabulary {
             // Soft `••` — deliberately the same cue as R: the wrist says "that was good", the
             // screen says which good thing.
             haptic = mapOf(
-                1 to w(listOf(0L, 50L, 170L, 50L), listOf(0, 180, 0, 180)),
+                1 to w(listOf(0L, 60L, 60L, 60L, 170L, 60L, 60L, 60L), listOf(0, 120, 190, 120, 0, 120, 190, 120)),
             ),
         ),
         NudgeVocabularyEntry(
@@ -206,7 +242,7 @@ object NudgeVocabulary {
             watchOnly = false,
             levels = listOf(1),
             haptic = mapOf(
-                1 to w(listOf(0L, 50L, 170L, 50L, 170L, 50L), listOf(0, 180, 0, 180, 0, 180)),
+                1 to w(listOf(0L, 60L, 60L, 60L, 170L, 60L, 60L, 60L, 170L, 60L, 60L, 60L), listOf(0, 120, 190, 120, 0, 120, 190, 120, 0, 120, 190, 120)),
             ),
         ),
         NudgeVocabularyEntry(

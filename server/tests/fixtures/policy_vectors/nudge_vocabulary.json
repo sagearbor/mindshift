@@ -19,16 +19,16 @@
       "haptic": "null (no cue at all) or {level: {timings_ms, amplitudes}} — see `haptic_encoding`"
     },
     "haptic_encoding": {
-      "form": "One waveform per level. `timings_ms` alternates OFF, ON, OFF, ON, … starting with an initial delay (always 0). `amplitudes` is the same length; 0 in the OFF slots, 1..255 in the ON slots.",
-      "android_phone": "React Native `Vibration.vibrate(timings_ms)` — RN's Android pattern IS [wait, vibrate, wait, vibrate, …], so `timings_ms` is passed verbatim. RN cannot vary amplitude, so the phone feels the RHYTHM only; this is why the level is carried by rhythm and never by intensity.",
-      "wear_os": "`VibrationEffect.createWaveform(timings_ms, amplitudes, -1)` — the watch feels rhythm AND the ramp.",
+      "form": "One waveform per level, as parallel `timings_ms` / `amplitudes` arrays. Entry 0 is the initial delay (always 0 ms, amplitude 0). After that, a segment with amplitude 0 is SILENCE and a segment with amplitude 1..255 vibrates. Consecutive vibrating segments are ONE continuous buzz whose strength changes inside it — a SWELL — not separate taps: that is how the positive codes are shaped, and it is the one thing a wrist can do that a phone cannot.",
+      "android_phone": "React Native can only switch an Android motor on and off, so the phone plays the waveform's RUNS: consecutive vibrating segments merge into one buzz of their combined length (`phonePattern` in nudgeVocabulary.ts, mirrored on the other runtimes). A swell therefore reaches the phone as a single smooth buzz — still unlike the negatives' sharp taps, just without the shape. The merged pattern IS React Native's `Vibration.vibrate` argument. A cue that merges to a single run is played as the OEM's tuned impact instead, because a short raw buzz is imperceptible on a modern actuator.",
+      "wear_os": "`VibrationEffect.createWaveform(timings_ms, amplitudes, -1)` — the watch plays the waveform verbatim, including the swells, which is why the positives feel categorically different there.",
       "why_rhythm_carries_the_level": "Brown & Brewster: rhythm is identified ~93% of the time, intensity ~61%. And on an Android PHONE amplitude does not exist at all — React Native can only switch the motor on and off — so any two cues that differ only in strength are literally the same cue there. That is not theory: shipping a rising ramp and a falling ramp that differed only in amplitude produced 'heated L3 = de-escalated, I cant tell a diff' on the owner's Pixel the first time he felt them (2026-09-06). Level, and identity, are carried by tap COUNT and tap LENGTH; amplitude is a bonus the watch gets on top.",
       "never_merge_gap_ms": "170 — the pattern-wide silence floor (apps/watch/.../HapticPatterns.kt MIN_GAP_MS): two taps closer than this smear into one buzz on a watch band. The ONE deliberate exception is P's lub-dub (120 ms), where the near-merge IS the heartbeat identity; `haptic_gap_exceptions` lists it so a linter can't 'fix' it.",
       "haptic_gap_exceptions": [
         "pulse"
       ],
-      "perceptibility_floor": "Perceptibility floor: 50 ms at amplitude 180. Not a style choice — it is this app's own measured device finding (apps/watch/.../HapticPatterns.kt: the v0.1–v0.2.3 raw waveforms at 40 ms / amplitude 120–180 proved BARELY PERCEPTIBLE on the real Pixel Watch, and the pulse train's floor band was raised to (50 ms, 180) as the perceptible minimum). Every ON slot in this file is at or above it, including the soft positives: a cue nobody can feel is not a soft cue, it is a missing one.",
-      "distinguishability": "Two cues are CONFUSABLE when a phone cannot separate them: same number of taps, every corresponding gap within 50 ms, and every corresponding tap within a factor of 1.5. No two cues in this file may be confusable — enforced by the `no_two_cues_are_confusable` case on all three runtimes, which is the test that would have caught the shipped H/D collision."
+      "perceptibility_floor": "Perceptibility floor: 50 ms at amplitude 180. Not a style choice — it is this app's own measured device finding (apps/watch/.../HapticPatterns.kt: the v0.1–v0.2.3 raw waveforms at 40 ms / amplitude 120–180 proved BARELY PERCEPTIBLE on the real Pixel Watch, and the pulse train's floor band was raised to (50 ms, 180) as the perceptible minimum). Every RUN in this file is at or above it (its total length and its PEAK amplitude; a swell is allowed to start and end below the floor, because the whole run is one felt buzz), including the soft positives: a cue nobody can feel is not a soft cue, it is a missing one.",
+      "distinguishability": "Two cues are CONFUSABLE when a phone cannot separate them, so the comparison is made on the MERGED (run) pattern, not the raw segments: same number of runs, every corresponding gap within `confusable_gap_ms`, and every corresponding run within a factor of `confusable_tap_ratio`. No two cues in this file may be confusable — enforced by the `no_two_cues_are_confusable` case on all three runtimes."
     },
     "positive_rules": {
       "cap_seconds": 120,
@@ -320,19 +320,27 @@
         "1": {
           "timings_ms": [
             0,
-            50,
+            60,
+            60,
+            60,
             170,
-            50
+            60,
+            60,
+            60
           ],
           "amplitudes": [
             0,
-            180,
+            120,
+            190,
+            120,
             0,
-            180
+            120,
+            190,
+            120
           ]
         }
       },
-      "haptic_note": "Owner's soft `••`, at exactly the perceptibility floor (50 ms) — the softest thing in the set a wrist can still feel."
+      "haptic_note": "TWO soft swells. Every positive is a SWELL — one continuous buzz that rises and falls inside itself — and every alert is discrete TAPS, so the two families are told apart by texture before you have counted anything. That split is owner-directed (2026-09-07, on a Pixel Watch: \"i would want positive to be very diff than negative\") and replaced an earlier `••` that was too close to 🤝's `•••` to tell apart. A phone cannot vary strength, so it feels two smooth buzzes rather than two shaped ones — still unlike the sharp taps of an alert."
     },
     {
       "code": "R",
@@ -353,23 +361,35 @@
         "1": {
           "timings_ms": [
             0,
-            50,
+            60,
+            60,
+            60,
             170,
-            50,
+            60,
+            60,
+            60,
             170,
-            50
+            60,
+            60,
+            60
           ],
           "amplitudes": [
             0,
-            180,
+            120,
+            190,
+            120,
             0,
-            180,
+            120,
+            190,
+            120,
             0,
-            180
+            120,
+            190,
+            120
           ]
         }
       },
-      "haptic_note": "Owner's soft `•••`. Approved as `••`, the same cue as E, on the theory that the wrist says 'that was good' and the screen says which. On the device the owner could not tell them apart (2026-09-06) — and a phone in a pocket has no screen to check — so R gained a third tap. Same family, same softness, its own rhythm. Revert to two taps if the owner prefers the original."
+      "haptic_note": "THREE soft swells — the same texture as 👂, one swell longer, because a repair is the rarer and larger thing. See 👂 for why the positives are swells at all."
     },
     {
       "code": "K",
@@ -512,7 +532,7 @@
     },
     {
       "name": "waveforms_are_well_formed",
-      "description": "For every code with a haptic, at every level: timings_ms and amplitudes are the same length, an even length (OFF/ON pairs), timings_ms[0] == 0, every OFF slot has amplitude 0, every ON slot has amplitude 1..255 and duration > 0, and every internal OFF gap is >= constants.min_gap_ms unless the vector is listed in _schema.haptic_encoding.haptic_gap_exceptions. Also: every ON slot lasts at least constants.min_on_ms and reaches at least constants.min_amplitude — the measured perceptibility floor."
+      "description": "For every code with a haptic, at every level: timings_ms and amplitudes are the same length, entry 0 is a zero-length zero-amplitude delay, every later segment has a positive duration, and every amplitude is 0..255. Then, per RUN (a maximal stretch of consecutive vibrating segments): its total duration is at least constants.min_on_ms and its peak amplitude at least constants.min_amplitude. Silences BETWEEN runs are at least constants.min_gap_ms unless the vector is listed in _schema.haptic_encoding.haptic_gap_exceptions."
     },
     {
       "name": "level_is_carried_by_rhythm",

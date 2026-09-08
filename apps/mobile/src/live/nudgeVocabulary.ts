@@ -20,13 +20,16 @@ export type NudgePolarity = "alert" | "positive";
 export type NudgeColor = "red" | "green" | "neutral";
 
 /**
- * One playable cue. `timingsMs` alternates OFF, ON, OFF, ON, … starting with
- * an initial delay (always 0) — which is exactly React Native's Android
- * `Vibration.vibrate(pattern)` shape, so it is passed verbatim. `amplitudes`
- * (0 in the OFF slots, 1..255 in the ON slots) is what the watch's
- * `VibrationEffect.createWaveform` uses; RN cannot vary amplitude, so the
- * phone feels the RHYTHM only. That is why every level difference is a
- * rhythm difference.
+ * One playable cue. Entry 0 is the initial delay (always 0). After that a
+ * segment with amplitude 0 is SILENCE and one with amplitude 1..255 vibrates;
+ * CONSECUTIVE vibrating segments are one continuous buzz whose strength
+ * changes inside it — a swell — not separate taps.
+ *
+ * The watch plays this verbatim (`VibrationEffect.createWaveform`). A phone
+ * cannot vary strength at all, so it plays the RUNS instead ([phonePattern]):
+ * a swell reaches it as one smooth buzz. That is why every LEVEL difference is
+ * a rhythm difference, and why the positive codes are swells — the texture
+ * survives the phone even when the shape does not.
  */
 export interface HapticWaveform {
   timingsMs: number[];
@@ -175,7 +178,7 @@ export const NUDGE_VOCABULARY: readonly NudgeVocabularyEntry[] = [
     // set a wrist can still feel. Deliberately the same cue as R: the wrist
     // says "that was good", the screen says which good thing.
     haptic: {
-      1: { timingsMs: [0, 50, 170, 50], amplitudes: [0, 180, 0, 180] },
+      1: { timingsMs: [0, 60, 60, 60, 170, 60, 60, 60], amplitudes: [0, 120, 190, 120, 0, 120, 190, 120] },
     },
   },
   {
@@ -192,7 +195,7 @@ export const NUDGE_VOCABULARY: readonly NudgeVocabularyEntry[] = [
     watchOnly: false,
     levels: [1],
     haptic: {
-      1: { timingsMs: [0, 50, 170, 50, 170, 50], amplitudes: [0, 180, 0, 180, 0, 180] },
+      1: { timingsMs: [0, 60, 60, 60, 170, 60, 60, 60, 170, 60, 60, 60], amplitudes: [0, 120, 190, 120, 0, 120, 190, 120, 0, 120, 190, 120] },
     },
   },
   {
@@ -231,6 +234,54 @@ export const NUDGE_VOCABULARY: readonly NudgeVocabularyEntry[] = [
     },
   },
 ];
+
+/**
+ * The waveform as an Android phone can play it: consecutive vibrating segments
+ * merged into one buzz, silences kept. This IS React Native's
+ * `Vibration.vibrate` argument — `[delay, buzz, pause, buzz, …]`.
+ *
+ * Merging is not a simplification, it is the truth of the device: RN can only
+ * switch the motor on and off, so a swell's internal shape does not exist
+ * there. Deriving it rather than storing a second array keeps one source for
+ * the cue and makes it impossible for the two to drift.
+ */
+export function phonePattern(wave: HapticWaveform): number[] {
+  const out: number[] = [wave.timingsMs[0] ?? 0];
+  let run = 0;
+  for (let i = 1; i < wave.timingsMs.length; i++) {
+    const on = wave.amplitudes[i] > 0;
+    if (on) {
+      run += wave.timingsMs[i];
+      continue;
+    }
+    if (run > 0) {
+      out.push(run);
+      run = 0;
+    }
+    out.push(wave.timingsMs[i]);
+  }
+  if (run > 0) out.push(run);
+  return out;
+}
+
+/** Maximal stretches of vibrating segments — what a wearer feels as "taps",
+ *  a swell counting as one. `[{ms, peak}]`, in order. */
+export function hapticRuns(wave: HapticWaveform): { ms: number; peak: number }[] {
+  const runs: { ms: number; peak: number }[] = [];
+  let cur: { ms: number; peak: number } | null = null;
+  for (let i = 1; i < wave.timingsMs.length; i++) {
+    if (wave.amplitudes[i] > 0) {
+      cur ??= { ms: 0, peak: 0 };
+      cur.ms += wave.timingsMs[i];
+      cur.peak = Math.max(cur.peak, wave.amplitudes[i]);
+    } else if (cur) {
+      runs.push(cur);
+      cur = null;
+    }
+  }
+  if (cur) runs.push(cur);
+  return runs;
+}
 
 const BY_CODE = new Map<string, NudgeVocabularyEntry>(NUDGE_VOCABULARY.map((e) => [e.code, e]));
 const BY_VECTOR = new Map<string, NudgeVocabularyEntry>(NUDGE_VOCABULARY.map((e) => [e.vector, e]));

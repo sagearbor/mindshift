@@ -128,23 +128,58 @@ class NudgeVocabularyVectorsTest {
                 val t = wave.timingsMs
                 val a = wave.amplitudes
                 assertEquals(t.size, a.size, "${e.code} L$level length")
-                assertTrue(t.size % 2 == 0 && t.size >= 2, "${e.code} L$level must be OFF/ON pairs")
+                assertTrue(t.size >= 2, "${e.code} L$level")
                 assertEquals(0L, t[0], "${e.code} L$level must open with a zero delay")
-                t.forEachIndexed { i, ms ->
-                    if (i % 2 == 0) {
-                        assertEquals(0, a[i], "${e.code} L$level slot $i is OFF")
-                        if (i > 0) {
-                            val floor = if (e.vector in NudgeVocabulary.HAPTIC_GAP_EXCEPTIONS) 0L else NudgeVocabulary.MIN_GAP_MS
-                            assertTrue(ms >= floor, "${e.code} L$level gap ${ms}ms merges two taps")
-                        }
-                    } else {
-                        assertTrue(a[i] <= 255, "${e.code} L$level amplitude ${a[i]}")
-                        // The measured perceptibility floor — it binds the soft positives too: a
-                        // cue nobody can feel is not a soft cue, it is a missing one.
-                        assertTrue(ms >= NudgeVocabulary.MIN_ON_MS, "${e.code} L$level tap ${ms}ms is under the floor")
-                        assertTrue(a[i] >= NudgeVocabulary.MIN_AMPLITUDE, "${e.code} L$level amplitude ${a[i]} is under the floor")
-                    }
+                assertEquals(0, a[0], "${e.code} L$level delay must be silent")
+                for (i in 1 until t.size) {
+                    assertTrue(t[i] > 0, "${e.code} L$level segment $i must have a duration")
+                    assertTrue(a[i] in 0..255, "${e.code} L$level amplitude ${a[i]}")
                 }
+                // Per RUN — a swell is ONE felt buzz, so the perceptibility floor binds its total
+                // length and its PEAK, not each segment inside it.
+                for ((runMs, peak) in wave.runs) {
+                    assertTrue(runMs >= NudgeVocabulary.MIN_ON_MS, "${e.code} L$level run ${runMs}ms under the floor")
+                    assertTrue(peak >= NudgeVocabulary.MIN_AMPLITUDE, "${e.code} L$level peak $peak under the floor")
+                }
+                // Silences BETWEEN runs must not let two buzzes smear into one.
+                val floor = if (e.vector in NudgeVocabulary.HAPTIC_GAP_EXCEPTIONS) 0L else NudgeVocabulary.MIN_GAP_MS
+                var seenRun = false
+                for (i in 1 until t.size) {
+                    if (a[i] > 0) seenRun = true
+                    else if (seenRun) assertTrue(t[i] >= floor, "${e.code} L$level gap ${t[i]}ms merges two buzzes")
+                }
+            }
+        }
+    }
+
+    @Test
+    fun positivesAreSwellsAndAlertsAreTaps() {
+        // Owner, 2026-09-07, on a Pixel Watch: "i would want positive to be very diff than
+        // negative". A positive is one continuous buzz that rises and falls INSIDE itself; an
+        // alert is discrete taps at a flat level. The watch is the only device that can play the
+        // difference, which is why it is asserted here too.
+        fun hasSwell(w: HapticWaveform): Boolean {
+            var longest = 0
+            var count = 0
+            var changed = false
+            var last: Int? = null
+            for (i in 1 until w.amplitudes.size) {
+                val amp = w.amplitudes[i]
+                if (amp > 0) {
+                    count++
+                    if (last != null && amp != last) changed = true
+                    last = amp
+                } else {
+                    longest = maxOf(longest, count); count = 0; last = null
+                }
+            }
+            return changed && maxOf(longest, count) > 1
+        }
+        for (e in NudgeVocabulary.ALL) {
+            val haptic = e.haptic ?: continue
+            if (e.code == "D") continue // D mirrors H's ramp by design; see its haptic_note.
+            for (wave in haptic.values) {
+                assertEquals(e.polarity == NudgePolarity.POSITIVE, hasSwell(wave), "swell for ${e.code}")
             }
         }
     }
@@ -196,8 +231,9 @@ class NudgeVocabularyVectorsTest {
         assertNull(NudgeVocabulary.hapticFor("H", 4))
     }
 
-    private fun taps(w: HapticWaveform) = w.timingsMs.filterIndexed { i, _ -> i % 2 == 1 }
-    private fun gaps(w: HapticWaveform) = w.timingsMs.filterIndexed { i, _ -> i % 2 == 0 }.drop(1)
+    /** What a PHONE feels: consecutive vibrating segments are one buzz. */
+    private fun taps(w: HapticWaveform) = w.runs.map { it.first }
+    private fun gaps(w: HapticWaveform) = w.phonePattern.filterIndexed { i, _ -> i % 2 == 0 }.drop(1)
 
     /** Would a PHONE be unable to tell these two cues apart? Amplitude is removed on purpose:
      * React Native can only switch an Android motor on and off, so strength is not a channel

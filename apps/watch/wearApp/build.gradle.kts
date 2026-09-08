@@ -48,6 +48,23 @@ android {
     }
 
     buildTypes {
+        debug {
+            // A DIFFERENT package id, so a debug build installs ALONGSIDE the
+            // Play one instead of demanding an uninstall. The Play build is
+            // signed by Google's app-signing key, which cannot be reproduced
+            // locally, so `adb install -r` over it fails with
+            // INSTALL_FAILED_UPDATE_INCOMPATIBLE and the only alternative is
+            // uninstalling — which throws away the watch's pairing to the
+            // owner's account and every local preference. Side-by-side also
+            // lets the two be compared directly on the same wrist.
+            //
+            // Trade-off, deliberately accepted: anything keyed to the package
+            // name (the Wearable Data Layer link with the phone app, tiles and
+            // complications) sees a stranger under this id. Local behaviour —
+            // Settings, the haptic vocabulary demo — is unaffected, which is
+            // what a sideloaded build is for.
+            applicationIdSuffix = ".debug"
+        }
         release {
             isMinifyEnabled = false
             signingConfig = if (hasUploadKey) signingConfigs.getByName("upload")
