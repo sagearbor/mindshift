@@ -176,28 +176,67 @@ export interface FastLoopDeps {
    *  scripted provider emits identical text, which a real LLM never would). */
   repeatGate?: CoachRepeatGate | null;
   /**
-   * Let the dark vocal-activation classifier (live/activation.ts) escalate
-   * the nudge policy. Default FALSE, and it must stay false until the gate in
-   * __tests__/activationGate.test.ts passes on BOTH halves.
+   * Let the vocal-activation classifier (live/activation.ts) escalate the
+   * nudge policy. Default TRUE since 2026-09-07, when it finally passed both
+   * halves of the gate in __tests__/activationGate.test.ts.
    *
-   * On RAVDESS it looks finished: ROC-AUC 1.000 separating angry-strong from
-   * calm/neutral-normal, and zero of 192 calm clips reach the first rung
-   * (worst calm p = 0.62 against a 0.75 threshold). On real speech it is
-   * catastrophic: on the owner's own family recording it flags EVERY self
-   * turn it measures at level 2, including "Okay, this is Sage talking, I'm
-   * about to head off" — a coach that buzzes at you for saying hello. Two of
-   * the four TTS scenes flag a calm turn too.
+   * It was dark for two days because v1 failed the half that matters. Inside
+   * RAVDESS it scored ROC-AUC 1.000; on the owner's own family recording it
+   * flagged "Okay, this is Sage talking, I'm about to head off" at level 2.
+   * Decomposing one real turn showed why: its two biggest inputs were
+   * properties of the RECORDING, not the speaker — absolute energy (RAVDESS
+   * sits at about -67 dBFS, a phone turn at about -19) was worth +3.96 of
+   * logit on its own, and absolute voiced duration another +2.32. It had
+   * learned that a louder microphone means a louder person.
    *
-   * The diagnosis (2026-09-06, measured, not guessed): the model's two
-   * strongest coefficients are voiced and unvoiced DURATION, standardized
-   * against RAVDESS clips that carry about a second of silence at each end.
-   * A real conversational turn is nearly all speech, so its voiced duration
-   * lands far above the training mean and the classifier reads "long
-   * continuous speech" as "worked up". It is a clip-shape detector that
-   * happens to work inside its own corpus. Retraining on real conversational
-   * audio — or dropping the duration features — comes before this flag flips.
+   * v2 removes that. Every feature is invariant to recording gain and to clip
+   * length, and it is trained on the question the ladder is actually asked
+   * (heated vs calm) rather than RAVDESS's intensity label, half of whose
+   * positives were strong SADNESS and strong HAPPINESS. Grouped by actor it
+   * scores 0.899; the same features on absolute inputs score 1.000, and that
+   * gap is precisely what v1 was reading off the microphone.
+   *
+   * Rung 1 sits above the highest score any CALM clip produced out of fold, so
+   * "never flags a calm turn" is a property of the threshold. Measured:
+   * 0 of 192 calm clips in corpus, and 0 false flags across all five recorded
+   * scenes including the owner's family recording — the exact test v1 failed.
+   * The cost is reach: it catches the clearest ~16% of heated turns and lets
+   * the rest go. That is the right trade for a signal riding alongside
+   * loudness, which already fires on its own.
    */
   activationNudges?: boolean;
+  /**
+   * Run the single-mic overlap probe (live/overlapProbe.ts). Default FALSE
+   * since 2026-09-07, when it was finally measured against real overlapping
+   * speech and did not survive.
+   *
+   * The corpus was AMI ES2002a — a 21-minute four-person meeting whose
+   * per-speaker headset tracks give true "who talked when", and therefore true
+   * overlap, without any hand annotation (8.2% of that meeting is overlapped,
+   * squarely inside the published range). Running the probe's OWN rule over
+   * the mixed room mic:
+   *
+   *     shipped thresholds     precision 64%, recall 9%
+   *     best point on the whole margin sweep, at any usable volume:
+   *                            precision 69% at recall 9%; to reach 60%
+   *                            recall precision falls to 39%, against a
+   *                            17.5% base rate
+   *     the LADDER that would actually nudge (a sustained run >= 2 s):
+   *                            56% right at best
+   *
+   * A ✂️ that is wrong about half the time accuses someone of talking over a
+   * person they did not, mid-argument. That is the failure the module's author
+   * named when shipping it dark, and the numbers say it is real.
+   *
+   * So the probe stays off by default rather than costing an ECAPA pass per
+   * window — up to 20 per long self turn — on the hot path to populate a
+   * Developer-mode tag. The code and the validation stay: if someone replaces
+   * the embedding-distance heuristic with a real overlapped-speech detector,
+   * __tests__/overlapProbeValidation.test.ts says exactly when it is good
+   * enough (80% precision at the ladder), and ✂️ can then work in a room and
+   * not only on a call.
+   */
+  overlapProbe?: boolean;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   /** How long to wait for the recognizer to deliver a span's words. */
@@ -265,6 +304,7 @@ export class FastLoop {
    *  disabled (deps.repeatGate === null). */
   private readonly repeatGate: CoachRepeatGate | null;
   private readonly activationNudges: boolean;
+  private readonly overlapProbe: boolean;
   private readonly baseline = new LoudnessBaseline();
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -334,7 +374,8 @@ export class FastLoop {
     this.speakHoldMaxMs = deps.speakHoldMaxMs ?? 3000;
     this.speakQuietMs = deps.speakQuietMs ?? 0;
     this.repeatGate = deps.repeatGate === undefined ? new CoachRepeatGate() : deps.repeatGate;
-    this.activationNudges = deps.activationNudges ?? false;
+    this.activationNudges = deps.activationNudges ?? true;
+    this.overlapProbe = deps.overlapProbe ?? false;
     this.historySamples = Math.round((deps.historySeconds ?? 30) * SILERO_SAMPLE_RATE);
     this.maxEmbedSamples = Math.round((deps.maxEmbedSeconds ?? MAX_EMBED_SECONDS) * SILERO_SAMPLE_RATE);
     this.maxPitchSeconds = deps.maxPitchSeconds ?? LIVE_MAX_PITCH_SECONDS;
@@ -950,7 +991,7 @@ export class FastLoop {
     // model; runs alongside the STT wait + LLM call (awaited just before the
     // turn record), so it never delays coaching.
     const overlapPromise: Promise<OverlapSummary | null> =
-      coachedAsSelf && duration >= OVERLAP_PROBE_MIN_SECONDS && this.deps.embedder && this.deps.labeler
+      this.overlapProbe && coachedAsSelf && duration >= OVERLAP_PROBE_MIN_SECONDS && this.deps.embedder && this.deps.labeler
         ? probeOverlapAsync(
             pcm,
             SILERO_SAMPLE_RATE,

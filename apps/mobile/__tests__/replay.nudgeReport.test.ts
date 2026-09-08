@@ -185,9 +185,9 @@ maybe("nudge verification from recorded files (real Silero + ECAPA, scripted STT
   const ACTIVATION_FALSE_FLAGS: Record<string, number> = {
     scene_couple_escalation: 0,
     scene_family3: 0,
-    scene_meeting4: 1,
+    scene_meeting4: 0,
     scene_ravdess_pair: 0,
-    family_real: 2,
+    family_real: 0,
   };
 
   afterAll(() => {

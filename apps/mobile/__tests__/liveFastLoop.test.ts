@@ -42,6 +42,9 @@ function harness(opts: {
   recognizer?: FakeSpeechRecognizer | null;
   embedder?: Embedder | null;
   labeler?: SpeakerLabeler | null;
+  /** The overlap probe is off in production (it did not survive validation —
+   *  see FastLoopDeps.overlapProbe); its own test turns it on. */
+  overlapProbe?: boolean;
 } = {}): Harness {
   const rec = opts.recognizer === undefined ? new FakeSpeechRecognizer() : opts.recognizer;
   const h: Harness = {
@@ -57,6 +60,7 @@ function harness(opts: {
     vad: new EnergyVad(-45, 0.032),
     embedder: opts.embedder ?? null,
     labeler: opts.labeler ?? null,
+    overlapProbe: opts.overlapProbe ?? false,
     recognizer: rec,
     llm: new ProviderChain([opts.provider ?? okProvider(), cloudProvider()]),
     speak: (t) => h.spoken.push(t),
@@ -379,7 +383,7 @@ describe("FastLoop", () => {
     }
     const spy = () => new SpyPolicy([{ vector: "yelling" }, { vector: "aggressive_tone" }, { vector: "activation" }], 20, ["A"]);
 
-    it("is measured on the user's own turns, null on others', and DARK by default (no policy vector)", async () => {
+    it("is measured on the user's own turns, null on others', and LIVE by default (2026-09-07)", async () => {
       const queue = [unitVector(D, 0, 0.2, 3), unitVector(D, 5)];
       const embedder: Embedder = { embed: async () => queue.shift() ?? unitVector(D, 9) };
       const h = harness({ embedder, labeler: new SpeakerLabeler([you]) });
@@ -397,12 +401,15 @@ describe("FastLoop", () => {
       expect(h.turns[0].activation!.probability).toBeGreaterThanOrEqual(0);
       expect(h.turns[0].activation!.probability).toBeLessThanOrEqual(1);
       expect(h.turns[1].activation).toBeNull(); // not the user
-      // Dark: the policy never sees an "activation" vector.
-      expect(policy.seen.flat().some((e) => e.vector === "activation")).toBe(false);
+      // Live since 2026-09-07: v2's features are invariant to recording gain
+      // and clip length, and it passes BOTH halves of the gate in
+      // activationGate.test.ts — 0 of 192 calm clips in corpus AND 0 false
+      // flags across every recorded scene, which is the half v1 failed.
+      expect(policy.seen.flat().some((e) => e.vector === "activation")).toBe(true);
       await h.loop.stop();
     });
 
-    it("with activationNudges the vector reaches the policy (still only on self turns)", async () => {
+    it("activationNudges: false still suppresses it entirely (the escape hatch)", async () => {
       const embedder: Embedder = { embed: async () => unitVector(D, 0, 0.2, 3) };
       const policy = spy();
       const rec = new FakeSpeechRecognizer();
@@ -440,12 +447,12 @@ describe("FastLoop", () => {
     const mom = { personId: "p-mom", displayName: "Mom", isSelf: false, embedding: unitVector(D, 1) };
     const blend = () => l2Normalize(Float32Array.from(unitVector(D, 0), (v, i) => v + unitVector(D, 1)[i]));
 
-    it("a long self turn is probed window by window; mixed-voice windows are counted; short turns are not probed; nothing nudges", async () => {
+    it("with overlapProbe on, a long self turn is probed window by window; mixed windows counted; short turns skipped; nothing nudges", async () => {
       // First embed = the turn's identity (self). Then one embed per probe
       // window (5 s turn -> 8 windows): self, self, blend x4, self, self.
       const queue = [unitVector(D, 0, 0.2, 3), unitVector(D, 0), unitVector(D, 0), blend(), blend(), blend(), blend(), unitVector(D, 0), unitVector(D, 0)];
       const embedder: Embedder = { embed: async () => queue.shift() ?? unitVector(D, 0) };
-      const h = harness({ embedder, labeler: new SpeakerLabeler([you, mom]) });
+      const h = harness({ embedder, labeler: new SpeakerLabeler([you, mom]), overlapProbe: true });
       await h.loop.start({ sessionId: "s-ovl", mode: "earpiece", empathy: 50 });
       push(h.loop, toneInt16(5.0, -20));
       h.rec.emit({ text: "and another thing i have been meaning to say for a while now", isFinal: true });

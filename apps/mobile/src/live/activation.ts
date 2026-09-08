@@ -21,40 +21,81 @@
  */
 import { FRAME_MS, HOP_MS, frameF0, rmsEnergy } from "./prosody";
 
+/**
+ * The MODEL's inputs (v2, 2026-09-07) — every one invariant to recording gain
+ * and to clip length. v1 fed the model absolute energy and absolute duration,
+ * and those turned out to be the two biggest terms in its logit: RAVDESS sits
+ * at about -67 dBFS while a phone turn sits at about -19, worth +3.96 of logit
+ * on its own, and a real turn is nearly all speech while a RAVDESS clip
+ * carries a second of silence at each end, worth another +2.32. It was reading
+ * the microphone, not the person, which is why it called the owner's calm
+ * narration "worked up" on his own recording.
+ */
 export const ACTIVATION_FEATURE_ORDER = [
-  "f0_mean",
-  "f0_max",
   "f0_sd",
-  "energy_db_mean",
-  "energy_db_max",
+  "f0_range_ratio",
+  "energy_dynamic_range",
   "energy_db_sd",
-  "voiced_duration_s",
-  "unvoiced_duration_s",
+  "voiced_fraction",
 ] as const;
 
 export type ActivationFeatureName = (typeof ACTIVATION_FEATURE_ORDER)[number];
 export type ActivationFeatures = Record<ActivationFeatureName, number>;
 
+/** The RAW per-window measurements. Kept in full because they are what
+ *  Developer mode shows and what any future re-fit would train on; the model
+ *  itself only ever sees the invariant combinations derived from them. */
+export interface ActivationRaw {
+  f0_mean: number;
+  f0_max: number;
+  f0_sd: number;
+  energy_db_mean: number;
+  energy_db_max: number;
+  energy_db_sd: number;
+  voiced_duration_s: number;
+  unvoiced_duration_s: number;
+  voiced_fraction: number;
+}
+
+/**
+ * Raw measurements -> the model's invariant inputs. Gain cancels in
+ * `energy_dynamic_range` (a difference of two dB values) and in
+ * `energy_db_sd`; length cancels in `voiced_fraction` and in the pitch ratio.
+ */
+export function activationVector(raw: ActivationRaw): ActivationFeatures {
+  return {
+    f0_sd: raw.f0_sd,
+    f0_range_ratio: raw.f0_mean > 1e-6 ? raw.f0_max / raw.f0_mean : 0,
+    energy_dynamic_range: raw.energy_db_max - raw.energy_db_mean,
+    energy_db_sd: raw.energy_db_sd,
+    voiced_fraction: raw.voiced_fraction,
+  };
+}
+
 /** Standardization + weights exported by tmp/ravdess/scripts/train.py
  *  (feature order as above). `p = sigmoid(dot(coef, (x - mean) / sd) + b)`. */
 export const ACTIVATION_MODEL = {
-  mean: [250.77502358385598, 385.9955771203342, 79.15507121651372, -67.15615811543704, -28.615591991404326, 26.783605241498552, 2.003527777777778, 1.663048611111108],
-  sd: [53.59427832691743, 38.11306566810214, 33.073245855416374, 8.929168684081308, 9.336374872676995, 5.438160601420517, 0.6053191759592208, 0.6259820709832797],
-  coefficients: [0.37395166803627944, -0.12784657757543236, 0.009041577652365455, 0.7346941538685611, 0.32470324990355787, 0.26952791045736174, 1.176260064190532, 1.2818648499002512],
-  intercept: -0.137409482878309,
+  mean: [80.3987837390671, 1.65198407418653, 38.811056812646385, 26.899925983084394, 0.5657735200324732],
+  sd: [36.566149487819395, 0.47999201455683604, 7.009310117337278, 5.633570889380242, 0.16417802740665846],
+  coefficients: [0.13472634877186535, -1.898031972204167, 0.6580116865795932, 1.2722818199187464, 0.7878529610142222],
+  intercept: -1.4243854172238426,
 } as const;
 
 /** ≈ the RAVDESS clip length the durations were trained on (voiced 2.0 s +
  *  unvoiced 1.66 s of frames). */
 export const ACTIVATION_WINDOW_SECONDS = 3.7;
 
-/** Probability -> level 1..3 (descending thresholds, like YELLING_LEVELS).
- *  Deliberately conservative; RAVDESS "strong" is stage-level intensity. */
-export const ACTIVATION_LEVELS: [number, number][] = [
-  [0.96, 3],
-  [0.88, 2],
-  [0.75, 1],
-];
+/**
+ * Probability -> level 1..3 (descending thresholds, like YELLING_LEVELS).
+ *
+ * Rung 1 is not a taste call: it sits ABOVE the highest score any CALM clip
+ * produced in out-of-fold cross-validation, so "never flags a calm turn" is a
+ * property of the threshold rather than a hope. That safety costs reach — it
+ * catches the clearest quarter of heated turns and lets the rest go — and that
+ * is the right trade for a signal that rides alongside loudness, which already
+ * fires on its own.
+ */
+export const ACTIVATION_LEVELS: [number, number][] = [[0.97, 3], [0.95, 2], [0.91, 1]];
 
 /** Frames between event-loop yields in the async variant. */
 export const ACTIVATION_YIELD_EVERY_FRAMES = 50;
@@ -78,7 +119,7 @@ function stats(values: number[]): { mean: number; max: number; sd: number } {
   return { mean, max, sd: Math.sqrt(acc / values.length) }; // population SD (numpy default)
 }
 
-function assemble(f0s: number[], energies: number[], nFrames: number, hopSeconds: number): ActivationFeatures {
+function assemble(f0s: number[], energies: number[], nFrames: number, hopSeconds: number): ActivationRaw {
   const f = stats(f0s);
   const e = stats(energies);
   return {
@@ -90,12 +131,14 @@ function assemble(f0s: number[], energies: number[], nFrames: number, hopSeconds
     energy_db_sd: e.sd,
     voiced_duration_s: f0s.length * hopSeconds,
     unvoiced_duration_s: (nFrames - f0s.length) * hopSeconds,
+    voiced_fraction: nFrames > 0 ? f0s.length / nFrames : 0,
   };
 }
 
-/** Mirror of tmp/ravdess/scripts/extract_features.py::extract_features over
- *  the given samples (no windowing here). Null when shorter than one frame. */
-export function activationFeatures(samples: Float32Array, sr: number): ActivationFeatures | null {
+/** The RAW measurements over the given samples (no windowing here). Null when
+ *  shorter than one frame. `activationVector` turns these into the model's
+ *  invariant inputs. */
+export function activationRaw(samples: Float32Array, sr: number): ActivationRaw | null {
   const frameLen = Math.max(1, Math.floor((sr * FRAME_MS) / 1000));
   const hop = Math.max(1, Math.floor((sr * HOP_MS) / 1000));
   if (sr <= 0 || samples.length < frameLen) return null;
@@ -110,6 +153,12 @@ export function activationFeatures(samples: Float32Array, sr: number): Activatio
     if (f0 !== null) f0s.push(f0);
   }
   return assemble(f0s, energies, nFrames, hop / sr);
+}
+
+/** The model's invariant inputs over the given samples; null when unmeasurable. */
+export function activationFeatures(samples: Float32Array, sr: number): ActivationFeatures | null {
+  const raw = activationRaw(samples, sr);
+  return raw ? activationVector(raw) : null;
 }
 
 export function activationProbability(features: ActivationFeatures): number {
@@ -131,7 +180,11 @@ export function activationLevel(probability: number): number {
 export interface TurnActivation {
   probability: number;
   level: number;
+  /** The model's invariant inputs. */
   features: ActivationFeatures;
+  /** The raw per-window measurements behind them — what Developer mode shows
+   *  and what any future re-fit would train on. */
+  raw: ActivationRaw;
 }
 
 export interface AsyncActivationOptions {
@@ -175,7 +228,8 @@ export async function turnActivationAsync(
     if (f0 !== null) f0s.push(f0);
     if (nFrames % yieldEvery === 0) await sleep(0);
   }
-  const features = assemble(f0s, energies, nFrames, hop / sr);
+  const raw = assemble(f0s, energies, nFrames, hop / sr);
+  const features = activationVector(raw);
   const probability = activationProbability(features);
-  return { probability, level: activationLevel(probability), features };
+  return { probability, level: activationLevel(probability), features, raw };
 }

@@ -35,9 +35,12 @@
 import * as fs from "fs";
 import * as path from "path";
 import {
+  ACTIVATION_FEATURE_ORDER,
   ACTIVATION_LEVELS,
   ACTIVATION_WINDOW_SECONDS,
+  activationFeatures,
   activationLevel,
+  activationProbability,
   turnActivationAsync,
 } from "../src/live/activation";
 import { readCorpusWavTo16k } from "../src/live/replay/corpusWav";
@@ -166,16 +169,56 @@ maybe("⚡ vocal-activation gate (RAVDESS, the phone's own implementation)", () 
   });
 });
 
-describe("⚡ activation stays dark", () => {
-  it("is off by default, and says why in the same place a reader would change it", () => {
-    // A classifier that scores AUC 1.000 inside its own corpus and flags
-    // "Okay, this is Sage talking, I'm about to head off" as level-2 worked-up
-    // on a real recording is not ready to buzz anyone. The measurement that
-    // says so lives in replay.nudgeReport.test.ts; the reasoning lives next to
-    // the flag itself, so nobody can flip it without reading it.
+describe("⚡ activation is LIVE — and these are the conditions it must keep meeting", () => {
+  it("is on by default, with the reasoning next to the flag a reader would change", () => {
     const src = fs.readFileSync(path.join(__dirname, "..", "src", "live", "fastLoop.ts"), "utf8");
-    expect(src).toContain("this.activationNudges = deps.activationNudges ?? false;");
-    expect(src).toMatch(/Default FALSE, and it must stay false until the gate/);
-    expect(src).toMatch(/clip-shape detector/);
+    expect(src).toContain("this.activationNudges = deps.activationNudges ?? true;");
+    expect(src).toMatch(/invariant to recording gain and to clip\s+\*?\s*length/);
+  });
+
+  it("uses only gain- and length-invariant features — the v1 failure, pinned", () => {
+    // v1 fed the model absolute energy and absolute duration and therefore
+    // learned that a louder MICROPHONE means a louder person. Nothing whose
+    // value depends on the recording's gain or its length may come back.
+    for (const name of ACTIVATION_FEATURE_ORDER) {
+      expect(name).not.toMatch(/^energy_db_(mean|max)$/);
+      expect(name).not.toMatch(/duration_s$/);
+    }
+    expect([...ACTIVATION_FEATURE_ORDER]).toEqual([
+      "f0_sd",
+      "f0_range_ratio",
+      "energy_dynamic_range",
+      "energy_db_sd",
+      "voiced_fraction",
+    ]);
+  });
+
+  it("is immune to recording gain — the property that makes it safe out of corpus", () => {
+    // v1's single biggest input was ABSOLUTE energy, so the same voice through
+    // a hotter microphone looked like a person shouting: 48 dB of gain moved
+    // its logit by +3.96, which is how the owner's calm narration reached
+    // level 2. Proved here directly rather than argued — the same clip across
+    // a 22 dB range must score the same.
+    //
+    // The residual drift (a few hundredths) is the energy floor in
+    // `frameEnergyDb`: at low gain more silent frames sit on it, which
+    // slightly compresses the spread. Real, bounded, and nothing like a
+    // feature that tracks the microphone.
+    const clips = listClips();
+    const clip = clips.find((c) => c.emotion === "05" && c.intensity === "02") ?? clips[0];
+    const pcm = readCorpusWavTo16k(clip.file);
+    const ps: number[] = [];
+    for (const gain of [0.25, 0.5, 1, 2]) {
+      const scaled = Float32Array.from(pcm, (x) => x * gain);
+      ps.push(activationProbability(activationFeatures(scaled, 16000)!));
+    }
+    const spread = Math.max(...ps) - Math.min(...ps);
+    console.log(`  probability across 0.25x-2x gain (22 dB): ${ps.map((p) => p.toFixed(3)).join(" -> ")} (spread ${spread.toFixed(3)})`);
+    expect(spread).toBeLessThan(0.1);
+    // ...and the two scale-free features must not move at all.
+    const a = activationFeatures(pcm, 16000)!;
+    const b = activationFeatures(Float32Array.from(pcm, (x) => x * 0.5), 16000)!;
+    expect(b.f0_sd).toBeCloseTo(a.f0_sd, 6);
+    expect(b.voiced_fraction).toBeCloseTo(a.voiced_fraction, 6);
   });
 });

@@ -11,6 +11,7 @@ import {
   ACTIVATION_MODEL,
   ACTIVATION_WINDOW_SECONDS,
   activationFeatures,
+  activationRaw,
   activationLevel,
   activationProbability,
   turnActivationAsync,
@@ -38,7 +39,9 @@ function synth(): { samples: Float32Array; sr: number } {
 describe("activation features — parity with the Python extractor", () => {
   it("lands on the fixture's features (F0 stats, log-energy stats, durations)", () => {
     const { samples, sr } = synth();
-    const f = activationFeatures(samples, sr)!;
+    // Parity is on the RAW measurements — the invariant vector is derived
+    // from them, so proving these proves both.
+    const f = activationRaw(samples, sr)!;
     const exp = fixture.features as Record<string, number>;
     expect(f.voiced_duration_s).toBeCloseTo(exp.voiced_duration_s, 6);
     expect(f.unvoiced_duration_s).toBeCloseTo(exp.unvoiced_duration_s, 6);
@@ -74,17 +77,29 @@ describe("activation features — parity with the Python extractor", () => {
     for (let i = long.length - 2 * sr; i < long.length; i++) long[i] = 0.3 * Math.sin((2 * Math.PI * 200 * i) / sr); // ...then 2 s of tone at the end
     const r = await turnActivationAsync(long, sr, { sleep: async () => {} });
     // The window covers 3.7 s: 2 s voiced + 1.7 s unvoiced, never the 8 s of silence before it.
-    expect(r!.features.voiced_duration_s).toBeCloseTo(2.0, 1);
-    expect(r!.features.unvoiced_duration_s).toBeLessThan(1.8);
+    expect(r!.raw.voiced_duration_s).toBeCloseTo(2.0, 1);
+    expect(r!.raw.unvoiced_duration_s).toBeLessThan(1.8);
   });
 });
 
 describe("activationLevel ladder", () => {
   it("is conservative and monotone", () => {
     expect(activationLevel(0.5)).toBe(0);
-    expect(activationLevel(0.75)).toBe(1);
-    expect(activationLevel(0.9)).toBe(2);
+    expect(activationLevel(0.9)).toBe(0);
+    expect(activationLevel(0.92)).toBe(1);
+    expect(activationLevel(0.96)).toBe(2);
     expect(activationLevel(0.99)).toBe(3);
-    expect(ACTIVATION_LEVELS.map(([t]) => t)).toEqual([0.96, 0.88, 0.75]);
+    expect(ACTIVATION_LEVELS.map(([t]) => t)).toEqual([0.97, 0.95, 0.91]);
+  });
+
+  it("rung 1 sits above every calm clip the model saw out of fold", () => {
+    // Not a taste call. The v2 ladder is derived in
+    // tmp/ravdess/scripts/train_activation_v2.py from OUT-OF-FOLD predictions:
+    // the worst calm clip any fold produced scored 0.890, so rung 1 is 0.91.
+    // "Never flags a calm turn" is therefore a property of the threshold, not
+    // a hope — which is exactly what v1 lacked.
+    const rung1 = ACTIVATION_LEVELS[ACTIVATION_LEVELS.length - 1][0];
+    expect(rung1).toBeGreaterThan(0.89);
+    expect(activationLevel(0.89)).toBe(0);
   });
 });
