@@ -14,7 +14,23 @@ object GaugePrefs {
     private const val KEY_SIGNAL = "signal"
     private const val DEFAULT_SIGNAL = "VOLUME"
     private const val KEY_PULSE_INTERVAL_MS = "pulse_interval_ms"
-    private const val DEFAULT_PULSE_INTERVAL_MS = "250"
+    /**
+     * "Pulse speed" default — **"off" since 2026-09-10, measured, not guessed.**
+     *
+     * The proportional pulse train emits one tap per 1 s audio window while the
+     * wearer is >= 6 dB over their baseline. Counted against the two REAL
+     * fixture recordings that is **19 buzzes/min on the owner's family
+     * recording and 28/min on `poker6_real` — a poker game, not an argument**.
+     * At that dose the wrist is a vibrating loudness meter, and a cue that
+     * fires on ordinary conversation teaches the wearer to ignore it, which
+     * costs the nudges that DO matter.
+     *
+     * It is not deleted, because as a live self-monitoring gauge it does
+     * exactly what it was designed to do — it is just not a coaching default.
+     * Anyone who wants it turns it back on in Settings -> Pulse speed.
+     * apps/watch/.../PulseDoseTest.kt pins the dose arithmetic behind this.
+     */
+    private const val DEFAULT_PULSE_INTERVAL_MS = "off"
 
     /** Returns a stable per-install device id, minting and persisting one on first call. */
     fun deviceId(context: Context): String {

@@ -870,13 +870,16 @@ class SentinelService : Service() {
     }
 
     /** Parses [GaugePrefs.pulseIntervalMs] ("250"/"500"/"1000"/"off") into the `Long?` shape
-     * [SentinelController]/[app.gauge.wear.haptics.PulseEngine] expect — `null` for "off",
-     * falling back to the 250ms default for any unrecognized value rather than crashing on a
-     * corrupt pref. */
+     * [SentinelController]/[app.gauge.wear.haptics.PulseEngine] expect — `null` for "off".
+     *
+     * An unrecognized/corrupt pref now also reads as **off** (2026-09-10). It used to fall back
+     * to 250 ms, i.e. a corrupt byte on disk could silently opt a wearer into the densest haptic
+     * setting the app has — see [GaugePrefs]' own note for the measured dose. When the safe
+     * value and the loud value disagree, a fallback must pick the safe one. */
     private fun pulseIntervalMsPref(): Long? {
         val raw = GaugePrefs.pulseIntervalMs(applicationContext)
         if (raw == "off") return null
-        return raw.toLongOrNull() ?: SentinelController.DEFAULT_PULSE_INTERVAL_MS
+        return raw.toLongOrNull()
     }
 
     /** Parses [GaugePrefs.selectedSignal], falling back to [SignalKind.VOLUME] for an absent or
