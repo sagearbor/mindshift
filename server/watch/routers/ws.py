@@ -201,6 +201,15 @@ def make_ws_router(
         vector_events: list[VectorEvent] = []
         nudge_events: list[NudgeEvent] = []
         rms_db_series: list[float] = []
+        # Every HR sample, not just the ones that crossed a threshold.
+        # `push_hr` turns a sample into an `hr_spike` VectorEvent only when it
+        # clears +15/+25/+35 bpm over resting, so the persisted vector_events
+        # are the POSITIVES alone — and a signal can only be evaluated against
+        # the moments it stayed quiet. These two lists are the negatives:
+        # parallel, same index, stamped on the server stream clock so they join
+        # to the PCM windows and to anything derived from them.
+        hr_bpm_series: list[float] = []
+        hr_t_series: list[float] = []
         pcm_buffer = bytearray()
         pcm_buffer_capped = False  # Finding 1d: log the cap crossing only once
         started_at = _now_iso()
@@ -262,9 +271,29 @@ def make_ws_router(
                 ],
                 vector_events=vector_events,
                 nudge_events=nudge_events,
-                series={"rms_db": rms_db_series},
+                series={"rms_db": rms_db_series, "hr_bpm": hr_bpm_series, "hr_t": hr_t_series},
                 pcm_b64=base64.b64encode(bytes(pcm_buffer)).decode("ascii"),
             )
+
+        async def save_companion_hr() -> bool:
+            """Persist this companion socket's heart-rate slice, or do nothing.
+
+            Under a DERIVED id, never ``live_session_id``. A companion reuses
+            one deterministic id per day (see the watch's ``nextEpisodeId``)
+            and its socket drops often — screen-off churn, pocket dead zones —
+            so writing each slice under the shared id would have every
+            reconnect silently overwrite the last, losing most of the day. One
+            document per connection instead; analysis concatenates them, and
+            the socket's logical id still reads as one session in the logs.
+
+            Returns whether anything was written, so the caller can report
+            honestly rather than claim a save it did not make.
+            """
+            if not hr_bpm_series:
+                return False
+            doc = build_live_session("companion_hr")
+            await store.put_live_session(doc.model_copy(update={"id": f"{live_session_id}-hr-{started_at}"}))
+            return True
 
         try:
             while True:
@@ -342,19 +371,44 @@ def make_ws_router(
                     # (engine.t) instead. push_hr doesn't advance engine.t,
                     # so this is simply "now" on the same clock PCM windows use.
                     stream_t = engine.t
+                    # Recorded BEFORE the threshold runs, so the series is the
+                    # full signal rather than the part that happened to fire.
+                    hr_bpm_series.append(bpm)
+                    hr_t_series.append(stream_t)
                     events = engine.push_hr(bpm, stream_t)
                     await emit(events, stream_t)
                 elif msg_type == "end":
-                    if companion:
-                        # A companion socket has nothing worth persisting or
-                        # analyzing — close cleanly without a store write. The
-                        # status string says so honestly instead of claiming
-                        # "captured" for a session that captured nothing.
+                    if companion and not hr_bpm_series:
+                        # A companion socket that collected nothing has nothing
+                        # worth persisting — close cleanly without a store
+                        # write, so an all-day wrist socket can't mint an empty
+                        # junk doc every time it drops. The status string says
+                        # so honestly instead of claiming "captured" for a
+                        # session that captured nothing.
                         captured = True  # suppress the finally-save too
                         await websocket.send_json({
                             "type": "live_session_saved",
                             "live_session_id": live_session_id,
                             "status": "companion",
+                        })
+                        await websocket.close()
+                        return
+                    if companion:
+                        # ...but a companion that collected HEART RATE is no
+                        # longer nothing. The wearer's own sessions are the only
+                        # place HR and speech are ever observed together — no
+                        # public corpus has both — so this is the only data that
+                        # can ever answer whether HR adds anything over
+                        # loudness. `companion_hr` rather than `captured`: there
+                        # is no audio here and nothing to transcribe, and a
+                        # status that implied otherwise would send this doc down
+                        # the analysis path.
+                        captured = True
+                        await save_companion_hr()
+                        await websocket.send_json({
+                            "type": "live_session_saved",
+                            "live_session_id": live_session_id,
+                            "status": "companion_hr",
                         })
                         await websocket.close()
                         return
@@ -397,12 +451,22 @@ def make_ws_router(
             unregister_live_session(relay_session)
             if companion and not captured:
                 # Tier B: an abrupt companion disconnect (screen-off reconnect
-                # churn, pocket dead zones) is ordinary, and there is nothing
-                # to save — see the `companion` flag above.
-                logger.debug(
-                    "Companion socket %s (account=%s) closed; nothing persisted",
-                    live_session_id, account,
-                )
+                # churn, pocket dead zones) is ordinary. There is no audio to
+                # save — but if the wrist collected heart rate, that IS worth
+                # keeping, and this is the path most companion sockets actually
+                # take (a clean "end" is the exception, not the rule), so
+                # dropping it here would have lost most of the data the feature
+                # exists to gather.
+                if await save_companion_hr():
+                    logger.debug(
+                        "Companion socket %s (account=%s) closed; persisted %d HR samples",
+                        live_session_id, account, len(hr_bpm_series),
+                    )
+                else:
+                    logger.debug(
+                        "Companion socket %s (account=%s) closed; nothing persisted",
+                        live_session_id, account,
+                    )
             elif not captured:
                 # Abrupt disconnect before a clean "end": persist what we
                 # captured so far so data isn't lost, but never mislabel it

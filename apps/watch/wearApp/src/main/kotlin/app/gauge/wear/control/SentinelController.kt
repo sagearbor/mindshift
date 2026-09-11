@@ -152,6 +152,8 @@ class SentinelController(
     // limits it independently of activePulse's own PulseEngine gating.
     private var armedShoutTap: Pulse? = null
     private val shoutTapGate = ShoutTapGate()
+    // Companion-mode HR pacing — see maybeSendCompanionHr.
+    private var lastCompanionHrAtMs = 0L
 
     // Guarded by [lock] — read by tick()/state getter on the core thread, written by both the
     // core thread (startStreaming/endEpisodeStream/disarm) and the WS listener callbacks
@@ -576,6 +578,14 @@ class SentinelController(
         val now = nowMsSupplier()
         val (client, isOnline) = synchronized(lock) { ws to online }
         if (client == null || !isOnline) return
+        // Heart rate rides the companion socket too (2026-09-11). COMPANION
+        // never opens the mic, but HR is a different sensor entirely and the
+        // wearer's own coached sessions — phone listening, watch on the wrist —
+        // are the ONLY place heart rate and speech are ever observed together.
+        // No public emotion corpus carries both, so without this there is no
+        // data anywhere that can test whether HR adds anything over loudness.
+        // Sent before the heartbeat gate below, which returns early most ticks.
+        maybeSendCompanionHr(now)
         if (now - lastHeartbeatAtMs < HEARTBEAT_INTERVAL_MS) return
         try {
             client.sendHeartbeat()
@@ -585,6 +595,21 @@ class SentinelController(
             val delay = goOfflineAndArmReconnect()
             diag.log("info", "EpisodeWs", "reconnect backoff armed: next attempt in ${delay}ms")
         }
+    }
+
+    /**
+     * One HR sample up the companion socket, at most every [COMPANION_HR_INTERVAL_MS].
+     *
+     * Rate-limited rather than per-tick: the companion ticks about once a second and may stay open
+     * all day, and heart rate simply does not carry a second's worth of new information — this is
+     * a slow signal being logged for later analysis, not a trigger. Fail-soft exactly like
+     * [trySendHr], whose reconnect handling it reuses.
+     */
+    private fun maybeSendCompanionHr(nowMs: Long) {
+        if (nowMs - lastCompanionHrAtMs < COMPANION_HR_INTERVAL_MS) return
+        val bpm = safeLatest(hr, "hr") ?: return
+        lastCompanionHrAtMs = nowMs
+        trySendHr(bpm)
     }
 
     /** The id this session's socket opens under: COMPANION reuses the caller-supplied
@@ -1130,5 +1155,10 @@ class SentinelController(
         /** Tier B: companion JSON-heartbeat cadence — matches [EpisodeWsClient]'s own OkHttp
          * `pingInterval` (20 s), the existing keepalive rhythm of this socket. */
         const val HEARTBEAT_INTERVAL_MS = 20_000L
+
+        /** How often a COMPANION socket reports heart rate. 5 s is far finer than the signal
+         *  itself moves (a cardiac response to a moment takes seconds to tens of seconds) while
+         *  staying cheap on an all-day socket. */
+        const val COMPANION_HR_INTERVAL_MS = 5_000L
     }
 }

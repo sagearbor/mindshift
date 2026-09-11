@@ -2281,6 +2281,12 @@ export interface components {
             person_id: string;
             /** Display Name */
             display_name?: string | null;
+            /**
+             * Voice Register
+             * @default normal
+             * @enum {string}
+             */
+            voice_register: "normal" | "raised";
         };
         /** CallCreateIn */
         CallCreateIn: {
@@ -2919,6 +2925,33 @@ export interface components {
             /** Ahead */
             ahead?: string | null;
         };
+        /**
+         * GrowthGaps
+         * @description WHY the recordings missing from the chart are missing.
+         *
+         *     "N of M recordings identified your voice" was honest but useless: it left
+         *     the user unable to tell "the app failed to find me" from "I am simply not
+         *     in that recording", and only the first of those is something they can act
+         *     on. These three buckets are mutually exclusive and sum to
+         *     ``total_recordings - identified_recordings``.
+         */
+        GrowthGaps: {
+            /**
+             * Not Analyzed
+             * @default 0
+             */
+            not_analyzed: number;
+            /**
+             * Not Your Conversation
+             * @default 0
+             */
+            not_your_conversation: number;
+            /**
+             * Could Not Find You
+             * @default 0
+             */
+            could_not_find_you: number;
+        };
         /** GrowthPoint */
         GrowthPoint: {
             /** Recording Id */
@@ -2948,6 +2981,7 @@ export interface components {
             total_recordings: number;
             /** Identified Recordings */
             identified_recordings: number;
+            gaps?: components["schemas"]["GrowthGaps"];
             /** People */
             people?: {
                 [key: string]: unknown;
@@ -3069,7 +3103,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "live" | "captured" | "analyzed" | "not_analyzed" | "transcription_unavailable";
+            status: "live" | "captured" | "analyzed" | "not_analyzed" | "transcription_unavailable" | "companion_hr";
             /** Participants */
             participants: components["schemas"]["watch__models__Participant"][];
             /** Vector Events */
@@ -3885,9 +3919,9 @@ export interface components {
             speaker_match_score?: number | null;
             /**
              * Speaker Match Basis
-             * @description How the voiceprint match was reached: absolute cosine or in-session contrast
+             * @description How the voiceprint match was reached: absolute cosine, the raised-voice print, or in-session contrast
              */
-            speaker_match_basis?: ("absolute" | "contrast") | null;
+            speaker_match_basis?: ("absolute" | "raised" | "contrast") | null;
             /**
              * Is Self
              * @description True/False when the phone could decide; null when it couldn't
@@ -4205,6 +4239,8 @@ export interface components {
             samples: components["schemas"]["VoiceSampleOut"][];
             /** Embedding */
             embedding?: number[] | null;
+            /** Raised Embedding */
+            raised_embedding?: number[] | null;
         };
         /**
          * VoiceSampleOut

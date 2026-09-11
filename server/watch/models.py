@@ -80,7 +80,15 @@ class LiveSession(BaseModel):
     owner_account: str
     started_at: str
     ended_at: str | None
-    status: Literal["live", "captured", "analyzed", "not_analyzed", "transcription_unavailable"]
+    #: "companion_hr" (2026-09-11) is a watch companion socket that carried no
+    #: audio but DID collect a heart-rate series. Deliberately not "captured":
+    #: there is nothing to transcribe, so it must never enter the analysis path
+    #: — it exists so the wearer's own sessions can answer whether HR adds
+    #: anything over loudness, which no public corpus can (none has both).
+    status: Literal[
+        "live", "captured", "analyzed", "not_analyzed",
+        "transcription_unavailable", "companion_hr",
+    ]
     participants: list[Participant]
     vector_events: list[VectorEvent]
     nudge_events: list[NudgeEvent]

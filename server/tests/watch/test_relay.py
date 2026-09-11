@@ -354,3 +354,99 @@ def test_positive_frame_reaches_a_live_watch_socket_from_another_thread():
     ls = asyncio.run(store.get_live_session("e-praise"))
     assert ls is not None
     assert ls.vector_events == [] and ls.nudge_events == [], "praise is not an escalation"
+
+
+# ------------------------------------------------- companion heart rate --
+#
+# The wearer's own coached sessions are the ONLY place heart rate and speech
+# are ever observed together — no public emotion corpus carries both — so this
+# is the only data that can ever test whether HR adds anything over loudness
+# (docs/plans/2026-09-10-heat-rubric-and-buzz-dose.md). These cases pin that it
+# is actually collected, and that collecting it did not resurrect the junk-doc
+# problem the companion path exists to avoid.
+
+def _companion_ws(client, sid="hr-1", account="alice"):
+    return client.websocket_connect(f"/ws/live-session/{sid}?account={account}")
+
+
+def test_companion_persists_its_heart_rate_under_a_derived_id():
+    store = MemoryLiveSessionStore()
+    client = TestClient(create_watch_test_app(store=store, allow_legacy=True))
+    with _companion_ws(client) as ws:
+        ws.send_text(json.dumps({"type": "companion"}))
+        for bpm in (72.0, 74.0, 130.0):
+            ws.send_text(json.dumps({"type": "hr", "bpm": bpm, "t": 1.0}))
+        ws.send_text(json.dumps({"type": "end"}))
+        saved = json.loads(ws.receive_text())
+        while saved["type"] != "live_session_saved":
+            saved = json.loads(ws.receive_text())
+    assert saved["status"] == "companion_hr"
+
+    # NOT under the socket's own id: a companion reuses one id per day and its
+    # socket drops often, so writing there would have each reconnect overwrite
+    # the last and lose most of the day.
+    assert asyncio.run(store.get_live_session("hr-1")) is None
+    docs = [d for d in asyncio.run(_all_sessions(store)) if d.id.startswith("hr-1-hr-")]
+    assert len(docs) == 1
+    doc = docs[0]
+    assert doc.status == "companion_hr"
+    assert doc.series["hr_bpm"] == [72.0, 74.0, 130.0], "every sample, not just the spike"
+    assert len(doc.series["hr_t"]) == 3, "each stamped on the server stream clock"
+    assert doc.pcm_b64 == "", "a companion never carries audio"
+
+
+def test_companion_with_no_heart_rate_still_persists_nothing():
+    """The junk-doc rule survives. An all-day wrist socket that collected
+    nothing must not mint a document every time it drops."""
+    store = MemoryLiveSessionStore()
+    client = TestClient(create_watch_test_app(store=store, allow_legacy=True))
+    with _companion_ws(client, sid="hr-empty") as ws:
+        ws.send_text(json.dumps({"type": "companion"}))
+        ws.send_text(json.dumps({"type": "end"}))
+        saved = json.loads(ws.receive_text())
+        while saved["type"] != "live_session_saved":
+            saved = json.loads(ws.receive_text())
+    assert saved["status"] == "companion"
+    assert asyncio.run(_all_sessions(store)) == []
+
+
+def test_companion_heart_rate_survives_an_abrupt_disconnect():
+    """The path most companion sockets actually take. A clean "end" is the
+    exception — screen-off churn and pocket dead zones are the rule — so
+    dropping HR here would have lost most of what the feature collects."""
+    store = MemoryLiveSessionStore()
+    client = TestClient(create_watch_test_app(store=store, allow_legacy=True))
+    with _companion_ws(client, sid="hr-drop") as ws:
+        ws.send_text(json.dumps({"type": "companion"}))
+        ws.send_text(json.dumps({"type": "hr", "bpm": 99.0, "t": 1.0}))
+        # no "end" — just go away
+    docs = [d for d in asyncio.run(_all_sessions(store)) if d.id.startswith("hr-drop-hr-")]
+    assert len(docs) == 1 and docs[0].series["hr_bpm"] == [99.0]
+    assert docs[0].status == "companion_hr", "never not_analyzed — there was no audio to analyse"
+
+
+def test_a_normal_mic_session_also_keeps_the_raw_series():
+    """Not companion-specific: the negatives matter on the mic path too. An
+    hr_spike VectorEvent is only emitted over +15 bpm, so the vector log alone
+    is the positives and cannot be evaluated against anything."""
+    store = MemoryLiveSessionStore()
+    asyncio.run(store.put_baseline(EnrollmentBaseline(
+        account_id="alice", rms_db=-30.0, f0_median=120.0, updated_at="x")))
+    client = TestClient(create_watch_test_app(store=store, allow_legacy=True))
+    with client.websocket_connect("/ws/live-session/hr-mic?account=alice") as ws:
+        ws.send_bytes(pcm(0.1))
+        ws.send_text(json.dumps({"type": "hr", "bpm": 70.0, "t": 1.0}))
+        ws.send_text(json.dumps({"type": "end"}))
+        while json.loads(ws.receive_text())["type"] != "live_session_saved":
+            pass
+    doc = asyncio.run(store.get_live_session("hr-mic"))
+    assert doc is not None and doc.series["hr_bpm"] == [70.0]
+    assert not any(e.vector == "hr_spike" for e in doc.vector_events), \
+        "70 bpm is not a spike — which is exactly the sample the series exists to keep"
+
+
+async def _all_sessions(store) -> list:
+    """Every persisted live session, however the store spells its internals."""
+    if hasattr(store, "_live_sessions"):
+        return list(store._live_sessions.values())
+    raise AssertionError("MemoryLiveSessionStore shape changed — update this helper")
