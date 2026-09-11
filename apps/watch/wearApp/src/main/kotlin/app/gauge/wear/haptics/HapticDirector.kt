@@ -57,6 +57,11 @@ open class HapticDirector(
     // event stays empty — a reminder is honestly a replay, not a new detection — so the code
     // cannot be re-derived from it.
     private var reminderCode: String? = null
+    // How many times the CURRENT level has already repeated, driving
+    // NudgeHapticSchedule's back-off. Reset by a fresh escalation (see onNudge) so a situation
+    // that genuinely worsens is reported promptly again, rather than inheriting the calm-down
+    // cadence of the one before it.
+    private var reminderRepeats: Int = 0
 
     // open: lets tests exercise SentinelController's own listener-callback containment in
     // isolation from this class's internal runCatching — see SentinelControllerTest's
@@ -69,6 +74,7 @@ open class HapticDirector(
             if (n.channel == REMINDER_CHANNEL) {
                 reminderLevel = 0
                 reminderCode = null
+                reminderRepeats = 0
             }
             return
         }
@@ -93,6 +99,7 @@ open class HapticDirector(
             reminderLevel = n.level
             reminderLastPlayedMs = now
             reminderCode = code
+            reminderRepeats = 0
         }
     }
 
@@ -107,7 +114,7 @@ open class HapticDirector(
         val level = reminderLevel
         if (level == 0) return null
         val now = nowMs()
-        if (!NudgeHapticSchedule.reminderDue(level, reminderLastPlayedMs, now)) return null
+        if (!NudgeHapticSchedule.reminderDue(level, reminderLastPlayedMs, now, reminderRepeats)) return null
         return NudgeEvent(channel = REMINDER_CHANNEL, level = level, t = now / 1000.0, vectors = emptyList())
     }
 
@@ -124,6 +131,7 @@ open class HapticDirector(
         play(n.channel, n.level, cue, HapticPatterns.waveformFallbackFor(n.channel, n.level, reminderCode))
         val now = nowMs()
         reminderLastPlayedMs = now
+        reminderRepeats++
         lastChannel = n.channel
         lastLevel = n.level
         lastVibrationTimeMs = now
@@ -134,6 +142,7 @@ open class HapticDirector(
     fun clearReminder() {
         reminderLevel = 0
         reminderCode = null
+        reminderRepeats = 0
     }
 
     /** Test/diagnostic seam: the channel-A level reminders are currently scheduled for (0 = none). */

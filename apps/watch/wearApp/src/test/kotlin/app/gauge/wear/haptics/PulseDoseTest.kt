@@ -115,3 +115,76 @@ class PulseDoseTest {
         )
     }
 }
+
+/**
+ * The SECOND dose defect, and the one that survives turning the pulse train off: PRD §6's
+ * reminder repeat.
+ *
+ * Level 3 repeated every 10 s while the level held, and [app.gauge.shared.NudgePolicy]
+ * de-escalates only one level per 20 s of quiet — so a sustained argument, the exact situation
+ * level 3 exists for, buzzed without end. These cases pin the arithmetic before and after the
+ * back-off, using the same "count what the wrist FEELS" method as [PulseDoseTest].
+ */
+class ReminderDoseTest {
+    private var fakeVibrator = FakeVibratorPort()
+    private var timeMs = 0L
+    private var director = HapticDirector(fakeVibrator, nowMs = { timeMs })
+
+    /** Escalate once to [level], then hold it for [seconds], ticking once a second like the
+     *  service does. Returns every moment the wrist buzzed, in seconds.
+     *
+     *  Builds a FRESH director and clock each time: a reminder is deliberately silent under a
+     *  backwards-stepping clock, so reusing one across two runs would measure that safety rule
+     *  rather than the back-off. */
+    private fun sustained(level: Int, seconds: Int): List<Int> {
+        fakeVibrator = FakeVibratorPort()
+        timeMs = 0L
+        director = HapticDirector(fakeVibrator, nowMs = { timeMs })
+        val felt = mutableListOf<Int>()
+        director.onNudge(app.gauge.shared.NudgeEvent(channel = "A", level = level, t = 0.0))
+        felt.add(0)
+        for (s in 1..seconds) {
+            timeMs = s * 1000L
+            val due = director.dueReminder() ?: continue
+            director.replayReminder(due)
+            felt.add(s)
+        }
+        return felt
+    }
+
+    @Test
+    fun `a three-minute level-3 stretch now costs five buzzes, not eighteen`() {
+        val felt = sustained(level = 3, seconds = 180)
+        // 10s, then 20, 40, 80 — then capped at level 1's gentle two minutes.
+        assertEquals(listOf(0, 10, 30, 70, 150), felt)
+        assertTrue(felt.size < 6, "measured 18 before the back-off; got ${felt.size}")
+    }
+
+    @Test
+    fun `the first repeat is still prompt — urgency is not what was wrong`() {
+        // The complaint was never "it told me too soon", it was "it never stopped". Level 3 must
+        // still speak up within 10 s of escalating.
+        assertEquals(10, sustained(level = 3, seconds = 60)[1])
+    }
+
+    @Test
+    fun `a NEW escalation resets the back-off, so things getting worse is still reported`() {
+        sustained(level = 3, seconds = 180)
+        val before = fakeVibrator.calls.size + fakeVibrator.composedPlayed.size
+        // A fresh level-3 detection after the lane has gone quiet-ish.
+        timeMs += 10_000L
+        director.onNudge(app.gauge.shared.NudgeEvent(channel = "A", level = 3, t = 190.0, vectors = listOf("yelling")))
+        timeMs += 10_000L
+        val due = director.dueReminder()
+        assertTrue(due != null, "a new escalation must restart the prompt cadence, not inherit the backed-off one")
+        assertTrue(fakeVibrator.calls.size + fakeVibrator.composedPlayed.size > before)
+    }
+
+    @Test
+    fun `levels 1 and 2 are barely touched — they were never the problem`() {
+        // Level 1 is already at the cap, so its cadence is unchanged; level 2 backs off from one
+        // minute to the same two-minute floor rather than to silence.
+        assertEquals(listOf(0, 120), sustained(level = 1, seconds = 240).take(2))
+        assertEquals(listOf(0, 60, 180), sustained(level = 2, seconds = 240).take(3))
+    }
+}

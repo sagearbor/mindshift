@@ -100,13 +100,53 @@ object NudgeHapticSchedule {
     }
 
     /**
-     * Whether a level's cue should be re-fired now, given when it last played. `>=` (not `>`) so a
-     * caller ticking at exactly the cadence fires on the tick, and a backwards-stepping clock
-     * (negative elapsed) simply waits — silence is the safe failure for a reminder (mirrors the
-     * wear app's ShoutTapGate fail direction). Level 0 is never due.
+     * Ceiling the [reminderIntervalMs] back-off climbs to. Chosen as level 1's own cadence: at its
+     * calmest a reminder is still the gentlest thing the schedule already does, so the wearer is
+     * never abandoned mid-episode — the KDoc's "never feels like the watch gave up" rule.
      */
-    fun reminderDue(level: Int, lastPlayedMs: Long, nowMs: Long): Boolean {
-        val interval = planFor(level).repeatIntervalMs ?: return false
+    const val REMINDER_BACKOFF_CAP_MS = LEVEL_1_REPEAT_MS
+
+    /**
+     * The gap before a level's `repeatIndex`-th REPEAT (0 = the first repeat after the escalation
+     * itself), or null for a level that never repeats.
+     *
+     * Doubles each time, capped at [REMINDER_BACKOFF_CAP_MS]. Flat repetition was measured as
+     * untenable on 2026-09-10: level 3 repeats every 10 s and the policy only de-escalates one
+     * level per 20 s of quiet, so a sustained argument — precisely the situation level 3 exists
+     * for — buzzed **18 times in three minutes** and never stopped. A metronome strapped to
+     * someone's wrist mid-argument is not coaching; it is the thing they take the watch off to
+     * escape, which costs every later nudge too.
+     *
+     * Backing off rather than hard-stopping keeps the PRD's intent: level 3 still says its piece
+     * quickly (10 s, then 20, 40, 80) and then settles to level 1's gentle two-minute pulse
+     * instead of falling silent. The same three minutes now cost 5 buzzes rather than 18, and the
+     * count is reset by a NEW escalation ([HapticDirector] owns that), so a situation that
+     * actually gets worse is still reported promptly.
+     */
+    fun reminderIntervalMs(level: Int, repeatIndex: Int): Long? {
+        val base = planFor(level).repeatIntervalMs ?: return null
+        val steps = repeatIndex.coerceAtLeast(0).coerceAtMost(BACKOFF_MAX_DOUBLINGS)
+        var interval = base
+        repeat(steps) {
+            if (interval >= REMINDER_BACKOFF_CAP_MS) return REMINDER_BACKOFF_CAP_MS
+            interval *= 2
+        }
+        return interval.coerceAtMost(REMINDER_BACKOFF_CAP_MS)
+    }
+
+    /**
+     * Whether a level's cue should be re-fired now, given when it last played and how many times
+     * it has already repeated since the escalation that armed it. `>=` (not `>`) so a caller
+     * ticking at exactly the cadence fires on the tick, and a backwards-stepping clock (negative
+     * elapsed) simply waits — silence is the safe failure for a reminder (mirrors the wear app's
+     * ShoutTapGate fail direction). Level 0 is never due.
+     */
+    fun reminderDue(level: Int, lastPlayedMs: Long, nowMs: Long, repeatIndex: Int = 0): Boolean {
+        val interval = reminderIntervalMs(level, repeatIndex) ?: return false
         return nowMs - lastPlayedMs >= interval
     }
+
+    /** Enough doublings to reach [REMINDER_BACKOFF_CAP_MS] from the shortest cadence; bounded so a
+     *  wild repeatIndex can't spin the loop. */
+    private const val BACKOFF_MAX_DOUBLINGS = 16
 }

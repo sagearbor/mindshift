@@ -668,9 +668,16 @@ class SentinelControllerTest {
     @Test
     fun channelANudgeRepeatsOnThePrdSection6ScheduleWhileStreaming() {
         // Track 1 / PRD §6: a level-2 nudge ("double pulse every 1 min") is felt once on arrival
-        // and then again every minute the level holds, driven by the controller's own window tick
-        // — no server re-send involved. Pulses "Off" so the pulse-train suppression rule can't
+        // and then again as the level holds, driven by the controller's own window tick — no
+        // server re-send involved. Pulses "Off" so the pulse-train suppression rule can't
         // interfere; the director shares the controller's clock so reminders can actually come due.
+        //
+        // 2026-09-10: the repeat BACKS OFF (NudgeHapticSchedule.reminderIntervalMs) instead of
+        // repeating flat forever. This test previously asserted a third buzz at 120 s, i.e. the
+        // flat one-a-minute cadence; the measured reason for changing it is in PulseDoseTest /
+        // ReminderDoseTest — flat repetition made a sustained level 3 buzz 18 times in three
+        // minutes and never stop. Level 2 therefore repeats at 60 s and then at 180 s, settling
+        // to level 1's two-minute floor rather than to silence.
         val mic = ScriptedMic(quietThenTriggerWindows())
         val wsFactory = FakeWsFactory()
         val vibrator = FakeVibratorPort()
@@ -697,7 +704,11 @@ class SentinelControllerTest {
 
         clock = 120_000
         controller.tick()
-        assertEquals(3, vibrator.calls.size)
+        assertEquals(2, vibrator.calls.size, "the second repeat has backed off past one minute")
+
+        clock = 180_000
+        controller.tick()
+        assertEquals(3, vibrator.calls.size, "and lands at the two-minute floor")
 
         // Disarm ends the conversation: no more reminders, however long we wait.
         controller.disarm()
