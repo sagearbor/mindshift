@@ -64,6 +64,17 @@ android {
             // Settings, the haptic vocabulary demo — is unaffected, which is
             // what a sideloaded build is for.
             applicationIdSuffix = ".debug"
+            // ...and a DIFFERENT NAME, because a different package id alone is
+            // invisible on a wrist. Both builds shipped the same "MindShift"
+            // label and the same icon, so the launcher showed two identical
+            // entries and the owner had no way to tell which one he was about
+            // to open (2026-09-12). On a 1.2" screen with no hover, no long-
+            // press detail and no package name anywhere in the UI, "they look
+            // the same" is not a cosmetic complaint — it makes the sideloaded
+            // build untestable. Overriding the string resource renames it
+            // everywhere the label is used (launcher, Settings, app info) from
+            // one place.
+            resValue("string", "app_name", "MindShift Dev")
         }
         release {
             isMinifyEnabled = false
