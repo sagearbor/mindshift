@@ -75,6 +75,123 @@ def test_tone_level_reads_both_sources_and_ignores_unconfident_flags():
     assert relay.tone_level(TurnTextTone(frustration=60), flag.model_copy(update={"confidence": 0.9})) == 3
 
 
+# ----------------------------------------------------------- valence veto --
+# The +6/+10/+14 dB ladder measures AROUSAL, so it fires on 44.5% of HAPPY
+# speech (CREMA-D). The veto lets the server's own valence reading suppress a
+# loudness nudge that reads as PLEASANT. It must only ever subtract a buzz,
+# must leave the tone lane alone, and must be inert unless switched on.
+# Rationale + calibration: docs/decisions/2026-09-17-valence-veto.md.
+
+def _audio_flag(valence: float | None, **overrides) -> ToneFlagEvent:
+    """A ToneFlagEvent shaped like the one audio_pipeline._enrich_tone builds
+    from the dimensional backend — note confidence 0.0, which is what
+    tone_id._dims_to_result really emits."""
+    scores: dict[str, float] = {"arousal": 0.7, "dominance": 0.6}
+    if valence is not None:
+        scores["valence"] = valence
+    base = dict(session_id="s", speaker="Speaker A", start_time=0, end_time=1,
+                source="audio", scores=scores, label="unscored", confidence=0.0)
+    base.update(overrides)
+    return ToneFlagEvent(**base)
+
+
+def _loud_turn() -> TurnLocalEvent:
+    """+16 dB over baseline — comfortably past the top rung."""
+    return _turn(prosody=TurnProsody(rms_dbfs=-14.0))
+
+
+def _vectors(turn, flag):
+    return relay.turn_local_to_vector_events(turn, t=3.0, baseline_rms_db=-30.0, tone_flag=flag)
+
+
+def test_valence_veto_is_off_unless_the_env_var_says_otherwise(monkeypatch):
+    """Production safety: with the flag unset, a loud PLEASANT turn still
+    buzzes exactly as it does today. If this fails, shipping changed
+    behaviour for every wearer without anyone flipping anything."""
+    monkeypatch.delenv(relay.VALENCE_GATE_ENV, raising=False)
+    assert relay.valence_gate_enabled() is False
+    pleasant = _audio_flag(0.95)
+    assert relay.valence_veto(pleasant) == (False, None)
+    assert [e.vector for e in _vectors(_loud_turn(), pleasant)] == ["yelling"]
+    for value in ("", "off", "0", "false", "no", "dark", "maybe"):
+        monkeypatch.setenv(relay.VALENCE_GATE_ENV, value)
+        assert relay.valence_gate_enabled() is False, f"{value!r} must not enable the veto"
+    for value in ("1", "on", "true", "YES", " On "):
+        monkeypatch.setenv(relay.VALENCE_GATE_ENV, value)
+        assert relay.valence_gate_enabled() is True, f"{value!r} should enable the veto"
+
+
+def test_valence_veto_suppresses_a_loud_but_pleasant_turn(monkeypatch):
+    monkeypatch.setenv(relay.VALENCE_GATE_ENV, "on")
+    vetoed, valence = relay.valence_veto(_audio_flag(0.80))
+    assert vetoed is True and valence == 0.80
+    assert _vectors(_loud_turn(), _audio_flag(0.80)) == [], "laughing must not buzz"
+
+
+def test_valence_veto_lets_a_loud_unpleasant_turn_through(monkeypatch):
+    monkeypatch.setenv(relay.VALENCE_GATE_ENV, "on")
+    angry = _audio_flag(0.20)
+    assert relay.valence_veto(angry) == (False, 0.20)
+    assert [e.vector for e in _vectors(_loud_turn(), angry)] == ["yelling"]
+
+
+def test_valence_veto_boundary_is_inclusive_of_the_threshold(monkeypatch):
+    monkeypatch.setenv(relay.VALENCE_GATE_ENV, "on")
+    at = relay.VALENCE_VETO_MAX
+    assert relay.valence_veto(_audio_flag(at))[0] is False, "at the threshold still buzzes"
+    assert relay.valence_veto(_audio_flag(at + 0.001))[0] is True
+
+
+def test_valence_veto_never_silences_the_tone_lane(monkeypatch):
+    """The words are the better signal. A pleasant-sounding turn whose TEXT
+    reads as hostile must still reach the wrist on aggressive_tone."""
+    monkeypatch.setenv(relay.VALENCE_GATE_ENV, "on")
+    turn = _turn(prosody=TurnProsody(rms_dbfs=-14.0),
+                 text_tone=TurnTextTone(frustration=90, label="defensive"))
+    assert [e.vector for e in _vectors(turn, _audio_flag(0.95))] == ["aggressive_tone"]
+
+
+def test_valence_veto_applies_at_every_rung_including_the_loudest(monkeypatch):
+    """Loud+happy concentrates at the TOP rung (93% of >=+14 dB happy clips),
+    so exempting level 3 would give up most of the benefit."""
+    monkeypatch.setenv(relay.VALENCE_GATE_ENV, "on")
+    for rms, expected_level in ((-22.0, 1), (-18.0, 2), (-14.0, 3)):
+        turn = _turn(prosody=TurnProsody(rms_dbfs=rms))
+        assert [e.level for e in _vectors(turn, None)] == [expected_level], "rung sanity"
+        assert _vectors(turn, _audio_flag(0.90)) == [], f"level {expected_level} must be vetoable"
+
+
+def test_valence_veto_ignores_the_confidence_floor(monkeypatch):
+    """Regression guard. The dimensional backend reports confidence 0.0 by
+    construction, so reusing TONE_FLAG_MIN_CONFIDENCE here would veto nothing
+    ever and the feature would look enabled while doing nothing."""
+    monkeypatch.setenv(relay.VALENCE_GATE_ENV, "on")
+    assert _audio_flag(0.90).confidence == 0.0
+    assert relay.valence_veto(_audio_flag(0.90))[0] is True
+
+
+@pytest.mark.parametrize("flag,why", [
+    (None, "no tone flag at all (MINDSHIFT_TONE_AUDIO below 'on')"),
+    (_audio_flag(None), "categorical backend — no valence key"),
+    (_audio_flag(0.90, source="text"), "the text lane never carries valence"),
+])
+def test_valence_veto_fails_open(monkeypatch, flag, why):
+    """A missing signal is not evidence that a turn was pleasant. Every
+    degraded path must leave today's behaviour untouched."""
+    monkeypatch.setenv(relay.VALENCE_GATE_ENV, "on")
+    assert relay.valence_veto(flag)[0] is False, why
+    assert [e.vector for e in _vectors(_loud_turn(), flag)] == ["yelling"], why
+
+
+def test_valence_veto_survives_a_junk_score(monkeypatch):
+    monkeypatch.setenv(relay.VALENCE_GATE_ENV, "on")
+    flag = _audio_flag(0.9)
+    flag.scores["valence"] = float("nan")
+    # NaN compares False against everything — must not crash, must not veto.
+    assert relay.valence_veto(flag)[0] is False
+    assert [e.vector for e in _vectors(_loud_turn(), flag)] == ["yelling"]
+
+
 # ------------------------------------------------------ session + registry --
 
 class _Recorder:
