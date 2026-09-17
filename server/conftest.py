@@ -125,3 +125,21 @@ async def client():
         transport=ASGITransport(app=app), base_url="http://test"
     ) as ac:
         yield ac
+
+
+@pytest.fixture(autouse=True)
+def _natural_turns_off_by_default(monkeypatch):
+    """The NaturalTurn post-pass (main.NATURAL_TURNS_ENV, default ON in
+    production) merges rapid same-speaker turns. Most pipeline tests pin
+    exact turn counts against count-locked fake LLMs, so it is OFF for the
+    suite; tests/test_natural_turns_pass.py enables it for itself.
+
+    Lives HERE rather than in a server/tests/conftest.py: server/tests/ is a
+    package (``server/tests/__init__.py``) with ``server/`` on sys.path, so a
+    conftest there imports as ``tests.conftest`` and collides with the
+    top-level ``tests/conftest.py`` — which breaks `pytest` from the repo
+    root, the exact command AGENTS.md documents and CI's backend job runs.
+    This file's scope over server/ is identical: every server test lives
+    under server/tests/.
+    """
+    monkeypatch.setenv("MINDSHIFT_NATURAL_TURNS", "0")
