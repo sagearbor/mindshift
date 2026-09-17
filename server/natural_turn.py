@@ -45,7 +45,7 @@ answers.
 from __future__ import annotations
 
 import re
-from typing import Any, Iterable, Optional, TypedDict
+from typing import Iterable, Optional, TypedDict
 
 # ---------------------------------------------------------------------------
 # Constants (mirror apps/mobile/src/live/naturalTurn.ts bit-for-bit)

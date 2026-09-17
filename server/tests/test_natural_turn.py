@@ -16,7 +16,6 @@ from pathlib import Path
 
 import pytest
 
-import natural_turn
 from natural_turn import (
     MAX_PAUSE_SECONDS,
     classify_utterance,
