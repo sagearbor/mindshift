@@ -66,6 +66,16 @@ dict — same 0-100 scale, same keys — and is only trusted at
 ``confidence >= TONE_FLAG_MIN_CONFIDENCE``. The two tone sources are combined
 as a max too; whichever is louder about it wins.
 
+The valence veto (off by default)
+---------------------------------
+``MINDSHIFT_HEAT_VALENCE_GATE=on`` lets the server's own audio tone verdict
+SUPPRESS a loudness nudge whose valence reads as pleasant — the laughing-vs-
+shouting case the dB ladder provably cannot separate. It only ever removes a
+buzz, never adds one, and never touches the tone lane. Off unless the env var
+says otherwise, and additionally inert unless ``MINDSHIFT_TONE_AUDIO=on``
+(below that no ``ToneFlagEvent`` reaches this module at all). See
+``valence_veto`` and ``docs/decisions/2026-09-17-valence-veto.md``.
+
 Golden vectors: ``server/tests/fixtures/policy_vectors/tone_escalation.json``
 (driver ``server/tests/watch/test_tone_escalation_vectors.py``) pin every
 rung above and the max-combination rule. Edit the constants and the JSON
@@ -76,6 +86,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import threading
 from collections import deque
 from dataclasses import dataclass, field
@@ -108,6 +119,69 @@ TONE_ESCALATION_KEYS: tuple[str, ...] = ("frustration", "defensiveness")
 TONE_VECTOR: VectorName = "aggressive_tone"
 # Below this a ToneFlagEvent is an observation, not a verdict — don't buzz.
 TONE_FLAG_MIN_CONFIDENCE = 0.5
+
+# --- the valence veto (2026-09-17) -----------------------------------------
+# Loudness measures AROUSAL. Anger and joy are both high-arousal, so the
+# +6/+10/+14 dB ladder cannot tell shouting at your wife from laughing with
+# your friends: on CREMA-D the shipped first rung fires on 44.5% of HAPPY
+# speech. No threshold repairs it (AUC angry-vs-happy 0.799). `tone_id`'s
+# default backend has returned VALENCE — the pleasant/unpleasant axis — all
+# along, and every caller has only ever read `arousal`.
+#
+# This veto is the cheap half of the fix: a loudness nudge is SUPPRESSED when
+# the server's own audio tone says the turn was pleasant. It only ever
+# subtracts a buzz, never adds one, and it touches only the loudness lane —
+# `aggressive_tone` (the words) is the better signal and is left alone.
+#
+# Calibration + the full argument: docs/decisions/2026-09-17-valence-veto.md.
+# Threshold picked to keep >=90% of the anger the rung already caught, and
+# validated leave-one-speaker-out over 85 held-out CREMA-D speakers.
+VALENCE_GATE_ENV = "MINDSHIFT_HEAT_VALENCE_GATE"
+#: Above this valence the turn reads as pleasant and the loudness nudge is
+#: vetoed. tone_id's dimensional scale is ~0..1 (higher = more pleasant).
+VALENCE_VETO_MAX = 0.48
+_TRUTHY = frozenset({"1", "on", "true", "yes"})
+
+
+def valence_gate_enabled() -> bool:
+    """Is the valence veto switched on? OFF unless the env var says otherwise.
+
+    Deliberately its OWN flag rather than reusing ``tone_id.is_enabled()``:
+    ``MINDSHIFT_TONE_AUDIO`` defaults to ``dark``, and ``dark`` means "compute
+    and log, never change what the user experiences". A suppressed buzz is a
+    change the wearer can feel, so it must not ride in on ``dark``.
+    """
+    return (os.getenv(VALENCE_GATE_ENV) or "").strip().lower() in _TRUTHY
+
+
+def valence_veto(tone_flag: ToneFlagEvent | None) -> tuple[bool, float | None]:
+    """``(suppress_loudness_nudge, valence)`` for a turn's server tone verdict.
+
+    Fails OPEN at every step — gate off, no flag, a categorical backend with
+    no ``valence`` key, or an unparseable score all return "don't suppress".
+    An absent signal is not evidence that a turn was pleasant, and must never
+    silence a nudge that ships today.
+
+    Note it does NOT check ``TONE_FLAG_MIN_CONFIDENCE``: the dimensional
+    backend reports ``confidence == 0.0`` by construction (a raw dimensional
+    reading carries no emotion label to be confident about — see
+    ``tone_id._dims_to_result``), so a confidence gate here would veto
+    nothing, ever. Presence of the ``valence`` key is the real discriminator:
+    only the dimensional backend emits it.
+    """
+    if not valence_gate_enabled():
+        return False, None
+    if tone_flag is None or tone_flag.source != "audio":
+        return False, None
+    raw = tone_flag.scores.get("valence")
+    if raw is None:
+        return False, None
+    try:
+        valence = float(raw)
+    except (TypeError, ValueError):
+        return False, None
+    return valence > VALENCE_VETO_MAX, valence
+
 
 Emit = Callable[[list[VectorEvent], float], Awaitable[None]]
 
@@ -178,10 +252,22 @@ def turn_local_to_vector_events(
     rms = event.prosody.rms_dbfs if event.prosody is not None else None
     yelling, over_db = loudness_level(rms, baseline_rms_db)
     if yelling:
-        events.append(VectorEvent(
-            vector="yelling", level=yelling, t=t, value=over_db,
-            detail=f"phone turn: {over_db:.1f} dB over baseline",
-        ))
+        vetoed, valence = valence_veto(tone_flag)
+        if vetoed:
+            # Loud, but the server heard it as PLEASANT — laughing, not
+            # shouting. Suppress the buzz and say so; this log line is the
+            # only trace the veto leaves.
+            logger.info(
+                "valence veto: yelling level %d (%.1f dB over baseline) suppressed, "
+                "valence %.3f > %.2f",
+                yelling, over_db if over_db is not None else float("nan"),
+                valence, VALENCE_VETO_MAX,
+            )
+        else:
+            events.append(VectorEvent(
+                vector="yelling", level=yelling, t=t, value=over_db,
+                detail=f"phone turn: {over_db:.1f} dB over baseline",
+            ))
 
     tone = tone_level(event.text_tone, tone_flag)
     if tone:
