@@ -2084,13 +2084,19 @@ class FakeVoiceprintStore:
 
 
 class FakeRelay:
-    """Track 1's relay surface: push_turn_local(uid, event, *, tone_flag=None)."""
+    """Track 1's relay surface: push_turn_local(uid, event, *, tone_flag=None),
+    plus the praise lane push_positive(uid, code, t)."""
 
     def __init__(self) -> None:
         self.calls: list[dict] = []
+        self.positives: list[dict] = []
 
     def push_turn_local(self, uid: str, event, *, tone_flag=None) -> None:
         self.calls.append({"uid": uid, "event": event, "tone_flag": tone_flag})
+
+    def push_positive(self, uid: str, code: str, t: float) -> bool:
+        self.positives.append({"uid": uid, "code": code, "t": t})
+        return True
 
 
 @pytest.fixture
@@ -2508,6 +2514,62 @@ def _stream_one_second(ws) -> None:
         ws.send_bytes(FRAME_100MS)
 
 
+class TestPositiveRelay:
+    """The praise lane: the phone DELIVERED a positive and wants the wrist to
+    feel it too. Before this existed the watch relay carried alert vectors
+    only, so a wearer with the phone in a pocket felt every complaint and no
+    praise. The server is a courier here — the phone is the only detector, so
+    the flash on the screen and the buzz on the wrist cannot disagree."""
+
+    def _send(self, monkeypatch, relay, payload: dict) -> None:
+        monkeypatch.setattr(audio_pipeline, "watch_relay", relay)
+        client = _inject(StoppableTranscriber())
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            ws.send_text(json.dumps(payload))
+            ws.send_text(json.dumps({"type": "stop"}))
+            while json.loads(ws.receive_text())["type"] != "session_complete":
+                pass
+
+    def test_positive_frame_is_relayed_to_the_wrist(self, local_first_env, monkeypatch):
+        relay = FakeRelay()
+        self._send(monkeypatch, relay, {"type": "positive", "code": "E", "t": 41.5})
+        assert relay.positives == [{"uid": "test-user", "code": "E", "t": 41.5}]
+
+    def test_positive_frame_never_acks_or_errors(self, local_first_env, monkeypatch):
+        """No ack on purpose: the phone has already buzzed and flashed, and a
+        user with no watch must not see an error for a feature that simply
+        isn't there. A malformed one is dropped just as quietly — praise is
+        never worth interrupting a live session over."""
+        relay = FakeRelay()
+        monkeypatch.setattr(audio_pipeline, "watch_relay", relay)
+        client = _inject(StoppableTranscriber())
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            for payload in (
+                {"type": "positive", "code": "E", "t": 1.0},
+                {"type": "positive"},                       # no code
+                {"type": "positive", "code": 7},            # not a string
+                {"type": "positive", "code": "E", "t": "x"},  # unusable clock
+            ):
+                ws.send_text(json.dumps(payload))
+            ws.send_text(json.dumps({"type": "stop"}))
+            frames = []
+            while True:
+                msg = json.loads(ws.receive_text())
+                if msg["type"] == "session_complete":
+                    break
+                frames.append(msg)
+        assert not any("error" in f for f in frames), frames
+        # Only the well-formed ones travelled; the bad clock degrades to 0.0
+        # rather than being dropped (the wrist plays praise immediately and
+        # never schedules from t, so an unusable clock costs nothing).
+        assert [(p["code"], p["t"]) for p in relay.positives] == [("E", 1.0), ("E", 0.0)]
+
+    def test_positive_without_a_relay_module_is_a_noop(self, local_first_env, monkeypatch):
+        """No watch build in this checkout: the frame must be swallowed, not
+        crash the live session."""
+        self._send(monkeypatch, None, {"type": "positive", "code": "E", "t": 1.0})
+
+
 class TestTurnLocalEnrichment:
     def test_tone_identity_and_relay_emitted_from_recovered_slice(
         self, local_first_env, monkeypatch,
@@ -2735,6 +2797,57 @@ class TestTurnLocalEnrichment:
             assert json.loads(ws.receive_text())["type"] == "suggestion"
             ws.send_text(json.dumps({"type": "stop"}))
             assert json.loads(ws.receive_text())["type"] == "session_complete"
+
+    def test_watch_connected_frames_follow_the_relay_registry(
+        self, local_first_env, monkeypatch,
+    ):
+        """Tier B: the phone is told when a watch (companion) socket is
+        registered on the relay for its uid — one `watch_connected` frame per
+        CHANGE, checked on the turn cadence; no frames while nothing changes
+        (a watchless session sees none at all)."""
+        class PresenceRelay(FakeRelay):
+            def __init__(self) -> None:
+                super().__init__()
+                self.present = False
+
+            def live_session_for(self, uid):
+                return object() if self.present else None
+
+        relay = PresenceRelay()
+        monkeypatch.setattr(audio_pipeline, "watch_relay", relay)
+        client = _inject(StoppableTranscriber())
+        with open_ws(client, f"/ws/session/{LOCAL_SID}") as ws:
+            _stream_one_second(ws)
+            # No watch: the first turn yields its suggestion and NO
+            # watch_connected frame (False == the session's initial state).
+            ws.send_text(json.dumps(_turn_local(text="turn 0")))
+            _, seen = recv_until(ws, lambda m: m["type"] == "suggestion")
+            assert not [m for m in seen if m["type"] == "watch_connected"]
+
+            # A companion socket registers on the relay -> the next turn's
+            # enrichment reports it.
+            relay.present = True
+            ws.send_text(json.dumps(_turn_local(text="turn 1")))
+            frame, _ = recv_until(ws, lambda m: m["type"] == "watch_connected", limit=20)
+            assert frame == {"type": "watch_connected", "connected": True}
+
+            # Unchanged presence -> no repeat frame with the following turn.
+            ws.send_text(json.dumps(_turn_local(text="turn 2")))
+            _, seen = recv_until(
+                ws,
+                lambda m: m["type"] == "suggestion" and m.get("utterance_text") == "turn 2",
+                limit=20,
+            )
+            assert not [m for m in seen if m["type"] == "watch_connected"]
+
+            # The watch drops -> exactly one False frame.
+            relay.present = False
+            ws.send_text(json.dumps(_turn_local(text="turn 3")))
+            frame, _ = recv_until(ws, lambda m: m["type"] == "watch_connected", limit=20)
+            assert frame == {"type": "watch_connected", "connected": False}
+
+            ws.send_text(json.dumps({"type": "stop"}))
+            recv_until(ws, lambda m: m["type"] == "session_complete", limit=20)
 
     # -- review 2026-08-24: enrichment is bounded per session -----------------
 

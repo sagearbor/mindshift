@@ -1,0 +1,90 @@
+{
+ "family_real": {
+  "vad_miss": 0.103,
+  "unit_purity": 0.973,
+  "lost_to_other_speakers_unit": {
+   "Asher": 0.022,
+   "Sage": 0.03
+  },
+  "units": 42,
+  "chunks": 21
+ },
+ "poker6": {
+  "vad_miss": 0.32,
+  "unit_purity": 0.761,
+  "lost_to_other_speakers_unit": {
+   "Player1": 0.199,
+   "Player2": 0.561,
+   "Player3": 0.065,
+   "Player4": 0.267,
+   "Player5": 0.244,
+   "Player6": 0.112
+  },
+  "units": 46,
+  "chunks": 22
+ },
+ "openai": {
+  "vad_miss": 0.091,
+  "unit_purity": 0.999,
+  "lost_to_other_speakers_unit": {
+   "Speaker A": 0.001,
+   "Speaker B": 0.001
+  },
+  "units": 125,
+  "chunks": 62
+ },
+ "gptaudio": {
+  "vad_miss": 0.078,
+  "unit_purity": 1.0,
+  "lost_to_other_speakers_unit": {
+   "Speaker A": 0.001,
+   "Speaker B": 0.0
+  },
+  "units": 132,
+  "chunks": 66
+ },
+ "scene_couple": {
+  "vad_miss": 0.053,
+  "unit_purity": 0.999,
+  "lost_to_other_speakers_unit": {
+   "Speaker A": 0.001,
+   "Speaker B": 0.002
+  },
+  "units": 122,
+  "chunks": 61
+ },
+ "scene_family3": {
+  "vad_miss": 0.056,
+  "unit_purity": 0.91,
+  "lost_to_other_speakers_unit": {
+   "Speaker A": 0.017,
+   "Speaker B": 0.098,
+   "Speaker C": 0.159
+  },
+  "units": 146,
+  "chunks": 59
+ },
+ "scene_meeting4": {
+  "vad_miss": 0.053,
+  "unit_purity": 0.856,
+  "lost_to_other_speakers_unit": {
+   "Speaker A": 0.003,
+   "Speaker B": 0.291,
+   "Speaker C": 0.11,
+   "Speaker D": 0.223
+  },
+  "units": 145,
+  "chunks": 74
+ },
+ "maggiano3": {
+  "vad_miss": 0.131,
+  "unit_purity": 0.649,
+  "lost_to_other_speakers_unit": {
+   "asher": 0.755,
+   "dad": 0.205,
+   "mom": 0.348
+  },
+  "units": 77,
+  "chunks": 34
+ }
+}

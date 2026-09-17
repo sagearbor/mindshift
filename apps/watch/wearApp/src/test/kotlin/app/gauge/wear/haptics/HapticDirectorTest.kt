@@ -5,6 +5,7 @@ import app.gauge.wear.control.DiagLog
 import app.gauge.wear.control.VibratorPort
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -388,5 +389,96 @@ class HapticDirectorTest {
 
         assertTrue(log.contains("info/HapticDirector/haptic path: A L1 = waveform-fallback"))
         assertTrue(log.contains("info/HapticDirector/haptic path: B L1 = waveform"))
+    }
+
+    // --- the nudge vocabulary ------------------------------------------------------------------
+
+    @Test
+    fun aCutInPlaysItsOwnRhythmNotTheGenericChannelBuzz() {
+        setup()
+        // Even with the OEM-tuned paths available, a code with its own rhythm plays as a waveform:
+        // `• —` is the whole point, and a composed click train cannot express it.
+        fakeVibrator.supportsPredefined = true
+        fakeVibrator.supportsComposition = true
+
+        director.onNudge(NudgeEvent(channel = "A", level = 2, t = 0.0, vectors = listOf("interrupting")))
+
+        assertEquals(1, fakeVibrator.calls.size)
+        assertTrue(fakeVibrator.composedPlayed.isEmpty(), "a cut-in must not degrade to generic clicks")
+        assertWaveformPlayed(fakeVibrator.calls[0], HapticPatterns.cueFor("A", 2, "C") as HapticCue.Waveform)
+    }
+
+    @Test
+    fun heatedKeepsTheOemTunedPath() {
+        setup()
+        fakeVibrator.supportsComposition = true
+
+        director.onNudge(NudgeEvent(channel = "A", level = 2, t = 0.0, vectors = listOf("yelling")))
+
+        assertEquals(listOf(2 to HapticPatterns.MIN_GAP_MS), fakeVibrator.composedPlayed)
+        assertTrue(fakeVibrator.calls.isEmpty())
+    }
+
+    @Test
+    fun aReminderRepeatsTheCueTheWearerActuallyFelt() {
+        setup()
+        // Hogging at level 2, then the PRD §6 repeat a minute later: the reminder event carries no
+        // vectors (it is honestly a replay), so without the remembered code it would degrade to
+        // the generic channel-A buzz — a different feeling for the same unchanged situation.
+        director.onNudge(NudgeEvent(channel = "A", level = 2, t = 0.0, vectors = listOf("airtime")))
+        val first = fakeVibrator.calls.single()
+
+        timeMs = 60_000L
+        val due = director.dueReminder()
+        assertNotNull(due)
+        director.replayReminder(due)
+
+        assertEquals(2, fakeVibrator.calls.size)
+        assertWaveformPlayed(fakeVibrator.calls[1], HapticPatterns.cueFor("A", 2, "A") as HapticCue.Waveform)
+        assertTrue(fakeVibrator.calls[1].timingsMs.contentEquals(first.timingsMs))
+    }
+
+    @Test
+    fun deEscalationForgetsTheCodeSoTheNextReminderCannotResurrectIt() {
+        setup()
+        director.onNudge(NudgeEvent(channel = "A", level = 2, t = 0.0, vectors = listOf("airtime")))
+        director.onNudge(NudgeEvent(channel = "A", level = 0, t = 1.0))
+
+        timeMs = 600_000L
+        assertNull(director.dueReminder())
+    }
+
+    @Test
+    fun demoCodePlaysOneCodesCueAndSkipsTheSilentOnes() {
+        setup()
+        director.demoCode("C", 1)
+        assertEquals(1, fakeVibrator.calls.size)
+        assertWaveformPlayed(fakeVibrator.calls[0], HapticPatterns.cueFor("A", 1, "C") as HapticCue.Waveform)
+
+        // P is watch-only: it belongs to channel B, and demoCode must find that lane itself.
+        director.demoCode("P", 1)
+        assertWaveformPlayed(fakeVibrator.calls[1], HapticPatterns.cueFor("B", 1, "P") as HapticCue.Waveform)
+
+        // K never buzzes, and a level no code has is silent — "no cue" is the honest answer.
+        val before = fakeVibrator.calls.size
+        director.demoCode("K", 1)
+        director.demoCode("C", 4)
+        director.demoCode("Z", 1)
+        assertEquals(before, fakeVibrator.calls.size)
+    }
+
+    @Test
+    fun aDemoNeverDisturbsTheReminderOrTheDedupe() {
+        setup()
+        director.onNudge(NudgeEvent(channel = "A", level = 2, t = 0.0, vectors = listOf("airtime")))
+        director.demoCode("C", 3)
+
+        // Still hogging at level 2 — a demo is not a detection.
+        assertEquals(2, director.reminderLevel())
+        timeMs = 60_000L
+        val due = director.dueReminder()
+        assertNotNull(due)
+        director.replayReminder(due)
+        assertWaveformPlayed(fakeVibrator.calls.last(), HapticPatterns.cueFor("A", 2, "A") as HapticCue.Waveform)
     }
 }

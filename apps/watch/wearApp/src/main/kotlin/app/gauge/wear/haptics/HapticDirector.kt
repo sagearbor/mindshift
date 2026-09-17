@@ -2,6 +2,8 @@ package app.gauge.wear.haptics
 
 import app.gauge.shared.NudgeEvent
 import app.gauge.shared.NudgeHapticSchedule
+import app.gauge.shared.NudgePolarity
+import app.gauge.shared.NudgeVocabulary
 import app.gauge.wear.control.DiagLog
 import app.gauge.wear.control.NOOP_DIAG
 import app.gauge.wear.control.VibratorPort
@@ -50,6 +52,16 @@ open class HapticDirector(
     // no-internal-locking contract as the dedupe fields above (see class KDoc).
     private var reminderLevel: Int = 0
     private var reminderLastPlayedMs: Long = 0L
+    // The vocabulary code the current level was raised by, so a reminder repeats the SAME cue the
+    // wearer felt rather than degrading to the generic channel buzz. `vectors` on the replayed
+    // event stays empty — a reminder is honestly a replay, not a new detection — so the code
+    // cannot be re-derived from it.
+    private var reminderCode: String? = null
+    // How many times the CURRENT level has already repeated, driving
+    // NudgeHapticSchedule's back-off. Reset by a fresh escalation (see onNudge) so a situation
+    // that genuinely worsens is reported promptly again, rather than inheriting the calm-down
+    // cadence of the one before it.
+    private var reminderRepeats: Int = 0
 
     // open: lets tests exercise SentinelController's own listener-callback containment in
     // isolation from this class's internal runCatching — see SentinelControllerTest's
@@ -59,7 +71,11 @@ open class HapticDirector(
         // reminders either: "score > 70: no haptic" (PRD §6) must stop the repeat, not just the
         // one-shot. Cleared BEFORE the early return so a silent de-escalation still lands.
         if (n.level == 0) {
-            if (n.channel == REMINDER_CHANNEL) reminderLevel = 0
+            if (n.channel == REMINDER_CHANNEL) {
+                reminderLevel = 0
+                reminderCode = null
+                reminderRepeats = 0
+            }
             return
         }
 
@@ -68,8 +84,13 @@ open class HapticDirector(
                 (now - lastVibrationTimeMs) < 5000L)
         if (isDuplicate) return
 
-        val cue = HapticPatterns.cue(n.channel, n.level) ?: return
-        play(n.channel, n.level, cue, HapticPatterns.waveformFallback(n.channel, n.level))
+        // The nudge VOCABULARY code the firing vectors map to (null for a decay, or when the
+        // server sends a vector this build doesn't know): with it the wrist plays THAT
+        // behaviour's rhythm — `• —` for a cut-in, a slow `— — —` for hogging, a lub-dub for a
+        // heart-rate spike — instead of one generic buzz for everything.
+        val code = NudgeVocabulary.codeForVectors(n.vectors)
+        val cue = HapticPatterns.cueFor(n.channel, n.level, code) ?: return
+        play(n.channel, n.level, cue, HapticPatterns.waveformFallbackFor(n.channel, n.level, code))
 
         lastChannel = n.channel
         lastLevel = n.level
@@ -77,6 +98,8 @@ open class HapticDirector(
         if (n.channel == REMINDER_CHANNEL) {
             reminderLevel = n.level
             reminderLastPlayedMs = now
+            reminderCode = code
+            reminderRepeats = 0
         }
     }
 
@@ -91,7 +114,7 @@ open class HapticDirector(
         val level = reminderLevel
         if (level == 0) return null
         val now = nowMs()
-        if (!NudgeHapticSchedule.reminderDue(level, reminderLastPlayedMs, now)) return null
+        if (!NudgeHapticSchedule.reminderDue(level, reminderLastPlayedMs, now, reminderRepeats)) return null
         return NudgeEvent(channel = REMINDER_CHANNEL, level = level, t = now / 1000.0, vectors = emptyList())
     }
 
@@ -104,10 +127,11 @@ open class HapticDirector(
      */
     fun replayReminder(n: NudgeEvent) {
         if (n.channel != REMINDER_CHANNEL || reminderLevel == 0 || n.level != reminderLevel) return
-        val cue = HapticPatterns.cue(n.channel, n.level) ?: return
-        play(n.channel, n.level, cue, HapticPatterns.waveformFallback(n.channel, n.level))
+        val cue = HapticPatterns.cueFor(n.channel, n.level, reminderCode) ?: return
+        play(n.channel, n.level, cue, HapticPatterns.waveformFallbackFor(n.channel, n.level, reminderCode))
         val now = nowMs()
         reminderLastPlayedMs = now
+        reminderRepeats++
         lastChannel = n.channel
         lastLevel = n.level
         lastVibrationTimeMs = now
@@ -117,6 +141,8 @@ open class HapticDirector(
      * that is no longer listening must not keep buzzing about a conversation that's over. */
     fun clearReminder() {
         reminderLevel = 0
+        reminderCode = null
+        reminderRepeats = 0
     }
 
     /** Test/diagnostic seam: the channel-A level reminders are currently scheduled for (0 = none). */
@@ -132,6 +158,41 @@ open class HapticDirector(
     fun demo(channel: String, level: Int) {
         val cue = HapticPatterns.cue(channel, level) ?: return
         play(channel, level, cue, HapticPatterns.waveformFallback(channel, level))
+    }
+
+    /**
+     * "Feel the patterns" (Developer mode): plays ONE vocabulary code's cue at a level so a
+     * wearer can learn the eight rhythms in one sitting instead of waiting to earn them in a real
+     * conversation. Same bypass-the-dedupe, touch-no-state, fail-soft posture as [demo].
+     * Silently does nothing for a code that never buzzes (K) or an out-of-range level — the demo
+     * screen shows that as "no cue", which is the honest answer.
+     */
+    fun demoCode(code: String, level: Int) {
+        val channel = if (NudgeVocabulary.forCode(code)?.watchOnly == true) "B" else "A"
+        if (NudgeVocabulary.hapticFor(code, level) == null) return
+        val cue = HapticPatterns.cueFor(channel, level, code) ?: return
+        play(channel, level, cue, HapticPatterns.waveformFallbackFor(channel, level, code))
+    }
+
+    /**
+     * Play a POSITIVE cue (nudge vocabulary D/E/R) — something the wearer did
+     * well.
+     *
+     * Deliberately not [onNudge]. A positive is unleveled by contract, must
+     * never move channel A's level, and must NEVER be re-fired by the PRD §6
+     * reminder: a wrist that repeats "well done" every two minutes is worse
+     * than one that never said it. So this touches no dedupe and no reminder
+     * state at all — it just plays, fail-soft, like every other path here.
+     *
+     * Silently does nothing for a code that never buzzes (🧘 K) or an
+     * unrecognised one, which is the honest answer rather than a generic buzz.
+     */
+    fun playPositive(code: String) {
+        val entry = NudgeVocabulary.forCode(code) ?: return
+        if (entry.polarity != NudgePolarity.POSITIVE) return
+        if (NudgeVocabulary.hapticFor(code, 1) == null) return
+        val cue = HapticPatterns.cueFor(POSITIVE_CHANNEL, 1, code) ?: return
+        play(POSITIVE_CHANNEL, 1, cue, HapticPatterns.waveformFallbackFor(POSITIVE_CHANNEL, 1, code))
     }
 
     /**
@@ -207,5 +268,9 @@ open class HapticDirector(
         const val TAG = "HapticDirector"
         /** The lane PRD §6's repeat schedule applies to — the wearer's own escalation. */
         const val REMINDER_CHANNEL = "A"
+        /** Positives ride the wearer's own lane (they are about the wearer), but
+         * only for cue SELECTION — [playPositive] never touches that lane's
+         * level or its reminder. */
+        const val POSITIVE_CHANNEL = "A"
     }
 }

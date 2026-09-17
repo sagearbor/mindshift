@@ -100,7 +100,18 @@ function makeFakeFastLoop(embeddings: Float32Array[]) {
         labeler: new SpeakerLabeler([]),
         recognizer: rec,
         llm: new ProviderChain([
-          { name: "os", isAvailable: async () => true, suggest: async () => parseSuggestionJson(TONES[n++ % 2]) },
+          {
+            name: "os",
+            isAvailable: async () => true,
+            suggest: async () => {
+              const out = parseSuggestionJson(TONES[n % 2]);
+              n++;
+              // Distinct words per line: identical lines within 45 s are
+              // silenced by the CoachRepeatGate (nudgePolicy.ts), and this
+              // suite asserts the KIND of the newest suggestion.
+              return out ? { ...out, suggestion: `Line number ${n} entirely fresh words here` } : out;
+            },
+          },
         ]),
         sttGraceMs: 100,
         pollMs: 5,

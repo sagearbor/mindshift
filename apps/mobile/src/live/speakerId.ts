@@ -6,11 +6,20 @@
  * and server/watch/diarize.py::assign_speakers, so a voiceprint enrolled on
  * the server matches on the phone with the same threshold (`MATCH_THRESHOLD`
  * 0.65) and the same clustering rule (`CLUSTER_THRESHOLD` 0.55).
+ * `identifyClusters` is the port of speaker_id.identify_from_embeddings —
+ * the absolute bar PLUS the cross-recording CONTRAST match (see the
+ * `CROSS_MATCH_*` constants) with the same greedy one-to-one assignment.
  *
  * `SpeakerLabeler` is the session-scoped online form: every finalized turn's
  * embedding is matched greedily against the enrolled people (best cosine,
  * above threshold), else clustered against the "unknown" centroids seen so far
- * in THIS session. Honesty rules carried over from the server:
+ * in THIS session. After every cluster update the whole set of running
+ * centroids is re-identified with `identifyClusters`, so a cluster can GAIN a
+ * person once a second cluster exists to contrast against, and can LOSE it to
+ * a later cluster that beats it by the margin (a person is one voice). The
+ * raw "Speaker A/B" label stays the wire key either way; the identity rides
+ * along on `personId` / `isSelf` / `basis`. Honesty rules carried over from
+ * the server:
  *
  * - no enrolled self-voiceprint => `isSelf` is `null`, never a guess;
  * - a turn that couldn't be embedded gets no identity (speaker "Unknown").
@@ -23,6 +32,44 @@ import type { OnnxSession } from "./ort";
 import { float32Tensor } from "./ort";
 
 export const MATCH_THRESHOLD = 0.65;
+/**
+ * The bar a cluster must clear against a person's RAISED print
+ * (`EnrolledPerson.raisedEmbedding`). Higher than [MATCH_THRESHOLD] on
+ * purpose, and this is the least obvious number in the file: shouting
+ * COMPRESSES individual differences — everyone's raised voice is more alike
+ * than everyone's calm voice — so a raised print is a LESS discriminative
+ * print and cannot reuse the calm bar. Measured over 24 speakers
+ * (`__tests__/speakerShoutIdentity.test.ts`): at 0.65 the raised print
+ * recognises every speaker's own shout but also accepts 6 of 552 strangers';
+ * at 0.74 it still recognises 24/24 and accepts NONE. 0.74 is the lowest bar
+ * that is clean, and 0.76/0.78/0.80 are equally clean, so there is headroom
+ * above it rather than a cliff.
+ */
+export const RAISED_MATCH_THRESHOLD = 0.74;
+/**
+ * Cross-recording ("contrast") match — ports of server/speaker_id.py's
+ * CROSS_MATCH_* (read the calibration note there). The same person scores
+ * only 0.24-0.45 against a print from ANOTHER room/mic (the owner's real
+ * print: restaurant 0.76 absolute, family 0.73, poker night 0.42), so the
+ * 0.65 bar alone never called the owner "self" in a real live session.
+ * A cluster is accepted as person P below the bar when ALL of: cosine >=
+ * `CROSS_MATCH_THRESHOLD`; P's print pools >= `CROSS_MATCH_MIN_SETTINGS`
+ * distinct recordings (`EnrolledPerson.settings`); at least two clusters
+ * exist to contrast; and this cluster beats every OTHER cluster's score for
+ * P by >= `CROSS_MATCH_MARGIN` (measured owner-vs-runner-up gaps 0.16-0.63;
+ * non-owners <= 0.19). Every match records its `basis` so a contrast "You"
+ * is never mistaken for a 0.65 one.
+ */
+export const CROSS_MATCH_THRESHOLD = 0.4;
+export const CROSS_MATCH_MARGIN = 0.15;
+export const CROSS_MATCH_MIN_SETTINGS = 2;
+
+/** How a (cluster, person) pair cleared the bar — server `match_basis`. */
+/** "solo" is the journal's rule only: a lone voice (no second cluster yet)
+ *  at >= CROSS_MATCH_THRESHOLD against a >= 2-recording self print —
+ *  contrast can't run without a second voice, and a stranger measured
+ *  <= 0.28 across settings. Never used for live coaching verdicts. */
+export type MatchBasis = "absolute" | "raised" | "contrast" | "solo";
 // Merge threshold for the ONLINE (live, on-device) unknown-speaker clustering.
 // LOWER than the server/batch value (server/watch/diarize.py keeps 0.55) on
 // purpose: live turns are short and the on-device ECAPA embedding of the SAME
@@ -61,14 +108,37 @@ export interface EnrolledPerson {
   personId: string;
   displayName: string;
   isSelf: boolean;
-  /** L2-normalized (or raw — cosine normalizes defensively) voiceprint. */
+  /** L2-normalized (or raw — cosine normalizes defensively) voiceprint of the
+   *  person's ORDINARY speaking voice. This is what enrollment captures. */
   embedding: ArrayLike<number>;
+  /**
+   * The same person's RAISED voice, as a second prototype — or null/absent,
+   * which is the normal state for anyone enrolled before 2026-09-07 and for
+   * anyone whose enrollment audio held no clearly-louder passage.
+   *
+   * Why a person needs two prints rather than one averaged one, measured over
+   * 24 speakers in `__tests__/speakerShoutIdentity.test.ts`: shouting moves the
+   * embedding about as far as changing speaker does. A person's own shout sits
+   * a median 0.393 from their calm print while a STRANGER's shout reaches
+   * 0.375 against it, so the two distributions overlap and no single threshold
+   * separates them — the best operating point recognises 46% of your own
+   * shouts while misattributing 20% of other people's. Averaging the two modes
+   * into one print is worse still: the midpoint matches neither, which is why
+   * "keep adding to the print over time" cannot converge. Kept as a separate
+   * prototype and matched at [RAISED_MATCH_THRESHOLD], the same 24 speakers
+   * give 24/24 own shouts and 0 of 552 impostors.
+   */
+  raisedEmbedding?: ArrayLike<number> | null;
   /** "<source>@<revision>" the server embedded this print with (its
    *  `model` field); null/absent for a legacy profile. speakerIdSetup.ts
    *  refuses to match a print against a model of a different revision. */
   model?: string | null;
   /** Server-reported length of `embedding`, when known. */
   dim?: number | null;
+  /** Distinct recordings pooled into the print (server `settings`); absent
+   *  / 0 counts as ONE, which keeps the contrast match off for that person
+   *  (a single-recording print is exactly the case it must not trust). */
+  settings?: number | null;
 }
 
 /** Where enrolled voiceprints come from. Production: GET from the server
@@ -117,6 +187,138 @@ export function runningMeanEmbedding(
     blended[i] = (existing[i] * existingCount + n[i]) / (existingCount + 1);
   }
   return l2Normalize(blended);
+}
+
+export interface ClusterIdentity {
+  personId: string;
+  basis: MatchBasis;
+  /** Cosine of the cluster centroid against the person's print. */
+  score: number;
+}
+
+export interface IdentifyOptions {
+  matchThreshold?: number;
+  /** Bar against a person's RAISED print; see [RAISED_MATCH_THRESHOLD]. */
+  raisedMatchThreshold?: number;
+  crossMatchThreshold?: number;
+  crossMatchMargin?: number;
+  crossMatchMinSettings?: number;
+}
+
+/** Cosine rounded the way the server reports it (`round(x, 4)`), so the
+ *  margin/floor comparisons land on the same side on both ends. */
+function scoreOf(a: ArrayLike<number>, b: ArrayLike<number>): number {
+  return Math.round(cosine(a, b) * 1e4) / 1e4;
+}
+
+/**
+ * Pure port of speaker_id.identify_from_embeddings over already-computed
+ * cluster embeddings: which cluster is which enrolled person, and why.
+ *
+ * Three ways a (cluster, person) pair clears the bar — ABSOLUTE (cosine >=
+ * `MATCH_THRESHOLD` against the person's ordinary print), RAISED (>=
+ * `RAISED_MATCH_THRESHOLD` against their raised print, when they have one),
+ * or CONTRAST (the four conditions on `CROSS_MATCH_*` above). Assignment is
+ * greedy one-to-one, highest score first: each cluster gets at most one
+ * person, and each person wins at most one cluster PER PROTOTYPE.
+ *
+ * That last clause is the 2026-09-07 change and the whole point of the raised
+ * print. Strict one-to-one meant a person's calm cluster took them and their
+ * shouted cluster could then never be them, however well it scored — so the
+ * loudest moment in a conversation, the one most worth nudging, was silently
+ * filed under a stranger. A voice that splits into a calm cluster and a raised
+ * cluster is one person speaking two ways, and it is now allowed to be. Each
+ * prototype still wins at most one cluster, so a person can never absorb an
+ * unbounded number of them.
+ *
+ * Ties break deterministically (cluster label, then person id). Below every
+ * bar => absent from the result. Parity is pinned by
+ * __tests__/fixtures/speakerCrossMatch.json, generated from the Python.
+ */
+export function identifyClusters(
+  clusterEmbeddings: ReadonlyMap<string, ArrayLike<number>>,
+  people: readonly EnrolledPerson[],
+  opts: IdentifyOptions = {},
+): Map<string, ClusterIdentity> {
+  const threshold = opts.matchThreshold ?? MATCH_THRESHOLD;
+  const crossThreshold = opts.crossMatchThreshold ?? CROSS_MATCH_THRESHOLD;
+  const margin = opts.crossMatchMargin ?? CROSS_MATCH_MARGIN;
+  const minSettings = opts.crossMatchMinSettings ?? CROSS_MATCH_MIN_SETTINGS;
+  const raisedThreshold = opts.raisedMatchThreshold ?? RAISED_MATCH_THRESHOLD;
+  const prints = people.map((person) => ({
+    person,
+    vec: l2Normalize(person.embedding),
+    raised: person.raisedEmbedding ? l2Normalize(person.raisedEmbedding) : null,
+  }));
+  const labels = Array.from(clusterEmbeddings.keys());
+  // scores[label][personId] — always the ORDINARY print. The contrast rule's
+  // margin arithmetic is defined on it, and mixing a raised score into that
+  // comparison would compare two different questions.
+  const scores = new Map<string, Map<string, number>>();
+  const raisedScores = new Map<string, Map<string, number>>();
+  for (const label of labels) {
+    const emb = clusterEmbeddings.get(label) as ArrayLike<number>;
+    const row = new Map<string, number>();
+    const raisedRow = new Map<string, number>();
+    for (const { person, vec, raised } of prints) {
+      row.set(person.personId, scoreOf(emb, vec));
+      if (raised) raisedRow.set(person.personId, scoreOf(emb, raised));
+    }
+    scores.set(label, row);
+    raisedScores.set(label, raisedRow);
+  }
+  // `prototype` is what the person spends on this cluster: "calm" or "raised".
+  // Each is spendable once, which is what replaces strict one-to-one.
+  const candidates: { score: number; label: string; personId: string; basis: MatchBasis; prototype: string }[] = [];
+  for (const label of labels) {
+    const row = scores.get(label) as Map<string, number>;
+    const raisedRow = raisedScores.get(label) as Map<string, number>;
+    for (const { person } of prints) {
+      const pid = person.personId;
+      const score = row.get(pid) as number;
+      const raisedScore = raisedRow.get(pid);
+      if (score >= threshold) {
+        candidates.push({ score, label, personId: pid, basis: "absolute", prototype: "calm" });
+        continue;
+      }
+      // The same voice, raised. Only when the person actually has a raised
+      // print — nobody gets one by default, so this can never loosen matching
+      // for an existing profile.
+      if (raisedScore !== undefined && raisedScore >= raisedThreshold) {
+        candidates.push({ score: raisedScore, label, personId: pid, basis: "raised", prototype: "raised" });
+        continue;
+      }
+      if (score < crossThreshold || labels.length < 2) continue;
+      const settings = Math.trunc(person.settings || 0) || 1;
+      if (settings < minSettings) continue;
+      let runnerUp = -Infinity;
+      for (const other of labels) {
+        if (other === label) continue;
+        runnerUp = Math.max(runnerUp, (scores.get(other) as Map<string, number>).get(pid) as number);
+      }
+      if (score - runnerUp >= margin) {
+        candidates.push({ score, label, personId: pid, basis: "contrast", prototype: "calm" });
+      }
+    }
+  }
+  candidates.sort((a, b) => {
+    if (a.score !== b.score) return b.score - a.score;
+    if (a.label !== b.label) return a.label < b.label ? -1 : 1;
+    if (a.personId !== b.personId) return a.personId < b.personId ? -1 : 1;
+    return 0;
+  });
+  const matched = new Map<string, ClusterIdentity>();
+  // Keyed by person AND prototype: "p1|calm" and "p1|raised" are separate
+  // spends, so one voice may claim its calm cluster and its shouted one — and
+  // no more than that.
+  const takenPrototypes = new Set<string>();
+  for (const c of candidates) {
+    const key = `${c.personId}|${c.prototype}`;
+    if (matched.has(c.label) || takenPrototypes.has(key)) continue;
+    matched.set(c.label, { personId: c.personId, basis: c.basis, score: c.score });
+    takenPrototypes.add(key);
+  }
+  return matched;
 }
 
 /**
@@ -178,7 +380,30 @@ export interface SpeakerVerdict {
   isSelf: boolean | null;
   /** Cosine that produced the match / cluster join; null when unmatched. */
   score: number | null;
+  /** WHY the turn carries a person: "absolute" (>= MATCH_THRESHOLD) or
+   *  "contrast" (the in-session cross-recording rule); null for an
+   *  unidentified cluster or a mid-call binding. */
+  basis: MatchBasis | null;
+  /** Cosine of this turn against the owner's print (null without a self
+   *  print or embedding) — reported even when it did NOT match, so a caller
+   *  with a looser context (the journal's solo rule) can decide. */
+  selfScore?: number | null;
 }
+
+/** A cluster's current person, as the labeler resolves it (raw label keyed). */
+export interface ClusterAssignment extends ClusterIdentity {
+  displayName: string;
+  isSelf: boolean;
+}
+
+const NO_IDENTITY: SpeakerVerdict = Object.freeze({
+  speaker: "Unknown",
+  personId: null,
+  displayName: null,
+  isSelf: null,
+  score: null,
+  basis: null,
+});
 
 /** "Speaker A", "Speaker B", … for unknown cluster index 0, 1, … */
 export function unknownLabel(index: number): string {
@@ -190,6 +415,10 @@ export class SpeakerLabeler {
   private hasSelf: boolean;
   private centroids: Float32Array[] = [];
   private counts: number[] = [];
+  /** cluster index -> current identity (identifyClusters over all centroids). */
+  private identities: Map<number, ClusterIdentity> = new Map();
+  /** Bumps whenever `identities` changes — a cheap "did anything move" check. */
+  private revision = 0;
 
   constructor(
     people: EnrolledPerson[],
@@ -208,6 +437,66 @@ export class SpeakerLabeler {
     return this.people.length;
   }
 
+  /** Whether anyone enrolled is the owner — the basis for `isSelf: false`. */
+  get hasSelfPrint(): boolean {
+    return this.hasSelf;
+  }
+
+  /** Increments each time a cluster gains, loses or changes its person. */
+  get identityRevision(): number {
+    return this.revision;
+  }
+
+  /** Recordings pooled into the owner's print (`settings`); 0 without one. */
+  get selfSettings(): number {
+    const self = this.people.find((p) => p.person.isSelf);
+    return self ? Math.trunc(self.person.settings || 0) || 1 : 0;
+  }
+
+  /** Running unknown-voice clusters this session. */
+  get clusterCount(): number {
+    return this.centroids.length;
+  }
+
+  /** Every identified cluster, keyed by its raw "Speaker X" label. */
+  clusterAssignments(): Map<string, ClusterAssignment> {
+    const out = new Map<string, ClusterAssignment>();
+    for (const [idx, id] of this.identities) {
+      const person = this.personById(id.personId);
+      if (!person) continue;
+      out.set(unknownLabel(idx), { ...id, displayName: person.displayName, isSelf: person.isSelf });
+    }
+    return out;
+  }
+
+  private personById(personId: string): EnrolledPerson | null {
+    return this.people.find((p) => p.person.personId === personId)?.person ?? null;
+  }
+
+  /** Re-run the one-to-one identification over ALL current centroids. */
+  private reidentify(): void {
+    const clusters = new Map<string, Float32Array>();
+    this.centroids.forEach((c, i) => clusters.set(String(i), c));
+    const next = new Map<number, ClusterIdentity>();
+    for (const [key, id] of identifyClusters(clusters, this.people.map((p) => p.person), {
+      matchThreshold: this.matchThreshold,
+    })) {
+      next.set(Number(key), id);
+    }
+    let changed = next.size !== this.identities.size;
+    if (!changed) {
+      for (const [idx, id] of next) {
+        const prev = this.identities.get(idx);
+        if (!prev || prev.personId !== id.personId || prev.basis !== id.basis) {
+          changed = true;
+          break;
+        }
+      }
+    }
+    this.identities = next;
+    if (changed) this.revision += 1;
+  }
+
   /**
    * Add (or replace, by personId) an enrolled person MID-SESSION — the
    * mid-call "that's Mom" flow learns a voice from the session's own pooled
@@ -221,18 +510,42 @@ export class SpeakerLabeler {
     if (idx >= 0) this.people[idx] = entry;
     else this.people.push(entry);
     if (person.isSelf) this.hasSelf = true;
+    this.reidentify();
   }
 
   /** `seconds` is the segment's audio length; omit it to disable the
    *  short-segment guard (batch callers with known-good segments). */
-  label(embedding: ArrayLike<number> | null, seconds?: number): SpeakerVerdict {
-    if (embedding === null || embedding.length === 0) {
-      return { speaker: "Unknown", personId: null, displayName: null, isSelf: null, score: null };
-    }
-    // Greedy best-above-threshold against every enrolled print.
-    let best: { person: EnrolledPerson; score: number } | null = null;
+  /** Read-only scores for the overlap probe (live/overlapProbe.ts): cosine
+   *  vs the user's print, and the best cosine vs any OTHER known voice
+   *  (non-self enrolled prints + session clusters not identified as self).
+   *  Never founds clusters, never moves identities. */
+  scoreWindow(embedding: ArrayLike<number>): { self: number | null; otherMax: number | null } {
+    let self: number | null = null;
+    let otherMax: number | null = null;
     for (const { person, vec } of this.people) {
       const score = cosine(embedding, vec);
+      if (person.isSelf) self = self === null ? score : Math.max(self, score);
+      else otherMax = otherMax === null ? score : Math.max(otherMax, score);
+    }
+    this.centroids.forEach((c, idx) => {
+      const id = this.identities.get(idx)?.personId;
+      if (id !== undefined && this.people.some((p) => p.person.personId === id && p.person.isSelf)) return;
+      const score = cosine(embedding, c);
+      otherMax = otherMax === null ? score : Math.max(otherMax, score);
+    });
+    return { self, otherMax };
+  }
+
+  label(embedding: ArrayLike<number> | null, seconds?: number): SpeakerVerdict {
+    if (embedding === null || embedding.length === 0) return { ...NO_IDENTITY };
+    // Greedy best-above-threshold against every enrolled print — the
+    // ABSOLUTE path, unchanged: a turn that clears the 0.65 bar carries the
+    // person outright and founds no cluster.
+    let best: { person: EnrolledPerson; score: number } | null = null;
+    let selfScore: number | null = null;
+    for (const { person, vec } of this.people) {
+      const score = cosine(embedding, vec);
+      if (person.isSelf) selfScore = score;
       if (best === null || score > best.score) best = { person, score };
     }
     if (best && best.score >= this.matchThreshold) {
@@ -242,6 +555,8 @@ export class SpeakerLabeler {
         displayName: best.person.displayName,
         isSelf: best.person.isSelf,
         score: best.score,
+        basis: "absolute",
+        selfScore,
       };
     }
     // Unknown: online clustering, order-stable, same as assign_speakers.
@@ -264,12 +579,31 @@ export class SpeakerLabeler {
     } else if (seconds !== undefined && seconds < this.minClusterSeconds) {
       // Too short to be evidence of a NEW voice: no cluster, no identity,
       // and no claim about self either way.
-      return { speaker: "Unknown", personId: null, displayName: null, isSelf: null, score: null };
+      return { ...NO_IDENTITY, selfScore };
     } else {
       this.centroids.push(l2Normalize(embedding));
       this.counts.push(1);
       idx = this.centroids.length - 1;
       score = null;
+    }
+    // The centroid set changed: re-resolve who is who over ALL clusters (the
+    // contrast rule needs every other cluster's score, and a person may move
+    // to the cluster that now beats the rest by the margin).
+    this.reidentify();
+    const identity = this.identities.get(idx) ?? null;
+    const person = identity ? this.personById(identity.personId) : null;
+    if (identity && person) {
+      return {
+        // The raw label stays the wire key: an inferred identity can be
+        // revised, and the session record keeps one stable key per voice.
+        speaker: unknownLabel(idx),
+        personId: person.personId,
+        displayName: person.displayName,
+        isSelf: person.isSelf,
+        score: identity.score,
+        basis: identity.basis,
+        selfScore,
+      };
     }
     return {
       speaker: unknownLabel(idx),
@@ -279,12 +613,16 @@ export class SpeakerLabeler {
       // without one there's no honest basis either way.
       isSelf: this.hasSelf ? false : null,
       score,
+      basis: null,
+      selfScore,
     };
   }
 
   reset() {
     this.centroids = [];
     this.counts = [];
+    this.identities = new Map();
+    this.revision = 0;
   }
 }
 

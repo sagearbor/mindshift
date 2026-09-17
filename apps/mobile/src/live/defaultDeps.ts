@@ -19,7 +19,7 @@
  * `.capabilities.speakerId` — one console line, never an error toast.
  */
 import { Platform } from "react-native";
-import { ecapaModelUrl, fetchVoiceprints, authHeaders } from "../api/liveSessions";
+import { ecapaModelUrl, ECAPA_REVISION, fetchVoiceprints, authHeaders } from "../api/liveSessions";
 import { FastLoop, type FastLoopDeps } from "./fastLoop";
 import { EnergyVad, SileroVad, type FrameVad } from "./vad";
 import { EcapaEmbedder, SpeakerLabeler, type Embedder } from "./speakerId";
@@ -41,11 +41,12 @@ import {
   type ProviderName,
 } from "./localLlm";
 import type { HapticSink } from "./nudgePolicy";
+import { hapticFor, hapticRuns, phonePattern } from "./nudgeVocabulary";
 
 /** The callbacks the hook supplies; everything else is wired here. */
 export type FastLoopHandlers = Pick<
   FastLoopDeps,
-  "speak" | "send" | "onTurn" | "onNudge" | "onSttError" | "onDegrade"
+  "speak" | "send" | "onTurn" | "onNudge" | "onPositiveNudge" | "onSttError" | "onDegrade"
 > & {
   /** Progress while the loop is being built ("Downloading voice model … 42 %").
    *  The web build uses it; native builds are quick enough not to. */
@@ -91,20 +92,78 @@ function tryRequire<T>(load: () => T): T | null {
   }
 }
 
-const expoHaptics: HapticSink = {
-  async nudge(level) {
+/**
+ * The production haptic sink.
+ *
+ * Android gets the nudge VOCABULARY's own waveform for the code
+ * (nudgeVocabulary.ts): React Native's `Vibration.vibrate(pattern)` takes
+ * exactly the [wait, buzz, wait, buzz, …] array the contract stores, so the
+ * rhythm the watch plays and the rhythm the phone plays are the same array of
+ * numbers. RN cannot vary amplitude, which is precisely why every level
+ * difference in that contract is a rhythm difference.
+ *
+ * Everything else — iOS, web, a code with no cue, an unknown code — falls
+ * back to expo-haptics' single light/medium/heavy impact, which is what
+ * shipped before the vocabulary. A missing haptic engine is silent; the
+ * on-screen flash still shows.
+ */
+export const expoHaptics: HapticSink = {
+  async nudge(level, code) {
+    const wave = code ? hapticFor(code, level) : null;
+    // A cue that is ONE tap is rendered as the OEM's tuned impact, never as a
+    // raw buzz. Measured on the owner's Pixel (2026-09-07): a single 75 ms
+    // pattern was reported as "does nothing", and so was 120 ms. A modern
+    // phone's actuator produces almost nothing from a short unshaped
+    // `Vibration.vibrate` — which is the SAME finding the watch made in
+    // v0.2.4, when its 40 ms raw taps proved imperceptible and were replaced
+    // by system-tuned effects. Multi-tap cues stay raw patterns, because
+    // rhythm is what they are for and expo-haptics cannot express one.
+    // Runs, not raw segments: a swell is ONE buzz, and sending its internal
+    // shape to React Native would play it as three separate taps.
+    const taps = wave ? hapticRuns(wave).length : 0;
+    if (wave && taps > 1) {
+      const RN = tryRequire(
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        () => require("react-native") as typeof import("react-native"),
+      );
+      // Only Android honours a pattern; iOS's Vibration ignores the timings.
+      if (RN?.Platform?.OS === "android" && RN.Vibration) {
+        try {
+          RN.Vibration.vibrate(phonePattern(wave));
+          return;
+        } catch {
+          // Fall through to the impact below rather than losing the nudge.
+        }
+      }
+    }
     try {
       const Haptics = tryRequire(
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         () => require("expo-haptics") as typeof import("expo-haptics"),
       );
-      if (!Haptics) return;
+      if (!Haptics) {
+        // No tuned effects available: a raw pattern is better than silence,
+        // even for a single tap.
+        if (wave) {
+          const RN = tryRequire(
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            () => require("react-native") as typeof import("react-native"),
+          );
+          if (RN?.Platform?.OS === "android" && RN.Vibration) RN.Vibration.vibrate(phonePattern(wave));
+        }
+        return;
+      }
+      // A single-tap CUE is always the strongest single tap the OEM offers:
+      // it is already the mildest thing in the vocabulary by virtue of being
+      // one tap, and making it quiet as well is how it became unnoticeable.
       const style =
-        level >= 3
+        taps === 1
           ? Haptics.ImpactFeedbackStyle.Heavy
-          : level === 2
-            ? Haptics.ImpactFeedbackStyle.Medium
-            : Haptics.ImpactFeedbackStyle.Light;
+          : level >= 3
+            ? Haptics.ImpactFeedbackStyle.Heavy
+            : level === 2
+              ? Haptics.ImpactFeedbackStyle.Medium
+              : Haptics.ImpactFeedbackStyle.Light;
       await Haptics.impactAsync(style);
     } catch {
       // No haptic engine (simulator, web): the on-screen flash still shows.
@@ -117,13 +176,14 @@ function ortNative(): typeof import("./ortNative") | null {
   return tryRequire(() => require("./ortNative") as typeof import("./ortNative"));
 }
 
-async function buildVad(): Promise<{ vad: FrameVad; name: string }> {
+/** The VAD rung on its own (shared with the Journal mode, journalDeps.ts). */
+export async function buildVad(): Promise<{ vad: FrameVad; name: string }> {
   const session = await ortNative()?.loadSileroSession();
   if (session) return { vad: new SileroVad(session), name: "Silero VAD" };
   return { vad: new EnergyVad(), name: "energy VAD" };
 }
 
-interface SpeakerIdBuild {
+export interface SpeakerIdBuild {
   embedder: Embedder | null;
   labeler: SpeakerLabeler | null;
   capability: SpeakerIdCapability;
@@ -135,7 +195,8 @@ function speakerIdOff(reason: string): SpeakerIdBuild {
   return { embedder: null, labeler: null, capability: inactiveCapability(reason) };
 }
 
-async function buildSpeakerId(): Promise<SpeakerIdBuild> {
+/** The speaker-ID rung on its own (shared with the Journal mode). */
+export async function buildSpeakerId(): Promise<SpeakerIdBuild> {
   const native = ortNative();
   if (!native) return speakerIdOff("native ONNX Runtime unavailable");
   // Model download/revalidation and the voiceprint fetch are independent
@@ -148,7 +209,7 @@ async function buildSpeakerId(): Promise<SpeakerIdBuild> {
     const reason = loaded.model.status === "ready" ? "ONNX session failed" : loaded.model.reason;
     return speakerIdOff(reason);
   }
-  const { kept, dropped } = peopleForModel(voiceprints.people, loaded.model.etag);
+  const { kept, dropped } = peopleForModel(voiceprints.people, ECAPA_REVISION);
   if (dropped.length > 0) {
     console.log(
       `[live] speaker-ID: skipped ${dropped.length} voiceprint(s) from another model revision`,

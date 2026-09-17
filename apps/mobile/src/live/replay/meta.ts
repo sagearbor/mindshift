@@ -87,6 +87,11 @@ export interface ParseMetaOptions {
   name?: string;
   /** Overrides / supplies the self speaker when the meta has none. */
   selfSpeaker?: string | null;
+  /** Replaces the meta's `expected_nudges` — for a REAL recording whose
+   *  fixture meta carries none (the server's meta schema ties that key to
+   *  scripted emotions), so the replay gate can still state its ground
+   *  truth next to the measurement that justified it. */
+  expectedNudges?: ExpectedNudge[];
 }
 
 export function parseSceneMeta(raw: unknown, opts: ParseMetaOptions = {}): ReplayScript {
@@ -168,7 +173,13 @@ export function parseSceneMeta(raw: unknown, opts: ParseMetaOptions = {}): Repla
   }
 
   const expectedNudges: ExpectedNudge[] = [];
-  if (Array.isArray(m.expected_nudges)) {
+  if (opts.expectedNudges) {
+    for (const n of opts.expectedNudges) {
+      if (n.afterTurnIndex < 0 || n.afterTurnIndex >= turns.length) throw new Error(`meta: expected nudge after turn ${n.afterTurnIndex} out of range`);
+      if (turns[n.afterTurnIndex].speaker !== self) throw new Error(`meta: expected nudge after turn ${n.afterTurnIndex} is not a self turn`);
+      expectedNudges.push({ ...n });
+    }
+  } else if (Array.isArray(m.expected_nudges)) {
     for (const n of m.expected_nudges as Record<string, unknown>[]) {
       const idx = num(n.after_turn_index, "expected_nudges[].after_turn_index");
       const level = str(n.level, "expected_nudges[].level");

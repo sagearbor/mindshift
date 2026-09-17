@@ -337,6 +337,10 @@ function turn(i: number, start: number, end: number, speaker: string, extra: Par
   const personId = extra.personId ?? null;
   return {
     index: i,
+    kind: extra.kind ?? "primary",
+    activation: extra.activation ?? null,
+    overlap: extra.overlap ?? null,
+    matchBasis: null,
     speaker,
     text: extra.text ?? "words",
     transcriptFinal: true,

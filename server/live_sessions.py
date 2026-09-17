@@ -632,6 +632,7 @@ def storage_turns(turn_events: list[dict]) -> list[dict]:
             "is_self": ev.get("is_self"),
             "speaker_person_id": ev.get("speaker_person_id"),
             "speaker_match_score": ev.get("speaker_match_score"),
+            "speaker_match_basis": ev.get("speaker_match_basis"),
             "transcript_source": ev.get("transcript_source"),
             "text_tone": ev.get("text_tone"),
             "prosody": ev.get("prosody"),

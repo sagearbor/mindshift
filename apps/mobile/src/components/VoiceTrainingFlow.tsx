@@ -20,18 +20,58 @@ import type {
   PcmSourceFactory,
 } from "../recorder/pcmSource";
 
+/** Which VOICE a prompt is read in. `raised` is stored as a second prototype
+ *  on the server rather than blended into the ordinary print. */
+export type PromptRegister = "normal" | "raised";
+
+export interface VoicePrompt {
+  text: string;
+  register: PromptRegister;
+  /** Shown above the phrase when it asks for something unusual. */
+  instruction?: string;
+}
+
 /**
- * The four prompted phrases. Neutral, conversational, and together phonetically
- * varied (they cover the vowel space plus fricatives, plosives, nasals and
- * glides) so ~20 seconds of reading gives the embedder a rounded sample of the
- * voice. Each reads aloud in roughly five seconds.
+ * The prompted phrases. The first four are neutral and conversational, and
+ * together phonetically varied (they cover the vowel space plus fricatives,
+ * plosives, nasals and glides), so ~20 seconds of reading gives the embedder a
+ * rounded sample of the voice. Each reads aloud in roughly five seconds.
+ *
+ * The fifth is read LOUDLY, and it is not a nicety. A person's raised voice
+ * lands about as far from their ordinary print as a different speaker does —
+ * measured over 24 speakers in `__tests__/speakerShoutIdentity.test.ts`: your
+ * own shout sits a median 0.393 from your calm print while a STRANGER's shout
+ * reaches 0.375 against it. Without this take the app cannot recognise you at
+ * the moment it most needs to, which is when you have raised your voice, so
+ * the loudest turn in an argument is filed under a stranger and neither the
+ * nudge nor the credit for calming down afterwards ever reaches you.
+ *
+ * It is deliberately the LAST prompt: someone who stops before it still gets a
+ * complete ordinary print, exactly as before.
  */
-export const PHRASES: string[] = [
-  "Hi, it's me — I'm teaching this app what my voice sounds like.",
-  "Yesterday evening we cooked dinner together and talked about the weekend.",
-  "Please pass the water jug before the soup gets cold, would you?",
-  "When the weather turns bright and clear, we like to walk down by the river.",
+export const PROMPTS: VoicePrompt[] = [
+  { text: "Hi, it's me — I'm teaching this app what my voice sounds like.", register: "normal" },
+  { text: "Yesterday evening we cooked dinner together and talked about the weekend.", register: "normal" },
+  { text: "Please pass the water jug before the soup gets cold, would you?", register: "normal" },
+  { text: "When the weather turns bright and clear, we like to walk down by the river.", register: "normal" },
+  {
+    text: "I already told you — that is not what happened, and you are not even listening to me!",
+    register: "raised",
+    instruction:
+      "Two loud ones to finish. Say this the way you would in a real argument — " +
+      "properly raised, not just firm. Take your time: read the whole line.",
+  },
+  {
+    text: "Stop interrupting me for one second and let me finish what I am trying to say!",
+    register: "raised",
+    instruction:
+      "Last one, loud again. This is the only way the coach can tell it's you " +
+      "when you raise your voice.",
+  },
 ];
+
+/** Kept for callers that only want the words (and for older tests). */
+export const PHRASES: string[] = PROMPTS.map((p) => p.text);
 
 /** A take shorter than this holds too little audio to be worth uploading —
  *  the user is asked to read the phrase again rather than silently keeping a
@@ -51,6 +91,10 @@ export interface VoiceTrainingDeps {
     file: string | File,
     name: string,
     person?: { personId: string; displayName?: string | null },
+    /** "raised" stores the clip as a SECOND prototype instead of blending it
+     *  into the ordinary print. Omitted for ordinary speech, so an older
+     *  server sees exactly the upload it always did. */
+    register?: PromptRegister,
   ) => Promise<DirectEnrollResult>;
   getPermission: () => Promise<boolean>;
   requestPermission: () => Promise<boolean>;
@@ -133,6 +177,10 @@ export default function VoiceTrainingFlow({
   if (!depsRef.current) depsRef.current = defaultDeps();
 
   const [permGranted, setPermGranted] = useState<boolean | null>(null);
+  /** Registers whose upload already succeeded, so a retry only re-sends what
+   *  actually failed. */
+  const uploadedRef = useRef<Set<PromptRegister>>(new Set());
+  const lastResultRef = useRef<Awaited<ReturnType<VoiceTrainingDeps["enroll"]>> | null>(null);
   const [phraseIndex, setPhraseIndex] = useState(0);
   const [stage, setStage] = useState<Stage>("phrase");
   const [recording, setRecording] = useState(false);
@@ -219,9 +267,17 @@ export default function VoiceTrainingFlow({
   const uploadTakes = useCallback(async () => {
     setStage("uploading");
     setErrorText(null);
-    let wav: Uint8Array;
+    // One upload per REGISTER. The raised take must not be concatenated with
+    // the ordinary ones — the server keeps it as a separate prototype, and
+    // averaging the two would produce a print that matches neither voice.
+    const groups: { register: PromptRegister; takes: typeof takesRef.current }[] = [];
+    for (const reg of ["normal", "raised"] as const) {
+      const takes = takesRef.current.filter((_, i) => (PROMPTS[i]?.register ?? "normal") === reg);
+      if (takes.length) groups.push({ register: reg, takes });
+    }
+    let wavs: { register: PromptRegister; wav: Uint8Array }[];
     try {
-      wav = concatTakesToWav(takesRef.current);
+      wavs = groups.map((g) => ({ register: g.register, wav: concatTakesToWav(g.takes) }));
     } catch {
       // Rates diverged across phrases (mic/headset changed between takes) or
       // nothing usable was captured — honest reset, never a detuned upload.
@@ -235,30 +291,53 @@ export default function VoiceTrainingFlow({
       return;
     }
     try {
-      const file = await depsRef.current!.saveWav(wav);
-      // The person is passed only when training someone else's voice, so
-      // the owner's upload is byte-for-byte the pre-existing call.
-      const result = personRef.current
-        ? await depsRef.current!.enroll(file, "guided-enrollment.wav", personRef.current)
-        : await depsRef.current!.enroll(file, "guided-enrollment.wav");
-      if (mountedRef.current) {
-        setEnrollCount(result.enroll_count);
+      let last: Awaited<ReturnType<VoiceTrainingDeps["enroll"]>> | null = lastResultRef.current;
+      for (const { register, wav } of wavs) {
+        // A retry must not re-upload a group that already landed. Without this
+        // a raised upload failing after the ordinary one succeeded would store
+        // the ordinary clip twice on every retry.
+        if (uploadedRef.current.has(register)) continue;
+        const file = await depsRef.current!.saveWav(wav);
+        // The person is passed only when training someone else's voice, and
+        // the register only when it is raised, so the owner's ordinary upload
+        // is byte-for-byte the pre-existing call — an older server sees no
+        // new fields at all.
+        last = await depsRef.current!.enroll(
+          file,
+          register === "raised" ? "guided-enrollment-raised.wav" : "guided-enrollment.wav",
+          personRef.current ?? undefined,
+          register === "raised" ? register : undefined,
+        );
+        uploadedRef.current.add(register);
+        lastResultRef.current = last;
+      }
+      if (mountedRef.current && last) {
+        setEnrollCount(last.enroll_count);
         setStage("success");
       }
     } catch (e) {
       if (!mountedRef.current) return;
       const status = (e as { status?: number }).status;
       const msg = e instanceof Error ? e.message : "";
+      // The ordinary group uploads first, so a failure on the raised one means
+      // the everyday voiceprint is already stored. Saying so matters: without
+      // it the screen reads as "enrollment failed" and a user starts over,
+      // re-recording four phrases that already landed.
+      const ordinaryLanded = uploadedRef.current.has("normal");
       // A real server reason (422 not enough speech, 413 too large, 503 voice
       // ID unavailable) is shown verbatim; transport failures get an honest
       // generic line. Both offer a retry — the takes are still in memory.
       const hasDetail =
         typeof status === "number" && status > 0 && msg.length > 0 &&
         !msg.startsWith("API error");
+      const detail = hasDetail
+        ? msg
+        : "Couldn’t upload your voice sample — check your connection and try again.";
       setErrorText(
-        hasDetail
-          ? msg
-          : "Couldn’t upload your voice sample — check your connection and try again.",
+        ordinaryLanded
+          ? `Your everyday voice is saved. Only the loud sample failed: ${detail} ` +
+            "Try again — “Try again” re-sends just the loud part."
+          : detail,
       );
       setStage("error");
     }
@@ -288,7 +367,7 @@ export default function VoiceTrainingFlow({
     }
     setTakeNote(null);
     takesRef.current = [...takesRef.current, take];
-    if (takesRef.current.length >= PHRASES.length) {
+    if (takesRef.current.length >= PROMPTS.length) {
       await uploadTakes();
       return;
     }
@@ -298,6 +377,8 @@ export default function VoiceTrainingFlow({
   const handleStartOver = useCallback(() => {
     stopSource();
     takesRef.current = [];
+    uploadedRef.current = new Set();
+    lastResultRef.current = null;
     chunksRef.current = [];
     rateRef.current = null;
     mixedRateRef.current = false;
@@ -435,10 +516,15 @@ export default function VoiceTrainingFlow({
   return (
     <View style={styles.container} testID="voice-training-flow">
       <Text style={styles.progress} testID="vt-progress">
-        {`Phrase ${phraseIndex + 1} of ${PHRASES.length}`}
+        {`Phrase ${phraseIndex + 1} of ${PROMPTS.length}`}
       </Text>
+      {PROMPTS[phraseIndex].instruction ? (
+        <Text style={styles.instruction} testID="vt-instruction">
+          {PROMPTS[phraseIndex].instruction}
+        </Text>
+      ) : null}
       <Text style={styles.phrase} testID="vt-phrase">
-        {`“${PHRASES[phraseIndex]}”`}
+        {`“${PROMPTS[phraseIndex].text}”`}
       </Text>
       {recording ? (
         <>
@@ -493,6 +579,14 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
     textTransform: "uppercase",
     color: "#9CA3AF",
+    marginBottom: 6,
+  },
+  instruction: {
+    fontSize: 13.5,
+    lineHeight: 19,
+    fontWeight: "600",
+    color: "#B45309",
+    textAlign: "center",
     marginBottom: 6,
   },
   phrase: {

@@ -62,7 +62,11 @@ export function matchLoopTurns(script: ReplayScript, turns: LocalTurn[]): (numbe
 /** The label attribution compares: an enrolled name, or "?<cluster>" for
  *  the loop's own unknown clusters (which reuse the "Speaker A" wording). */
 export function predictedLabel(t: LocalTurn): string {
-  return t.personId ? t.speaker : `?${t.speaker}`;
+  // An identified turn predicts the PERSON. For a per-turn absolute match
+  // `speaker` already is the display name; for a cluster identified by its
+  // centroid (absolute or contrast) `speaker` stays the raw "Speaker X" wire
+  // key and the person rides on `displayName`.
+  return t.personId ? (t.displayName ?? t.speaker) : `?${t.speaker}`;
 }
 
 export interface AttributionTurn {
@@ -143,7 +147,7 @@ export function scoreAttribution(
   const self = script.selfSpeaker;
   const selfTurns = perTurn.filter((t) => t.truth === self);
   const enrolledTurns = perTurn.filter((t) => enrolledNames.has(t.truth));
-  const matchedNames = new Set(turns.filter((t) => t.personId).map((t) => t.speaker));
+  const matchedNames = new Set(turns.filter((t) => t.personId).map((t) => t.personId as string));
   const clusters = new Set(turns.filter((t) => !t.personId && t.speaker !== "Unknown").map((t) => t.speaker));
   return {
     correct: bestCorrect,

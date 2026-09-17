@@ -23,6 +23,7 @@ socket, ``X-Test-Uid`` on REST).
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -186,6 +187,13 @@ def env(monkeypatch):
     monkeypatch.setattr(audio_pipeline, "speaker_id", None)
     monkeypatch.setattr(audio_pipeline, "watch_relay", None)
     monkeypatch.setattr(audio_pipeline, "SLICE_GRACE_S", 0.0)
+    # RoutingLLM answers EVERY self turn with the same "ease up"; the
+    # don't-nag gate (nudge-quality work) would silence the repeats within
+    # its cooldown and these tests wait on each nudge event. Off here — the
+    # gate has its own tests (test_nudge_quality.py). Disabled via the
+    # overlap threshold (> 1 can never match) rather than the cooldown,
+    # because these tests reuse identical turn timestamps.
+    monkeypatch.setattr(audio_pipeline, "COACH_REPEAT_JACCARD", 2.0)
     # The two LLM passes on the persisted episodes run as background tasks
     # on the socket's loop; off by default here (one test turns them on).
     monkeypatch.setattr(calls, "ANALYZE_ON_END", False)
@@ -1463,6 +1471,47 @@ class _Endpoint(calls.CallEndpoint):
 
     def detach(self) -> None:
         self.detached = True
+
+
+class TestCallOverlapCoaching:
+    def test_sustained_talking_over_nudges_the_member_who_cut_in(self, monkeypatch):
+        """Both parties are separate streams in a call, so sustained mutual
+        speech is exact: a member who starts inside the other's turn and keeps
+        going >= 2 s gets a ``nudge`` frame (``interrupting``); the party
+        talked over gets nothing; ordinary brief overlap never nudges."""
+        now = datetime.now(timezone.utc)
+        call = calls.Call(
+            call_id="c", host_uid="a", join_code="ABCDEF", created_at=now.isoformat(),
+            expires_at=(now + timedelta(hours=1)).isoformat(),
+        )
+        call.add_participant("a", email=None, display_name=None)
+        call.add_participant("b", email=None, display_name=None)
+        clock = [50.0]
+        monkeypatch.setattr(call, "elapsed_s", lambda: clock[0])
+
+        async def run():
+            a, b = _Endpoint("a"), _Endpoint("b")
+            await call.bind("a", a)
+            await call.bind("b", b)
+            # b: local 0-10 at clock 50 -> call timeline 40-50.
+            await call.push_turn("b", {"text": "let me finish what i was saying about it", "start_time": 0.0, "end_time": 10.0})
+            # a: local 0-8 at clock 55 -> 47-55: starts inside b's turn, 3 s of mutual speech.
+            clock[0] = 55.0
+            await call.push_turn("a", {"text": "no no listen listen to me", "start_time": 0.0, "end_time": 8.0})
+            nudges_a = [f for f in a.frames if f.get("type") == "nudge"]
+            nudges_b = [f for f in b.frames if f.get("type") == "nudge"]
+            assert len(nudges_a) == 1
+            assert nudges_a[0]["level"] == 1 and nudges_a[0]["vectors"] == ["interrupting"]
+            assert nudges_a[0]["channel"] == "A"
+            assert nudges_b == []
+            # Brief overlap later (0.4 s) is normal conversation: no new nudge.
+            clock[0] = 70.0
+            await call.push_turn("b", {"text": "okay go on", "start_time": 0.0, "end_time": 5.0})   # 65-70
+            clock[0] = 76.0
+            await call.push_turn("a", {"text": "thanks", "start_time": 0.0, "end_time": 6.4})        # 69.6-76: 0.4 s overlap
+            assert len([f for f in a.frames if f.get("type") == "nudge"]) == 1
+
+        asyncio.run(run())
 
 
 class TestReconnectClock:

@@ -26,6 +26,8 @@ testable with synthetic signals, no framework coupling.
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 # Frame-wise F0 estimation params. 40 ms frames / 10 ms hop is a standard
@@ -63,6 +65,17 @@ def rms_energy(samples: np.ndarray) -> float:
     if samples.size == 0:
         return 0.0
     return float(np.sqrt(np.mean(np.square(samples, dtype=np.float64))))
+
+
+def rms_to_dbfs(rms: float) -> float | None:
+    """``20*log10(rms)`` for float PCM in [-1, 1] — the same number the phone
+    reports for a live turn (apps/mobile/src/live/prosody.ts ``rmsDbfs``) and
+    watch/vectors.py's ``rms_dbfs`` (which divides int16 by 32768 first).
+    ``None`` for digital silence (rms 0): -inf is not a number a JSON
+    analysis can carry, and "not measurable" is the honest reading."""
+    if rms is None or rms <= 0.0:
+        return None
+    return 20.0 * math.log10(rms)
 
 
 def _frame_f0(frame: np.ndarray, sr: int) -> float | None:
@@ -191,7 +204,10 @@ def label_turns(
     * ``pitch_label``   — low / mid / high pitch, or ``None`` when unvoiced
     * ``pitch_var_label`` — flat / varied, or ``None`` when unvoiced
     * ``rate_label``    — slow / normal / fast
-    * raw ``rms``, ``f0_median``, ``f0_std``, ``speech_rate``
+    * raw ``rms``, ``rms_dbfs`` (None for silence), ``f0_median``, ``f0_std``,
+      ``speech_rate`` — the absolute numbers behind the labels, which the
+      Replay chart plots on a labeled axis (VoiceOut.rms_dbfs/pitch_hz/
+      speech_rate)
 
     Energy/pitch/rate are labelled by tertiles over the recording's own turns
     (see module docstring for why relative is correct here).
@@ -240,6 +256,9 @@ def label_turns(
             "pitch_var_label": pitch_var_label,
             "rate_label": rate_label,
             "rms": round(f["rms"], 6),
+            "rms_dbfs": (
+                None if (dbfs := rms_to_dbfs(f["rms"])) is None else round(dbfs, 2)
+            ),
             "f0_median": (
                 None if f["f0_median"] is None else round(f["f0_median"], 2)
             ),
