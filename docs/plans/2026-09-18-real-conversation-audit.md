@@ -129,3 +129,32 @@ pytest tests/test_conversation_dose.py tests/test_identity_in_a_room.py
 Both gates skip where the corpus or ECAPA is absent, including CI. The dose
 *arithmetic* stays pinned in CI against committed fixtures by
 `PulseDoseTest`/`ReminderDoseTest`, so a logic regression still fails there.
+
+---
+
+## Postscript: where the valence veto does and does not reach
+
+PR #186 (2026-09-17) shipped the valence veto — Option B from the 09-10
+write-up — and it is the right change. This audit does not contradict it, but
+it does bound it, and the bound is worth stating before anyone expects the veto
+to fix the dose.
+
+`valence_veto` is applied inside `relay.turn_local_to_vector_events`, i.e. on
+**phone turns relayed to the watch**. It is absent from both of the paths that
+produce the numbers above:
+
+| | valence anywhere? |
+| --- | --- |
+| `server/watch/vectors.py` — the watch's OWN pcm → `yelling` vectors | no (0 references) |
+| `NudgeStateMachine.kt` — the watch's on-device ladder | no (0 references) |
+
+So the 88.8 buzzes/hour in §1 and the no-identity result in §2 are produced by
+a lane the veto does not touch. Turning `MINDSHIFT_VALENCE_GATE` on would not
+be expected to move either number, and if someone measures it and finds it
+did, something is wired differently than this reading suggests.
+
+That is not an argument against the veto — it removes real false buzzes on the
+lane it governs, and §3's threshold finding is independent of it. It is an
+argument that **Option A is still the outstanding item**: the watch's own lane
+knows neither who is loud nor what loud means, and no amount of tuning the
+relayed lane changes that.
