@@ -1,0 +1,131 @@
+# The nudge chain, audited against 3.8 hours of real conversation — 2026-09-18
+
+The owner stopped being able to test on a device, which was correct: his own
+standing rule is *verify from files, never the owner*. This replaces manual
+device testing for the questions it was being used for.
+
+Corpus: **12 AMI meetings, 3.8 hours, 48 speakers** across three different
+rooms and meeting series. AMI publishes each participant's **own headset**
+alongside the meeting, sample-aligned, which gives ground truth for who spoke
+when — and therefore for overlap — with no hand annotation, plus a faithful
+single-microphone mix by summing the headsets. That mix is exactly what one
+phone or one watch in the room hears. CC BY 4.0, kept in gitignored `tmp/`.
+
+Why this corpus and not the ones we had: CREMA-D and RAVDESS are
+single-utterance and acted — they answer "does this clip sound angry", which is
+a question about clips. Our own TTS scenes turned out to be acoustically flat
+(`2026-09-10-heat-rubric-and-buzz-dose.md`). Neither can answer anything about
+conversation: turn-taking, crosstalk, or how often the thing goes off.
+
+---
+
+## 1. Dose — how often does the wrist buzz?
+
+`scripts/conversation_audit.py` replays the shipped chain as a faithful port:
+`SentinelDetector`'s seeding and baseline rules, the +6/+10/+14 dB ladder,
+one-level-per-20 s decay, the pulse train, and the PRD §6 reminder.
+
+| configuration | buzzes / hour | worst meeting |
+| --- | --- | --- |
+| before 2026-09-10 (pulse on, flat reminder) | **585** | 1,204/h — twenty a minute |
+| shipped today (pulse off, reminder backs off) | **88.8** | 138/h |
+
+**Nobody in these recordings is angry.** They are ordinary work meetings.
+
+So this week's two fixes are worth **6.6×** — considerably more than the 3.3×
+a two-meeting sample suggested. And 88.8/hour is still about one buzz every
+forty seconds, which is not a coaching cue; it is wallpaper. The gate records
+95/h as a regression ceiling and 12/h as the product target, with a
+known-defect test asserting the gap still exists so that closing it forces the
+numbers and this document to move together.
+
+## 2. Does a buzz know *who* was talking?
+
+The headsets give ground truth, so this is answerable for the first time.
+
+| | shipped |
+| --- | --- |
+| buzzes landing while the **wearer** spoke | 21.7% |
+| chance alone (their share of the talking) | 17.1% |
+
+**A buzz carries essentially no information about who was speaking.** The
+base-rate comparison is what makes that rigorous — in a four-way meeting almost
+any buzz lands while someone else is talking, so the raw percentage alone would
+have proved nothing.
+
+This is not a bug in the detector. The watch's own microphone path has **no
+identity at all**: loudness on a single mic cannot tell "you got loud" from
+"someone near you got loud". The wrist is about as likely to tell its wearer
+off for a colleague.
+
+## 3. Does the voiceprint find its owner in a real room?
+
+`scripts/identity_audit.py`: enrol from the wearer's **own clean headset**
+(what phone voice training produces — a print built from the mix would already
+contain the people we then ask it to reject), then match against the
+single-microphone mix. 1,758 scored turns, 16 wearers.
+
+**The model is fine.** AUC 0.891; median cosine 0.59 for the wearer's own turns
+against 0.08 for everyone else's. This is a calibration defect, not a reason to
+replace ECAPA.
+
+| threshold | finds you | reads someone else as you |
+| --- | --- | --- |
+| 0.50 | 66.7% | 0.8% |
+| 0.55 | 59.6% | 0.5% |
+| **0.65 (shipped)** | **35.5%** | **0.1%** |
+| 0.70 | 25.6% | 0.0% |
+
+The shipped bar is excellent at the expensive failure — it almost never blames
+you for someone else. But it misses **two thirds of your own turns**, and the
+reason is arithmetic: the wearer's own *clean* turns have a median cosine of
+**0.633**, and the bar sits at **0.65**. It is set just above the middle of the
+distribution it is supposed to accept, so it rejects about half of it by
+construction.
+
+Splitting the misses by cause (weighing by volume, not by the gap between
+medians — an earlier pass of this analysis got that wrong):
+
+- **48% of misses are clean turns** just under the bar → the threshold is too
+  strict for a real room.
+- **8% are heavily overlapped turns**, which score a median of **0.103** —
+  noise, not a marginal call. A single mic hands ECAPA a blend of two voices.
+  No threshold rescues that; those spans should be **excluded**, not
+  thresholded.
+
+---
+
+## What this adds up to
+
+Two independent failures, both now measured rather than argued about:
+
+- The wrist's own lane knows **neither who is loud** (§2) **nor what loud
+  means** — loudness cannot separate anger from enthusiasm, AUC 0.799
+  (`2026-09-10`).
+- Where identity *is* available, it works well but is **tuned past its own
+  data** (§3).
+
+Suggested order, none of it done unilaterally because all of it changes what
+fires:
+
+1. **Exclude overlapped spans from matching.** Unambiguous — those embeddings
+   are noise and currently produce confident-looking near-zero scores.
+2. **Re-tune `MATCH_THRESHOLD` from the distribution**, ~0.55 rather than 0.65.
+   Nearly doubles self-recall for 0.4 points of false accept.
+3. **Stop the watch nudging on loudness alone** — the §2 finding is fatal for
+   that lane on its own.
+4. Then re-run this audit; the dose target is 12/h and it is currently 88.8.
+
+## Reproduce
+
+```bash
+python scripts/ami_corpus.py --keep-headsets     # ~2 GB into tmp/, CC BY 4.0
+python scripts/conversation_audit.py
+pip install -r requirements-voice.txt
+python scripts/identity_audit.py --meetings 4
+pytest tests/test_conversation_dose.py tests/test_identity_in_a_room.py
+```
+
+Both gates skip where the corpus or ECAPA is absent, including CI. The dose
+*arithmetic* stays pinned in CI against committed fixtures by
+`PulseDoseTest`/`ReminderDoseTest`, so a logic regression still fails there.
