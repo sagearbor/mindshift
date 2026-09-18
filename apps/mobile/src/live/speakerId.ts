@@ -5,7 +5,7 @@
  * unknown-speaker clustering (`assignSpeakers`) are ports of server/speaker_id.py
  * and server/watch/diarize.py::assign_speakers, so a voiceprint enrolled on
  * the server matches on the phone with the same threshold (`MATCH_THRESHOLD`
- * 0.65) and the same clustering rule (`CLUSTER_THRESHOLD` 0.55).
+ * 0.60) and the same clustering rule (`CLUSTER_THRESHOLD` 0.55).
  *
  * `SpeakerLabeler` is the session-scoped online form: every finalized turn's
  * embedding is matched greedily against the enrolled people (best cosine,
@@ -22,7 +22,7 @@
 import type { OnnxSession } from "./ort";
 import { float32Tensor } from "./ort";
 
-export const MATCH_THRESHOLD = 0.65;
+export const MATCH_THRESHOLD = 0.60;
 export const CLUSTER_THRESHOLD = 0.55;
 export const ECAPA_DIM = 192;
 /**

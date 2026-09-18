@@ -35,7 +35,11 @@ pytestmark = pytest.mark.skipif(
 #: server/speaker_id.py's MATCH_THRESHOLD. Restated rather than imported so the
 #: test still means something if the import path moves; the mismatch assertion
 #: below catches drift between the two.
-SHIPPED_THRESHOLD = 0.65
+#:
+#: Lowered 0.65 -> 0.60 on 2026-09-18 by this audit. The guard below did its job:
+#: changing the constant failed this file, which forced the number and the
+#: write-up to move together instead of the docs quietly going stale.
+SHIPPED_THRESHOLD = 0.60
 
 
 @pytest.fixture(scope="module")
@@ -68,9 +72,27 @@ def test_the_voiceprint_does_separate_its_owner_from_the_room(rows):
 def test_it_almost_never_mistakes_someone_else_for_you(rows):
     """The expensive failure: the wrist telling you off for what a colleague
     just did. This is the one the shipped threshold is genuinely good at, and
-    any loosening has to keep it that way."""
+    the 2026-09-18 loosening had to keep it that way — it did."""
     other = np.array([r["score"] for r in rows if not r["is_self"]])
     assert (other >= SHIPPED_THRESHOLD).mean() < 0.01
+
+
+def test_the_residual_false_accepts_are_overlap_not_confusion(rows):
+    """Why loosening the bar was safe, and the distinction that made the call.
+
+    The few impostor turns that clear the bar are not the model confusing two
+    people — they are turns where the wearer was genuinely talking over someone,
+    so their voice really is in that audio. On turns with no overlap at all the
+    false-accept rate is zero. Independently, 91 CREMA-D speakers / 8,190 pairs
+    put the highest cross-speaker score anywhere at 0.567, below this bar.
+    """
+    clean_impostors = [r["score"] for r in rows
+                       if not r["is_self"] and r["overlap_fraction"] < 0.05]
+    assert len(clean_impostors) > 300
+    assert max(clean_impostors) < SHIPPED_THRESHOLD, (
+        "a NON-overlapped turn of someone else's now clears the bar — that would be "
+        "genuine voice confusion, and the 0.60 decision rested on it not happening"
+    )
 
 
 def test_but_it_misses_most_of_your_own_turns_in_a_real_room(rows):
@@ -83,6 +105,10 @@ def test_but_it_misses_most_of_your_own_turns_in_a_real_room(rows):
     """
     own = np.array([r["score"] for r in rows if r["is_self"]])
     found = (own >= SHIPPED_THRESHOLD).mean()
+    # 0.65 -> 0.60 moved this from ~35% to ~48%. Better, and still a defect: the
+    # threshold change bought back the turns sitting just under the old bar, but
+    # the median clean turn is ~0.63, so half the distribution is still close to
+    # the line. The known-defect framing stays until recall clears 55%.
     assert found < 0.55, (
         f"self-recall is now {found:.1%} — if the threshold or the enrolment changed, "
         "update docs/plans/2026-09-18-real-conversation-audit.md and re-point this test"
@@ -100,11 +126,30 @@ def test_overlapped_turns_are_unmatchable_and_should_be_excluded_not_thresholded
     assert np.median(clean) - np.median(messy) > 0.3
 
 
-def test_lowering_the_bar_would_roughly_double_recall_for_little_cost(rows):
-    """The evidence behind the recommendation, pinned so it cannot quietly rot."""
+def test_why_the_bar_stopped_at_060_and_not_lower(rows):
+    """Records the decision, not the proposal it replaced.
+
+    Lower bars keep buying recall — 0.55 and 0.50 find more of the wearer's own
+    turns than 0.60 does. The reason to stop at 0.60 is not recall, it is the
+    ceiling of "not the same voice":
+
+        this module's own corpus (AMI, non-overlapped turns) .. below 0.60
+        91 CREMA-D speakers, 8,190 pairs, 24,570 comparisons .. max 0.567
+        the original calibration table's merged artifacts ..... max 0.558
+
+    Three independent measurements agree that genuine cross-speaker similarity
+    tops out around 0.56-0.57. 0.60 sits just above all of them; 0.55 does not,
+    and would start accepting scores that have been observed between DIFFERENT
+    people. That is the cardinal sin this matcher is built to avoid.
+    """
     own = np.array([r["score"] for r in rows if r["is_self"]])
-    other = np.array([r["score"] for r in rows if not r["is_self"]])
-    at_050 = (own >= 0.50).mean()
-    fa_050 = (other >= 0.50).mean()
-    assert at_050 > (own >= SHIPPED_THRESHOLD).mean() * 1.6, "0.50 no longer buys most of the recall"
-    assert fa_050 < 0.02, f"0.50 now costs {fa_050:.1%} false accepts — the trade has changed"
+    assert (own >= 0.50).mean() > (own >= SHIPPED_THRESHOLD).mean(), (
+        "a lower bar no longer buys recall — the distribution has moved and the "
+        "0.60 decision should be re-derived rather than assumed"
+    )
+    # The headroom that made 0.60 the stopping point rather than 0.55.
+    CONFUSION_CEILING = 0.567
+    assert SHIPPED_THRESHOLD > CONFUSION_CEILING, (
+        f"the bar ({SHIPPED_THRESHOLD}) is at or below the highest score ever observed "
+        f"between two DIFFERENT speakers ({CONFUSION_CEILING})"
+    )

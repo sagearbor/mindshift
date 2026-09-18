@@ -467,7 +467,11 @@ async def test_enroll_from_recording_sounds_like_someone_else_422(client, store,
     assert resp.status_code == 422, resp.text
     detail = resp.json()["detail"]
     assert detail.startswith("[sounds-like-someone-else]")
-    assert "sounds like Mom" in detail and "0.65" in detail
+    # The floor is quoted to the user so the refusal is inspectable. Read it from
+    # the constant rather than hardcoding the number: it is a calibration value
+    # (lowered 0.65 -> 0.60 on 2026-09-18 from real-audio measurement), and this
+    # test is about the MESSAGE naming the floor, not about what the floor is.
+    assert "sounds like Mom" in detail and f"{speaker_id.MATCH_THRESHOLD:.2f}" in detail
     assert await store.read_voiceprint("u1", "dad") is None
     # Mom's print is untouched (still one sample).
     assert (await store.read_voiceprint("u1", "mom"))["enroll_count"] == 1

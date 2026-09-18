@@ -91,7 +91,7 @@ maybe("scene pack replay (real Silero + ECAPA, scripted STT/LLM, virtual clock)"
   const run = (name: string, extra: Parameters<typeof replayScene>[1]) =>
     replayScene(scenes[name], { models, enrollFrom: pool(name), ...extra });
 
-  it("scene_couple_escalation / earpiece: 11/13 attribution (self 6/7), 3/3 nudges, no false positives, spoken never over speech", async () => {
+  it("scene_couple_escalation / earpiece: 12/13 attribution (self 7/7), 3/3 nudges, no false positives, spoken never over speech", async () => {
     const r = await run("scene_couple_escalation", { mode: "earpiece" });
     console.log(formatReport(r));
     console.log(summaryLine(r));
@@ -101,7 +101,7 @@ maybe("scene pack replay (real Silero + ECAPA, scripted STT/LLM, virtual clock)"
     // Attribution: the print is from ANOTHER scene; 6 of 7 self turns match
     // it (the miss is the closing 1.3 s fragment), the partner is one unknown
     // cluster, plus one stray cluster from a 1.3 s partner fragment.
-    expect(r.attribution).toMatchObject({ correct: 11, total: 13, selfCorrect: 6, selfTotal: 7, speakersDetected: 3, unknownClusters: 2 });
+    expect(r.attribution).toMatchObject({ correct: 12, total: 13, selfCorrect: 7, selfTotal: 7, speakersDetected: 3, unknownClusters: 2 });
     const selfScores = r.turns.filter((t) => t.isSelf).map((t) => t.matchScore as number);
     expect(Math.min(...selfScores)).toBeGreaterThanOrEqual(MATCH_THRESHOLD);
     // Fragmentation: 30 loop turns, 12 of 13 scripted turns split, none merged.
@@ -131,7 +131,7 @@ maybe("scene pack replay (real Silero + ECAPA, scripted STT/LLM, virtual clock)"
   it("scene_couple_escalation / speaker: identical to earpiece (both voice; the mode only changes the audio route)", async () => {
     const r = await run("scene_couple_escalation", { mode: "speaker" });
     expectInvariants(r);
-    expect(r.attribution.correct).toBe(11);
+    expect(r.attribution.correct).toBe(12);
     expect(r.speaking.spoken).toBe(29);
     expect(r.latency.toSpeakMedianMs).toBe(1600);
   }, 60_000);
@@ -151,7 +151,7 @@ maybe("scene pack replay (real Silero + ECAPA, scripted STT/LLM, virtual clock)"
     ]);
     // 10/13 named exactly: the partner's same-scene print (first 10 s of
     // her) misses her two shortest fragments; self is as in earpiece.
-    expect(r.attribution).toMatchObject({ enrolledCorrect: 10, enrolledTotal: 13, selfCorrect: 6 });
+    expect(r.attribution).toMatchObject({ enrolledCorrect: 12, enrolledTotal: 13, selfCorrect: 7 });
     expect(r.nudgeScore).toMatchObject({ hits: 3, misses: 0, falsePositives: 0 });
     writeTurnLocalDump(r, REPLAY_OUT_DIR);
   }, 60_000);
@@ -181,7 +181,7 @@ maybe("scene pack replay (real Silero + ECAPA, scripted STT/LLM, virtual clock)"
     expect(r.speaking).toMatchObject({ spoken: 10, held: 29, dropped: 20, overVadSpeech: 0, overScriptedSpeech: 8 });
     expect(r.latency.toSpeakMedianMs).toBe(2050);
     // Coaching itself is unchanged: same turns, same nudges.
-    expect(r.attribution.correct).toBe(11);
+    expect(r.attribution.correct).toBe(12);
     expect(r.nudgeScore).toMatchObject({ hits: 3, misses: 0, falsePositives: 0 });
   }, 60_000);
 
@@ -210,7 +210,7 @@ maybe("scene pack replay (real Silero + ECAPA, scripted STT/LLM, virtual clock)"
     console.log(summaryLine(r));
     expectInvariants(r);
     expect(r.capability.enrolled[0]).toMatchObject({ crossScene: true, fromScene: "scene_couple_escalation" });
-    expect(r.attribution).toMatchObject({ correct: 9, total: 15, selfCorrect: 3, selfTotal: 5, speakersDetected: 6, unknownClusters: 5 });
+    expect(r.attribution).toMatchObject({ correct: 9, total: 15, selfCorrect: 3, selfTotal: 5, speakersDetected: 5, unknownClusters: 4 });
     expect(r.turns).toHaveLength(24);
     expect(r.boundaries).toMatchObject({ split: 11, merged: 6, unmatched: 0 });
     expect(r.nudgeScore).toMatchObject({ hits: 1, misses: 0, falsePositives: 0 });
@@ -224,12 +224,12 @@ maybe("scene pack replay (real Silero + ECAPA, scripted STT/LLM, virtual clock)"
     expectInvariants(t);
   }, 90_000);
 
-  it("scene_meeting4 / earpiece: 14/17 attribution but self only 2/5 — the shout and the apology don't match the calm print, so the strong nudge is MISSED (documented ceiling)", async () => {
+  it("scene_meeting4 / earpiece: 16/17 attribution, self 4/5 — the 2026-09-18 threshold change lifted most of the documented ceiling (was 14/17, self 2/5)", async () => {
     const r = await run("scene_meeting4", { mode: "earpiece" });
     console.log(formatReport(r));
     console.log(summaryLine(r));
     expectInvariants(r);
-    expect(r.attribution).toMatchObject({ correct: 14, total: 17, selfCorrect: 2, selfTotal: 5, speakersDetected: 8, unknownClusters: 7 });
+    expect(r.attribution).toMatchObject({ correct: 16, total: 17, selfCorrect: 4, selfTotal: 5, speakersDetected: 5, unknownClusters: 4 });
     expect(r.turns).toHaveLength(34);
     expect(r.boundaries).toMatchObject({ split: 14, merged: 0, unmatched: 0 });
     // mild@11 hit; strong@13 missed: the 2 s shouted fragment scored below

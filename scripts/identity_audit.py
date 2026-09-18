@@ -100,6 +100,15 @@ def audit_meeting(meta: dict, corpus: Path, embed, rng: np.random.Generator) -> 
     mix = resample_to_16k(mix, sr)
     heads = corpus / "headsets"
     rows = []
+    # ONE candidate set for the whole meeting, chosen before the wearer loop.
+    # It used to be re-sampled inside the loop, which meant each wearer scored a
+    # DIFFERENT subset of turns — fine for per-wearer rates, but it made the
+    # rows impossible to join back into "this turn, scored against every print",
+    # which is what a margin rule (top vs runner-up) has to see.
+    all_turns = [(spk, a, b) for spk, sp in meta["speakers"].items() for a, b in sp if b - a >= MIN_TURN_S]
+    if len(all_turns) > MAX_TURNS_PER_MEETING:
+        pick = rng.choice(len(all_turns), MAX_TURNS_PER_MEETING, replace=False)
+        all_turns = [all_turns[i] for i in sorted(pick)]
     for wearer, spans in meta["speakers"].items():
         idx = int(wearer[1:])
         hs = heads / f"{meta['meeting']}.Headset-{idx}.wav"
@@ -108,16 +117,8 @@ def audit_meeting(meta: dict, corpus: Path, embed, rng: np.random.Generator) -> 
         print_vec = enrol(hs, spans, embed)
         if print_vec is None:
             continue
-        # Score every speaker's turns against THIS wearer's print.
-        candidates = []
-        for spk, sp in meta["speakers"].items():
-            for a, b in sp:
-                if b - a >= MIN_TURN_S:
-                    candidates.append((spk, a, b))
-        if len(candidates) > MAX_TURNS_PER_MEETING:
-            pick = rng.choice(len(candidates), MAX_TURNS_PER_MEETING, replace=False)
-            candidates = [candidates[i] for i in sorted(pick)]
-        for spk, a, b in candidates:
+        # The same turns for every wearer — see all_turns above.
+        for spk, a, b in all_turns:
             seg = mix[int(a * TARGET_SR):int(b * TARGET_SR)]
             if len(seg) < int(MIN_TURN_S * TARGET_SR):
                 continue
@@ -132,6 +133,9 @@ def audit_meeting(meta: dict, corpus: Path, embed, rng: np.random.Generator) -> 
                 for c, d in meta["speakers"][o]:
                     clash += max(0.0, min(b, d) - max(a, c))
             rows.append({
+                # Stable id so the same turn's scores against every print can be
+                # joined: the margin rule needs top-vs-runner-up, not one score.
+                "turn_id": f"{meta['meeting']}:{spk}:{a:.2f}",
                 "meeting": meta["meeting"], "wearer": wearer, "turn_speaker": spk,
                 "is_self": spk == wearer, "score": round(score, 4),
                 "seconds": round(b - a, 2),

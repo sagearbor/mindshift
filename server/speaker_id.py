@@ -72,12 +72,35 @@ ECAPA_REVISION = os.getenv(
 #   different people, cross-recording ........ 0.11–0.16
 #   merged/degraded-diarization artifact ..... 0.477–0.558
 #
-# 0.65 sits in the clean gap between the ~0.55 ambiguous/merged artifacts and the
-# 0.72+ genuine same-voice matches: it accepts a true match with margin while
+# The bar sits in the clean gap between the ~0.55 ambiguous/merged artifacts and
+# the 0.72+ genuine same-voice matches: it accepts a true match with margin while
 # rejecting the spouse-in-a-merged-clip case. A FALSE "You" (mislabeling another
 # person) is the cardinal sin here, so we bias toward misses — below this floor a
 # speaker keeps its generic label; we NEVER force a match. Overridable via env.
-MATCH_THRESHOLD = float(os.getenv("MINDSHIFT_VOICE_MATCH_THRESHOLD", "0.65"))
+#
+# 2026-09-18: LOWERED 0.65 -> 0.60, measured on real audio for the first time
+# (docs/plans/2026-09-18-real-conversation-audit.md). The table above was built
+# from clean fixture splits; on AMI's real rooms the wearer's own CLEAN turns
+# have a median cosine of ~0.63, so a 0.65 bar sat just ABOVE the middle of the
+# distribution it exists to accept and missed roughly two thirds of them
+# (35.5% found in a four-way, 48.3% in a two-person mix — so it was the bar, not
+# the crowd).
+#
+# 0.60 is not a guess. Two independent measurements put the ceiling of
+# "not a genuine same-voice match" at essentially the same place:
+#
+#   this table's merged/degraded artifacts ......... max 0.558
+#   91 CREMA-D speakers, 8,190 pairs, 24,570 cross
+#   comparisons, enrol on 4 clips / test on 3 ...... max 0.567
+#
+# So nothing that is NOT the same voice has been observed above ~0.57, and 0.60
+# keeps the cardinal sin intact: zero false accepts across all 8,190 pairs, and
+# zero on every non-overlapped turn in AMI. The residual AMI "false accepts"
+# below this bar are turns where the wearer was genuinely talking over someone —
+# their voice really is in that audio — not the model confusing two people.
+#
+# Reverting is one env var: MINDSHIFT_VOICE_MATCH_THRESHOLD=0.65.
+MATCH_THRESHOLD = float(os.getenv("MINDSHIFT_VOICE_MATCH_THRESHOLD", "0.60"))
 
 # "Learn this voice from a recording" guard (people labeling). Before a pooled
 # speaker embedding is appended to person P's print, it is scored against
@@ -499,7 +522,7 @@ def identify_speakers_multi(
 
         {
           "matched_speaker": "Speaker A" | None,      # the SELF match (legacy key)
-          "match_threshold": 0.65,
+          "match_threshold": 0.60,
           "model": "speechbrain/spkrec-ecapa-voxceleb@<rev>",
           "matched": {"Speaker A": "self", "Speaker B": "alex"},
           "people": {"self": {"display_name": "You", "is_self": true},

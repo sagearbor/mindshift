@@ -212,3 +212,53 @@ Revised, in place of the original item 1:
 Overlapped spans need no special handling: they score ~0.10 against every
 print, so they simply fail to match, and are then subject to exactly the
 fallback problem above — which is the thing to fix, not the overlap.
+
+
+---
+
+## Acted on: `MATCH_THRESHOLD` 0.65 → 0.60 (2026-09-18)
+
+§3 said the bar was set just above the middle of the distribution it exists to
+accept. That is now changed, and the value was chosen from the ceiling of
+*"not the same voice"* rather than from the recall curve.
+
+**Why not simply as low as recall keeps improving.** Lower bars keep buying
+recall, but three independent measurements agree on where genuine
+cross-speaker similarity tops out:
+
+| measurement | ceiling |
+| --- | --- |
+| the original calibration table's merged/degraded artifacts | 0.558 |
+| 91 CREMA-D speakers, 8,190 pairs, 24,570 cross comparisons | **0.567** |
+| AMI, impostor turns with no overlap | below 0.60 |
+
+Nothing that is *not* the same voice has been observed above ~0.57. **0.60 sits
+just above all three; 0.55 does not** — it would start accepting scores that
+have been measured between different people, which is the cardinal sin this
+matcher exists to avoid.
+
+**Why the AMI "false accepts" below the bar did not block it.** They are not
+voice confusion. Impostor turns scoring ≥0.55 have a median overlap of 0.284
+against 0.059 for other-speaker turns generally — the wearer was talking over
+them, so their voice genuinely is in that audio. On turns with **no** overlap
+the false-accept rate is **zero**.
+
+**Independent confirmation, from fixtures not used to choose the value.** Every
+scene in the replay pack improved:
+
+| scene | attribution | self attribution | speakers detected (truth) |
+| --- | --- | --- | --- |
+| couple_escalation | 11/13 → **12/13** | 6/7 → **7/7** | 3 (3) |
+| family3 | 9/15 | 3/5 | 6 → **5** (3) |
+| meeting4 | 14/17 → **16/17** | 2/5 → **4/5** | 8 → **5** (4) |
+
+`meeting4`'s "documented ceiling" — *the shout and the apology don't match the
+calm print, so the strong nudge is MISSED* — is largely lifted, and speaker
+over-fragmentation fell from 8 clusters to 5 against a ground truth of 4.
+
+**What it does not fix.** Self-recall in a real room goes from ~35% to ~48%.
+Better, still a defect: the median clean turn scores ~0.63, so half the
+distribution remains near the line. `test_but_it_misses_most_of_your_own_turns_
+in_a_real_room` keeps asserting the defect until recall clears 55%.
+
+**Reverting is one env var:** `MINDSHIFT_VOICE_MATCH_THRESHOLD=0.65`.
