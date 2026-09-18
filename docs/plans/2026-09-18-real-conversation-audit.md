@@ -158,3 +158,57 @@ lane it governs, and §3's threshold finding is independent of it. It is an
 argument that **Option A is still the outstanding item**: the watch's own lane
 knows neither who is loud nor what loud means, and no amount of tuning the
 relayed lane changes that.
+
+---
+
+## Correction: §3's first recommendation was wrong, and the real mechanism is worse
+
+The original recommendation above said *"exclude overlapped spans from
+matching"*. That does not survive contact with a constraint this repo already
+established: **detecting overlap on a single microphone is the thing we proved
+we cannot do** — the probe scored 56% against an 80% bar (2026-09-07), which is
+why it is off. There is no signal available to exclude on.
+
+Worse, the premise was wrong too. An unmatched turn is not silent. From
+`fastLoop.ts`:
+
+```ts
+const coachedAsSelf =
+  verdict.isSelf === true ||
+  (verdict.isSelf === null && fallback !== null && verdict.speaker === fallback);
+```
+
+A turn the voiceprint could not match (`isSelf === null`) is still coached as
+the user whenever its **diarized label** happens to equal the "you speak first"
+convention (`Speaker A`). So failing to match does not fail safe — it falls
+through to a label convention.
+
+Now put that next to §3's numbers. In a four-way meeting at the shipped
+threshold:
+
+- **64.5%** of the wearer's own turns fail to match,
+- **99.9%** of everybody else's turns fail to match.
+
+So very nearly every turn arrives at the fallback, and attribution is decided
+almost entirely by whether the diarizer called that turn `Speaker A`. On one
+microphone, in a room of four, that is close to arbitrary.
+
+**This is the mechanism behind §2.** The 21.7%-against-a-17.1%-base-rate result
+is not a mystery: the voiceprint is mostly abstaining, and the thing actually
+deciding "is this you" is a naming convention. The two findings were never
+independent.
+
+Revised, in place of the original item 1:
+
+1. **Fix the threshold first** (§3) — it is what pushes attribution onto the
+   fallback in the first place. Raising match rate from 35% shrinks the
+   fallback's blast radius before anything else is touched.
+2. **Then decide what an unmatched turn should do.** Today it guesses. The
+   honest alternatives are to stay silent (fewer nudges, some missed) or to
+   require a match before coaching at all — which is Option A by another route.
+   Either is a product decision; the current behaviour should at least be a
+   deliberate one rather than a fallback nobody re-examined.
+
+Overlapped spans need no special handling: they score ~0.10 against every
+print, so they simply fail to match, and are then subject to exactly the
+fallback problem above — which is the thing to fix, not the overlap.
