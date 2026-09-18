@@ -178,6 +178,49 @@ def nudge_metrics(felt: list[tuple[float, str, int]], heated: list[list[float]] 
     }
 
 
+def human_conflict_agreement(entry: dict, over: np.ndarray) -> dict:
+    """Where a corpus carries a continuous HUMAN heat rating per second (CONFER's
+    ten raters' mean conflict), correlate our loudness-heat with it directly.
+    This is the strongest y-axis we have — people, not a model — so it is kept
+    separate from the tone-model agreement rather than blended with it."""
+    series = entry.get("conflict_per_second")
+    if not series:
+        return {}
+    n = min(len(series), len(over))
+    if n < 10:
+        return {}
+    ours, human = over[:n], np.asarray(series[:n], dtype=float)
+    keep = ours != 0.0                        # unvoiced windows carry no loudness reading
+    if keep.sum() < 10 or np.std(ours[keep]) == 0 or np.std(human[keep]) == 0:
+        return {}
+    ra = np.argsort(np.argsort(ours[keep])).astype(float)
+    rb = np.argsort(np.argsort(human[keep])).astype(float)
+    out = {
+        "agreement_with_human_conflict": round(float(np.corrcoef(ra, rb)[0, 1]), 3),
+        "human_conflict_mean": round(float(human.mean()), 1),
+    }
+    # Validity check on the REFERENCE itself: does the tone model's arousal
+    # track the human raters? If it does not, its disagreement with our
+    # loudness elsewhere means less than it looks. Uses the per-window series
+    # heat_reference.py saved (5 s windows -> pool the human series to match).
+    sp = OUT / "reference_series" / f"{entry['id']}.json"
+    if sp.exists():
+        ref = json.loads(sp.read_text())
+        w = int(ref["win_s"])
+        pooled = [float(np.mean(human[i * w:(i + 1) * w])) for i in range(len(human) // w)]
+        ar = np.asarray(ref["arousal"], dtype=float)
+        # heat_reference dropped silent windows, so align on the windows it kept:
+        # it kept windows where OUR 1 s series was voiced; reproduce that mask.
+        kept = [i for i in range(len(human) // w) if np.any(over[i * w:(i + 1) * w] != 0.0)]
+        if len(kept) == len(ar) and len(ar) >= 10:
+            hp = np.asarray([pooled[i] for i in kept])
+            if np.std(hp) > 0 and np.std(ar) > 0:
+                r1 = np.argsort(np.argsort(ar)).astype(float)
+                r2 = np.argsort(np.argsort(hp)).astype(float)
+                out["reference_vs_human_conflict"] = round(float(np.corrcoef(r1, r2)[0, 1]), 3)
+    return out
+
+
 def attribution_from_identity(entry: dict) -> float | None:
     """AMI attribution at the SHIPPED threshold, from identity_audit's output."""
     p = REPO / "tmp/ami-corpus/identity.json"
@@ -223,6 +266,7 @@ def measure(entry: dict) -> dict:
         "dose_per_hour": round(len(felt) / hours, 1) if hours else None,
         "buzzes": len(felt),
         **nudge_metrics(felt, entry.get("heated_spans"), dur),
+        **human_conflict_agreement(entry, over),
         "has_speaker_truth": bool(entry.get("speakers")),
         "has_heat_labels": bool(entry.get("heated_spans")),
     }
@@ -267,6 +311,7 @@ table{{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:14px}} th
     <option value="db_p95">95th-percentile dB over baseline</option>
     <option value="ref_arousal_sd">volatility by the tone model — sd of arousal (independent of loudness)</option>
     <option value="ref_arousal_mean">how aroused the tone model hears the whole recording</option>
+    <option value="human_conflict_mean">how heated HUMANS rated the whole clip (CONFER, 0–1000)</option>
   </select></label>
   <label><input type="checkbox" id="size"> dot size = duration</label>
 </div>
@@ -278,7 +323,9 @@ table{{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:14px}} th
 <script>
 const rows = {data};
 const METRICS = {{
+  agreement_with_human_conflict: {{label:"how well our loudness-heat agrees with HUMAN conflict ratings (CONFER's 10 raters, Spearman per clip)", good:"high"}},
   agreement_loudness_vs_arousal: {{label:"how well our loudness-heat agrees with the tone model's arousal (Spearman, per recording)", good:"high"}},
+  reference_vs_human_conflict: {{label:"validity check — does the TONE MODEL itself agree with the human raters? (CONFER only)", good:"high"}},
   loud_but_pleasant: {{label:"share of LOUD windows the tone model calls PLEASANT — anger mistaken for joy", good:"low"}},
   dose_per_hour:   {{label:"buzzes per hour the wrist would deliver (lower is better on calm audio)", good:"low"}},
   attribution_acc: {{label:"share of turns attributed to the right speaker", good:"high"}},
@@ -334,7 +381,7 @@ function draw(){{
     }};
     d.onmouseleave = () => tip.style.display="none";
   }});
-  const cols = ["id","corpus","setting","duration_min","db_sd","ref_arousal_sd","agreement_loudness_vs_arousal","loud_but_pleasant","dose_per_hour","attribution_acc","nudge_hit_rate","nudge_false_rate"];
+  const cols = ["id","corpus","setting","duration_min","db_sd","ref_arousal_sd","agreement_with_human_conflict","agreement_loudness_vs_arousal","loud_but_pleasant","dose_per_hour","attribution_acc","nudge_hit_rate","nudge_false_rate"];
   document.getElementById("tbl").innerHTML = `<tr>${{cols.map(c=>`<th>${{c}}</th>`).join("")}}</tr>` +
     rows.slice().sort((a,b)=>b.db_sd-a.db_sd).map(r=>`<tr>${{cols.map(c=>`<td>${{r[c]==null?"—":r[c]}}</td>`).join("")}}</tr>`).join("");
 }}

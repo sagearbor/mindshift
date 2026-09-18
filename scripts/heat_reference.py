@@ -38,6 +38,10 @@ import tone_id  # noqa: E402
 
 WIN_S = 5.0
 OUT = REPO / "tmp/heat-map/heat_reference.json"
+#: Per-window arousal/valence/our-dB series, one file per recording, so the
+#: reference can itself be checked against human ratings without re-running
+#: a WavLM pass (which is the expensive part).
+SERIES_DIR = REPO / "tmp/heat-map/reference_series"
 
 
 def spearman(a: np.ndarray, b: np.ndarray) -> float | None:
@@ -85,6 +89,11 @@ def score(entry: dict) -> dict | None:
     if len(ours) < 3:
         return None
     a, v, o = np.array(arousal), np.array(valence), np.array(ours)
+    SERIES_DIR.mkdir(parents=True, exist_ok=True)
+    (SERIES_DIR / f"{entry['id']}.json").write_text(json.dumps({
+        "win_s": WIN_S, "ours_db_over": [round(float(x), 2) for x in o],
+        "arousal": [round(float(x), 4) for x in a], "valence": [round(float(x), 4) for x in v],
+    }))
     return {
         "id": entry["id"], "windows": len(o),
         "agreement_loudness_vs_arousal": spearman(o, a),
