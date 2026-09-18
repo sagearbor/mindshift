@@ -23,7 +23,6 @@ import json
 import os
 import sys
 import time
-import wave
 from pathlib import Path
 
 import numpy as np
@@ -52,7 +51,15 @@ def spearman(a: np.ndarray, b: np.ndarray) -> float | None:
 def score(entry: dict) -> dict | None:
     pcm, sr = hm.load_pcm(entry["audio"])
     if sr != tone_id.TARGET_SR:
-        return None
+        # Two of the older TTS fixtures are 44.1/48 kHz. Resample rather than
+        # skip — a recording silently missing from the graph is worse than one
+        # that cost a resample.
+        from math import gcd
+
+        from scipy.signal import resample_poly
+        g = gcd(sr, tone_id.TARGET_SR)
+        pcm = np.clip(resample_poly(pcm.astype(np.float64), tone_id.TARGET_SR // g, sr // g), -32768, 32767).astype("<i2")
+        sr = tone_id.TARGET_SR
     n = int(sr * WIN_S)
     count = len(pcm) // n
     # Our chain's 1 s windows, then pooled to the same 5 s grid.
@@ -75,7 +82,7 @@ def score(entry: dict) -> dict | None:
         ours.append(float(np.mean(voiced)))
         arousal.append(float(r["arousal"]))
         valence.append(float(sc["valence"]))
-    if len(ours) < 6:
+    if len(ours) < 3:
         return None
     a, v, o = np.array(arousal), np.array(valence), np.array(ours)
     return {
