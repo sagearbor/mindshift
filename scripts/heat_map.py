@@ -265,6 +265,8 @@ table{{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:14px}} th
     <option value="db_sd">volatility — sd of dB over baseline</option>
     <option value="frac_over_6db">share of windows over the +6 dB rung</option>
     <option value="db_p95">95th-percentile dB over baseline</option>
+    <option value="ref_arousal_sd">volatility by the tone model — sd of arousal (independent of loudness)</option>
+    <option value="ref_arousal_mean">how aroused the tone model hears the whole recording</option>
   </select></label>
   <label><input type="checkbox" id="size"> dot size = duration</label>
 </div>
@@ -276,6 +278,8 @@ table{{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:14px}} th
 <script>
 const rows = {data};
 const METRICS = {{
+  agreement_loudness_vs_arousal: {{label:"how well our loudness-heat agrees with the tone model's arousal (Spearman, per recording)", good:"high"}},
+  loud_but_pleasant: {{label:"share of LOUD windows the tone model calls PLEASANT — anger mistaken for joy", good:"low"}},
   dose_per_hour:   {{label:"buzzes per hour the wrist would deliver (lower is better on calm audio)", good:"low"}},
   attribution_acc: {{label:"share of turns attributed to the right speaker", good:"high"}},
   nudge_hit_rate:  {{label:"labelled heated moments the coach caught", good:"high"}},
@@ -296,11 +300,17 @@ function draw(){{
   const pts = rows.filter(r=>r[yk]!=null && r[xk]!=null);
   const W=900,H=520,L=64,R=20,T=18,B=54;
   const xs = pts.map(p=>p[xk]), ys = pts.map(p=>p[yk]);
-  const xmax = Math.max(1e-6, ...xs)*1.08, ymax = Math.max(1e-6, ...ys)*1.12;
-  const X = v => L + v/xmax*(W-L-R), Y = v => T + (1 - v/ymax)*(H-T-B);
+  const xmax = Math.max(1e-6, ...xs)*1.08;
+  // Correlations run negative — and the negative dots ARE the finding on the
+  // synthetic scenes — so the y-range must include them rather than clip them.
+  const yhi = Math.max(1e-6, ...ys)*1.12, ylo = Math.min(0, ...ys)*1.12;
+  const X = v => L + v/xmax*(W-L-R), Y = v => T + (yhi - v)/(yhi - ylo)*(H-T-B);
+  const yfmt = v => (yhi - ylo) <= 2.5 ? v.toFixed(2) : v.toFixed(0);
+  const xfmt = v => xk==="frac_over_6db" ? v.toFixed(2) : (xmax <= 2.5 ? v.toFixed(2) : v.toFixed(1));
   let s = `<g class="axis">`;
-  for (let i=0;i<=5;i++) {{ const v=xmax*i/5, x=X(v); s+=`<line x1="${{x}}" y1="${{T}}" x2="${{x}}" y2="${{H-B}}"/><text x="${{x}}" y="${{H-B+16}}" text-anchor="middle">${{v.toFixed(xk==="frac_over_6db"?2:1)}}</text>`; }}
-  for (let i=0;i<=5;i++) {{ const v=ymax*i/5, y=Y(v); s+=`<line x1="${{L}}" y1="${{y}}" x2="${{W-R}}" y2="${{y}}"/><text x="${{L-6}}" y="${{y+4}}" text-anchor="end">${{v.toFixed(yk.includes("rate")||yk==="attribution_acc"?2:0)}}</text>`; }}
+  for (let i=0;i<=5;i++) {{ const v=xmax*i/5, x=X(v); s+=`<line x1="${{x}}" y1="${{T}}" x2="${{x}}" y2="${{H-B}}"/><text x="${{x}}" y="${{H-B+16}}" text-anchor="middle">${{xfmt(v)}}</text>`; }}
+  for (let i=0;i<=5;i++) {{ const v=ylo + (yhi-ylo)*i/5, y=Y(v); s+=`<line x1="${{L}}" y1="${{y}}" x2="${{W-R}}" y2="${{y}}"/><text x="${{L-6}}" y="${{y+4}}" text-anchor="end">${{yfmt(v)}}</text>`; }}
+  if (ylo < 0) {{ const y0=Y(0); s+=`<line x1="${{L}}" y1="${{y0}}" x2="${{W-R}}" y2="${{y0}}" stroke="currentColor" stroke-opacity="0.45" stroke-dasharray="4 3"/><text x="${{W-R-4}}" y="${{y0-4}}" text-anchor="end">0 — no agreement</text>`; }}
   s += `<text x="${{(L+W-R)/2}}" y="${{H-8}}" text-anchor="middle">${{xsel.selectedOptions[0].textContent}}</text>`;
   s += `<text transform="translate(14,${{(T+H-B)/2}}) rotate(-90)" text-anchor="middle">${{METRICS[yk].label}}</text></g>`;
   for (const p of pts) {{
@@ -318,12 +328,13 @@ function draw(){{
       tip.style.display="block"; tip.style.left=(e.clientX+12)+"px"; tip.style.top=(e.clientY+12)+"px";
       tip.innerHTML = `<b>${{p.id}}</b> · ${{p.corpus}}<br>${{p.setting}} · ${{p.duration_min}} min<br>` +
         `volatility sd ${{p.db_sd}} dB · ${{(p.frac_over_6db*100).toFixed(0)}}% of windows over +6<br>` +
+        (p.agreement_loudness_vs_arousal!=null?`tone-model agreement ${{p.agreement_loudness_vs_arousal}} · loud-but-pleasant ${{(p.loud_but_pleasant*100).toFixed(0)}}%<br>`:"") +
         `dose ${{p.dose_per_hour}}/h` + (p.attribution_acc!=null?` · attribution ${{(p.attribution_acc*100).toFixed(0)}}%`:"") +
         (p.nudge_hit_rate!=null?`<br>nudges: caught ${{p.nudge_hits}}/${{p.nudge_expected}}, ${{p.nudge_false}} false`:"");
     }};
     d.onmouseleave = () => tip.style.display="none";
   }});
-  const cols = ["id","corpus","setting","duration_min","db_sd","frac_over_6db","dose_per_hour","attribution_acc","nudge_hit_rate","nudge_false_rate"];
+  const cols = ["id","corpus","setting","duration_min","db_sd","ref_arousal_sd","agreement_loudness_vs_arousal","loud_but_pleasant","dose_per_hour","attribution_acc","nudge_hit_rate","nudge_false_rate"];
   document.getElementById("tbl").innerHTML = `<tr>${{cols.map(c=>`<th>${{c}}</th>`).join("")}}</tr>` +
     rows.slice().sort((a,b)=>b.db_sd-a.db_sd).map(r=>`<tr>${{cols.map(c=>`<td>${{r[c]==null?"—":r[c]}}</td>`).join("")}}</tr>`).join("");
 }}
@@ -331,6 +342,31 @@ ysel.onchange = xsel.onchange = document.getElementById("size").onchange = draw;
 draw();
 </script></body></html>"""
     out.write_text(html)
+
+
+def merge_reference(rows: list[dict]) -> int:
+    """Fold in heat_reference.py's second opinion where it has been computed.
+    Absent for a recording => the reference metrics are simply missing for it,
+    and the plot says so rather than filling anything in."""
+    p = OUT / "heat_reference.json"
+    if not p.exists():
+        return 0
+    ref = {r["id"]: r for r in json.loads(p.read_text())}
+    n = 0
+    for row in rows:
+        r = ref.get(row["id"])
+        if not r:
+            continue
+        n += 1
+        row["agreement_loudness_vs_arousal"] = (
+            None if r["agreement_loudness_vs_arousal"] is None else round(r["agreement_loudness_vs_arousal"], 3)
+        )
+        row["ref_arousal_mean"] = r["ref_arousal_mean"]
+        row["ref_arousal_sd"] = r["ref_arousal_sd"]
+        row["ref_valence_mean"] = r["ref_valence_mean"]
+        row["loud_but_pleasant"] = r["loud_but_pleasant"]
+        row["ref_windows"] = r["windows"]
+    return n
 
 
 def main() -> int:
@@ -345,6 +381,8 @@ def main() -> int:
         except Exception as exc:
             print(f"  {e['id']}: FAILED {exc}")
     OUT.mkdir(parents=True, exist_ok=True)
+    n_ref = merge_reference(rows)
+    print(f"  reference (tone model) merged for {n_ref}/{len(rows)} recordings")
     (OUT / "heat_map.json").write_text(json.dumps(rows, indent=1))
     render_html(rows, OUT / "heat_map.html")
     print(f"\n{len(rows)} recordings -> {OUT/'heat_map.html'}")
