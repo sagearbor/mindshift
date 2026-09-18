@@ -1,0 +1,92 @@
+{
+ "B": {
+  "k_eigengap": 3,
+  "n_windows": 162,
+  "vad_thr": 0.003,
+  "k_pred": 3,
+  "frame_accuracy": 0.761,
+  "owner_purity": 0.801,
+  "per_gt_recall": {
+   "asher": 0.695,
+   "dad": 0.739,
+   "mom": 0.842
+  },
+  "oracle_k": {
+   "k_pred": 3,
+   "frame_accuracy": 0.761,
+   "owner_purity": 0.801,
+   "per_gt_recall": {
+    "asher": 0.695,
+    "dad": 0.739,
+    "mom": 0.842
+   }
+  }
+ },
+ "ceiling": {
+  "n_windows": 162,
+  "n_labelled": 129,
+  "within": {
+   "asher": 0.199,
+   "dad": 0.245,
+   "mom": 0.163
+  },
+  "cross": {
+   "asher|dad": 0.108,
+   "asher|mom": 0.053,
+   "dad|mom": 0.082
+  },
+  "within_mean": 0.202,
+  "cross_max": 0.108,
+  "centroid": {
+   "window_acc": 0.837,
+   "frame_accuracy": 0.844,
+   "owner_purity": 0.901
+  },
+  "pooled": {
+   "window_acc": 0.721,
+   "frame_accuracy": 0.746,
+   "owner_purity": 0.801
+  }
+ },
+ "pooled_print_cosine": {
+  "asher|dad": 0.213,
+  "asher|mom": 0.177,
+  "dad|mom": 0.236
+ },
+ "production": {
+  "gt_boundaries": {
+   "k_pred": 3,
+   "frame_accuracy": 0.833,
+   "owner_purity": 0.84,
+   "per_gt_recall": {
+    "asher": 0.718,
+    "dad": 0.84,
+    "mom": 0.924
+   },
+   "runtime_s": 4.9
+  },
+  "transcript_7utt": {
+   "k_pred": 3,
+   "frame_accuracy": 0.702,
+   "owner_purity": 0.796,
+   "per_gt_recall": {
+    "asher": 0.742,
+    "dad": 0.648,
+    "mom": 0.744
+   },
+   "runtime_s": 7.1
+  },
+  "transcript_8utt": {
+   "k_pred": 3,
+   "frame_accuracy": 0.671,
+   "owner_purity": 0.792,
+   "per_gt_recall": {
+    "asher": 0.773,
+    "dad": 0.563,
+    "mom": 0.737
+   },
+   "runtime_s": 6.9
+  }
+ },
+ "t_total_s": 19.7
+}

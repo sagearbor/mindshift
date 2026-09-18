@@ -1,0 +1,114 @@
+{
+ "k_true": 6,
+ "alignment": {
+  "rubric_overlap_segments": [],
+  "rubric_overlap_s": 0,
+  "flagged_s": 0.17,
+  "flagged_inside_rubric_overlap_s": 0.0,
+  "flagged_outside_s": 0.17,
+  "rubric_overlap_recall": null,
+  "flagged_runs": [
+   [
+    21.61,
+    21.78
+   ]
+  ]
+ },
+ "n_windows": 109,
+ "B": {
+  "unmasked": {
+   "masked_windows": 0,
+   "k_eigengap": 7,
+   "k_pred": 7,
+   "frame_accuracy": 0.809,
+   "owner_purity": 1.0,
+   "per_gt_recall": {
+    "Player1": 1.0,
+    "Player2": 0.974,
+    "Player3": 0.774,
+    "Player4": 0.848,
+    "Player5": 0.626,
+    "Player6": 0.635
+   }
+  },
+  "mask_frac>=0.1": {
+   "masked_windows": 5,
+   "k_eigengap": 8,
+   "k_pred": 8,
+   "frame_accuracy": 0.772,
+   "owner_purity": 1.0,
+   "per_gt_recall": {
+    "Player1": 1.0,
+    "Player2": 0.75,
+    "Player3": 0.774,
+    "Player4": 0.848,
+    "Player5": 0.626,
+    "Player6": 0.635
+   }
+  },
+  "mask_frac>=0.3": {
+   "masked_windows": 0,
+   "k_eigengap": 7,
+   "k_pred": 7,
+   "frame_accuracy": 0.809,
+   "owner_purity": 1.0,
+   "per_gt_recall": {
+    "Player1": 1.0,
+    "Player2": 0.974,
+    "Player3": 0.774,
+    "Player4": 0.848,
+    "Player5": 0.626,
+    "Player6": 0.635
+   }
+  },
+  "mask_frac>=0.5": {
+   "masked_windows": 0,
+   "k_eigengap": 7,
+   "k_pred": 7,
+   "frame_accuracy": 0.809,
+   "owner_purity": 1.0,
+   "per_gt_recall": {
+    "Player1": 1.0,
+    "Player2": 0.974,
+    "Player3": 0.774,
+    "Player4": 0.848,
+    "Player5": 0.626,
+    "Player6": 0.635
+   }
+  }
+ },
+ "production": {
+  "unmasked": {
+   "gt_boundaries": {
+    "k_pred": 6,
+    "frame_accuracy": 1.0,
+    "owner_purity": 1.0,
+    "per_gt_recall": {
+     "Player1": 1.0,
+     "Player2": 1.0,
+     "Player3": 1.0,
+     "Player4": 1.0,
+     "Player5": 1.0,
+     "Player6": 1.0
+    },
+    "runtime_s": 3.4
+   }
+  },
+  "masked": {
+   "gt_boundaries": {
+    "k_pred": 6,
+    "frame_accuracy": 1.0,
+    "owner_purity": 1.0,
+    "per_gt_recall": {
+     "Player1": 1.0,
+     "Player2": 1.0,
+     "Player3": 1.0,
+     "Player4": 1.0,
+     "Player5": 1.0,
+     "Player6": 1.0
+    },
+    "runtime_s": 3.4
+   }
+  }
+ }
+}

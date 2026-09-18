@@ -1,0 +1,85 @@
+{
+ "k_true": 2,
+ "alignment": {
+  "rubric_overlap_segments": [],
+  "rubric_overlap_s": 0,
+  "flagged_s": 0.0,
+  "flagged_inside_rubric_overlap_s": 0.0,
+  "flagged_outside_s": 0.0,
+  "rubric_overlap_recall": null,
+  "flagged_runs": []
+ },
+ "n_windows": 110,
+ "B": {
+  "unmasked": {
+   "masked_windows": 0,
+   "k_eigengap": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.959,
+   "owner_purity": 0.969,
+   "per_gt_recall": {
+    "Asher": 0.954,
+    "Sage": 0.962
+   }
+  },
+  "mask_frac>=0.1": {
+   "masked_windows": 0,
+   "k_eigengap": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.959,
+   "owner_purity": 0.969,
+   "per_gt_recall": {
+    "Asher": 0.954,
+    "Sage": 0.962
+   }
+  },
+  "mask_frac>=0.3": {
+   "masked_windows": 0,
+   "k_eigengap": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.959,
+   "owner_purity": 0.969,
+   "per_gt_recall": {
+    "Asher": 0.954,
+    "Sage": 0.962
+   }
+  },
+  "mask_frac>=0.5": {
+   "masked_windows": 0,
+   "k_eigengap": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.959,
+   "owner_purity": 0.969,
+   "per_gt_recall": {
+    "Asher": 0.954,
+    "Sage": 0.962
+   }
+  }
+ },
+ "production": {
+  "unmasked": {
+   "gt_boundaries": {
+    "k_pred": 2,
+    "frame_accuracy": 1.0,
+    "owner_purity": 1.0,
+    "per_gt_recall": {
+     "Asher": 1.0,
+     "Sage": 1.0
+    },
+    "runtime_s": 3.1
+   }
+  },
+  "masked": {
+   "gt_boundaries": {
+    "k_pred": 2,
+    "frame_accuracy": 1.0,
+    "owner_purity": 1.0,
+    "per_gt_recall": {
+     "Asher": 1.0,
+     "Sage": 1.0
+    },
+    "runtime_s": 3.1
+   }
+  }
+ }
+}

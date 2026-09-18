@@ -1,0 +1,177 @@
+{
+ "k_true": 3,
+ "alignment": {
+  "rubric_overlap_segments": [
+   [
+    27.0,
+    28.0
+   ],
+   [
+    29.8,
+    30.4
+   ]
+  ],
+  "rubric_overlap_s": 1.6,
+  "flagged_s": 6.97,
+  "flagged_inside_rubric_overlap_s": 0.67,
+  "flagged_outside_s": 6.3,
+  "rubric_overlap_recall": 0.419,
+  "flagged_runs": [
+   [
+    12.66,
+    12.89
+   ],
+   [
+    21.54,
+    22.73
+   ],
+   [
+    25.21,
+    25.38
+   ],
+   [
+    25.54,
+    25.85
+   ],
+   [
+    27.46,
+    29.93
+   ],
+   [
+    32.25,
+    32.77
+   ],
+   [
+    34.12,
+    34.75
+   ],
+   [
+    38.04,
+    39.49
+   ]
+  ]
+ },
+ "n_windows": 162,
+ "B": {
+  "unmasked": {
+   "masked_windows": 0,
+   "k_eigengap": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.761,
+   "owner_purity": 0.801,
+   "per_gt_recall": {
+    "asher": 0.695,
+    "dad": 0.739,
+    "mom": 0.842
+   }
+  },
+  "mask_frac>=0.1": {
+   "masked_windows": 63,
+   "k_eigengap": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.661,
+   "owner_purity": 0.705,
+   "per_gt_recall": {
+    "asher": 0.581,
+    "dad": 0.657,
+    "mom": 0.736
+   }
+  },
+  "mask_frac>=0.3": {
+   "masked_windows": 42,
+   "k_eigengap": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.722,
+   "owner_purity": 0.789,
+   "per_gt_recall": {
+    "asher": 0.635,
+    "dad": 0.748,
+    "mom": 0.759
+   }
+  },
+  "mask_frac>=0.5": {
+   "masked_windows": 19,
+   "k_eigengap": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.765,
+   "owner_purity": 0.796,
+   "per_gt_recall": {
+    "asher": 0.623,
+    "dad": 0.748,
+    "mom": 0.898
+   }
+  }
+ },
+ "production": {
+  "unmasked": {
+   "gt_boundaries": {
+    "k_pred": 3,
+    "frame_accuracy": 0.833,
+    "owner_purity": 0.84,
+    "per_gt_recall": {
+     "asher": 0.718,
+     "dad": 0.84,
+     "mom": 0.924
+    },
+    "runtime_s": 4.9
+   },
+   "transcript_7utt": {
+    "k_pred": 3,
+    "frame_accuracy": 0.702,
+    "owner_purity": 0.796,
+    "per_gt_recall": {
+     "asher": 0.742,
+     "dad": 0.648,
+     "mom": 0.744
+    },
+    "runtime_s": 7.3
+   },
+   "transcript_8utt": {
+    "k_pred": 3,
+    "frame_accuracy": 0.671,
+    "owner_purity": 0.792,
+    "per_gt_recall": {
+     "asher": 0.773,
+     "dad": 0.563,
+     "mom": 0.737
+    },
+    "runtime_s": 7.3
+   }
+  },
+  "masked": {
+   "gt_boundaries": {
+    "k_pred": 3,
+    "frame_accuracy": 0.833,
+    "owner_purity": 0.84,
+    "per_gt_recall": {
+     "asher": 0.718,
+     "dad": 0.84,
+     "mom": 0.924
+    },
+    "runtime_s": 4.7
+   },
+   "transcript_7utt": {
+    "k_pred": 3,
+    "frame_accuracy": 0.702,
+    "owner_purity": 0.796,
+    "per_gt_recall": {
+     "asher": 0.624,
+     "dad": 0.658,
+     "mom": 0.817
+    },
+    "runtime_s": 7.3
+   },
+   "transcript_8utt": {
+    "k_pred": 3,
+    "frame_accuracy": 0.574,
+    "owner_purity": 0.59,
+    "per_gt_recall": {
+     "asher": 0.07,
+     "dad": 0.886,
+     "mom": 0.544
+    },
+    "runtime_s": 7.1
+   }
+  }
+ }
+}
