@@ -306,6 +306,19 @@ def measure(entry: dict) -> dict:
         )
         if sg is not None and vg is not None:
             variants["dose_identity_and_valence"] = round(len(ca.replay(over, False, True, gate=sg & vg)) / hours, 1)
+        # --- conversation-level rules (see conversation_audit.py) ---
+        sus3 = ca.sustained(over, 6.0, 3)
+        variants["dose_sustained3s"] = round(len(ca.replay(over, False, True, gate=sus3)) / hours, 1)
+        variants["dose_sustained5s"] = round(len(ca.replay(over, False, True, gate=ca.sustained(over, 6.0, 5))) / hours, 1)
+        rise = ca.rising(over, 10, 0.5)
+        variants["dose_rising10s"] = round(len(ca.replay(over, False, True, gate=rise)) / hours, 1)
+        variants["dose_sustained3s_and_rising"] = round(len(ca.replay(over, False, True, gate=sus3 & rise)) / hours, 1)
+        og = ca.overlap_gate(entry.get("speakers"), len(over), 0.3)
+        if og is not None:
+            variants["dose_overlap_ceiling"] = round(len(ca.replay(over, False, True, gate=og)) / hours, 1)
+            variants["dose_identity_sustained_overlap"] = (
+                round(len(ca.replay(over, False, True, gate=sg & sus3 & og)) / hours, 1) if sg is not None else None
+            )
     row = {
         "id": entry["id"], "corpus": entry["corpus"], "setting": entry["setting"],
         "duration_min": round(dur / 60, 1),
@@ -379,6 +392,12 @@ const METRICS = {{
   dose_identity_ceiling: {{label:"dose if ONLY the wearer's own turns could buzz — perfect identity (Option A's ceiling)", good:"low"}},
   dose_valence_veto: {{label:"dose with the valence veto extended to the watch lane (tone model says pleasant -> no buzz)", good:"low"}},
   dose_identity_and_valence: {{label:"dose with BOTH identity and valence gates", good:"low"}},
+  dose_sustained3s: {{label:"dose if the first rung must HOLD for 3 s before a buzz (hysteresis)", good:"low"}},
+  dose_sustained5s: {{label:"dose if the first rung must hold for 5 s", good:"low"}},
+  dose_rising10s: {{label:"dose if loudness must be RISING over the last 10 s (trend, not peak)", good:"low"}},
+  dose_sustained3s_and_rising: {{label:"dose with hysteresis AND a rising trend", good:"low"}},
+  dose_overlap_ceiling: {{label:"dose if two people must have been talking over each other (ground-truth overlap — the ceiling of an overlap rule)", good:"low"}},
+  dose_identity_sustained_overlap: {{label:"dose with identity + hysteresis + overlap, all three", good:"low"}},
   dose_rung8:  {{label:"dose if the first rung were +8 dB instead of +6", good:"low"}},
   dose_rung10: {{label:"dose if the first rung were +10 dB instead of +6", good:"low"}},
   attribution_acc: {{label:"share of turns attributed to the right speaker", good:"high"}},

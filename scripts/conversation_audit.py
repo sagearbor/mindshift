@@ -177,6 +177,64 @@ def replay(
     return felt
 
 
+# ---------------------------------------------------------------------------
+# Conversation-level rules (research-backed candidates, replay-only)
+# ---------------------------------------------------------------------------
+# From the 2026-09-20 literature pass: the SSPNet conflict work (Kim et al.
+# 2014) reached ~0.8 correlation with human continuous conflict ratings from
+# LOUDNESS + OVERLAP; continuous-arousal tracking uses 3-5 s windows with a
+# 1 s hop (O'Dwyer et al. 2017); and the alarm-design literature (Cvach 2012:
+# 80-99% of instantaneous-threshold alarms are clinically insignificant) is
+# the closest precedent for our 90/hour. None of these has a validated
+# hysteresis parameter set — so each rule is a knob here, measured against
+# dose on real conversation and, on CONFER, against the human ratings.
+
+def sustained(over: np.ndarray, first_rung_db: float, min_run_s: int) -> np.ndarray:
+    """Gate: a window may escalate only if the ladder's first rung has held for
+    `min_run_s` consecutive windows ending here. Instantaneous threshold
+    crossing is what every alarm system in the literature regrets."""
+    g = np.zeros(len(over), dtype=bool)
+    run = 0
+    for i, o in enumerate(over):
+        run = run + 1 if o >= first_rung_db else 0
+        g[i] = run >= min_run_s
+    return g
+
+
+def rising(over: np.ndarray, window_s: int, min_slope_db_per_s: float) -> np.ndarray:
+    """Gate: the trailing `window_s` of dB-over-baseline must have a positive
+    linear trend of at least `min_slope_db_per_s`. A rising conversation, not a
+    loud one — O'Dwyer's finding that trend beats peak for arousal."""
+    g = np.zeros(len(over), dtype=bool)
+    x = np.arange(window_s, dtype=float)
+    x = x - x.mean()
+    for i in range(window_s - 1, len(over)):
+        y = over[i - window_s + 1:i + 1]
+        if np.all(y == 0.0):
+            continue
+        slope = float((x * (y - y.mean())).sum() / (x * x).sum())
+        g[i] = slope >= min_slope_db_per_s
+    return g
+
+
+def overlap_gate(speakers: dict[str, list[list[float]]] | None, n: int, min_frac: float) -> np.ndarray | None:
+    """Gate: at least `min_frac` of the trailing 10 s had two people talking
+    at once — the single strongest conflict cue in the SSPNet work. Uses
+    GROUND-TRUTH overlap from per-speaker channels; a single-mic probe was
+    measured at 56% and is off, so this is the CEILING of an overlap rule."""
+    if not speakers:
+        return None
+    active = np.zeros((len(speakers), n), dtype=bool)
+    for k, spans in enumerate(speakers.values()):
+        for a, b in spans:
+            active[k, int(a):min(n, int(np.ceil(b)) + 1)] = True
+    two = active.sum(axis=0) >= 2
+    g = np.zeros(n, dtype=bool)
+    for i in range(n):
+        g[i] = two[max(0, i - 9):i + 1].mean() >= min_frac
+    return g
+
+
 def speaking_at(speakers: dict[str, list[list[float]]], t: float) -> set[str]:
     """Ground truth: who was talking at this instant (AMI headsets)."""
     return {s for s, spans in speakers.items() if any(a <= t <= b for a, b in spans)}

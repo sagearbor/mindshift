@@ -8,6 +8,7 @@
 #
 set -uo pipefail
 cd "$(dirname "$0")/.."
+export PATH="/opt/homebrew/bin:$PATH"   # background shells lack it -> no ffmpeg
 PY="nice -n 10 tmp/venv/bin/python"
 echo "== ingest =="
 for loader in confer_corpus meld_corpus sbcsae_corpus voxconverse_corpus chime6_corpus; do
