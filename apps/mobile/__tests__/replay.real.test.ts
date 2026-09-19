@@ -51,7 +51,7 @@ maybe("real recordings replay (real Silero + ECAPA)", () => {
     console.log(formatReport(cross));
     console.log(summaryLine(cross));
     expect(cross.capability.enrolled[0]).toMatchObject({ displayName: "Sage", isSelf: true, crossScene: true, fromScene: "poker6_real", fromSpeaker: "Player6" });
-    expect(cross.attribution).toMatchObject({ selfCorrect: 0, selfTotal: 3, correct: 1, total: 8, unknownClusters: 4 });
+    expect(cross.attribution).toMatchObject({ selfCorrect: 0, selfTotal: 3, correct: 1, total: 8, unknownClusters: 3 });
     expect(cross.turns.every((t) => t.isSelf !== true)).toBe(true);
     // Two real voices, 6 loop turns: the son's two sub-second interjections
     // ("and yeah.", "And") are below the segmenter's 0.6 s minimum, and his

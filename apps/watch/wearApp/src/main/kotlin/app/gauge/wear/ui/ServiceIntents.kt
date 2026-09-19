@@ -38,6 +38,7 @@ internal fun Mode.displayLabel(): String = when (this) {
     Mode.STANDARD -> "Standard"
     Mode.BATTERY_SAVER -> "Battery Saver"
     Mode.SESSION -> "Session"
+    Mode.COMPANION -> "Companion — phone listens"
 }
 
 /** Display label shared by [GlanceScreen]'s "Signal: <label> ▾" Chip and [SignalScreen]'s four

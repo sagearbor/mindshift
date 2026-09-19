@@ -1,6 +1,7 @@
 package app.gauge.wear.haptics
 
 import app.gauge.shared.NudgeHapticSchedule
+import app.gauge.shared.NudgeVocabulary
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -76,21 +77,27 @@ class HapticPatternsTest {
     // --- fallbacks -----------------------------------------------------------------------------
 
     @Test
-    fun channelAFallbacksAreFullAmplitudeLongTaps() {
-        assertEquals(
-            HapticCue.Waveform(listOf(0L, 75L), listOf(0, 255)),
-            HapticPatterns.waveformFallback("A", 1),
-        )
-        assertEquals(
-            HapticCue.Waveform(listOf(0L, 75L, 170L, 75L), listOf(0, 255, 0, 255)),
-            HapticPatterns.waveformFallback("A", 2),
-        )
-        // Track 1: level 3's fallback RAMPS (PRD §6 "escalating") — 200 -> 230 -> 255, from
-        // NudgeHapticSchedule.ESCALATING_RAMP, still full-scale by the last tap.
-        assertEquals(
-            HapticCue.Waveform(listOf(0L, 100L, 170L, 100L, 170L, 100L), listOf(0, 200, 0, 230, 0, 255)),
-            HapticPatterns.waveformFallback("A", 3),
-        )
+    fun channelAFallbacksAreTheHeatedVocabularyVerbatim() {
+        // Channel A IS 📈 Heated, so its fallback is the contract's waveform, not a restatement.
+        // Restating it is exactly how the two drifted apart on 2026-09-06.
+        for (level in 1..3) {
+            val h = NudgeVocabulary.hapticFor("H", level)!!
+            assertEquals(HapticCue.Waveform(h.timingsMs, h.amplitudes), HapticPatterns.waveformFallback("A", level))
+        }
+    }
+
+    @Test
+    fun channelAFallbacksStayConsistentWithTheSharedSchedule() {
+        // The schedule owns the tap COUNT and the amplitude ramp; the vocabulary owns the tap
+        // LENGTHS. Both have to keep agreeing or one of the two is lying about the cue.
+        for (level in 1..3) {
+            val plan = NudgeHapticSchedule.planFor(level)
+            val wave = HapticPatterns.waveformFallback("A", level)!!
+            val taps = wave.timingsMs.filterIndexed { i, _ -> i % 2 == 1 }
+            assertEquals(plan.pulses, taps.size, "level $level tap count")
+            assertEquals(plan.amplitudeRamp, wave.amplitudes.filterIndexed { i, _ -> i % 2 == 1 }, "level $level ramp")
+            assertTrue(taps.all { it >= NudgeVocabulary.MIN_ON_MS }, "level $level taps must be perceptible")
+        }
     }
 
     @Test
@@ -149,5 +156,62 @@ class HapticPatternsTest {
     @Test
     fun armedShoutTapIsTheFloorBand() {
         assertEquals(HapticPatterns.pulseBandFor(0.0), HapticPatterns.ARMED_SHOUT_TAP)
+    }
+
+    // --- the nudge vocabulary ------------------------------------------------------------------
+
+    @Test
+    fun heatedKeepsTheOemTunedChannelCue() {
+        // H must NOT degrade to a raw waveform: predefined/composed clicks are tuned to the real
+        // actuator, and a waveform would feel worse (the v0.2.4 device finding).
+        for (level in 1..3) {
+            assertEquals(HapticPatterns.cue("A", level), HapticPatterns.cueFor("A", level, "H"))
+            assertEquals(HapticPatterns.cue("A", level), HapticPatterns.cueFor("A", level, null))
+        }
+    }
+
+    @Test
+    fun aCodeOnItsHomeChannelPlaysItsOwnRhythm() {
+        for (code in listOf("C", "A")) {
+            val wave = NudgeVocabulary.hapticFor(code, 2)!!
+            assertEquals(
+                HapticCue.Waveform(wave.timingsMs, wave.amplitudes),
+                HapticPatterns.cueFor("A", 2, code),
+                "code $code on channel A",
+            )
+        }
+        val pulse = NudgeVocabulary.hapticFor("P", 2)!!
+        assertEquals(
+            HapticCue.Waveform(pulse.timingsMs, pulse.amplitudes),
+            HapticPatterns.cueFor("B", 2, "P"),
+        )
+    }
+
+    @Test
+    fun aCodeOnTheWrongLaneKeepsThatLanesFeel() {
+        // The two channels must stay distinguishable by feel alone: a channel-A code relayed on
+        // channel B plays B's smooth buzz, never A's crisp rhythm.
+        assertEquals(HapticPatterns.cue("B", 2), HapticPatterns.cueFor("B", 2, "C"))
+        assertEquals(HapticPatterns.cue("A", 2), HapticPatterns.cueFor("A", 2, "P"))
+    }
+
+    @Test
+    fun aCodeThatMustNeverBuzzStaysSilentEvenOnAValidChannel() {
+        // 🧘 K has no cue by CONTRACT — falling through to channel A's click would
+        // buzz someone to tell them nothing happened, which is the nag the code exists to avoid.
+        for (level in 1..3) {
+            assertNull(HapticPatterns.cueFor("A", level, "K"), "K L$level must be silent")
+            assertNull(HapticPatterns.waveformFallbackFor("A", level, "K"), "K L$level fallback")
+        }
+    }
+
+    @Test
+    fun anUnknownCodeFallsBackToTheChannelCue() {
+        // Not the same thing: an unrecognised label means "this build doesn't know that code",
+        // and losing a real nudge over a label would be worse than playing a generic one.
+        assertEquals(HapticPatterns.cue("A", 2), HapticPatterns.cueFor("A", 2, "Z"))
+        assertEquals(HapticPatterns.cue("A", 2), HapticPatterns.cueFor("A", 2, null))
+        assertNull(HapticPatterns.cueFor("A", 0, "C"))
+        assertNull(HapticPatterns.cueFor("A", 4, "C"))
     }
 }

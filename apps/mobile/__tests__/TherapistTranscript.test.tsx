@@ -2,6 +2,36 @@ import React from "react";
 import renderer, { act } from "react-test-renderer";
 import TherapistTranscript, { columnOf } from "../src/components/TherapistTranscript";
 
+/**
+ * Unmount every tree this file creates.
+ *
+ * react-test-renderer keeps a mounted tree scheduled, and a state update that
+ * lands AFTER Jest tears the environment down throws "You are trying to
+ * `import` a file after the Jest environment has been torn down" — which is
+ * not a test failure but a WORKER CRASH, taking every unrelated suite sharing
+ * that worker with it. That is why running the whole suite at once used to
+ * fail a handful of random files that each passed on their own.
+ */
+const __trees: renderer.ReactTestRenderer[] = [];
+function track<T extends renderer.ReactTestRenderer>(t: T): T {
+  __trees.push(t);
+  return t;
+}
+afterEach(async () => {
+  await act(async () => {});
+  act(() => {
+    for (const t of __trees.splice(0)) {
+      try {
+        t.unmount();
+      } catch {
+        // A tree a test already unmounted, or one whose teardown throws, must
+        // not fail the test that otherwise passed.
+      }
+    }
+  });
+});
+
+
 const entries = [
   { speaker: "Sage", text: "I felt ignored.", timestamp: 1 },
   { speaker: "Mom", text: "I didn't mean to.", timestamp: 2 },
@@ -23,7 +53,7 @@ describe("TherapistTranscript", () => {
   it("renders the empty state, then two labelled columns with bubbles per side", () => {
     let root: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<TherapistTranscript entries={[]} />);
+      root = track(renderer.create(<TherapistTranscript entries={[]} />));
     });
     expect(root!.root.findByProps({ testID: "therapist-transcript-empty" })).toBeTruthy();
     act(() => {

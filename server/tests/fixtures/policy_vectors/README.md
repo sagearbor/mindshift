@@ -12,6 +12,8 @@ without reading the Python driver.
 | `nudge_policy.json` | `server/nudge_policy.py` `NudgePolicy` (mirror: `apps/watch/shared/.../NudgeStateMachine.kt`) | `server/tests/test_nudge_policy_vectors.py` |
 | `vad_segments.json` | `server/watch/diarize.py` `speech_segments` (energy VAD + merge/drop) | `server/tests/test_vad_vectors.py` |
 | `tone_escalation.json` | `server/watch/relay.py` phone turn -> `VectorEvent`s -> `NudgePolicy` (tone + loudness, max-combined) | `server/tests/watch/test_tone_escalation_vectors.py` |
+| `nudge_vocabulary.json` | The nudge VOCABULARY — icon, code, name, flash text and haptic waveform per behaviour (mirrors: `server/nudge_vocabulary.py`, `apps/mobile/src/live/nudgeVocabulary.ts`, `apps/watch/shared/.../NudgeVocabulary.kt`) | `server/tests/test_nudge_vocabulary_vectors.py` |
+| `positive_nudges.json` | The positive detectors D/E/R/K (`server/positive_nudges.py`, mirror: `apps/mobile/src/live/positiveNudges.ts`) | `server/tests/test_positive_nudges_vectors.py` |
 | `pleasantness.json` | `server/pleasantness.py` PRD §6 scoreboard: per-turn score from text tone + prosody + turn balance, per-person current/series, lead (mirror: `apps/mobile/src/live/pleasantness.ts`, `apps/mobile/__tests__/livePleasantness.test.ts`) | `server/tests/test_pleasantness_vectors.py` |
 
 The Kotlin watch consumes `nudge_policy.json` too: `apps/watch/shared/build.gradle.kts`'s
@@ -84,6 +86,40 @@ resources at build time (never a hand-maintained copy), and
   states the exact formula so a port reproduces it bit-for-bit.
 - Boundaries are frame-aligned (0.25 s), so `tolerance_s` is only for float
   accumulation, not detection slack.
+
+## `nudge_vocabulary.json` specifics
+
+- It is the only file here that describes what the user SEES and FEELS rather
+  than what the policy decides. Kept separate from `nudge_policy.json` on
+  purpose: a threshold change must never silently restyle a cue, and a restyle
+  must never move a threshold.
+- Haptics are one encoding for two runtimes: `timings_ms` alternates OFF, ON,
+  OFF, ON, … starting with a zero delay — exactly React Native's Android
+  `Vibration.vibrate(pattern)` shape — and `amplitudes` is what Wear OS's
+  `createWaveform` uses. RN cannot vary amplitude, which is why every LEVEL
+  difference is a rhythm difference and never an intensity one.
+- Every gap between taps is at least `constants.min_gap_ms` (170), the
+  never-merge floor. The single exception is listed explicitly in
+  `_schema.haptic_encoding.haptic_gap_exceptions` (P's lub-dub, where the
+  near-merge IS the identity) so a linter cannot "fix" it.
+- The watch consumes this file the same way it consumes `nudge_policy.json`
+  (`syncPolicyVectors` + `NudgeVocabularyVectorsTest.kt`).
+
+## `positive_nudges.json` specifics
+
+- Cases that say a code must NOT fire matter as much as the ones that say it
+  must: a false "nice repair!" after something that was not one is worse than
+  saying nothing, so the negative cases are named and required by the drivers.
+- `tone_heat` (aggression) and `tone_negativity` (aggression OR sadness) are
+  two numbers on purpose. Heat is read from the first; a repair's "they
+  softened" is measured on the second, because the person you have just
+  shouted at goes hurt, not hostile.
+- A case with `coalesce: true` feeds FRAGMENTS, not turns: the driver must run
+  `coalesce_turns` first, which is the shape a live device actually produces
+  (its "turn" is a VAD fragment cut at a 300 ms pause).
+- `delivered: false` on an expected nudge means the two-minute positive cap
+  dropped it. It is still expected in the output — a replay has to be able to
+  show what the user nearly felt.
 
 ## Adding a case
 

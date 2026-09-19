@@ -1,0 +1,154 @@
+{
+ "machine": {
+  "platform": "darwin 24.6.0",
+  "arch": "arm64",
+  "cpu": "Apple M4",
+  "cores": 10,
+  "node": "v26.7.0",
+  "onnxruntime_node": "1.24.3"
+ },
+ "ecapa_model": "ecapa_0f99f2d0ebe89ac095bcc5903c4dd8f72b367286.onnx",
+ "ecapa_model_bytes": 84188645,
+ "window_sec": 1.5,
+ "sample_rate": 16000,
+ "intra_op_1_thread": {
+  "ecapa_1p5s_window": {
+   "n": 100,
+   "mean_ms": 14.94,
+   "median_ms": 14.95,
+   "p90_ms": 15.09,
+   "min_ms": 14.66,
+   "max_ms": 16.08
+  },
+  "ecapa_other_windows": {
+   "0.5s": {
+    "n": 20,
+    "mean_ms": 7.55,
+    "median_ms": 7.55,
+    "p90_ms": 7.71,
+    "min_ms": 7.44,
+    "max_ms": 7.71
+   },
+   "1s": {
+    "n": 20,
+    "mean_ms": 10.65,
+    "median_ms": 10.66,
+    "p90_ms": 10.81,
+    "min_ms": 10.38,
+    "max_ms": 10.83
+   },
+   "3s": {
+    "n": 20,
+    "mean_ms": 24.92,
+    "median_ms": 24.84,
+    "p90_ms": 25.14,
+    "min_ms": 24.75,
+    "max_ms": 25.93
+   },
+   "5s": {
+    "n": 20,
+    "mean_ms": 39.44,
+    "median_ms": 39.39,
+    "p90_ms": 39.78,
+    "min_ms": 39.26,
+    "max_ms": 40.04
+   },
+   "10s": {
+    "n": 20,
+    "mean_ms": 78.82,
+    "median_ms": 78.74,
+    "p90_ms": 79.41,
+    "min_ms": 78.55,
+    "max_ms": 79.54
+   }
+  },
+  "per_minute_of_audio": {
+   "hop_0p25s": {
+    "windows": 240,
+    "seconds_of_compute_mean": 3.59,
+    "seconds_of_compute_p90": 3.62
+   },
+   "hop_0p5s": {
+    "windows": 120,
+    "seconds_of_compute_mean": 1.79,
+    "seconds_of_compute_p90": 1.81
+   }
+  }
+ },
+ "silero_1_thread": {
+  "per_512_frame": {
+   "n": 200,
+   "mean_ms": 0.09,
+   "median_ms": 0.09,
+   "p90_ms": 0.1,
+   "min_ms": 0.09,
+   "max_ms": 0.2
+  },
+  "frames_per_minute": 1875,
+  "seconds_of_compute_per_minute_mean": 0.17
+ },
+ "intra_op_default": {
+  "ecapa_1p5s_window": {
+   "n": 100,
+   "mean_ms": 15.25,
+   "median_ms": 14.83,
+   "p90_ms": 17.6,
+   "min_ms": 14.44,
+   "max_ms": 18.56
+  },
+  "ecapa_other_windows": {
+   "0.5s": {
+    "n": 20,
+    "mean_ms": 9.59,
+    "median_ms": 9.64,
+    "p90_ms": 10.13,
+    "min_ms": 9.22,
+    "max_ms": 10.39
+   },
+   "1s": {
+    "n": 20,
+    "mean_ms": 12.96,
+    "median_ms": 12.94,
+    "p90_ms": 13.14,
+    "min_ms": 12.85,
+    "max_ms": 13.17
+   },
+   "3s": {
+    "n": 20,
+    "mean_ms": 24.37,
+    "median_ms": 23.93,
+    "p90_ms": 25.93,
+    "min_ms": 23.77,
+    "max_ms": 26.73
+   },
+   "5s": {
+    "n": 20,
+    "mean_ms": 50.32,
+    "median_ms": 50.29,
+    "p90_ms": 50.84,
+    "min_ms": 49.67,
+    "max_ms": 51.1
+   },
+   "10s": {
+    "n": 20,
+    "mean_ms": 87.77,
+    "median_ms": 88.01,
+    "p90_ms": 95.2,
+    "min_ms": 75.05,
+    "max_ms": 106.78
+   }
+  },
+  "per_minute_of_audio": {
+   "hop_0p25s": {
+    "windows": 240,
+    "seconds_of_compute_mean": 3.66,
+    "seconds_of_compute_p90": 4.22
+   },
+   "hop_0p5s": {
+    "windows": 120,
+    "seconds_of_compute_mean": 1.83,
+    "seconds_of_compute_p90": 2.11
+   }
+  }
+ }
+}

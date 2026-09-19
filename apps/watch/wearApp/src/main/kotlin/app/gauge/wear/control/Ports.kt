@@ -81,17 +81,30 @@ interface EpisodeWs {
     fun sendHr(bpm: Double, t: Double)
     fun end()
     fun cancel()
+
+    /** Companion mode (Tier B): the `{"type":"companion"}` hello that marks this socket as a
+     *  no-PCM nudge receiver (the server then persists nothing for it). Default no-op so every
+     *  pre-companion implementation/fake compiles untouched. */
+    fun sendCompanionHello() {}
+
+    /** Companion mode: the tiny `{"type":"heartbeat"}` keepalive. Default no-op, same rationale
+     *  as [sendCompanionHello]. */
+    fun sendHeartbeat() {}
 }
 
-/** Production [EpisodeWs]: delegates straight through to a real [EpisodeWsClient]. */
-class RealEpisodeWs(baseWsUrl: String, account: String) : EpisodeWs {
-    private val client = EpisodeWsClient(baseWsUrl, account)
+/** Production [EpisodeWs]: delegates straight through to a real [EpisodeWsClient]. [token] is the
+ *  paired device token — non-null makes every socket authenticate as `?token=` (server-preferred);
+ *  null keeps the legacy `?account=` URL exactly as the shipped client. */
+class RealEpisodeWs(baseWsUrl: String, account: String, token: String? = null) : EpisodeWs {
+    private val client = EpisodeWsClient(baseWsUrl, account, token)
 
     override fun open(episodeId: String, listener: EpisodeWsClient.Listener) = client.open(episodeId, listener)
     override fun sendPcmWindow(bytes: ByteArray) = client.sendPcmWindow(bytes)
     override fun sendHr(bpm: Double, t: Double) = client.sendHr(bpm, t)
     override fun end() = client.end()
     override fun cancel() = client.cancel()
+    override fun sendCompanionHello() = client.sendCompanionHello()
+    override fun sendHeartbeat() = client.sendHeartbeat()
 }
 
 /**
@@ -142,6 +155,16 @@ data class ControllerState(
      * `false` in [SentinelController.disarm] next to `meter`/`availability` — a disarmed sentinel
      * reports nothing about a window it isn't reading. */
     val lastWindowVoiced: Boolean = false,
+    /** Deep duty cycle (P5-3 follow-up): whether the most recently processed window's movement
+     * reading sat BELOW the wearer's own [app.gauge.shared.signals.MovementTracker] threshold —
+     * the stillness fact [app.gauge.wear.service.SentinelService] needs to drive [app.gauge.
+     * shared.signals.MicDutyCycle]'s motion-gated DEEPER tier, published the same way (and for
+     * the same reason) as [lastWindowVoiced] above. `null` whenever there is NO honest reading:
+     * no accel source configured, no 1-second bucket elapsed yet, or a baseline/threshold not
+     * yet established (MovementTracker's own honest degradation) — and `null` NEVER deepens
+     * (MicDutyCycle fails open on it). Cleared to `null` in [SentinelController.disarm] beside
+     * [lastWindowVoiced]. */
+    val lastWindowStill: Boolean? = null,
     /** v0.2.4: a single band-1 tap due THIS window because the wearer went loud while merely
      * ARMED (before any episode opened). Set only when the sentinel both started AND stayed ARMED
      * this tick — the ARMED→STREAMING transition tick never taps (the pulse chain's own first

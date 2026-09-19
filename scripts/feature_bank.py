@@ -156,7 +156,33 @@ def g_e2v(paths: list[str], idx: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame.from_dict(out, orient="index")
 
 
-GROUPS = {"prosody": g_prosody, "egemaps": g_egemaps, "tone": g_tone, "w2v2er": g_w2v2er, "e2v": g_e2v}
+def g_sbiemocap(paths: list[str], idx: pd.DataFrame) -> pd.DataFrame:
+    """speechbrain/emotion-recognition-wav2vec2-IEMOCAP — Apache-2.0, the
+    highest verified accuracy (78.7% IEMOCAP) among cleanly-licensed options.
+    Keeps the 4 class probabilities AND the 256-d pooled embedding's first 64
+    dims, so the bench can probe the representation, not just the head."""
+    import torch
+    import torchaudio  # noqa: F401  (speechbrain needs it importable)
+    from speechbrain.inference.interfaces import foreign_class
+    clf = foreign_class(source="speechbrain/emotion-recognition-wav2vec2-IEMOCAP",
+                        pymodule_file="custom_interface.py", classname="CustomEncoderWav2vec2Classifier",
+                        savedir=str(REPO / "tmp/models/sb-iemocap"), run_opts={"device": "cpu"})
+    labels = clf.hparams.label_encoder.decode_ndim(list(range(4)))
+    out = {}
+    with torch.no_grad():
+        for p in paths:
+            wav = torch.tensor(load16k(p)).unsqueeze(0)
+            probs = clf.classify_batch(wav)[0][0].exp().numpy() if hasattr(clf.classify_batch(wav)[0], "exp") else clf.classify_batch(wav)[0][0].numpy()
+            emb = clf.encode_batch(wav)[0].squeeze().numpy()
+            row = {f"sbiemocap_{lab}": float(v) for lab, v in zip(labels, probs)}
+            for i, v in enumerate(emb[:64]):
+                row[f"sbiemocap_emb{i:02d}"] = float(v)
+            out[p] = row
+    return pd.DataFrame.from_dict(out, orient="index")
+
+
+GROUPS = {"prosody": g_prosody, "egemaps": g_egemaps, "tone": g_tone, "w2v2er": g_w2v2er,
+          "e2v": g_e2v, "sbiemocap": g_sbiemocap}
 
 
 # -------------------------------------------------------------------- main --

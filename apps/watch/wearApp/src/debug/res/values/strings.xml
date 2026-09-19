@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-build resource overrides. AGP merges this over src/main/res.
+
+  The sideloaded build installs alongside the Play one (applicationIdSuffix
+  ".debug" — see build.gradle.kts for why). Until 2026-09-12 both also carried
+  the same label and the same icon, so a Wear launcher showed two identical
+  "MindShift" entries and there was no way to tell them apart on the wrist:
+  no hover, no long-press detail, no package name anywhere in the UI. That made
+  the sideloaded build effectively untestable by the person testing it.
+-->
+<resources>
+    <string name="app_name">MindShift Dev</string>
+</resources>

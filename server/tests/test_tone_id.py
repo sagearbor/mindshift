@@ -40,6 +40,35 @@ def test_mode_default_is_dark_when_unset(monkeypatch):
     assert tone_id.surface_allowed() is False
 
 
+def test_real_audio_eval_still_argues_for_dark():
+    """The ``dark`` default is a MEASURED decision, not an unfinished one.
+
+    2026-09-08: scored outside its own corpus for the first time (four fixture
+    recordings incl. the owner's real family one, ground truth = the replay
+    report's per-turn heated labels; reproduce with scripts/tone_real_eval.py).
+    Ranking transfers — AUC 0.792 vs 0.81 in-corpus — but no threshold is
+    shippable: the usable-recall end flags one ordinary turn in four, and the
+    zero-false-flag end catches 1 of 7. This pins the numbers so that turning
+    tone ``on`` has to argue with them rather than quietly forget them.
+    """
+    ev = tone_id.REAL_AUDIO_EVAL
+    assert ev["verdict"] == tone_id.DEFAULT_TONE_MODE == "dark"
+    assert ev["heated"] + ev["calm"] == ev["turns_scored_with_baseline"]
+    assert ev["auc"] > 0.5, "the signal is real — the problem is the operating point, not the ranking"
+
+    hits_at_ship, false_at_ship = ev["sweep"][tone_id.ESCALATION_DELTA_THRESHOLD["odyssey_dim"]]
+    # Nag end: usable recall costs more than one false flag per four calm turns.
+    assert hits_at_ship / ev["heated"] > 0.8
+    assert false_at_ship / ev["calm"] > 0.2, (
+        "if the false-flag rate at the shipped threshold ever drops, re-run "
+        "scripts/tone_real_eval.py and revisit the dark default"
+    )
+    # Deaf end: buying zero false flags costs almost all the recall.
+    clean = [t for t, (_, f) in ev["sweep"].items() if f == 0]
+    assert clean, "no threshold in the sweep reaches zero false flags"
+    assert max(h for t, (h, f) in ev["sweep"].items() if f == 0) / ev["heated"] < 0.2
+
+
 @pytest.mark.parametrize("raw, expected", [
     ("off", "off"), ("dark", "dark"), ("on", "on"),
     ("ON", "on"), ("  Off ", "off"), ("Dark", "dark"),

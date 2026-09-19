@@ -149,6 +149,542 @@ exports[`HeatChart — time axis rendering matches snapshot in legacy (no-timing
       </Text>
     </View>
   </View>
+  <View
+    style={
+      {
+        "flexDirection": "row",
+        "flexWrap": "wrap",
+        "gap": 6,
+        "marginBottom": 6,
+      }
+    }
+    testID="metric-selector"
+  >
+    <View
+      accessibilityLabel="Plot Heat (0–100, LLM)"
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": false,
+          "expanded": undefined,
+          "selected": true,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#EFF6FF",
+          "borderColor": "#4A90D9",
+          "borderRadius": 12,
+          "borderWidth": 1,
+          "opacity": 1,
+          "paddingHorizontal": 10,
+          "paddingVertical": 4,
+        }
+      }
+      testID="metric-chip-heat"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 12,
+              "fontWeight": "600",
+            },
+            {
+              "color": "#4A90D9",
+            },
+          ]
+        }
+      >
+        Heat
+      </Text>
+    </View>
+    <View
+      accessibilityLabel="Frustration — not measured for this recording"
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": true,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={false}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 12,
+          "borderWidth": 1,
+          "opacity": 0.4,
+          "paddingHorizontal": 10,
+          "paddingVertical": 4,
+        }
+      }
+      testID="metric-chip-frustration"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 12,
+              "fontWeight": "600",
+            },
+            false,
+          ]
+        }
+      >
+        Frustration
+      </Text>
+    </View>
+    <View
+      accessibilityLabel="Defensiveness — not measured for this recording"
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": true,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={false}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 12,
+          "borderWidth": 1,
+          "opacity": 0.4,
+          "paddingHorizontal": 10,
+          "paddingVertical": 4,
+        }
+      }
+      testID="metric-chip-defensiveness"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 12,
+              "fontWeight": "600",
+            },
+            false,
+          ]
+        }
+      >
+        Defensiveness
+      </Text>
+    </View>
+    <View
+      accessibilityLabel="Warmth — not measured for this recording"
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": true,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={false}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 12,
+          "borderWidth": 1,
+          "opacity": 0.4,
+          "paddingHorizontal": 10,
+          "paddingVertical": 4,
+        }
+      }
+      testID="metric-chip-warmth"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 12,
+              "fontWeight": "600",
+            },
+            false,
+          ]
+        }
+      >
+        Warmth
+      </Text>
+    </View>
+    <View
+      accessibilityLabel="Sadness — not measured for this recording"
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": true,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={false}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 12,
+          "borderWidth": 1,
+          "opacity": 0.4,
+          "paddingHorizontal": 10,
+          "paddingVertical": 4,
+        }
+      }
+      testID="metric-chip-sadness"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 12,
+              "fontWeight": "600",
+            },
+            false,
+          ]
+        }
+      >
+        Sadness
+      </Text>
+    </View>
+    <View
+      accessibilityLabel="Loudness — not measured for this recording"
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": true,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={false}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 12,
+          "borderWidth": 1,
+          "opacity": 0.4,
+          "paddingHorizontal": 10,
+          "paddingVertical": 4,
+        }
+      }
+      testID="metric-chip-loudness"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 12,
+              "fontWeight": "600",
+            },
+            false,
+          ]
+        }
+      >
+        Loudness
+      </Text>
+    </View>
+    <View
+      accessibilityLabel="Pitch — not measured for this recording"
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": true,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={false}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 12,
+          "borderWidth": 1,
+          "opacity": 0.4,
+          "paddingHorizontal": 10,
+          "paddingVertical": 4,
+        }
+      }
+      testID="metric-chip-pitch"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 12,
+              "fontWeight": "600",
+            },
+            false,
+          ]
+        }
+      >
+        Pitch
+      </Text>
+    </View>
+    <View
+      accessibilityLabel="Speech rate — not measured for this recording"
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": true,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={false}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 12,
+          "borderWidth": 1,
+          "opacity": 0.4,
+          "paddingHorizontal": 10,
+          "paddingVertical": 4,
+        }
+      }
+      testID="metric-chip-rate"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 12,
+              "fontWeight": "600",
+            },
+            false,
+          ]
+        }
+      >
+        Speech rate
+      </Text>
+    </View>
+    <View
+      accessibilityLabel="Plot Person (who is speaking)"
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": false,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 12,
+          "borderWidth": 1,
+          "opacity": 1,
+          "paddingHorizontal": 10,
+          "paddingVertical": 4,
+        }
+      }
+      testID="metric-chip-person"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 12,
+              "fontWeight": "600",
+            },
+            false,
+          ]
+        }
+      >
+        Person
+      </Text>
+    </View>
+  </View>
   <Text
     style={
       {
@@ -160,19 +696,103 @@ exports[`HeatChart — time axis rendering matches snapshot in legacy (no-timing
     }
     testID="heat-axis-label"
   >
-    Heat (0–100) ↑
+    Heat (0–100, LLM)
+     ↑
   </Text>
   <View
     style={
       {
+        "flexDirection": "row",
         "position": "relative",
       }
     }
   >
     <View
+      style={
+        [
+          {
+            "position": "relative",
+            "width": 36,
+          },
+          {
+            "height": 180,
+          },
+        ]
+      }
+      testID="y-axis"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 10,
+              "fontVariant": [
+                "tabular-nums",
+              ],
+              "lineHeight": 14,
+              "position": "absolute",
+              "right": 4,
+            },
+            {
+              "top": 157,
+            },
+          ]
+        }
+        testID="axis-tick-0"
+      >
+        0
+      </Text>
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 10,
+              "fontVariant": [
+                "tabular-nums",
+              ],
+              "lineHeight": 14,
+              "position": "absolute",
+              "right": 4,
+            },
+            {
+              "top": 83,
+            },
+          ]
+        }
+        testID="axis-tick-50"
+      >
+        50
+      </Text>
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 10,
+              "fontVariant": [
+                "tabular-nums",
+              ],
+              "lineHeight": 14,
+              "position": "absolute",
+              "right": 4,
+            },
+            {
+              "top": 9,
+            },
+          ]
+        }
+        testID="axis-tick-100"
+      >
+        100
+      </Text>
+    </View>
+    <View
       onLayout={[Function]}
       style={
         {
+          "flex": 1,
           "height": 180,
         }
       }
@@ -183,6 +803,36 @@ exports[`HeatChart — time axis rendering matches snapshot in legacy (no-timing
         testID="Svg"
         width={300}
       >
+        <View
+          stroke="#1F2937"
+          strokeOpacity={0.08}
+          strokeWidth={1}
+          testID="axis-grid-0"
+          x1={16}
+          x2={284}
+          y1={164}
+          y2={164}
+        />
+        <View
+          stroke="#1F2937"
+          strokeOpacity={0.08}
+          strokeWidth={1}
+          testID="axis-grid-50"
+          x1={16}
+          x2={284}
+          y1={90}
+          y2={90}
+        />
+        <View
+          stroke="#1F2937"
+          strokeOpacity={0.08}
+          strokeWidth={1}
+          testID="axis-grid-100"
+          x1={16}
+          x2={284}
+          y1={16}
+          y2={16}
+        />
         <View
           fill="none"
           points="16,134.4 194.66666666666666,97.39999999999999"
@@ -254,6 +904,7 @@ exports[`HeatChart — time axis rendering matches snapshot in legacy (no-timing
     style={
       {
         "flexDirection": "row",
+        "marginLeft": 36,
         "marginTop": 6,
       }
     }
@@ -566,6 +1217,542 @@ exports[`HeatChart — time axis rendering matches snapshot in time-axis mode 1`
       </Text>
     </View>
   </View>
+  <View
+    style={
+      {
+        "flexDirection": "row",
+        "flexWrap": "wrap",
+        "gap": 6,
+        "marginBottom": 6,
+      }
+    }
+    testID="metric-selector"
+  >
+    <View
+      accessibilityLabel="Plot Heat (0–100, LLM)"
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": false,
+          "expanded": undefined,
+          "selected": true,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#EFF6FF",
+          "borderColor": "#4A90D9",
+          "borderRadius": 12,
+          "borderWidth": 1,
+          "opacity": 1,
+          "paddingHorizontal": 10,
+          "paddingVertical": 4,
+        }
+      }
+      testID="metric-chip-heat"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 12,
+              "fontWeight": "600",
+            },
+            {
+              "color": "#4A90D9",
+            },
+          ]
+        }
+      >
+        Heat
+      </Text>
+    </View>
+    <View
+      accessibilityLabel="Frustration — not measured for this recording"
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": true,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={false}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 12,
+          "borderWidth": 1,
+          "opacity": 0.4,
+          "paddingHorizontal": 10,
+          "paddingVertical": 4,
+        }
+      }
+      testID="metric-chip-frustration"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 12,
+              "fontWeight": "600",
+            },
+            false,
+          ]
+        }
+      >
+        Frustration
+      </Text>
+    </View>
+    <View
+      accessibilityLabel="Defensiveness — not measured for this recording"
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": true,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={false}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 12,
+          "borderWidth": 1,
+          "opacity": 0.4,
+          "paddingHorizontal": 10,
+          "paddingVertical": 4,
+        }
+      }
+      testID="metric-chip-defensiveness"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 12,
+              "fontWeight": "600",
+            },
+            false,
+          ]
+        }
+      >
+        Defensiveness
+      </Text>
+    </View>
+    <View
+      accessibilityLabel="Warmth — not measured for this recording"
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": true,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={false}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 12,
+          "borderWidth": 1,
+          "opacity": 0.4,
+          "paddingHorizontal": 10,
+          "paddingVertical": 4,
+        }
+      }
+      testID="metric-chip-warmth"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 12,
+              "fontWeight": "600",
+            },
+            false,
+          ]
+        }
+      >
+        Warmth
+      </Text>
+    </View>
+    <View
+      accessibilityLabel="Sadness — not measured for this recording"
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": true,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={false}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 12,
+          "borderWidth": 1,
+          "opacity": 0.4,
+          "paddingHorizontal": 10,
+          "paddingVertical": 4,
+        }
+      }
+      testID="metric-chip-sadness"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 12,
+              "fontWeight": "600",
+            },
+            false,
+          ]
+        }
+      >
+        Sadness
+      </Text>
+    </View>
+    <View
+      accessibilityLabel="Loudness — not measured for this recording"
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": true,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={false}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 12,
+          "borderWidth": 1,
+          "opacity": 0.4,
+          "paddingHorizontal": 10,
+          "paddingVertical": 4,
+        }
+      }
+      testID="metric-chip-loudness"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 12,
+              "fontWeight": "600",
+            },
+            false,
+          ]
+        }
+      >
+        Loudness
+      </Text>
+    </View>
+    <View
+      accessibilityLabel="Pitch — not measured for this recording"
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": true,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={false}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 12,
+          "borderWidth": 1,
+          "opacity": 0.4,
+          "paddingHorizontal": 10,
+          "paddingVertical": 4,
+        }
+      }
+      testID="metric-chip-pitch"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 12,
+              "fontWeight": "600",
+            },
+            false,
+          ]
+        }
+      >
+        Pitch
+      </Text>
+    </View>
+    <View
+      accessibilityLabel="Speech rate — not measured for this recording"
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": true,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={false}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 12,
+          "borderWidth": 1,
+          "opacity": 0.4,
+          "paddingHorizontal": 10,
+          "paddingVertical": 4,
+        }
+      }
+      testID="metric-chip-rate"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 12,
+              "fontWeight": "600",
+            },
+            false,
+          ]
+        }
+      >
+        Speech rate
+      </Text>
+    </View>
+    <View
+      accessibilityLabel="Plot Person (who is speaking)"
+      accessibilityRole="button"
+      accessibilityState={
+        {
+          "busy": undefined,
+          "checked": undefined,
+          "disabled": false,
+          "expanded": undefined,
+          "selected": false,
+        }
+      }
+      accessibilityValue={
+        {
+          "max": undefined,
+          "min": undefined,
+          "now": undefined,
+          "text": undefined,
+        }
+      }
+      accessible={true}
+      collapsable={false}
+      focusable={true}
+      onClick={[Function]}
+      onResponderGrant={[Function]}
+      onResponderMove={[Function]}
+      onResponderRelease={[Function]}
+      onResponderTerminate={[Function]}
+      onResponderTerminationRequest={[Function]}
+      onStartShouldSetResponder={[Function]}
+      style={
+        {
+          "backgroundColor": "#F9FAFB",
+          "borderColor": "#D1D5DB",
+          "borderRadius": 12,
+          "borderWidth": 1,
+          "opacity": 1,
+          "paddingHorizontal": 10,
+          "paddingVertical": 4,
+        }
+      }
+      testID="metric-chip-person"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 12,
+              "fontWeight": "600",
+            },
+            false,
+          ]
+        }
+      >
+        Person
+      </Text>
+    </View>
+  </View>
   <Text
     style={
       {
@@ -577,15 +1764,98 @@ exports[`HeatChart — time axis rendering matches snapshot in time-axis mode 1`
     }
     testID="heat-axis-label"
   >
-    Heat (0–100) ↑
+    Heat (0–100, LLM)
+     ↑
   </Text>
   <View
     style={
       {
+        "flexDirection": "row",
         "position": "relative",
       }
     }
   >
+    <View
+      style={
+        [
+          {
+            "position": "relative",
+            "width": 36,
+          },
+          {
+            "height": 180,
+          },
+        ]
+      }
+      testID="y-axis"
+    >
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 10,
+              "fontVariant": [
+                "tabular-nums",
+              ],
+              "lineHeight": 14,
+              "position": "absolute",
+              "right": 4,
+            },
+            {
+              "top": 157,
+            },
+          ]
+        }
+        testID="axis-tick-0"
+      >
+        0
+      </Text>
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 10,
+              "fontVariant": [
+                "tabular-nums",
+              ],
+              "lineHeight": 14,
+              "position": "absolute",
+              "right": 4,
+            },
+            {
+              "top": 83,
+            },
+          ]
+        }
+        testID="axis-tick-50"
+      >
+        50
+      </Text>
+      <Text
+        style={
+          [
+            {
+              "color": "#6B7280",
+              "fontSize": 10,
+              "fontVariant": [
+                "tabular-nums",
+              ],
+              "lineHeight": 14,
+              "position": "absolute",
+              "right": 4,
+            },
+            {
+              "top": 9,
+            },
+          ]
+        }
+        testID="axis-tick-100"
+      >
+        100
+      </Text>
+    </View>
     <View
       onLayout={[Function]}
       onMoveShouldSetResponder={[Function]}
@@ -602,6 +1872,7 @@ exports[`HeatChart — time axis rendering matches snapshot in time-axis mode 1`
       onStartShouldSetResponderCapture={[Function]}
       style={
         {
+          "flex": 1,
           "height": 180,
         }
       }
@@ -612,6 +1883,36 @@ exports[`HeatChart — time axis rendering matches snapshot in time-axis mode 1`
         testID="Svg"
         width={300}
       >
+        <View
+          stroke="#1F2937"
+          strokeOpacity={0.08}
+          strokeWidth={1}
+          testID="axis-grid-0"
+          x1={16}
+          x2={284}
+          y1={164}
+          y2={164}
+        />
+        <View
+          stroke="#1F2937"
+          strokeOpacity={0.08}
+          strokeWidth={1}
+          testID="axis-grid-50"
+          x1={16}
+          x2={284}
+          y1={90}
+          y2={90}
+        />
+        <View
+          stroke="#1F2937"
+          strokeOpacity={0.08}
+          strokeWidth={1}
+          testID="axis-grid-100"
+          x1={16}
+          x2={284}
+          y1={16}
+          y2={16}
+        />
         <View
           fill="none"
           points="42.8,134.4 176.8,97.39999999999999"
@@ -747,6 +2048,7 @@ exports[`HeatChart — time axis rendering matches snapshot in time-axis mode 1`
       {
         "flexDirection": "row",
         "justifyContent": "space-between",
+        "marginLeft": 36,
         "marginTop": 4,
         "paddingHorizontal": 16,
       }
@@ -785,6 +2087,7 @@ exports[`HeatChart — time axis rendering matches snapshot in time-axis mode 1`
       [
         {
           "flexDirection": "row",
+          "marginLeft": 36,
           "marginTop": 6,
         },
         {

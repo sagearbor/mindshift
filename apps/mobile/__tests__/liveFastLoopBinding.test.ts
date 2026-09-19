@@ -50,6 +50,9 @@ function build(embedder: Embedder, people: EnrolledPerson[] = []) {
         },
       },
     ]),
+    // This suite reuses one constant coach line to assert KINDS; the
+    // repeat-gate (covered in liveFastLoop) would silence the repeats.
+    repeatGate: null,
     speak: () => {},
     send: (e) => sent.push(e),
     onTurn: (t) => turns.push(t),

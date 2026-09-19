@@ -54,6 +54,27 @@ describe("buildPrompt", () => {
     expect(user).toContain("the coached person (YOU)");
     expect(user).not.toContain("Delivery cue");
   });
+
+  // Prompt v2 (nudge-quality research, 2026-08-30): a speakable first-person
+  // line, bounded length, and an explicit "say nothing when fine" clause.
+  it("v2: bounds the line to 10 words in the coached person's own voice", () => {
+    const { system, user } = buildPrompt(input);
+    expect(system).toContain("10 words or fewer");
+    expect(system).toContain("own voice");
+    expect(system).toContain("never an instruction to be translated first");
+    expect(system).toContain("Do not repeat or reword");
+    expect(user).toContain("verbatim, first person, 10 words or fewer");
+    expect(user).not.toContain("18 words");
+  });
+
+  it("v2: a self turn may return an empty suggestion and is never praised", () => {
+    const { user } = buildPrompt({ ...input, isSelf: true, speaker: "You" });
+    expect(user).toContain("6 words or fewer");
+    expect(user).toContain('reply with an empty "suggestion"');
+    expect(user).toContain("never praise");
+    // The empty answer parses as "nothing to say" rather than a broken reply.
+    expect(parseSuggestionJson('{"suggestion": "", "tone": {}}')).toBeNull();
+  });
 });
 
 describe("parseSuggestionJson", () => {
@@ -102,6 +123,26 @@ describe("ProviderChain", () => {
     expect(r.provider).toBe("os");
     expect(calls).toEqual(["os"]);
     expect(r.attempts).toEqual([expect.objectContaining({ provider: "os", outcome: "ok" })]);
+  });
+
+  it("prewarm kicks isAvailable on every non-cloud provider, skips cloud, never throws", async () => {
+    const warmed: string[] = [];
+    const chain = new ProviderChain(
+      [
+        provider("os", { isAvailable: async () => (warmed.push("os"), true) }),
+        provider("bundled", {
+          isAvailable: async () => {
+            warmed.push("bundled");
+            throw new Error("download boom"); // must be swallowed
+          },
+        }),
+        cloudProvider(),
+      ],
+      ["os", "bundled", "cloud"],
+    );
+    expect(() => chain.prewarm()).not.toThrow();
+    await new Promise((r) => setTimeout(r, 0)); // let the fire-and-forget settle
+    expect(warmed.sort()).toEqual(["bundled", "os"]); // cloud never probed
   });
 
   it("falls through unavailable → refused → unparseable → error to the cloud", async () => {

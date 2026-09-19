@@ -44,6 +44,15 @@ class FakeRecordingsStore:
         self.save_calls: list[dict] = []
         self._fail_on_save = fail_on_save
 
+    async def save_transcript(self, uid, recording_id, transcript):
+
+        # transcript.json — the RAW STT output cached for re-analysis.
+
+        self.transcript_saves = getattr(self, "transcript_saves", [])
+
+        self.transcript_saves.append((uid, recording_id, transcript))
+
+
     async def save_recording(
         self, uid, *, audio_m4a, video_360p, original_filename,
         original_content_type, original_bytes, duration_seconds, turns,
@@ -157,6 +166,15 @@ class FakeRecordingsStore:
 
     async def list_shared_with(self, recipient_uid):
         return []
+
+    async def get_audio_bytes(self, uid, recording_id):
+        # The audio.m4a derivative (what `?format=pcm16k` transcodes). This
+        # fake keeps the audio-only derivative as `data`; a recording whose
+        # audio was dropped (`data` None) has nothing to hand back.
+        r = self._by_uid.get(uid, {}).get(recording_id)
+        if r is None or r["content_type"] != "audio/mp4":
+            return None
+        return r["data"]
 
     async def open_media_stream(self, uid, recording_id, range_header):
         r = self._by_uid.get(uid, {}).get(recording_id)
@@ -563,9 +581,14 @@ async def test_list_and_detail_happy_path(client, store):
         "shared", "owner_email", "shares",
         # Track 2 (live sessions) — None for an upload.
         "mode", "session_id",
+        # "Use these voices" (device-B segments applied) — None until applied.
+        "speaker_segments_source", "speaker_segments_applied_at",
+        # Outcome engine (Workstream 4) — None for an upload / unanswered.
+        "mood_before", "mood_after",
     }
     assert d["manual_speaker_people"] == {}
     assert d["mode"] is None and d["session_id"] is None
+    assert d["mood_before"] is None and d["mood_after"] is None
     # Owner's own recording → not shared, no owner_email, empty shares.
     assert d["shared"] is False
     assert d["owner_email"] is None
@@ -1447,3 +1470,75 @@ async def test_reanalyze_preserves_manual_labels(client, store):
     assert detail["speaker_labels"]["Speaker A"] == {
         "display_label": "Alex", "label_source": "manual",
     }
+
+
+# ---------------------------------------------------------------------------
+# ?format=pcm16k — the stored audio transcoded for the phone's voice engine
+# ---------------------------------------------------------------------------
+
+def _fake_decode_16k(calls: list):
+    """Stand-in for audio_ingest.decode_to_pcm_16k (ffmpeg): records the bytes
+    it was handed and returns a 0.5 s, 16 kHz ramp so the WAV body is checkable."""
+    def _decode(data, filename):
+        calls.append((data, filename))
+        return (np.linspace(-0.5, 0.5, SR // 2, dtype=np.float32), SR)
+    return _decode
+
+
+@pytest.mark.anyio
+async def test_media_pcm16k_transcodes_stored_audio_to_16k_mono_wav(client, store, monkeypatch):
+    calls: list = []
+    monkeypatch.setattr(main, "decode_to_pcm_16k", _fake_decode_16k(calls))
+    rid = await _store_one(client)
+    tk = main._make_media_token("test-user", rid, _future())
+    resp = await client.get(f"/recordings/{rid}/media?tk={tk}&format=pcm16k")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("audio/wav")
+    assert resp.headers["content-length"] == str(len(resp.content))
+    assert resp.headers["x-pcm-seconds"] == "0.500"
+    # ffmpeg was handed the stored derivative, as the .m4a it is.
+    assert calls == [(FAKE_AUDIO_M4A, "audio.m4a")]
+    with wave.open(io.BytesIO(resp.content)) as w:
+        assert (w.getnchannels(), w.getsampwidth(), w.getframerate()) == (1, 2, SR)
+        pcm = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2")
+    assert pcm.size == SR // 2
+    assert pcm[0] == int(-0.5 * 32767) and pcm[-1] == int(0.5 * 32767)
+
+
+@pytest.mark.anyio
+async def test_media_pcm16k_refuses_recordings_over_30_minutes(client, store, monkeypatch):
+    calls: list = []
+    monkeypatch.setattr(main, "decode_to_pcm_16k", _fake_decode_16k(calls))
+    rid = await _store_one(client)
+    store._by_uid["test-user"][rid]["meta"]["duration_seconds"] = 31 * 60
+    tk = main._make_media_token("test-user", rid, _future())
+    resp = await client.get(f"/recordings/{rid}/media?tk={tk}&format=pcm16k")
+    assert resp.status_code == 413
+    assert "30 minutes" in resp.json()["detail"]
+    assert calls == []  # refused before any transcode
+
+
+@pytest.mark.anyio
+async def test_media_pcm16k_same_token_gate_and_honest_failures(client, store, monkeypatch):
+    rid = await _store_one(client)
+    # Same credential as the stream: a bad token is 403 regardless of format.
+    resp = await client.get(f"/recordings/{rid}/media?tk=garbage&format=pcm16k")
+    assert resp.status_code == 403
+    tk = main._make_media_token("test-user", rid, _future())
+    # An unknown format is a 400, not silently the stream.
+    resp = await client.get(f"/recordings/{rid}/media?tk={tk}&format=flac")
+    assert resp.status_code == 400
+    # ffmpeg failing to decode is a 422 with its reason.
+    def _boom(data, filename):
+        raise audio_ingest.AudioDecodeError("could not decode this file: boom")
+    monkeypatch.setattr(main, "decode_to_pcm_16k", _boom)
+    resp = await client.get(f"/recordings/{rid}/media?tk={tk}&format=pcm16k")
+    assert resp.status_code == 422
+    assert "boom" in resp.json()["detail"]
+    # A token for another uid's recording id is still a 404 (uid-scoped read).
+    other = main._make_media_token("someone-else", rid, _future())
+    resp = await client.get(f"/recordings/{rid}/media?tk={other}&format=pcm16k")
+    assert resp.status_code == 404
+    # The plain stream is untouched by the new option.
+    resp = await client.get(f"/recordings/{rid}/media?tk={tk}")
+    assert resp.status_code == 200 and resp.content == FAKE_AUDIO_M4A

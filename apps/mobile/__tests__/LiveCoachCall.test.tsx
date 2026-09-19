@@ -40,6 +40,36 @@ import { LIVE_MODE_OPTIONS } from "../src/components/LiveModePicker";
 import { IDLE_CALL_VIEW, type CallView } from "../src/live/call/types";
 import CallPanel, { CALL_MODE_EXPLAINER, formatElapsed } from "../src/components/CallPanel";
 
+/**
+ * A safety net over this file's own explicit unmounts.
+ *
+ * Unmounting on the happy path is not enough: a test that fails, or returns
+ * early, leaves its tree mounted, and a state update landing after Jest tears
+ * the environment down throws "You are trying to `import` a file after the
+ * Jest environment has been torn down" — a WORKER CRASH that takes unrelated
+ * suites with it. Double-unmounting is harmless here (it is caught), so this
+ * can sit alongside the explicit ones.
+ */
+const __trees: renderer.ReactTestRenderer[] = [];
+function track<T extends renderer.ReactTestRenderer>(t: T): T {
+  __trees.push(t);
+  return t;
+}
+afterEach(async () => {
+  await act(async () => {});
+  act(() => {
+    for (const t of __trees.splice(0)) {
+      try {
+        t.unmount();
+      } catch {
+        // Already unmounted by the test, or a throwing teardown — either way
+        // it must not fail a test that otherwise passed.
+      }
+    }
+  });
+});
+
+
 const base = {
   isRecording: false,
   sessionActive: false,
@@ -116,12 +146,13 @@ beforeEach(() => {
 });
 
 describe("Live Coach — Call mode", () => {
-  it("offers four modes: the old speaker-phone is now 'In person', plus 'Call'", () => {
+  it("offers five modes: the old speaker-phone is now 'In person', plus 'Call' and 'Journal'", () => {
     expect(LIVE_MODE_OPTIONS.map((o) => [o.mode, o.label])).toEqual([
       ["earpiece", "Earpiece"],
       ["speaker", "In person"],
       ["therapist", "Therapist"],
       ["call", "Call"],
+      ["journal", "Journal"],
     ]);
   });
 
@@ -131,7 +162,7 @@ describe("Live Coach — Call mode", () => {
     mockUseAudioStream.mockReturnValue({ ...base, startCall, joinCall });
     let root!: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     expect(root.root.findByProps({ testID: "call-explainer" }).props.children).toBe(CALL_MODE_EXPLAINER);
@@ -157,7 +188,7 @@ describe("Live Coach — Call mode", () => {
   const renderSettled = async () => {
     let root!: renderer.ReactTestRenderer;
     await act(async () => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await act(async () => {
       for (let i = 0; i < 6; i += 1) await Promise.resolve();
@@ -219,7 +250,7 @@ describe("Live Coach — Call mode", () => {
     mockUseAudioStream.mockReturnValue({ ...base, joinCall, setSessionMode });
     let root!: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen joinCode="K7M2PQ" onJoinCodeConsumed={consumed} />);
+      root = track(renderer.create(<LiveCoachScreen joinCode="K7M2PQ" onJoinCodeConsumed={consumed} />));
     });
     await flush();
     // The invite overrides the remembered mode for this visit.
@@ -241,7 +272,7 @@ describe("Live Coach — Call mode", () => {
     });
     let root!: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     expect(root.root.findByProps({ testID: "call-error" }).props.children).toContain("no in-app calls yet");
@@ -255,7 +286,7 @@ describe("Live Coach — Call mode", () => {
     mockUseAudioStream.mockReturnValue({ ...base, sessionActive: true, isRecording: true, connectionStatus: "live", call: waiting, hangUp, setCallMuted, setCallRoute });
     let root!: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(<LiveCoachScreen />);
+      root = track(renderer.create(<LiveCoachScreen />));
     });
     await flush();
     expect(root.root.findByProps({ testID: "call-header" }).props.children).toBe("You · waiting for them");
@@ -296,7 +327,7 @@ describe("Live Coach — Call mode", () => {
     expect(formatElapsed(192_400)).toBe("03:12");
     let root!: renderer.ReactTestRenderer;
     act(() => {
-      root = renderer.create(
+      root = track(renderer.create(
         <CallPanel
           call={{ ...IDLE_CALL_VIEW, status: "reconnecting", peers: [{ uid: "b", label: "Speaker B", displayName: "Mom", role: "participant", connected: false, iceRestarts: 1 }], connectedAt: 5 }}
           sessionActive
@@ -306,7 +337,7 @@ describe("Live Coach — Call mode", () => {
           onToggleMute={jest.fn()}
           now={() => 65_005}
         />,
-      );
+      ));
     });
     expect(root.root.findByProps({ testID: "call-header" }).props.children).toBe("You · reconnecting · 01:05");
     expect(root.root.findByProps({ testID: "call-reconnecting" })).toBeTruthy();

@@ -41,9 +41,11 @@ describe("getGrowth", () => {
     const [url, init] = mockFetch.mock.calls[0];
     expect(url).toContain("/growth");
     expect(init.method).toBe("GET");
-    // `people` (Track 2) is always an array — an older server that omits
-    // the key yields an empty list, never undefined.
-    expect(result).toEqual({ ...body, people: [] });
+    // `people` (Track 2) and `gaps` are always present — an older server that
+    // omits either yields an empty list / all-zero buckets, never undefined.
+    // All-zero gaps read as "this server can't say why", and the footer then
+    // falls back to the plain N-of-M line.
+    expect(result).toEqual({ ...body, people: [], gaps: { not_analyzed: 0, not_your_conversation: 0, could_not_find_you: 0 } });
     // Null scores pass through as null — gaps, never zeroed.
     expect(result.points[1].my_score).toBeNull();
   });
@@ -54,6 +56,7 @@ describe("getGrowth", () => {
       points: [],
       total_recordings: 0,
       identified_recordings: 0,
+      gaps: { not_analyzed: 0, not_your_conversation: 0, could_not_find_you: 0 },
       people: [],
     });
   });
@@ -92,7 +95,10 @@ describe("getGrowth", () => {
       ],
     };
     mockFetch.mockResolvedValueOnce({ ok: true, json: async () => body });
-    await expect(getGrowth()).resolves.toEqual(body);
+    await expect(getGrowth()).resolves.toEqual({
+      ...body,
+      gaps: { not_analyzed: 0, not_your_conversation: 0, could_not_find_you: 0 },
+    });
   });
 
   it("throws with the status on a non-OK (503 storage disabled)", async () => {

@@ -160,6 +160,8 @@ async def test_growth_empty_store(client, store):
     body = res.json()
     assert body == {
         "points": [], "total_recordings": 0, "identified_recordings": 0,
+        # Nothing stored, so nothing is missing for any reason.
+        "gaps": {"not_analyzed": 0, "not_your_conversation": 0, "could_not_find_you": 0},
         # Track 2: per-person "how I sound with X" rows — none without sessions.
         "people": [],
     }
@@ -196,6 +198,11 @@ async def test_growth_counts_but_never_scores_unidentified(client, store):
     assert body["total_recordings"] == 2
     assert body["identified_recordings"] == 0
     assert body["points"] == []
+    # ...and WHY each is missing, which is the difference between "the app
+    # failed to find me" (catch-up fixes it) and "nothing has looked yet".
+    assert body["gaps"] == {
+        "not_analyzed": 1, "not_your_conversation": 0, "could_not_find_you": 1,
+    }
 
 
 async def test_growth_points_sorted_by_time_ascending(client, store):
@@ -294,3 +301,79 @@ async def test_growth_is_uid_scoped(client, store):
     body = res.json()
     assert body["total_recordings"] == 0
     assert body["points"] == []
+
+
+# ---------------------------------------------------------------------------
+# Why a recording is NOT on the chart (GrowthGaps)
+# ---------------------------------------------------------------------------
+
+async def test_growth_gaps_separate_a_missed_match_from_someone_elses_conversation(client, store):
+    """The distinction the old "N of M" footer could not express.
+
+    A recording the user has personally named the speakers in, with no "you"
+    among them, is not a failure — it is somebody else's conversation, and
+    re-running the voiceprint over it would change nothing. One where nobody
+    has said anything is exactly what catch-up is for.
+    """
+    # Named by the user, and none of them is them.
+    store.add(
+        "u1", created_at=_iso(1), turns=TURNS_AB,
+        analysis=_analysis(me=None),
+        manual_speaker_labels={"Speaker A": "Alex", "Speaker B": "Sam"},
+    )
+    # Analyzed, nobody has said anything: catch-up territory.
+    store.add("u1", created_at=_iso(2), turns=TURNS_AB, analysis=_analysis(me=None))
+    # Not analyzed at all.
+    store.add("u1", created_at=_iso(3), turns=TURNS_AB, analysis=None)
+    # And one that IS identified, to prove it never lands in a gap bucket.
+    store.add("u1", created_at=_iso(4), turns=TURNS_AB, analysis=_analysis())
+
+    body = (await client.get("/growth", headers={"X-Test-Uid": "u1"})).json()
+    assert body["identified_recordings"] == 1
+    assert body["gaps"] == {
+        "not_analyzed": 1, "not_your_conversation": 1, "could_not_find_you": 1,
+    }
+
+
+async def test_growth_gaps_always_sum_to_the_unidentified_total(client, store):
+    """The three buckets are exhaustive and mutually exclusive — a user who
+    adds them up must get the number the footer's "N of M" implies."""
+    for day in range(1, 4):
+        store.add("u1", created_at=_iso(day), turns=TURNS_AB, analysis=_analysis(me=None))
+    store.add("u1", created_at=_iso(4), turns=TURNS_AB, analysis=None)
+    store.add("u1", created_at=_iso(5), turns=TURNS_AB, analysis=_analysis())
+
+    body = (await client.get("/growth", headers={"X-Test-Uid": "u1"})).json()
+    gaps = body["gaps"]
+    assert sum(gaps.values()) == body["total_recordings"] - body["identified_recordings"]
+
+
+async def test_growth_a_transcript_name_is_not_the_user_saying_who_it_is(client, store):
+    """Only the user's OWN labels can justify "you're not in this one". A name
+    read out of the transcript is the machine guessing, and a guess must not
+    talk someone out of running catch-up."""
+    store.add(
+        "u1", created_at=_iso(1), turns=TURNS_AB,
+        analysis=_analysis(me=None, partner_label=("Linda", "name")),
+    )
+    body = (await client.get("/growth", headers={"X-Test-Uid": "u1"})).json()
+    assert body["gaps"]["could_not_find_you"] == 1
+    assert body["gaps"]["not_your_conversation"] == 0
+
+
+async def test_growth_one_unnamed_speaker_keeps_the_recording_in_catch_up_range(client, store):
+    """"You're not in this one" needs the user to have named EVERYONE.
+
+    With three speakers and only "Alex" named, the user's voice may still be in
+    one of the two raw clusters — and the footer withholds the catch-up
+    sentence for `not_your_conversation`, so getting this wrong talks someone
+    out of the one action that would have worked.
+    """
+    store.add(
+        "u1", created_at=_iso(1), turns=TURNS_AB,
+        analysis=_analysis(me=None, speakers=("Speaker A", "Speaker B", "Speaker C")),
+        manual_speaker_labels={"Speaker A": "Alex"},
+    )
+    body = (await client.get("/growth", headers={"X-Test-Uid": "u1"})).json()
+    assert body["gaps"]["could_not_find_you"] == 1
+    assert body["gaps"]["not_your_conversation"] == 0

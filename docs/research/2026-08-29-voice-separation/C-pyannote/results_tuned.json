@@ -1,0 +1,932 @@
+{
+ "grid": [
+  0.3,
+  0.325,
+  0.35,
+  0.375,
+  0.4,
+  0.425,
+  0.45,
+  0.475,
+  0.5,
+  0.525,
+  0.55,
+  0.575,
+  0.6,
+  0.625,
+  0.65,
+  0.675,
+  0.7,
+  0.725,
+  0.75,
+  0.775,
+  0.8,
+  0.825,
+  0.85,
+  0.875,
+  0.9,
+  0.925,
+  0.95,
+  0.975,
+  1.0,
+  1.025,
+  1.05,
+  1.075,
+  1.1
+ ],
+ "tuned_on": [
+  "scene_couple",
+  "scene_family3",
+  "scene_meeting4"
+ ],
+ "sweep": {
+  "wespeaker": {
+   "0.3": {
+    "mean_acc": 0.374,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "0.325": {
+    "mean_acc": 0.374,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "0.35": {
+    "mean_acc": 0.374,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "0.375": {
+    "mean_acc": 0.374,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "0.4": {
+    "mean_acc": 0.374,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "0.425": {
+    "mean_acc": 0.374,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "0.45": {
+    "mean_acc": 0.374,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "0.475": {
+    "mean_acc": 0.374,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "0.5": {
+    "mean_acc": 0.4673,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.57
+    }
+   },
+   "0.525": {
+    "mean_acc": 0.4673,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.57
+    }
+   },
+   "0.55": {
+    "mean_acc": 0.4673,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.57
+    }
+   },
+   "0.575": {
+    "mean_acc": 0.7197,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.639,
+     "scene_meeting4": 0.57
+    }
+   },
+   "0.6": {
+    "mean_acc": 0.7867,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.639,
+     "scene_meeting4": 0.771
+    }
+   },
+   "0.625": {
+    "mean_acc": 0.7867,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.639,
+     "scene_meeting4": 0.771
+    }
+   },
+   "0.65": {
+    "mean_acc": 0.875,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.904,
+     "scene_meeting4": 0.771
+    }
+   },
+   "0.675": {
+    "mean_acc": 0.845,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.814,
+     "scene_meeting4": 0.771
+    }
+   },
+   "0.7": {
+    "mean_acc": 0.875,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.904,
+     "scene_meeting4": 0.771
+    }
+   },
+   "0.725": {
+    "mean_acc": 0.875,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.904,
+     "scene_meeting4": 0.771
+    }
+   },
+   "0.75": {
+    "mean_acc": 0.875,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.904,
+     "scene_meeting4": 0.771
+    }
+   },
+   "0.775": {
+    "mean_acc": 0.875,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.904,
+     "scene_meeting4": 0.771
+    }
+   },
+   "0.8": {
+    "mean_acc": 0.875,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.904,
+     "scene_meeting4": 0.771
+    }
+   },
+   "0.825": {
+    "mean_acc": 0.875,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.904,
+     "scene_meeting4": 0.771
+    }
+   },
+   "0.85": {
+    "mean_acc": 0.875,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.904,
+     "scene_meeting4": 0.771
+    }
+   },
+   "0.875": {
+    "mean_acc": 0.7867,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.639,
+     "scene_meeting4": 0.771
+    }
+   },
+   "0.9": {
+    "mean_acc": 0.7197,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.639,
+     "scene_meeting4": 0.57
+    }
+   },
+   "0.925": {
+    "mean_acc": 0.7197,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.639,
+     "scene_meeting4": 0.57
+    }
+   },
+   "0.95": {
+    "mean_acc": 0.6153,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.57
+    }
+   },
+   "0.975": {
+    "mean_acc": 0.6153,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.57
+    }
+   },
+   "1.0": {
+    "mean_acc": 0.522,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "1.025": {
+    "mean_acc": 0.522,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "1.05": {
+    "mean_acc": 0.522,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "1.075": {
+    "mean_acc": 0.374,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "1.1": {
+    "mean_acc": 0.374,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   }
+  },
+  "ecapa": {
+   "0.3": {
+    "mean_acc": 0.374,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "0.325": {
+    "mean_acc": 0.374,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "0.35": {
+    "mean_acc": 0.374,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "0.375": {
+    "mean_acc": 0.374,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "0.4": {
+    "mean_acc": 0.374,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "0.425": {
+    "mean_acc": 0.374,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "0.45": {
+    "mean_acc": 0.374,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "0.475": {
+    "mean_acc": 0.374,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "0.5": {
+    "mean_acc": 0.374,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "0.525": {
+    "mean_acc": 0.374,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "0.55": {
+    "mean_acc": 0.4673,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.57
+    }
+   },
+   "0.575": {
+    "mean_acc": 0.4673,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.57
+    }
+   },
+   "0.6": {
+    "mean_acc": 0.6153,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.57
+    }
+   },
+   "0.625": {
+    "mean_acc": 0.7197,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.639,
+     "scene_meeting4": 0.57
+    }
+   },
+   "0.65": {
+    "mean_acc": 0.781,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.639,
+     "scene_meeting4": 0.754
+    }
+   },
+   "0.675": {
+    "mean_acc": 0.884,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.948,
+     "scene_meeting4": 0.754
+    }
+   },
+   "0.7": {
+    "mean_acc": 0.884,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.948,
+     "scene_meeting4": 0.754
+    }
+   },
+   "0.725": {
+    "mean_acc": 0.884,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.948,
+     "scene_meeting4": 0.754
+    }
+   },
+   "0.75": {
+    "mean_acc": 0.884,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.948,
+     "scene_meeting4": 0.754
+    }
+   },
+   "0.775": {
+    "mean_acc": 0.884,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.948,
+     "scene_meeting4": 0.754
+    }
+   },
+   "0.8": {
+    "mean_acc": 0.884,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.948,
+     "scene_meeting4": 0.754
+    }
+   },
+   "0.825": {
+    "mean_acc": 0.884,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.948,
+     "scene_meeting4": 0.754
+    }
+   },
+   "0.85": {
+    "mean_acc": 0.884,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.948,
+     "scene_meeting4": 0.754
+    }
+   },
+   "0.875": {
+    "mean_acc": 0.884,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.948,
+     "scene_meeting4": 0.754
+    }
+   },
+   "0.9": {
+    "mean_acc": 0.7197,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.639,
+     "scene_meeting4": 0.57
+    }
+   },
+   "0.925": {
+    "mean_acc": 0.7197,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.639,
+     "scene_meeting4": 0.57
+    }
+   },
+   "0.95": {
+    "mean_acc": 0.522,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "0.975": {
+    "mean_acc": 0.522,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "1.0": {
+    "mean_acc": 0.522,
+    "per_fixture": {
+     "scene_couple": 0.95,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "1.025": {
+    "mean_acc": 0.374,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "1.05": {
+    "mean_acc": 0.374,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "1.075": {
+    "mean_acc": 0.374,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   },
+   "1.1": {
+    "mean_acc": 0.374,
+    "per_fixture": {
+     "scene_couple": 0.506,
+     "scene_family3": 0.326,
+     "scene_meeting4": 0.29
+    }
+   }
+  }
+ },
+ "chosen": {
+  "wespeaker": {
+   "threshold": 0.7,
+   "tune_mean_acc": 0.875,
+   "tied_candidates": [
+    0.65,
+    0.7,
+    0.725,
+    0.75,
+    0.775,
+    0.8,
+    0.825,
+    0.85
+   ],
+   "stock_threshold": 0.7045654963945799,
+   "stock_tune_mean_acc": 0.875
+  },
+  "ecapa": {
+   "threshold": 0.7,
+   "tune_mean_acc": 0.884,
+   "tied_candidates": [
+    0.675,
+    0.7,
+    0.725,
+    0.75,
+    0.775,
+    0.8,
+    0.825,
+    0.85,
+    0.875
+   ],
+   "stock_threshold": 0.7045654963945799,
+   "stock_tune_mean_acc": 0.884
+  }
+ },
+ "eval": {
+  "wespeaker": {
+   "family_real": {
+    "k_true": 2,
+    "k_pred": 4,
+    "frame_accuracy": 0.552,
+    "unlabelled_frac": 0.101,
+    "mapping": {
+     "3": "Asher",
+     "1": "Sage"
+    },
+    "per_gt_recall": {
+     "Asher": 0.508,
+     "Sage": 0.581
+    },
+    "owner_purity": 0.994,
+    "fixture": "family_real",
+    "threshold": 0.7,
+    "held_out": true
+   },
+   "poker6": {
+    "k_true": 6,
+    "k_pred": 4,
+    "frame_accuracy": 0.355,
+    "unlabelled_frac": 0.32,
+    "mapping": {
+     "0": "Player5",
+     "1": "Player4",
+     "2": "Player3",
+     "3": "Player1"
+    },
+    "per_gt_recall": {
+     "Player1": 0.0,
+     "Player2": 0.0,
+     "Player3": 0.85,
+     "Player4": 0.826,
+     "Player5": 0.46,
+     "Player6": 0.0
+    },
+    "owner_purity": null,
+    "fixture": "poker6",
+    "threshold": 0.7,
+    "held_out": true
+   },
+   "openai": {
+    "k_true": 2,
+    "k_pred": 2,
+    "frame_accuracy": 0.91,
+    "unlabelled_frac": 0.09,
+    "mapping": {
+     "0": "Speaker A",
+     "1": "Speaker B"
+    },
+    "per_gt_recall": {
+     "Speaker A": 0.925,
+     "Speaker B": 0.893
+    },
+    "owner_purity": null,
+    "fixture": "openai",
+    "threshold": 0.7,
+    "held_out": true
+   },
+   "gptaudio": {
+    "k_true": 2,
+    "k_pred": 5,
+    "frame_accuracy": 0.649,
+    "unlabelled_frac": 0.077,
+    "mapping": {
+     "3": "Speaker A",
+     "4": "Speaker B"
+    },
+    "per_gt_recall": {
+     "Speaker A": 0.39,
+     "Speaker B": 0.932
+    },
+    "owner_purity": null,
+    "fixture": "gptaudio",
+    "threshold": 0.7,
+    "held_out": true
+   },
+   "scene_couple": {
+    "k_true": 2,
+    "k_pred": 2,
+    "frame_accuracy": 0.95,
+    "unlabelled_frac": 0.05,
+    "mapping": {
+     "0": "Speaker A",
+     "1": "Speaker B"
+    },
+    "per_gt_recall": {
+     "Speaker A": 0.964,
+     "Speaker B": 0.933
+    },
+    "owner_purity": 1.0,
+    "fixture": "scene_couple",
+    "threshold": 0.7,
+    "held_out": false
+   },
+   "scene_family3": {
+    "k_true": 3,
+    "k_pred": 3,
+    "frame_accuracy": 0.904,
+    "unlabelled_frac": 0.051,
+    "mapping": {
+     "0": "Speaker A",
+     "1": "Speaker B",
+     "2": "Speaker C"
+    },
+    "per_gt_recall": {
+     "Speaker A": 0.964,
+     "Speaker B": 0.904,
+     "Speaker C": 0.842
+    },
+    "owner_purity": 1.0,
+    "fixture": "scene_family3",
+    "threshold": 0.7,
+    "held_out": false
+   },
+   "scene_meeting4": {
+    "k_true": 4,
+    "k_pred": 3,
+    "frame_accuracy": 0.771,
+    "unlabelled_frac": 0.052,
+    "mapping": {
+     "0": "Speaker A",
+     "1": "Speaker B",
+     "2": "Speaker C"
+    },
+    "per_gt_recall": {
+     "Speaker A": 0.95,
+     "Speaker B": 0.929,
+     "Speaker C": 0.95,
+     "Speaker D": 0.0
+    },
+    "owner_purity": 1.0,
+    "fixture": "scene_meeting4",
+    "threshold": 0.7,
+    "held_out": false
+   },
+   "maggiano3": {
+    "k_true": 3,
+    "k_pred": 4,
+    "frame_accuracy": 0.522,
+    "unlabelled_frac": 0.131,
+    "mapping": {
+     "1": "asher",
+     "3": "dad",
+     "0": "mom"
+    },
+    "per_gt_recall": {
+     "asher": 0.179,
+     "dad": 0.656,
+     "mom": 0.61
+    },
+    "owner_purity": 0.718,
+    "fixture": "maggiano3",
+    "threshold": 0.7,
+    "held_out": true
+   }
+  },
+  "ecapa": {
+   "family_real": {
+    "k_true": 2,
+    "k_pred": 4,
+    "frame_accuracy": 0.552,
+    "unlabelled_frac": 0.101,
+    "mapping": {
+     "3": "Asher",
+     "1": "Sage"
+    },
+    "per_gt_recall": {
+     "Asher": 0.508,
+     "Sage": 0.581
+    },
+    "owner_purity": 0.994,
+    "fixture": "family_real",
+    "threshold": 0.7,
+    "held_out": true
+   },
+   "poker6": {
+    "k_true": 6,
+    "k_pred": 5,
+    "frame_accuracy": 0.447,
+    "unlabelled_frac": 0.32,
+    "mapping": {
+     "0": "Player5",
+     "1": "Player4",
+     "2": "Player6",
+     "3": "Player3",
+     "4": "Player1"
+    },
+    "per_gt_recall": {
+     "Player1": 0.0,
+     "Player2": 0.0,
+     "Player3": 0.85,
+     "Player4": 0.826,
+     "Player5": 0.46,
+     "Player6": 0.543
+    },
+    "owner_purity": 1.0,
+    "fixture": "poker6",
+    "threshold": 0.7,
+    "held_out": true
+   },
+   "openai": {
+    "k_true": 2,
+    "k_pred": 2,
+    "frame_accuracy": 0.91,
+    "unlabelled_frac": 0.09,
+    "mapping": {
+     "0": "Speaker A",
+     "1": "Speaker B"
+    },
+    "per_gt_recall": {
+     "Speaker A": 0.925,
+     "Speaker B": 0.893
+    },
+    "owner_purity": null,
+    "fixture": "openai",
+    "threshold": 0.7,
+    "held_out": true
+   },
+   "gptaudio": {
+    "k_true": 2,
+    "k_pred": 5,
+    "frame_accuracy": 0.649,
+    "unlabelled_frac": 0.077,
+    "mapping": {
+     "1": "Speaker A",
+     "4": "Speaker B"
+    },
+    "per_gt_recall": {
+     "Speaker A": 0.39,
+     "Speaker B": 0.932
+    },
+    "owner_purity": null,
+    "fixture": "gptaudio",
+    "threshold": 0.7,
+    "held_out": true
+   },
+   "scene_couple": {
+    "k_true": 2,
+    "k_pred": 2,
+    "frame_accuracy": 0.95,
+    "unlabelled_frac": 0.05,
+    "mapping": {
+     "0": "Speaker A",
+     "1": "Speaker B"
+    },
+    "per_gt_recall": {
+     "Speaker A": 0.964,
+     "Speaker B": 0.933
+    },
+    "owner_purity": 1.0,
+    "fixture": "scene_couple",
+    "threshold": 0.7,
+    "held_out": false
+   },
+   "scene_family3": {
+    "k_true": 3,
+    "k_pred": 3,
+    "frame_accuracy": 0.948,
+    "unlabelled_frac": 0.051,
+    "mapping": {
+     "0": "Speaker C",
+     "1": "Speaker B",
+     "2": "Speaker A"
+    },
+    "per_gt_recall": {
+     "Speaker A": 0.964,
+     "Speaker B": 0.902,
+     "Speaker C": 0.984
+    },
+    "owner_purity": 1.0,
+    "fixture": "scene_family3",
+    "threshold": 0.7,
+    "held_out": false
+   },
+   "scene_meeting4": {
+    "k_true": 4,
+    "k_pred": 3,
+    "frame_accuracy": 0.754,
+    "unlabelled_frac": 0.052,
+    "mapping": {
+     "0": "Speaker A",
+     "1": "Speaker B",
+     "2": "Speaker C"
+    },
+    "per_gt_recall": {
+     "Speaker A": 0.95,
+     "Speaker B": 0.872,
+     "Speaker C": 0.95,
+     "Speaker D": 0.0
+    },
+    "owner_purity": 1.0,
+    "fixture": "scene_meeting4",
+    "threshold": 0.7,
+    "held_out": false
+   },
+   "maggiano3": {
+    "k_true": 3,
+    "k_pred": 3,
+    "frame_accuracy": 0.576,
+    "unlabelled_frac": 0.131,
+    "mapping": {
+     "0": "mom",
+     "1": "asher",
+     "2": "dad"
+    },
+    "per_gt_recall": {
+     "asher": 0.317,
+     "dad": 0.632,
+     "mom": 0.696
+    },
+    "owner_purity": 0.709,
+    "fixture": "maggiano3",
+    "threshold": 0.7,
+    "held_out": true
+   }
+  }
+ }
+}

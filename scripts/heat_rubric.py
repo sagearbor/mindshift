@@ -268,7 +268,7 @@ def report(rows, corpus="cremad"):
     by_int = {}
     for r in ang:
         by_int.setdefault(r["intensity"], []).append(r["db_over_own_neutral"])
-    print(f"\nangry clips by the corpus's own INTENSITY label:")
+    print("\nangry clips by the corpus's own INTENSITY label:")
     for k in ("low", "medium", "high", "unspecified"):
         if k in by_int:
             v = np.array(by_int[k])

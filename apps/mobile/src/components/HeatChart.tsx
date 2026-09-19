@@ -28,12 +28,81 @@ import {
   playheadVisibility,
   centerWindowOn,
 } from "./chartZoom";
+import {
+  type ChartMetric,
+  type MetricScale,
+  type TurnFacts,
+  type TurnMetrics,
+  type TurnTiming,
+  CHART_METRICS,
+  DEFAULT_CHART_METRIC,
+  HEAT_DOMAIN,
+  METRIC_SPECS,
+  formatMetricValue,
+  formatTick,
+  metricHasData,
+  metricScale,
+  metricValue,
+  metricY,
+  turnMetricsFor,
+  timingIsUsable,
+  durationForTiming,
+  mapTurnsToDashes,
+  mapSimulatedToDashes,
+} from "./chartMetrics";
+
+// The y-axis model + time-axis geometry live in ./chartMetrics (pure, no RN
+// imports, shared with the offline proof renderer). Re-exported so existing
+// importers and tests keep one entry point.
+export {
+  type ChartMetric,
+  type MetricContext,
+  type MetricDomain,
+  type MetricKind,
+  type MetricScale,
+  type MetricSpec,
+  type TurnFacts,
+  type TurnMetrics,
+  type TurnTiming,
+  type DashSegment,
+  type SpeakerDashes,
+  type TimeMapOptions,
+  CHART_METRICS,
+  DEFAULT_CHART_METRIC,
+  METRIC_SPECS,
+  HEAT_DOMAIN,
+  metricSpec,
+  isChartMetric,
+  formatMetricValue,
+  formatTick,
+  metricDomain,
+  metricHasData,
+  metricScale,
+  metricValue,
+  metricValues,
+  metricY,
+  personDomain,
+  personLanes,
+  speakerOrderOf,
+  turnMetricsFor,
+  voiceMetrics,
+  timingIsUsable,
+  durationForTiming,
+  mapTurnsToDashes,
+  mapSimulatedToDashes,
+} from "./chartMetrics";
+
+// Width (px) of the y-axis column drawn to the LEFT of the chart surface: tick
+// labels ("−40", "200") sit here, positioned by the same metricY the dashes use,
+// so a label is level with the value it names. Kept outside the SVG so the
+// surface's own x geometry (padding 16 both sides) is untouched.
+const AXIS_W = 36;
 
 // The baseline prosody label per dimension — a turn at baseline on a dimension
 // isn't noteworthy, so we don't render a chip for it. This keeps the inspector
 // to "up to three" chips that actually say something (e.g. loud + fast), rather
 // than three always-on chips two of which read "normal".
-const VOICE_BASELINE: Record<keyof Voice, string> = {
+const VOICE_BASELINE: Record<"energy_label" | "pitch_label" | "rate_label", string> = {
   energy_label: "normal",
   pitch_label: "mid",
   rate_label: "normal",
@@ -78,9 +147,6 @@ const ISOLATION_DIM = 0.18;
 // surface's capture path and the dash-press path.
 const DOUBLE_TAP_MS = 300;
 
-const HEAT_MIN = 0;
-const HEAT_MAX = 100;
-
 // Minimum width (px) of a time-axis tap target, so a very short utterance's dash
 // is still comfortably hittable on a phone.
 const MIN_TAP_PX = 28;
@@ -115,6 +181,8 @@ function touchMidX(touches: TouchList): number {
 export interface ChartPoint {
   index: number; // turn index across the WHOLE conversation
   heat: number; // 0–100
+  /** The plotted number under the active metric (equals `heat` for heat). */
+  value: number;
   isSpike: boolean;
   x: number; // pixel x
   y: number; // pixel y
@@ -140,12 +208,20 @@ export interface MapOptions {
    *  collide (confirmed real case: "Sage"/"Asher") still render distinctly
    *  within one conversation — see resolveSpeakerColors' own doc comment. */
   colorOf?: (speaker: string) => string;
+  /** Which number is plotted on y. Default "heat" (prior behavior). */
+  metric?: ChartMetric;
+  /** Index-aligned raw numbers per turn (see turnMetricsFor). */
+  turnMetrics?: (TurnMetrics | null)[];
+  /** A precomputed scale so several layers share one domain; defaults to
+   *  metricScale over the inputs. */
+  scale?: MetricScale;
 }
 
 /**
  * Pure point-mapping: turns the backend's flat per_turn array into one polyline
  * per speaker, in pixel space. Exported so the geometry can be unit-tested
- * directly without rendering.
+ * directly without rendering. A turn with no value under the active metric
+ * yields no point (skipped, never plotted as 0).
  *
  * Key rule (from the spec): x is the turn index across the ENTIRE conversation,
  * not each speaker's own running count — so a speaker's line "carries across
@@ -159,7 +235,9 @@ export function mapTurnsToLines(
 ): SpeakerLine[] {
   const { width, height, padding } = opts;
   const chartWidth = width - padding * 2;
-  const chartHeight = height - padding * 2;
+  const metric = opts.metric ?? "heat";
+  const metrics = opts.turnMetrics ?? perTurn.map(() => null);
+  const { values, domain } = opts.scale ?? metricScale(metric, perTurn, metrics);
 
   // Normalize x against the last turn index so the line spans the full width.
   const maxIndex =
@@ -169,31 +247,26 @@ export function mapTurnsToLines(
 
   const xFor = (index: number) =>
     padding + (maxIndex <= 0 ? chartWidth / 2 : (index / maxIndex) * chartWidth);
-  const yFor = (heat: number) => {
-    const clamped = Math.max(HEAT_MIN, Math.min(HEAT_MAX, heat));
-    return (
-      padding +
-      (chartHeight -
-        ((clamped - HEAT_MIN) / (HEAT_MAX - HEAT_MIN)) * chartHeight)
-    );
-  };
 
   // Group by speaker, preserving first-seen order for a stable legend/z-order.
   const order: string[] = [];
   const bySpeaker = new Map<string, ChartPoint[]>();
-  for (const t of perTurn) {
+  perTurn.forEach((t, i) => {
     if (!bySpeaker.has(t.speaker)) {
       bySpeaker.set(t.speaker, []);
       order.push(t.speaker);
     }
+    const value = values[i];
+    if (value === null) return;
     bySpeaker.get(t.speaker)!.push({
       index: t.index,
       heat: t.heat,
+      value,
       isSpike: t.is_spike,
       x: xFor(t.index),
-      y: yFor(t.heat),
+      y: metricY(value, domain, { height, padding }),
     });
-  }
+  });
 
   const colorOf = opts.colorOf ?? getSpeakerColor;
   return order.map((speaker) => ({
@@ -219,7 +292,8 @@ export function mapSimulatedToLines(
 ): SpeakerLine[] {
   const { width, height, padding } = opts;
   const chartWidth = width - padding * 2;
-  const chartHeight = height - padding * 2;
+  // Simulated turns only carry heat — always the heat scale.
+  const domain = opts.scale?.metric === "heat" ? opts.scale.domain : HEAT_DOMAIN;
 
   const maxIndex =
     opts.totalTurns !== undefined
@@ -228,14 +302,6 @@ export function mapSimulatedToLines(
 
   const xFor = (index: number) =>
     padding + (maxIndex <= 0 ? chartWidth / 2 : (index / maxIndex) * chartWidth);
-  const yFor = (heat: number) => {
-    const clamped = Math.max(HEAT_MIN, Math.min(HEAT_MAX, heat));
-    return (
-      padding +
-      (chartHeight -
-        ((clamped - HEAT_MIN) / (HEAT_MAX - HEAT_MIN)) * chartHeight)
-    );
-  };
 
   const order: string[] = [];
   const bySpeaker = new Map<string, ChartPoint[]>();
@@ -247,9 +313,10 @@ export function mapSimulatedToLines(
     bySpeaker.get(t.speaker)!.push({
       index: t.index,
       heat: t.heat,
+      value: t.heat,
       isSpike: false,
       x: xFor(t.index),
-      y: yFor(t.heat),
+      y: metricY(t.heat, domain, { height, padding }),
     });
   }
 
@@ -259,13 +326,6 @@ export function mapSimulatedToLines(
     color: colorOf(speaker),
     points: bySpeaker.get(speaker)!,
   }));
-}
-
-/** Per-turn timing, index-aligned with `perTurn`, used to place the replay
- *  playhead. Only the boundaries matter here. */
-export interface TurnTiming {
-  start_time: number;
-  end_time: number;
 }
 
 export interface PlayheadOptions {
@@ -326,182 +386,6 @@ export function playheadXForTime(
   return (
     padding + (maxIndex <= 0 ? chartWidth / 2 : (idx / maxIndex) * chartWidth)
   );
-}
-
-// --- Time-axis geometry (the primary "dashes over real recording time" view) ---
-//
-// Instead of one evenly-spaced dot per turn, each turn is a HORIZONTAL DASH
-// spanning its real [start_time, end_time] on an x-axis that IS the recording's
-// clock. A speaker who talks two-thirds of the time visibly covers two-thirds of
-// the axis; silence is simply empty. The playhead (mapped by the same seconds→x
-// scale) therefore sits on the dash of whoever is actually speaking.
-
-/** One turn drawn as a horizontal dash. x1..x2 is its real span in pixels. */
-export interface DashSegment {
-  index: number;
-  heat: number;
-  isSpike: boolean;
-  x1: number; // px at start_time
-  x2: number; // px at end_time (grown to a minimum so short turns stay visible)
-  xMid: number;
-  y: number;
-}
-
-export interface SpeakerDashes {
-  speaker: string;
-  color: string;
-  dashes: DashSegment[];
-}
-
-export interface TimeMapOptions {
-  width: number;
-  height: number;
-  padding: number;
-  /** Total recording length in seconds — the x-axis span. Must be > 0. */
-  duration: number;
-  /** Floor on a dash's pixel width so a very short utterance is still visible
-   *  and tappable; the dash is grown symmetrically around its center. */
-  minDashPx?: number;
-  /** Visible time window (zoom). When present, seconds map onto the full width
-   *  through this `[start, end]` slice instead of the whole `[0, duration]`, and
-   *  x is NOT clamped — off-window dashes fall outside the SVG viewport and are
-   *  clipped. Absent = the full unzoomed view (identical to before). */
-  window?: ZoomWindow;
-  /** Per-speaker color resolver — see MapOptions.colorOf for why this exists
-   *  (a confirmed real hash collision between two speakers' plain
-   *  getSpeakerColor() results). Defaults to getSpeakerColor when omitted. */
-  colorOf?: (speaker: string) => string;
-}
-
-/**
- * True when timing is present, index-aligned with `count` turns, finite, non-
- * decreasing (end >= start), and spans a positive duration — the precondition
- * for the honest time axis. Anything else (missing timing on a pre-timestamp
- * recording, a pasted transcript) falls back to index spacing.
- */
-export function timingIsUsable(
-  timing: TurnTiming[] | undefined | null,
-  count: number,
-): boolean {
-  if (!timing || timing.length === 0 || timing.length !== count) return false;
-  let maxEnd = 0;
-  for (const t of timing) {
-    if (!Number.isFinite(t.start_time) || !Number.isFinite(t.end_time))
-      return false;
-    if (t.end_time < t.start_time) return false;
-    if (t.end_time > maxEnd) maxEnd = t.end_time;
-  }
-  return maxEnd > 0;
-}
-
-/** Total x-axis duration: an explicit recording duration wins (it can exceed the
- *  last utterance's end — trailing silence is real), else the last end_time. */
-export function durationForTiming(
-  timing: TurnTiming[],
-  explicit?: number | null,
-): number {
-  if (explicit != null && explicit > 0) return explicit;
-  return timing.reduce((m, t) => Math.max(m, t.end_time), 0);
-}
-
-/**
- * Pure: map per-turn heat + real timing into one set of horizontal dashes per
- * speaker. x spans [start_time, end_time] in recording seconds; y = heat 0–100.
- * `timing` is index-aligned with `perTurn`. Exported for direct geometry tests.
- */
-export function mapTurnsToDashes(
-  perTurn: AnalyzePerTurn[],
-  timing: TurnTiming[],
-  opts: TimeMapOptions,
-): SpeakerDashes[] {
-  const { width, height, padding, duration } = opts;
-  const minDashPx = opts.minDashPx ?? 3;
-  const chartWidth = width - padding * 2;
-  const chartHeight = height - padding * 2;
-
-  // Zoom: when a window is given, map seconds through it (no clamp — the SVG
-  // viewport clips anything off-window). Without one, keep the exact prior
-  // behavior: the full [0, duration] view, clamped into the chart.
-  const win = opts.window;
-  const xFor = (sec: number) => {
-    if (win) return secondsToX(sec, win, { width, padding });
-    const frac = duration <= 0 ? 0 : Math.max(0, Math.min(1, sec / duration));
-    return padding + frac * chartWidth;
-  };
-  const yFor = (heat: number) => {
-    const clamped = Math.max(HEAT_MIN, Math.min(HEAT_MAX, heat));
-    return (
-      padding +
-      (chartHeight - ((clamped - HEAT_MIN) / (HEAT_MAX - HEAT_MIN)) * chartHeight)
-    );
-  };
-
-  const order: string[] = [];
-  const bySpeaker = new Map<string, DashSegment[]>();
-  perTurn.forEach((t, i) => {
-    const tm = timing[i];
-    let x1 = xFor(tm.start_time);
-    let x2 = xFor(tm.end_time);
-    // Grow a sub-minimum dash to a hittable width. When zoomed we only apply the
-    // floor to dashes actually within view, so off-window dashes aren't dragged
-    // onto the chart edges (they stay clipped).
-    const bothOffWindow =
-      !!win && (x2 < padding || x1 > padding + chartWidth);
-    if (!bothOffWindow && x2 - x1 < minDashPx) {
-      const mid = (x1 + x2) / 2;
-      x1 = Math.max(padding, mid - minDashPx / 2);
-      x2 = Math.min(padding + chartWidth, x1 + minDashPx);
-    }
-    if (!bySpeaker.has(t.speaker)) {
-      bySpeaker.set(t.speaker, []);
-      order.push(t.speaker);
-    }
-    bySpeaker.get(t.speaker)!.push({
-      index: t.index,
-      heat: t.heat,
-      isSpike: t.is_spike,
-      x1,
-      x2,
-      xMid: (x1 + x2) / 2,
-      y: yFor(t.heat),
-    });
-  });
-
-  const colorOf = opts.colorOf ?? getSpeakerColor;
-  return order.map((speaker) => ({
-    speaker,
-    color: colorOf(speaker),
-    dashes: bySpeaker.get(speaker)!,
-  }));
-}
-
-/**
- * Pure: simulated ("what-if") turns as dashes, reusing the REAL turn's time span
- * at the same conversation index (sim turns carry no timing of their own) so the
- * dashed hypothetical lands exactly over the solid dash it replaces. Grouped per
- * speaker, in its own color. Skips any sim turn without a matching real span.
- */
-export function mapSimulatedToDashes(
-  simulated: SimulatedTurn[],
-  timing: TurnTiming[],
-  opts: TimeMapOptions,
-): SpeakerDashes[] {
-  const asPerTurn: AnalyzePerTurn[] = [];
-  const alignedTiming: TurnTiming[] = [];
-  for (const s of simulated) {
-    const tm = timing[s.index];
-    if (!tm) continue;
-    asPerTurn.push({
-      index: s.index,
-      speaker: s.speaker,
-      heat: s.heat,
-      markers: [],
-      is_spike: false,
-      trigger_phrase: null,
-    });
-    alignedTiming.push(tm);
-  }
-  return mapTurnsToDashes(asPerTurn, alignedTiming, opts);
 }
 
 /** Pure: playhead x for a playback position on the time axis — the SAME seconds→x
@@ -695,6 +579,18 @@ interface HeatChartProps {
    *  absent (or ≤ 0) the axis falls back to the last utterance's end_time. Only
    *  meaningful alongside usable `turnsTiming`. */
   durationSeconds?: number | null;
+
+  // --- Y-axis metric (what the vertical position of every dash MEANS) ---
+  /** Index-aligned facts from the STORED turns: a live session's per-turn
+   *  `prosody` + `text_tone` measured on the phone (`RecordingTurn`). Optional:
+   *  an upload's prosody numbers ride on `perTurn[i].voice` instead and are
+   *  read from there; an upload has no per-turn tone. */
+  turnFacts?: (TurnFacts | null | undefined)[] | null;
+  /** CONTROLLED metric: when provided the parent owns the choice (and its
+   *  persistence) and chip taps only *request* changes via `onMetricChange`.
+   *  When undefined the chart manages the choice itself (default: heat). */
+  metric?: ChartMetric;
+  onMetricChange?: (metric: ChartMetric) => void;
 }
 
 /**
@@ -725,9 +621,41 @@ export default function HeatChart({
   turnsTiming,
   onSeekToTurn,
   durationSeconds = null,
+  turnFacts = null,
+  metric: metricProp,
+  onMetricChange,
 }: HeatChartProps) {
   const [width, setWidth] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
+
+  // Y-axis metric. Controlled when the `metric` prop is provided (the parent
+  // owns + persists it); self-managed otherwise. `metric` is the single value
+  // the render reads either way.
+  const [internalMetric, setInternalMetric] = useState<ChartMetric>(DEFAULT_CHART_METRIC);
+  const metric = metricProp ?? internalMetric;
+  const requestMetric = (next: ChartMetric) => {
+    if (metricProp === undefined) setInternalMetric(next);
+    onMetricChange?.(next);
+  };
+  const spec = METRIC_SPECS[metric];
+  // Per-turn raw numbers (a live session's phone prosody + text tone, else
+  // the upload's voice block), the values under the active metric, and ONE
+  // scale shared by the dashes, the legacy polyline, the axis ticks, and the
+  // band annotation. The Person axis labels its lanes with display names.
+  const turnMetrics = useMemo(
+    () => turnMetricsFor(perTurn, turnFacts),
+    [perTurn, turnFacts],
+  );
+  const scale = metricScale(metric, perTurn, turnMetrics, (s) =>
+    speakerLabel(s, speakerLabels),
+  );
+  const domain = scale.domain;
+  // Which chips are live: heat + person always; a tone/prosody metric only
+  // when at least one turn measured it (an upload has no per-turn tone; an
+  // old upload has labels but no numbers; a pasted transcript has no audio at
+  // all). Dead chips stay visible but disabled so the absence is honest —
+  // "not measured", not "doesn't exist".
+  const metricAvailable = (m: ChartMetric) => metricHasData(m, perTurn, turnMetrics);
 
   // Legend speaker isolation. Controlled when the `isolatedSpeaker` prop is
   // provided (parent owns the value); self-managed otherwise. `isolated` is the
@@ -994,22 +922,22 @@ export default function HeatChart({
   const speakerOrder: { speaker: string; color: string }[] =
     conversationSpeakerOrder.map((speaker) => ({ speaker, color: colorOf(speaker) }));
 
-  const overlayActive = !!simulated && simulated.length > 0 && showSimulation;
+  // The what-if overlay only carries heat, so it is only drawn on the heat
+  // scale — on any other metric it would sit on the wrong axis.
+  const overlayActive =
+    !!simulated && simulated.length > 0 && showSimulation && metric === "heat";
 
   // §1 y-scale honesty: when every turn sits in a narrow window we keep the
   // absolute scale but draw a subtle shaded band + caption (below) instead of
   // zooming into noise. Band rect spans the [min,max] heat range across the
   // chart width, with a small floor so a dead-flat conversation still shows.
-  const rangeBand = heatRangeBand(perTurn);
+  // Heat only — the band's wording is about heat ranges.
+  const rangeBand = metric === "heat" ? heatRangeBand(perTurn) : null;
   const bandRect =
     rangeBand && width > 0
       ? (() => {
-          const chartHeight = height - padding * 2;
-          const yOf = (h: number) =>
-            padding +
-            (chartHeight - (Math.max(0, Math.min(100, h)) / 100) * chartHeight);
-          const yTop = yOf(rangeBand.maxHeat);
-          const yBottom = yOf(rangeBand.minHeat);
+          const yTop = metricY(rangeBand.maxHeat, domain, { height, padding });
+          const yBottom = metricY(rangeBand.minHeat, domain, { height, padding });
           return {
             x: padding,
             y: yTop,
@@ -1018,6 +946,12 @@ export default function HeatChart({
           };
         })()
       : null;
+
+  // Axis ticks: one label per domain tick, at the SAME y the dashes use.
+  const tickMarks = domain.ticks.map((tick) => ({
+    tick,
+    y: metricY(tick, domain, { height, padding }),
+  }));
 
   // --- Time-axis geometry (primary) ---
   // Pass the zoom window ONLY when actually zoomed, so the default (full-view)
@@ -1031,6 +965,9 @@ export default function HeatChart({
           padding,
           duration,
           colorOf,
+          metric,
+          turnMetrics,
+          scale,
           ...zoomOpt,
         })
       : [];
@@ -1042,6 +979,7 @@ export default function HeatChart({
           padding,
           duration,
           colorOf,
+          scale,
           ...zoomOpt,
         })
       : [];
@@ -1083,6 +1021,9 @@ export default function HeatChart({
           padding,
           totalTurns: perTurn.length,
           colorOf,
+          metric,
+          turnMetrics,
+          scale,
         })
       : [];
   const simLines =
@@ -1093,6 +1034,7 @@ export default function HeatChart({
           padding,
           totalTurns: perTurn.length,
           colorOf,
+          scale,
         })
       : [];
   const legacyPlayheadX =
@@ -1117,6 +1059,19 @@ export default function HeatChart({
 
   // Non-baseline prosody chips for the selected turn (empty when no voice data).
   const voiceChips = voiceChipsFor(selectedTurn?.voice);
+  // The selected turn's value under the active metric, printed with its unit
+  // beside the heat — null when this turn wasn't measured. Not for heat (the
+  // heat is already printed) or person (the speaker's name is the header).
+  const showSelectedMetric = metric !== "heat" && metric !== "person";
+  const selectedMetricValue =
+    selectedTurn && showSelectedMetric
+      ? metricValue(
+          metric,
+          selectedTurn,
+          turnMetrics[perTurn.indexOf(selectedTurn)] ?? null,
+          scale.ctx,
+        )
+      : null;
 
   // Loading/error only belong to the inspector when they pertain to the turn
   // currently selected (the pivot the parent is acting on).
@@ -1204,21 +1159,60 @@ export default function HeatChart({
         )}
       </View>
 
-      {/* Y-axis label: the vertical position of every dash/point is HEAT
-          (0–100, an LLM-scored intensity per turn — see mapTurnsToDashes'
-          own comment "y = heat 0–100"), not time or volume. Nothing on
-          screen said that (owner feedback: "unlabeled y-axis") — this plain
-          caption fixes it, using the same word ("Heat") as the section
-          title above this chart on ReplayScreen/DynamicsScreen ("Heat over
-          the conversation") rather than inventing new terminology. */}
+      {/* Y-axis METRIC selector: what the vertical position of every dash
+          MEANS. Default is heat (the LLM's 0–100 per-turn intensity — which is
+          why the same voice sits at different heights: it is not a voice
+          measurement). The other chips plot the raw prosody numbers the phone
+          (live) or the server (upload) measured per turn. A chip is disabled
+          when no turn in this recording carries that number. */}
+      <View style={styles.metricRow} testID="metric-selector">
+        {CHART_METRICS.map((m) => {
+          const s = METRIC_SPECS[m];
+          const active = m === metric;
+          const available = metricAvailable(m);
+          return (
+            <TouchableOpacity
+              key={m}
+              testID={`metric-chip-${m}`}
+              style={[
+                styles.metricChip,
+                active && styles.metricChipActive,
+                !available && styles.metricChipDisabled,
+              ]}
+              disabled={!available}
+              onPress={() => requestMetric(m)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active, disabled: !available }}
+              accessibilityLabel={
+                available
+                  ? `Plot ${s.axisTitle}`
+                  : `${s.chip} — not measured for this recording`
+              }
+            >
+              <Text
+                style={[styles.metricChipText, active && styles.metricChipTextActive]}
+              >
+                {s.chip}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* Y-axis title with its unit. The word "Heat" matches the section
+          title above this chart on ReplayScreen/DynamicsScreen ("Heat over the
+          conversation") — no invented terminology; the other metrics name
+          their physical unit outright. testID kept from the first fix of the
+          owner's "unlabeled y-axis" report. */}
       <Text style={styles.axisLabel} testID="heat-axis-label">
-        Heat (0–100) ↑
+        {spec.axisTitle} ↑
       </Text>
 
-      {/* Chart area. The INNER surface hosts onLayout (responsive width) and,
-          on the time axis, the zoom gestures: pinch + drag (native), wheel +
-          drag (web); double-tap/double-click resets. A single tap always falls
-          through to a dash's own onPress (tap-to-seek).
+      {/* Chart area: a y-axis column of tick labels on the left, then the
+          chart surface. The INNER surface hosts onLayout (responsive width)
+          and, on the time axis, the zoom gestures: pinch + drag (native),
+          wheel + drag (web); double-tap/double-click resets. A single tap
+          always falls through to a dash's own onPress (tap-to-seek).
 
           The zoom affordances (reset chip, playhead hint) are SIBLINGS overlaid
           on the outer wrapper — deliberately OUTSIDE the pan surface. When they
@@ -1226,16 +1220,46 @@ export default function HeatChart({
           with a few px of finger wobble and cancel the press: zoomed-in users
           were left with no reliable way back (bug #10). As siblings their
           touches never negotiate with the pan responder. */}
-      <View style={{ position: "relative" }}>
+      <View style={{ position: "relative", flexDirection: "row" }}>
+        {/* Tick labels, each centered on the y its value maps to — the SAME
+            metricY the dashes go through, so a dash level with "−20" IS at
+            −20 dBFS. */}
+        <View style={[styles.axisColumn, { height }]} testID="y-axis">
+          {tickMarks.map(({ tick, y }) => (
+            <Text
+              key={`tick-${tick}`}
+              testID={`axis-tick-${tick}`}
+              style={[styles.axisTick, { top: y - 7 }]}
+            >
+              {formatTick(tick, domain)}
+            </Text>
+          ))}
+        </View>
         <View
           ref={surfaceRef}
           testID="heat-chart-surface"
-          style={{ height }}
+          style={{ height, flex: 1 }}
           onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
           {...(useTimeAxis ? panResponder.panHandlers : {})}
         >
           {width > 0 && (
           <Svg width={width} height={height}>
+            {/* Faint gridline per axis tick so the eye can carry a tick label
+                across to a dash. Drawn first — everything sits on top. */}
+            {tickMarks.map(({ tick, y }) => (
+              <Line
+                key={`grid-${tick}`}
+                testID={`axis-grid-${tick}`}
+                x1={padding}
+                y1={y}
+                x2={width - padding}
+                y2={y}
+                stroke={INK}
+                strokeWidth={1}
+                strokeOpacity={0.08}
+              />
+            ))}
+
             {/* §1 narrow-range band: a subtle shaded strip over the [min,max]
                 heat window, drawn first so the marks sit on top. Honest — the
                 y-axis is still the absolute 0–100 scale; this just says "the
@@ -1585,7 +1609,19 @@ export default function HeatChart({
             >
               {speakerLabel(selectedTurn.speaker, speakerLabels)}
             </Text>
-            <Text style={styles.inspectorHeat}>heat {selectedTurn.heat}</Text>
+            <View style={styles.inspectorValues}>
+              {/* The active metric's reading, WITH its unit, when a prosody
+                  metric is showing. "—" when this turn wasn't measured
+                  (e.g. an unvoiced turn's pitch) — never a made-up number. */}
+              {showSelectedMetric && (
+                <Text style={styles.inspectorMetric} testID="turn-inspector-metric">
+                  {selectedMetricValue === null
+                    ? `${spec.chip}: —`
+                    : formatMetricValue(metric, selectedMetricValue)}
+                </Text>
+              )}
+              <Text style={styles.inspectorHeat}>heat {selectedTurn.heat}</Text>
+            </View>
           </View>
           <Text style={styles.inspectorText}>
             {turns?.[selectedTurn.index]?.text ?? ""}
@@ -1712,14 +1748,61 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginBottom: 4,
   },
+  // Y-axis metric chips: a compact single row that wraps on a narrow phone.
+  metricRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 6,
+  },
+  metricChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#F9FAFB",
+  },
+  metricChipActive: {
+    borderColor: PRIMARY,
+    backgroundColor: "#EFF6FF",
+  },
+  metricChipDisabled: {
+    opacity: 0.4,
+  },
+  metricChipText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: MUTED,
+  },
+  metricChipTextActive: {
+    color: PRIMARY,
+  },
+  // Y-axis tick column, left of the chart surface. Labels are absolutely
+  // positioned by metricY so they sit level with the values they name.
+  axisColumn: {
+    width: AXIS_W,
+    position: "relative",
+  },
+  axisTick: {
+    position: "absolute",
+    right: 4,
+    fontSize: 10,
+    lineHeight: 14,
+    color: MUTED,
+    fontVariant: ["tabular-nums"],
+  },
   legendText: {
     fontSize: 13,
     color: MUTED,
     fontWeight: "600",
   },
+  // Everything under the chart surface is offset by the y-axis column's width
+  // so it lines up with the surface (not with the tick labels).
   scrubberRow: {
     flexDirection: "row",
     marginTop: 6,
+    marginLeft: AXIS_W,
   },
   scrubCell: {
     flex: 1,
@@ -1735,6 +1818,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginTop: 4,
     paddingHorizontal: 16,
+    marginLeft: AXIS_W,
   },
   timeAxisLabel: {
     fontSize: 11,
@@ -1779,7 +1863,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: "rgba(31,41,55,0.82)",
   },
-  playheadHintLeft: { left: 4 },
+  playheadHintLeft: { left: AXIS_W + 4 },
   playheadHintRight: { right: 4 },
   playheadHintText: { fontSize: 11, fontWeight: "700", color: "#FFFFFF" },
   zoomHint: {
@@ -1808,10 +1892,21 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textTransform: "uppercase",
   },
+  inspectorValues: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
   inspectorHeat: {
     fontSize: 13,
     fontWeight: "600",
     color: AMBER,
+  },
+  inspectorMetric: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: INK,
+    fontVariant: ["tabular-nums"],
   },
   inspectorText: {
     fontSize: 15,

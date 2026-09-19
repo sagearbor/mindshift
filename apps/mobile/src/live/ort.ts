@@ -46,7 +46,18 @@ export function float32Tensor(
   data: Float32Array,
   dims: readonly number[],
 ): OnnxTensor {
-  return { type: "float32", data, dims };
+  // onnxruntime-react-native (≤1.24) reads a typed array's underlying
+  // ArrayBuffer and IGNORES byteOffset/byteLength — a `subarray` view is
+  // silently replaced by the start of its parent buffer. Measured 2026-08-30:
+  // every 1.5 s window of a recording embedded the recording's first 1.5 s
+  // ("1 voice found", eigengap 1, cosine 1.000). Hand ORT an OWNED,
+  // zero-offset array whenever the view is not the whole buffer, so no
+  // caller can hit this again (the live loop passes subarray tails too).
+  const owned =
+    data.byteOffset !== 0 || data.byteLength !== data.buffer.byteLength
+      ? data.slice()
+      : data;
+  return { type: "float32", data: owned, dims };
 }
 
 export function int64Scalar(value: number): OnnxTensor {

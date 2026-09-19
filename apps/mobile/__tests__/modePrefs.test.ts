@@ -67,3 +67,11 @@ describe("modePrefs", () => {
     }
   });
 });
+
+describe("modePrefs — journal", () => {
+  it("accepts the journal mode (listen for my voice) as a remembered choice", async () => {
+    expect(isLiveMode("journal")).toBe(true);
+    getItem.mockResolvedValueOnce("journal");
+    expect(await loadLiveMode("sage")).toBe("journal");
+  });
+});
