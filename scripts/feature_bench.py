@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from itertools import combinations
 from pathlib import Path
 
@@ -69,7 +68,28 @@ def model(gbm: bool):
     return make_pipeline(StandardScaler(), LogisticRegression(max_iter=3000, C=0.5))
 
 
-def evaluate(df: pd.DataFrame, cols: list[str], gbm: bool) -> dict:
+def speaker_normalise(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    """Express every feature relative to the SPEAKER's own neutral clips
+    (z-score against that speaker's neutral mean/sd). This is the shipped
+    "dB over your own baseline" idea applied to all 88 eGeMAPS descriptors —
+    the app has a per-person enrolment and a running baseline, so it CAN do
+    this live; the question is whether it helps. Speakers with no neutral
+    clips keep raw values."""
+    out = df.copy()
+    neu = df[df.emotion == "neutral"]
+    stats = neu.groupby("speaker")[cols].agg(["mean", "std"])
+    for spk, g in df.groupby("speaker"):
+        if spk not in stats.index:
+            continue
+        mu = stats.loc[spk].xs("mean", level=1)
+        sd = stats.loc[spk].xs("std", level=1).replace(0, np.nan).fillna(1.0)
+        out.loc[g.index, cols] = (g[cols] - mu) / sd
+    return out
+
+
+def evaluate(df: pd.DataFrame, cols: list[str], gbm: bool, speaker_norm: bool = False) -> dict:
+    if speaker_norm:
+        df = speaker_normalise(df, cols)
     d = df.dropna(subset=cols)
     X = d[cols].to_numpy(dtype=float)
     y = d.is_angry.to_numpy().astype(int)
@@ -109,6 +129,7 @@ def main() -> int:
     ap.add_argument("--combo", action="append", help="e.g. egemaps+tone; repeatable")
     ap.add_argument("--gbm", action="store_true")
     ap.add_argument("--max-pairs", type=int, default=2)
+    ap.add_argument("--speaker-norm", action="store_true", help="z-score every feature against the speaker's own neutral clips")
     args = ap.parse_args()
     df, groups = load()
     print(f"bank: {len(df)} clips · groups {', '.join(f'{k}({len(v)})' for k, v in groups.items())}")
@@ -132,14 +153,22 @@ def main() -> int:
             name = "+".join(combo)
         if not cols:
             continue
-        r = evaluate(df, cols, args.gbm)
+        r = evaluate(df, cols, args.gbm, args.speaker_norm)
+        if args.speaker_norm:
+            name += " [speaker-normalised]"
         results[name] = r
         print(f"\n{name}  (n={r['n']})")
         for k, v in r.items():
             if k != "n":
                 print(f"  {k:26} {v}")
-    OUT.write_text(json.dumps(results, indent=1))
-    print(f"\n-> {OUT}")
+    # Accumulate across runs: every configuration keyed by name (+ flags), so
+    # the linear/GBM/normalised variants sit side by side instead of the last
+    # run silently replacing the earlier ones.
+    merged = json.loads(OUT.read_text()) if OUT.exists() else {}
+    suffix = (" [gbm]" if args.gbm else "")
+    merged.update({k + suffix: v for k, v in results.items()})
+    OUT.write_text(json.dumps(merged, indent=1))
+    print(f"\n-> {OUT}  ({len(merged)} configurations on record)")
 
     # a compact ranking on the numbers that matter
     print(f"\n{'combination':44} {'crema all':>9} {'crema happy':>11} {'xcorp all':>9} {'xcorp happy':>11} {'rec@5fa':>8}")
