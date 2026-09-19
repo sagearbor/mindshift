@@ -241,3 +241,11 @@ Three findings:
 
 Round 3 adds CHiME-6, the CONFER human-rating agreement (tone-model scoring
 in progress at the time of writing), and the neural feature groups.
+
+**Confirmed, not inferred:** CONFER's audio has a peak-to-RMS (crest factor)
+of **12.7 dB** against **23.2 dB** for SBCSAE's home recordings — the
+signature of broadcast limiting — only 0.1% of its windows clear the +6 dB
+rung (19–20% elsewhere), and the shipped ladder catches **0 of 25** spans that
+ten human raters marked as heated. Pinned by
+`test_the_ladder_is_blind_to_level_controlled_arguments` so that fixing it
+fails the test and forces this write-up to move.

@@ -149,3 +149,40 @@ def test_a_buzz_still_carries_no_information_about_who_was_speaking(audit_rows):
         f"buzzes now land on the wearer's own turns {lift:+.1f} points above chance. "
         "If identity has genuinely reached the wrist, invert this test."
     )
+
+
+# ------------------------------------------------ the other direction --
+#
+# Everything above measures OVER-firing on calm conversation. CONFER measures
+# the opposite: real televised arguments, rated heated second-by-second by ten
+# annotators, where the shipped ladder almost never fires — because broadcast
+# audio is level-controlled (crest factor ~13 dB vs ~23 dB for a home
+# recording) and the loudness dynamics the ladder depends on are compressed
+# away. A phone call through a carrier codec or an earbud with automatic gain
+# has the same property. Known-defect assertion, like the dose one.
+
+CONFER_MANIFEST = REPO / "tmp/corpora/confer/heatmap_manifest.json"
+
+
+@pytest.mark.skipif(not CONFER_MANIFEST.exists(), reason="CONFER not ingested — scripts/confer_corpus.py")
+def test_the_ladder_is_blind_to_level_controlled_arguments():
+    import conversation_audit as ca
+    import heat_map as hm
+
+    entries = json.loads(CONFER_MANIFEST.read_text())
+    heated = [e for e in entries if e.get("heated_spans")]
+    assert len(heated) >= 8, "need a handful of human-rated heated clips"
+    expected = hits = 0
+    for e in heated:
+        pcm, sr = hm.load_pcm(str(CONFER_MANIFEST.parent / e["audio"]))
+        over = ca.db_over_baseline(ca.windows_dbfs(pcm, sr))
+        m = hm.nudge_metrics(ca.replay(over, False, True), e["heated_spans"], e["duration_s"])
+        expected += m["nudge_expected"]
+        hits += m["nudge_hits"]
+    assert expected >= 20
+    caught = hits / expected
+    assert caught < 0.25, (
+        f"the loudness ladder now catches {caught:.0%} of human-rated heated spans on "
+        "level-controlled audio — if a detector that does not depend on loudness dynamics "
+        "has shipped, invert this test and update docs/plans/2026-09-19-heat-map-rounds.md"
+    )
