@@ -130,8 +130,12 @@ def main() -> int:
     ap.add_argument("--gbm", action="store_true")
     ap.add_argument("--max-pairs", type=int, default=2)
     ap.add_argument("--speaker-norm", action="store_true", help="z-score every feature against the speaker's own neutral clips")
+    ap.add_argument("--restrict-to", help="evaluate EVERY combination only on clips that have this group (apples-to-apples with an expensive, subsampled group)")
     args = ap.parse_args()
     df, groups = load()
+    if args.restrict_to:
+        df = df.dropna(subset=groups[args.restrict_to])
+        print(f"restricted to the {len(df)} clips that carry '{args.restrict_to}'")
     print(f"bank: {len(df)} clips · groups {', '.join(f'{k}({len(v)})' for k, v in groups.items())}")
 
     combos: list[list[str]] = []
@@ -165,7 +169,7 @@ def main() -> int:
     # the linear/GBM/normalised variants sit side by side instead of the last
     # run silently replacing the earlier ones.
     merged = json.loads(OUT.read_text()) if OUT.exists() else {}
-    suffix = (" [gbm]" if args.gbm else "")
+    suffix = (" [gbm]" if args.gbm else "") + (f" [on {args.restrict_to} rows]" if args.restrict_to else "")
     merged.update({k + suffix: v for k, v in results.items()})
     OUT.write_text(json.dumps(merged, indent=1))
     print(f"\n-> {OUT}  ({len(merged)} configurations on record)")

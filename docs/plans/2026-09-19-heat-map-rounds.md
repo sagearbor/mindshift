@@ -156,15 +156,15 @@ label protocols).
 | --- | --- | --- | --- |
 | loudness over own baseline (shipped) | 0.797 | **0.733** | 0.33 |
 | our prosody features | 0.815 | 0.708 | 0.30 |
-| **eGeMAPS** (88 openSMILE functionals, 24 ms/clip) | 0.854 | **0.869** | **0.54** |
+| **eGeMAPS** (88 openSMILE functionals, 24 ms/clip) | 0.854 | **0.832**¹ | **0.51** |
 | eGeMAPS + our prosody | 0.875 | 0.773 | 0.42 |
 
 Two things worth more than the numbers:
 
-- **eGeMAPS does not degrade across corpora** (0.854 → 0.869). It is measuring
+- **eGeMAPS barely degrades across corpora** (0.854 → 0.832). It is measuring
   something about the voice, not about the recording. And at 24 ms per clip it
   is plausibly on-device.
-- **Adding our own prosody features makes it worse cross-corpus** (0.869 →
+- **Adding our own prosody features makes it worse cross-corpus** (0.832 →
   0.773). They carry recording-setup information — absolute level, clip
   shape — and the model learns it. This is the activation-v1 lesson again, on
   a different feature set.
@@ -178,9 +178,9 @@ cross-corpus angry-vs-happy AUC):
 
 | variant | eGeMAPS | eGeMAPS + prosody |
 | --- | --- | --- |
-| linear probe (above) | **0.869** | 0.773 |
+| linear probe (above) | **0.832** | 0.773 |
 | gradient-boosted trees | 0.785 | 0.820 |
-| per-speaker normalised (z-score vs own neutral clips) | 0.825, recall@5fa 0.54 → **0.29** | — |
+| per-speaker normalised (z-score vs own neutral clips) | 0.825, recall@5fa 0.51 → **0.29** | — |
 
 - **A nonlinear model generalises *worse*.** Given room to fit, it fits the
   corpus. The linear probe on eGeMAPS is the best cross-corpus number on the
@@ -268,3 +268,47 @@ the other 79 recordings means what it looks like it means.
 This closes the question the owner opened: the thing that should decide
 whether a loud moment is heated is not loudness. The candidates are now
 measured on the bench.
+
+
+¹ *Correction:* an earlier draft of this section reported eGeMAPS at 0.869
+cross-corpus. That run happened while the eGeMAPS extraction was still in
+progress and scored the partially filled bank; on all 8,882 clips the number
+is 0.832. The ranking and every conclusion stand; the size of the gap to
+loudness is 10 points, not 14.
+
+## Feature bench, final — the neural groups (2026-09-20, early morning)
+
+All groups scored on the **same 2,940 clips** (the stratified subset the
+WavLM group was extracted for — 250 per corpus × emotion), so this is
+apples-to-apples. Cross-corpus = train on CREMA-D's speakers, test on
+RAVDESS's; angry-vs-**happy** is the column that matters.
+
+| signal | in-corpus angry-vs-happy | **cross-corpus angry-vs-happy** | recall @ 5% FA |
+| --- | --- | --- | --- |
+| loudness over own baseline (shipped) | 0.792 | 0.733 | 0.33 |
+| eGeMAPS (88 hand-crafted) | 0.840 | 0.829 | 0.43 |
+| wav2vec2-base-superb-er (4-class logits) | 0.772 | 0.809 | 0.45 |
+| SpeechBrain wav2vec2-IEMOCAP (4 probs + 64-d embedding) | 0.884 | 0.867 | 0.50 |
+| **WavLM arousal / valence / dominance — three numbers** (`tone_id`, MIT) | 0.844 | **0.897** | 0.59 |
+| eGeMAPS + WavLM dims | 0.880 | 0.903 | 0.60 |
+| WavLM dims + wav2vec2-er | 0.876 | 0.928 | 0.63 |
+| **WavLM dims + SpeechBrain IEMOCAP** | 0.909 | **0.941** | **0.66** |
+
+What it says:
+
+- **Three dimensional numbers beat every 4-class emotion classifier and every
+  hand-crafted set on their own** — and beat them *more* cross-corpus than
+  in-corpus, the opposite of loudness. This is the literature's prediction
+  (the missing axis is valence) landing exactly. The model producing them is
+  already in the codebase, permissively licensed, and — per the CONFER
+  result — the only signal here validated against human conflict ratings.
+- **Stacking a categorical SER model on top adds ~4 points and doubles
+  recall at 5% false alarms** versus what ships (0.33 → 0.66). Both models
+  are Apache/MIT and CPU-runnable; neither is watch-runnable, which is the
+  latency trade that keeps the instant tier a separate question.
+- **eGeMAPS is the best thing that could plausibly run on a watch** (0.83,
+  24 ms/clip), ten points above loudness. Wav2Small (72K params) remains the
+  candidate to distil toward if its weights are obtainable.
+
+Every number here is from `scripts/feature_bench.py --restrict-to tone`, on
+`tmp/feature-bank/*.parquet`; the bank rebuilds with `scripts/feature_bank.py`.
