@@ -249,3 +249,22 @@ rung (19–20% elsewhere), and the shipped ladder catches **0 of 25** spans that
 ten human raters marked as heated. Pinned by
 `test_the_ladder_is_blind_to_level_controlled_arguments` so that fixing it
 fails the test and forces this write-up to move.
+
+### The human-rated result (CONFER, 19 clips)
+
+The one corpus where people, not a model, said how heated each second was:
+
+| signal | Spearman vs the ten raters' conflict intensity (per clip) |
+| --- | --- |
+| our loudness-heat (dB over own baseline) | **0.00** (median +0.03, n=19) |
+| the tone model's arousal (WavLM, `tone_id`) | **+0.55** (median +0.56, n=11 clips with ≥10 scored windows) |
+
+Two conclusions. **Loudness carries no information about human-rated
+conflict on real arguments** — not weak, none. And **the tone-model
+reference is now validated against people** (+0.55 on level-controlled
+broadcast audio it was never tuned for), so its disagreement with loudness on
+the other 79 recordings means what it looks like it means.
+
+This closes the question the owner opened: the thing that should decide
+whether a loud moment is heated is not loudness. The candidates are now
+measured on the bench.
