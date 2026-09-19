@@ -172,3 +172,28 @@ Two things worth more than the numbers:
 Neural groups (WavLM arousal/valence/dominance, wav2vec2-base-superb-er,
 SpeechBrain's IEMOCAP model, emotion2vec+) are extracted next; they are the
 candidates the literature expects to win on valence.
+
+**Two negative results worth as much as the positive one** (same bench,
+cross-corpus angry-vs-happy AUC):
+
+| variant | eGeMAPS | eGeMAPS + prosody |
+| --- | --- | --- |
+| linear probe (above) | **0.869** | 0.773 |
+| gradient-boosted trees | 0.785 | 0.820 |
+| per-speaker normalised (z-score vs own neutral clips) | 0.825, recall@5fa 0.54 → **0.29** | — |
+
+- **A nonlinear model generalises *worse*.** Given room to fit, it fits the
+  corpus. The linear probe on eGeMAPS is the best cross-corpus number on the
+  board and the simplest thing on it.
+- **Normalising against the speaker's own baseline generalises *worse* too.**
+  This is the shipped philosophy — "dB over *your* baseline" — applied to
+  all 88 features, and it costs 4 points of AUC and half the recall. The
+  acoustics that mark anger (spectral tilt, harmonic structure, the shape of
+  the energy envelope) are largely *absolute* properties of an angry voice,
+  not deviations from that person's calm one. Loudness needed a baseline
+  because loudness is the one feature that is mostly about the microphone;
+  the rest do not, and subtracting the baseline throws away signal.
+
+Implication for the product: the next detector should be eGeMAPS-class
+features into a *linear* model, *not* re-referenced to the wearer — and the
+per-person baseline kept only for the one feature that needs it.
