@@ -72,6 +72,45 @@ problem: on calm conversation the thing loudness is picking up is not heat.
 Round 1's diversity is poor by construction: office meetings and a poker game
 are both "nobody is angry". Round 2 exists to fix that.
 
+## Round 1b — candidate fixes, measured in replay on the same 19 recordings
+
+Before any new data, the knobs that exist in the shipped chain were measured
+against each other. Nothing here changed product behaviour; each is a column on
+the graph (`dose_identity_ceiling`, `dose_valence_veto`, …).
+
+| variant | mean dose | duration-weighted |
+| --- | --- | --- |
+| shipped today | 117/h | **89.7/h** |
+| only the wearer's own windows may buzz (perfect identity — Option A's *ceiling*) | 82/h | 72.0/h |
+| valence veto extended to the watch lane | 100/h | 80.0/h |
+| identity **and** valence | 73/h | **64.1/h** |
+| first rung +8 dB | 80/h | 71.8/h |
+| first rung +10 dB | 63/h | 51.3/h |
+
+By corpus (weighted, shipped → identity → valence → both): AMI 89 → 72 → 79 →
+64; the owner's recordings 361 → 181 → 241 → 122.
+
+What this says, and it is the most important result so far:
+
+- **Perfect identity removes only ~30% of the dose.** About 70% of buzzes are
+  the wearer's *own* loud windows. Option A is necessary — a buzz should never
+  be about someone else — but it is nowhere near sufficient.
+- **The valence veto removes ~10%** on real audio and *adds* buzzes on the TTS
+  scenes (79 → 90), because there the model reads loud synthetic anger as
+  unpleasant and un-vetoes it. Correct behaviour, small effect.
+- **Both together reach 64/h — still five times the 12/h target.** No
+  combination of the existing knobs gets close. The remaining dose is the
+  wearer, genuinely louder than their own baseline, in conversations where
+  nobody is angry. That is not a gating problem; it is the +6 dB rung
+  measuring animation, not heat. Raising it to +10 dB (51/h) buys the most of
+  any single knob, at the cost of the recall the CREMA-D rubric already
+  measured (61% of angry clips at +10 vs 84% at +6).
+
+So the honest conclusion of round 1b: **the dose target is unreachable by
+tuning the loudness lane. Something other than loudness has to decide when a
+loud moment is worth a buzz** — words, valence with a stricter bar, or a
+learned model — and the corpus below is what it gets calibrated on.
+
 ## Round 2 — diverse real conversation
 
 _(filled in as corpora land — see below)_
