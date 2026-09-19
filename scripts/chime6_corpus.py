@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 import tarfile
 import wave
 from collections import defaultdict
@@ -30,6 +31,7 @@ from pathlib import Path
 import numpy as np
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "scripts"))
 ROOT = REPO / "tmp/corpora/chime6"
 SR = 16000
 SEGMENT_S = 15 * 60
@@ -71,16 +73,24 @@ def main() -> int:
     root = Path(args.root)
     extract(root)
     raw = root / "raw"
+    # The OpenSLR dev package ships AUDIO ONLY: per-participant binaural
+    # headsets (S02_P08.wav ...) and the six Kinect arrays (S02_U01.CH1.wav
+    # ...). The per-utterance transcript JSONs are a separate download. That is
+    # fine — the headsets ARE the ground truth, exactly as with AMI: energy VAD
+    # on each person's own channel says who spoke when, with no annotation.
+    # Transcripts are used when present, headsets otherwise.
     transcripts = {p.stem: p for p in raw.rglob("*.json") if re.fullmatch(r"S\d+", p.stem)}
-    if not transcripts:
-        raise SystemExit("no session transcripts found under tmp/corpora/chime6/raw")
+    sessions = sorted({m.group(1) for p in raw.rglob("S*_P*.wav") for m in [re.match(r"(S\d+)_P\d+", p.stem)] if m})
+    if not sessions:
+        raise SystemExit("no per-participant headsets (S*_P*.wav) under tmp/corpora/chime6/raw")
     out_dir = root / "segments16k"
     out_dir.mkdir(exist_ok=True)
     entries = []
-    for sess, tpath in sorted(transcripts.items()):
+    for sess in sessions:
+        tpath = transcripts.get(sess)
         heads = sorted(p for p in raw.rglob(f"{sess}_P*.wav"))
         if len(heads) < 2:
-            print(f"  {sess}: no per-participant headsets found — skipped")
+            print(f"  {sess}: fewer than 2 headsets — skipped")
             continue
         chans, sr = [], None
         for h in heads:
@@ -101,15 +111,24 @@ def main() -> int:
         total_s = len(pcm) / SR
 
         spans: dict[str, list[list[float]]] = defaultdict(list)
-        for u in json.loads(tpath.read_text()):
-            try:
-                a, b = hms(u["start_time"]), hms(u["end_time"])
-            except (KeyError, ValueError):
-                continue
-            if b > a:
-                spans[u["speaker"]].append([a, b])
-        for v in spans.values():
-            v.sort()
+        if tpath is not None:
+            for u in json.loads(tpath.read_text()):
+                try:
+                    a, b = hms(u["start_time"]), hms(u["end_time"])
+                except (KeyError, ValueError):
+                    continue
+                if b > a:
+                    spans[u["speaker"]].append([a, b])
+            for v in spans.values():
+                v.sort()
+        else:
+            # Headset-derived truth — the AMI method, same constants, so the two
+            # corpora' speaker labels are comparable by construction. A binaural
+            # headset is stereo; read_wav already averaged it to mono.
+            from ami_corpus import intervals, speaking_mask
+            active, _frames = speaking_mask(chans, sr)
+            for k, h in enumerate(heads):
+                spans[h.stem.split("_")[1]] = intervals(active[k])
 
         nseg = int(total_s // SEGMENT_S) + (1 if total_s % SEGMENT_S >= MIN_SEGMENT_S else 0)
         for k in range(max(nseg, 1)):
@@ -137,7 +156,7 @@ def main() -> int:
                 "self": max(talk, key=talk.get) if talk else None,
                 "heated_spans": None, "duration_s": round(b0 - a0, 1), "speaking_seconds": talk,
             })
-        print(f"  {sess}: {total_s/60:.0f} min, {len(heads)} headsets -> {nseg} segments", flush=True)
+        print(f"  {sess}: {total_s/60:.0f} min, {len(heads)} headsets, truth from {'transcripts' if tpath else 'headsets'} -> {nseg} segments", flush=True)
     (root / "heatmap_manifest.json").write_text(json.dumps(entries, indent=1))
     print(f"\n{len(entries)} segments, {sum(e['duration_s'] for e in entries)/3600:.1f} h -> {root/'heatmap_manifest.json'}")
     return 0
