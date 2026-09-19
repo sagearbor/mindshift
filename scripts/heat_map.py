@@ -207,13 +207,10 @@ def human_conflict_agreement(entry: dict, over: np.ndarray) -> dict:
     if sp.exists():
         ref = json.loads(sp.read_text())
         w = int(ref["win_s"])
-        pooled = [float(np.mean(human[i * w:(i + 1) * w])) for i in range(len(human) // w)]
         ar = np.asarray(ref["arousal"], dtype=float)
-        # heat_reference dropped silent windows, so align on the windows it kept:
-        # it kept windows where OUR 1 s series was voiced; reproduce that mask.
-        kept = [i for i in range(len(human) // w) if np.any(over[i * w:(i + 1) * w] != 0.0)]
+        kept = [i for i in ref.get("window_idx", []) if (i + 1) * w <= len(human)]
         if len(kept) == len(ar) and len(ar) >= 10:
-            hp = np.asarray([pooled[i] for i in kept])
+            hp = np.asarray([float(np.mean(human[i * w:(i + 1) * w])) for i in kept])
             if np.std(hp) > 0 and np.std(ar) > 0:
                 r1 = np.argsort(np.argsort(ar)).astype(float)
                 r2 = np.argsort(np.argsort(hp)).astype(float)
@@ -269,24 +266,19 @@ def self_gate(entry: dict, n: int) -> np.ndarray | None:
 def valence_gate(entry: dict, n: int) -> np.ndarray | None:
     """Per-window: did the tone model NOT call this window pleasant? The valence
     veto of PR #186, applied here to the watch's own lane where it does not
-    currently reach. Needs heat_reference.py's saved 5 s series."""
+    currently reach. Needs heat_reference.py's saved 5 s series; windows the
+    reference did not score (silence, or subsampled away) are left open, so the
+    veto can only ever REMOVE buzzes — same fail-open rule as the shipped one."""
     sp = OUT / "reference_series" / f"{entry['id']}.json"
     if not sp.exists():
         return None
     ref = json.loads(sp.read_text())
-    w, val = int(ref["win_s"]), ref["valence"]
-    # heat_reference kept only voiced windows; rebuild the map onto the full grid
+    idx = ref.get("window_idx")
+    if idx is None or len(idx) != len(ref["valence"]):
+        return None
+    w = int(ref["win_s"])
     g = np.ones(n, dtype=bool)
-    kept = []
-    over = ref.get("_over_grid")
-    if over is None:
-        return None
-    for i in range(len(over)):
-        if over[i]:
-            kept.append(i)
-    if len(kept) != len(val):
-        return None
-    for k, v in zip(kept, val):
+    for k, v in zip(idx, ref["valence"]):
         if v > 0.48:
             g[k * w:(k + 1) * w] = False
     return g

@@ -37,6 +37,13 @@ import heat_map as hm  # noqa: E402
 import tone_id  # noqa: E402
 
 WIN_S = 5.0
+#: Long recordings are SUBSAMPLED to this many evenly spaced 5 s windows.
+#: SBCSAE alone is ~20 h; scoring every window through WavLM-large on CPU
+#: would take the night for one corpus. 120 windows is ten minutes of audio
+#: per recording — plenty for a per-recording correlation, and it keeps a
+#: sixty-recording corpus to under an hour. The window indices are kept in
+#: the saved series so the valence gate can map back onto the 1 s grid.
+MAX_WINDOWS_PER_RECORDING = 120
 OUT = REPO / "tmp/heat-map/heat_reference.json"
 #: Per-window arousal/valence/our-dB series, one file per recording, so the
 #: reference can itself be checked against human ratings without re-running
@@ -68,9 +75,13 @@ def score(entry: dict) -> dict | None:
     count = len(pcm) // n
     # Our chain's 1 s windows, then pooled to the same 5 s grid.
     over1 = ca.db_over_baseline(ca.windows_dbfs(pcm, sr))
-    ours, arousal, valence = [], [], []
+    ours, arousal, valence, used = [], [], [], []
     x = pcm.astype(np.float32) / 32768.0
-    for i in range(count):
+    voiced_idx = [i for i in range(count) if np.any(over1[i * 5:(i + 1) * 5] != 0.0)]
+    if len(voiced_idx) > MAX_WINDOWS_PER_RECORDING:
+        pick = np.linspace(0, len(voiced_idx) - 1, MAX_WINDOWS_PER_RECORDING).round().astype(int)
+        voiced_idx = [voiced_idx[k] for k in pick]
+    for i in voiced_idx:
         seg = x[i * n:(i + 1) * n]
         o = over1[i * 5:(i + 1) * 5]
         voiced = o[o != 0.0]
@@ -86,13 +97,14 @@ def score(entry: dict) -> dict | None:
         ours.append(float(np.mean(voiced)))
         arousal.append(float(r["arousal"]))
         valence.append(float(sc["valence"]))
+        used.append(int(i))
     if len(ours) < 3:
         return None
     a, v, o = np.array(arousal), np.array(valence), np.array(ours)
     SERIES_DIR.mkdir(parents=True, exist_ok=True)
-    grid = [bool(np.any(over1[i * 5:(i + 1) * 5] != 0.0)) for i in range(count)]
     (SERIES_DIR / f"{entry['id']}.json").write_text(json.dumps({
-        "win_s": WIN_S, "_over_grid": grid, "ours_db_over": [round(float(x), 2) for x in o],
+        "win_s": WIN_S, "window_idx": used, "n_windows": count,
+        "ours_db_over": [round(float(x), 2) for x in o],
         "arousal": [round(float(x), 4) for x in a], "valence": [round(float(x), 4) for x in v],
     }))
     return {
