@@ -312,3 +312,50 @@ What it says:
 
 Every number here is from `scripts/feature_bench.py --restrict-to tone`, on
 `tmp/feature-bank/*.parquet`; the bank rebuilds with `scripts/feature_bank.py`.
+
+## Round 3 — a dinner party at home (CHiME-6), and the final graph
+
+**121 recordings**, 55 hours of real conversation across five settings.
+CHiME-6 adds two real dinner parties (four friends cooking and eating, 4.5 h,
+eighteen 15-minute segments) recorded on each person's own binaural headset —
+the home counterpart to AMI's office, with the same free speaker truth.
+
+| dinner party (CHiME-6) | buzzes / hour |
+| --- | --- |
+| shipped | 92.1 |
+| perfect identity | 92.1 |
+| valence veto | 86.7 |
+| **hold 5 s** | **55.3** |
+| overlap (ground-truth ceiling) | 68.1 |
+| identity + hold 3 s + overlap | **38.1** |
+| rung +10 dB | 77.1 |
+
+What the dinner party adds that the other corpora could not:
+
+- **It is the hardest setting for the loudness ladder, and the one closest to
+  the product's use.** Four people at a table talk over each other, laugh and
+  get animated for two hours straight. The tone model calls **21% of the loud
+  windows pleasant** — three times the meetings' 7% — and the ladder's dose is
+  the highest of any real corpus.
+- **The identity gate removes nothing here** (92.1 → 92.1). Not a bug: the
+  designated wearer (the person who talks most) is speaking during nearly
+  every loud window — at a dinner table, the loud person *is* the person
+  talking. Option A protects against blaming you for someone else; at a dinner
+  party there is no one else to blame.
+- **Hysteresis helps less at a dinner party** (92 → 55) than at a meeting
+  (89 → 17) or everyday talk (84 → 25), because sustained animation is the
+  normal state of a dinner party, not an event. The combination that gets
+  furthest is identity + hold + overlap at 38/h — still three times the target.
+
+Across all 121 recordings, dose still tracks loudness volatility at Spearman
+**+0.88** — the ladder buzzes in proportion to how lively a conversation is,
+whoever is in it and whatever they feel. On every real recording the tone
+model and loudness agree only moderately (median +0.50); on the one corpus
+with human ratings, loudness agrees with the humans at 0.00 and the tone model
+at +0.55.
+
+That is where the three rounds end: **no combination of the existing knobs
+reaches the 12/h target on any real setting, and the two signals the
+literature said would work — a dimensional tone model, and hysteresis on
+whatever fires — are the two that measured best here.** Both are now in the
+bench and the graph with numbers a decision can be made on.
