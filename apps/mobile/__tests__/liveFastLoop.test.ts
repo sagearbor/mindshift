@@ -860,15 +860,19 @@ describe("FastLoop", () => {
       await h.loop.stop();
     });
 
-    it("(d) revision: a later cluster at 0.60 beats the earlier 0.42 by the margin, so self moves", async () => {
-      const h = withQueue([owner(), stranger(), vectorAtCosine(D, 0.6, 0, 3), owner()], [youAway]);
+    it("(d) revision: a later cluster at 0.58 beats the earlier 0.42 by the margin, so self moves", async () => {
+      // 0.58, not 0.60: MATCH_THRESHOLD is 0.60 since 2026-09-18, so a 0.60
+      // cluster would clear the ABSOLUTE bar and never reach the contrast
+      // path this case exists to test. 0.58 sits just under it and still
+      // beats 0.42 by 0.16 >= the 0.15 margin.
+      const h = withQueue([owner(), stranger(), vectorAtCosine(D, 0.58, 0, 3), owner()], [youAway]);
       await h.loop.start({ sessionId: "cx-d", mode: "earpiece", empathy: 50 });
       await speak(h, "first voice");
       await speak(h, "second voice");
       expect(h.turns[0]).toMatchObject({ speaker: "Speaker A", isSelf: true, matchBasis: "contrast" });
       await speak(h, "third voice, closer to the print");
       expect(h.turns[2]).toMatchObject({ speaker: "Speaker C", personId: "p-you", isSelf: true, matchBasis: "contrast" });
-      expect(h.turns[2].matchScore).toBeCloseTo(0.6, 4);
+      expect(h.turns[2].matchScore).toBeCloseTo(0.58, 4);
       // A person is one voice: Speaker A gave self up (and is honestly not-self).
       expect(h.turns[0]).toMatchObject({ speaker: "Speaker A", personId: null, displayName: null, isSelf: false, matchScore: null, matchBasis: null });
       await speak(h, "first voice again");
