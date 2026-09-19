@@ -23,7 +23,7 @@ from main import (
     app,
     init_db,
 )
-from tests.test_reanalyze import (
+from test_reanalyze import (
     FIXTURE_WAV,
     GOOD_UUID,
     STORED_TURNS,

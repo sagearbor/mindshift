@@ -125,8 +125,8 @@ const GATES: Record<string, NudgeGate> = {
 };
 
 describe("nudge report: pure pieces", () => {
-  it("reads the pinned hits from replay.scenes.test.ts (3, 1, 1 as of 2026-09-06 — raise there, never lower here)", () => {
-    expect(PINNED).toEqual({ scene_couple_escalation: 3, scene_family3: 1, scene_meeting4: 1 });
+  it("reads the pinned hits from replay.scenes.test.ts (3, 1, 2 as of 2026-09-18 — raise there, never lower here)", () => {
+    expect(PINNED).toEqual({ scene_couple_escalation: 3, scene_family3: 1, scene_meeting4: 2 });
   });
 
   it("the call-mode column fires the steamroll vector where the ground truth overlaps for >= 2 s", () => {
@@ -363,10 +363,10 @@ maybe("nudge verification from recorded files (real Silero + ECAPA, scripted STT
     expect(listened.detail).toMatch(/1[2-9] s turn finish with no cut-in/);
   }, 180_000);
 
-  it("scene_meeting4 / earpiece: mild@11 hit; strong@13 is the documented miss (the shout does not match the calm print), still no false positive", async () => {
+  it("scene_meeting4 / earpiece: mild@11 hit; strong@13 now HIT too (the 0.60 threshold closed the documented miss), still no false positive", async () => {
     const rep = gateScene(await replayScene(scenes.scene_meeting4, { mode: "earpiece", models, enrollFrom: pool("scene_meeting4") }));
     expect(rep.turns[11].verdict).toBe("hit");
-    expect(rep.turns[13].verdict).toBe("miss");
+    expect(rep.turns[13].verdict).toBe("hit");
   }, 120_000);
 
   it("family_real / earpiece (owner + son, self enrolled from this recording): the owner's 'I'm arguing now' turn (+6 dB) buzzes the instant tier ~0.7 s before the LLM tier; the son never nudges", async () => {

@@ -30,9 +30,9 @@ import main
 import recordings_store
 from main import app, init_db
 from routers import sessions as sessions_router
-from tests.test_account_deletion import _FakeBucket
-from tests.test_chunked_upload import _patched_upload
-from tests.test_sessions_live import FakeLiveStore, _body
+from test_account_deletion import _FakeBucket
+from test_chunked_upload import _patched_upload
+from test_sessions_live import FakeLiveStore, _body
 
 pytestmark = pytest.mark.anyio
 

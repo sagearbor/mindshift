@@ -7,4 +7,10 @@ testpaths = ["server", "tests"]
 addopts = "--import-mode=importlib"
 # Make `main` (server/), `_mock_data` (tests/), and standalone scripts (Task
 # D1's migrate_episodes_to_live_sessions.py) importable by name from tests.
-pythonpath = ["server", "tests", "scripts"]
+# "server/tests" is listed so test modules can import SIBLINGS by their bare
+# name (`from test_reanalyze import ...`). They used to say `from tests.test_x`,
+# which only resolved when pytest had ALREADY collected that sibling under its
+# importlib name `tests.test_x` — alphabetically later siblings failed at
+# collection (test_apply_speaker_segments -> test_reanalyze) whenever the
+# top-level tests/ dir was in the same run, i.e. exactly how CI runs it.
+pythonpath = ["server", "server/tests", "tests", "scripts"]

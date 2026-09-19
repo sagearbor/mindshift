@@ -22,7 +22,7 @@ from httpx import ASGITransport, AsyncClient
 
 from main import app, init_db
 from routers import sessions as sessions_router
-from tests.test_sessions_live import FakeLiveStore, _body
+from test_sessions_live import FakeLiveStore, _body
 
 pytestmark = pytest.mark.anyio
 

@@ -221,16 +221,19 @@ describe("SpeakerLabeler", () => {
     lab.label(vectorAtCosine(D, 0.19, 0, 2), 2.0); // B -> A is self by contrast
     expect(lab.clusterAssignments().get("Speaker A")?.personId).toBe("p-you");
     const rev = lab.identityRevision;
-    // C scores 0.60: beats A's 0.42 by 0.18 >= margin — self moves to C.
-    const c = lab.label(vectorAtCosine(D, 0.6, 0, 3), 2.0);
-    expect(c).toMatchObject({ speaker: "Speaker C", personId: "p-you", isSelf: true, score: 0.6, basis: "contrast" });
+    // C scores 0.58: beats A's 0.42 by 0.16 >= margin — self moves to C.
+    // (Was 0.60 until 2026-09-18; MATCH_THRESHOLD is now 0.60, so 0.60 would
+    // clear the ABSOLUTE bar and never reach the contrast path this test is
+    // about. 0.58 sits just under it and still clears the 0.15 margin.)
+    const c = lab.label(vectorAtCosine(D, 0.58, 0, 3), 2.0);
+    expect(c).toMatchObject({ speaker: "Speaker C", personId: "p-you", isSelf: true, score: expect.closeTo(0.58, 5), basis: "contrast" });
     expect(lab.identityRevision).toBe(rev + 1);
     expect(Array.from(lab.clusterAssignments().keys())).toEqual(["Speaker C"]);
     // A is an unidentified voice again — honestly not self (a self print exists).
     expect(lab.label(vectorAtCosine(D, 0.42, 0, 1), 2.0)).toMatchObject({ speaker: "Speaker A", personId: null, isSelf: false, basis: null });
   });
 
-  it("the absolute path is untouched: >= 0.65 matches outright, founds no cluster, basis absolute", () => {
+  it("the absolute path is untouched: >= 0.60 matches outright, founds no cluster, basis absolute", () => {
     const lab = new SpeakerLabeler([you]); // single recording is enough
     expect(lab.label(vectorAtCosine(D, 0.7, 0, 1), 2.0)).toEqual({
       speaker: "You",

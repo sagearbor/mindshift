@@ -42,7 +42,7 @@ import calls
 import main
 from main import app
 
-from tests.test_audio_pipeline import (  # noqa: E402 — the DI doubles/helpers
+from test_audio_pipeline import (  # noqa: E402 — the DI doubles/helpers
     MOCK_LLM_JSON, NUDGE_LLM_JSON, FakeTTS, StoppableTranscriber, TranscriptSegment,
     _clear_overrides, open_ws, recv_until,
 )
