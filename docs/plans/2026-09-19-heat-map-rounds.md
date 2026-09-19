@@ -337,15 +337,20 @@ What the dinner party adds that the other corpora could not:
   get animated for two hours straight. The tone model calls **21% of the loud
   windows pleasant** — three times the meetings' 7% — and the ladder's dose is
   the highest of any real corpus.
-- **The identity gate removes nothing here** (92.1 → 92.1). Not a bug: the
-  designated wearer (the person who talks most) is speaking during nearly
-  every loud window — at a dinner table, the loud person *is* the person
-  talking. Option A protects against blaming you for someone else; at a dinner
-  party there is no one else to blame.
+- **The identity numbers for CHiME-6 are not trustworthy — do not read
+  them.** The gate "removed nothing" (92.1 → 92.1) because the headset-derived
+  speaker labels credit one participant with ~85% of all speech (297 s vs 37,
+  3 and 1 s in the first segment). CHiME-6's binaural headsets are not
+  gain-matched the way AMI's are, so the "loudest headset wins" bleed test
+  hands nearly every frame to the loudest microphone. AMI's labels passed the
+  8.2%-overlap sanity check; these would not. The dose, valence and hysteresis
+  columns for CHiME-6 do not depend on speaker labels and stand; the
+  identity and overlap columns for it should be regenerated from the
+  transcript JSONs (a separate CHiME-6 download) before anyone cites them.
 - **Hysteresis helps less at a dinner party** (92 → 55) than at a meeting
   (89 → 17) or everyday talk (84 → 25), because sustained animation is the
   normal state of a dinner party, not an event. The combination that gets
-  furthest is identity + hold + overlap at 38/h — still three times the target.
+  furthest on the columns that ARE trustworthy here is hold-5s at 55/h — still four times the target. (The 38/h identity+hold+overlap figure rests on the bad labels above.)
 
 Across all 121 recordings, dose still tracks loudness volatility at Spearman
 **+0.88** — the ladder buzzes in proportion to how lively a conversation is,
