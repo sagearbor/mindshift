@@ -12,7 +12,7 @@
 # detects that and errors out rather than appending, so for those the script
 # falls back to a single attempt with NO stall-abort (a slow patch is not a
 # failure) and reports truncation honestly.
-set -u
+set +u
 url=$1; out=$2; jar=${3:-}
 cookie=(); [ -n "$jar" ] && cookie=(-b "$jar" -c "$jar")
 total=$(curl -sIL "${cookie[@]}" --max-time 60 "$url" | grep -i '^content-length' | tail -1 | awk '{print $2}' | tr -d '\r')
