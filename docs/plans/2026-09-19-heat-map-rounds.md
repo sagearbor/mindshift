@@ -197,3 +197,47 @@ cross-corpus angry-vs-happy AUC):
 Implication for the product: the next detector should be eGeMAPS-class
 features into a *linear* model, *not* re-referenced to the wearer — and the
 per-person baseline kept only for the one feature that needs it.
+
+## Round 2 — 98 recordings: everyday conversation and real debates
+
+Corpora added: **SBCSAE** (60 real everyday American conversations, 23.3 h —
+dinners, phone calls, arguments, a town meeting; per-speaker CHAT timestamps)
+and **CONFER** (19 real televised Greek debates salvaged from the truncated
+folds, 24 min, ten raters' continuous conflict intensity). CHiME-6 lands in
+round 3.
+
+Dose per hour, duration-weighted, shipped chain and each candidate rule:
+
+| corpus | n | shipped | identity | valence | both | **hold 3 s** | **hold 5 s** | rising | hold+rise | overlap | id+hold+ovlp | rung +10 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| AMI meetings | 12 | 88.8 | 71.9 | 79.1 | 63.7 | 38.3 | **16.7** | 77.7 | 37.5 | 83.8 | 30.9 | 51.5 |
+| SBCSAE everyday | 60 | 83.8 | 79.7 | 78.6 | 74.2 | 43.5 | **24.7** | 78.8 | 44.5 | 76.9 | 37.6 | 49.7 |
+| CONFER debates | 19 | **2.5** | — | — | — | 0 | 0 | 0 | 0 | — | — | 0 |
+| owner recordings | 2 | 360.8 | 181.4 | 241.2 | 121.6 | 180.4 | 180.4 | 300.0 | 180.4 | 121.6 | 60.8 | 240.2 |
+
+Three findings:
+
+1. **Hysteresis is the single biggest lever, by far.** Requiring the first
+   rung to *hold* for 5 s before a buzz takes ordinary conversation from
+   84–89/h to 17–25/h. Identity, valence and a rising-trend rule each remove
+   10–30%; holding for five seconds removes 70–80%. This is the alarm-design
+   literature's prediction (instantaneous threshold crossing → mostly noise)
+   confirmed on 27 hours of real talk. It costs nothing in hardware and no
+   model. Still not 12/h — but the first knob that gets within reach of it.
+2. **On real everyday conversation, identity buys less than on meetings**
+   (84 → 80). SBCSAE is mostly two- and three-person talk where the wearer
+   speaks half the time; the buzzes really are theirs. Confirms round 1b:
+   Option A is about *correctness*, not dose.
+3. **The ladder is nearly blind to CONFER — 2.5 buzzes/hour on genuine
+   arguments.** The people in these clips are rated as in conflict by ten
+   annotators, and the wrist would almost never buzz. Loudness volatility on
+   these clips is 1.7 dB against 5 dB elsewhere: broadcast audio is
+   level-controlled, so the dynamics the ladder depends on are compressed
+   away. Any phone call routed through a carrier codec, any earbud with
+   automatic gain, has the same property. **Loudness over-fires on calm
+   conversation and under-fires on level-controlled heated conversation** —
+   wrong in both directions, for the same reason: it measures the audio
+   chain as much as the person.
+
+Round 3 adds CHiME-6, the CONFER human-rating agreement (tone-model scoring
+in progress at the time of writing), and the neural feature groups.
