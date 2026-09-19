@@ -108,15 +108,44 @@ def db_over_baseline(dbfs: np.ndarray) -> np.ndarray:
     return out
 
 
-def replay(over: np.ndarray, pulse_on: bool, reminder_backoff: bool) -> list[tuple[float, str, int]]:
+def replay(
+    over: np.ndarray,
+    pulse_on: bool,
+    reminder_backoff: bool,
+    *,
+    first_rung_db: float = 6.0,
+    gate: "np.ndarray | None" = None,
+) -> list[tuple[float, str, int]]:
     """The full chain, one call per 1 s window. Returns every moment the wrist
-    would buzz as (seconds, kind, level)."""
+    would buzz as (seconds, kind, level).
+
+    Two knobs exist purely to MEASURE candidate improvements in replay — nothing
+    here ships:
+
+    first_rung_db  the ladder's first rung (shipped 6.0); the other two rungs
+                   keep their +4/+8 spacing above it.
+    gate           per-window booleans; a window where the gate is False cannot
+                   escalate. Used for the identity ceiling (only the wearer's
+                   own windows may buzz) and the valence veto (a window the
+                   tone model calls pleasant may not). The reminder and decay
+                   machinery are untouched, so a gated-out window still lets
+                   the level decay exactly as today.
+    """
     felt: list[tuple[float, str, int]] = []
     level, last_qualifying_t, last_reminder_ms, repeats = 0, None, 0.0, 0
     pulse_last_ms = None
+    rungs = ((first_rung_db + 8.0, 3), (first_rung_db + 4.0, 2), (first_rung_db, 1))
+
+    def level_at(db: float) -> int:
+        for bar, lvl in rungs:
+            if db >= bar:
+                return lvl
+        return 0
+
     for i, o in enumerate(over):
         t = i * WINDOW_S
         now_ms = t * 1000.0
+        gated_out = gate is not None and i < len(gate) and not bool(gate[i])
         # --- pulse train (independent of the policy) ---
         if pulse_on:
             if o >= PULSE_THRESHOLD_DB:
@@ -126,7 +155,7 @@ def replay(over: np.ndarray, pulse_on: bool, reminder_backoff: bool) -> list[tup
             else:
                 pulse_last_ms = None
         # --- escalation ladder ---
-        e = level_for(o)
+        e = 0 if gated_out else level_at(o)
         if e > level:
             level, last_qualifying_t = e, t
             felt.append((t, "escalation", level))

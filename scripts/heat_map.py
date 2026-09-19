@@ -252,6 +252,46 @@ def attribution_from_nudge_report(entry: dict) -> float | None:
     return None
 
 
+def self_gate(entry: dict, n: int) -> np.ndarray | None:
+    """Per-window: was the coached user actually speaking? Ground truth from the
+    corpus's speaker spans — i.e. PERFECT identity. The dose that survives this
+    gate is the ceiling of what Option A (nudge only on the wearer's own turns)
+    could achieve; the real voiceprint will do worse."""
+    spk, me = entry.get("speakers"), entry.get("self")
+    if not spk or not me or me not in spk:
+        return None
+    g = np.zeros(n, dtype=bool)
+    for a, b in spk[me]:
+        g[int(a):int(np.ceil(b)) + 1] = True
+    return g[:n]
+
+
+def valence_gate(entry: dict, n: int) -> np.ndarray | None:
+    """Per-window: did the tone model NOT call this window pleasant? The valence
+    veto of PR #186, applied here to the watch's own lane where it does not
+    currently reach. Needs heat_reference.py's saved 5 s series."""
+    sp = OUT / "reference_series" / f"{entry['id']}.json"
+    if not sp.exists():
+        return None
+    ref = json.loads(sp.read_text())
+    w, val = int(ref["win_s"]), ref["valence"]
+    # heat_reference kept only voiced windows; rebuild the map onto the full grid
+    g = np.ones(n, dtype=bool)
+    kept = []
+    over = ref.get("_over_grid")
+    if over is None:
+        return None
+    for i in range(len(over)):
+        if over[i]:
+            kept.append(i)
+    if len(kept) != len(val):
+        return None
+    for k, v in zip(kept, val):
+        if v > 0.48:
+            g[k * w:(k + 1) * w] = False
+    return g
+
+
 def measure(entry: dict) -> dict:
     pcm, sr = load_pcm(entry["audio"])
     dbfs = ca.windows_dbfs(pcm, sr)
@@ -259,6 +299,21 @@ def measure(entry: dict) -> dict:
     felt = ca.replay(over, pulse_on=False, reminder_backoff=True)
     dur = entry.get("duration_s") or len(pcm) / sr
     hours = dur / 3600.0
+    # --- candidate improvements, measured in replay only ---
+    variants: dict[str, float | None] = {}
+    if hours:
+        variants["dose_rung8"] = round(len(ca.replay(over, False, True, first_rung_db=8.0)) / hours, 1)
+        variants["dose_rung10"] = round(len(ca.replay(over, False, True, first_rung_db=10.0)) / hours, 1)
+        sg = self_gate(entry, len(over))
+        variants["dose_identity_ceiling"] = (
+            round(len(ca.replay(over, False, True, gate=sg)) / hours, 1) if sg is not None else None
+        )
+        vg = valence_gate(entry, len(over))
+        variants["dose_valence_veto"] = (
+            round(len(ca.replay(over, False, True, gate=vg)) / hours, 1) if vg is not None else None
+        )
+        if sg is not None and vg is not None:
+            variants["dose_identity_and_valence"] = round(len(ca.replay(over, False, True, gate=sg & vg)) / hours, 1)
     row = {
         "id": entry["id"], "corpus": entry["corpus"], "setting": entry["setting"],
         "duration_min": round(dur / 60, 1),
@@ -269,6 +324,7 @@ def measure(entry: dict) -> dict:
         **human_conflict_agreement(entry, over),
         "has_speaker_truth": bool(entry.get("speakers")),
         "has_heat_labels": bool(entry.get("heated_spans")),
+        **{k: v for k, v in variants.items() if v is not None},
     }
     att = attribution_from_identity(entry)
     if att is None:
@@ -328,6 +384,11 @@ const METRICS = {{
   reference_vs_human_conflict: {{label:"validity check — does the TONE MODEL itself agree with the human raters? (CONFER only)", good:"high"}},
   loud_but_pleasant: {{label:"share of LOUD windows the tone model calls PLEASANT — anger mistaken for joy", good:"low"}},
   dose_per_hour:   {{label:"buzzes per hour the wrist would deliver (lower is better on calm audio)", good:"low"}},
+  dose_identity_ceiling: {{label:"dose if ONLY the wearer's own turns could buzz — perfect identity (Option A's ceiling)", good:"low"}},
+  dose_valence_veto: {{label:"dose with the valence veto extended to the watch lane (tone model says pleasant -> no buzz)", good:"low"}},
+  dose_identity_and_valence: {{label:"dose with BOTH identity and valence gates", good:"low"}},
+  dose_rung8:  {{label:"dose if the first rung were +8 dB instead of +6", good:"low"}},
+  dose_rung10: {{label:"dose if the first rung were +10 dB instead of +6", good:"low"}},
   attribution_acc: {{label:"share of turns attributed to the right speaker", good:"high"}},
   nudge_hit_rate:  {{label:"labelled heated moments the coach caught", good:"high"}},
   nudge_false_rate:{{label:"share of nudges that fired on nothing heated", good:"low"}},

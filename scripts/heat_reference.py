@@ -90,8 +90,9 @@ def score(entry: dict) -> dict | None:
         return None
     a, v, o = np.array(arousal), np.array(valence), np.array(ours)
     SERIES_DIR.mkdir(parents=True, exist_ok=True)
+    grid = [bool(np.any(over1[i * 5:(i + 1) * 5] != 0.0)) for i in range(count)]
     (SERIES_DIR / f"{entry['id']}.json").write_text(json.dumps({
-        "win_s": WIN_S, "ours_db_over": [round(float(x), 2) for x in o],
+        "win_s": WIN_S, "_over_grid": grid, "ours_db_over": [round(float(x), 2) for x in o],
         "arousal": [round(float(x), 4) for x in a], "valence": [round(float(x), 4) for x in v],
     }))
     return {
