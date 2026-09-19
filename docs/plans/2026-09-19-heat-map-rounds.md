@@ -364,3 +364,7 @@ reaches the 12/h target on any real setting, and the two signals the
 literature said would work — a dimensional tone model, and hysteresis on
 whatever fires — are the two that measured best here.** Both are now in the
 bench and the graph with numbers a decision can be made on.
+
+## Follow-up (2026-09-20)
+
+Owner questions on model size, latency, training data, hysteresis and cost are answered in `docs/research/2026-09-20-tone-model-options.md`; the approved plan is `docs/decisions/2026-09-20-heat-judge-plan.md`.
