@@ -133,3 +133,42 @@ email from the owner, not a script). Two strong candidates need a signature
 from the owner rather than a download: **MSP-Conversation** (77 h of real
 podcast conversation with continuous arousal, free academic licence) and
 **VAM** (real German talk-show arguments, ELRA fee).
+
+---
+
+## Feature bench, round 1 — what signal, not what threshold (2026-09-20)
+
+The owner's correction: loudness was only ever an example. What actually
+separates anger from everything else — and from *happy*, which is the failure
+that matters — is an empirical question with a literature. Two researchers
+surveyed it; the headline is that the energy/pitch blind spot for angry-vs-happy
+is **published and structural** (the discriminating information is valence),
+and that SSL embeddings lose ~0.5% cross-corpus where eGeMAPS-style features
+lose ~18% (Pepino et al. 2021).
+
+`scripts/feature_bank.py` extracts every candidate once per clip (8,882 clips,
+115 speakers); `scripts/feature_bench.py` compares any combination under
+speaker-grouped CV and, the test that matters, **cross-corpus** (train on
+CREMA-D's 91 speakers, test on RAVDESS's 24 — different rooms, scripts, and
+label protocols).
+
+| signal | in-corpus angry-vs-happy | **cross-corpus angry-vs-happy** | recall @ 5% false alarms |
+| --- | --- | --- | --- |
+| loudness over own baseline (shipped) | 0.797 | **0.733** | 0.33 |
+| our prosody features | 0.815 | 0.708 | 0.30 |
+| **eGeMAPS** (88 openSMILE functionals, 24 ms/clip) | 0.854 | **0.869** | **0.54** |
+| eGeMAPS + our prosody | 0.875 | 0.773 | 0.42 |
+
+Two things worth more than the numbers:
+
+- **eGeMAPS does not degrade across corpora** (0.854 → 0.869). It is measuring
+  something about the voice, not about the recording. And at 24 ms per clip it
+  is plausibly on-device.
+- **Adding our own prosody features makes it worse cross-corpus** (0.869 →
+  0.773). They carry recording-setup information — absolute level, clip
+  shape — and the model learns it. This is the activation-v1 lesson again, on
+  a different feature set.
+
+Neural groups (WavLM arousal/valence/dominance, wav2vec2-base-superb-er,
+SpeechBrain's IEMOCAP model, emotion2vec+) are extracted next; they are the
+candidates the literature expects to win on valence.
