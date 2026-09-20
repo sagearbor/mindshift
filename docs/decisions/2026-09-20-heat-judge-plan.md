@@ -55,7 +55,7 @@ segments, shorter than 2 s untested).
 | 4 | Stack SpeechBrain angry-vs-happy vote on the judge | ~3 s via cloud | ~3 s via cloud | ~2.7 s | ~3 h (backend exists; wire + bench gate) |
 | 5 | eGeMAPS + linear model on device (instant tier) | NO until Kotlin port (~2 s) | ~2 s | ~2 s | ~3 days phone (no openSMILE in RN: port features) + ~2 days watch |
 | 6 | Distil 72 K student on our 31 h; run on watch | ~2 s | ~2 s | ~2 s | ~5 days (teacher labelling, GPU rental, ONNX on watch) |
-| 7 | Regenerate CHiME-6 speaker labels from transcripts | — | — | offline | ~2 h |
+| 7 | ✅ Regenerate CHiME-6 speaker labels from transcripts | — | — | offline | done, 2026-09-19 |
 | 8 | $50 OpenAI top-up; bench gpt-audio as labeller | NO | NO | 3–5 s, offline only | ~3 h after credits |
 | 9 | Review and push eval/real-conversation-audit | — | — | — | ~30 min + owner review |
 
@@ -63,3 +63,13 @@ segments, shorter than 2 s untested).
 not computed; **dark** = computed and logged beside every session, never
 changes a buzz; **on** = drives the confirm/veto. Step 2 goes off → dark so
 real-session data accumulates with zero user-visible risk; step 3 goes dark → on.
+
+**Step 7 result (2026-09-19):** the official CHiME-6 transcript JSONs
+(`CHiME6_transcriptions.tar.gz`, OpenSLR resource 150) fixed the labels —
+speech share is now balanced (max 18.1% of a participant, not 85%) and
+overlap turns out to be much higher than assumed (43.5% vs AMI's 8.2%), which
+changes the step-4/5 overlap-gate expectation for a dinner-party setting: see
+"CHiME-6 corrected (transcript truth)" in
+`docs/plans/2026-09-19-heat-map-rounds.md` for the full numbers. Nothing here
+changes steps 1–6, 8 or 9 — CHiME-6 was never part of the hysteresis/tone-model
+gates, only of the identity/overlap ceiling measurements on the graph.

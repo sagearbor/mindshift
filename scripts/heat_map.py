@@ -35,6 +35,7 @@ recording:
 """
 from __future__ import annotations
 
+import argparse
 import glob
 import json
 import sys
@@ -218,10 +219,21 @@ def human_conflict_agreement(entry: dict, over: np.ndarray) -> dict:
     return out
 
 
+#: Where each corpus's identity_audit.py output lives, keyed by entry["corpus"].
+IDENTITY_JSON = {
+    "AMI": REPO / "tmp/ami-corpus/identity.json",
+    "CHiME-6": REPO / "tmp/heat-map/chime6_identity.json",
+}
+
+
 def attribution_from_identity(entry: dict) -> float | None:
-    """AMI attribution at the SHIPPED threshold, from identity_audit's output."""
-    p = REPO / "tmp/ami-corpus/identity.json"
-    if not p.exists() or entry["corpus"] != "AMI":
+    """Attribution at the SHIPPED threshold, from identity_audit's output —
+    AMI's own tmp/ami-corpus/identity.json, or CHiME-6's separate
+    tmp/heat-map/chime6_identity.json (identity_audit.py --corpus
+    tmp/corpora/chime6; kept out of ami-corpus/ since CHiME-6's manifest
+    shape, and its per-session rather than per-meeting enrolment, differ)."""
+    p = IDENTITY_JSON.get(entry["corpus"])
+    if p is None or not p.exists():
         return None
     sys.path.insert(0, str(REPO / "server"))
     try:
@@ -489,9 +501,21 @@ def merge_reference(rows: list[dict]) -> int:
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--corpus", default=None,
+                     help="only (re)measure recordings whose entry['corpus'] equals this "
+                          "(e.g. 'CHiME-6'); rows for every other corpus are left exactly as "
+                          "they are in the existing heat_map.json, not recomputed. Default: "
+                          "measure everything, as before.")
+    args = ap.parse_args()
+
     entries = ami_entries() + fixture_entries() + extra_entries()
     if not entries:
         raise SystemExit("no recordings found")
+    if args.corpus:
+        entries = [e for e in entries if e["corpus"] == args.corpus]
+        if not entries:
+            raise SystemExit(f"no recordings found for corpus {args.corpus!r}")
     rows = []
     for e in entries:
         try:
@@ -502,9 +526,22 @@ def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     n_ref = merge_reference(rows)
     print(f"  reference (tone model) merged for {n_ref}/{len(rows)} recordings")
-    (OUT / "heat_map.json").write_text(json.dumps(rows, indent=1))
-    render_html(rows, OUT / "heat_map.html")
-    print(f"\n{len(rows)} recordings -> {OUT/'heat_map.html'}")
+
+    existing_path = OUT / "heat_map.json"
+    if args.corpus and existing_path.exists():
+        # Splice: keep every row for every OTHER corpus untouched, replace only
+        # this corpus's rows with the ones just measured.
+        prior = json.loads(existing_path.read_text())
+        kept = [r for r in prior if r["corpus"] != args.corpus]
+        all_rows = kept + rows
+        print(f"  merged into existing heat_map.json: kept {len(kept)} rows from other "
+              f"corpora untouched, replaced {sum(1 for r in prior if r['corpus'] == args.corpus)} "
+              f"old {args.corpus} row(s) with {len(rows)} new")
+    else:
+        all_rows = rows
+    existing_path.write_text(json.dumps(all_rows, indent=1))
+    render_html(all_rows, OUT / "heat_map.html")
+    print(f"\n{len(all_rows)} recordings ({len(rows)} (re)measured this run) -> {OUT/'heat_map.html'}")
     return 0
 
 

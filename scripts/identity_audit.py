@@ -28,13 +28,24 @@ The two failures have very different costs, so they are reported separately:
 
     python scripts/ami_corpus.py --keep-headsets
     python scripts/identity_audit.py
+
+CHiME-6 uses the same method against tmp/corpora/chime6's heatmap_manifest.json
+(entries, not an AMI-style meetings list): enrol once per participant per
+SESSION from their full, unsegmented headset + the real transcript spans, then
+match on each 15-minute segment's mix using that segment's (segment-relative)
+transcript turns. Auto-detected from --corpus, or force with --corpus-format:
+
+    python scripts/chime6_corpus.py   # needs transcriptions/dev/S0*.json under raw/
+    python scripts/identity_audit.py --corpus tmp/corpora/chime6
 """
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import wave
+from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -146,6 +157,89 @@ def audit_meeting(meta: dict, corpus: Path, embed, rng: np.random.Generator) -> 
     return rows
 
 
+def audit_chime6(entries: list[dict], corpus: Path, embed, rng: np.random.Generator) -> list[dict]:
+    """Same method as audit_meeting, adapted to CHiME-6's shape: the manifest
+    is a flat list of 15-minute SEGMENTS (heatmap_manifest.json), grouped here
+    back into sessions, and headsets are the full ~2 h recording rather than
+    one file per meeting. Enrolment happens once per participant per session
+    (from the full headset + the real transcript spans for that whole
+    session); matching happens per segment, against that segment's mix and its
+    own segment-relative turns — exactly the entries chime6_corpus.py wrote."""
+    import speaker_id as sid
+
+    by_session: dict[str, list[dict]] = defaultdict(list)
+    for e in entries:
+        m = re.match(r"chime6_(S\d+)_seg\d+$", e["id"])
+        if m:
+            by_session[m.group(1)].append(e)
+
+    def hms(s: str) -> float:
+        h, mn, sec = s.split(":")
+        return int(h) * 3600 + int(mn) * 60 + float(sec)
+
+    rows: list[dict] = []
+    for sess, segs in sorted(by_session.items()):
+        if not all(e.get("speaker_truth") == "transcript" for e in segs):
+            print(f"  {sess}: speaker truth is not 'transcript' for every segment — skipped "
+                  f"(identity/overlap numbers from headset-energy labels are not trustworthy)")
+            continue
+        tpaths = list((corpus / "raw").rglob(f"{sess}.json"))
+        if not tpaths:
+            print(f"  {sess}: no transcript JSON under raw/ — skipped")
+            continue
+        utts = json.loads(tpaths[0].read_text())
+        full_spans: dict[str, list[list[float]]] = defaultdict(list)
+        for u in utts:
+            try:
+                a, b = hms(u["start_time"]), hms(u["end_time"])
+            except (KeyError, ValueError):
+                continue
+            if b > a:
+                full_spans[u["speaker"]].append([a, b])
+        heads = {m.group(1): p for p in (corpus / "raw").rglob(f"{sess}_P*.wav")
+                 for m in [re.match(rf"{sess}_(P\d+)$", p.stem)] if m}
+        prints: dict[str, np.ndarray] = {}
+        for spk, hpath in heads.items():
+            v = enrol(hpath, full_spans.get(spk, []), embed)
+            if v is not None:
+                prints[spk] = v
+        if len(prints) < 2:
+            print(f"  {sess}: fewer than 2 enrolled prints — skipped")
+            continue
+        for e in segs:
+            mix, sr = read_wav(corpus / e["audio"])
+            mix = resample_to_16k(mix, sr)
+            all_turns = [(spk, a, b) for spk, sp in e["speakers"].items() for a, b in sp if b - a >= MIN_TURN_S]
+            if len(all_turns) > MAX_TURNS_PER_MEETING:
+                pick = rng.choice(len(all_turns), MAX_TURNS_PER_MEETING, replace=False)
+                all_turns = [all_turns[i] for i in sorted(pick)]
+            # Embed each turn once (not once per wearer) — the mix span is the
+            # same regardless of which print it is compared against.
+            turn_embeds = {}
+            for spk, a, b in all_turns:
+                seg = mix[int(a * TARGET_SR):int(b * TARGET_SR)]
+                if len(seg) < int(MIN_TURN_S * TARGET_SR):
+                    continue
+                turn_embeds[(spk, a, b)] = sid.l2_normalize(embed(seg))
+            for wearer, print_vec in prints.items():
+                for (spk, a, b), vec in turn_embeds.items():
+                    score = float(np.dot(vec, print_vec))
+                    others = [sp for sp in e["speakers"] if sp != spk]
+                    clash = 0.0
+                    for o in others:
+                        for c, d in e["speakers"][o]:
+                            clash += max(0.0, min(b, d) - max(a, c))
+                    rows.append({
+                        "turn_id": f"{e['id']}:{spk}:{a:.2f}",
+                        "meeting": e["id"], "wearer": wearer, "turn_speaker": spk,
+                        "is_self": spk == wearer, "score": round(score, 4),
+                        "seconds": round(b - a, 2),
+                        "overlap_fraction": round(min(1.0, clash / max(b - a, 1e-6)), 3),
+                    })
+            print(f"  {e['id']}: {len(turn_embeds)} turns x {len(prints)} wearers scored", flush=True)
+    return rows
+
+
 def report(rows: list[dict], threshold: float) -> None:
     self_scores = np.array([r["score"] for r in rows if r["is_self"]])
     other_scores = np.array([r["score"] for r in rows if not r["is_self"]])
@@ -198,32 +292,54 @@ def report(rows: list[dict], threshold: float) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--corpus", default=str(REPO / "tmp/ami-corpus"))
-    ap.add_argument("--out", default=str(REPO / "tmp/ami-corpus/identity.json"))
-    ap.add_argument("--meetings", type=int, default=4, help="how many meetings to score")
+    ap.add_argument("--out", default=None, help="default: <corpus>/identity.json")
+    ap.add_argument("--meetings", type=int, default=4, help="how many meetings to score (AMI only)")
+    ap.add_argument("--corpus-format", choices=["auto", "ami", "chime6"], default="auto",
+                     help="'ami' expects manifest.json (a {'meetings': [...]} list); "
+                          "'chime6' expects heatmap_manifest.json (a flat list of segment "
+                          "entries, as chime6_corpus.py writes). auto picks whichever file exists.")
     args = ap.parse_args()
 
     import speaker_id as sid
     if not sid.is_available():
         raise SystemExit("ECAPA unavailable — pip install -r requirements-voice.txt")
+    try:
+        import torch
+        torch.set_num_threads(2)  # RAM/CPU are shared with other agents — keep this modest
+    except ImportError:
+        pass
 
     corpus = Path(args.corpus)
-    manifest = json.loads((corpus / "manifest.json").read_text())
+    fmt = args.corpus_format
+    if fmt == "auto":
+        if (corpus / "manifest.json").exists():
+            fmt = "ami"
+        elif (corpus / "heatmap_manifest.json").exists():
+            fmt = "chime6"
+        else:
+            raise SystemExit(f"neither manifest.json nor heatmap_manifest.json found under {corpus}")
+    out_path = args.out or str(corpus / "identity.json")
     rng = np.random.default_rng(7)
 
     def embed(seg: np.ndarray) -> np.ndarray:
         return sid.embed_pcm(seg.astype(np.float32), TARGET_SR)
 
     rows: list[dict] = []
-    for meta in manifest["meetings"][:args.meetings]:
-        if not (corpus / "headsets" / f"{meta['meeting']}.Headset-0.wav").exists():
-            print(f"{meta['meeting']}: no headsets kept — rerun ami_corpus.py --keep-headsets")
-            continue
-        rows.extend(audit_meeting(meta, corpus, embed, rng))
+    if fmt == "ami":
+        manifest = json.loads((corpus / "manifest.json").read_text())
+        for meta in manifest["meetings"][:args.meetings]:
+            if not (corpus / "headsets" / f"{meta['meeting']}.Headset-0.wav").exists():
+                print(f"{meta['meeting']}: no headsets kept — rerun ami_corpus.py --keep-headsets")
+                continue
+            rows.extend(audit_meeting(meta, corpus, embed, rng))
+    else:
+        entries = json.loads((corpus / "heatmap_manifest.json").read_text())
+        rows.extend(audit_chime6(entries, corpus, embed, rng))
     if not rows:
         raise SystemExit("nothing scored")
-    Path(args.out).write_text(json.dumps(rows, indent=1))
+    Path(out_path).write_text(json.dumps(rows, indent=1))
     report(rows, sid.MATCH_THRESHOLD)
-    print(f"\nwrote {args.out}")
+    print(f"\nwrote {out_path}")
     return 0
 
 

@@ -320,15 +320,22 @@ CHiME-6 adds two real dinner parties (four friends cooking and eating, 4.5 h,
 eighteen 15-minute segments) recorded on each person's own binaural headset —
 the home counterpart to AMI's office, with the same free speaker truth.
 
-| dinner party (CHiME-6) | buzzes / hour |
-| --- | --- |
-| shipped | 92.1 |
-| perfect identity | 92.1 |
-| valence veto | 86.7 |
-| **hold 5 s** | **55.3** |
-| overlap (ground-truth ceiling) | 68.1 |
-| identity + hold 3 s + overlap | **38.1** |
-| rung +10 dB | 77.1 |
+| dinner party (CHiME-6) | buzzes / hour | at first (headset-derived, retracted) |
+| --- | --- | --- |
+| shipped | 92.1 | 92.1 |
+| perfect identity | **90.7** | ~~92.1~~ |
+| valence veto | 86.7 | 86.7 |
+| identity + valence | 83.4 | — |
+| hold 3 s | 73.3 | — |
+| **hold 5 s** | **55.3** | 55.3 |
+| overlap (ground-truth ceiling) | **92.5** | ~~68.1~~ |
+| identity + hold 3 s + overlap | **68.8** | ~~38.1~~ |
+| rung +10 dB | 77.1 | 77.1 |
+
+*(Struck values used headset-energy speaker derivation, which was wrong for
+this corpus — see "CHiME-6 corrected (transcript truth)" below. Dose, valence
+and hysteresis never depended on speaker labels, so those columns are
+unchanged; identity and overlap are the ones that moved.)*
 
 What the dinner party adds that the other corpora could not:
 
@@ -337,20 +344,81 @@ What the dinner party adds that the other corpora could not:
   get animated for two hours straight. The tone model calls **21% of the loud
   windows pleasant** — three times the meetings' 7% — and the ladder's dose is
   the highest of any real corpus.
-- **The identity numbers for CHiME-6 are not trustworthy — do not read
-  them.** The gate "removed nothing" (92.1 → 92.1) because the headset-derived
-  speaker labels credit one participant with ~85% of all speech (297 s vs 37,
-  3 and 1 s in the first segment). CHiME-6's binaural headsets are not
-  gain-matched the way AMI's are, so the "loudest headset wins" bleed test
-  hands nearly every frame to the loudest microphone. AMI's labels passed the
-  8.2%-overlap sanity check; these would not. The dose, valence and hysteresis
-  columns for CHiME-6 do not depend on speaker labels and stand; the
-  identity and overlap columns for it should be regenerated from the
-  transcript JSONs (a separate CHiME-6 download) before anyone cites them.
+- **Corrected: identity and overlap gates barely help at a dinner party, and
+  that is a real finding, not a labelling artefact.** With real transcript
+  truth, perfect identity removes only 1.5% of the dose (92.1 → 90.7, not the
+  30% AMI sees) and the overlap ceiling removes almost nothing at all
+  (92.1 → 92.5). Both gates are close to a no-op here because their
+  precondition — "the wearer wasn't talking" / "nobody else was talking over
+  them" — is close to always false at a lively dinner table (43.5% of all
+  audio has 2+ people talking at once, five times AMI's 8.2%). See "CHiME-6
+  corrected (transcript truth)" below for the full numbers and how they were
+  produced.
 - **Hysteresis helps less at a dinner party** (92 → 55) than at a meeting
   (89 → 17) or everyday talk (84 → 25), because sustained animation is the
   normal state of a dinner party, not an event. The combination that gets
-  furthest on the columns that ARE trustworthy here is hold-5s at 55/h — still four times the target. (The 38/h identity+hold+overlap figure rests on the bad labels above.)
+  furthest here is still hold-5s at 55/h — four times the target — and now
+  that identity+hold+overlap is trustworthy it is actually *worse* than
+  hold-5s alone (68.8/h vs 55.3/h), because the overlap gate it depends on
+  does so little of the work.
+
+### CHiME-6 corrected (transcript truth) — 2026-09-19
+
+The retraction above is resolved. The official CHiME-6 transcript JSONs
+(`CHiME6_transcriptions.tar.gz`, 2.4 MB, OpenSLR resource 150 —
+https://openslr.org/150/, CC BY-SA 4.0, re-synchronised for CHiME-6 from the
+CHiME-5 originals) give per-utterance `speaker` / `start_time` / `end_time`
+for both dev sessions (S02, S09). `scripts/chime6_corpus.py` now builds
+speaker turns from these whenever present under `tmp/corpora/chime6/raw/`
+(falls back to the old headset-energy derivation only with a loud warning,
+for a session missing its transcript), and stamps every manifest entry with
+`speaker_truth: "transcript"` so a silent fallback can never masquerade as
+real ground truth again — `server/tests/test_chime6_truth.py` pins this.
+
+**Speaker share of speech is now balanced, not 85/15:**
+
+| session | P#1 | P#2 | P#3 | P#4 |
+| --- | --- | --- | --- | --- |
+| S02 (148 min) | P05 27.4% | P06 28.9% | P07 19.4% | P08 24.3% |
+| S09 (119 min) | P25 29.5% | P26 23.8% | P27 21.0% | P28 25.8% |
+
+Across the whole corpus (8 participant-sessions): 7.8%–18.1% of all speech
+each — no one anywhere near the 50% that would indicate a repeat of the old
+bleed-through bug (`test_no_participant_dominates_the_whole_corpus`).
+
+**Ground-truth overlap is 43.5%** (duration-weighted, 10 ms grid) — over five
+times AMI's 8.2%. A dinner party really is that much more interruptive than
+an office meeting; this is not a labelling artefact, it explains directly why
+the identity and overlap gates above do so little.
+
+**Identity audit (`scripts/identity_audit.py --corpus tmp/corpora/chime6`,
+now generalised to CHiME-6's per-segment manifest — enrol once per
+participant per session from their full, unsegmented headset, match on each
+15-minute segment's mix), same ECAPA model and 0.60 threshold as AMI:**
+
+| metric | CHiME-6 | AMI (for comparison, `tmp/ami-corpus/identity.json`) |
+| --- | --- | --- |
+| AUC (ranks wearer above others at all) | 0.701 | 0.888 |
+| found at threshold 0.60 (self-recall) | 19.0% | 47.7% |
+| false accept at threshold 0.60 | 1.9% | 0.2% |
+| self turns with ≥50% overlap | 94.8% | 5.7% |
+
+CHiME-6 is a harder room for the voiceprint than AMI, for exactly the reason
+above: 1,533 of the 1,749 missed self-turns (88%) are ones where someone else
+was talking over the wearer more than half the time, which single-microphone
+ECAPA cannot be expected to resolve — the same "crosstalk makes the turn
+unmatchable, not just under-threshold" finding AMI made, just far more of the
+audio qualifies. Full rows: `tmp/heat-map/chime6_identity.json` (kept
+separate from `tmp/ami-corpus/identity.json` since the manifest shape and the
+per-session-not-per-meeting enrolment differ; `scripts/heat_map.py` reads
+both to fill in `attribution_acc`).
+
+Nothing about the shipped dose, valence-veto or hysteresis numbers changed —
+those were never derived from speaker labels. What changed is exactly what
+was retracted: the identity and overlap columns, and the conclusion is now the
+opposite of what the bad labels implied for AMI-style gating (there: real
+help; here: negligible) because a dinner party's overlap is not the tail case
+those gates were designed around, it is close to the median case.
 
 Across all 121 recordings, dose still tracks loudness volatility at Spearman
 **+0.88** — the ladder buzzes in proportion to how lively a conversation is,
