@@ -1,0 +1,1602 @@
+_schema:
+  what_this_is: >
+    A complete, pre-decided answer pack for the Google Play Console "Set up your
+    app" checklist for com.sagearbor.gauge.wear — the MindShift Wear OS watch
+    app. There is no Play API for this checklist, so a browser agent (Claude in
+    Chrome / Cowork) drives the forms. This file exists so that agent never has
+    to guess, never has to stop and ask, and never invents an answer that
+    contradicts what the code actually does.
+  how_to_use: >
+    Walk it top to bottom. Each section maps to one left-nav item in Play Console
+    under "Policy → App content" or "Grow → Store presence → Main store listing".
+    Every leaf value is the literal thing to type or the literal option to click.
+    Where a field cannot be answered without the owner (credentials, uploads,
+    a human judgement call), the value is the string OWNER_MUST_SUPPLY and the
+    sibling `owner_action` says exactly what is needed. Never invent a value for
+    an OWNER_MUST_SUPPLY field.
+  key_conventions:
+    - "`value:` is what to enter/select."
+    - "`why:` is the justification — paste it into a Play appeal if one is ever needed."
+    - "`proof:` is a file:line in this repo that makes the claim checkable."
+    - "OWNER_MUST_SUPPLY means: stop, leave the field blank, report it, move on."
+  relationship_to_the_phone_pack: >
+    This is a SEPARATE Play app record from com.sagearbor.mindshift.app, so it
+    needs its own App access, Ads, Content rating, Target audience and Data
+    safety answers — Play does not inherit anything between two listings, even
+    when one is the other's companion. Where the honest answer is identical, the
+    wording here is deliberately the same as docs/play/play-answers-mindshift.yaml
+    so the two declarations cannot drift. Where it DIFFERS, the difference is
+    called out inline (`differs_from_phone_pack:`). The three real differences
+    are: (1) the watch collects HEART RATE, which the phone does not; (2) the
+    watch has no email/password login at all — it is paired to a phone account
+    with a short code; (3) the watch has no camera, no calls and no video.
+  the_one_claim_this_pack_had_to_correct: >
+    The brief this pack was written from assumed "audio does NOT leave the watch
+    on the watch-alone lane". THE CODE SAYS OTHERWISE and this pack follows the
+    code. In BATTERY_SAVER / STANDARD / SESSION mode the watch streams raw
+    16 kHz PCM16 microphone audio to the MindShift server over a WebSocket
+    (SentinelController.streamWindow -> EpisodeWsClient.sendPcmWindow), plus a
+    5–10 s pre-trigger preamble, and the server retains up to 30 minutes of it
+    inside the live-session document. COMPANION mode is the only mode that never
+    opens the mic. See data_safety.data_types["Audio files → Voice or sound
+    recordings"] and _provenance.watch_audio_leaves_the_device_on_every_mic_mode.
+  verified_against_commit: d364c11  # ship/heat-judge-20260920 merged, 2026-09-20
+  last_updated: 2026-09-20
+  authored_by: Claude (agent), from a full read of apps/watch/ and server/watch/
+
+app_identity:
+  package_name: com.sagearbor.gauge.wear
+  proof: apps/watch/wearApp/build.gradle.kts:22
+  play_developer_account: "7699975610134980668 (Sage Arbor)"
+  app_already_exists_in_console: true
+  note: >
+    The Play app record already exists as a standalone Wear OS listing. Its
+    title is already "MindShift", a 61-character short description, a
+    239-character full description and the app icon are already uploaded, and
+    the contact details were set via the API. What is MISSING is: screenshots
+    (none uploaded), and every "Set up your app" declaration below. This pack
+    completes the declarations only — it does NOT ship a release.
+  current_version: "0.5.0 (versionCode 16)"
+  proof_version: apps/watch/wearApp/build.gradle.kts:25-26
+  form_factor: "Wear OS (standalone)"
+  proof_form_factor:
+    - apps/watch/wearApp/src/main/AndroidManifest.xml:4      # <uses-feature android.hardware.type.watch>
+    - apps/watch/wearApp/src/main/AndroidManifest.xml:25-27  # com.google.android.wearable.standalone = true
+  installed_launcher_label: "MindShift"
+  proof_label: apps/watch/wearApp/src/main/res/values/strings.xml:3
+  min_sdk: 30
+  target_sdk: 34
+  proof_sdk: apps/watch/wearApp/build.gradle.kts:23-24
+  backend_it_talks_to: "https://mindshift-api-664594784582.us-central1.run.app (the same Cloud Run service as the phone app)"
+  proof_backend: apps/watch/wearApp/build.gradle.kts:28-32
+
+# ===========================================================================
+# 1. App access  (Policy → App content → App access)
+# ===========================================================================
+app_access:
+  question: "Is all or some functionality of your app restricted?"
+  value: "All or some functionality is restricted"
+  why: >
+    The watch's CORE loop — arm the sentinel, feel the haptic nudges — runs
+    without any sign-in at all, because the episode WebSocket falls back to an
+    unauthenticated `?account=default` URL when no device token is stored and
+    the server accepts it (MINDSHIFT_ALLOW_LEGACY_ACCOUNT defaults to true in
+    the production deploy). But three features ARE gated behind a paired
+    account, and a reviewer cannot see them without one: "You & your person"
+    (the couples standing card), "Save last 2 min" (retro capture upload) and
+    "Journal — keep what I say" (automatic periodic capture upload). All three
+    are hidden or refuse to act until `AccountPrefs.deviceToken` is non-null.
+    Declaring "restricted" is therefore the honest answer; declaring
+    "unrestricted" would be a mismatch a reviewer could trip over in one tap.
+  differs_from_phone_pack: >
+    The PHONE is a hard login gate (no guest mode at all). The WATCH is not —
+    it works unpaired. The restriction here is partial, not total.
+  proof:
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/GlanceScreen.kt:208-226  # couples + retro chips behind uiState.signedIn
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/GlanceScreen.kt:305-316  # "Pair your watch first" for Journal
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/auth/AccountPrefs.kt:31     # isSignedIn == deviceToken != null
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/SignInScreen.kt:129      # unpaired account id is the literal "default"
+    - server/watch/auth.py:149-153                                                   # allow_legacy + ?account= -> a legacy Principal
+    - server/watch/config.py:16-19                                                   # MINDSHIFT_ALLOW_LEGACY_ACCOUNT defaults true
+    - scripts/deploy_cloudrun.sh:130-131                                             # ...and the deploy leaves it true
+  instructions_block:
+    name: "Wear OS app — paired demo account"
+    # Play shows this text verbatim to the reviewer. Keep it short and literal.
+    # A Wear reviewer usually has a Wear OS emulator, not a physical watch.
+    value: |
+      MindShift for Wear OS is a standalone watch app. It does NOT need the
+      phone app installed to run, and it does NOT use the Wearable Data Layer.
+
+      TO TEST THE CORE FEATURE WITHOUT ANY ACCOUNT (takes 2 minutes):
+        1. Open MindShift on the watch. Allow the microphone permission when
+           asked. (Allow body sensors too if you want the heart-rate meter;
+           it is optional and the app works without it.)
+        2. Tap the ring in the middle of the screen to arm it. The screen
+           shows "On" and a persistent notification appears.
+        3. Speak, then raise your voice noticeably above your normal level for
+           about 5 seconds. The watch vibrates with a coaching nudge. That is
+           the whole product.
+        4. Tap the ring again to turn it off.
+
+      TO TEST THE ACCOUNT-ONLY FEATURES (couples standing card, "Save last
+      2 min", "Journal"):
+        1. On the watch, scroll down and tap "Sign in". A 5-character code
+           appears.
+        2. On any phone or desktop browser, open
+           https://arborfam-hub.web.app, sign in with the demo email and
+           password below, then go to Settings -> Watch and enter that code.
+           (Do NOT use "Continue with Google" — it is tied to a real person's
+           account.)
+        3. The watch screen advances by itself within a few seconds. The
+           "You & your person" and "Save last 2 min" chips now appear.
+
+      There is no chat, no calling and no camera in the watch app.
+    username: OWNER_MUST_SUPPLY
+    password: OWNER_MUST_SUPPLY
+  owner_action: >
+    Use the SAME throwaway Firebase email/password account created for the
+    phone pack (Firebase Console → arborfam-hub → Authentication → Users), so
+    one demo account serves both listings. Do NOT hand Play a real account: a
+    reviewer who signs in and pairs a watch can see that account's stored
+    sessions, captures and voiceprints. The agent must not invent credentials.
+  any_other_instructions: "No"
+  agent_note: >
+    If Play offers only "All functionality is available without special access"
+    vs "All or some functionality is restricted", pick the second. If it then
+    asks for the name of the restricted area, use "Paired-account features".
+
+# ===========================================================================
+# 2. Ads  (Policy → App content → Ads)
+# ===========================================================================
+ads:
+  question: "Does your app contain ads?"
+  value: "No, my app does not contain ads"
+  why: >
+    There is no advertising, attribution or analytics SDK of any kind. The
+    wearApp module's COMPLETE dependency list is: the shared Kotlin module,
+    Compose BOM, wear-compose material/foundation/navigation, activity-compose,
+    ui-tooling(-preview), OkHttp, wear tiles + tiles-material, protolayout,
+    watchface-complications-data-source-ktx, kotlinx-coroutines-core,
+    kotlinx-serialization-json, androidx health-services-client, and Guava. No
+    AdMob, no Play Services Ads, no Firebase, no Crashlytics, no Sentry, no
+    Segment/Amplitude/Mixpanel/AppsFlyer/Adjust/Branch. The manifest does not
+    request com.google.android.gms.permission.AD_ID and no advertising
+    identifier is read anywhere in the module.
+  proof:
+    - apps/watch/wearApp/build.gradle.kts:111-134   # the complete dependency list
+    - apps/watch/shared/build.gradle.kts            # the shared module's deps — kotlinx only
+    - apps/watch/wearApp/src/main/AndroidManifest.xml:6-16  # permissions; no AD_ID
+  note_for_the_agent: >
+    Play will separately ask whether the app has ads in the Data safety
+    "Advertising or marketing" purpose. Answer no there too — nothing is
+    collected for advertising.
+
+# ===========================================================================
+# 3. Content rating  (Policy → App content → Content ratings → IARC questionnaire)
+# ===========================================================================
+content_rating:
+  email_address: sagearbor@gmail.com
+  category:
+    value: "Utility, Productivity, Communication, or Other"
+    why: >
+      Same product, same category as the phone listing: this is a
+      communication-coaching tool. It is not a game, not social networking (no
+      feed, no profiles, no discovery, no stranger-to-stranger contact), not
+      dating, not entertainment, not news/reference, and deliberately not a
+      health or medical app even though it reads heart rate — the heart rate is
+      an input to a conversation cue, never a health assessment.
+    if_that_exact_label_is_absent: >
+      IARC wording drifts. Pick the option whose text contains "Utility",
+      "Productivity" or "Communication". Do NOT pick "Social Networking", do
+      NOT pick "Games", and do NOT pick "Health" or "Medical" if those appear.
+    proof:
+      - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/GlanceScreen.kt:281-303  # the whole feature surface is one screen of chips
+      - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/haptics/HapticDirector.kt   # the output is vibration, not content
+
+  violence:
+    answer_to_every_question_in_this_section: "No"
+    questions:
+      - question: "Does the app contain violence (realistic, cartoon, fantasy) or references to violence?"
+        value: "No"
+      - question: "Does the app contain graphic depictions of blood, gore, or mutilation?"
+        value: "No"
+      - question: "Does the app depict or reference torture, killing, or harm to identifiable human beings?"
+        value: "No"
+      - question: "Does the app glamorize or trivialize the use of weapons?"
+        value: "No"
+    why: >
+      The watch app ships NO authored content at all beyond its own UI strings
+      and a fixed vocabulary of haptic patterns. There is no text feed, no
+      images, no audio playback, no video. The entire output surface is
+      vibration plus a handful of short status words on a 1.2" screen.
+    proof:
+      - apps/watch/shared/src/commonMain/kotlin/app/gauge/shared/NudgeVocabulary.kt  # the complete authored vocabulary
+      - apps/watch/wearApp/src/main/res/values/strings.xml                           # the complete string resource file
+
+  sexuality:
+    answer_to_every_question_in_this_section: "No"
+    questions:
+      - question: "Does the app contain nudity, partial nudity, or sexually suggestive content?"
+        value: "No"
+      - question: "Does the app contain references to or depictions of sexual acts?"
+        value: "No"
+      - question: "Does the app provide access to sexual or erotic material?"
+        value: "No"
+
+  language:
+    answer_to_every_question_in_this_section: "No"
+    questions:
+      - question: "Does the app contain profanity, crude humour, or vulgar language?"
+        value: "No"
+    why: >
+      Nothing the app authors contains profanity, and unlike the phone the watch
+      never renders a transcript — it has no text of the user's conversation on
+      screen at any point. Do NOT answer "Yes" here; that question is about
+      content the developer ships.
+
+  controlled_substance:
+    answer_to_every_question_in_this_section: "No"
+    questions:
+      - question: "Does the app contain references to, or depictions of, alcohol, tobacco, or drugs?"
+        value: "No"
+
+  gambling_and_contests:
+    answer_to_every_question_in_this_section: "No"
+    questions:
+      - question: "Does the app contain gambling, simulated gambling, or contests?"
+        value: "No"
+      - question: "Does the app allow real-money gambling or wagering?"
+        value: "No"
+
+  miscellaneous:
+    - question: >
+        Does the app natively allow users to interact or exchange content with
+        other users (chat, voice/video communication, sharing images, audio or
+        video)?
+      value: "Yes"
+      why: >
+        One real, narrow user-to-user surface: the "You & your person" standing
+        card. A wearer who has joined a pair group sees the OTHER member's
+        display name and that member's period standing relative to their own
+        ("<Partner> is slightly ahead this period"), and the other member sees
+        theirs. That is content about one user shown to another, so the honest
+        answer is Yes. Note what is NOT here: no chat, no calls, no camera, no
+        message composition, no sharing action of any kind initiated from the
+        watch. The watch is read-only against the groups API — the client can
+        only GET /me/standing, GET /groups and GET /groups/{id}/standing.
+        Separately, the audio the watch uploads becomes a session under the
+        wearer's MindShift account, which the wearer can later share with a
+        therapist — but that share is performed in the phone/web app, not here.
+      proof:
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/control/CouplesStanding.kt:48,61-62  # partner display name + relative standing
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/net/WatchApiClient.kt:70-82          # the complete groups surface: three GETs
+        - server/watch/routers/groups.py:20-27                                                   # mutual-visibility consent on the group doc
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/net/WatchApiClient.kt:83-114          # the only writes are captures + claim-legacy
+      if_the_form_only_offers_a_single_yes_no: >
+        Answer Yes, then answer the follow-ups honestly: moderation = none
+        (there is no public surface to moderate), user reporting = not
+        applicable (no strangers), location sharing = No.
+    - question: >
+        Do those interactions happen with users the person does not know / can
+        strangers contact each other?
+      value: "No"
+      why: >
+        There is no discovery, no directory, no public profile and no matching.
+        A pair group is created and joined in the phone/web app with an 8-
+        character invite code handed over out of band, capped at 2 members, and
+        mutual visibility is an explicit consent record on the group document.
+        The watch cannot create, invite to, or join a group at all.
+      proof:
+        - server/watch/routers/groups.py:20-27,44-45   # invite code, mutual_visibility consent, PAIR_MAX_MEMBERS
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/net/WatchApiClient.kt:70-82  # read-only from the watch
+    - question: "Does the app share the user's current physical location with other users?"
+      value: "No"
+      why: >
+        No location permission is declared and no location API is used anywhere
+        in the module. The manifest's complete permission list is RECORD_AUDIO,
+        BODY_SENSORS, POST_NOTIFICATIONS, FOREGROUND_SERVICE,
+        FOREGROUND_SERVICE_MICROPHONE, WAKE_LOCK, VIBRATE, INTERNET.
+      proof: apps/watch/wearApp/src/main/AndroidManifest.xml:6-16
+    - question: "Does the app allow users to purchase digital goods?"
+      value: "No"
+      why: "There is no billing library and no IAP code path in the module."
+      proof: apps/watch/wearApp/build.gradle.kts:111-134
+    - question: "Does the app contain any content or links that take the user to a website outside the app?"
+      value: "No"
+      why: >
+        The sign-in screen PRINTS a URL as text ("Enter <code> on your phone or
+        gauge.app/pair") for the wearer to type on another device. Nothing in
+        the watch app opens a browser — there is no Intent.ACTION_VIEW, no
+        CustomTabs, no WebView anywhere in the module.
+      proof:
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/SignInScreen.kt:113-118  # the URL is display text only
+      agent_note: >
+        If the form's wording is "does the app display any links", answer No —
+        an un-tappable string is not a link. If it asks "can the user reach
+        arbitrary web content", the answer is also No (no browser, no WebView).
+    - question: "Does the app collect or share the user's personal information?"
+      value: "Yes"
+      why: "See the data_safety section below — microphone audio, heart rate, account and device ids."
+    - question: "Is the app a 'news' app?"
+      value: "No"
+    - question: "Does the app enable digital purchases of real-world goods or services?"
+      value: "No"
+    - question: "Is the app designed for or targeted at children?"
+      value: "No"
+      why: "See target_audience below — 18+ only."
+
+  expected_result:
+    value: "Expected: IARC 'Everyone' / PEGI 3 / ESRB Everyone, with a 'Users Interact' interactive element."
+    note: >
+      The "Users Interact" descriptor is EXPECTED and correct — it comes from
+      the couples standing answer above, and it matches the phone listing's
+      rating. Do not go back and change answers to make it disappear.
+
+  agent_stop_rule:
+    value: "STOP at the review/summary screen. Do NOT press Submit."
+    why: >
+      A submitted rating is what unlocks a release, and this pack is explicitly
+      not authorised to publish anything. Fill every answer, screenshot the
+      summary, and hand it to the owner to press Submit.
+
+# ===========================================================================
+# 4. Target audience and content  (Policy → App content → Target audience)
+# ===========================================================================
+target_audience:
+  age_groups_selected:
+    value: ["18 and over"]
+    why: >
+      Mirrors the phone listing exactly, and for the same reasons plus one more.
+      The app records real conversations from a wrist-worn microphone, reads the
+      wearer's heart rate, and is positioned for couples and couples therapy. It
+      is intended for adults. Selecting only 18+ keeps the app out of the
+      Families policy programme and out of Teacher Approved review — which is
+      correct, because nothing here is designed for or appealing to minors, and
+      a body-sensor + always-listening wearable aimed at children would attract
+      exactly the scrutiny it deserves.
+    proof:
+      - PRD.md:26-33   # target users: therapists, therapy patients, couples
+      - apps/watch/wearApp/src/main/AndroidManifest.xml:6-7   # RECORD_AUDIO + BODY_SENSORS
+  do_not_select: ["Ages 5 and under", "Ages 6-8", "Ages 9-12", "Ages 13-15", "Ages 16-17"]
+  store_presence_appeals_to_children:
+    question: "Could your store listing unintentionally appeal to children?"
+    value: "No"
+    why: >
+      The icon is the same muted adult mark as the phone listing and the
+      screenshots are a watch face showing a meter and a status word. No cartoon
+      characters, no bright primary-colour play imagery, no child actors, no
+      toys or games.
+  ads_shown_to_children:
+    value: "Not applicable — the app has no ads."
+  designed_for_families:
+    value: "No"
+    note: "Wear OS apps are ineligible for the Families programme in any case."
+  known_child_users:
+    question: "Do you have any known users under the target age?"
+    value: "No"
+  google_play_families_policy:
+    value: "Not opted in."
+  news_app:
+    value: "No"
+  covid_19_contact_tracing_or_status:
+    value: "No"
+  data_safety_child_note: >
+    Because 18+ is the only selected age group, Play will not ask for a Families
+    Ads SDK declaration or a Teacher Approved submission. If the console still
+    shows those, the age selection did not save — re-check it.
+
+# ===========================================================================
+# 5. Data safety  (Policy → App content → Data safety)
+# ===========================================================================
+data_safety:
+  _reading_note: >
+    Play's "Shared" has a narrow definition that EXCLUDES transfers to a service
+    provider processing on your behalf, and transfers triggered by a specific
+    user-initiated action. Under a strict reading, the server-side transcription
+    and analysis providers (processors) and the couples standing (user-initiated)
+    would both be "not shared". This pack deliberately declares them as SHARED
+    anyway, exactly as the phone pack does. Over-declaring is never an
+    enforcement risk; under-declaring is exactly how apps get flagged, and the
+    privacy policy at https://arborfam-hub.web.app/privacy names the processors
+    by company. Keep the two consistent — if you ever change one, change the
+    other.
+  _watch_specific_reading_note: >
+    The watch app is a thin client for the SAME backend and the SAME account as
+    the phone app. Everything the watch uploads lands under the wearer's
+    MindShift account and is then handled by the server exactly as phone-sourced
+    data is — same buckets, same Firestore project, same processors, same
+    deletion path. So this matrix is the phone's matrix minus the types the
+    watch cannot produce (no camera, no calls, no typed text) plus the two it
+    alone produces: HEART RATE, and a per-install DEVICE ID.
+
+  overview:
+    does_your_app_collect_or_share_any_of_the_required_user_data_types:
+      value: "Yes"
+    is_all_of_the_user_data_collected_by_your_app_encrypted_in_transit:
+      value: "Yes"
+      why: >
+        Every network hop from the watch is TLS. The compiled-in API base is an
+        https:// Cloud Run URL and the WebSocket base is derived from it by
+        replacing https:// with wss:// (and http:// with ws://, a branch that is
+        dead in the shipped build because the compiled base is https). The
+        pairing client, the captures/journal uploads and the telemetry POSTs all
+        use that same https base via OkHttp, which verifies certificates by
+        default and is not reconfigured anywhere in the module.
+      proof:
+        - apps/watch/wearApp/build.gradle.kts:28-32                                    # GAUGE_API_BASE is https://
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/service/SentinelService.kt:1098-1099  # wsBaseUrlFromApiBase: https -> wss
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/net/WatchApiClient.kt:116   # every REST call on the same base
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/telemetry/TelemetryClient.kt:44-47  # POST $baseUrl/telemetry
+        - scripts/deploy_cloudrun.sh:210-228                                            # Cloud Run managed HTTPS
+    do_you_provide_a_way_for_users_to_request_that_their_data_is_deleted:
+      value: "Yes"
+      deletion_url: "https://arborfam-hub.web.app/delete-account"
+      account_deletion_is_self_serve: true
+      why: >
+        The watch's data lives under the wearer's MindShift account, and full
+        account deletion is self-serve and immediate from the phone or web app
+        (Settings → Account → "Delete my account" → type DELETE → DELETE /me).
+        That endpoint's watch tier erases, for the caller's uid: every watch
+        live session (which is where the uploaded PCM and the heart-rate series
+        live), every capture (the audio BLOB first, then the metadata document
+        — so no orphaned audio), the enrollment baseline, vector subscriptions,
+        the speaker profile, the watch account document, and every watch pairing
+        (device tokens, claimed pairing records, the failed-claim record).
+      how_the_user_reaches_it_from_a_watch: >
+        Not from the watch. The watch app has no delete control and no account
+        screen beyond pairing. The deletion path is the phone or web app, or the
+        /delete-account page — which is what the Play deletion URL points at,
+        so the requirement is satisfied. SAY THIS PLAINLY in the listing rather
+        than implying a wrist-side delete exists.
+      proof:
+        - server/account_deletion.py:278-333    # the watch tier: live sessions, captures (blob then doc), baseline, profile, pairings
+        - server/account_deletion.py:117-119    # the live_sessions / watch_captures / watch_pairings counters
+        - server/routers/account.py             # DELETE /me — fresh-token guard, {"confirm":"DELETE"}, 3/min per IP
+        - apps/mobile/src/screens/AdvancedScreen.tsx   # Settings → Account → Delete my account
+        - apps/mobile/public/delete-account/index.html # the page the URL above serves
+    not_reachable_by_deletion:
+      value: >
+        Two leftovers, both already disclosed on the /delete-account page and in
+        the privacy policy, and both true of the watch specifically:
+        (1) WATCH TELEMETRY. The crash/diagnostic events the watch posts to
+        POST /telemetry are keyed to a per-install device UUID and carry no
+        account id at all, so DELETE /me cannot find them (the phone's
+        diagnostics tier deletes by data.uid, which watch telemetry never sets).
+        (2) UNPAIRED-WATCH SESSIONS. See _open_risks below — audio streamed
+        before the watch is paired is stored under the shared legacy account id
+        "default", which belongs to no uid and which DELETE /me therefore never
+        touches.
+      proof:
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/telemetry/Telemetry.kt:64-68  # TelemetryClient(device = GaugePrefs.deviceId(...))
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/prefs/GaugePrefs.kt:36-43     # a random per-install UUID
+        - server/account_deletion.py:336-352                                              # diagnostics tier deletes by account
+        - server/watch/routers/rest.py:376-378                                            # LEGACY_ACCOUNT_ID sessions
+
+    data_types_not_collected_at_all:
+      - "Location (approximate and precise)"   # no location permission, no location API in the module
+      - "Financial info (all)"                 # no billing, no payments
+      - "Fitness info"                         # NOTE: "Health info" IS collected — see the matrix. No steps/workouts/calories.
+      - "Emails / SMS or MMS"                  # never read
+      - "Photos and videos"                    # the watch has no camera and no media access
+      - "Contacts / Calendar"                  # no library, no permission
+      - "Web browsing history"                 # no browser, no WebView
+      - "Installed apps"                       # never queried
+      - "In-app search history"                # there is no search
+      - "Messages → Other in-app messages"     # the watch never sends or renders any conversation text
+
+  # -------- the matrix. One block per Play data type that IS declared. -------
+  data_types:
+
+    - play_path: "Audio files → Voice or sound recordings"
+      collected: true
+      shared: true
+      processed_ephemerally: false
+      required_or_optional: "Required"
+      purposes: ["App functionality"]
+      what_it_actually_is: >
+        MICROPHONE AUDIO FROM THE WATCH, AND IT LEAVES THE DEVICE. This is the
+        single most important line in this pack and the one the earlier
+        assumption got backwards. In BATTERY_SAVER, STANDARD and SESSION mode
+        the watch opens the mic and reads 1-second windows of 16 kHz mono PCM16.
+        When the sentinel reaches STREAMING it opens a WebSocket to the
+        MindShift backend and sends every window as a binary frame
+        (SentinelController.streamWindow -> EpisodeWsClient.sendPcmWindow),
+        preceded by the pre-trigger ring buffer (5 s in BATTERY_SAVER, 10 s in
+        STANDARD) so the moment that triggered the episode is included.
+        SESSION mode streams continuously with no trigger at all. COMPANION
+        mode is the ONLY mode that never touches the mic — there the phone
+        listens and the watch socket carries heartbeats and heart rate only.
+        On top of the live stream there are two separate upload paths, both
+        behind an explicit on-screen confirmation:
+          * "Save last 2 min" — the wearer taps a chip, confirms a dialog, and
+            the last 120 s of the rolling retro buffer is gzipped and POSTed to
+            the captures API.
+          * "Journal — keep what I say" — an opt-in toggle (OFF by default)
+            that, once confirmed, uploads a snapshot of up to 300 s of the
+            wearer's own audio every 5 minutes for as long as it stays on.
+      what_is_actually_kept: >
+        Live-stream audio: the server accumulates the episode's PCM and writes
+        it into the live-session Firestore document as base64
+        (LiveSession.pcm_b64), capped at MAX_LIVE_SESSION_PCM_BYTES (30 minutes
+        at 32 KB/s); past the cap the audio stops being retained while nudging
+        continues. If the base64 would exceed the Firestore document limit the
+        store writes an empty string rather than a truncated one. Retro captures
+        and journal captures: the raw PCM is written to the captures GCS bucket
+        under captures/{account}/{id}.pcm. Journal captures additionally carry a
+        48-hour hard retention — every journal capture is stamped
+        journal_expires_at and each new one triggers a cleanup pass that deletes
+        expired journal captures blob-first. A manual "Save last 2 min" capture
+        has NO expiry; it lives until the user deletes it or deletes the account.
+      why_shared: >
+        Same processors as the phone: the server transcribes and analyses the
+        stored audio through the configured speech-to-text provider and sends
+        the resulting transcript text to Anthropic for the analysis pass. The
+        tone/heat models that score the audio run locally on our own Cloud Run
+        instance (server/tone_id.py loads pinned Hugging Face checkpoints at
+        startup and runs them on CPU) — no audio goes to a model vendor's API.
+      proof:
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/control/SentinelController.kt:830-852   # streamWindow -> client.sendPcmWindow
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/control/SentinelController.kt:683-686   # the pre-trigger preamble is sent too
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/net/EpisodeWsClient.kt:155-158          # sendPcmWindow — a binary WS frame
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/service/MicReader.kt:11-13,38-53        # 16 kHz mono PCM16 off the device mic
+        - apps/watch/shared/src/commonMain/kotlin/app/gauge/shared/sentinel/ModePolicy.kt:21-24,34-38  # usesMic per mode; COMPANION is the only false
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/control/SentinelController.kt:327-332   # COMPANION returns before any mic read
+        - server/watch/routers/ws.py:345-368                                                        # server appends inbound bytes to pcm_buffer
+        - server/watch/routers/ws.py:300-317                                                        # ...and persists it as pcm_b64 on the live session
+        - server/watch/store.py:54-83                                                               # the Firestore doc-size guard on pcm_b64
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/capture/RetroCaptureUploader.kt:38-62   # POST /captures + PUT /captures/{id}/audio, gzip
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/journal/JournalUploader.kt:32-62        # the journal three-call upload
+        - server/watch/routers/captures.py:174-199                                                 # captures/{account}/{id}.pcm in GCS
+        - server/watch/journal.py:10-20,80                                                          # 48 h journal retention, self-voice filter
+      user_controls:
+        - "Mode → Companion: the mic is never opened at all; only heart rate and nudges use the socket."
+        - "The ring on the main screen is a hard on/off for the whole sentinel, mic included."
+        - "'Save last 2 min' requires a tap plus a confirm dialog every single time; Cancel sends nothing."
+        - "'Journal' is OFF by default, requires an explicit confirm, and turning it off clears the stored consent so the next ON needs a fresh confirmation."
+      proof_user_controls:
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/GlanceScreen.kt:227-266   # the retro-capture confirm dialog + Cancel path
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/GlanceScreen.kt:317-356   # the journal consent dialog + Cancel path
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/prefs/GaugePrefs.kt:117-154  # journalMode defaults false; consent minted/cleared atomically
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/capture/RetroCaptureUploader.kt:43-44  # no consent artifact -> no network call at all
+      required_because: >
+        Declared Required, not Optional, because the live PCM stream is not
+        something the wearer opts into per session: arming the sentinel in any
+        mic mode streams audio whenever an episode triggers. The two capture
+        paths ARE optional, but Play asks one question per data TYPE, and when
+        one path for a type is unavoidable the honest answer for the type is
+        Required.
+
+    - play_path: "Health and fitness → Health info"
+      collected: true
+      shared: false
+      processed_ephemerally: false
+      required_or_optional: "Optional — users can choose whether it's collected"
+      purposes: ["App functionality", "Personalization", "Analytics"]
+      what_it_actually_is: >
+        HEART RATE IN BEATS PER MINUTE, read live from the watch's optical
+        sensor through Wear Health Services (androidx.health.services.client,
+        DataType heart rate, BODY_SENSORS permission) and TRANSMITTED TO THE
+        MINDSHIFT SERVER. Two paths, both on the episode WebSocket as
+        {"type":"hr","bpm":...,"t":...} text frames:
+          * Mic modes: one sample per 1-second window for as long as an episode
+            is STREAMING and the socket is up.
+          * COMPANION mode: one sample at most every COMPANION_HR_INTERVAL_MS
+            = 5000 ms, for as long as the companion socket is open — which can
+            be all day.
+        Server-side the handler appends EVERY sample to hr_bpm_series with a
+        parallel hr_t_series on the session clock (not just the ones that
+        crossed a threshold), and persists both inside the live-session document
+        under the wearer's account. A companion socket that carried no audio but
+        did carry heart rate is saved under a derived id with status
+        "companion_hr" — one document per connection.
+      why_it_is_used: >
+        A heart-rate jump of +15 / +25 / +35 bpm over the wearer's resting rate
+        raises a channel-B vector, which can contribute to the nudge the wrist
+        plays. The full series is also kept so the product can answer whether
+        heart rate adds anything over loudness at all — the negatives matter as
+        much as the positives, which is exactly why every sample is stored and
+        not only the spikes.
+      why_not_shared: >
+        The bpm values and the stored series never leave MindShift's own Google
+        Cloud project. Nothing puts them in a payload to Deepgram, Anthropic, or
+        any other third party: the transcription provider receives audio, the
+        LLM receives transcript text, and neither call site carries the HR
+        series. They are not shown to another user either — the couples standing
+        card exposes only session counts and a calm score, never bpm.
+      optional_because: >
+        Heart rate is collected only if the wearer grants BODY_SENSORS. The app
+        never requests that permission implicitly, the sentinel arms and nudges
+        without it, and every code path degrades honestly to "no reading" rather
+        than a fabricated value. Denying the permission costs the meter and the
+        hr_spike channel and nothing else.
+      play_category_judgement: >
+        Play's Data safety taxonomy has "Health and fitness → Health info"
+        ("information about a user's health, such as ... symptoms, physical or
+        mental health") and "Fitness info" (exercise, activity). A continuously
+        sampled heart rate is health info, not fitness info — there is no
+        workout, no step count, no calorie estimate anywhere in the module. Tick
+        Health info; leave Fitness info unticked.
+      differs_from_phone_pack: >
+        THIS IS THE BIG ONE. The phone pack declares "Health and fitness (all)"
+        as NOT collected, and that stays true of the phone binary — the phone has
+        no body sensor and never reads one. The watch does. Do not copy the
+        phone's answer here.
+      user_can_delete: >
+        Yes — the series lives inside the live-session documents that DELETE /me
+        erases, and an individual watch live session can be deleted on its own
+        via DELETE /live-sessions/{id}.
+      proof:
+        - apps/watch/wearApp/src/main/AndroidManifest.xml:7                                          # BODY_SENSORS
+        - apps/watch/wearApp/build.gradle.kts:129                                                    # androidx health-services-client
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/sensors/HrSource.kt:1-20                 # Health Services live HR measure stream
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/control/SentinelController.kt:444-451    # a sample per window while STREAMING
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/control/SentinelController.kt:555-568    # trySendHr -> client.sendHr
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/control/SentinelController.kt:606-619    # maybeSendCompanionHr, rate-limited
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/control/SentinelController.kt:1168       # COMPANION_HR_INTERVAL_MS = 5_000L
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/net/EpisodeWsClient.kt:160-168           # the {"type":"hr"} frame
+        - server/watch/routers/ws.py:236-244                                                         # hr_bpm_series / hr_t_series: EVERY sample
+        - server/watch/routers/ws.py:300-317                                                         # persisted in LiveSession.series
+        - server/watch/routers/ws.py:319-337                                                         # save_companion_hr -> status "companion_hr"
+        - server/watch/models.py:83-95                                                               # the "companion_hr" status and series field
+        - server/watch/routers/rest.py:513-526                                                       # DELETE /live-sessions/{id}
+        - server/account_deletion.py:290-297                                                         # ...and the account-wide erase
+
+    - play_path: "Personal info → User IDs"
+      collected: true
+      shared: true
+      processed_ephemerally: false
+      required_or_optional: "Optional — users can choose whether it's collected"
+      purposes: ["App functionality", "Account management", "Fraud prevention, security, and compliance"]
+      what_it_actually_is: >
+        The MindShift account id (the Firebase Auth uid), received by the watch
+        when a pairing code is claimed and stored in SharedPreferences alongside
+        an opaque long-lived device token. It is the tenancy key for everything
+        the watch uploads: every live session, capture and standing lookup is
+        scoped to it server-side.
+      optional_because: >
+        The watch runs unpaired. Until the wearer signs in there is no account
+        id on the device and none is sent — the socket uses the legacy
+        "?account=default" form instead (which is itself a problem, see
+        _open_risks, but it is not an account id).
+      why_shared: >
+        A pair group's standing response carries the other member's account id
+        and display name, and the watch renders it.
+      proof:
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/auth/AccountPrefs.kt:20-45   # account_id + device_token in SharedPreferences
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/SignInScreen.kt:85-101    # setSignedIn on a claimed pairing
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/net/EpisodeWsClient.kt:80-87 # ?token= (preferred) or ?account=
+        - server/watch/auth.py:119-153                                                    # the token -> Principal(account_id=sub) ladder
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/control/CouplesStanding.kt:61 # the partner's account id + display name on screen
+
+    - play_path: "Personal info → Name"
+      collected: true
+      shared: true
+      processed_ephemerally: false
+      required_or_optional: "Optional — users can choose whether it's collected"
+      purposes: ["App functionality"]
+      what_it_actually_is: >
+        Display names. The watch never asks for one and never sends one; it
+        RECEIVES the pair partner's display name in the group standing response
+        and draws it on the couples card. Declared collected because the data
+        reaches the device and is rendered there.
+      why_shared: "It is one member's name shown to the other — that is the sharing."
+      proof:
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/control/CouplesStanding.kt:61-62
+        - server/watch/routers/groups.py:20-27   # mutual-visibility consent gates it
+
+    - play_path: "Device or other IDs"
+      collected: true
+      shared: false
+      processed_ephemerally: false
+      required_or_optional: "Required"
+      purposes: ["App functionality", "Analytics"]
+      what_it_actually_is: >
+        A random UUID minted on first launch and persisted in SharedPreferences
+        as the "device id". It is NOT an advertising id, not the Android id, not
+        a hardware serial — it is app-generated and reset by clearing app data
+        or reinstalling. It is sent on EVERY telemetry batch (as the batch's
+        `device` field) and on every capture created (as the capture's `device`
+        field). Because it is transmitted and is an identifier for this install,
+        this pack declares it rather than arguing it out of the category.
+      differs_from_phone_pack: >
+        The phone pack declares "Device or other IDs" as NOT collected, and that
+        is correct there — the Expo app pulls no advertising id and no Firebase
+        installation id. The watch mints and transmits its own. Do not copy the
+        phone's answer here.
+      required_because: >
+        It rides on telemetry, which is auto-sent (TELEMETRY_ENABLED is compiled
+        true and there is no user-facing opt-out anywhere in the app), so it is
+        Required.
+      proof:
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/prefs/GaugePrefs.kt:35-43     # deviceId: a persisted random UUID
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/telemetry/Telemetry.kt:61-69  # device = GaugePrefs.deviceId(context)
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/telemetry/TelemetryClient.kt:37-51  # it goes in every batch
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/service/SentinelService.kt:659-671  # ...and on every capture
+        - apps/watch/wearApp/build.gradle.kts:33                                          # TELEMETRY_ENABLED = true, no opt-out
+      note_this_is_not_an_advertising_id: >
+        The separate "Advertising ID" declaration under App content is still NO —
+        see other_declarations.advertising_id.
+
+    - play_path: "App info and performance → Crash logs"
+      collected: true
+      shared: false
+      processed_ephemerally: false
+      required_or_optional: "Required"
+      purposes: ["App functionality", "Analytics"]
+      what_it_actually_is: >
+        Uncaught-exception reports: the exception class name, the thread name,
+        the exception message and up to 20,000 characters of stack trace, posted
+        to MindShift's OWN server at POST /telemetry by a default uncaught
+        exception handler that then re-delegates to the platform handler. No
+        third-party crash SDK is involved — there is no Crashlytics, no Sentry,
+        no Bugsnag in the dependency list.
+      required_because: "Auto-sent from a dying process; there is no prompt and no opt-out."
+      proof:
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/telemetry/Telemetry.kt:21-35,93-118
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/telemetry/TelemetryClient.kt:28-56
+        - server/watch/routers/telemetry.py:54,74,104     # message/stack stored, clamped
+        - apps/watch/wearApp/build.gradle.kts:111-134     # no crash-reporting SDK anywhere
+
+    - play_path: "App info and performance → Diagnostics"
+      collected: true
+      shared: false
+      processed_ephemerally: false
+      required_or_optional: "Required"
+      purposes: ["App functionality", "Analytics"]
+      what_it_actually_is: >
+        A rolling 200-entry debug ring of the app's own log lines, flushed to
+        POST /telemetry alongside the device id and the app versionName. The
+        content is operational: sentinel state transitions, WebSocket connect /
+        failure / reconnect-backoff lines, mic and heart-rate lifecycle events,
+        haptic-path breadcrumbs, the app-start banner, and — while Journal is on
+        — a 5-minute tick carrying the watch's BATTERY PERCENTAGE and charging
+        state plus upload/failure/drop counters. It carries no transcript, no
+        audio and no account id.
+      required_because: "Auto-flushed with no user-facing toggle; TELEMETRY_ENABLED is a build constant."
+      proof:
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/telemetry/Telemetry.kt:54-57,71-91
+        - apps/watch/shared/src/commonMain/kotlin/app/gauge/shared/telemetry/DebugRing.kt
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/service/SentinelService.kt:392-404  # logJournalTick: battery + counters
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/journal/BatteryReader.kt
+        - apps/watch/wearApp/build.gradle.kts:33
+
+    - play_path: "App activity → App interactions"
+      collected: true
+      shared: false
+      processed_ephemerally: false
+      required_or_optional: "Required"
+      purposes: ["App functionality", "Analytics"]
+      what_it_actually_is: >
+        Which mode the wearer selected, when the sentinel armed and disarmed,
+        whether Journal was toggled on or off, and the per-session counts of
+        nudges played — all as telemetry log lines on the same auto-sent
+        channel, plus the vector/nudge event lists persisted on each live
+        session document.
+      proof:
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/journal/JournalTelemetry.kt
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/service/SentinelService.kt:303-308  # mic capture mode transitions
+        - server/watch/routers/ws.py:233-234,300-317   # vector_events / nudge_events on the stored session
+
+  third_parties_to_name_in_the_privacy_policy:
+    # The watch adds NO new processor. Every one of these is already named in
+    # https://arborfam-hub.web.app/privacy for the phone app; the watch reaches
+    # them only by way of the same backend.
+    - name: "Deepgram"
+      role: "Speech-to-text for the audio the watch uploads, once the server analyses a captured session."
+      receives: "The watch's uploaded microphone audio, by way of the MindShift server."
+      proof: [server/audio_pipeline.py:106, server/audio_ingest.py:48, server/watch/post_session.py]
+    - name: "Anthropic (Claude)"
+      role: "Generates the post-session analysis from the transcript."
+      receives: "Transcript text derived from the watch's audio. Never heart rate, never the audio itself."
+      proof: [server/llm_client.py:474-479,638-650, server/watch/post_session.py]
+    - name: "Google (Firebase Authentication)"
+      role: "Identity. The watch never touches Firebase directly — it exchanges a pairing code for an opaque device token, and the server verifies Firebase tokens on the phone side of that exchange."
+      receives: "Nothing from the watch itself."
+      proof: [server/watch/auth.py:119-153, apps/watch/wearApp/src/main/kotlin/app/gauge/wear/auth/DevicePairingClient.kt:26-29]
+    - name: "Google Cloud (Cloud Run, Cloud Storage, Firestore)"
+      role: "Runs the MindShift backend and stores everything the watch uploads."
+      receives: "Live-session documents (including base64 PCM and the heart-rate series), capture audio blobs, telemetry events."
+      proof: [scripts/deploy_cloudrun.sh:126-131, server/watch/store.py:54-83, server/watch/routers/captures.py:174-199]
+    - name: "Google (Wear Health Services)"
+      role: "The platform API that supplies the heart-rate stream. On-device, part of the OS."
+      receives: "Nothing from MindShift — the data flows the other way."
+      proof: [apps/watch/wearApp/src/main/kotlin/app/gauge/wear/sensors/HrSource.kt:1-20]
+  third_parties_the_phone_uses_that_the_watch_does_not:
+    - "Cloudflare TURN — the watch has no WebRTC and makes no calls."
+    - "Expo / EAS Update — that is the phone app's OTA channel; the watch is a plain Android build with no update SDK."
+
+  _judgement_calls:
+    - field: "Health and fitness → Health info"
+      declared: "Collected (Optional), not shared"
+      reasoning: >
+        Declared COLLECTED, reversing the phone pack's answer for this listing,
+        because the watch reads a body sensor and transmits the reading off the
+        device. Even under the narrowest reading of Play's definition, a
+        continuously sampled heart rate stored per session is health
+        information. Declared NOT SHARED because it reaches no third party and
+        no other user. Declared OPTIONAL because BODY_SENSORS can be denied and
+        the app keeps working.
+    - field: "Device or other IDs"
+      declared: "Collected (Required), not shared"
+      reasoning: >
+        An app-minted install UUID is arguably not what Play means by "device
+        id" (its examples are IMEI, MAC, Widevine, Firebase installation id,
+        advertising id). But it is an identifier for this install, it is
+        transmitted on every telemetry batch, and over-declaring costs nothing.
+        The separate advertising-id question remains a clean No.
+    - field: "Store listing category"
+      declared: "Communication"
+      reasoning: >
+        Deliberately NOT "Health & Fitness" even though heart rate is read.
+        Health categories pull the app into Play's Health apps declaration and
+        health-content policy, which is the wrong regime for a conversation
+        coach that happens to use a pulse as one input. The heart rate is never
+        surfaced as a health metric, there is no trend view, no resting-rate
+        report, no medical claim anywhere in the UI.
+    - field: "Audio declared Required rather than Optional"
+      declared: "Required"
+      reasoning: >
+        Arming the sentinel in any mic mode streams audio on trigger; the wearer
+        cannot use the core feature and decline the upload. COMPANION mode
+        avoids the mic entirely, but a mode switch is not what Play means by
+        "users can choose whether it's collected".
+    - field: "Messages / Other in-app messages"
+      declared: "Not collected"
+      reasoning: >
+        Unlike the phone, the watch never produces, receives or renders
+        conversation text. The transcript is derived server-side from the
+        uploaded audio and is declared under the phone listing, where the text
+        actually reaches a device.
+
+  _open_risks_the_owner_should_know_about:
+    - risk: >
+        UNPAIRED AUDIO GOES TO A SHARED ACCOUNT ID. With no device token stored,
+        the watch opens the episode socket as `?account=default`, and the server
+        accepts it because MINDSHIFT_ALLOW_LEGACY_ACCOUNT defaults to true and the
+        Cloud Run deploy does not override it. The resulting live-session document
+        — including its base64 PCM and its heart-rate series — is owned by the
+        literal account id "default", which belongs to no user. Two consequences:
+        (a) DELETE /me can never reach it, so a person who used the watch before
+        pairing cannot delete that audio; (b) POST /me/claim-legacy lets the FIRST
+        account that calls it adopt the whole "default" history, so on a multi-user
+        backend one account could claim another person's pre-pairing recordings.
+        This is the single most Play-relevant thing in the watch codebase. It is
+        not a blocker for the declarations in this pack — they describe it
+        honestly — but it should be closed before the listing goes live, by
+        setting MINDSHIFT_ALLOW_LEGACY_ACCOUNT=false on Cloud Run and requiring
+        pairing before the socket opens.
+      proof:
+        - server/watch/auth.py:149-153
+        - server/watch/config.py:16-19
+        - scripts/deploy_cloudrun.sh:130-131
+        - server/watch/routers/rest.py:360-378
+    - risk: >
+        THE PRIVACY POLICY DOES NOT MENTION HEART RATE, and it does not mention
+        the watch's microphone audio as a source. https://arborfam-hub.web.app/privacy
+        names microphone audio, transcripts, voiceprints, video and diagnostics,
+        and it mentions the watch only as a pairing and a telemetry source. A Data
+        safety declaration that says "Health info: collected" while the linked
+        policy is silent about it is exactly the mismatch the README warns about.
+        The policy must gain a heart-rate paragraph in the same commit that
+        submits this form.
+      proof:
+        - apps/mobile/public/privacy/index.html:245-247,372,387
+    - risk: >
+        THE PRIVACY POLICY IS ALSO STALE ABOUT LIVE AUDIO, for both listings. It
+        says a live coaching session "keeps no audio at all" and that the server
+        "never writes that audio down". Both statements were true when it was
+        written and are no longer: the phone keeps live audio by default
+        (DEFAULT_KEEP_AUDIO = true) and the watch's live PCM is persisted as
+        pcm_b64 on the live-session document. Fix the page before submitting
+        either app's Data safety form.
+      proof:
+        - apps/mobile/public/privacy/index.html:114-115,195-198
+        - apps/mobile/src/live/keepAudioPrefs.ts:21
+        - server/watch/routers/ws.py:316
+    - risk: >
+        WATCH TELEMETRY IS NOT DELETABLE. It is keyed to a per-install UUID and
+        carries no account id, so DELETE /me's diagnostics tier (which deletes by
+        data.uid) cannot find it. Already disclosed on the /delete-account page;
+        listed here so it is not rediscovered as a surprise.
+      proof:
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/telemetry/Telemetry.kt:64-68
+        - server/account_deletion.py:336-352
+    - risk: >
+        NO RETENTION LIMIT on watch live sessions or on manually saved captures.
+        Journal captures are the only thing in the repo with a real TTL (48 h).
+        Everything else lives until the user deletes it, which is what the policy
+        says, and is true.
+      proof:
+        - server/watch/journal.py:80,146-178
+    - risk: >
+        A DEBUG BUILD WITH A DIFFERENT PACKAGE ID EXISTS (com.sagearbor.gauge.wear.debug,
+        labelled "MindShift Dev"). It is not published and cannot be — it is
+        debug-signed — but if a reviewer ever sees that id in a bug report, this is
+        what it is.
+      proof:
+        - apps/watch/wearApp/build.gradle.kts:50-78
+
+government_apps:
+  question: "Is your app developed by or on behalf of a government?"
+  value: "No"
+  why: "Independent developer (Sage Arbor), no government affiliation or contract."
+
+# ===========================================================================
+# 7. Other App content declarations Play will ask for
+# ===========================================================================
+other_declarations:
+  financial_features:
+    value: "My app doesn't provide any financial features"
+  health_apps:
+    value: "Not applicable — the app is not in a Health category and does not use Health Connect."
+    why: >
+      Play's Health apps declaration is scoped to apps in the Health & Fitness /
+      Medical categories and to apps that integrate Health Connect. This app is
+      in Communication and does not depend on androidx.health.connect at all —
+      its only health dependency is androidx.health.services.client, the Wear
+      on-device sensor API, which is a different surface. If the console forces
+      this form anyway, that means the store-listing category was set wrong: fix
+      the category to Communication instead of filling the form in.
+    proof:
+      - apps/watch/wearApp/build.gradle.kts:129   # health-services-client, not health-connect
+  data_deletion:
+    value: "https://arborfam-hub.web.app/delete-account"
+  news_apps:
+    value: "No"
+  covid_19_apps:
+    value: "No"
+  advertising_id:
+    question: "Does your app use an advertising ID?"
+    value: "No"
+    why: >
+      com.google.android.gms.permission.AD_ID is not declared, Play Services Ads
+      is not a dependency, and no advertising identifier is read anywhere. The
+      per-install UUID declared under "Device or other IDs" in Data safety is
+      app-generated and is NOT an advertising id.
+    proof:
+      - apps/watch/wearApp/src/main/AndroidManifest.xml:6-16
+      - apps/watch/wearApp/build.gradle.kts:111-134
+      - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/prefs/GaugePrefs.kt:35-43
+  privacy_policy:
+    value: "https://arborfam-hub.web.app/privacy"
+    note: >
+      Paste this into BOTH App content → Privacy policy and the store listing.
+      SEE data_safety._open_risks — the page must gain a heart-rate paragraph
+      before this form is submitted.
+  photo_and_video_permissions:
+    value: "Not applicable — the app declares no media permissions and has no camera."
+    proof: apps/watch/wearApp/src/main/AndroidManifest.xml:6-16
+  foreground_service_declaration:
+    question: "Play may ask you to justify a foreground service type (Android 14+)."
+    value: >
+      Type: microphone. Justification to paste: "MindShift is a live
+      conversation coach. Its foreground service reads the watch microphone in
+      one-second windows while the user has explicitly armed it, so it can
+      detect when the wearer's own voice escalates and deliver a haptic cue on
+      the wrist in real time. The work cannot be deferred — a cue that arrives
+      after the conversation has moved on is useless — and it cannot run in the
+      background, because Android requires a microphone-type foreground service
+      for exactly this access. The service starts only from the user's explicit
+      tap on the on/off ring, posts a persistent low-importance notification for
+      as long as it runs, and stops the moment the user taps it off."
+    proof:
+      - apps/watch/wearApp/src/main/AndroidManifest.xml:9-10,38-41
+      - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/service/SentinelService.kt:67-77
+      - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/service/NotificationText.kt
+
+# ===========================================================================
+# 7b. Wear OS form-factor specifics  (Grow → Store presence → Store listings,
+#     and Release → Setup → Advanced settings → Form factors)
+#     Play asks these of Wear apps and of no one else.
+# ===========================================================================
+wear_os_listing:
+  form_factor_opt_in:
+    where: "Play Console → Grow → Store presence → Store listings (or Release → Setup → Advanced settings → Form factors) → add 'Wear OS'."
+    value: "Wear OS is already the app's form factor — this record IS the standalone Wear listing."
+    note: >
+      If the console shows Wear OS as not yet added, add it. Adding a form
+      factor is a listing action, not a release action, so it is in scope. Do
+      NOT create or promote a release to satisfy a prompt about 'a Wear OS APK'.
+  standalone_or_companion:
+    question: "Is your Wear OS app standalone, or does it require a phone app?"
+    value: "Standalone"
+    why: >
+      The manifest declares com.google.android.wearable.standalone = true, and
+      the code backs that claim: the watch talks to the backend directly over
+      its own HTTPS/WSS connection (OkHttp), never through the Wearable Data
+      Layer, and there is no Data Layer dependency in the module at all. The
+      core loop (arm, listen, feel a nudge) runs with no phone present and no
+      account. Pairing to an account needs a phone or desktop BROWSER once, to
+      type a 5-character code — not the MindShift phone app, and not a
+      persistent connection.
+    proof:
+      - apps/watch/wearApp/src/main/AndroidManifest.xml:25-27   # standalone = true
+      - apps/watch/wearApp/build.gradle.kts:122                  # OkHttp; no play-services-wearable
+      - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/net/EpisodeWsClient.kt:80-87
+      - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/SignInScreen.kt:113-118  # "Enter <code> on your phone or gauge.app/pair"
+    if_the_console_asks_for_the_companion_package:
+      value: "com.sagearbor.mindshift.app"
+      note: >
+        Name it only if Play explicitly asks which phone app is related. Do NOT
+        set a 'requires a phone app' flag — that would be false and would hide
+        the listing from standalone-watch users.
+  watch_face_declaration:
+    value: "No — this is not a watch face."
+    note: "The app ships a TILE and a COMPLICATION DATA SOURCE, which are not watch faces."
+    proof: apps/watch/wearApp/src/main/AndroidManifest.xml:43-74
+  wear_quality_review_notes:
+    value: >
+      Play reviews Wear apps against the Wear OS app quality checklist. Points
+      that a reviewer will look for and that the code already satisfies —
+      mention them in the App access instructions block if asked for more
+      detail: the app is usable entirely by touch on a round screen (Wear
+      Compose ScalingLazyColumn everywhere), it has no login wall on the core
+      feature, its foreground service posts a persistent notification and stops
+      on the user's off tap, and it requests RECORD_AUDIO and BODY_SENSORS at
+      the point of use rather than at launch.
+    proof:
+      - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/GlanceScreen.kt:390-400  # permission requested from the explicit arm tap
+      - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/service/SentinelService.kt:67-77
+  hardware_features:
+    value: >
+      The manifest declares <uses-feature android:name="android.hardware.type.watch"/>
+      with no android:required attribute, which defaults to required=true —
+      correct for a Wear-only app, and what makes Play offer the listing to
+      watches only.
+    proof: apps/watch/wearApp/src/main/AndroidManifest.xml:4
+  data_layer:
+    value: "Not used. There is no com.google.android.gms:play-services-wearable dependency and no WearableListenerService."
+    proof: apps/watch/wearApp/build.gradle.kts:111-134
+
+# ===========================================================================
+# 8. Main store listing  (Grow → Store presence → Main store listing)
+# ===========================================================================
+store_listing:
+  app_name:
+    value: "MindShift: Wrist Coach"
+    char_count: 22
+    limit: 30
+    why: >
+      The listing currently reads just "MindShift", which is indistinguishable
+      from the phone listing in search results and says nothing about what the
+      watch does. This keeps the brand first and adds the one word that explains
+      the form factor.
+    if_the_owner_prefers_no_change: "Leave 'MindShift'. It is valid; it is just less useful."
+    note: "The installed launcher label stays 'MindShift' — that is a string resource, not the store name."
+    proof: apps/watch/wearApp/src/main/res/values/strings.xml:3
+  short_description:
+    value: "A buzz on your wrist when your voice starts to rise. No screen to read."
+    char_count: 71
+    limit: 80
+    why: >
+      Truthful to the code in every word: the output is a vibration
+      (HapticDirector/PulseEngine), the trigger is the wearer's own loudness
+      over their own baseline (SentinelDetector + ModeParams.triggerDbOverBaseline),
+      and the product is explicitly designed to need no reading.
+    replaces: "the existing 61-character short description"
+    proof:
+      - apps/watch/shared/src/commonMain/kotlin/app/gauge/shared/sentinel/ModePolicy.kt:34-38
+      - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/haptics/HapticDirector.kt
+  full_description:
+    char_count: 3947
+    limit: 4000
+    replaces: "the existing 239-character full description"
+    value: |
+      MindShift on your wrist is a conversation coach that does not ask you to look
+      at anything.
+
+      You arm it before a conversation you know is going to be hard. It listens for
+      your own voice getting louder than your own normal — not louder than some fixed
+      number, louder than YOU usually are — and when it does, it taps you. One buzz
+      for a first rung, a different pattern as it climbs. You feel it, you breathe,
+      you drop back down. Nobody else in the room knows anything happened.
+
+      The moment you most need that signal is the moment you are least able to look
+      at a phone. A tap on the wrist lands in the one channel still free.
+
+      HOW IT WORKS
+
+      Tap the ring to arm. Three listening modes:
+
+      • Standard — waits, then opens a session when you get about 6 dB over your own
+        baseline. Keeps a rolling ten seconds so the moment that set it off is kept.
+      • Battery saver — the same idea with a higher bar and a shorter buffer.
+      • Session — for the conversation you already know is the hard one. Stays open
+        from the moment you arm it.
+
+      There is also Companion mode, for when you are already running a MindShift
+      session on your phone. In Companion the watch never opens its microphone at all
+      — the phone is listening, and the watch is purely the thing that buzzes.
+
+      HEART RATE
+
+      If you allow the body-sensor permission, the watch reads your heart rate while a
+      session is running, and a jump well over your resting rate can raise a cue of
+      its own. Deny it and everything else works the same — the app never guesses a
+      number it does not have.
+
+      ON THE WATCH ITSELF
+
+      • A live meter — loudness, heart rate, movement or speaking rate, your pick —
+        as a sparkline or a dial.
+      • A tile and a complication, so you can see whether it is armed at a glance.
+      • A settings screen that plays every haptic pattern on demand, so you learn the
+        vocabulary before you need it.
+      • "You & your person" — if you and a partner paired up in the MindShift app, a
+        card showing how the two of you are doing this week. No transcripts.
+
+      IT WORKS ON ITS OWN
+
+      A standalone Wear OS app: no phone app required, no Bluetooth link to your
+      phone — it reaches MindShift's servers by itself over Wi-Fi or LTE. Signing in
+      is optional; you can arm it and feel nudges with no account at all. Sign in, by
+      typing a five-character code into MindShift on any phone or browser, if you
+      want your sessions saved, the couples card, or the two features below.
+
+      SAVING AUDIO IS SOMETHING YOU TURN ON
+
+      • "Save last 2 min" grabs the last two minutes of your own audio, after a
+        confirmation tap, so you can go back to a moment that mattered.
+      • "Journal" is an opt-in toggle that keeps a few minutes at a time while it is
+        on. Raw journal uploads are deleted within 48 hours; after that only the
+        stretches matching your own enrolled voice are kept.
+
+      Both are off until you turn them on, and switching Journal off clears its consent.
+
+      PRIVACY, PLAINLY
+
+      The short version; the full version is at https://arborfam-hub.web.app/privacy.
+
+      • While a session is running, your audio and your heart rate go to MindShift's
+        servers. That is how the coaching is computed. In Companion mode no audio
+        leaves the watch, because the microphone is never opened.
+      • Your heart rate is used for your own cues and your own history. It is not sent
+        to anyone else and not shown to anyone else.
+      • Delete your whole account, and everything in it, yourself — in the MindShift
+        app or at https://arborfam-hub.web.app/delete-account.
+      • No ads. No advertising or analytics SDKs. Nothing sold to anyone, ever.
+
+      WHAT IT IS NOT
+
+      MindShift is a communication coach, not therapy, not counselling, and not a
+      medical or mental-health device. The heart rate it reads is an input to a
+      conversation cue, not a health measurement, and nothing here diagnoses or
+      treats anything. If you or someone else is in crisis, contact a qualified
+      professional or your local emergency services.
+
+      Needs a Wear OS watch with a microphone. English only for now.
+    truthfulness_audit:
+      # Every factual claim above, and the file that backs it. Re-check this
+      # list if the description is ever edited.
+      - claim: "listens for your own voice over your own baseline"
+        proof: apps/watch/shared/src/commonMain/kotlin/app/gauge/shared/sentinel/SentinelDetector.kt
+      - claim: "Standard ~6 dB, 10 s buffer; Battery saver 10 dB, 5 s; Session continuous"
+        proof: apps/watch/shared/src/commonMain/kotlin/app/gauge/shared/sentinel/ModePolicy.kt:34-38
+      - claim: "Companion never opens the microphone"
+        proof: apps/watch/shared/src/commonMain/kotlin/app/gauge/shared/sentinel/ModePolicy.kt:21-24,38
+      - claim: "heart rate optional, never fabricated"
+        proof: apps/watch/wearApp/src/main/kotlin/app/gauge/wear/sensors/HrSource.kt:36-38
+      - claim: "meter: loudness / heart rate / movement / speaking rate"
+        proof: apps/watch/shared/src/commonMain/kotlin/app/gauge/shared/signals/SignalKind.kt
+      - claim: "sparkline or dial"
+        proof: apps/watch/wearApp/src/main/kotlin/app/gauge/wear/prefs/GaugePrefs.kt:98-115
+      - claim: "tile and complication"
+        proof: apps/watch/wearApp/src/main/AndroidManifest.xml:43-74
+      - claim: "settings plays every haptic pattern"
+        proof: apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/SettingsScreen.kt:71-143
+      - claim: "couples card, no transcripts"
+        proof: apps/watch/wearApp/src/main/kotlin/app/gauge/wear/net/WatchApiClient.kt:70-82
+      - claim: "standalone, no Bluetooth/Data Layer"
+        proof: apps/watch/wearApp/src/main/AndroidManifest.xml:25-27
+      - claim: "sign-in optional, five-character code"
+        proof: apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/SignInScreen.kt:113-118
+      - claim: "Save last 2 min needs a confirmation"
+        proof: apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/GlanceScreen.kt:227-266
+      - claim: "Journal off by default; 48 h; self-voice filter; off clears consent"
+        proof: apps/watch/wearApp/src/main/kotlin/app/gauge/wear/prefs/GaugePrefs.kt:126-154
+      - claim: "48 h raw journal retention"
+        proof: server/watch/journal.py:10-20,80
+      - claim: "no ads or analytics SDKs"
+        proof: apps/watch/wearApp/build.gradle.kts:111-134
+    one_claim_deliberately_not_made: >
+      The description does NOT say "your audio never leaves the watch" or
+      anything like it, because that is false for every mic mode. It says the
+      opposite, in the privacy section, in plain words. Do not soften that line.
+  app_category:
+    value: "Communication"
+    alternative_if_rejected: "Lifestyle"
+    do_not_use: ["Health & Fitness", "Medical"]
+    why: "See data_safety._judgement_calls — those categories trigger the Health apps regime."
+  tags:
+    value: ["Self-Improvement", "Relationships", "Speech Recognition", "Personal Growth"]
+    note: >
+      The tag list is fixed and changes over time. Pick the nearest available
+      options; do not create anything. Do NOT pick "Voice Calling" here (the
+      watch makes no calls) even though the phone listing does.
+  contact_details:
+    email: sagearbor@gmail.com
+    phone: "OWNER_MUST_SUPPLY (optional — Play does not require it; leave blank)"
+    website: "https://arborfam-hub.web.app"
+    privacy_policy: "https://arborfam-hub.web.app/privacy"
+    note: "Already set via the Play API for this listing — verify rather than re-enter."
+  external_marketing:
+    value: "Leave unchecked (no external marketing / no Google-run promotion)."
+
+# ===========================================================================
+# 9. Graphics
+# ===========================================================================
+graphics_checklist:
+  app_icon:
+    required: "512 × 512 PNG (32-bit, with alpha), ≤ 1 MB"
+    status: "ALREADY UPLOADED to this listing. Do not re-upload and do not regenerate."
+    in_app_source: apps/watch/wearApp/src/main/res/drawable-nodpi/ic_launcher_fg.png
+    note: "The in-app launcher foreground lives at the path above; the store icon is the same mark as the phone listing's."
+  feature_graphic:
+    required: "1024 × 500 PNG or JPEG, no alpha, ≤ 15 MB"
+    value: "Reuse the phone listing's: apps/mobile/assets/play/feature-graphic.png (verified 1024×500)."
+    note: "Play requires a feature graphic on every listing. Nothing in it is phone-specific."
+  wear_os_screenshots:
+    required: >
+      THE BLOCKER FOR THIS LISTING. Play requires Wear OS screenshots for a Wear
+      form-factor listing and this record has NONE. Minimum 2 (upload 4).
+      Each must be SQUARE (1:1), each side between 384 and 3840 px, PNG or
+      JPEG (24-bit, no alpha), ≤ 8 MB each.
+    recommended_size: "454 × 454 px — the native resolution of the Pixel Watch the owner tests on, comfortably inside the 384–3840 range."
+    how_to_take_one: >
+      On a Pixel Watch with the build installed and the watch connected to the
+      Mac: `adb -s <watch serial> exec-out screencap -p > shot.png`. The result
+      is already square on a round watch; do NOT crop it to a circle and do NOT
+      paste it into a watch-shaped marketing frame — Play wants the actual
+      screen. If a physical watch is not available, a Wear OS emulator
+      screenshot of the real build is acceptable and is what most Wear listings
+      use.
+    capture_exactly_these_four:
+      - order: 1
+        screen: "Live gauge, mid-episode"
+        how: >
+          Arm the sentinel (tap the centre ring, allow the microphone), then
+          talk loudly enough to open an episode. Capture while the centre shows
+          the live meter with the sparkline moving and the status reading On.
+        why: "This is the product. It must be screenshot #1 — it is the only one that shows what the app does while it is working."
+        file: apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/GlanceScreen.kt
+      - order: 2
+        screen: "A nudge landing"
+        how: >
+          Same armed state, but capture at the instant a nudge fires — the
+          channel level is published to the UI and the complication at the same
+          moment the haptic plays, so the screen shows the raised level. Easiest
+          repeatable way: Settings → "Feel the buzzes" → Nudge · level 3, which
+          plays the real pattern through the real vibrator, then capture the
+          main screen straight after a real trigger.
+        why: "A haptic cannot be screenshotted, so this is the only way to show the one thing the wearer actually experiences."
+        file: apps/watch/wearApp/src/main/kotlin/app/gauge/wear/haptics/HapticDirector.kt
+      - order: 3
+        screen: "Enrolment / baseline — the sign-in code screen"
+        how: >
+          Scroll to "Sign in" and capture the screen showing "Enter XXXXX on
+          your phone or gauge.app/pair". This is the watch's entire onboarding.
+        why: >
+          It is the honest picture of how a watch gets attached to an account,
+          and it is the screen the Play reviewer will be following the App
+          access instructions through. NOTE: there is no separate enrolment or
+          baseline-capture screen on the watch — the loudness baseline is
+          learned silently by SentinelDetector from the first windows of each
+          armed stretch, so do not go looking for a wizard that does not exist.
+        file: apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/SignInScreen.kt
+      - order: 4
+        screen: "Settings — the haptic vocabulary"
+        how: >
+          Settings → scroll to "Feel the patterns" and capture the list of named
+          patterns with their icons.
+        why: "Shows the depth of the product in one image and makes the 'learn the vocabulary before you need it' claim in the description checkable."
+        file: apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/SettingsScreen.kt
+    optional_fifth:
+      screen: "You & your person"
+      how: "Pair the watch to an account that is in a pair group, open the couples chip, capture the standing card."
+      why: "Backs the couples claim in the description and the 'Users Interact' content-rating answer."
+      file: apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/CouplesScreen.kt
+    IMPORTANT: >
+      Play requires screenshots to depict the actual in-app experience. Every
+      one of these must be a real capture of the real build. No renders, no
+      mockups, no composited watch bezels.
+    owner_action: >
+      OWNER_MUST_SUPPLY — this needs the 0.5.0 build running on the Pixel Watch
+      (or a Wear emulator) and a real armed session with speech. A browser agent
+      cannot produce these. Until they exist the Wear listing cannot be
+      completed, so do this first.
+  phone_screenshots:
+    value: "Skip — this listing is Wear-only. If Play insists on at least one phone screenshot to save the listing, report it rather than uploading a phone screenshot to a watch app."
+  tablet_screenshots:
+    value: "Skip."
+  promo_video:
+    value: "Leave blank."
+
+# ===========================================================================
+# 10. Notes for the browser agent
+# ===========================================================================
+notes_for_the_agent:
+  hard_rules:
+    - "NEVER create, edit, promote, roll out or publish a release. Not to production, not to a testing track, not as a draft. Nothing under 'Release' or 'Testing' is in scope."
+    - "NEVER press Submit on the content-rating questionnaire. Fill every answer, land on the review/summary screen, screenshot it, stop."
+    - "NEVER press 'Send for review' / 'Submit for review' on the Data safety form. Save the draft and stop at the summary."
+    - "NEVER invent a credential, a phone number, a company name or an address. Any field this pack marks OWNER_MUST_SUPPLY is left blank and reported."
+    - "NEVER change the developer account settings, payment profile, users & permissions, or API access."
+    - "NEVER accept a new Play agreement or policy acknowledgement on the owner's behalf."
+    - "NEVER upload a screenshot that is not in this repo or supplied by the owner. The Wear screenshots do not exist yet — leave that section empty and report it."
+    - "You are working on com.sagearbor.gauge.wear. If the console header says com.sagearbor.mindshift.app, you are in the wrong app — stop and switch."
+  save_behaviour:
+    - "Play autosaves some forms and requires an explicit Save on others. Press Save on each section when it is offered — saving a draft is fine and expected."
+    - "The Data safety form is a multi-step wizard; 'Next' through it and Save. Only the final 'Submit' is off-limits."
+  what_to_skip_entirely:
+    - "Pricing & distribution / countries — owner decision, not in this pack."
+    - "Any Play Console prompt about ads, Google Analytics linking, or App Campaigns."
+    - "Anything under Monetise."
+    - "Anything that offers to 'import settings from another app in this account' — the two listings' answers genuinely differ (health data, device ids, login model) and importing would overwrite correct answers with wrong ones."
+  when_something_does_not_match_this_pack:
+    value: >
+      Play's forms change wording constantly. If a question here does not exist,
+      skip it. If a question exists that is NOT here, go to section 11
+      (`catch_all`) — it has one-line answers for essentially every other field
+      the console can show, plus a decision rule for the residue. Only if the
+      question survives all of that should you fall back to recording the exact
+      question text and every option offered, and reporting it. A wrong Data
+      safety answer is worse than an unfinished form.
+    see_also: "catch_all.decision_rule_for_any_question_not_in_this_pack"
+  report_back_with:
+    - "Every section completed, and the state each was left in (draft / saved / ready for owner to submit)."
+    - "Every OWNER_MUST_SUPPLY field left blank — expect at least: App access demo credentials, the Wear screenshots, the optional contact phone."
+    - "The exact text of any question not covered by this pack."
+    - "A screenshot of the content-rating summary screen and the Data safety summary screen."
+
+# ===========================================================================
+# 11. Catch-all
+# ===========================================================================
+catch_all:
+
+  decision_rule_for_any_question_not_in_this_pack:
+    rule: >
+      Answer with the CONSERVATIVE option — the one that claims LESS about the
+      app and MORE about the data. Concretely: if the question is "does the app
+      contain / do / show X", the answer is almost always No (this app contains
+      no authored media, no ads, no purchases, no gambling, no location, no
+      social graph, no camera, no calls, no browser). If the question is "do you
+      collect / share / store Y", look it up in `data_safety.data_types` first;
+      if it is genuinely not there, answer Yes and pick "App functionality" as
+      the purpose rather than answering No. Under-claiming what you collect is
+      the one mistake that gets an app enforced against; over-claiming never is.
+    then: >
+      Record the exact question text and every option offered, and put it in the
+      report so the pack can be corrected.
+
+  one_line_answers_for_the_whole_console:
+    app_or_game: "App"
+    free_or_paid: "Free"
+    contains_ads: "No"
+    in_app_purchases: "No"
+    contains_gambling: "No"
+    real_money_gambling_or_games_of_skill: "No"
+    is_a_browser: "No"
+    is_a_launcher_or_home_screen_replacement: "No"
+    is_a_watch_face: "No — it ships a tile and a complication, which are not watch faces."
+    is_a_vpn: "No"
+    uses_accessibility_services: "No"
+    uses_device_admin_or_special_permissions: "No"
+    requests_all_files_access_MANAGE_EXTERNAL_STORAGE: "No"
+    requests_package_visibility_QUERY_ALL_PACKAGES: "No"
+    uses_exact_alarms: "No"
+    uses_sms_or_call_log_permissions: "No"
+    uses_photo_and_video_permissions_broad_access: "No"
+    uses_camera: "No — the watch app declares no camera permission and has no camera code."
+    uses_the_microphone: "Yes — RECORD_AUDIO, in a microphone-type foreground service, only while the user has armed it."
+    uses_body_sensors: "Yes — BODY_SENSORS, for heart rate, via Wear Health Services. Optional; denied is handled."
+    uses_health_connect: "No"
+    is_a_medical_device_or_makes_medical_claims: "No"
+    is_a_covid_19_contact_tracing_or_status_app: "No"
+    is_a_news_app: "No"
+    is_a_dating_app: "No"
+    is_a_financial_or_lending_app: "No"
+    is_a_government_app: "No"
+    is_a_kids_or_family_app: "No"
+    contains_user_generated_content: "Yes — the wearer's own recorded audio, visible only to them and to anyone they later share a session with from the phone app."
+    allows_user_to_user_interaction: "Yes, narrowly — a paired partner's name and weekly standing on one card. No chat, no calls, no sharing action on the watch."
+    has_a_content_moderation_system: "No — there is no public or shared surface to moderate."
+    has_an_in_app_user_reporting_mechanism: "No — for the same reason. Abuse reports go to sagearbor@gmail.com."
+    shares_location_between_users: "No"
+    uses_an_advertising_id: "No"
+    sells_personal_data: "No"
+    transfers_data_outside_the_users_country: "Yes — the backend and its storage run in Google Cloud in the United States."
+    target_countries: "OWNER_MUST_SUPPLY — distribution is an owner decision, not part of this checklist."
+    app_name_translations: "None. English only."
+    promo_video: "None."
+    is_a_standalone_wear_app: "Yes"
+    requires_a_companion_phone_app: "No"
+
+  data_safety_wizard_screen_by_screen:
+    step_1_overview:
+      - "Does your app collect or share any of the required user data types? → Yes"
+      - "Is all of the user data collected by your app encrypted in transit? → Yes"
+      - "Do you provide a way for users to request that their data is deleted? → Yes, and the URL is https://arborfam-hub.web.app/delete-account"
+    step_2_data_types:
+      instruction: >
+        Tick exactly the types listed in `data_safety.data_types` and nothing
+        else. `data_safety.overview.data_types_not_collected_at_all` is the
+        explicit list of what stays unticked. Note two DIFFERENCES from the
+        phone listing: Health info is ticked here and is not there; Device or
+        other IDs is ticked here and is not there. Do not "harmonise" them.
+      tick_these:
+        - "Personal info → Name"
+        - "Personal info → User IDs"
+        - "Health and fitness → Health info"
+        - "Audio → Voice or sound recordings"
+        - "App activity → App interactions"
+        - "Device or other IDs → Device or other IDs"
+        - "App info and performance → Crash logs"
+        - "App info and performance → Diagnostics"
+      explicitly_leave_unticked:
+        - "Personal info → Email address"    # the watch never sees one: it holds a uid and an opaque device token, never an email
+        - "Personal info → Other info"       # no voiceprint is computed on or sent by the watch
+        - "Messages → Other in-app messages"
+        - "Photos and videos → (all)"
+        - "Health and fitness → Fitness info"
+        - "Location → (all)"
+        - "Financial info → (all)"
+        - "Contacts / Calendar / Web browsing / Installed apps / In-app search history"
+    step_3_data_usage_and_handling:
+      instruction: >
+        Play asks the SAME four questions for every ticked type. Read them off
+        the matching block in `data_safety.data_types`:
+          1. Is this data collected, shared, or both?          → `collected` / `shared`
+          2. Is this data processed ephemerally?               → `processed_ephemerally`
+          3. Is this data required, or can users choose?       → `required_or_optional`
+          4. Why is this data collected/shared? (tick all)     → `purposes`
+      purpose_options_and_which_ones_ever_apply:
+        app_functionality: "Applies to every declared type."
+        analytics: "Only Health info, App interactions, Device or other IDs, Crash logs, Diagnostics."
+        developer_communications: "Never."
+        advertising_or_marketing: "NEVER. There are no ads. Do not tick this on anything."
+        fraud_prevention_security_and_compliance: "Only User IDs."
+        personalization: "Only Health info (the wearer's own resting-rate baseline shapes their own cues)."
+        account_management: "Only Name and User IDs."
+    step_4_review_and_submit:
+      value: "See `notes_for_the_agent.hard_rules` before pressing anything on this screen."
+
+  content_rating_extra_questions_that_sometimes_appear:
+    - question: "Does the app allow users to communicate with each other via text, voice, or video?"
+      value: "No — there is no messaging, calling or voice chat in the watch app at all."
+    - question: "Does the app allow users to share their own content with other users?"
+      value: "No from the watch. Sharing a session with a therapist is done in the MindShift phone or web app."
+    - question: "Can users see information about other users?"
+      value: "Yes — one paired partner's display name and weekly standing, on a card, after both members consented in the phone app."
+    - question: "Is user-generated content moderated or reviewed before it is visible to others?"
+      value: "Not applicable — content is only ever visible to the person who created it and to someone they personally invited."
+    - question: "Does the app display user-generated content publicly?"
+      value: "No"
+    - question: "Does the app contain content that may be frightening or disturbing to children?"
+      value: "No"
+    - question: "Does the app contain crude humour?"
+      value: "No"
+    - question: "Does the app contain any references to illegal activity?"
+      value: "No"
+    - question: "Does the app provide unrestricted internet access (e.g. a browser or search engine)?"
+      value: "No"
+    - question: "Does the app allow users to share their personal information with third parties?"
+      value: "No"
+
+  if_the_owner_has_authorised_submitting:
+    read_this_first: >
+      This pack's default (notes_for_the_agent.hard_rules) is to STOP at the
+      review screen of the content-rating questionnaire and the Data safety
+      form. If the owner has since told you to submit them, here is what changes.
+    what_is_recoverable:
+      - "Content rating: re-openable and re-submittable at any time. Low risk."
+      - "Data safety: editable and re-submittable at any time — but a WRONG declaration that goes live is a policy violation for as long as it stands, and this listing's Health info answer is exactly the kind that matters. Correctness over speed."
+      - "Store listing, App access, target audience, ads, government apps: editable at any time."
+    what_is_NOT_recoverable_and_stays_forbidden_regardless:
+      - "Creating, promoting, rolling out or publishing a RELEASE. Nothing under 'Release' or 'Testing' is in scope under any instruction."
+      - "Changing the developer account, payment profile, users & permissions, or API access."
+      - "Accepting a new Play agreement or policy acknowledgement on the owner's behalf."
+    the_one_thing_that_must_still_stop_you:
+      value: >
+        Two things here, not one. (1) The App access demo credentials —
+        submitting with invented or blank credentials gets the app rejected on
+        review. (2) The missing Wear screenshots — a Wear listing cannot be
+        completed without them, and there is no honest way to invent one.
+    and_one_precondition: >
+      Do not submit Data safety for this listing until the privacy policy names
+      heart rate. See data_safety._open_risks — the two must say the same thing,
+      and right now they do not.
+
+# ===========================================================================
+# 12. Provenance — every data-safety claim, mapped to the code that proves it
+# ===========================================================================
+_provenance:
+  watch_audio_leaves_the_device_on_every_mic_mode:
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/control/SentinelController.kt:830-852   # streamWindow -> sendPcmWindow, every STREAMING window
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/control/SentinelController.kt:398-411   # the state machine that reaches STREAMING
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/control/SentinelController.kt:683-686   # the pre-trigger ring buffer goes out as the preamble
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/control/SentinelController.kt:1128-1136 # sendInSlices for the preamble
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/net/EpisodeWsClient.kt:155-158
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/control/Ports.kt:80,102
+  companion_mode_is_the_only_mode_that_never_opens_the_mic:
+    - apps/watch/shared/src/commonMain/kotlin/app/gauge/shared/sentinel/ModePolicy.kt:21-24,34-38
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/control/SentinelController.kt:327-332
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/control/SentinelController.kt:571-604   # companionTick: reminders, reconnect, heartbeat, HR
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/service/MicDutyGate.kt:18
+  heart_rate_is_read_from_a_body_sensor_and_transmitted:
+    - apps/watch/wearApp/src/main/AndroidManifest.xml:7
+    - apps/watch/wearApp/build.gradle.kts:129
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/sensors/HrSource.kt:1-20,36-38
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/sensors/HrDemandPolicy.kt
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/control/SentinelController.kt:555-568
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/control/SentinelController.kt:606-619,1168
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/net/EpisodeWsClient.kt:160-168
+  heart_rate_is_stored_per_session_server_side:
+    - server/watch/routers/ws.py:236-244        # every sample, not just spikes
+    - server/watch/routers/ws.py:300-317        # series on the persisted LiveSession
+    - server/watch/routers/ws.py:319-337        # companion sockets save an HR-only document
+    - server/watch/models.py:83-95
+  heart_rate_never_reaches_a_third_party:
+    - server/llm_client.py:638-650              # the Anthropic request shape carries transcript text only
+    - server/audio_pipeline.py:106-117          # the Deepgram socket carries audio only
+    - server/watch/aggregates.py:33-48          # the couples standing exposes a calm score, never bpm
+  the_watch_persists_audio_server_side:
+    - server/watch/routers/ws.py:345-368        # pcm_buffer accumulates inbound binary frames
+    - server/watch/routers/ws.py:316            # base64 into LiveSession.pcm_b64
+    - server/watch/store.py:54-83               # the Firestore 1 MiB guard
+    - server/watch/routers/captures.py:174-199  # captures/{account}/{id}.pcm in GCS
+  capture_uploads_are_consent_gated_structurally:
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/capture/RetroCaptureUploader.kt:27-36,43-44
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/journal/JournalUploader.kt:21-24,37-39
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/service/SentinelService.kt:1062-1075   # EXTRA_CONSENT_CONFIRMED, fail-closed
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/GlanceScreen.kt:227-266,317-356
+    - server/watch/routers/captures.py:144-148  # the server rejects a capture with attested != true
+  journal_is_off_by_default_and_time_limited:
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/prefs/GaugePrefs.kt:126-154
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/journal/JournalScheduler.kt:44-52
+    - server/watch/journal.py:10-20,80,146-178
+  pairing_is_a_short_code_not_a_watch_login:
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/SignInScreen.kt:63-118
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/auth/DevicePairingClient.kt:17-29,70-120
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/auth/PairingPoller.kt:30-62
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/auth/AccountPrefs.kt:5-19
+    - server/watch/routers/pairing.py
+  the_watch_works_unpaired_under_a_shared_legacy_account:
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/SignInScreen.kt:129   # currentAccountId falls back to "default"
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/service/SentinelService.kt:441-447
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/net/EpisodeWsClient.kt:80-86
+    - server/watch/auth.py:149-153
+    - server/watch/config.py:16-19
+    - scripts/deploy_cloudrun.sh:130-131
+    - server/watch/routers/rest.py:360-378      # POST /me/claim-legacy adopts the whole "default" history, once
+  crash_logs_and_diagnostics_go_to_our_own_server_only:
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/telemetry/Telemetry.kt:21-35,54-57,61-69,93-118
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/telemetry/TelemetryClient.kt:12-19,28-56
+    - apps/watch/wearApp/build.gradle.kts:33,111-134
+    - server/watch/routers/telemetry.py:54,74,104
+  the_device_id_is_an_app_minted_uuid_not_an_advertising_id:
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/prefs/GaugePrefs.kt:35-43
+    - apps/watch/wearApp/src/main/AndroidManifest.xml:6-16
+  no_ad_analytics_or_crash_sdk:
+    - apps/watch/wearApp/build.gradle.kts:111-134
+    - apps/watch/shared/build.gradle.kts
+  the_watch_is_standalone:
+    - apps/watch/wearApp/src/main/AndroidManifest.xml:4,25-27
+    - apps/watch/wearApp/build.gradle.kts:122
+  the_watch_has_no_camera_no_calls_no_location:
+    - apps/watch/wearApp/src/main/AndroidManifest.xml:6-16
+    - apps/watch/wearApp/build.gradle.kts:111-134
+  encrypted_in_transit:
+    - apps/watch/wearApp/build.gradle.kts:28-32
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/service/SentinelService.kt:1098-1099
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/net/WatchApiClient.kt:116
+    - scripts/deploy_cloudrun.sh:210-228
+  encrypted_at_rest:
+    - server/watch/store.py:526-537              # standard Firestore — Google-managed AES-256 by default
+    - server/watch/blobs.py                      # standard GCS bucket
+    - note: "No CMEK anywhere in the repo, and no application-layer encryption."
+  deletion_reaches_every_watch_tier:
+    - server/account_deletion.py:117-119,278-333
+    - server/routers/account.py
+    - server/watch/routers/rest.py:513-526       # DELETE /live-sessions/{id}
+    - server/watch/routers/captures.py:246-271   # DELETE /captures/{id} — blob then doc
+    - server/tests/test_account_deletion.py
