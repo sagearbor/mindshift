@@ -47,14 +47,19 @@ the FIRST buzz of an episode, tunable 3 s) and the tone model's audio window
 (2 s is enough: 130 ms compute measured; it was trained on 3–11 s podcast
 segments, shorter than 2 s untested).
 
-| # | step | watch | phone | web/cloud |
-|---|---|---|---|---|
-| 1 | Hold-3s hysteresis on the loudness ladder, all runtimes | 3 s | 3 s | 3 s |
-| 2 | Bake WavLM weights into image; flip cloud flag to dark | NO (logs only) | NO | ~0.5 s compute, logging |
-| 3 | Sliding 2 s tone window every 1 s; arousal+valence confirm/veto | ~3 s via cloud | ~3 s via cloud | ~2.5 s |
-| 4 | Stack SpeechBrain angry-vs-happy vote on the judge | ~3 s via cloud | ~3 s via cloud | ~2.7 s |
-| 5 | eGeMAPS + linear model on device (instant tier) | NO until Kotlin port (~2 s) | ~2 s | ~2 s |
-| 6 | Distil 72 K student on our 31 h; run on watch | ~2 s | ~2 s | ~2 s |
-| 7 | Regenerate CHiME-6 speaker labels from transcripts | — | — | offline |
-| 8 | $50 OpenAI top-up; bench gpt-audio as labeller | NO | NO | 3–5 s, offline only |
-| 9 | Review and push eval/real-conversation-audit | — | — | — |
+| # | step | watch | phone | web/cloud | CC effort |
+|---|---|---|---|---|---|
+| 1 | Hold-3s hysteresis on the loudness ladder, all runtimes | 3 s | 3 s | 3 s | ~4 h (3 runtimes + shared fixture + dose gate) |
+| 2 | Bake WavLM weights into image; flip cloud flag off → dark | NO (logs only) | NO | ~0.5 s compute, logging | ~2 h (Dockerfile layer, build, deploy, verify logs) |
+| 3 | Sliding 2 s tone window every 1 s; arousal+valence confirm/veto; flag dark → on | ~3 s via cloud | ~3 s via cloud | ~2.5 s | ~1 day (relay, gate on CONFER ≥ +0.55 and no dose rise) |
+| 4 | Stack SpeechBrain angry-vs-happy vote on the judge | ~3 s via cloud | ~3 s via cloud | ~2.7 s | ~3 h (backend exists; wire + bench gate) |
+| 5 | eGeMAPS + linear model on device (instant tier) | NO until Kotlin port (~2 s) | ~2 s | ~2 s | ~3 days phone (no openSMILE in RN: port features) + ~2 days watch |
+| 6 | Distil 72 K student on our 31 h; run on watch | ~2 s | ~2 s | ~2 s | ~5 days (teacher labelling, GPU rental, ONNX on watch) |
+| 7 | Regenerate CHiME-6 speaker labels from transcripts | — | — | offline | ~2 h |
+| 8 | $50 OpenAI top-up; bench gpt-audio as labeller | NO | NO | 3–5 s, offline only | ~3 h after credits |
+| 9 | Review and push eval/real-conversation-audit | — | — | — | ~30 min + owner review |
+
+"Dark" is the middle of a three-state flag (`MINDSHIFT_TONE_AUDIO`): **off** =
+not computed; **dark** = computed and logged beside every session, never
+changes a buzz; **on** = drives the confirm/veto. Step 2 goes off → dark so
+real-session data accumulates with zero user-visible risk; step 3 goes dark → on.
