@@ -21,7 +21,7 @@
  */
 import * as fs from "fs";
 import * as path from "path";
-import { FastLoop, type LocalTurn, type TurnLatency } from "../fastLoop";
+import { FastLoop, type HeatWindow, type LocalTurn, type TurnLatency } from "../fastLoop";
 import { SileroVad, EnergyVad, type FrameVad } from "../vad";
 import { EcapaEmbedder, SpeakerLabeler, type Embedder } from "../speakerId";
 import { cloudProvider, ProviderChain, type LiveMode } from "../localLlm";
@@ -176,6 +176,10 @@ export interface ReplayOptions {
   sileroPath: string;
   /** Energy VAD instead of Silero (debugging aid; not what the phone runs). */
   energyVad: boolean;
+  /** Score the dark acoustic instant tier once a second (fastLoop.tickHeat).
+   *  Default TRUE, as on the phone; a replay that only cares about the nudge
+   *  ladder can turn it off and save the arithmetic. */
+  instantHeat: boolean;
   ortFactory: OnnxSessionFactory | null;
   /** Reuse loaded sessions across runs (the CLI/Jest load ECAPA once). */
   models?: LoadedModels;
@@ -201,6 +205,7 @@ export const DEFAULT_REPLAY_OPTIONS: Omit<ReplayOptions, "mode"> = {
   ecapaPath: findEcapaModel(),
   sileroPath: SILERO_PATH,
   energyVad: false,
+  instantHeat: true,
   ortFactory: null,
 };
 
@@ -286,6 +291,10 @@ export interface ReplayResult {
   /** 🧘 the longest run of the session with no alert escalation. */
   calm: CalmStreak;
   nudgeLog: NudgeEmission[];
+  /** Every per-second acoustic instant-tier window (dark; fastLoop.HeatWindow).
+   *  Nothing escalates on these — they are here so the report can show what
+   *  the acoustic tier WOULD have said next to what loudness actually did. */
+  heat: HeatWindow[];
   policyLog: PolicyCall[];
   latencyLog: TurnLatency[];
   stt: { emitted: number; finals: number };
@@ -360,6 +369,7 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
   const positiveHaptics: HapticFire[] = [];
   const positives: PositiveEmission[] = [];
   const nudgeLog: NudgeEmission[] = [];
+  const heat: HeatWindow[] = [];
 
   const loop: FastLoop = new FastLoop({
     vad,
@@ -370,6 +380,7 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
     speak: spokenLog.speak,
     send: (e) => sent.push(e),
     onTurn: (t) => turns.push(t),
+    onHeat: (w) => heat.push(w),
     onNudge: (n) => {
       nudges.push(n);
       nudgeLog.push({ ...n, atMs: clock.now() });
@@ -392,6 +403,7 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
     repeatGate: null,
     now: () => clock.now(),
     sleep: (ms) => clock.sleep(ms),
+    instantHeat: opts.instantHeat,
     sttGraceMs: opts.sttGraceMs,
     speakHoldMaxMs: opts.speakHoldMaxMs,
     speakQuietMs: opts.speakQuietMs,
@@ -458,6 +470,7 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
     positives,
     calm: loop.positiveSummary(scene.pcm.length / 16000).calm,
     nudgeLog,
+    heat,
     policyLog: policy.log,
     latencyLog: summary.latencyLog,
     stt: { emitted: recognizer?.emitted.length ?? 0, finals: recognizer?.emitted.filter((e) => e.isFinal).length ?? 0 },

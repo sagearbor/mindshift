@@ -61,6 +61,12 @@ function harness(opts: {
     embedder: opts.embedder ?? null,
     labeler: opts.labeler ?? null,
     overlapProbe: opts.overlapProbe ?? false,
+    // The dark acoustic tier (live/instantTier.ts) is off here. These tests
+    // run the loop on a REAL clock with a 150 ms STT grace and a 5 ms poll,
+    // and an 11 ms burst of arithmetic once per audio second is enough to
+    // move them under load. It has its own coverage — instantTier*.test.ts,
+    // including a replay that asserts the nudge ladder is untouched by it.
+    instantHeat: false,
     recognizer: rec,
     llm: new ProviderChain([opts.provider ?? okProvider(), cloudProvider()]),
     speak: (t) => h.spoken.push(t),
