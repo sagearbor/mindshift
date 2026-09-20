@@ -8,6 +8,36 @@ import {
 } from "../src/components/icons";
 import { DESTINATIONS, type IconId } from "../src/nav/destinations";
 
+/**
+ * Unmount every tree this file creates.
+ *
+ * react-test-renderer keeps a mounted tree scheduled, and a state update that
+ * lands AFTER Jest tears the environment down throws "You are trying to
+ * `import` a file after the Jest environment has been torn down" — which is
+ * not a test failure but a WORKER CRASH, taking every unrelated suite sharing
+ * that worker with it. That is why running the whole suite at once used to
+ * fail a handful of random files that each passed on their own.
+ */
+const __trees: renderer.ReactTestRenderer[] = [];
+function track<T extends renderer.ReactTestRenderer>(t: T): T {
+  __trees.push(t);
+  return t;
+}
+afterEach(async () => {
+  await act(async () => {});
+  act(() => {
+    for (const t of __trees.splice(0)) {
+      try {
+        t.unmount();
+      } catch {
+        // A tree a test already unmounted, or one whose teardown throws, must
+        // not fail the test that otherwise passed.
+      }
+    }
+  });
+});
+
+
 // One render-all test per the plan (no per-icon snapshot explosion): every
 // destination icon + every chrome glyph, rendered together.
 const ALL_ICONS: [string, React.ComponentType<IconProps>][] = [
@@ -35,7 +65,7 @@ describe("icon set", () => {
     let tree: renderer.ReactTestRenderer | undefined;
     expect(() => {
       act(() => {
-        tree = renderer.create(<Icon testID="icon" />);
+        tree = track(renderer.create(<Icon testID="icon" />));
       });
     }).not.toThrow();
     expect(tree!.toJSON()).toBeTruthy();
@@ -44,7 +74,7 @@ describe("icon set", () => {
   it.each(ALL_ICONS)("%s respects the size prop", (_name, Icon) => {
     let tree: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer.create(<Icon size={40} testID="icon" />);
+      tree = track(renderer.create(<Icon size={40} testID="icon" />));
     });
     const root = tree!.toJSON() as renderer.ReactTestRendererJSON;
     expect(root.props.width).toBe(40);
@@ -54,7 +84,7 @@ describe("icon set", () => {
   it.each(ALL_ICONS)("%s respects the color prop", (_name, Icon) => {
     let tree: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer.create(<Icon color="#123456" testID="icon" />);
+      tree = track(renderer.create(<Icon color="#123456" testID="icon" />));
     });
     const nodes = flatten(tree!.toJSON() as renderer.ReactTestRendererJSON);
     // The chosen color must show up as a stroke somewhere in the tree — every
@@ -67,7 +97,7 @@ describe("icon set", () => {
   it.each(ALL_ICONS)("%s defaults to size 24 and the house ink color", (_name, Icon) => {
     let tree: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer.create(<Icon testID="icon" />);
+      tree = track(renderer.create(<Icon testID="icon" />));
     });
     const root = tree!.toJSON() as renderer.ReactTestRendererJSON;
     expect(root.props.width).toBe(24);

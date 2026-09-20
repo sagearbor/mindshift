@@ -102,6 +102,35 @@ export interface AlignedText {
  *  VAD disagree by a few hundred ms at turn edges. */
 export const ALIGN_SLACK_SECONDS = 0.35;
 
+/** The words in `curr` beyond its longest common word-prefix with `prev`,
+ *  comparing on a punctuation-stripped, lower-cased form (the recognizer
+ *  re-punctuates as an utterance grows). Empty when `curr` only re-states
+ *  `prev`. Turns a cumulative recognizer's repeated finals into the new suffix;
+ *  when `curr` shares no prefix (a genuinely fresh utterance) it returns all of
+ *  `curr`. English-only app, so ASCII stripping is enough. */
+export function suffixWords(prev: string, curr: string): string[] {
+  const norm = (w: string) => w.replace(/[^a-zA-Z0-9']/g, "").toLowerCase();
+  const currWords = curr.split(/\s+/).filter(Boolean);
+  const prevWords = prev.split(/\s+/).filter(Boolean);
+  let i = 0;
+  while (
+    i < currWords.length &&
+    i < prevWords.length &&
+    norm(currWords[i]) === norm(prevWords[i])
+  ) {
+    i++;
+  }
+  // Only strip the prefix when `curr` STRICTLY GROWS from `prev`: prev is
+  // entirely a word-prefix of curr AND curr adds more. That is the cumulative
+  // re-emission we're fixing ("A B" → "A B C"). An identical re-emit (no growth)
+  // or a divergent utterance that merely shares an opening ("I feel sad" → "I
+  // feel angry") is a genuine new turn and keeps all its words — otherwise a
+  // person repeating a phrase would be silently dropped.
+  const strictGrowth =
+    prevWords.length > 0 && i === prevWords.length && currWords.length > prevWords.length;
+  return strictGrowth ? currWords.slice(i) : currWords;
+}
+
 export class TranscriptAligner {
   private words: (SttWord & { consumed: boolean })[] = [];
   private interim: { text: string; start: number; end: number } | null = null;
@@ -109,6 +138,13 @@ export class TranscriptAligner {
   private recognizerStart = 0;
   /** End of the last attributed text — the start of the next untimed window. */
   private cursor = 0;
+  /** The previous CUMULATIVE final text, for the no-word-timing path. Android's
+   *  SpeechRecognizer re-emits the whole utterance-so-far on each final result,
+   *  so without this every final re-pushed already-transcribed words and the
+   *  coach fired again on the same growing sentence (real Pixel 10, 2026-08-26:
+   *  "Um, the house is dirty" → "Um, the house is dirty and I do all the work" →
+   *  … each coached separately). We push only the new suffix. */
+  private lastFinalText = "";
 
   constructor(private readonly slack = ALIGN_SLACK_SECONDS) {}
 
@@ -116,6 +152,8 @@ export class TranscriptAligner {
   markRecognizerStart(sessionSeconds: number) {
     this.recognizerStart = sessionSeconds;
     this.cursor = sessionSeconds;
+    // A fresh recognizer session restarts its cumulative text from empty.
+    this.lastFinalText = "";
   }
 
   /** Feed a recognizer event; `now` is the session clock when it arrived. */
@@ -141,9 +179,15 @@ export class TranscriptAligner {
       this.cursor = Math.max(this.cursor, this.words[this.words.length - 1].end);
       return;
     }
-    // No word timing: spread the words evenly over [cursor, now] so a span
-    // that covers only part of the window still gets its share of the text.
-    const parts = text.split(/\s+/);
+    // No word timing: the recognizer re-sends the whole utterance-so-far on
+    // each final, so contribute only the NEW words beyond the previous
+    // cumulative final. The common prefix is compared word-by-word on a
+    // punctuation-stripped, lower-cased form because the recognizer re-punctuates
+    // as it grows ("dirty and." → "dirty, and I…"), which a raw startsWith would
+    // miss and re-push everything.
+    const parts = suffixWords(this.lastFinalText, text);
+    this.lastFinalText = text;
+    if (parts.length === 0) return;
     const start = this.cursor;
     const width = Math.max(now - start, 0.001);
     parts.forEach((p, i) => {

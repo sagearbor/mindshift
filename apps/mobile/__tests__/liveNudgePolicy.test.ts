@@ -5,6 +5,8 @@
  */
 import {
   aggressiveToneLevel,
+  CoachRepeatGate,
+  coachingOverlap,
   LoudnessBaseline,
   NudgePolicy,
   phoneNudgePolicy,
@@ -119,5 +121,52 @@ describe("phone-side inputs", () => {
     const nudges = policy.onEvents(events, 3.0);
     expect(nudges).toEqual([{ channel: "A", level: 3, t: 3.0, vectors: ["aggressive_tone", "yelling"] }]);
     expect(policy.current()).toEqual({ A: 3 });
+  });
+});
+
+// Don't-nag gate over the coach's lines (docs/research/2026-08-30-nudge-quality).
+// Mirrors server/audio_pipeline.py's _coaching_overlap / _is_repeat_coaching.
+describe("CoachRepeatGate", () => {
+  it("coachingOverlap is bigram Jaccard: 1 for the same words, ~0 for unrelated, unigrams for one word", () => {
+    expect(coachingOverlap("ease up", "Ease up!")).toBe(1);
+    expect(coachingOverlap("ease up", "let them finish")).toBe(0);
+    expect(coachingOverlap("", "ease up")).toBe(0);
+    expect(coachingOverlap("breathe", "breathe")).toBe(1);
+    // A reworded re-issue keeps most bigrams.
+    expect(
+      coachingOverlap(
+        "Please be specific. I need clear directions to find you.",
+        "Please be specific, I need clear directions to find you now.",
+      ),
+    ).toBeGreaterThanOrEqual(0.5);
+    // Sharing one phrase is not a repeat.
+    expect(coachingOverlap("I hear you, that sounds hard.", "I hear you — where do we meet?")).toBeLessThan(0.5);
+  });
+
+  it("the exact line the real session repeated on two fragments is silenced the second time", () => {
+    // 4a7ec4ed (2026-08-26): turns 1 and 2 both got this line, 3 s apart.
+    const gate = new CoachRepeatGate();
+    const line = "Please be specific. I need clear directions to find you.";
+    expect(gate.admit(line, 4.5, "response")).toBe(line);
+    expect(gate.admit(line, 7.7, "response")).toBeNull();
+    // A different line goes through and is remembered.
+    expect(gate.admit("Where exactly are you standing?", 11.1, "response")).toBe("Where exactly are you standing?");
+    expect(gate.isRepeat("Where exactly are you standing right now?", 12.0)).toBe(true);
+  });
+
+  it("a repeat outside the cooldown is allowed again; the cooldown is session time", () => {
+    const gate = new CoachRepeatGate(45);
+    expect(gate.admit("ease up", 10, "nudge")).toBe("ease up");
+    expect(gate.admit("ease up", 55, "nudge")).toBeNull(); // exactly 45 s later: still inside
+    expect(gate.admit("ease up", 55.1, "nudge")).toBe("ease up");
+  });
+
+  it("a nudge is only gated against earlier NUDGES; a response against every line", () => {
+    const gate = new CoachRepeatGate();
+    gate.remember("slow down", 1, "response");
+    expect(gate.admit("slow down", 2, "nudge")).toBe("slow down");
+    expect(gate.admit("slow down", 3, "response")).toBeNull();
+    expect(gate.admit(null, 4, "nudge")).toBeNull();
+    expect(gate.admit("", 4, "nudge")).toBeNull();
   });
 });

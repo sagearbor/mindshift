@@ -1,0 +1,106 @@
+{
+ "B": {
+  "k_eigengap": 7,
+  "n_windows": 109,
+  "vad_thr": 0.0047,
+  "k_pred": 7,
+  "frame_accuracy": 0.809,
+  "owner_purity": 1.0,
+  "per_gt_recall": {
+   "Player1": 1.0,
+   "Player2": 0.974,
+   "Player3": 0.774,
+   "Player4": 0.848,
+   "Player5": 0.626,
+   "Player6": 0.635
+  },
+  "oracle_k": {
+   "k_pred": 6,
+   "frame_accuracy": 0.809,
+   "owner_purity": 1.0,
+   "per_gt_recall": {
+    "Player1": 1.0,
+    "Player2": 0.974,
+    "Player3": 0.774,
+    "Player4": 0.848,
+    "Player5": 0.626,
+    "Player6": 0.635
+   }
+  }
+ },
+ "ceiling": {
+  "n_windows": 109,
+  "n_labelled": 109,
+  "within": {
+   "Player1": 0.498,
+   "Player2": 0.409,
+   "Player3": 0.382,
+   "Player4": 0.412,
+   "Player5": 0.314,
+   "Player6": 0.321
+  },
+  "cross": {
+   "Player1|Player2": -0.002,
+   "Player1|Player3": -0.034,
+   "Player1|Player4": 0.039,
+   "Player1|Player5": 0.057,
+   "Player1|Player6": 0.012,
+   "Player2|Player3": 0.142,
+   "Player2|Player4": 0.116,
+   "Player2|Player5": 0.06,
+   "Player2|Player6": 0.088,
+   "Player3|Player4": 0.04,
+   "Player3|Player5": -0.02,
+   "Player3|Player6": 0.081,
+   "Player4|Player5": 0.009,
+   "Player4|Player6": 0.037,
+   "Player5|Player6": -0.016
+  },
+  "within_mean": 0.389,
+  "cross_max": 0.142,
+  "centroid": {
+   "window_acc": 0.927,
+   "frame_accuracy": 0.904,
+   "owner_purity": 1.0
+  },
+  "pooled": {
+   "window_acc": 0.844,
+   "frame_accuracy": 0.867,
+   "owner_purity": 1.0
+  }
+ },
+ "pooled_print_cosine": {
+  "Player1|Player2": -0.049,
+  "Player1|Player3": -0.023,
+  "Player1|Player4": 0.075,
+  "Player1|Player5": 0.132,
+  "Player1|Player6": -0.029,
+  "Player2|Player3": 0.22,
+  "Player2|Player4": 0.231,
+  "Player2|Player5": 0.13,
+  "Player2|Player6": 0.301,
+  "Player3|Player4": -0.099,
+  "Player3|Player5": 0.011,
+  "Player3|Player6": 0.265,
+  "Player4|Player5": 0.034,
+  "Player4|Player6": 0.052,
+  "Player5|Player6": -0.078
+ },
+ "production": {
+  "gt_boundaries": {
+   "k_pred": 6,
+   "frame_accuracy": 1.0,
+   "owner_purity": 1.0,
+   "per_gt_recall": {
+    "Player1": 1.0,
+    "Player2": 1.0,
+    "Player3": 1.0,
+    "Player4": 1.0,
+    "Player5": 1.0,
+    "Player6": 1.0
+   },
+   "runtime_s": 3.5
+  }
+ },
+ "t_total_s": 56.7
+}

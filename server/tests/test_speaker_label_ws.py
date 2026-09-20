@@ -14,7 +14,7 @@ import pytest
 import audio_pipeline
 from audio_pipeline import SessionContext, apply_speaker_label, display_speaker
 
-from tests.test_audio_pipeline import (  # noqa: E402 — the DI fixtures
+from test_audio_pipeline import (  # noqa: E402 — the DI fixtures
     MOCK_LLM_JSON, fake_ws, open_ws, recv_skipping_transcripts,
 )
 

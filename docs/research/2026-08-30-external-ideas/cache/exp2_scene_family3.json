@@ -1,0 +1,91 @@
+{
+ "k_true": 3,
+ "alignment": {
+  "rubric_overlap_segments": [],
+  "rubric_overlap_s": 0,
+  "flagged_s": 0.0,
+  "flagged_inside_rubric_overlap_s": 0.0,
+  "flagged_outside_s": 0.0,
+  "rubric_overlap_recall": null,
+  "flagged_runs": []
+ },
+ "n_windows": 263,
+ "B": {
+  "unmasked": {
+   "masked_windows": 0,
+   "k_eigengap": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.99,
+   "owner_purity": 0.995,
+   "per_gt_recall": {
+    "Speaker A": 0.993,
+    "Speaker B": 0.982,
+    "Speaker C": 0.997
+   }
+  },
+  "mask_frac>=0.1": {
+   "masked_windows": 0,
+   "k_eigengap": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.99,
+   "owner_purity": 0.995,
+   "per_gt_recall": {
+    "Speaker A": 0.993,
+    "Speaker B": 0.982,
+    "Speaker C": 0.997
+   }
+  },
+  "mask_frac>=0.3": {
+   "masked_windows": 0,
+   "k_eigengap": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.99,
+   "owner_purity": 0.995,
+   "per_gt_recall": {
+    "Speaker A": 0.993,
+    "Speaker B": 0.982,
+    "Speaker C": 0.997
+   }
+  },
+  "mask_frac>=0.5": {
+   "masked_windows": 0,
+   "k_eigengap": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.99,
+   "owner_purity": 0.995,
+   "per_gt_recall": {
+    "Speaker A": 0.993,
+    "Speaker B": 0.982,
+    "Speaker C": 0.997
+   }
+  }
+ },
+ "production": {
+  "unmasked": {
+   "gt_boundaries": {
+    "k_pred": 3,
+    "frame_accuracy": 1.0,
+    "owner_purity": 1.0,
+    "per_gt_recall": {
+     "Speaker A": 1.0,
+     "Speaker B": 1.0,
+     "Speaker C": 1.0
+    },
+    "runtime_s": 7.1
+   }
+  },
+  "masked": {
+   "gt_boundaries": {
+    "k_pred": 3,
+    "frame_accuracy": 1.0,
+    "owner_purity": 1.0,
+    "per_gt_recall": {
+     "Speaker A": 1.0,
+     "Speaker B": 1.0,
+     "Speaker C": 1.0
+    },
+    "runtime_s": 7.5
+   }
+  }
+ }
+}

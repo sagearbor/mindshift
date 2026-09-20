@@ -51,6 +51,34 @@ per-turn output. So this module now has three parts:
    zero, so the default remains ``dark`` — see the report for what would
    flip it.
 
+   **2026-09-08 — measured OUTSIDE its corpus for the first time**
+   (:data:`REAL_AUDIO_EVAL`, reproduce with ``scripts/tone_real_eval.py``).
+   Scored on the four committed fixture recordings — three TTS scenes plus
+   the owner's real family recording — against the same per-turn heated
+   labels the nudge gate uses. Ranking transfers fine: AUC 0.792 (in-corpus
+   was 0.81), so the model is not overfit to acted speech. What does NOT
+   transfer is an OPERATING POINT, and that is what shipping needs:
+
+   ===========  =======  ===========  ==========
+   threshold    recall   false flags  flag rate
+   ===========  =======  ===========  ==========
+   0.03 (ship)  6/7      9 of 33      27%
+   0.10         4/7      4 of 33      12%
+   0.20         1/7      0 of 33      0%
+   ===========  =======  ===========  ==========
+
+   The two distributions interleave almost completely — heated deltas
+   ``[-.05 .03 .036 .109 .113 .14 .323]`` against calm deltas topping out at
+   ``[.154 .143 .122 .107 .098]`` — so every threshold is either a nag (one
+   ordinary turn in four buzzes) or deaf. The single clean separation, delta
+   0.323, is the owner's own "and I'm arguing now" turn, and that turn is
+   ALREADY nudged by the loudness ladder (+6 dB, instant tier, pinned in
+   apps/mobile/__tests__/replay.nudgeReport.test.ts). So the precision-first
+   end of the sweep adds nothing the shipped signal does not already catch.
+
+   Verdict: stays ``dark``. Not "unproven" any more — measured, and the
+   measurement says there is no setting at which it helps.
+
 Honesty / availability notes (house rule: report unavailable, never fabricate):
 
 * ``torch`` + ``transformers`` (+ ``speechbrain`` for ``iemocap`` only) are
@@ -154,9 +182,44 @@ BACKEND_INFO: dict[str, dict] = {
 # ---------------------------------------------------------------------------
 
 TONE_AUDIO_ENV = "MINDSHIFT_TONE_AUDIO"
+#: The 2026-09-08 out-of-corpus measurement behind the ``dark`` default (see
+#: the module docstring). Kept as data, not prose, so a test can pin it and a
+#: future "let's just turn it on" has to argue with numbers. Reproduce with
+#: ``scripts/tone_real_eval.py``; ``scenes`` names the recordings it ran on.
+REAL_AUDIO_EVAL = {
+    "measured": "2026-09-08",
+    "backend": "odyssey_dim",
+    "scenes": ("scene_couple_escalation", "scene_family3", "scene_meeting4", "family_real"),
+    "turns_scored_with_baseline": 40,
+    "heated": 7,
+    "calm": 33,
+    "auc": 0.792,
+    # threshold -> (hits out of `heated`, false flags out of `calm`)
+    "sweep": {0.03: (6, 9), 0.10: (4, 4), 0.20: (1, 0)},
+    "verdict": "dark",
+}
+
 TONE_MODES = ("off", "dark", "on")
 # DEFAULT = "dark", set by the owner's rule from the measured evals (round 1
 # AND round 2, see module docstring): computes and logs, never surfaced.
+# "dark" = compute and log, never surface. NOT "off": the default exists so a
+# deployment that installs the optional deps starts measuring rather than
+# guessing.
+#
+# Status 2026-09-07: the deployed server has MINDSHIFT_TONE_AUDIO=off, so this
+# signal is not running in production at all. Before it is turned on, it needs
+# the SECOND half of the gate that vocal activation failed and then passed —
+# see FastLoopDeps.activationNudges. Its 0.81 AUC / 83% was measured on the
+# ACTED fixture pack, which is exactly the kind of in-corpus number that told
+# us activation was ready when it was not; that model turned out to be reading
+# recording gain, and only a real recording exposed it.
+#
+# What would settle it: run the per-speaker delta over server/tests/fixtures/
+# audio/test_recording_family_real.wav (real speech, real room) and confirm it
+# does not escalate on the calm turns. The design is already the right shape
+# for that — a per-speaker DELTA against that speaker's own running baseline is
+# inherently invariant to voice and to level, which is precisely the property
+# activation v2 had to be rebuilt to get.
 DEFAULT_TONE_MODE = "dark"
 
 # IEMOCAP's 4 classes mapped to the plain words the rest of the product uses.

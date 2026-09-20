@@ -1,0 +1,767 @@
+{
+ "family_real": {
+  "gt_boundaries": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "Speaker A": "Sage",
+    "Speaker B": "Asher"
+   },
+   "per_gt_recall": {
+    "Asher": 1.0,
+    "Sage": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "family_real",
+   "runtime_s": 3.9,
+   "k_evaluated": [
+    {
+     "k": 2,
+     "ok": true,
+     "max_pairwise_cosine": 0.063,
+     "min_cluster_seconds": 8.77,
+     "route": "linkage"
+    },
+    {
+     "k": 3,
+     "ok": false,
+     "max_pairwise_cosine": 0.337,
+     "min_cluster_seconds": 3.37,
+     "marginal_pair_cosine": 0.337,
+     "failed": "marginal_pair",
+     "reason": "marginal split pair too similar (cosine 0.337 > 0.33 \u2014 one voice in two registers, not a new voice)",
+     "route": "linkage"
+    },
+    {
+     "k": 4,
+     "ok": false,
+     "max_pairwise_cosine": 0.45,
+     "min_cluster_seconds": 2.66,
+     "failed": "centroids",
+     "reason": "centroids not clearly distinct (worst pair cosine 0.450 > 0.45)",
+     "route": "linkage"
+    },
+    {
+     "k": 5,
+     "ok": false,
+     "max_pairwise_cosine": 0.576,
+     "min_cluster_seconds": 2.66,
+     "failed": "centroids",
+     "reason": "centroids not clearly distinct (worst pair cosine 0.576 > 0.45)",
+     "route": "linkage"
+    },
+    {
+     "k": 6,
+     "ok": false,
+     "max_pairwise_cosine": 0.684,
+     "min_cluster_seconds": 2.66,
+     "failed": "centroids",
+     "reason": "centroids not clearly distinct (worst pair cosine 0.684 > 0.45)",
+     "route": "linkage"
+    }
+   ],
+   "n_turns": 8,
+   "engine": "utterances",
+   "source": "local-ecapa",
+   "uncovered_turns": 0,
+   "split_utterances": 0
+  },
+  "deepgram_run1": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.974,
+   "unlabelled_frac": 0.01,
+   "mapping": {
+    "Speaker A": "Sage",
+    "Speaker B": "Asher"
+   },
+   "per_gt_recall": {
+    "Asher": 0.976,
+    "Sage": 0.973
+   },
+   "owner_purity": 1.0,
+   "fixture": "family_real",
+   "runtime_s": 4.7,
+   "k_evaluated": [
+    {
+     "k": 2,
+     "ok": true,
+     "max_pairwise_cosine": 0.106,
+     "min_cluster_seconds": 10.13,
+     "route": "linkage"
+    }
+   ],
+   "n_turns": 7,
+   "engine": "utterances",
+   "source": "local-ecapa",
+   "uncovered_turns": 0,
+   "split_utterances": 2
+  }
+ },
+ "poker6": {
+  "gt_boundaries": {
+   "k_true": 6,
+   "k_pred": 6,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "Speaker A": "Player1",
+    "Speaker B": "Player2",
+    "Speaker C": "Player3",
+    "Speaker D": "Player4",
+    "Speaker E": "Player5",
+    "Speaker F": "Player6"
+   },
+   "per_gt_recall": {
+    "Player1": 1.0,
+    "Player2": 1.0,
+    "Player3": 1.0,
+    "Player4": 1.0,
+    "Player5": 1.0,
+    "Player6": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "poker6",
+   "runtime_s": 3.5,
+   "k_evaluated": [
+    {
+     "k": 2,
+     "ok": true,
+     "max_pairwise_cosine": 0.112,
+     "min_cluster_seconds": 10.0,
+     "route": "linkage"
+    },
+    {
+     "k": 3,
+     "ok": true,
+     "max_pairwise_cosine": 0.078,
+     "min_cluster_seconds": 5.0,
+     "marginal_pair_cosine": 0.071,
+     "split_anchor_cosine": 0.053,
+     "route": "linkage"
+    },
+    {
+     "k": 4,
+     "ok": true,
+     "max_pairwise_cosine": 0.132,
+     "min_cluster_seconds": 5.0,
+     "marginal_pair_cosine": 0.132,
+     "split_anchor_cosine": 0.075,
+     "route": "linkage"
+    },
+    {
+     "k": 5,
+     "ok": true,
+     "max_pairwise_cosine": 0.266,
+     "min_cluster_seconds": 5.0,
+     "marginal_pair_cosine": 0.266,
+     "split_anchor_cosine": 0.011,
+     "route": "linkage"
+    },
+    {
+     "k": 6,
+     "ok": true,
+     "max_pairwise_cosine": 0.301,
+     "min_cluster_seconds": 5.0,
+     "marginal_pair_cosine": 0.301,
+     "split_anchor_cosine": 0.231,
+     "route": "linkage"
+    }
+   ],
+   "n_turns": 6,
+   "engine": "utterances",
+   "source": "local-ecapa",
+   "uncovered_turns": 0,
+   "split_utterances": 0
+  },
+  "deepgram_run1": {
+   "k_true": 6,
+   "k_pred": 4,
+   "frame_accuracy": 0.447,
+   "unlabelled_frac": 0.169,
+   "mapping": {
+    "Speaker A": "Player1",
+    "Speaker B": "Player3",
+    "Speaker C": "Player5",
+    "Speaker D": "Player4"
+   },
+   "per_gt_recall": {
+    "Player1": 0.488,
+    "Player2": 0.0,
+    "Player3": 0.862,
+    "Player4": 0.784,
+    "Player5": 0.558,
+    "Player6": 0.0
+   },
+   "owner_purity": null,
+   "fixture": "poker6",
+   "runtime_s": 4.5,
+   "k_evaluated": [
+    {
+     "k": 2,
+     "ok": true,
+     "max_pairwise_cosine": 0.098,
+     "min_cluster_seconds": 6.36,
+     "route": "linkage"
+    },
+    {
+     "k": 3,
+     "ok": true,
+     "max_pairwise_cosine": 0.124,
+     "min_cluster_seconds": 3.06,
+     "marginal_pair_cosine": 0.042,
+     "split_anchor_cosine": 0.052,
+     "route": "linkage"
+    },
+    {
+     "k": 4,
+     "ok": true,
+     "max_pairwise_cosine": 0.108,
+     "min_cluster_seconds": 2.44,
+     "marginal_pair_cosine": 0.108,
+     "split_anchor_cosine": 0.021,
+     "route": "linkage"
+    }
+   ],
+   "n_turns": 12,
+   "engine": "utterances",
+   "source": "local-ecapa",
+   "uncovered_turns": 4,
+   "split_utterances": 1
+  }
+ },
+ "openai": {
+  "gt_boundaries": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "Speaker A": "Speaker A",
+    "Speaker B": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0
+   },
+   "owner_purity": null,
+   "fixture": "openai",
+   "runtime_s": 7.7,
+   "k_evaluated": [
+    {
+     "k": 2,
+     "ok": true,
+     "max_pairwise_cosine": 0.193,
+     "min_cluster_seconds": 31.05,
+     "route": "linkage"
+    },
+    {
+     "k": 3,
+     "ok": false,
+     "max_pairwise_cosine": 0.737,
+     "min_cluster_seconds": 15.45,
+     "failed": "centroids",
+     "reason": "centroids not clearly distinct (worst pair cosine 0.737 > 0.45)",
+     "route": "linkage"
+    },
+    {
+     "k": 4,
+     "ok": false,
+     "max_pairwise_cosine": 0.691,
+     "min_cluster_seconds": 7.1,
+     "failed": "centroids",
+     "reason": "centroids not clearly distinct (worst pair cosine 0.691 > 0.45)",
+     "route": "linkage"
+    },
+    {
+     "k": 5,
+     "ok": false,
+     "max_pairwise_cosine": 0.733,
+     "min_cluster_seconds": 7.1,
+     "failed": "centroids",
+     "reason": "centroids not clearly distinct (worst pair cosine 0.733 > 0.45)",
+     "route": "linkage"
+    },
+    {
+     "k": 6,
+     "ok": false,
+     "max_pairwise_cosine": 0.784,
+     "min_cluster_seconds": 5.5,
+     "failed": "centroids",
+     "reason": "centroids not clearly distinct (worst pair cosine 0.784 > 0.45)",
+     "route": "linkage"
+    }
+   ],
+   "n_turns": 10,
+   "engine": "utterances",
+   "source": "local-ecapa",
+   "uncovered_turns": 0,
+   "split_utterances": 0
+  }
+ },
+ "gptaudio": {
+  "gt_boundaries": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "Speaker A": "Speaker A",
+    "Speaker B": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0
+   },
+   "owner_purity": null,
+   "fixture": "gptaudio",
+   "runtime_s": 8.2,
+   "k_evaluated": [
+    {
+     "k": 2,
+     "ok": true,
+     "max_pairwise_cosine": 0.228,
+     "min_cluster_seconds": 34.0,
+     "route": "linkage"
+    },
+    {
+     "k": 3,
+     "ok": false,
+     "max_pairwise_cosine": 0.531,
+     "min_cluster_seconds": 7.25,
+     "failed": "centroids",
+     "reason": "centroids not clearly distinct (worst pair cosine 0.531 > 0.45)",
+     "route": "linkage"
+    },
+    {
+     "k": 4,
+     "ok": false,
+     "max_pairwise_cosine": 0.723,
+     "min_cluster_seconds": 7.25,
+     "failed": "centroids",
+     "reason": "centroids not clearly distinct (worst pair cosine 0.723 > 0.45)",
+     "route": "linkage"
+    },
+    {
+     "k": 5,
+     "ok": false,
+     "max_pairwise_cosine": 0.726,
+     "min_cluster_seconds": 6.4,
+     "failed": "centroids",
+     "reason": "centroids not clearly distinct (worst pair cosine 0.726 > 0.45)",
+     "route": "linkage"
+    },
+    {
+     "k": 6,
+     "ok": false,
+     "max_pairwise_cosine": 0.725,
+     "min_cluster_seconds": 6.4,
+     "failed": "centroids",
+     "reason": "centroids not clearly distinct (worst pair cosine 0.725 > 0.45)",
+     "route": "linkage"
+    }
+   ],
+   "n_turns": 10,
+   "engine": "utterances",
+   "source": "local-ecapa",
+   "uncovered_turns": 0,
+   "split_utterances": 0
+  }
+ },
+ "scene_couple": {
+  "gt_boundaries": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "Speaker A": "Speaker A",
+    "Speaker B": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_couple",
+   "runtime_s": 7.7,
+   "k_evaluated": [
+    {
+     "k": 2,
+     "ok": true,
+     "max_pairwise_cosine": 0.251,
+     "min_cluster_seconds": 30.8,
+     "route": "linkage"
+    },
+    {
+     "k": 3,
+     "ok": false,
+     "max_pairwise_cosine": 0.696,
+     "min_cluster_seconds": 3.92,
+     "failed": "centroids",
+     "reason": "centroids not clearly distinct (worst pair cosine 0.696 > 0.45)",
+     "route": "linkage"
+    },
+    {
+     "k": 4,
+     "ok": false,
+     "max_pairwise_cosine": 0.729,
+     "min_cluster_seconds": 3.92,
+     "failed": "centroids",
+     "reason": "centroids not clearly distinct (worst pair cosine 0.729 > 0.45)",
+     "route": "linkage"
+    },
+    {
+     "k": 5,
+     "ok": false,
+     "max_pairwise_cosine": 0.725,
+     "min_cluster_seconds": 3.92,
+     "failed": "centroids",
+     "reason": "centroids not clearly distinct (worst pair cosine 0.725 > 0.45)",
+     "route": "linkage"
+    },
+    {
+     "k": 6,
+     "ok": false,
+     "max_pairwise_cosine": 0.842,
+     "min_cluster_seconds": 3.92,
+     "failed": "centroids",
+     "reason": "centroids not clearly distinct (worst pair cosine 0.842 > 0.45)",
+     "route": "linkage"
+    }
+   ],
+   "n_turns": 13,
+   "engine": "utterances",
+   "source": "local-ecapa",
+   "uncovered_turns": 0,
+   "split_utterances": 0
+  }
+ },
+ "scene_family3": {
+  "gt_boundaries": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "Speaker A": "Speaker C",
+    "Speaker B": "Speaker B",
+    "Speaker C": "Speaker A"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0,
+    "Speaker C": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_family3",
+   "runtime_s": 7.5,
+   "k_evaluated": [
+    {
+     "k": 2,
+     "ok": true,
+     "max_pairwise_cosine": 0.241,
+     "min_cluster_seconds": 20.62,
+     "route": "linkage"
+    },
+    {
+     "k": 3,
+     "ok": true,
+     "max_pairwise_cosine": 0.237,
+     "min_cluster_seconds": 20.0,
+     "marginal_pair_cosine": 0.237,
+     "split_anchor_cosine": 0.065,
+     "route": "linkage"
+    },
+    {
+     "k": 4,
+     "ok": false,
+     "max_pairwise_cosine": 0.766,
+     "min_cluster_seconds": 8.44,
+     "failed": "centroids",
+     "reason": "centroids not clearly distinct (worst pair cosine 0.766 > 0.45)",
+     "route": "linkage"
+    },
+    {
+     "k": 5,
+     "ok": false,
+     "max_pairwise_cosine": 0.766,
+     "min_cluster_seconds": 3.28,
+     "failed": "centroids",
+     "reason": "centroids not clearly distinct (worst pair cosine 0.766 > 0.45)",
+     "route": "linkage"
+    },
+    {
+     "k": 6,
+     "ok": false,
+     "max_pairwise_cosine": 0.766,
+     "min_cluster_seconds": 3.28,
+     "failed": "centroids",
+     "reason": "centroids not clearly distinct (worst pair cosine 0.766 > 0.45)",
+     "route": "linkage"
+    }
+   ],
+   "n_turns": 15,
+   "engine": "utterances",
+   "source": "local-ecapa",
+   "uncovered_turns": 0,
+   "split_utterances": 0
+  }
+ },
+ "scene_meeting4": {
+  "gt_boundaries": {
+   "k_true": 4,
+   "k_pred": 2,
+   "frame_accuracy": 0.597,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "Speaker A": "Speaker B",
+    "Speaker B": "Speaker A"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0,
+    "Speaker C": 0.0,
+    "Speaker D": 0.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_meeting4",
+   "runtime_s": 9.8,
+   "k_evaluated": [
+    {
+     "k": 2,
+     "ok": true,
+     "max_pairwise_cosine": 0.263,
+     "min_cluster_seconds": 23.33,
+     "route": "linkage"
+    },
+    {
+     "k": 3,
+     "ok": false,
+     "max_pairwise_cosine": 0.339,
+     "min_cluster_seconds": 16.91,
+     "marginal_pair_cosine": 0.339,
+     "failed": "marginal_pair",
+     "reason": "marginal split pair too similar (cosine 0.339 > 0.33 \u2014 one voice in two registers, not a new voice)",
+     "route": "linkage"
+    },
+    {
+     "k": 3,
+     "ok": false,
+     "max_pairwise_cosine": 0.339,
+     "min_cluster_seconds": 16.91,
+     "marginal_pair_cosine": 0.339,
+     "failed": "marginal_pair",
+     "reason": "marginal split pair too similar (cosine 0.339 > 0.33 \u2014 one voice in two registers, not a new voice)",
+     "route": "spectral"
+    },
+    {
+     "k": 4,
+     "ok": false,
+     "max_pairwise_cosine": 0.723,
+     "min_cluster_seconds": 13.93,
+     "failed": "centroids",
+     "reason": "centroids not clearly distinct (worst pair cosine 0.723 > 0.45)",
+     "route": "linkage"
+    },
+    {
+     "k": 5,
+     "ok": false,
+     "max_pairwise_cosine": 0.723,
+     "min_cluster_seconds": 5.42,
+     "failed": "centroids",
+     "reason": "centroids not clearly distinct (worst pair cosine 0.723 > 0.45)",
+     "route": "linkage"
+    },
+    {
+     "k": 6,
+     "ok": false,
+     "max_pairwise_cosine": 0.791,
+     "min_cluster_seconds": 5.42,
+     "failed": "centroids",
+     "reason": "centroids not clearly distinct (worst pair cosine 0.791 > 0.45)",
+     "route": "linkage"
+    }
+   ],
+   "n_turns": 17,
+   "engine": "utterances",
+   "source": "local-ecapa",
+   "uncovered_turns": 0,
+   "split_utterances": 0
+  }
+ },
+ "maggiano3": {
+  "gt_boundaries": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.833,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "Speaker A": "dad",
+    "Speaker B": "asher",
+    "Speaker C": "mom"
+   },
+   "per_gt_recall": {
+    "asher": 0.718,
+    "dad": 0.84,
+    "mom": 0.924
+   },
+   "owner_purity": 0.84,
+   "fixture": "maggiano3",
+   "runtime_s": 5.2,
+   "k_evaluated": [
+    {
+     "k": 2,
+     "ok": true,
+     "max_pairwise_cosine": 0.136,
+     "min_cluster_seconds": 6.5,
+     "route": "linkage"
+    },
+    {
+     "k": 3,
+     "ok": false,
+     "max_pairwise_cosine": 0.207,
+     "min_cluster_seconds": 1.0,
+     "marginal_pair_cosine": 0.207,
+     "split_anchor_cosine": -0.074,
+     "failed": "duration_floor",
+     "reason": "cluster has only 1.0s pooled speech (needs 1.5s at separation 0.207)",
+     "route": "linkage"
+    },
+    {
+     "k": 3,
+     "ok": true,
+     "max_pairwise_cosine": 0.222,
+     "min_cluster_seconds": 8.1,
+     "marginal_pair_cosine": 0.222,
+     "split_anchor_cosine": 0.136,
+     "route": "spectral"
+    },
+    {
+     "k": 4,
+     "ok": false,
+     "max_pairwise_cosine": 0.219,
+     "min_cluster_seconds": 1.0,
+     "marginal_pair_cosine": 0.219,
+     "split_anchor_cosine": 0.015,
+     "failed": "duration_floor",
+     "reason": "cluster has only 1.0s pooled speech (needs 1.5s at separation 0.219)",
+     "route": "linkage"
+    },
+    {
+     "k": 5,
+     "ok": false,
+     "max_pairwise_cosine": 0.231,
+     "min_cluster_seconds": 1.0,
+     "marginal_pair_cosine": 0.114,
+     "split_anchor_cosine": 0.058,
+     "failed": "duration_floor",
+     "reason": "cluster has only 1.0s pooled speech (needs 1.5s at separation 0.231)",
+     "route": "linkage"
+    },
+    {
+     "k": 6,
+     "ok": false,
+     "max_pairwise_cosine": 0.288,
+     "min_cluster_seconds": 1.0,
+     "marginal_pair_cosine": 0.228,
+     "split_anchor_cosine": 0.222,
+     "failed": "duration_floor",
+     "reason": "cluster has only 1.0s pooled speech (needs 1.5s at separation 0.222)",
+     "route": "linkage"
+    }
+   ],
+   "n_turns": 25,
+   "engine": "utterances",
+   "source": "local-ecapa",
+   "uncovered_turns": 4,
+   "split_utterances": 0
+  },
+  "transcript_7utt": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.702,
+   "unlabelled_frac": 0.07,
+   "mapping": {
+    "Speaker A": "dad",
+    "Speaker B": "asher",
+    "Speaker C": "mom"
+   },
+   "per_gt_recall": {
+    "asher": 0.742,
+    "dad": 0.648,
+    "mom": 0.744
+   },
+   "owner_purity": 0.796,
+   "fixture": "maggiano3",
+   "runtime_s": 7.6,
+   "k_evaluated": [
+    {
+     "k": 2,
+     "ok": true,
+     "max_pairwise_cosine": 0.138,
+     "min_cluster_seconds": 11.14,
+     "route": "linkage"
+    },
+    {
+     "k": 3,
+     "ok": true,
+     "max_pairwise_cosine": 0.15,
+     "min_cluster_seconds": 11.05,
+     "marginal_pair_cosine": 0.15,
+     "split_anchor_cosine": 0.084,
+     "route": "linkage"
+    }
+   ],
+   "n_turns": 20,
+   "engine": "utterances",
+   "source": "local-ecapa",
+   "uncovered_turns": 0,
+   "split_utterances": 3
+  },
+  "transcript_8utt": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.671,
+   "unlabelled_frac": 0.083,
+   "mapping": {
+    "Speaker A": "dad",
+    "Speaker B": "asher",
+    "Speaker C": "mom"
+   },
+   "per_gt_recall": {
+    "asher": 0.773,
+    "dad": 0.563,
+    "mom": 0.737
+   },
+   "owner_purity": 0.792,
+   "fixture": "maggiano3",
+   "runtime_s": 7.5,
+   "k_evaluated": [
+    {
+     "k": 2,
+     "ok": true,
+     "max_pairwise_cosine": 0.231,
+     "min_cluster_seconds": 10.67,
+     "route": "linkage"
+    },
+    {
+     "k": 3,
+     "ok": true,
+     "max_pairwise_cosine": 0.177,
+     "min_cluster_seconds": 10.67,
+     "marginal_pair_cosine": 0.147,
+     "split_anchor_cosine": 0.173,
+     "route": "linkage"
+    }
+   ],
+   "n_turns": 15,
+   "engine": "utterances",
+   "source": "local-ecapa",
+   "uncovered_turns": 0,
+   "split_utterances": 2
+  }
+ }
+}

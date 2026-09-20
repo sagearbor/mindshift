@@ -107,3 +107,37 @@ def test_malformed_words_are_dropped_not_fabricated(monkeypatch):
     assert turns[0]["words"] == [
         {"word": "then", "start_time": 0.5, "end_time": 1.0},
     ]
+
+
+def test_low_confidence_words_are_dropped_and_text_rebuilt(monkeypatch):
+    monkeypatch.setenv(audio_ingest.ASR_CONFIDENCE_MIN_ENV, "0.6")  # opt-in (default OFF)
+    payload = {"results": {"utterances": [
+        {"speaker": 0, "transcript": "You wanted the cat.", "start": 0.0, "end": 2.0,
+         "words": [
+             {"word": "you", "punctuated_word": "You", "start": 0.0, "end": 0.4, "confidence": 0.98},
+             {"word": "wanted", "punctuated_word": "wanted", "start": 0.4, "end": 1.0, "confidence": 0.31},
+             {"word": "the", "punctuated_word": "the", "start": 1.0, "end": 1.3, "confidence": 0.9},
+             {"word": "cat", "punctuated_word": "cat.", "start": 1.3, "end": 2.0, "confidence": 0.95},
+         ]},
+        {"speaker": 1, "transcript": "ghost words", "start": 2.0, "end": 2.6,  # every word hallucinated
+         "words": [{"word": "ghost", "start": 2.0, "end": 2.3, "confidence": 0.2},
+                   {"word": "words", "start": 2.3, "end": 2.6, "confidence": 0.4}]},
+    ]}}
+    turns = _transcribe(monkeypatch, payload)
+    assert len(turns) == 1
+    assert turns[0]["text"] == "You the cat."
+    assert [w["word"] for w in turns[0]["words"]] == ["You", "the", "cat."]
+    assert turns[0]["start_time"] == 0.0 and turns[0]["end_time"] == 2.0
+    assert "dropped_words" not in turns[0]
+
+
+def test_confidence_floor_is_off_by_default(monkeypatch):
+    # Measured 2026-09-05: Deepgram's sub-0.6 words on our audio are real words.
+    monkeypatch.delenv(audio_ingest.ASR_CONFIDENCE_MIN_ENV, raising=False)
+    payload = {"results": {"utterances": [{
+        "speaker": 0, "transcript": "hmm okay", "start": 0.0, "end": 1.0,
+        "words": [{"word": "hmm", "start": 0.0, "end": 0.5, "confidence": 0.1},
+                  {"word": "okay", "start": 0.5, "end": 1.0, "confidence": 0.2}],
+    }]}}
+    turns = _transcribe(monkeypatch, payload)
+    assert turns[0]["text"] == "hmm okay"

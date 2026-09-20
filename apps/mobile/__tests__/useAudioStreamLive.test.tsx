@@ -36,6 +36,7 @@ import { EnergyVad } from "../src/live/vad";
 import { FakeSpeechRecognizer } from "../src/live/stt";
 import { cloudProvider, ProviderChain, parseSuggestionJson } from "../src/live/localLlm";
 import { SpeakerLabeler } from "../src/live/speakerId";
+import { useMoodStore } from "../src/store/moodStore";
 import type { FastLoopHandlers } from "../src/live/defaultDeps";
 import type { LiveSessionBody } from "../src/api/liveSessions";
 import { silenceInt16, toneInt16, unitVector } from "../src/live/testing/synth";
@@ -142,6 +143,7 @@ beforeEach(() => {
   mockMic.setAudioMode.mockReset().mockResolvedValue(undefined);
   speakMock.mockReset();
   logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+  useMoodStore.setState({ before: null, after: null });
 });
 
 afterEach(() => {
@@ -288,6 +290,14 @@ describe("useAudioStream live mode", () => {
     expect(hook.result.current.speakerLabel).toBe("Speaker A");
     expect(hook.result.current.toneFlags[0]).toMatchObject({ label: "hurt", source: "text" });
 
+    // A server-computed nudge (call mode's sustained talking-over) renders
+    // like an on-device one: flash + escalation count.
+    await act(() => {
+      ws.emitServer({ type: "nudge", channel: "A", level: 1, t: 47, vectors: ["interrupting"], detail: "self talked over the other party for 3.0s" });
+    });
+    expect(hook.result.current.nudgeFlash).toMatchObject({ channel: "A", level: 1, vectors: ["interrupting"] });
+    expect(hook.result.current.escalationCount).toBe(1);
+
     await act(async () => {
       await hook.result.current.stopSession();
     });
@@ -302,6 +312,63 @@ describe("useAudioStream live mode", () => {
     expect(posted[0].started_at <= posted[0].ended_at).toBe(true);
     // The stop handshake still happens after the loop drained.
     expect(ws.sentJson().some((m) => m.type === "stop")).toBe(true);
+  });
+
+  it("carries the outcome-engine BEFORE mood check onto the stop POST when one was answered", async () => {
+    const fake = makeFakeFastLoop();
+    const posted: LiveSessionBody[] = [];
+    const hook = await renderHook(() =>
+      useAudioStream({
+        capability: { capable: true, reason: "ok" },
+        makeFastLoop: fake.make,
+        postSession: async (body) => {
+          posted.push(body);
+          return { status: "unsupported" as const };
+        },
+      }),
+    );
+    useMoodStore.getState().setBefore(null, 6);
+    await act(async () => {
+      await hook.result.current.startSession("live-mood", 70);
+    });
+    const ws = FakeWebSocket.instances[0];
+    await act(() => ws.emitOpen());
+    await act(async () => {
+      await flush();
+    });
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    expect(posted).toHaveLength(1);
+    expect(posted[0].mood_before).toBe(6);
+  });
+
+  it("omits mood_before from the stop POST when the check was skipped/unanswered", async () => {
+    const fake = makeFakeFastLoop();
+    const posted: LiveSessionBody[] = [];
+    const hook = await renderHook(() =>
+      useAudioStream({
+        capability: { capable: true, reason: "ok" },
+        makeFastLoop: fake.make,
+        postSession: async (body) => {
+          posted.push(body);
+          return { status: "unsupported" as const };
+        },
+      }),
+    );
+    await act(async () => {
+      await hook.result.current.startSession("live-mood-2", 70);
+    });
+    const ws = FakeWebSocket.instances[0];
+    await act(() => ws.emitOpen());
+    await act(async () => {
+      await flush();
+    });
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    expect(posted).toHaveLength(1);
+    expect(posted[0].mood_before).toBeUndefined();
   });
 
   it("renders a streaming partial preview dimmed and replaces it with the final", async () => {
@@ -668,5 +735,214 @@ describe("useAudioStream live mode", () => {
       await hook.result.current.stopSession();
     });
     await act(() => FakeWebSocket.instances[0].emitServer({ type: "session_complete" }));
+  });
+});
+
+// --- Kept session audio (live/liveAudioKeeper.ts + POST /sessions/{id}/audio) ---
+import { createLiveAudioKeeper, type LiveAudioKeeperOpen } from "../src/live/liveAudioKeeper";
+import { MemoryFs } from "../src/recorder/memoryFs";
+import type { LiveSessionAudioResult } from "../src/api/liveSessions";
+
+const KEEP_DIR = "file:///cache/live-audio";
+
+/** The hook's keeper seam over MemoryFs, flushing on every append. */
+function keeperSeam() {
+  const fs = new MemoryFs();
+  const opened: string[] = [];
+  const open = (sessionId: string): LiveAudioKeeperOpen => {
+    opened.push(sessionId);
+    return { keeper: createLiveAudioKeeper({ fs, dir: KEEP_DIR, sessionId, flushMs: 0 }), reason: null };
+  };
+  return { fs, opened, open };
+}
+
+const audioOk = (recordingId: string): LiveSessionAudioResult => ({
+  recording_id: recordingId,
+  media_type: "audio",
+  duration_seconds: 1.5,
+  size_bytes: 48044,
+  stored_variants: ["wav"],
+});
+
+describe("useAudioStream keeps the session audio", () => {
+  // 1.0 s of tone + 0.5 s of silence = 24 000 samples at 16 kHz.
+  const SAMPLES = 24000;
+  const EXPECTED_BYTES = 44 + SAMPLES * 2;
+
+  async function runSession(
+    hook: { result: { current: ReturnType<typeof useAudioStream> } },
+    id: string,
+    fake: ReturnType<typeof makeFakeFastLoop>,
+  ) {
+    await act(async () => {
+      await hook.result.current.startSession(id, 50);
+    });
+    const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+    await act(() => ws.emitOpen());
+    await act(async () => {
+      await flush();
+    });
+    await act(async () => {
+      feed(toneInt16(1.0, -20));
+      fake.rec.emit({ text: "hello", isFinal: true });
+      feed(silenceInt16(0.5));
+      await fake.loop!.settle();
+      await flush();
+    });
+    return ws;
+  }
+
+  it("by default keeps a WAV of the mic frames and attaches it to the saved episode, then deletes it", async () => {
+    const fake = makeFakeFastLoop();
+    const seam = keeperSeam();
+    const uploads: { recordingId: string; uri: string; bytes: number; onDisk: number | null }[] = [];
+    const hook = await renderHook(() =>
+      useAudioStream({
+        capability: { capable: true, reason: "ok" },
+        makeFastLoop: fake.make,
+        postSession: async () => ({ status: "created" as const, episodeId: "ep-1", sharedWith: [] }),
+        openAudioKeeper: seam.open,
+        postSessionAudio: async (recordingId, uri, bytes) => {
+          uploads.push({ recordingId, uri, bytes, onDisk: seam.fs.sizeOf(uri) });
+          return audioOk(recordingId);
+        },
+      }),
+    );
+    expect(hook.result.current.audioKeep).toEqual({ status: "off" });
+    const ws = await runSession(hook, "live-keep", fake);
+    expect(seam.opened).toEqual(["live-keep"]);
+    expect(hook.result.current.audioKeep).toEqual({ status: "keeping" });
+    const uri = `${KEEP_DIR}/live-keep.wav`;
+    expect(seam.fs.sizeOf(uri)).toBe(EXPECTED_BYTES);
+
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    await act(() => ws.emitServer({ type: "session_complete" }));
+
+    expect(hook.result.current.lastEpisode).toMatchObject({ episodeId: "ep-1", postStatus: "created" });
+    expect(uploads).toEqual([{ recordingId: "ep-1", uri, bytes: EXPECTED_BYTES, onDisk: EXPECTED_BYTES }]);
+    // The server has it: the local copy is gone.
+    expect(seam.fs.exists(uri)).toBe(false);
+    expect(hook.result.current.audioKeep).toEqual({ status: "kept", bytes: EXPECTED_BYTES, seconds: 1.5 });
+  });
+
+  it("keepAudio: false writes nothing and uploads nothing", async () => {
+    const fake = makeFakeFastLoop();
+    const seam = keeperSeam();
+    const upload = jest.fn(async (id: string) => audioOk(id));
+    const hook = await renderHook(() =>
+      useAudioStream({
+        capability: { capable: true, reason: "ok" },
+        makeFastLoop: fake.make,
+        keepAudio: false,
+        postSession: async () => ({ status: "created" as const, episodeId: "ep-2", sharedWith: [] }),
+        openAudioKeeper: seam.open,
+        postSessionAudio: upload,
+      }),
+    );
+    const ws = await runSession(hook, "live-nokeep", fake);
+    expect(hook.result.current.audioKeep).toEqual({ status: "off" });
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    await act(() => ws.emitServer({ type: "session_complete" }));
+    expect(hook.result.current.lastEpisode).toMatchObject({ episodeId: "ep-2", postStatus: "created" });
+    expect(seam.opened).toEqual([]);
+    expect(seam.fs.listFileNames(KEEP_DIR)).toEqual([]);
+    expect(upload).not.toHaveBeenCalled();
+    expect(hook.result.current.audioKeep).toEqual({ status: "off" });
+  });
+
+  it("an upload failure leaves the session saved and the file on the phone, with a retry that works", async () => {
+    const fake = makeFakeFastLoop();
+    const seam = keeperSeam();
+    const upload = jest
+      .fn<Promise<LiveSessionAudioResult>, [string, string, number]>()
+      .mockRejectedValueOnce(Object.assign(new Error("API error: 503"), { status: 503 }))
+      .mockImplementation(async (id) => audioOk(id));
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    const hook = await renderHook(() =>
+      useAudioStream({
+        capability: { capable: true, reason: "ok" },
+        makeFastLoop: fake.make,
+        postSession: async () => ({ status: "created" as const, episodeId: "ep-3", sharedWith: [] }),
+        openAudioKeeper: seam.open,
+        postSessionAudio: upload,
+      }),
+    );
+    const ws = await runSession(hook, "live-fail", fake);
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    await act(() => ws.emitServer({ type: "session_complete" }));
+    const uri = `${KEEP_DIR}/live-fail.wav`;
+    expect(hook.result.current.lastEpisode).toMatchObject({ episodeId: "ep-3", postStatus: "created" });
+    expect(upload).toHaveBeenCalledTimes(1);
+    expect(hook.result.current.audioKeep).toMatchObject({
+      status: "failed",
+      bytes: EXPECTED_BYTES,
+      seconds: 1.5,
+      error: "API error: 503",
+    });
+    expect(typeof hook.result.current.audioKeep.retry).toBe("function");
+    expect(seam.fs.exists(uri)).toBe(true);
+
+    await act(async () => {
+      await hook.result.current.audioKeep.retry!();
+    });
+    expect(upload).toHaveBeenCalledTimes(2);
+    expect(upload.mock.calls[1]).toEqual(["ep-3", uri, EXPECTED_BYTES]);
+    expect(hook.result.current.audioKeep).toEqual({ status: "kept", bytes: EXPECTED_BYTES, seconds: 1.5 });
+    expect(seam.fs.exists(uri)).toBe(false);
+    warn.mockRestore();
+  });
+
+  it("a session the server didn't store (unsupported / no episode id) discards the file and uploads nothing", async () => {
+    const fake = makeFakeFastLoop();
+    const seam = keeperSeam();
+    const upload = jest.fn(async (id: string) => audioOk(id));
+    const hook = await renderHook(() =>
+      useAudioStream({
+        capability: { capable: true, reason: "ok" },
+        makeFastLoop: fake.make,
+        postSession: async () => ({ status: "unsupported" as const }),
+        openAudioKeeper: seam.open,
+        postSessionAudio: upload,
+      }),
+    );
+    const ws = await runSession(hook, "live-unsaved", fake);
+    const uri = `${KEEP_DIR}/live-unsaved.wav`;
+    expect(seam.fs.sizeOf(uri)).toBe(EXPECTED_BYTES);
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    await act(() => ws.emitServer({ type: "session_complete" }));
+    expect(upload).not.toHaveBeenCalled();
+    expect(seam.fs.listFileNames(KEEP_DIR)).toEqual([]);
+    expect(hook.result.current.audioKeep).toMatchObject({ status: "off", error: expect.stringMatching(/wasn't saved/) });
+  });
+
+  it("unmounting mid-session discards the file without uploading", async () => {
+    const fake = makeFakeFastLoop();
+    const seam = keeperSeam();
+    const upload = jest.fn(async (id: string) => audioOk(id));
+    const hook = await renderHook(() =>
+      useAudioStream({
+        capability: { capable: true, reason: "ok" },
+        makeFastLoop: fake.make,
+        postSession: async () => ({ status: "created" as const, episodeId: "ep-5", sharedWith: [] }),
+        openAudioKeeper: seam.open,
+        postSessionAudio: upload,
+      }),
+    );
+    await runSession(hook, "live-unmount", fake);
+    expect(seam.fs.exists(`${KEEP_DIR}/live-unmount.wav`)).toBe(true);
+    await act(async () => {
+      hook.unmount();
+      await flush();
+    });
+    expect(seam.fs.listFileNames(KEEP_DIR)).toEqual([]);
+    expect(upload).not.toHaveBeenCalled();
   });
 });

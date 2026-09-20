@@ -1,0 +1,385 @@
+{
+ "scorer": "../score.py",
+ "variants": {
+  "b8": "phone port, eigengap over 1..8, no k floor (B's k policy)",
+  "prod6": "phone port, same embeddings, production's k clamp (eigengap over 1..6, floor 2)"
+ },
+ "fixtures": {
+  "family_real": {
+   "k_true": 2,
+   "python_B": {
+    "k_pred": 2,
+    "frame_accuracy": 0.959,
+    "owner_purity": 0.969
+   },
+   "windows": "110/113",
+   "hop_s": 0.25,
+   "gate_rms": 0.0052,
+   "embed_ms_per_window": {
+    "n": 110,
+    "mean_ms": 15.08,
+    "median_ms": 15.08,
+    "p90_ms": 15.51
+   },
+   "timings_ms": {
+    "gate": 1.2,
+    "embed": 1658.898,
+    "cluster": 26.038,
+    "smooth": 0.324,
+    "total": 1686.526,
+    "wall": 1686.622
+   },
+   "b8": {
+    "k_pred": 2,
+    "frame_accuracy": 0.959,
+    "owner_purity": 0.969,
+    "per_gt_recall": {
+     "Asher": 0.954,
+     "Sage": 0.962
+    },
+    "k_eigengap": 2
+   },
+   "prod6": {
+    "k_pred": 2,
+    "frame_accuracy": 0.959,
+    "owner_purity": 0.969,
+    "per_gt_recall": {
+     "Asher": 0.954,
+     "Sage": 0.962
+    },
+    "k_eigengap": 2
+   }
+  },
+  "poker6": {
+   "k_true": 6,
+   "python_B": {
+    "k_pred": 7,
+    "frame_accuracy": 0.809,
+    "owner_purity": 1.0
+   },
+   "windows": "109/115",
+   "hop_s": 0.25,
+   "gate_rms": 0.0047,
+   "embed_ms_per_window": {
+    "n": 109,
+    "mean_ms": 15.17,
+    "median_ms": 15.02,
+    "p90_ms": 15.85
+   },
+   "timings_ms": {
+    "gate": 0.8,
+    "embed": 1653.761,
+    "cluster": 70.104,
+    "smooth": 0.182,
+    "total": 1724.883,
+    "wall": 1724.888
+   },
+   "b8": {
+    "k_pred": 7,
+    "frame_accuracy": 0.809,
+    "owner_purity": 1.0,
+    "per_gt_recall": {
+     "Player1": 1.0,
+     "Player2": 0.974,
+     "Player3": 0.774,
+     "Player4": 0.848,
+     "Player5": 0.626,
+     "Player6": 0.635
+    },
+    "k_eigengap": 7
+   },
+   "prod6": {
+    "k_pred": 4,
+    "frame_accuracy": 0.597,
+    "owner_purity": null,
+    "per_gt_recall": {
+     "Player1": 1.0,
+     "Player2": 0.974,
+     "Player3": 0.774,
+     "Player4": 0.848,
+     "Player5": 0.0,
+     "Player6": 0.0
+    },
+    "k_eigengap": 4
+   }
+  },
+  "openai": {
+   "k_true": 2,
+   "python_B": {
+    "k_pred": 2,
+    "frame_accuracy": 0.994,
+    "owner_purity": null
+   },
+   "windows": "266/276",
+   "hop_s": 0.25,
+   "gate_rms": 0.003,
+   "embed_ms_per_window": {
+    "n": 266,
+    "mean_ms": 15.48,
+    "median_ms": 15.13,
+    "p90_ms": 16.45
+   },
+   "timings_ms": {
+    "gate": 2.7,
+    "embed": 4118.451,
+    "cluster": 81.925,
+    "smooth": 0.027,
+    "total": 4203.142,
+    "wall": 4203.148
+   },
+   "b8": {
+    "k_pred": 2,
+    "frame_accuracy": 0.994,
+    "owner_purity": null,
+    "per_gt_recall": {
+     "Speaker A": 1.0,
+     "Speaker B": 0.986
+    },
+    "k_eigengap": 2
+   },
+   "prod6": {
+    "k_pred": 2,
+    "frame_accuracy": 0.994,
+    "owner_purity": null,
+    "per_gt_recall": {
+     "Speaker A": 1.0,
+     "Speaker B": 0.986
+    },
+    "k_eigengap": 2
+   }
+  },
+  "gptaudio": {
+   "k_true": 2,
+   "python_B": {
+    "k_pred": 2,
+    "frame_accuracy": 0.984,
+    "owner_purity": null
+   },
+   "windows": "286/293",
+   "hop_s": 0.25,
+   "gate_rms": 0.003,
+   "embed_ms_per_window": {
+    "n": 286,
+    "mean_ms": 15.27,
+    "median_ms": 15.25,
+    "p90_ms": 15.68
+   },
+   "timings_ms": {
+    "gate": 1.8,
+    "embed": 4367.817,
+    "cluster": 82.359,
+    "smooth": 0.029,
+    "total": 4452.045,
+    "wall": 4452.052
+   },
+   "b8": {
+    "k_pred": 2,
+    "frame_accuracy": 0.984,
+    "owner_purity": null,
+    "per_gt_recall": {
+     "Speaker A": 0.991,
+     "Speaker B": 0.975
+    },
+    "k_eigengap": 2
+   },
+   "prod6": {
+    "k_pred": 2,
+    "frame_accuracy": 0.984,
+    "owner_purity": null,
+    "per_gt_recall": {
+     "Speaker A": 0.991,
+     "Speaker B": 0.975
+    },
+    "k_eigengap": 2
+   }
+  },
+  "scene_couple": {
+   "k_true": 2,
+   "python_B": {
+    "k_pred": 2,
+    "frame_accuracy": 0.986,
+    "owner_purity": 0.975
+   },
+   "windows": "268/273",
+   "hop_s": 0.25,
+   "gate_rms": 0.003,
+   "embed_ms_per_window": {
+    "n": 268,
+    "mean_ms": 15.31,
+    "median_ms": 15.23,
+    "p90_ms": 16.2
+   },
+   "timings_ms": {
+    "gate": 0.9,
+    "embed": 4103.509,
+    "cluster": 70.622,
+    "smooth": 0.029,
+    "total": 4175.043,
+    "wall": 4175.049
+   },
+   "b8": {
+    "k_pred": 2,
+    "frame_accuracy": 0.986,
+    "owner_purity": 0.975,
+    "per_gt_recall": {
+     "Speaker A": 1.0,
+     "Speaker B": 0.971
+    },
+    "k_eigengap": 2
+   },
+   "prod6": {
+    "k_pred": 2,
+    "frame_accuracy": 0.986,
+    "owner_purity": 0.975,
+    "per_gt_recall": {
+     "Speaker A": 1.0,
+     "Speaker B": 0.971
+    },
+    "k_eigengap": 2
+   }
+  },
+  "scene_family3": {
+   "k_true": 3,
+   "python_B": {
+    "k_pred": 3,
+    "frame_accuracy": 0.99,
+    "owner_purity": 0.995
+   },
+   "windows": "263/263",
+   "hop_s": 0.25,
+   "gate_rms": 0.003,
+   "embed_ms_per_window": {
+    "n": 263,
+    "mean_ms": 15.32,
+    "median_ms": 15.09,
+    "p90_ms": 15.75
+   },
+   "timings_ms": {
+    "gate": 0.8,
+    "embed": 4029.247,
+    "cluster": 64.431,
+    "smooth": 0.025,
+    "total": 4094.544,
+    "wall": 4094.552
+   },
+   "b8": {
+    "k_pred": 3,
+    "frame_accuracy": 0.99,
+    "owner_purity": 0.995,
+    "per_gt_recall": {
+     "Speaker A": 0.993,
+     "Speaker B": 0.982,
+     "Speaker C": 0.997
+    },
+    "k_eigengap": 3
+   },
+   "prod6": {
+    "k_pred": 3,
+    "frame_accuracy": 0.99,
+    "owner_purity": 0.995,
+    "per_gt_recall": {
+     "Speaker A": 0.993,
+     "Speaker B": 0.982,
+     "Speaker C": 0.997
+    },
+    "k_eigengap": 3
+   }
+  },
+  "scene_meeting4": {
+   "k_true": 4,
+   "python_B": {
+    "k_pred": 3,
+    "frame_accuracy": 0.809,
+    "owner_purity": 0.978
+   },
+   "windows": "326/326",
+   "hop_s": 0.25,
+   "gate_rms": 0.003,
+   "embed_ms_per_window": {
+    "n": 326,
+    "mean_ms": 15.41,
+    "median_ms": 15.29,
+    "p90_ms": 15.94
+   },
+   "timings_ms": {
+    "gate": 1,
+    "embed": 5023.221,
+    "cluster": 122.01,
+    "smooth": 0.03,
+    "total": 5146.286,
+    "wall": 5146.292
+   },
+   "b8": {
+    "k_pred": 3,
+    "frame_accuracy": 0.809,
+    "owner_purity": 0.978,
+    "per_gt_recall": {
+     "Speaker A": 0.997,
+     "Speaker B": 0.997,
+     "Speaker C": 0.97,
+     "Speaker D": 0.0
+    },
+    "k_eigengap": 3
+   },
+   "prod6": {
+    "k_pred": 3,
+    "frame_accuracy": 0.809,
+    "owner_purity": 0.978,
+    "per_gt_recall": {
+     "Speaker A": 0.997,
+     "Speaker B": 0.997,
+     "Speaker C": 0.97,
+     "Speaker D": 0.0
+    },
+    "k_eigengap": 3
+   }
+  },
+  "maggiano3": {
+   "k_true": 3,
+   "python_B": {
+    "k_pred": 3,
+    "frame_accuracy": 0.761,
+    "owner_purity": 0.801
+   },
+   "windows": "162/165",
+   "hop_s": 0.25,
+   "gate_rms": 0.003,
+   "embed_ms_per_window": {
+    "n": 162,
+    "mean_ms": 15.48,
+    "median_ms": 15.36,
+    "p90_ms": 16.56
+   },
+   "timings_ms": {
+    "gate": 0.5,
+    "embed": 2507.513,
+    "cluster": 16.67,
+    "smooth": 0.017,
+    "total": 2524.708,
+    "wall": 2524.715
+   },
+   "b8": {
+    "k_pred": 3,
+    "frame_accuracy": 0.761,
+    "owner_purity": 0.808,
+    "per_gt_recall": {
+     "asher": 0.695,
+     "dad": 0.739,
+     "mom": 0.842
+    },
+    "k_eigengap": 3
+   },
+   "prod6": {
+    "k_pred": 3,
+    "frame_accuracy": 0.761,
+    "owner_purity": 0.808,
+    "per_gt_recall": {
+     "asher": 0.695,
+     "dad": 0.739,
+     "mom": 0.842
+    },
+    "k_eigengap": 3
+   }
+  }
+ }
+}

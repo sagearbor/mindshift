@@ -1,0 +1,122 @@
+{
+  "_schema": {
+    "version": 1,
+    "subject": "server/natural_turn.py NaturalTurn port (mirror: apps/mobile/src/live/naturalTurn.ts). Upstream: github.com/betterup/natural-turn-transcription (MIT), Cooney & Reece 2025, Sci Reports 41598-025-24381-1; decision order from transcription/text.py::determine_utterance_type and _label_turns.",
+    "description": "Golden test vectors for classify_utterance (decision order: all-cue -> backchannel; >WORD_MAX words AND >SECOND_MAX seconds -> secondary; first word a NOT_BACKCHANNEL_CUE -> secondary; cue proportion >= PROPORTION -> backchannel; else other) and for label_turns (containment, with the upstream forward-scan `break`) + merge_primaries (same-speaker join across pauses <= MAX_PAUSE_SECONDS=1.5, never broken by an attached non-primary). A Python (server/natural_turn.py) and a TypeScript (apps/mobile/src/live/naturalTurn.ts) port must produce identical results from identical inputs. Language-neutral on purpose: plain field names, timestamps/durations in seconds as floats, `kind` is one of \"primary\" | \"backchannel\" | \"secondary\" | \"other\", `expected: null` means classify_utterance returns None/null (no words).",
+    "classification_cases": {
+      "text": "utterance text as the ASR would emit it (mixed case / punctuation allowed; classify_utterance lowercases and strips punctuation via its own tokenizer)",
+      "duration_s": "float seconds — the utterance's own duration (end - start), NOT the pause before it",
+      "expected": "\"backchannel\" | \"secondary\" | \"other\" | null"
+    },
+    "containment_cases": {
+      "utterances": "list of {speaker, start, end, text} fed to label_turns in this order (label_turns sorts by start itself, so input order does not need to be sorted)",
+      "expected_labels": "labelTurns/label_turns output, in start-sorted order: {speaker, start, end, kind, interjects} — `interjects` is the 0-based index into this SAME sorted list of the primary turn a non-primary utterance interjects, or null for a primary",
+      "expected_merged": "mergePrimaries/merge_primaries output: {speaker, start, end, text, parts, attached_kinds} — `text` is the merged primaries' texts joined with a single space in merge order; `parts` counts merged primary utterances; `attached_kinds` is the ordered list of `kind` values for non-primary utterances riding on this turn (backchannels/secondaries that interjected any of its parts)"
+    }
+  },
+  "classification_cases": [
+    {"name": "single_cue_backchannel", "text": "yeah", "duration_s": 0.4, "expected": "backchannel"},
+    {"name": "multi_cue_all_backchannel_any_length", "text": "oh wow really okay yeah", "duration_s": 2.0, "expected": "backchannel"},
+    {"name": "asr_ok_spelling_is_a_cue", "text": "ok", "duration_s": 0.4, "expected": "backchannel"},
+    {"name": "asr_ok_multi_cue_backchannel", "text": "oh ok", "duration_s": 0.6, "expected": "backchannel"},
+    {"name": "more_than_word_max_words_is_secondary", "text": "tell me what happened", "duration_s": 1.0, "expected": "secondary"},
+    {"name": "not_cue_first_word_so_short_secondary", "text": "so yeah", "duration_s": 0.6, "expected": "secondary"},
+    {"name": "not_cue_first_word_i_short_secondary", "text": "i know right", "duration_s": 0.8, "expected": "secondary"},
+    {"name": "not_cue_first_word_apostrophe_im_secondary", "text": "i'm not sure", "duration_s": 0.9, "expected": "secondary"},
+    {"name": "not_cue_first_word_youre_overrides_proportion", "text": "you're right", "duration_s": 0.5, "expected": "secondary"},
+    {"name": "proportion_boundary_exactly_half_is_backchannel", "text": "yeah dude", "duration_s": 0.5, "expected": "backchannel"},
+    {"name": "proportion_just_below_half_is_other", "text": "yeah dude bro", "duration_s": 0.5, "expected": "other"},
+    {"name": "proportion_zero_is_other", "text": "totally agree man", "duration_s": 0.9, "expected": "other"},
+    {"name": "proportion_two_thirds_is_backchannel", "text": "yeah exactly totally", "duration_s": 0.9, "expected": "backchannel"},
+    {"name": "numeric_token_counts_as_a_word", "text": "yeah 2 sure", "duration_s": 0.5, "expected": "backchannel"},
+    {"name": "hyphenated_token_does_not_match_bare_cue", "text": "well-known fact right", "duration_s": 0.8, "expected": "other"},
+    {"name": "exactly_word_max_words_not_secondary_by_count", "text": "totally agree though", "duration_s": 2.0, "expected": "other"},
+    {"name": "duration_exactly_at_second_max_skips_secondary_branch", "text": "hello there my friend", "duration_s": 0.0, "expected": "other"},
+    {"name": "duration_just_above_second_max_is_secondary", "text": "hello there my friend", "duration_s": 0.01, "expected": "secondary"},
+    {"name": "empty_text_is_null", "text": "", "duration_s": 0.1, "expected": null},
+    {"name": "punctuation_only_is_null", "text": "...", "duration_s": 0.2, "expected": null},
+    {"name": "cue_word_hmm", "text": "hmm", "duration_s": 0.3, "expected": "backchannel"},
+    {"name": "cue_word_gotcha", "text": "gotcha", "duration_s": 0.4, "expected": "backchannel"},
+    {"name": "cue_word_sucks", "text": "sucks", "duration_s": 0.3, "expected": "backchannel"},
+    {"name": "all_cue_wins_over_long_duration", "text": "wow really", "duration_s": 5.0, "expected": "backchannel"},
+    {"name": "and_clause_opener_long_is_secondary_by_count", "text": "and i think so", "duration_s": 1.0, "expected": "secondary"},
+    {"name": "but_clause_opener_short_secondary", "text": "but wait", "duration_s": 0.4, "expected": "secondary"},
+    {"name": "thats_clause_opener_short_secondary", "text": "that's true", "duration_s": 0.5, "expected": "secondary"},
+    {"name": "cue_pair_um_uh_backchannel", "text": "um uh", "duration_s": 0.2, "expected": "backchannel"},
+    {"name": "mixed_case_and_punctuation_normalized", "text": "YEAH!", "duration_s": 0.3, "expected": "backchannel"},
+    {"name": "its_clause_opener_short_secondary", "text": "it's fine", "duration_s": 0.5, "expected": "secondary"}
+  ],
+  "containment_cases": [
+    {
+      "name": "contained_backchannel_attached",
+      "description": "A vocalization fully inside another speaker's span is non-primary, attached to that primary turn; a later utterance by the interjecting speaker that starts after the primary's end is its own primary (upstream containment + join).",
+      "utterances": [
+        {"speaker": "A", "start": 0, "end": 10, "text": "we went to the lake and it was beautiful"},
+        {"speaker": "B", "start": 4, "end": 4.5, "text": "oh wow"},
+        {"speaker": "B", "start": 11, "end": 13, "text": "tell me more about it"}
+      ],
+      "expected_labels": [
+        {"speaker": "A", "start": 0, "end": 10, "kind": "primary", "interjects": null},
+        {"speaker": "B", "start": 4, "end": 4.5, "kind": "backchannel", "interjects": 0},
+        {"speaker": "B", "start": 11, "end": 13, "kind": "primary", "interjects": null}
+      ],
+      "expected_merged": [
+        {"speaker": "A", "start": 0, "end": 10, "text": "we went to the lake and it was beautiful", "parts": 1, "attached_kinds": ["backchannel"]},
+        {"speaker": "B", "start": 11, "end": 13, "text": "tell me more about it", "parts": 1, "attached_kinds": []}
+      ]
+    },
+    {
+      "name": "break_stops_forward_scan",
+      "description": "The upstream inner-loop `break`: an overlapping-but-not-contained utterance ends the scan, so a later utterance that WOULD have been contained in the first primary's span is never even checked against it — it is claimed by whichever primary's scan reaches it first.",
+      "utterances": [
+        {"speaker": "A", "start": 0, "end": 5, "text": "here is my whole story about that"},
+        {"speaker": "B", "start": 4, "end": 7, "text": "hang on that is not what i heard"},
+        {"speaker": "B", "start": 4.2, "end": 4.8, "text": "yeah"}
+      ],
+      "expected_labels": [
+        {"speaker": "A", "start": 0, "end": 5, "kind": "primary", "interjects": null},
+        {"speaker": "B", "start": 4, "end": 7, "kind": "primary", "interjects": null},
+        {"speaker": "B", "start": 4.2, "end": 4.8, "kind": "backchannel", "interjects": 1}
+      ],
+      "expected_merged": [
+        {"speaker": "A", "start": 0, "end": 5, "text": "here is my whole story about that", "parts": 1, "attached_kinds": []},
+        {"speaker": "B", "start": 4, "end": 7, "text": "hang on that is not what i heard", "parts": 1, "attached_kinds": ["backchannel"]}
+      ]
+    },
+    {
+      "name": "pause_merge_within_threshold_new_turn_after",
+      "description": "No overlap at all here (pure sequential same-speaker utterances) so containment never fires; merge_primaries alone decides: a 1.2 s gap (<= MAX_PAUSE_SECONDS=1.5) joins, a 2.0 s gap starts a new turn.",
+      "utterances": [
+        {"speaker": "A", "start": 0, "end": 2, "text": "we should talk about"},
+        {"speaker": "A", "start": 3.2, "end": 5, "text": "the thing from yesterday"},
+        {"speaker": "A", "start": 7.0, "end": 8.0, "text": "anyway"}
+      ],
+      "expected_labels": [
+        {"speaker": "A", "start": 0, "end": 2, "kind": "primary", "interjects": null},
+        {"speaker": "A", "start": 3.2, "end": 5, "kind": "primary", "interjects": null},
+        {"speaker": "A", "start": 7.0, "end": 8.0, "kind": "primary", "interjects": null}
+      ],
+      "expected_merged": [
+        {"speaker": "A", "start": 0, "end": 5, "text": "we should talk about the thing from yesterday", "parts": 2, "attached_kinds": []},
+        {"speaker": "A", "start": 7.0, "end": 8.0, "text": "anyway", "parts": 1, "attached_kinds": []}
+      ]
+    },
+    {
+      "name": "backchannel_never_breaks_merge",
+      "description": "An attached backchannel from another speaker never counts against the same-speaker pause gate: the 0.8 s gap between the two A utterances is measured turn-end to turn-start, ignoring B's interjection in between.",
+      "utterances": [
+        {"speaker": "A", "start": 0, "end": 3, "text": "so i told him the plan was off"},
+        {"speaker": "B", "start": 1.0, "end": 1.4, "text": "mhm"},
+        {"speaker": "A", "start": 3.8, "end": 6, "text": "and he took it well"}
+      ],
+      "expected_labels": [
+        {"speaker": "A", "start": 0, "end": 3, "kind": "primary", "interjects": null},
+        {"speaker": "B", "start": 1.0, "end": 1.4, "kind": "backchannel", "interjects": 0},
+        {"speaker": "A", "start": 3.8, "end": 6, "kind": "primary", "interjects": null}
+      ],
+      "expected_merged": [
+        {"speaker": "A", "start": 0, "end": 6, "text": "so i told him the plan was off and he took it well", "parts": 2, "attached_kinds": ["backchannel"]}
+      ]
+    }
+  ]
+}

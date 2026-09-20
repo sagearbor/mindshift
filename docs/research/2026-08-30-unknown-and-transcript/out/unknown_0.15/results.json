@@ -1,0 +1,191 @@
+{
+ "maggiano3": {
+  "gt_boundaries": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.833,
+   "unlabelled_frac": 0.029,
+   "mapping": {
+    "Speaker A": "dad",
+    "Speaker B": "asher",
+    "Speaker C": "mom"
+   },
+   "per_gt_recall": {
+    "asher": 0.718,
+    "dad": 0.84,
+    "mom": 0.924
+   },
+   "owner_purity": 0.9,
+   "fixture": "maggiano3",
+   "runtime_s": 6.2,
+   "k_evaluated": [
+    {
+     "k": 2,
+     "ok": true,
+     "max_pairwise_cosine": 0.136,
+     "min_cluster_seconds": 6.5,
+     "route": "linkage"
+    },
+    {
+     "k": 3,
+     "ok": false,
+     "max_pairwise_cosine": 0.207,
+     "min_cluster_seconds": 1.0,
+     "marginal_pair_cosine": 0.207,
+     "split_anchor_cosine": -0.074,
+     "failed": "duration_floor",
+     "reason": "cluster has only 1.0s pooled speech (needs 1.5s at separation 0.207)",
+     "route": "linkage"
+    },
+    {
+     "k": 3,
+     "ok": true,
+     "max_pairwise_cosine": 0.222,
+     "min_cluster_seconds": 8.1,
+     "marginal_pair_cosine": 0.222,
+     "split_anchor_cosine": 0.136,
+     "route": "spectral"
+    },
+    {
+     "k": 4,
+     "ok": false,
+     "max_pairwise_cosine": 0.219,
+     "min_cluster_seconds": 1.0,
+     "marginal_pair_cosine": 0.219,
+     "split_anchor_cosine": 0.015,
+     "failed": "duration_floor",
+     "reason": "cluster has only 1.0s pooled speech (needs 1.5s at separation 0.219)",
+     "route": "linkage"
+    },
+    {
+     "k": 5,
+     "ok": false,
+     "max_pairwise_cosine": 0.231,
+     "min_cluster_seconds": 1.0,
+     "marginal_pair_cosine": 0.114,
+     "split_anchor_cosine": 0.058,
+     "failed": "duration_floor",
+     "reason": "cluster has only 1.0s pooled speech (needs 1.5s at separation 0.231)",
+     "route": "linkage"
+    },
+    {
+     "k": 6,
+     "ok": false,
+     "max_pairwise_cosine": 0.288,
+     "min_cluster_seconds": 1.0,
+     "marginal_pair_cosine": 0.228,
+     "split_anchor_cosine": 0.222,
+     "failed": "duration_floor",
+     "reason": "cluster has only 1.0s pooled speech (needs 1.5s at separation 0.222)",
+     "route": "linkage"
+    }
+   ],
+   "unknown_s": 1.48,
+   "unknown_turns": [
+    [
+     28.0,
+     29.0,
+     "\u2026"
+    ],
+    [
+     33.51,
+     33.99,
+     "(untranscribed)"
+    ]
+   ],
+   "num_speakers": 3
+  },
+  "transcript_7utt": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.491,
+   "unlabelled_frac": 0.095,
+   "mapping": {
+    "Speaker A": "dad",
+    "Speaker B": "asher",
+    "Speaker C": "mom"
+   },
+   "per_gt_recall": {
+    "asher": 0.599,
+    "dad": 0.704,
+    "mom": 0.115
+   },
+   "owner_purity": 0.504,
+   "fixture": "maggiano3",
+   "runtime_s": 7.3,
+   "k_evaluated": [
+    {
+     "k": 2,
+     "ok": true,
+     "max_pairwise_cosine": 0.133,
+     "min_cluster_seconds": 11.41,
+     "route": "linkage"
+    },
+    {
+     "k": 3,
+     "ok": true,
+     "max_pairwise_cosine": 0.166,
+     "min_cluster_seconds": 2.27,
+     "marginal_pair_cosine": 0.166,
+     "split_anchor_cosine": 0.067,
+     "route": "linkage"
+    }
+   ],
+   "unknown_s": 0.85,
+   "unknown_turns": [
+    [
+     30.04,
+     30.89,
+     "I wanna go. No."
+    ]
+   ],
+   "num_speakers": 3
+  },
+  "transcript_8utt": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.592,
+   "unlabelled_frac": 0.108,
+   "mapping": {
+    "Speaker A": "dad",
+    "Speaker B": "mom",
+    "Speaker C": "asher"
+   },
+   "per_gt_recall": {
+    "asher": 0.081,
+    "dad": 0.886,
+    "mom": 0.619
+   },
+   "owner_purity": 0.609,
+   "fixture": "maggiano3",
+   "runtime_s": 7.3,
+   "k_evaluated": [
+    {
+     "k": 2,
+     "ok": true,
+     "max_pairwise_cosine": 0.068,
+     "min_cluster_seconds": 1.55,
+     "route": "linkage"
+    },
+    {
+     "k": 3,
+     "ok": true,
+     "max_pairwise_cosine": 0.221,
+     "min_cluster_seconds": 1.55,
+     "marginal_pair_cosine": 0.221,
+     "split_anchor_cosine": 0.077,
+     "route": "linkage"
+    }
+   ],
+   "unknown_s": 0.85,
+   "unknown_turns": [
+    [
+     30.04,
+     30.89,
+     "I wanna go. No."
+    ]
+   ],
+   "num_speakers": 3
+  }
+ }
+}

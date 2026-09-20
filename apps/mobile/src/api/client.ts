@@ -2,6 +2,7 @@ import { Platform } from "react-native";
 import { File as FSFile, FileMode } from "expo-file-system";
 import type { Suggestion } from "../components/SuggestionCard";
 import { getFreshToken } from "../auth/authToken";
+import { markRecordingsListStale } from "../utils/recordingsListCache";
 
 const API_URL =
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:8000";
@@ -81,6 +82,15 @@ export interface Voice {
   // server refuses to invent a reading for silence/noise.
   pitch_label: "low" | "mid" | "high" | null;
   rate_label: "slow" | "normal" | "fast";
+  // The RAW numbers behind the labels (server/prosody.py), so the Replay
+  // chart can plot them on a labeled axis. Same shape + units as a live
+  // turn's `RecordingTurn.prosody`: RMS level in dBFS (0 = full scale),
+  // median F0 in Hz (null when unvoiced), words per second. All optional —
+  // absent on analyses stored before the server carried them, null when
+  // that number could not be measured for the turn.
+  rms_dbfs?: number | null;
+  pitch_hz?: number | null;
+  speech_rate?: number | null;
 }
 
 export interface AnalyzePerTurn {
@@ -382,6 +392,10 @@ export interface UploadAnalyzeOptions {
   consent?: boolean;
   store?: boolean;
   title?: string;
+  /** Client-declared provenance ("journal" for the Live Coach voice
+   *  journal). Sent as `source_type`; today's server derives the source
+   *  itself and ignores it — forward-compatible, never rejected. */
+  sourceType?: string;
 }
 
 // --- Upload diagnostics ------------------------------------------------------
@@ -659,6 +673,9 @@ export async function postAnalyzeUpload(
   const store = options?.store ?? true;
   form.append("consent", consent ? "true" : "false");
   form.append("store", store ? "true" : "false");
+  if (options?.sourceType) {
+    form.append("source_type", options.sourceType);
+  }
 
   const res = await uploadFetch(attempt, `${API_URL}/analyze/upload`, {
     method: "POST",
@@ -670,7 +687,11 @@ export async function postAnalyzeUpload(
     throw uploadFailure(attempt, res.status);
   }
 
-  return (await res.json()) as UploadAnalyzeResult;
+  const uploaded = (await res.json()) as UploadAnalyzeResult;
+  // A stored recording may have just been created — the cached Recordings
+  // list is now behind (recordingsListCache.ts).
+  if (uploaded.recording_id) markRecordingsListStale();
+  return uploaded;
 }
 
 // --- Chunked upload (large recordings) --------------------------------------
@@ -696,6 +717,8 @@ export interface ChunkedUploadOptions {
   // Optional human title for the stored recording (see UploadAnalyzeOptions.title);
   // ignored by servers that don't support titling yet.
   title?: string;
+  /** See UploadAnalyzeOptions.sourceType (sent as `source_type`). */
+  sourceType?: string;
   onProgress?: (fraction: number) => void;
 }
 
@@ -864,6 +887,9 @@ async function uploadFileInChunks(
   if (opts.title !== undefined && opts.title !== "") {
     startBody.title = opts.title;
   }
+  if (opts.sourceType) {
+    startBody.source_type = opts.sourceType;
+  }
   const startRes = await uploadFetch(attempt, `${API_URL}/uploads/start`, {
     method: "POST",
     contentType: "application/json",
@@ -940,7 +966,9 @@ export async function postAnalyzeUploadChunked(
     if (!completeRes.ok) {
       throw uploadFailure(attempt, completeRes.status);
     }
-    return (await completeRes.json()) as UploadAnalyzeResult;
+    const completed = (await completeRes.json()) as UploadAnalyzeResult;
+    if (completed.recording_id) markRecordingsListStale();
+    return completed;
   } catch (err) {
     await abortChunkedUpload(attempt, uploadId);
     throw err;
@@ -1004,7 +1032,9 @@ export async function postAnalyzeUploadChunkedJob(
       if (!completeRes.ok) {
         throw uploadFailure(attempt, completeRes.status);
       }
-      return { result: (await completeRes.json()) as UploadAnalyzeResult };
+      const completed = (await completeRes.json()) as UploadAnalyzeResult;
+      if (completed.recording_id) markRecordingsListStale();
+      return { result: completed };
     } catch (err) {
       await abortChunkedUpload(attempt, uploadId);
       throw err;
@@ -1080,7 +1110,11 @@ export async function postAnalyzeLink(
     throw err;
   }
 
-  return (await res.json()) as UploadAnalyzeResult;
+  const uploaded = (await res.json()) as UploadAnalyzeResult;
+  // A stored recording may have just been created — the cached Recordings
+  // list is now behind (recordingsListCache.ts).
+  if (uploaded.recording_id) markRecordingsListStale();
+  return uploaded;
 }
 
 // --- Submit-and-poll analysis jobs ------------------------------------------
@@ -1108,6 +1142,10 @@ export type JobStatus =
 /** 202 body of the job-submit endpoints — the id to poll with. */
 export interface JobCreated {
   job_id: string;
+  // Optional honest note about what accepting the job implies (e.g.
+  // `postReanalyzeWithSegments`: the manual speaker names will be cleared).
+  // Absent on older servers and on every other job endpoint.
+  note?: string | null;
 }
 
 /** GET /analyze/jobs/{id} — a job's staged progress (and its result once done). */
@@ -1202,7 +1240,10 @@ export async function getAnalyzeJob(jobId: string): Promise<AnalyzeJobState> {
   if (!res.ok) {
     throw new Error(`API error: ${res.status}`);
   }
-  return (await res.json()) as AnalyzeJobState;
+  const job = (await res.json()) as AnalyzeJobState;
+  // A finished job stored a new recording — the cached list is behind.
+  if (job.status === "done") markRecordingsListStale();
+  return job;
 }
 
 /** Build an Error for a failed job-submit POST, carrying `.status` (and the
@@ -1447,6 +1488,11 @@ export interface RecordingDetail extends RecordingSummary {
   // People labeling: {canonical_id: person_id} for manually named speakers the
   // user attached to an enrolled person. Absent on older servers.
   manual_speaker_people?: Record<string, string>;
+  // When the owner applied an explicit voice segmentation (the phone's own
+  // engine B → `postReanalyzeWithSegments`): where it came from ("device-B")
+  // and when. Null/absent when the speakers are the pipeline's own.
+  speaker_segments_source?: string | null;
+  speaker_segments_applied_at?: string | null;
   // True when the caller is a RECIPIENT viewing a recording shared with them
   // (read-only) — the UI hides every owner-only affordance in this mode. Absent
   // or false ⇒ the caller owns it. Older servers omit it (treated as owned).
@@ -1577,7 +1623,9 @@ export async function postShare(
     err.detail = detail;
     throw err;
   }
-  return (await res.json()) as { shares: RecordingShare[] };
+  const shared = (await res.json()) as { shares: RecordingShare[] };
+  markRecordingsListStale();
+  return shared;
 }
 
 /**
@@ -1604,6 +1652,7 @@ export async function deleteShare(
     err.status = res.status;
     throw err;
   }
+  markRecordingsListStale();
 }
 
 /**
@@ -1641,6 +1690,16 @@ export async function getRecordingMediaUrl(
     throw new Error(`API error: ${res.status}`);
   }
   return (await res.json()) as RecordingMediaUrl;
+}
+
+/**
+ * The `?format=pcm16k` variant of a minted media URL: the SAME short-lived
+ * token, but the server transcodes the stored audio to a 16 kHz mono s16le
+ * WAV (≤ 30 min, else 413) — what the on-phone voice engine
+ * (live/deviceDiarization.ts) reads. Pure string work; no request.
+ */
+export function pcm16kMediaUrl(media: RecordingMediaUrl): string {
+  return `${media.url}${media.url.includes("?") ? "&" : "?"}format=pcm16k`;
 }
 
 /**
@@ -1716,7 +1775,9 @@ export async function patchRecordingSource(
     err.detail = detail;
     throw err;
   }
-  return (await res.json()) as PatchSourceResult;
+  const patchedSource = (await res.json()) as PatchSourceResult;
+  markRecordingsListStale();
+  return patchedSource;
 }
 
 /** Result of PATCH /recordings/{id} with a `{ title }` body — the recording's
@@ -1754,7 +1815,10 @@ export async function patchRecordingTitle(
     err.status = res.status;
     throw err;
   }
-  return (await res.json()) as PatchTitleResult;
+  const patchedTitle = (await res.json()) as PatchTitleResult;
+  // The list row shows the title — mark the cached list stale.
+  markRecordingsListStale();
+  return patchedTitle;
 }
 
 /** Result of PATCH /recordings/{id}/speaker-labels — the raw manual name map the
@@ -1820,7 +1884,10 @@ export async function patchSpeakerLabels(
     err.detail = detail;
     throw err;
   }
-  return (await res.json()) as PatchSpeakerLabelsResult;
+  const patchedLabels = (await res.json()) as PatchSpeakerLabelsResult;
+  // The list row's participant line comes from manual_speaker_labels.
+  markRecordingsListStale();
+  return patchedLabels;
 }
 
 /**
@@ -1836,6 +1903,7 @@ export async function deleteRecording(id: string): Promise<void> {
   if (!res.ok) {
     throw new Error(`API error: ${res.status}`);
   }
+  markRecordingsListStale();
 }
 
 /**
@@ -1860,6 +1928,50 @@ export async function postReanalyze(id: string): Promise<JobCreated> {
     };
     err.status = res.status;
     throw err;
+  }
+  return (await res.json()) as JobCreated;
+}
+
+/** One run of a speaker timeline for {@link postReanalyzeWithSegments}:
+ *  seconds from the start of the stored audio, `label` is the speaker id the
+ *  re-analysis will use ("Speaker A" …). */
+export interface SpeakerSegmentInput {
+  start: number;
+  end: number;
+  label: string;
+}
+
+/**
+ * POST /recordings/{id}/reanalyze-with-segments — "Use these voices for this
+ * recording": re-run the analysis over the stored recording with the given
+ * speaker timeline (the phone's engine B) instead of the server's own
+ * diarization. The stored transcript's words are regrouped by segment, the
+ * job runs with the diarization cross-check off, and on completion the
+ * recording's turns/analysis are overwritten in place — the heat chart, talk
+ * share, speaker labels and report cards all follow. The recording's MANUAL
+ * speaker names are cleared (they were keyed by the old speaker ids); the
+ * returned `note` says so. Returns `{ job_id, note }` (202) to poll via
+ * {@link getAnalyzeJob}.
+ *
+ * Throws with the numeric `.status` and the server's `detail` when it wrote
+ * one (a 422 explains overlapping segments / no stored audio / a regrouped
+ * transcript too short to analyze); 404/503 as for {@link postReanalyze}.
+ */
+export async function postReanalyzeWithSegments(
+  id: string,
+  segments: SpeakerSegmentInput[],
+  source: string = "device-B",
+): Promise<JobCreated> {
+  const res = await fetch(
+    `${API_URL}/recordings/${encodeURIComponent(id)}/reanalyze-with-segments`,
+    {
+      method: "POST",
+      headers: await authHeaders(),
+      body: JSON.stringify({ segments, source }),
+    },
+  );
+  if (!res.ok) {
+    throw await jobPostError(res);
   }
   return (await res.json()) as JobCreated;
 }
@@ -2012,6 +2124,13 @@ export async function enrollVoiceDirect(
   // form fields are omitted for the owner so older servers see the same
   // upload as before.
   person?: { personId: string; displayName?: string | null },
+  // The VOICE this clip was recorded in. "raised" asks the server to keep it
+  // as a SECOND prototype rather than blend it into the ordinary print — a
+  // person's shout sits about as far from their calm voice as a different
+  // speaker does, so one averaged print matches neither. Omitted for ordinary
+  // speech, which keeps the upload byte-identical for every existing caller
+  // and for an older server.
+  register?: "normal" | "raised",
 ): Promise<DirectEnrollResult> {
   const form = new FormData();
   if (Platform.OS === "web") {
@@ -2023,6 +2142,7 @@ export async function enrollVoiceDirect(
     form.append("person_id", person.personId);
     if (person.displayName) form.append("display_name", person.displayName);
   }
+  if (register === "raised") form.append("voice_register", register);
   const token = await getFreshToken();
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -2328,9 +2448,31 @@ export interface GrowthResult {
   /** How many of those identified the user's voice — the honest footer's "N
    *  of M". Equals points.length. */
   identified_recordings: number;
+  /** WHY the other `total_recordings - identified_recordings` are missing.
+   *  Three mutually exclusive buckets that sum to that difference. Zeroed on
+   *  an older server that omits the key, which reads as "we can't say" — the
+   *  footer then falls back to the plain N-of-M line. */
+  gaps: GrowthGaps;
   /** Track 2: per-person rows across sessions. Always an array — empty on
    *  older servers that omit the key. */
   people: GrowthPerson[];
+}
+
+/**
+ * Why a stored recording is not on the growth chart. "N of M identified your
+ * voice" was honest but useless: it left the user unable to tell "the app
+ * failed to find me" from "I am not in that recording", and only the first is
+ * something they can act on.
+ */
+export interface GrowthGaps {
+  /** Stored but never analysed — nothing has looked for anyone yet. */
+  not_analyzed: number;
+  /** Analysed, the user has NAMED the speakers themselves, and none is them.
+   *  Nothing to fix: somebody else's conversation. */
+  not_your_conversation: number;
+  /** Analysed, no confident "you", and no manual verdict either — the bucket
+   *  "Catch up my past recordings" exists for. */
+  could_not_find_you: number;
 }
 
 /**
@@ -2351,6 +2493,11 @@ export async function getGrowth(): Promise<GrowthResult> {
     points: Array.isArray(data.points) ? data.points : [],
     total_recordings: data.total_recordings ?? 0,
     identified_recordings: data.identified_recordings ?? 0,
+    gaps: {
+      not_analyzed: data.gaps?.not_analyzed ?? 0,
+      not_your_conversation: data.gaps?.not_your_conversation ?? 0,
+      could_not_find_you: data.gaps?.could_not_find_you ?? 0,
+    },
     people: Array.isArray(data.people) ? data.people : [],
   };
 }

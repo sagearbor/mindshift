@@ -9,9 +9,11 @@ import {
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useAvatarStore } from "../store/avatarStore";
+import PhotoLibraryPicker from "../components/PhotoLibraryPicker";
 import type {
   AvatarCaptureDeps,
   AvatarCaptureScreenProps,
+  PhotoSource,
 } from "./AvatarCaptureScreen";
 
 // House colors — matches RecordScreenNative.tsx.
@@ -42,14 +44,20 @@ let persistSeq = 0;
  *  way. Appending a monotonic cache-busting query suffix fixes both at
  *  once, for a one-line diff, without touching the on-disk overwrite
  *  behavior at all. */
-export async function defaultPersistPhoto(capturedUri: string): Promise<string> {
+export async function defaultPersistPhoto(
+  capturedUri: string,
+  source: PhotoSource = "camera",
+): Promise<string> {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { Directory, File, Paths } = require("expo-file-system");
   const dir = new Directory(Paths.document, "avatar");
   if (!dir.exists) dir.create({ intermediates: true });
   const dest = new File(dir, "profile.jpg");
   if (dest.exists) dest.delete();
-  new File(capturedUri).moveSync(dest);
+  // A camera capture is our own temp file — move it. A library photo belongs
+  // to the user's camera roll — COPY it; moving would delete their original.
+  if (source === "library") new File(capturedUri).copy(dest);
+  else new File(capturedUri).moveSync(dest);
   persistSeq += 1;
   return `${dest.uri}?v=${Date.now()}-${persistSeq}`;
 }
@@ -75,6 +83,11 @@ export default function AvatarCaptureScreen({
   const cameraRef = useRef<CameraView>(null);
 
   const [captured, setCaptured] = useState<string | null>(null);
+  const [capturedFrom, setCapturedFrom] = useState<PhotoSource>("camera");
+  // "Choose from your photos" — an in-app roll grid (see PhotoLibraryPicker),
+  // reachable from BOTH the live camera and the camera-permission gate: the
+  // owner asked for it from a dark room where the camera was useless.
+  const [browsing, setBrowsing] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +101,7 @@ export default function AvatarCaptureScreen({
         quality: 0.8,
       });
       if (photo?.uri) {
+        setCapturedFrom("camera");
         setCaptured(photo.uri);
       } else {
         setError("Couldn’t take that photo. Please try again.");
@@ -100,9 +114,11 @@ export default function AvatarCaptureScreen({
   }, [capturing]);
 
   const handleRetake = useCallback(() => {
+    // A library pick goes back to the grid; a camera shot back to the camera.
+    setBrowsing(capturedFrom === "library");
     setCaptured(null);
     setError(null);
-  }, []);
+  }, [capturedFrom]);
 
   // N7 fix round 1 (IMPORTANT 5): the branch's back contract is overlay ->
   // pop -> double-back-exit, but the "Use this photo? / Retake" preview is
@@ -133,7 +149,7 @@ export default function AvatarCaptureScreen({
     setSaving(true);
     setError(null);
     try {
-      const finalUri = await persistPhoto(captured);
+      const finalUri = await persistPhoto(captured, capturedFrom);
       useAvatarStore.getState().setPhoto(finalUri);
       onSaved();
     } catch {
@@ -141,7 +157,27 @@ export default function AvatarCaptureScreen({
     } finally {
       setSaving(false);
     }
-  }, [captured, persistPhoto, onSaved]);
+  }, [captured, capturedFrom, persistPhoto, onSaved]);
+
+  const handlePicked = useCallback((uri: string) => {
+    setCapturedFrom("library");
+    setCaptured(uri);
+    setBrowsing(false);
+    setError(null);
+  }, []);
+
+  // --- Library: pick an existing photo (no camera needed).
+  if (browsing && !captured) {
+    return (
+      <View style={styles.flex}>
+        <Header onBack={() => setBrowsing(false)} title="Choose a photo" />
+        <PhotoLibraryPicker
+          onPick={handlePicked}
+          onCancel={() => setBrowsing(false)}
+        />
+      </View>
+    );
+  }
 
   // --- Permission gate: honest, with a grant retry, and a path to Settings
   // once the OS says it won't ask again. Never a black screen.
@@ -166,6 +202,13 @@ export default function AvatarCaptureScreen({
               <Text style={styles.primaryButtonText}>Grant access</Text>
             </TouchableOpacity>
           ) : null}
+          <TouchableOpacity
+            testID="avatar-choose-library"
+            style={styles.secondaryButton}
+            onPress={() => setBrowsing(true)}
+          >
+            <Text style={styles.secondaryButtonText}>Choose from your photos</Text>
+          </TouchableOpacity>
           <TouchableOpacity
             testID="avatar-capture-back"
             style={styles.secondaryButton}
@@ -202,7 +245,9 @@ export default function AvatarCaptureScreen({
             onPress={handleRetake}
             disabled={saving}
           >
-            <Text style={styles.secondaryButtonText}>Retake</Text>
+            <Text style={styles.secondaryButtonText}>
+              {capturedFrom === "library" ? "Choose another" : "Retake"}
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity
             testID="avatar-use-button"
@@ -243,6 +288,13 @@ export default function AvatarCaptureScreen({
               disabled={capturing}
             >
               <View style={styles.shutterIcon} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              testID="avatar-choose-library"
+              style={styles.libraryButton}
+              onPress={() => setBrowsing(true)}
+            >
+              <Text style={styles.libraryButtonText}>Choose from your photos</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -331,7 +383,14 @@ const styles = StyleSheet.create({
     paddingVertical: 24,
     paddingHorizontal: 16,
   },
-  controls: { alignItems: "center" },
+  controls: { alignItems: "center", gap: 14 },
+  libraryButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    backgroundColor: "rgba(0,0,0,0.45)",
+  },
+  libraryButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "600" },
   shutterButton: {
     width: 76,
     height: 76,

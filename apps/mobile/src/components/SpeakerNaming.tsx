@@ -22,6 +22,7 @@ import {
   labelProvenanceNote,
   type SpeakerLabels,
 } from "../utils/speakerLabels";
+import type { SpeakerEnrollmentState } from "./SpeakerEnrollment";
 
 const PRIMARY = "#4A90D9";
 const INK = "#1F2937";
@@ -54,6 +55,10 @@ interface SpeakerNamingProps {
   hasAudio?: boolean;
   /** A voice was learned — the parent refetches its people list. */
   onPeopleChanged?: () => void;
+  /** "This is me" inline: when given and `available`, every row also offers
+   *  enrolling that speaker as the account owner's voice (useSpeakerEnrollment).
+   *  One card, one list — naming, "Who is this?" and "This is me" together. */
+  enrollment?: SpeakerEnrollmentState;
 }
 
 /**
@@ -62,9 +67,10 @@ interface SpeakerNamingProps {
  * → Save. The save PATCHes /recordings/{id}/speaker-labels (append-only merge) and
  * the resolved response re-labels the whole screen through `onSaved`.
  *
- * Deliberately distinct from the "This is me" voice-enrollment card that sits
- * beside it: naming labels this ONE recording; enrollment teaches your voice for
- * every future one. The helper copy states that difference plainly.
+ * "This is me" (voice enrollment) renders INLINE in the same rows when the
+ * parent passes `enrollment` — one list of speakers instead of two cards —
+ * with the helper copy stating the difference: naming labels this ONE
+ * recording; enrollment teaches your voice for every future one.
  *
  * Clearing: editing a name to empty and saving clears the manual label, so the
  * inferred one (a detected name, a voice label, or the raw id) comes back — the
@@ -80,7 +86,9 @@ export default function SpeakerNaming({
   people,
   hasAudio = true,
   onPeopleChanged,
+  enrollment,
 }: SpeakerNamingProps) {
+  const enrollOn = !!enrollment?.available;
   // The speaker whose inline editor is open (canonical id), the draft text, and
   // per-save busy/error state (scoped to the open row).
   const [editing, setEditing] = useState<string | null>(null);
@@ -174,12 +182,25 @@ export default function SpeakerNaming({
 
   return (
     <View style={styles.card} testID="speaker-naming">
-      <Text style={styles.sectionTitle}>Name the speakers</Text>
+      <Text style={styles.sectionTitle}>Speakers</Text>
       <Text style={styles.subtitle}>
-        Not sure who’s who? Tap a dash on the chart to hear that voice, then name
-        them here. This labels just this recording — the “This is me” card below
-        teaches MindShift your own voice for every recording.
+        {enrollOn
+          ? "Not sure who’s who? Tap a dash on the chart to hear that voice. Name labels just this recording; “This is me” teaches MindShift your own voice for every recording (a numeric voice signature, not your audio)."
+          : "Not sure who’s who? Tap a dash on the chart to hear that voice, then name them here. This labels just this recording."}
       </Text>
+      {enrollOn && enrollment?.profile?.enrolled && !enrollment.enrolledSpeaker ? (
+        <Text style={styles.enrollNote} testID="speaker-enrollment-note">
+          You’re already enrolled ({enrollment.profile.enroll_count}{" "}
+          {enrollment.profile.enroll_count === 1 ? "sample" : "samples"}). Tapping
+          “This is me” again refines your voiceprint.
+        </Text>
+      ) : null}
+      {enrollment?.enrolledSpeaker ? (
+        <Text style={styles.enrollDone} testID="speaker-enrollment-manage-hint">
+          Voice saved — you’re labeled “You” in this recording now and in every
+          recording from now on. Remove it anytime under Settings → Voice → “Forget my voice”.
+        </Text>
+      ) : null}
 
       {speakers.map((speaker) => {
         const entry = speakerLabels?.[speaker];
@@ -235,7 +256,7 @@ export default function SpeakerNaming({
                 </View>
               </View>
             ) : (
-              <>
+              <View style={styles.rowStack}>
                 <View style={styles.labelWrap}>
                   <View
                     testID={`name-swatch-${speaker}`}
@@ -262,27 +283,45 @@ export default function SpeakerNaming({
                     ) : null}
                   </View>
                 </View>
-                {people ? (
+                <View style={styles.actions}>
+                  {people ? (
+                    <TouchableOpacity
+                      testID={`who-open-${speaker}`}
+                      style={styles.editButton}
+                      onPress={() => setWhoSpeaker(speaker)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Who is ${display}?`}
+                    >
+                      <Text style={styles.editButtonText}>Who is this?</Text>
+                    </TouchableOpacity>
+                  ) : null}
                   <TouchableOpacity
-                    testID={`who-open-${speaker}`}
+                    testID={`name-edit-${speaker}`}
                     style={styles.editButton}
-                    onPress={() => setWhoSpeaker(speaker)}
+                    onPress={() => openEditor(speaker)}
                     accessibilityRole="button"
-                    accessibilityLabel={`Who is ${display}?`}
+                    accessibilityLabel={`Name ${display}`}
                   >
-                    <Text style={styles.editButtonText}>Who is this?</Text>
+                    <Text style={styles.editButtonText}>✎ Name</Text>
                   </TouchableOpacity>
-                ) : null}
-                <TouchableOpacity
-                  testID={`name-edit-${speaker}`}
-                  style={styles.editButton}
-                  onPress={() => openEditor(speaker)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Name ${display}`}
-                >
-                  <Text style={styles.editButtonText}>✎ Name</Text>
-                </TouchableOpacity>
-              </>
+                  {enrollOn && enrollment ? (
+                    <TouchableOpacity
+                      testID={`enroll-${speaker}`}
+                      style={styles.editButton}
+                      disabled={enrollment.enrollingSpeaker !== null}
+                      onPress={() => void enrollment.enroll(speaker)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Enroll ${display} as me`}
+                    >
+                      {enrollment.enrollingSpeaker === speaker ? (
+                        <ActivityIndicator size="small" color={PRIMARY} />
+                      ) : (
+                        <Text style={styles.editButtonText}>This is me</Text>
+                      )}
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              </View>
             )}
           </View>
         );
@@ -291,6 +330,11 @@ export default function SpeakerNaming({
       {error ? (
         <Text style={styles.error} testID="name-error">
           {error}
+        </Text>
+      ) : null}
+      {enrollment?.error ? (
+        <Text style={styles.error} testID="enroll-error">
+          {enrollment.error}
         </Text>
       ) : null}
 
@@ -341,6 +385,17 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#F3F4F6",
   },
+  // Name on one line, the (up to three) actions on the next — three
+  // full-height buttons don't fit beside a name on a phone.
+  rowStack: { flex: 1, gap: 8 },
+  actions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginLeft: 20,
+  },
+  enrollNote: { fontSize: 13, lineHeight: 18, color: PRIMARY, marginBottom: 10 },
+  enrollDone: { fontSize: 13, lineHeight: 18, color: "#047857", marginBottom: 10 },
   labelWrap: {
     flexDirection: "row",
     alignItems: "center",
@@ -386,14 +441,13 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   editButton: {
-    minHeight: 40,
-    paddingHorizontal: 14,
+    minHeight: 36,
+    paddingHorizontal: 12,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: PRIMARY,
     alignItems: "center",
     justifyContent: "center",
-    marginLeft: 8,
   },
   editButtonText: {
     fontSize: 14,

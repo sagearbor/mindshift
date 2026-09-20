@@ -52,6 +52,12 @@ export const KNOWN_VOICE_PAIRS = [
   { scene: "family_real", speaker: "Sage", sameAs: { scene: "poker6_real", speaker: "Player6" } },
 ];
 export const SCENE_PACK = ["scene_couple_escalation", "scene_family3", "scene_meeting4"];
+/** Real human voices (RAVDESS, stitched by scripts/make_ravdess_scene.py).
+ *  Kept OUT of SCENE_PACK because it is not a TTS scene and shares no voice
+ *  with the pack's cross-scene enrollment pool — it is replayed on its own,
+ *  and it is the only fixture with a real +24 dB shout and a partner turn
+ *  long enough for code E. */
+export const RAVDESS_SCENE = "scene_ravdess_pair";
 export const REAL_SELF: Record<string, string> = { family_real: "Sage", poker6_real: "Player6" };
 
 interface Args {

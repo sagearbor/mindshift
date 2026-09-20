@@ -114,6 +114,11 @@ class FakeJobStore:
         self.write_history: dict = {}
 
     # -- recording persistence (store=true path) ---------------------------
+    async def save_transcript(self, uid, recording_id, transcript):
+        # transcript.json — the RAW STT output cached for re-analysis.
+        self.transcript_saves = getattr(self, "transcript_saves", [])
+        self.transcript_saves.append((uid, recording_id, transcript))
+
     async def save_recording(
         self, uid, *, audio_m4a, video_360p, original_filename,
         original_content_type, original_bytes, duration_seconds, turns,
@@ -558,6 +563,12 @@ async def test_link_job_persists_source_url(client, store):
     source = store.save_calls[0]["source"]
     assert source["type"] == "link"
     assert source["url"] == url
+    # The RAW transcript (what STT returned, word timings and all) is cached
+    # beside the recording so a re-analysis can skip STT.
+    assert len(store.transcript_saves) == 1
+    _uid, rid, transcript = store.transcript_saves[0]
+    assert rid == store.save_calls[0]["recording_id"]
+    assert transcript == MOCK_TURNS
 
 
 @pytest.mark.anyio

@@ -1,0 +1,1379 @@
+{
+ "family_real": {
+  "gt_boundaries": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.98,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "Speaker A": "Sage",
+    "Speaker B": "Asher"
+   },
+   "per_gt_recall": {
+    "Asher": 0.95,
+    "Sage": 1.0
+   },
+   "owner_purity": 0.968,
+   "fixture": "family_real",
+   "runtime_s": 2.7,
+   "k_evaluated": [
+    {
+     "k": 2,
+     "ok": true,
+     "route": "spectral-windows",
+     "k_eigengap": 2,
+     "eigenvalues": [
+      25.050578,
+      22.143429,
+      9.654445,
+      8.392736,
+      7.437573,
+      5.246999,
+      4.914437,
+      4.215941,
+      3.509535
+     ],
+     "voices_after_smoothing": 2,
+     "max_pairwise_cosine": 0.146,
+     "min_cluster_seconds": 12.56,
+     "cluster_seconds": {
+      "Speaker A": 17.01,
+      "Speaker B": 12.56
+     }
+    }
+   ],
+   "n_turns": 8,
+   "engine": "windows",
+   "source": "local-ecapa-windows",
+   "uncovered_turns": 0,
+   "split_utterances": 0,
+   "segments_accuracy": 0.959,
+   "segments_k": 2,
+   "segments": [
+    {
+     "start": 0.0,
+     "end": 5.63,
+     "label": "Speaker A"
+    },
+    {
+     "start": 5.63,
+     "end": 10.38,
+     "label": "Speaker B"
+    },
+    {
+     "start": 10.38,
+     "end": 15.88,
+     "label": "Speaker A"
+    },
+    {
+     "start": 15.88,
+     "end": 19.75,
+     "label": "Speaker B"
+    },
+    {
+     "start": 19.75,
+     "end": 25.63,
+     "label": "Speaker A"
+    },
+    {
+     "start": 25.63,
+     "end": 29.568,
+     "label": "Speaker B"
+    }
+   ]
+  },
+  "deepgram_run1": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 0.949,
+   "unlabelled_frac": 0.016,
+   "mapping": {
+    "Speaker A": "Sage",
+    "Speaker B": "Asher"
+   },
+   "per_gt_recall": {
+    "Asher": 0.926,
+    "Sage": 0.963
+   },
+   "owner_purity": 0.967,
+   "fixture": "family_real",
+   "runtime_s": 2.1,
+   "k_evaluated": [
+    {
+     "k": 2,
+     "ok": true,
+     "route": "spectral-windows",
+     "k_eigengap": 2,
+     "eigenvalues": [
+      25.050578,
+      22.143429,
+      9.654445,
+      8.392736,
+      7.437573,
+      5.246999,
+      4.914437,
+      4.215941,
+      3.509535
+     ],
+     "voices_after_smoothing": 2,
+     "max_pairwise_cosine": 0.146,
+     "min_cluster_seconds": 12.56,
+     "cluster_seconds": {
+      "Speaker A": 17.01,
+      "Speaker B": 12.56
+     }
+    }
+   ],
+   "n_turns": 8,
+   "engine": "windows",
+   "source": "local-ecapa-windows",
+   "uncovered_turns": 1,
+   "split_utterances": 2,
+   "segments_accuracy": 0.959,
+   "segments_k": 2,
+   "segments": [
+    {
+     "start": 0.0,
+     "end": 5.63,
+     "label": "Speaker A"
+    },
+    {
+     "start": 5.63,
+     "end": 10.38,
+     "label": "Speaker B"
+    },
+    {
+     "start": 10.38,
+     "end": 15.88,
+     "label": "Speaker A"
+    },
+    {
+     "start": 15.88,
+     "end": 19.75,
+     "label": "Speaker B"
+    },
+    {
+     "start": 19.75,
+     "end": 25.63,
+     "label": "Speaker A"
+    },
+    {
+     "start": 25.63,
+     "end": 29.568,
+     "label": "Speaker B"
+    }
+   ]
+  }
+ },
+ "poker6": {
+  "gt_boundaries": {
+   "k_true": 6,
+   "k_pred": 6,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "Speaker A": "Player1",
+    "Speaker B": "Player2",
+    "Speaker C": "Player3",
+    "Speaker D": "Player4",
+    "Speaker E": "Player5",
+    "Speaker G": "Player6"
+   },
+   "per_gt_recall": {
+    "Player1": 1.0,
+    "Player2": 1.0,
+    "Player3": 1.0,
+    "Player4": 1.0,
+    "Player5": 1.0,
+    "Player6": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "poker6",
+   "runtime_s": 2.1,
+   "k_evaluated": [
+    {
+     "k": 7,
+     "ok": true,
+     "route": "spectral-windows",
+     "k_eigengap": 7,
+     "eigenvalues": [
+      19.293213,
+      15.49135,
+      12.742633,
+      12.400791,
+      9.834261,
+      8.573193,
+      7.147683,
+      4.015899,
+      2.852151
+     ],
+     "voices_after_smoothing": 7,
+     "max_pairwise_cosine": 0.298,
+     "min_cluster_seconds": 3.24,
+     "cluster_seconds": {
+      "Speaker A": 5.13,
+      "Speaker B": 6.0,
+      "Speaker C": 4.5,
+      "Speaker D": 4.75,
+      "Speaker E": 3.25,
+      "Speaker F": 3.24,
+      "Speaker G": 3.25
+     }
+    }
+   ],
+   "n_turns": 6,
+   "engine": "windows",
+   "source": "local-ecapa-windows",
+   "uncovered_turns": 0,
+   "split_utterances": 0,
+   "segments_accuracy": 0.809,
+   "segments_k": 7,
+   "segments": [
+    {
+     "start": 0.0,
+     "end": 5.13,
+     "label": "Speaker A"
+    },
+    {
+     "start": 5.13,
+     "end": 11.13,
+     "label": "Speaker B"
+    },
+    {
+     "start": 11.13,
+     "end": 15.63,
+     "label": "Speaker C"
+    },
+    {
+     "start": 15.63,
+     "end": 19.88,
+     "label": "Speaker D"
+    },
+    {
+     "start": 19.88,
+     "end": 23.13,
+     "label": "Speaker E"
+    },
+    {
+     "start": 23.13,
+     "end": 25.13,
+     "label": "Speaker F"
+    },
+    {
+     "start": 25.13,
+     "end": 28.38,
+     "label": "Speaker G"
+    },
+    {
+     "start": 28.38,
+     "end": 28.88,
+     "label": "Speaker D"
+    },
+    {
+     "start": 28.88,
+     "end": 30.123,
+     "label": "Speaker F"
+    }
+   ]
+  },
+  "deepgram_run1": {
+   "k_true": 6,
+   "k_pred": 7,
+   "frame_accuracy": 0.72,
+   "unlabelled_frac": 0.067,
+   "mapping": {
+    "Speaker A": "Player1",
+    "Speaker B": "Player2",
+    "Speaker C": "Player3",
+    "Speaker D": "Player4",
+    "Speaker E": "Player5",
+    "Speaker G": "Player6"
+   },
+   "per_gt_recall": {
+    "Player1": 0.67,
+    "Player2": 0.862,
+    "Player3": 0.83,
+    "Player4": 0.784,
+    "Player5": 0.558,
+    "Player6": 0.617
+   },
+   "owner_purity": 1.0,
+   "fixture": "poker6",
+   "runtime_s": 2.2,
+   "k_evaluated": [
+    {
+     "k": 7,
+     "ok": true,
+     "route": "spectral-windows",
+     "k_eigengap": 7,
+     "eigenvalues": [
+      19.293213,
+      15.49135,
+      12.742633,
+      12.400791,
+      9.834261,
+      8.573193,
+      7.147683,
+      4.015899,
+      2.852151
+     ],
+     "voices_after_smoothing": 7,
+     "max_pairwise_cosine": 0.298,
+     "min_cluster_seconds": 3.24,
+     "cluster_seconds": {
+      "Speaker A": 5.13,
+      "Speaker B": 6.0,
+      "Speaker C": 4.5,
+      "Speaker D": 4.75,
+      "Speaker E": 3.25,
+      "Speaker F": 3.24,
+      "Speaker G": 3.25
+     }
+    }
+   ],
+   "n_turns": 17,
+   "engine": "windows",
+   "source": "local-ecapa-windows",
+   "uncovered_turns": 8,
+   "split_utterances": 2,
+   "segments_accuracy": 0.809,
+   "segments_k": 7,
+   "segments": [
+    {
+     "start": 0.0,
+     "end": 5.13,
+     "label": "Speaker A"
+    },
+    {
+     "start": 5.13,
+     "end": 11.13,
+     "label": "Speaker B"
+    },
+    {
+     "start": 11.13,
+     "end": 15.63,
+     "label": "Speaker C"
+    },
+    {
+     "start": 15.63,
+     "end": 19.88,
+     "label": "Speaker D"
+    },
+    {
+     "start": 19.88,
+     "end": 23.13,
+     "label": "Speaker E"
+    },
+    {
+     "start": 23.13,
+     "end": 25.13,
+     "label": "Speaker F"
+    },
+    {
+     "start": 25.13,
+     "end": 28.38,
+     "label": "Speaker G"
+    },
+    {
+     "start": 28.38,
+     "end": 28.88,
+     "label": "Speaker D"
+    },
+    {
+     "start": 28.88,
+     "end": 30.123,
+     "label": "Speaker F"
+    }
+   ]
+  }
+ },
+ "openai": {
+  "gt_boundaries": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "Speaker A": "Speaker A",
+    "Speaker B": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0
+   },
+   "owner_purity": null,
+   "fixture": "openai",
+   "runtime_s": 5.0,
+   "k_evaluated": [
+    {
+     "k": 2,
+     "ok": true,
+     "route": "spectral-windows",
+     "k_eigengap": 2,
+     "eigenvalues": [
+      75.466929,
+      67.960042,
+      22.668214,
+      8.427823,
+      7.373749,
+      6.582474,
+      5.30431,
+      5.023889,
+      4.435369
+     ],
+     "voices_after_smoothing": 2,
+     "max_pairwise_cosine": 0.178,
+     "min_cluster_seconds": 32.27,
+     "cluster_seconds": {
+      "Speaker A": 38.13,
+      "Speaker B": 32.27
+     }
+    }
+   ],
+   "n_turns": 10,
+   "engine": "windows",
+   "source": "local-ecapa-windows",
+   "uncovered_turns": 0,
+   "split_utterances": 0,
+   "segments_accuracy": 0.994,
+   "segments_k": 2,
+   "segments": [
+    {
+     "start": 0.0,
+     "end": 7.38,
+     "label": "Speaker A"
+    },
+    {
+     "start": 7.38,
+     "end": 13.38,
+     "label": "Speaker B"
+    },
+    {
+     "start": 13.38,
+     "end": 19.88,
+     "label": "Speaker A"
+    },
+    {
+     "start": 19.88,
+     "end": 27.0,
+     "label": "Speaker B"
+    },
+    {
+     "start": 27.0,
+     "end": 34.88,
+     "label": "Speaker A"
+    },
+    {
+     "start": 34.88,
+     "end": 40.88,
+     "label": "Speaker B"
+    },
+    {
+     "start": 40.88,
+     "end": 48.13,
+     "label": "Speaker A"
+    },
+    {
+     "start": 48.13,
+     "end": 55.13,
+     "label": "Speaker B"
+    },
+    {
+     "start": 55.13,
+     "end": 64.25,
+     "label": "Speaker A"
+    },
+    {
+     "start": 64.25,
+     "end": 70.4,
+     "label": "Speaker B"
+    }
+   ]
+  }
+ },
+ "gptaudio": {
+  "gt_boundaries": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "Speaker A": "Speaker A",
+    "Speaker B": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0
+   },
+   "owner_purity": null,
+   "fixture": "gptaudio",
+   "runtime_s": 5.4,
+   "k_evaluated": [
+    {
+     "k": 2,
+     "ok": true,
+     "route": "spectral-windows",
+     "k_eigengap": 2,
+     "eigenvalues": [
+      74.273855,
+      67.908119,
+      19.398486,
+      11.713551,
+      10.0553,
+      8.788371,
+      8.093396,
+      6.186423,
+      5.314774
+     ],
+     "voices_after_smoothing": 2,
+     "max_pairwise_cosine": 0.228,
+     "min_cluster_seconds": 34.7,
+     "cluster_seconds": {
+      "Speaker A": 40.0,
+      "Speaker B": 34.7
+     }
+    }
+   ],
+   "n_turns": 10,
+   "engine": "windows",
+   "source": "local-ecapa-windows",
+   "uncovered_turns": 0,
+   "split_utterances": 0,
+   "segments_accuracy": 0.984,
+   "segments_k": 2,
+   "segments": [
+    {
+     "start": 0.0,
+     "end": 7.88,
+     "label": "Speaker A"
+    },
+    {
+     "start": 7.88,
+     "end": 13.88,
+     "label": "Speaker B"
+    },
+    {
+     "start": 13.88,
+     "end": 20.63,
+     "label": "Speaker A"
+    },
+    {
+     "start": 20.63,
+     "end": 27.63,
+     "label": "Speaker B"
+    },
+    {
+     "start": 27.63,
+     "end": 36.0,
+     "label": "Speaker A"
+    },
+    {
+     "start": 36.0,
+     "end": 41.38,
+     "label": "Speaker B"
+    },
+    {
+     "start": 41.38,
+     "end": 49.88,
+     "label": "Speaker A"
+    },
+    {
+     "start": 49.88,
+     "end": 58.63,
+     "label": "Speaker B"
+    },
+    {
+     "start": 58.63,
+     "end": 67.13,
+     "label": "Speaker A"
+    },
+    {
+     "start": 67.13,
+     "end": 74.7,
+     "label": "Speaker B"
+    }
+   ]
+  }
+ },
+ "scene_couple": {
+  "gt_boundaries": {
+   "k_true": 2,
+   "k_pred": 2,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "Speaker A": "Speaker A",
+    "Speaker B": "Speaker B"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_couple",
+   "runtime_s": 5.0,
+   "k_evaluated": [
+    {
+     "k": 2,
+     "ok": true,
+     "route": "spectral-windows",
+     "k_eigengap": 2,
+     "eigenvalues": [
+      72.105078,
+      66.446667,
+      13.196455,
+      11.077514,
+      9.55055,
+      8.287466,
+      7.000651,
+      6.620997,
+      5.695941
+     ],
+     "voices_after_smoothing": 2,
+     "max_pairwise_cosine": 0.249,
+     "min_cluster_seconds": 31.5,
+     "cluster_seconds": {
+      "Speaker A": 38.07,
+      "Speaker B": 31.5
+     }
+    }
+   ],
+   "n_turns": 13,
+   "engine": "windows",
+   "source": "local-ecapa-windows",
+   "uncovered_turns": 0,
+   "split_utterances": 0,
+   "segments_accuracy": 0.986,
+   "segments_k": 2,
+   "segments": [
+    {
+     "start": 0.0,
+     "end": 4.63,
+     "label": "Speaker A"
+    },
+    {
+     "start": 4.63,
+     "end": 9.63,
+     "label": "Speaker B"
+    },
+    {
+     "start": 9.63,
+     "end": 15.38,
+     "label": "Speaker A"
+    },
+    {
+     "start": 15.38,
+     "end": 20.63,
+     "label": "Speaker B"
+    },
+    {
+     "start": 20.63,
+     "end": 26.13,
+     "label": "Speaker A"
+    },
+    {
+     "start": 26.13,
+     "end": 31.38,
+     "label": "Speaker B"
+    },
+    {
+     "start": 31.38,
+     "end": 37.63,
+     "label": "Speaker A"
+    },
+    {
+     "start": 37.63,
+     "end": 41.88,
+     "label": "Speaker B"
+    },
+    {
+     "start": 41.88,
+     "end": 47.63,
+     "label": "Speaker A"
+    },
+    {
+     "start": 47.63,
+     "end": 53.88,
+     "label": "Speaker B"
+    },
+    {
+     "start": 53.88,
+     "end": 59.13,
+     "label": "Speaker A"
+    },
+    {
+     "start": 59.13,
+     "end": 64.63,
+     "label": "Speaker B"
+    },
+    {
+     "start": 64.63,
+     "end": 69.566,
+     "label": "Speaker A"
+    }
+   ]
+  }
+ },
+ "scene_family3": {
+  "gt_boundaries": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 1.0,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "Speaker A": "Speaker C",
+    "Speaker B": "Speaker B",
+    "Speaker C": "Speaker A"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0,
+    "Speaker C": 1.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_family3",
+   "runtime_s": 4.9,
+   "k_evaluated": [
+    {
+     "k": 3,
+     "ok": true,
+     "route": "spectral-windows",
+     "k_eigengap": 3,
+     "eigenvalues": [
+      62.049667,
+      58.457046,
+      56.537175,
+      9.546811,
+      6.974136,
+      4.908623,
+      4.273939,
+      4.055459,
+      3.239937
+     ],
+     "voices_after_smoothing": 3,
+     "max_pairwise_cosine": 0.229,
+     "min_cluster_seconds": 21.63,
+     "cluster_seconds": {
+      "Speaker A": 21.63,
+      "Speaker B": 23.5,
+      "Speaker C": 21.93
+     }
+    }
+   ],
+   "n_turns": 15,
+   "engine": "windows",
+   "source": "local-ecapa-windows",
+   "uncovered_turns": 0,
+   "split_utterances": 0,
+   "segments_accuracy": 0.99,
+   "segments_k": 3,
+   "segments": [
+    {
+     "start": 0.0,
+     "end": 4.13,
+     "label": "Speaker A"
+    },
+    {
+     "start": 4.13,
+     "end": 8.38,
+     "label": "Speaker B"
+    },
+    {
+     "start": 8.38,
+     "end": 12.13,
+     "label": "Speaker C"
+    },
+    {
+     "start": 12.13,
+     "end": 16.13,
+     "label": "Speaker A"
+    },
+    {
+     "start": 16.13,
+     "end": 20.88,
+     "label": "Speaker B"
+    },
+    {
+     "start": 20.88,
+     "end": 25.88,
+     "label": "Speaker C"
+    },
+    {
+     "start": 25.88,
+     "end": 29.88,
+     "label": "Speaker A"
+    },
+    {
+     "start": 29.88,
+     "end": 35.38,
+     "label": "Speaker B"
+    },
+    {
+     "start": 35.38,
+     "end": 40.38,
+     "label": "Speaker A"
+    },
+    {
+     "start": 40.38,
+     "end": 45.38,
+     "label": "Speaker C"
+    },
+    {
+     "start": 45.38,
+     "end": 49.88,
+     "label": "Speaker B"
+    },
+    {
+     "start": 49.88,
+     "end": 54.13,
+     "label": "Speaker C"
+    },
+    {
+     "start": 54.13,
+     "end": 58.63,
+     "label": "Speaker A"
+    },
+    {
+     "start": 58.63,
+     "end": 63.13,
+     "label": "Speaker B"
+    },
+    {
+     "start": 63.13,
+     "end": 67.063,
+     "label": "Speaker C"
+    }
+   ]
+  }
+ },
+ "scene_meeting4": {
+  "gt_boundaries": {
+   "k_true": 4,
+   "k_pred": 3,
+   "frame_accuracy": 0.818,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "Speaker A": "Speaker B",
+    "Speaker B": "Speaker C",
+    "Speaker C": "Speaker A"
+   },
+   "per_gt_recall": {
+    "Speaker A": 1.0,
+    "Speaker B": 1.0,
+    "Speaker C": 1.0,
+    "Speaker D": 0.0
+   },
+   "owner_purity": 1.0,
+   "fixture": "scene_meeting4",
+   "runtime_s": 6.2,
+   "k_evaluated": [
+    {
+     "k": 3,
+     "ok": true,
+     "route": "spectral-windows",
+     "k_eigengap": 3,
+     "eigenvalues": [
+      79.830633,
+      70.576027,
+      54.810266,
+      18.043784,
+      12.208863,
+      6.732641,
+      6.388668,
+      5.610074,
+      4.465657
+     ],
+     "voices_after_smoothing": 3,
+     "max_pairwise_cosine": 0.313,
+     "min_cluster_seconds": 18.25,
+     "cluster_seconds": {
+      "Speaker A": 38.38,
+      "Speaker B": 18.25,
+      "Speaker C": 26.25
+     }
+    }
+   ],
+   "n_turns": 17,
+   "engine": "windows",
+   "source": "local-ecapa-windows",
+   "uncovered_turns": 0,
+   "split_utterances": 0,
+   "segments_accuracy": 0.809,
+   "segments_k": 3,
+   "segments": [
+    {
+     "start": 0.0,
+     "end": 4.38,
+     "label": "Speaker A"
+    },
+    {
+     "start": 4.38,
+     "end": 9.63,
+     "label": "Speaker B"
+    },
+    {
+     "start": 9.63,
+     "end": 14.38,
+     "label": "Speaker A"
+    },
+    {
+     "start": 14.38,
+     "end": 19.88,
+     "label": "Speaker C"
+    },
+    {
+     "start": 19.88,
+     "end": 24.63,
+     "label": "Speaker A"
+    },
+    {
+     "start": 24.63,
+     "end": 28.88,
+     "label": "Speaker C"
+    },
+    {
+     "start": 28.88,
+     "end": 37.63,
+     "label": "Speaker A"
+    },
+    {
+     "start": 37.63,
+     "end": 43.38,
+     "label": "Speaker B"
+    },
+    {
+     "start": 43.38,
+     "end": 52.38,
+     "label": "Speaker A"
+    },
+    {
+     "start": 52.38,
+     "end": 56.63,
+     "label": "Speaker C"
+    },
+    {
+     "start": 56.63,
+     "end": 60.13,
+     "label": "Speaker A"
+    },
+    {
+     "start": 60.13,
+     "end": 60.63,
+     "label": "Speaker B"
+    },
+    {
+     "start": 60.63,
+     "end": 66.13,
+     "label": "Speaker C"
+    },
+    {
+     "start": 66.13,
+     "end": 72.88,
+     "label": "Speaker B"
+    },
+    {
+     "start": 72.88,
+     "end": 79.63,
+     "label": "Speaker C"
+    },
+    {
+     "start": 79.63,
+     "end": 82.885,
+     "label": "Speaker A"
+    }
+   ]
+  }
+ },
+ "maggiano3": {
+  "gt_boundaries": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.865,
+   "unlabelled_frac": 0.0,
+   "mapping": {
+    "Speaker A": "dad",
+    "Speaker B": "asher",
+    "Speaker C": "mom"
+   },
+   "per_gt_recall": {
+    "asher": 0.827,
+    "dad": 0.84,
+    "mom": 0.928
+   },
+   "owner_purity": 0.962,
+   "fixture": "maggiano3",
+   "runtime_s": 3.1,
+   "k_evaluated": [
+    {
+     "k": 3,
+     "ok": true,
+     "route": "spectral-windows",
+     "k_eigengap": 3,
+     "eigenvalues": [
+      37.603231,
+      23.050354,
+      17.078715,
+      9.584141,
+      8.161216,
+      7.275896,
+      6.363147,
+      5.97436,
+      5.391923
+     ],
+     "voices_after_smoothing": 3,
+     "max_pairwise_cosine": 0.169,
+     "min_cluster_seconds": 11.5,
+     "cluster_seconds": {
+      "Speaker A": 18.13,
+      "Speaker B": 11.5,
+      "Speaker C": 13.0
+     }
+    }
+   ],
+   "n_turns": 25,
+   "engine": "windows",
+   "source": "local-ecapa-windows",
+   "uncovered_turns": 4,
+   "split_utterances": 0,
+   "segments_accuracy": 0.761,
+   "segments_k": 3,
+   "segments": [
+    {
+     "start": 0.0,
+     "end": 2.88,
+     "label": "Speaker A"
+    },
+    {
+     "start": 2.88,
+     "end": 6.88,
+     "label": "Speaker B"
+    },
+    {
+     "start": 6.88,
+     "end": 10.13,
+     "label": "Speaker A"
+    },
+    {
+     "start": 10.13,
+     "end": 13.13,
+     "label": "Speaker C"
+    },
+    {
+     "start": 13.13,
+     "end": 17.88,
+     "label": "Speaker A"
+    },
+    {
+     "start": 17.88,
+     "end": 21.63,
+     "label": "Speaker C"
+    },
+    {
+     "start": 21.63,
+     "end": 22.63,
+     "label": "Speaker B"
+    },
+    {
+     "start": 22.63,
+     "end": 23.63,
+     "label": "Speaker A"
+    },
+    {
+     "start": 23.63,
+     "end": 25.38,
+     "label": "Speaker C"
+    },
+    {
+     "start": 25.38,
+     "end": 26.38,
+     "label": "Speaker B"
+    },
+    {
+     "start": 26.38,
+     "end": 28.38,
+     "label": "Speaker A"
+    },
+    {
+     "start": 28.38,
+     "end": 29.63,
+     "label": "Speaker B"
+    },
+    {
+     "start": 29.63,
+     "end": 34.13,
+     "label": "Speaker C"
+    },
+    {
+     "start": 34.13,
+     "end": 38.38,
+     "label": "Speaker B"
+    },
+    {
+     "start": 38.38,
+     "end": 42.628,
+     "label": "Speaker A"
+    }
+   ]
+  },
+  "transcript_7utt": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.694,
+   "unlabelled_frac": 0.07,
+   "mapping": {
+    "Speaker A": "dad",
+    "Speaker B": "asher",
+    "Speaker C": "mom"
+   },
+   "per_gt_recall": {
+    "asher": 0.624,
+    "dad": 0.663,
+    "mom": 0.789
+   },
+   "owner_purity": 0.775,
+   "fixture": "maggiano3",
+   "runtime_s": 3.0,
+   "k_evaluated": [
+    {
+     "k": 3,
+     "ok": true,
+     "route": "spectral-windows",
+     "k_eigengap": 3,
+     "eigenvalues": [
+      37.603231,
+      23.050354,
+      17.078715,
+      9.584141,
+      8.161216,
+      7.275896,
+      6.363147,
+      5.97436,
+      5.391923
+     ],
+     "voices_after_smoothing": 3,
+     "max_pairwise_cosine": 0.169,
+     "min_cluster_seconds": 11.5,
+     "cluster_seconds": {
+      "Speaker A": 18.13,
+      "Speaker B": 11.5,
+      "Speaker C": 13.0
+     }
+    }
+   ],
+   "n_turns": 19,
+   "engine": "windows",
+   "source": "local-ecapa-windows",
+   "uncovered_turns": 0,
+   "split_utterances": 4,
+   "segments_accuracy": 0.761,
+   "segments_k": 3,
+   "segments": [
+    {
+     "start": 0.0,
+     "end": 2.88,
+     "label": "Speaker A"
+    },
+    {
+     "start": 2.88,
+     "end": 6.88,
+     "label": "Speaker B"
+    },
+    {
+     "start": 6.88,
+     "end": 10.13,
+     "label": "Speaker A"
+    },
+    {
+     "start": 10.13,
+     "end": 13.13,
+     "label": "Speaker C"
+    },
+    {
+     "start": 13.13,
+     "end": 17.88,
+     "label": "Speaker A"
+    },
+    {
+     "start": 17.88,
+     "end": 21.63,
+     "label": "Speaker C"
+    },
+    {
+     "start": 21.63,
+     "end": 22.63,
+     "label": "Speaker B"
+    },
+    {
+     "start": 22.63,
+     "end": 23.63,
+     "label": "Speaker A"
+    },
+    {
+     "start": 23.63,
+     "end": 25.38,
+     "label": "Speaker C"
+    },
+    {
+     "start": 25.38,
+     "end": 26.38,
+     "label": "Speaker B"
+    },
+    {
+     "start": 26.38,
+     "end": 28.38,
+     "label": "Speaker A"
+    },
+    {
+     "start": 28.38,
+     "end": 29.63,
+     "label": "Speaker B"
+    },
+    {
+     "start": 29.63,
+     "end": 34.13,
+     "label": "Speaker C"
+    },
+    {
+     "start": 34.13,
+     "end": 38.38,
+     "label": "Speaker B"
+    },
+    {
+     "start": 38.38,
+     "end": 42.628,
+     "label": "Speaker A"
+    }
+   ]
+  },
+  "transcript_8utt": {
+   "k_true": 3,
+   "k_pred": 3,
+   "frame_accuracy": 0.681,
+   "unlabelled_frac": 0.083,
+   "mapping": {
+    "Speaker A": "dad",
+    "Speaker B": "asher",
+    "Speaker C": "mom"
+   },
+   "per_gt_recall": {
+    "asher": 0.624,
+    "dad": 0.663,
+    "mom": 0.748
+   },
+   "owner_purity": 0.775,
+   "fixture": "maggiano3",
+   "runtime_s": 3.1,
+   "k_evaluated": [
+    {
+     "k": 3,
+     "ok": true,
+     "route": "spectral-windows",
+     "k_eigengap": 3,
+     "eigenvalues": [
+      37.603231,
+      23.050354,
+      17.078715,
+      9.584141,
+      8.161216,
+      7.275896,
+      6.363147,
+      5.97436,
+      5.391923
+     ],
+     "voices_after_smoothing": 3,
+     "max_pairwise_cosine": 0.169,
+     "min_cluster_seconds": 11.5,
+     "cluster_seconds": {
+      "Speaker A": 18.13,
+      "Speaker B": 11.5,
+      "Speaker C": 13.0
+     }
+    }
+   ],
+   "n_turns": 20,
+   "engine": "windows",
+   "source": "local-ecapa-windows",
+   "uncovered_turns": 0,
+   "split_utterances": 4,
+   "segments_accuracy": 0.761,
+   "segments_k": 3,
+   "segments": [
+    {
+     "start": 0.0,
+     "end": 2.88,
+     "label": "Speaker A"
+    },
+    {
+     "start": 2.88,
+     "end": 6.88,
+     "label": "Speaker B"
+    },
+    {
+     "start": 6.88,
+     "end": 10.13,
+     "label": "Speaker A"
+    },
+    {
+     "start": 10.13,
+     "end": 13.13,
+     "label": "Speaker C"
+    },
+    {
+     "start": 13.13,
+     "end": 17.88,
+     "label": "Speaker A"
+    },
+    {
+     "start": 17.88,
+     "end": 21.63,
+     "label": "Speaker C"
+    },
+    {
+     "start": 21.63,
+     "end": 22.63,
+     "label": "Speaker B"
+    },
+    {
+     "start": 22.63,
+     "end": 23.63,
+     "label": "Speaker A"
+    },
+    {
+     "start": 23.63,
+     "end": 25.38,
+     "label": "Speaker C"
+    },
+    {
+     "start": 25.38,
+     "end": 26.38,
+     "label": "Speaker B"
+    },
+    {
+     "start": 26.38,
+     "end": 28.38,
+     "label": "Speaker A"
+    },
+    {
+     "start": 28.38,
+     "end": 29.63,
+     "label": "Speaker B"
+    },
+    {
+     "start": 29.63,
+     "end": 34.13,
+     "label": "Speaker C"
+    },
+    {
+     "start": 34.13,
+     "end": 38.38,
+     "label": "Speaker B"
+    },
+    {
+     "start": 38.38,
+     "end": 42.628,
+     "label": "Speaker A"
+    }
+   ]
+  }
+ }
+}

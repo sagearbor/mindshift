@@ -23,6 +23,7 @@ Two sources, both validated when present:
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -70,7 +71,25 @@ def test_every_dumped_turn_local_event_validates(path: Path):
             pytest.fail(f"{path.name}: {exc}")
         # The TS side must send exactly the model's fields — no extras that
         # the server would silently drop, no missing optionals.
-        assert set(raw) == set(TurnLocalEvent.model_fields), sorted(set(raw) ^ set(TurnLocalEvent.model_fields))
+        #
+        # STALENESS IS THE FIRST SUSPECT, not a contract break. These dumps live
+        # in a GITIGNORED directory and are only rewritten when the replay
+        # suites run, so a file left behind by an older checkout fails here
+        # looking exactly like a real cross-language drift. That happened on
+        # 2026-09-18 and cost real debugging time: six dumps from a previous
+        # day still carried a `speaker_match_basis` field the code no longer
+        # emits. The message says so, with the file's age, before it accuses
+        # anyone of breaking the contract.
+        drift = set(raw) ^ set(TurnLocalEvent.model_fields)
+        if drift:
+            age_h = (time.time() - path.stat().st_mtime) / 3600.0
+            pytest.fail(
+                f"{path.name}: fields differ from TurnLocalEvent: {sorted(drift)}\n"
+                f"This dump is {age_h:.1f} h old. If that is older than your last replay run, it is "
+                f"STALE, not a contract break — delete {path.parent}/ and re-run:\n"
+                f"    npx jest __tests__/replay.scenes.test.ts __tests__/replay.real.test.ts\n"
+                f"If it IS fresh, the TS wire shape and server/models/audio.py have genuinely drifted."
+            )
         assert ev.type == "turn_local"
         assert ev.session_id == session_id
         assert ev.transcript_source == "on-device"

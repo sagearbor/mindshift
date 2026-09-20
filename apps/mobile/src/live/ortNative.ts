@@ -106,8 +106,33 @@ export function expoModelFileStore(): ModelFileStore {
     },
     async download(url, name, headers) {
       ensureDir();
-      const downloaded = await File.downloadFileAsync(url, file(name), { headers, idempotent: true });
-      return stat(downloaded);
+      // Delete any stale temp from an interrupted earlier attempt BEFORE
+      // downloading: `idempotent` should overwrite, but on a Pixel 10 the
+      // native downloadFileAsync was rejecting ("Call to function
+      // 'FileSystem…'") against a left-over destination, and a truncated
+      // native message is all the capability card can show. Removing it first
+      // makes the call deterministic; the concise native reason is preserved
+      // for the (rare) genuine failure.
+      const dest = file(name);
+      try {
+        if (dest.exists) dest.delete();
+      } catch {
+        // best-effort; downloadFileAsync will still try
+      }
+      try {
+        const downloaded = await File.downloadFileAsync(url, dest, {
+          headers,
+          idempotent: true,
+        });
+        return stat(downloaded);
+      } catch (err) {
+        // Native rejections read "Call to function 'X' has been rejected → Y";
+        // keep just Y so the surfaced reason is the actual cause, not the
+        // wrapper (which the capability card truncates).
+        const raw = err instanceof Error ? err.message : String(err);
+        const concise = raw.includes("→") ? raw.slice(raw.indexOf("→") + 1).trim() : raw;
+        throw new Error(concise || raw);
+      }
     },
     async move(from, to) {
       const dest = file(to);

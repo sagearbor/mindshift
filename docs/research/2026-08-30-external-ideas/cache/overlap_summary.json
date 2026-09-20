@@ -1,0 +1,50 @@
+{
+ "maggiano3": {
+  "duration_s": 42.58,
+  "flagged_s_p>0.5": 6.97,
+  "flagged_s_p>0.3": 11.26,
+  "speech_s_p>0.5": 36.54,
+  "chunks": 15,
+  "t_infer_s": 0.8
+ },
+ "scene_family3": {
+  "duration_s": 67.06,
+  "flagged_s_p>0.5": 0.0,
+  "flagged_s_p>0.3": 0.0,
+  "speech_s_p>0.5": 61.15,
+  "chunks": 24,
+  "t_infer_s": 1.17
+ },
+ "scene_meeting4": {
+  "duration_s": 82.88,
+  "flagged_s_p>0.5": 0.0,
+  "flagged_s_p>0.3": 0.0,
+  "speech_s_p>0.5": 74.24,
+  "chunks": 31,
+  "t_infer_s": 1.54
+ },
+ "family_real": {
+  "duration_s": 29.57,
+  "flagged_s_p>0.5": 0.0,
+  "flagged_s_p>0.3": 0.35,
+  "speech_s_p>0.5": 23.66,
+  "chunks": 9,
+  "t_infer_s": 0.44
+ },
+ "poker6": {
+  "duration_s": 30.12,
+  "flagged_s_p>0.5": 0.17,
+  "flagged_s_p>0.3": 0.54,
+  "speech_s_p>0.5": 21.26,
+  "chunks": 10,
+  "t_infer_s": 0.49
+ },
+ "scene_couple": {
+  "duration_s": 69.57,
+  "flagged_s_p>0.5": 0.0,
+  "flagged_s_p>0.3": 0.0,
+  "speech_s_p>0.5": 60.54,
+  "chunks": 25,
+  "t_infer_s": 1.21
+ }
+}

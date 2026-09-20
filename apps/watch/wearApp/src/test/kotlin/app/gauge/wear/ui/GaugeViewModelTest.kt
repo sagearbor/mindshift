@@ -157,16 +157,18 @@ class GaugeViewModelTest {
         assertEquals("Cooling down", vm.uiState.value.armedLabel)
     }
 
+    // Both loudness and hot words are the ONE Heated family 📈 to a wearer
+    // (owner-approved vocabulary, 2026-09-06); the detectors stay separate.
     @Test
     fun vectorIconMapsYelling() = runTest {
         val vm = GaugeViewModel(MutableStateFlow(state(lastVector = "yelling")), backgroundScope)
-        assertEquals("📢", vm.uiState.value.vectorIcon)
+        assertEquals("📈", vm.uiState.value.vectorIcon)
     }
 
     @Test
     fun vectorIconMapsAggressiveTone() = runTest {
         val vm = GaugeViewModel(MutableStateFlow(state(lastVector = "aggressive_tone")), backgroundScope)
-        assertEquals("🔥", vm.uiState.value.vectorIcon)
+        assertEquals("📈", vm.uiState.value.vectorIcon)
     }
 
     @Test
