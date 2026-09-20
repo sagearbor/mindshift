@@ -1,0 +1,79 @@
+{
+ "reference": {
+  "wavlm_within_clip_median": 0.51,
+  "wavlm_across_clip": 0.85,
+  "loudness_within_clip_median": 0.049,
+  "loudness_across_clip": -0.417
+ },
+ "confer": {
+  "mini": {
+   "model": "gpt-audio-mini",
+   "n_clips_scored": 24,
+   "n_windows_scored": 342,
+   "within_clip_heat_median": 0.277,
+   "within_clip_heat_n": 13,
+   "within_clip_arousal_median": 0.401,
+   "across_clip_heat": 0.798,
+   "across_clip_arousal": 0.822,
+   "heated_hit_rate": 0.612,
+   "heated_hit_n": 67,
+   "false_positive_rate": 0.344,
+   "false_positive_n": 215,
+   "error_rate": 0.009
+  },
+  "full": {
+   "model": "gpt-audio",
+   "n_clips_scored": 24,
+   "n_windows_scored": 262,
+   "within_clip_heat_median": 0.319,
+   "within_clip_heat_n": 10,
+   "within_clip_arousal_median": 0.319,
+   "across_clip_heat": 0.91,
+   "across_clip_arousal": 0.913,
+   "heated_hit_rate": 1.0,
+   "heated_hit_n": 51,
+   "false_positive_rate": 0.4,
+   "false_positive_n": 165,
+   "error_rate": 0.241
+  }
+ },
+ "cremad": {
+  "mini": {
+   "model": "gpt-audio-mini",
+   "n": 20,
+   "n_angry": 10,
+   "n_happy": 10,
+   "auc_heat": 0.365,
+   "auc_angry_vs_excited": 0.44
+  },
+  "full": {
+   "model": "gpt-audio",
+   "n": 31,
+   "n_angry": 16,
+   "n_happy": 15,
+   "auc_heat": 0.581,
+   "auc_angry_vs_excited": 0.7
+  }
+ },
+ "latency_s": {
+  "gpt-audio-mini": {"median": 0.71, "samples": [0.70, 0.70, 0.71, 0.78, 0.91]},
+  "gpt-audio": {"median": 0.86, "samples": [0.80, 0.82, 0.86, 0.89, 0.93]}
+ },
+ "cost_per_window_usd": {
+  "gpt-audio-mini": 0.000772,
+  "gpt-audio": 0.00268
+ },
+ "cost_projection_22320_windows_usd": {
+  "gpt-audio-mini": 17.22,
+  "gpt-audio": 59.82,
+  "note": "22,320 = 31 h / 5 s, matching the CONFER window grid this bench used. Not netted for silence/voiced-only subsampling."
+ },
+ "spend": {
+  "total_usd": 1.373969,
+  "calls": 850,
+  "by_model": {
+   "gpt-audio-mini": 0.306001,
+   "gpt-audio": 1.067968
+  }
+ }
+}
