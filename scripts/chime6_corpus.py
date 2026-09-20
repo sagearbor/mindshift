@@ -57,6 +57,26 @@ def hms(s: str) -> float:
     return int(h) * 3600 + int(m) * 60 + float(sec)
 
 
+OVERLAP_HOP_S = 0.01
+
+
+def overlap_fraction(local_spans: dict[str, list[list[float]]], dur_s: float) -> float:
+    """Ground-truth overlap within one segment: the fraction of 10 ms frames
+    where 2+ speakers' turns are simultaneously active, same grid AMI's
+    speaking_mask uses so the two corpora' overlap numbers are comparable."""
+    if dur_s <= 0:
+        return 0.0
+    n = max(int(dur_s / OVERLAP_HOP_S), 1)
+    count = np.zeros(n, dtype=np.int16)
+    for spans in local_spans.values():
+        for a, b in spans:
+            i0 = max(0, int(a / OVERLAP_HOP_S))
+            i1 = min(n, int(np.ceil(b / OVERLAP_HOP_S)))
+            if i1 > i0:
+                count[i0:i1] += 1
+    return round(float((count >= 2).mean()), 4)
+
+
 def read_wav(path: Path) -> tuple[np.ndarray, int]:
     with wave.open(str(path)) as w:
         sr, ch = w.getframerate(), w.getnchannels()
@@ -73,12 +93,23 @@ def main() -> int:
     root = Path(args.root)
     extract(root)
     raw = root / "raw"
-    # The OpenSLR dev package ships AUDIO ONLY: per-participant binaural
-    # headsets (S02_P08.wav ...) and the six Kinect arrays (S02_U01.CH1.wav
-    # ...). The per-utterance transcript JSONs are a separate download. That is
-    # fine — the headsets ARE the ground truth, exactly as with AMI: energy VAD
-    # on each person's own channel says who spoke when, with no annotation.
-    # Transcripts are used when present, headsets otherwise.
+    # The OpenSLR dev AUDIO package ships headsets only (S02_P08.wav ...) and
+    # the six Kinect arrays (S02_U01.CH1.wav ...); the per-utterance transcript
+    # JSONs are a SEPARATE OpenSLR download (CHiME6_transcriptions.tar.gz,
+    # resource 150 — https://openslr.org/150/). Fetch it and drop
+    # transcriptions/dev/S02.json + S09.json anywhere under tmp/corpora/chime6/raw.
+    #
+    # Retraction (docs/plans/2026-09-19-heat-map-rounds.md, "CHiME-6
+    # retraction"): without the transcripts this loader fell back to deriving
+    # speaker turns from headset energy — the same method AMI uses — but
+    # CHiME-6's binaural headsets are NOT gain-matched the way AMI's are, so
+    # the "loudest headset wins" bleed-rejection test hands nearly every frame
+    # to whichever mic runs hottest (one participant credited with ~85% of all
+    # speech). AMI's labels passed the 8.2%-overlap sanity check; CHiME-6's did
+    # not. Transcripts are the real ground truth and are used whenever present;
+    # the headset fallback below still exists for a session missing its JSON,
+    # but it prints a loud warning because its output should not be trusted
+    # for identity/overlap columns.
     transcripts = {p.stem: p for p in raw.rglob("*.json") if re.fullmatch(r"S\d+", p.stem)}
     sessions = sorted({m.group(1) for p in raw.rglob("S*_P*.wav") for m in [re.match(r"(S\d+)_P\d+", p.stem)] if m})
     if not sessions:
@@ -122,9 +153,19 @@ def main() -> int:
             for v in spans.values():
                 v.sort()
         else:
-            # Headset-derived truth — the AMI method, same constants, so the two
-            # corpora' speaker labels are comparable by construction. A binaural
-            # headset is stereo; read_wav already averaged it to mono.
+            # Headset-derived fallback — the AMI method, same constants, so
+            # the two corpora' speaker labels are comparable by construction.
+            # A binaural headset is stereo; read_wav already averaged it to
+            # mono. WARNING: on CHiME-6 this has been shown to credit one
+            # participant with ~85% of speech because the headsets are not
+            # gain-matched — do not trust the identity/overlap columns this
+            # produces (see docs/plans/2026-09-19-heat-map-rounds.md).
+            print(f"  WARNING {sess}: no transcript JSON found — falling back to "
+                  f"headset-energy speaker derivation, KNOWN UNRELIABLE for CHiME-6 "
+                  f"(one participant can be credited with ~85% of speech). Fetch "
+                  f"CHiME6_transcriptions.tar.gz from https://openslr.org/150/ and "
+                  f"place transcriptions/dev/{sess}.json under tmp/corpora/chime6/raw/ "
+                  f"to get real speaker truth.", file=sys.stderr, flush=True)
             from ami_corpus import intervals, speaking_mask
             active, _frames = speaking_mask(chans, sr)
             for k, h in enumerate(heads):
@@ -155,6 +196,8 @@ def main() -> int:
                 "audio": f"segments16k/{wav.name}", "speakers": local,
                 "self": max(talk, key=talk.get) if talk else None,
                 "heated_spans": None, "duration_s": round(b0 - a0, 1), "speaking_seconds": talk,
+                "speaker_truth": "transcript" if tpath else "headset_energy",
+                "overlap_fraction": overlap_fraction(local, b0 - a0),
             })
         print(f"  {sess}: {total_s/60:.0f} min, {len(heads)} headsets, truth from {'transcripts' if tpath else 'headsets'} -> {nseg} segments", flush=True)
     (root / "heatmap_manifest.json").write_text(json.dumps(entries, indent=1))
