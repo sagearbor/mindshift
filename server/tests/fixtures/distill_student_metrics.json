@@ -1,0 +1,110 @@
+{
+ "generated": "2026-09-20T07:42:56.797142+00:00",
+ "onnx": {
+  "fp32_path": "/Users/sagearbor/projects/githubs/mindshift/tmp/distill/onnx/student_fp32.onnx",
+  "int8_path": "/Users/sagearbor/projects/githubs/mindshift/tmp/distill/onnx/student_int8.onnx",
+  "fp32_bytes": 290600,
+  "int8_bytes": 91819,
+  "fp32_latency_ms_per_2s_window": 0.652,
+  "int8_latency_ms_per_2s_window": 1.754
+ },
+ "parity_fixture": {
+  "path": "server/tests/fixtures/distill_student_parity.json",
+  "n_windows": 20,
+  "size_kb": 257.1
+ },
+ "n_params": 72077,
+ "epoch": 11,
+ "history": [
+  {
+   "epoch": 0,
+   "train_loss": 0.11751,
+   "val_loss": 0.05901
+  },
+  {
+   "epoch": 1,
+   "train_loss": 0.07978,
+   "val_loss": 0.05874
+  },
+  {
+   "epoch": 2,
+   "train_loss": 0.07802,
+   "val_loss": 0.04915
+  },
+  {
+   "epoch": 3,
+   "train_loss": 0.0713,
+   "val_loss": 0.04895
+  },
+  {
+   "epoch": 4,
+   "train_loss": 0.06948,
+   "val_loss": 0.04968
+  },
+  {
+   "epoch": 5,
+   "train_loss": 0.06279,
+   "val_loss": 0.0465
+  },
+  {
+   "epoch": 6,
+   "train_loss": 0.05713,
+   "val_loss": 0.05029
+  },
+  {
+   "epoch": 7,
+   "train_loss": 0.05305,
+   "val_loss": 0.05561
+  },
+  {
+   "epoch": 8,
+   "train_loss": 0.05065,
+   "val_loss": 0.05647
+  },
+  {
+   "epoch": 9,
+   "train_loss": 0.04263,
+   "val_loss": 0.05834
+  },
+  {
+   "epoch": 10,
+   "train_loss": 0.04512,
+   "val_loss": 0.05756
+  }
+ ],
+ "stop_reason": "time budget (mid-epoch)",
+ "train_recordings": 34,
+ "val_recordings": 8,
+ "train_windows": 7399,
+ "val_windows": 2799,
+ "labelled_windows_per_corpus": {
+  "ami": 967,
+  "chime6": 1680,
+  "confer": 1750,
+  "cremad": 1287,
+  "sbcsae": 4514
+ },
+ "ccc": {
+  "arousal": 0.6168,
+  "valence": 0.0854,
+  "dominance": 0.6768,
+  "n_windows": 2799
+ },
+ "ravdess_auc": {
+  "n": 384,
+  "n_angry": 192,
+  "n_happy": 192,
+  "auc": 0.6546,
+  "reference_teacher_auc": 0.897,
+  "reference_loudness_auc": 0.733
+ },
+ "confer_agreement": {
+  "n_clips": 24,
+  "teacher_within_clip_mean": 0.089,
+  "teacher_across_clip": 0.185,
+  "student_within_clip_mean": 0.112,
+  "student_across_clip": 0.297,
+  "reference_teacher_within_clip": 0.51,
+  "reference_teacher_across_clip": 0.85
+ }
+}
