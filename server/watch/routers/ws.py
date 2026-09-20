@@ -59,6 +59,7 @@ from watch.models import (
 )
 from watch.nudge_policy import NudgePolicy
 from watch.post_session import analyze_live_session
+from watch import heat_judge
 from watch.relay import LiveWatchSession, register_live_session, unregister_live_session
 from watch.store import LiveSessionStore
 from watch.vectors import VectorEngine
@@ -81,6 +82,37 @@ RMS_DB_FLOOR = -120.0
 # can persist, this one bounds what the live handler ever buffers in the
 # first place.
 MAX_LIVE_SESSION_PCM_BYTES = 57_600_000
+
+
+def _heat_series(account: str) -> dict[str, list]:
+    """The heat judge's per-second series for this account, ready to persist.
+
+    Parallel to ``hr_bpm_series``, and there for the same reason: a signal
+    can only be evaluated against the moments it stayed quiet. The judge
+    scores a 2 s window every second on the PHONE's relayed audio
+    (``watch/heat_judge.py``), and until now that stream of arousal/valence
+    readings existed only in log lines. Persisting it beside the dB and HR
+    series is what will let a later calibration use REAL sessions instead of
+    CONFER and CREMA-D — see the "what I would need to be more confident"
+    list in docs/decisions/2026-09-17-valence-veto.md, item 4.
+
+    Returns ``{}`` (no keys at all, so the stored document is byte-identical
+    to today's) when the flag is off or no audio was ever judged. Never
+    raises: a telemetry series must not be able to fail a session save.
+    """
+    try:
+        series = heat_judge.series_for(account)
+        if not series or not series.get("arousal"):
+            return {}
+        heat_judge.forget_series(account)
+        return {
+            "arousal": series["arousal"],
+            "valence": series["valence"],
+            "judge": series["judge"],
+        }
+    except Exception:  # pragma: no cover — telemetry must never break a save
+        logger.debug("heat judge series unavailable for %s", account, exc_info=True)
+        return {}
 
 
 def _rms_dbfs(pcm: bytes) -> float:
@@ -271,7 +303,10 @@ def make_ws_router(
                 ],
                 vector_events=vector_events,
                 nudge_events=nudge_events,
-                series={"rms_db": rms_db_series, "hr_bpm": hr_bpm_series, "hr_t": hr_t_series},
+                series={
+                    "rms_db": rms_db_series, "hr_bpm": hr_bpm_series, "hr_t": hr_t_series,
+                    **_heat_series(account),
+                },
                 pcm_b64=base64.b64encode(bytes(pcm_buffer)).decode("ascii"),
             )
 
@@ -449,6 +484,11 @@ def make_ws_router(
             # a phone turn arriving during the save below must find no
             # session rather than a half-torn-down one.
             unregister_live_session(relay_session)
+            # Stop judging this account and take custody of its per-second
+            # series — `_heat_series` below reads it back out of the handover
+            # cache and then drops it. Done here, before the save, so the
+            # judge can never outlive the wrist it was judging for.
+            heat_judge.detach(account)
             if companion and not captured:
                 # Tier B: an abrupt companion disconnect (screen-off reconnect
                 # churn, pocket dead zones) is ordinary. There is no audio to

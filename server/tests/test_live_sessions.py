@@ -165,9 +165,19 @@ class TestToneRowsAndSummary:
         assert summary["self"] is None and summary["people"] == []
 
     def test_audio_flags_only_when_allowed(self):
+        """Two gates now, not one: ``audio_allowed`` (the classifier's own
+        surfacing flag) AND a heat-judge ``confirm`` stamped on the flag by
+        ``audio_pipeline._enrich_tone``. See ``heat_confirmed`` — an
+        unjudged flag keeps its label but is never an escalation. The
+        judge's own coverage is in server/tests/test_heat_judge.py."""
+        confirmed = {} if ls._heat_judge is None else {
+            ls._heat_judge.HEAT_VERDICT_KEY:
+                ls._heat_judge.VERDICT_CODES[ls._heat_judge.VERDICT_CONFIRM],
+        }
         flags = [
             {"source": "audio", "speaker": "Speaker A", "start_time": 4.6,
-             "end_time": 5.9, "label": "angry", "confidence": 0.7},
+             "end_time": 5.9, "label": "angry", "confidence": 0.7,
+             "scores": confirmed},
             {"source": "text", "speaker": "Speaker A", "start_time": 0.0,
              "end_time": 2.0, "label": "warm", "confidence": 0.9},
         ]
@@ -178,6 +188,12 @@ class TestToneRowsAndSummary:
             SESSION_TURNS, "Speaker A", people, flags, audio_allowed=True,
         )
         assert allowed[2]["audio_label"] == "angry" and allowed[2]["audio_escalated"] is True
+        unjudged = ls.turn_tone_rows(
+            SESSION_TURNS, "Speaker A", people,
+            [dict(flags[0], scores={}), flags[1]], audio_allowed=True,
+        )
+        assert unjudged[2]["audio_label"] == "angry", "the model's reading is kept"
+        assert unjudged[2]["audio_escalated"] is False, "but an unjudged flag is not an escalation"
         assert allowed[0]["audio_label"] is None   # text-source flags never count as audio
         summary = ls.tone_summary(
             SESSION_TURNS, allowed, "Speaker A", people, audio_allowed=True,

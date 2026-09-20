@@ -54,6 +54,13 @@ try:  # pragma: no cover — exercised for real once Foundation C merges
     import tone_id as _tone_id
 except ImportError:  # pragma: no cover
     _tone_id = None
+# The heat judge's verdict vocabulary (server/watch/heat_judge.py). Imported
+# for its CONSTANTS only — no model, no torch, no session state — so this
+# module stays cheap to import. Guarded for the same reason tone_id is.
+try:  # pragma: no cover
+    from watch import heat_judge as _heat_judge
+except ImportError:  # pragma: no cover
+    _heat_judge = None
 
 
 def audio_tone_allowed() -> bool:
@@ -431,6 +438,31 @@ def _audio_flag_for_turn(turn: dict, flags: list[dict]) -> dict | None:
     return best
 
 
+def heat_confirmed(flag: dict) -> bool:
+    """Did the heat judge CONFIRM the moment this audio flag describes?
+
+    ``audio_escalated`` is written into the stored analysis that Growth,
+    Replay and YourDay render back to the user weeks later, so it is the
+    most durable claim the tone model makes about anybody. It may only be
+    made when ``watch/heat_judge.py`` confirmed the window — a rolling 2 s
+    reading above the calibrated arousal bar — not merely because a
+    single-turn classifier emitted an escalation label.
+
+    Fails CLOSED and stays honest about WHY: a flag carrying no
+    ``heat_verdict`` was written before the judge existed, or by a server
+    without it, and "not judged" is not "confirmed". The dims themselves are
+    untouched — ``audio_label`` still carries what the model said; only the
+    escalation VERDICT is withheld.
+    """
+    if _heat_judge is None:
+        return False
+    scores = flag.get("scores")
+    if not isinstance(scores, dict):
+        return False
+    code = _num(scores.get(_heat_judge.HEAT_VERDICT_KEY))
+    return code is not None and code >= _heat_judge.VERDICT_CODES[_heat_judge.VERDICT_CONFIRM]
+
+
 def turn_tone_rows(
     turns: list[dict],
     self_label: str | None,
@@ -476,7 +508,9 @@ def turn_tone_rows(
             if flag is not None:
                 label = _clean_label(flag.get("label"))
                 row["audio_label"] = label
-                row["audio_escalated"] = label in ESCALATION_LABELS if label else None
+                row["audio_escalated"] = (
+                    label in ESCALATION_LABELS and heat_confirmed(flag)
+                ) if label else None
         rows.append(row)
         if speaker is not None and not is_self:
             last_other = speaker
