@@ -2650,8 +2650,15 @@ class TestTurnLocalEnrichment:
         and the module exposes ``EscalationTracker`` / ``annotate_escalation``
         (the REAL tone_id ones, on a fake classifier). The session keeps one
         tracker, so the same speaker's second turn is judged against their
-        first: unscored → escalating, with the delta on the wire."""
+        first: unscored → escalating, with the delta on the wire.
+
+        Since 2026-09-20 a dimensional flag also has to clear the HEAT JUDGE
+        before it may be SURFACED (``watch/heat_judge.py``), so these dims
+        are picked above ``CONFIRM_AROUSAL`` and below the valence bar. The
+        unconfirmed cases — and the judge's own rules — are covered in
+        server/tests/test_heat_judge.py."""
         import tone_id
+        from watch import heat_judge
 
         class EscalatingToneId(FakeToneId):
             EscalationTracker = tone_id.EscalationTracker
@@ -2659,14 +2666,16 @@ class TestTurnLocalEnrichment:
 
             def __init__(self):
                 super().__init__(surface=True)
-                self.arousals = [0.40, 0.55]
+                self.arousals = [0.80, 0.95]
 
             def classify_pcm(self, pcm, sr):
                 self.calls.append((int(pcm.size), sr))
                 a = self.arousals.pop(0)
                 return {"label": tone_id.UNSCORED_LABEL, "confidence": 0.0, "arousal": a, "kind": "dimensional",
                         "backend": "odyssey_dim", "model": "fake",
-                        "scores": {"arousal": a, "dominance": 0.5, "valence": 0.5}}
+                        "scores": {"arousal": a, "dominance": 0.5, "valence": 0.30}}
+
+        assert 0.80 >= heat_judge.CONFIRM_AROUSAL, "these dims must read as CONFIRMED"
 
         tone = EscalatingToneId()
         monkeypatch.setattr(audio_pipeline, "tone_id", tone)
@@ -2688,7 +2697,11 @@ class TestTurnLocalEnrichment:
             ws.send_text(json.dumps({"type": "stop"}))
             json.loads(ws.receive_text())
         assert [f["label"] for f in flags] == [tone_id.UNSCORED_LABEL, tone_id.ESCALATION_LABEL]
-        assert flags[0]["scores"]["arousal"] == 0.40 and "arousal_delta" not in flags[0]["scores"]
+        assert flags[0]["scores"]["arousal"] == 0.80 and "arousal_delta" not in flags[0]["scores"]
+        # The judge's verdict rides on the flag, so a stored session can tell a
+        # confirmed turn from an unjudged one months later (live_sessions.heat_confirmed).
+        assert flags[0]["scores"][heat_judge.HEAT_VERDICT_KEY] == \
+            heat_judge.VERDICT_CODES[heat_judge.VERDICT_CONFIRM]
         assert flags[1]["scores"]["arousal_delta"] == pytest.approx(0.15)
         assert flags[1]["confidence"] == 1.0  # 0.15 ≥ 2× the pinned 0.03
         assert tone.calls == [(16000, 16000), (16000, 16000)]

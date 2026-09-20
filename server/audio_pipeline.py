@@ -73,6 +73,10 @@ try:
     from watch import relay as watch_relay
 except ImportError:  # pragma: no cover
     watch_relay = None
+try:
+    from watch import heat_judge as watch_heat_judge
+except ImportError:  # pragma: no cover
+    watch_heat_judge = None
 
 logger = logging.getLogger(__name__)
 
@@ -2739,6 +2743,18 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 # the wire behaviour below stays exactly as it was.
                 if len(audio_bytes) <= MAX_AUDIO_FRAME_BYTES:
                     ctx.pcm.append(audio_bytes)
+                    # Track 1 step 3: the heat judge's rolling 2 s window,
+                    # scored once per second. THIS is the per-second PCM the
+                    # relayed lane has — everything else here is per-turn.
+                    # Appends bytes and returns; the model call it triggers
+                    # runs on a worker thread (see heat_judge.feed_pcm), so
+                    # the receive loop stays as hot as it was. Silent no-op
+                    # with MINDSHIFT_TONE_AUDIO=off.
+                    if watch_heat_judge is not None and ctx.uid:
+                        with contextlib.suppress(Exception):
+                            watch_heat_judge.feed_pcm(
+                                ctx.uid, audio_bytes, ctx.pcm.sample_rate,
+                            )
                 # Local-first sessions transcribe on the phone: once the first
                 # turn_local has arrived, STOP feeding Deepgram. Measured on
                 # production (scripts/live_e2e.py, 2026-08-24): with both
@@ -2989,6 +3005,12 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         if owns_tts and hasattr(tts, "aclose"):  # hasattr: tolerate doubles
             with contextlib.suppress(Exception):
                 await tts.aclose()
+        # The heat judge holds a 2 s PCM buffer and this session's per-second
+        # arousal/valence/verdict series, keyed by uid. Drop it here so the
+        # registry can't grow one entry per account that ever streamed.
+        if watch_heat_judge is not None and ctx.uid:
+            with contextlib.suppress(Exception):
+                watch_heat_judge.detach(ctx.uid)
 
 
 # ---------------------------------------------------------------------------
@@ -3082,6 +3104,56 @@ async def _enrich_turn_local(
     await guarded("watch_connected", _notify_watch_connected(ctx, send_json))
 
 
+def _heat_verdict_for(ctx: SessionContext, result: dict):
+    """The heat judge's verdict for this turn, or ``None`` without a judge."""
+    if watch_heat_judge is None:
+        return None
+    try:
+        dims = {k: float(v) for k, v in (result.get("scores") or {}).items()
+                if isinstance(v, (int, float))}
+        return watch_heat_judge.verdict_for_turn(ctx.uid, dims)
+    except Exception:
+        logger.warning("heat judge failed for session %s", ctx.session_id, exc_info=True)
+        return None
+
+
+def _heat_confirms(ctx: SessionContext, verdict, *, dimensional: bool) -> bool:
+    """May this turn's audio tone be SURFACED? Only on a judge ``confirm``.
+
+    ``MINDSHIFT_TONE_AUDIO=on`` flips ``tone_id.surface_allowed()``, which
+    before this gate meant every scored turn sent a ``ToneFlagEvent`` to the
+    phone, fanned it out to the other participants in a call, and handed it
+    to the watch relay — with nothing but the raw model behind it. The heat
+    judge (``watch/heat_judge.py``) is what "confirmed" means: a rolling 2 s
+    window scored every second, smoothed over three, above the calibrated
+    arousal bar. ``unknown`` and ``veto`` both stay dark.
+
+    For a DIMENSIONAL reading this fails CLOSED, unlike the wrist path: a
+    missing judge means no surfacing rather than unjudged surfacing.
+    Escalating the wrist without a verdict costs the wearer a buzz they can
+    attribute to their own volume; SHOWING them "you sounded angry" without
+    one is a claim the server cannot support, and it is also written into
+    the stored analysis.
+
+    ``dimensional=False`` — a categorical backend (``superb_er``,
+    ``iemocap``) whose result has no arousal/valence axis — is a different
+    case and is passed through unchanged. The judge cannot have an opinion
+    about a 4-class softmax by construction, and silently switching that
+    configuration's tone flags off would be a behaviour change nobody asked
+    for. ``odyssey_dim``, the default and the one being turned on, is
+    dimensional and is gated.
+    """
+    if not dimensional:
+        return True
+    if watch_heat_judge is None or verdict is None:
+        return False
+    try:
+        return bool(watch_heat_judge.surfaces(verdict))
+    except Exception:
+        logger.warning("heat judge gate failed for session %s; not surfacing", ctx.session_id, exc_info=True)
+        return False
+
+
 async def _enrich_tone(
     ctx: SessionContext, event: TurnLocalEvent, pcm_bytes: bytes, send_json,
 ) -> ToneFlagEvent | None:
@@ -3135,6 +3207,15 @@ async def _enrich_tone(
         scores["arousal"] = float(result["arousal"])
         if escalation.get("delta") is not None:
             scores["arousal_delta"] = float(escalation["delta"])
+    # The heat judge's verdict travels WITH the reading, in `scores`, whether
+    # or not the flag is surfaced — so a dark-mode session accumulates the
+    # judged data too, and `live_sessions.turn_tone_rows` can tell a
+    # confirmed turn from an unjudged one months later.
+    dimensional = "arousal" in scores and "valence" in scores
+    heat = _heat_verdict_for(ctx, result) if dimensional else None
+    if heat is not None and watch_heat_judge is not None:
+        scores[watch_heat_judge.HEAT_VERDICT_KEY] = watch_heat_judge.VERDICT_CODES[heat.verdict]
+        watch_heat_judge.log_verdict(ctx.uid or "?", heat)
     flag = ToneFlagEvent(
         session_id=ctx.session_id,
         speaker=event.speaker,
@@ -3145,14 +3226,15 @@ async def _enrich_tone(
         label=str(result["label"]),
         confidence=max(0.0, min(1.0, float(result.get("confidence", 0.0)))),
     )
-    if tone_id.surface_allowed():
+    if tone_id.surface_allowed() and _heat_confirms(ctx, heat, dimensional=dimensional):
         await send_json(flag.model_dump())
         if ctx.call is not None:
             with contextlib.suppress(Exception):
                 await ctx.call.fan_out(ctx.uid, flag.model_dump())
         return flag
-    # Dark mode: this log line IS the feature's output — nothing reaches the
-    # client, and nothing reaches the watch (see the return contract above).
+    # Dark mode (or `on` without a confirm): this log line IS the feature's
+    # output — nothing reaches the client, and nothing reaches the watch
+    # (see the return contract above).
     logger.info(
         "audio tone (dark) backend=%s session=%s speaker=%s label=%s confidence=%.2f "
         "arousal=%s delta=%s history=%s seconds=%.1f phone_label=%s",

@@ -85,6 +85,7 @@ together, never one without the other.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import os
 import threading
@@ -94,6 +95,7 @@ from typing import Awaitable, Callable
 
 from models.audio import ToneFlagEvent, TurnLocalEvent, TurnTextTone
 from nudge_vocabulary import vocabulary_for_code
+from watch import heat_judge
 from watch.models import VectorEvent, VectorName
 from watch.vectors import (
     RUNNING_STAT_WINDOW,
@@ -237,6 +239,7 @@ def turn_local_to_vector_events(
     t: float,
     baseline_rms_db: float | None,
     tone_flag: ToneFlagEvent | None = None,
+    heat: "heat_judge.HeatVerdict | None" = None,
 ) -> list[VectorEvent]:
     """Pure conversion: one phone turn -> the VectorEvents to feed NudgePolicy.
 
@@ -248,6 +251,18 @@ def turn_local_to_vector_events(
 
     Returns [] (not a level-0 event) when neither input clears its first
     rung — level-0 VectorEvents are never emitted anywhere in this codebase.
+
+    ``heat`` is the heat judge's verdict for this moment (``watch/heat_judge.py``,
+    supplied by ``push_turn_local``). ``None``, ``confirm`` and ``unknown``
+    all behave exactly as this function did before it existed; only an
+    acting ``veto`` removes the loudness event, and it never touches the
+    tone lane. The judge SUPERSEDES ``valence_veto``: both read the same
+    valence axis at the same 0.48 bar, but the judge reads a rolling 2 s
+    window instead of one whole turn and carries the arousal floor as well,
+    so when it has an opinion the per-turn veto has nothing left to add.
+    ``MINDSHIFT_HEAT_VALENCE_GATE`` therefore stays off in production and
+    the judge is the one mechanism (see the mode x rung x verdict table in
+    docs/decisions/2026-09-20-heat-judge-plan.md).
     """
     if event.is_self is not True:
         return []
@@ -255,6 +270,12 @@ def turn_local_to_vector_events(
     events: list[VectorEvent] = []
     rms = event.prosody.rms_dbfs if event.prosody is not None else None
     yelling, over_db = loudness_level(rms, baseline_rms_db)
+    if yelling and heat is not None and heat.suppresses_escalation():
+        logger.info(
+            "heat judge veto: yelling level %d (%.1f dB over baseline) suppressed — %s",
+            yelling, over_db if over_db is not None else float("nan"), heat.reason,
+        )
+        yelling = 0
     if yelling:
         vetoed, valence = valence_veto(tone_flag)
         if vetoed:
@@ -353,6 +374,11 @@ def register_live_session(session: LiveWatchSession) -> None:
     open, phone turns go to the newest one (the one they're actually in)."""
     with _registry_lock:
         _registry[session.account_id] = session
+    # Start the heat judge for this account. Scoped HERE and not to the
+    # phone's audio socket on purpose: the judge's only job is to confirm or
+    # veto an escalation on a WRIST, so it runs exactly while a wrist is
+    # live. No-op in `off` mode or without the weights on disk.
+    heat_judge.attach(session.account_id)
     logger.debug("watch relay: live session %s registered for %s", session.live_session_id, session.account_id)
 
 
@@ -475,7 +501,25 @@ def push_turn_local(uid: str, event: TurnLocalEvent, *, tone_flag: ToneFlagEvent
     t = session.engine.t
     rms = event.prosody.rms_dbfs if event.prosody is not None else None
     baseline = session.phone_baseline_rms_db()
-    events = turn_local_to_vector_events(event, t=t, baseline_rms_db=baseline, tone_flag=tone_flag)
+
+    # The heat judge (2026-09-20). ONE call: it knows the mode, whether a
+    # judge is running for this uid, and whether this rung may wait. It
+    # hands back a verdict, or — only for a FIRST-RUNG tap in `on` mode with
+    # no opinion yet — an awaitable to finish the decision on the socket's
+    # own loop. Higher rungs are vetoed if a verdict is already in hand but
+    # are never delayed.
+    rung, _ = loudness_level(rms, baseline)
+    heat = heat_judge.judge_escalation(uid, rung)
+    if inspect.isawaitable(heat):
+        session.observe_phone_rms(rms)
+        _schedule_coro(session, _emit_after_judge(
+            session, event, t=t, baseline=baseline, tone_flag=tone_flag, pending=heat,
+        ))
+        return
+
+    events = turn_local_to_vector_events(
+        event, t=t, baseline_rms_db=baseline, tone_flag=tone_flag, heat=heat,
+    )
     session.observe_phone_rms(rms)
 
     if not events:
@@ -491,3 +535,34 @@ def push_turn_local(uid: str, event: TurnLocalEvent, *, tone_flag: ToneFlagEvent
         uid, session.live_session_id, ", ".join(f"{e.vector}={e.level}" for e in events),
     )
     _schedule(session, events, t)
+
+
+async def _emit_after_judge(
+    session: LiveWatchSession,
+    event: TurnLocalEvent,
+    *,
+    t: float,
+    baseline: float | None,
+    tone_flag: ToneFlagEvent | None,
+    pending: Awaitable["heat_judge.HeatVerdict"],
+) -> None:
+    """Finish a first-rung escalation once the judge answers (<= 2 s).
+
+    Runs on the watch socket's own loop, so the phone's pipeline is never
+    blocked waiting for a model. ``t`` stays the escalation's ORIGINAL
+    timestamp — the wait is latency, not a different moment, and
+    ``NudgePolicy``'s cooldown arithmetic must see the stream clock the
+    ladder actually crossed its rung on.
+    """
+    heat = await pending
+    events = turn_local_to_vector_events(
+        event, t=t, baseline_rms_db=baseline, tone_flag=tone_flag, heat=heat,
+    )
+    if not events:
+        return
+    logger.info(
+        "watch relay: %s -> live session %s (after heat judge, %s): %s",
+        session.account_id, session.live_session_id, heat.verdict,
+        ", ".join(f"{e.vector}={e.level}" for e in events),
+    )
+    await session.emit(events, t)
