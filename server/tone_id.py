@@ -735,11 +735,161 @@ def classify_pcm(pcm: np.ndarray, sr: int = TARGET_SR) -> dict:
             return _probs_to_result(probs / probs.sum(), lg, name)
         # iemocap: the SpeechBrain custom interface — encoder → output MLP →
         # softmax, run stepwise so the raw logits are available for the margin.
-        wav = torch.from_numpy(audio).unsqueeze(0)  # (1, samples)
-        emb = model.encode_batch(wav)
-        logits = model.mods.output_mlp(emb).squeeze().detach().cpu().numpy().reshape(-1)
+        logits = _iemocap_logits(model, audio)
         probs = np.exp(logits - logits.max())
         return _probs_to_result(probs / probs.sum(), logits, name)
+
+
+def _iemocap_logits(model, audio: np.ndarray) -> np.ndarray:
+    """Raw 4-way logits (``_MODEL_LABELS`` order: neu/ang/hap/sad) from the
+    SpeechBrain IEMOCAP encoder + output MLP. Shared by :func:`classify_pcm`
+    (via ``backend=iemocap``) and :func:`angry_vote` (which loads the model
+    directly, regardless of the currently configured backend) so the two
+    never drift apart. Caller holds ``torch.no_grad()``."""
+    import torch
+
+    wav = torch.from_numpy(audio).unsqueeze(0)  # (1, samples)
+    emb = model.encode_batch(wav)
+    return model.mods.output_mlp(emb).squeeze().detach().cpu().numpy().reshape(-1)
+
+
+# ---------------------------------------------------------------------------
+# angry_vote — the second "angry vs happy" vote, alongside odyssey_dim's dims
+# ---------------------------------------------------------------------------
+
+_angry_vote_unavailable_logged = False
+
+
+def angry_vote(pcm: np.ndarray, sr: int = TARGET_SR) -> float | None:
+    """The IEMOCAP classifier's vote on "angry vs happy" for one clip: the
+    softmax probability mass on ``angry`` MINUS the mass on ``happy``
+    (``P(angry) - P(happy)``, range [-1, 1]; ``+1`` = certain angry, ``-1`` =
+    certain happy, ``0`` = either a confident neutral/sad call or a genuine
+    toss-up between angry and happy). This is the categorical label set's
+    OWN two classes that matter for the stack — not the ``arousal_margin``
+    logit-vs-best-other quantity :func:`classify_pcm` uses for escalation.
+
+    Loads the ``iemocap`` backend directly (:func:`_load_model` caches per
+    backend name, so this is fully independent of ``MINDSHIFT_TONE_BACKEND``
+    — the configured backend, e.g. the default ``odyssey_dim``, and
+    ``iemocap`` can both be resident in the same process at once).
+
+    Returns ``None`` — never fabricates a number — when the audio-tone flag
+    is ``off``, the optional deps are missing, or the pinned IEMOCAP snapshot
+    isn't in the local cache; that condition is logged ONCE per process (not
+    once per call, since a live session calls this every turn). Raises
+    :class:`ToneUnavailable` on a bad INPUT (wrong sample rate, empty audio)
+    same as :func:`classify_pcm` — that is a caller bug, not "unavailable".
+
+    Runs on CPU; callers off the event loop wrap this in ``asyncio.to_thread``.
+    """
+    global _angry_vote_unavailable_logged
+    if sr != TARGET_SR:
+        raise ToneUnavailable(f"audio tone expects {TARGET_SR} Hz audio, got {sr} Hz")
+    audio = np.ascontiguousarray(pcm, dtype=np.float32)
+    if audio.size == 0:
+        raise ToneUnavailable("cannot classify a zero-length audio chunk")
+    try:
+        model = _load_model("iemocap")
+    except ToneUnavailable as exc:
+        if not _angry_vote_unavailable_logged:
+            logger.warning("angry_vote unavailable, degrading to None: %s", exc)
+            _angry_vote_unavailable_logged = True
+        return None
+    import torch
+
+    with torch.no_grad():
+        logits = _iemocap_logits(model, audio)
+    probs = np.exp(logits - logits.max())
+    probs = probs / probs.sum()
+    by_label = dict(zip(_MODEL_LABELS, probs.tolist()))
+    return float(by_label["ang"] - by_label["hap"])
+
+
+# ---------------------------------------------------------------------------
+# stacked_heat_score — fixed linear combo of odyssey_dim's dims + angry_vote
+# ---------------------------------------------------------------------------
+#
+# Fit 2026-09-19 by scripts/fit_stacked_heat.py on the feature bank
+# (tmp/feature-bank/{index,tone,sbiemocap}.parquet — 2,940 CREMA-D + RAVDESS
+# clips that carry BOTH the odyssey_dim WavLM dims and the SpeechBrain
+# IEMOCAP softmax): a scikit-learn StandardScaler + LogisticRegression(C=3.0)
+# trained on ALL of CREMA-D's 6 emotions (y = is_angry, the same protocol
+# scripts/feature_bench.py's evaluate() uses), evaluated cross-corpus on
+# RAVDESS. "angry-vs-happy" below names the EVALUATED metric (only angry and
+# happy clips go into that AUC — the shipped ladder's actual failure mode),
+# not a filtered training set — training on the full 6-emotion label makes
+# the fitted line generalize better than training on angry+happy alone (the
+# latter clears ~0.93 AUC but only ~0.58 recall@5%FA; measured in the fit
+# script's ``--train-angry-happy-only`` ablation).
+#
+#   STACKED  (arousal, valence, dominance, angry_p):
+#     cremad -> ravdess   auc(angry-vs-happy) = 0.935   recall@5%FA = 0.651
+#   DIMS-ONLY fallback (arousal, valence, dominance; angry_p unavailable):
+#     cremad -> ravdess   auc(angry-vs-happy) = 0.926   recall@5%FA = 0.615
+#
+# Coefficients are in RAW feature units (StandardScaler folded in — see the
+# fit script for the intermediate scaled coefficients + mean/std if you need
+# to reproduce or re-derive them): score = sigmoid(intercept + sum(coef * x)).
+_STACKED_INTERCEPT = -7.357533
+_STACKED_COEF = {
+    "arousal": -24.091263,
+    "valence": -4.679289,
+    "dominance": 35.493496,
+    "angry_p": 0.828883,
+}
+_DIMS_ONLY_INTERCEPT = -8.198175
+_DIMS_ONLY_COEF = {
+    "arousal": -26.743169,
+    "valence": -5.105053,
+    "dominance": 41.252174,
+}
+
+
+def _sigmoid(x: float) -> float:
+    # Numerically stable enough for the score range this formula produces
+    # (|x| stays well under argument sizes where exp overflows).
+    if x >= 0:
+        z = np.exp(-x)
+        return float(1.0 / (1.0 + z))
+    z = np.exp(x)
+    return float(z / (1.0 + z))
+
+
+def stacked_heat_score(dims: dict, angry_p: float | None) -> float:
+    """A single 0..1 "how heated" score combining odyssey_dim's
+    arousal/valence/dominance with the second, IEMOCAP-based angry-vs-happy
+    vote (:func:`angry_vote`) — a FIXED linear combination (logistic
+    regression on standardised features, folded into raw-unit coefficients),
+    hard-coded above with the fit date and the numbers that justify it. When
+    ``angry_p`` is ``None`` (the iemocap backend unavailable) this falls back
+    to a dims-only combination fit the same way, so a missing second model
+    degrades the score rather than crashing the caller.
+
+    ``dims`` is the ``{"arousal", "dominance", "valence"}`` dict odyssey_dim
+    produces (e.g. a :func:`classify_pcm` dimensional result's ``"scores"``,
+    or the dict passed to :func:`_dims_to_result`). Pure, no torch — safe to
+    call every turn without a model load.
+    """
+    a = float(dims["arousal"])
+    v = float(dims["valence"])
+    d = float(dims["dominance"])
+    if angry_p is None:
+        z = (
+            _DIMS_ONLY_INTERCEPT
+            + _DIMS_ONLY_COEF["arousal"] * a
+            + _DIMS_ONLY_COEF["valence"] * v
+            + _DIMS_ONLY_COEF["dominance"] * d
+        )
+    else:
+        z = (
+            _STACKED_INTERCEPT
+            + _STACKED_COEF["arousal"] * a
+            + _STACKED_COEF["valence"] * v
+            + _STACKED_COEF["dominance"] * d
+            + _STACKED_COEF["angry_p"] * float(angry_p)
+        )
+    return _sigmoid(z)
 
 
 # ---------------------------------------------------------------------------

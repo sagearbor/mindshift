@@ -63,3 +63,82 @@ segments, shorter than 2 s untested).
 not computed; **dark** = computed and logged beside every session, never
 changes a buzz; **on** = drives the confirm/veto. Step 2 goes off → dark so
 real-session data accumulates with zero user-visible risk; step 3 goes dark → on.
+
+## Step 4 built (2026-09-20)
+
+`server/tone_id.angry_vote(pcm, sr) -> float | None` and
+`stacked_heat_score(dims, angry_p) -> float` (worktree
+`worktree-agent-a6a390549be893455`, branch merged from
+`eval/real-conversation-audit`). The judge agent calls these two functions:
+
+```python
+def angry_vote(pcm: np.ndarray, sr: int = TARGET_SR) -> float | None: ...
+def stacked_heat_score(dims: dict, angry_p: float | None) -> float: ...
+```
+
+`angry_vote` loads the `iemocap` backend directly (bypassing
+`MINDSHIFT_TONE_BACKEND`) so it and the default `odyssey_dim` backend are
+BOTH resident in the same process at once — `_load_model` already caches per
+backend name, so no structural change was needed there, just calling it with
+an explicit name. Formula: `P(angry) - P(happy)` on the IEMOCAP 4-way
+softmax (range `[-1, 1]`); `None` — never fabricated — when the flag is off,
+deps are missing, or the pinned snapshot isn't cached, logged ONCE per
+process. `dims` is the `{"arousal","dominance","valence"}` dict odyssey_dim
+already produces.
+
+**HF repo id + revision to bake** (confirmed against `BACKEND_INFO` in
+`server/tone_id.py`, unchanged from step 2/3):
+
+```
+speechbrain/emotion-recognition-wav2vec2-IEMOCAP @ 117a9c3dff08be81a3628eecf6a66b547ec1659b   (iemocap)
+facebook/wav2vec2-base @ 0b5b8e868dd84f03fd87d01f9c4ff0f080fecfe8                              (iemocap's backbone config pin)
+3loi/SER-Odyssey-Baseline-WavLM-Multi-Attributes @ 00d0e12ba9bf957f5aeea36e8663c8c61cb50ac9      (odyssey_dim, already baked)
+microsoft/wavlm-large @ c1423ed94bb01d80a3f5ce5bc39f6026a0f4828c                                (odyssey_dim's backbone config pin)
+```
+
+**Coefficients** (fit 2026-09-19 by `scripts/fit_stacked_heat.py` on
+`tmp/feature-bank/{index,tone,sbiemocap}.parquet`, 2,940 CREMA-D+RAVDESS
+clips; StandardScaler + LogisticRegression(C=3.0), trained on all of
+CREMA-D's 6 emotions, folded into raw-unit coefficients — see the script for
+the scaled-space numbers):
+
+```
+STACKED    score = sigmoid(-7.357533 - 24.091263*arousal - 4.679289*valence + 35.493496*dominance + 0.828883*angry_p)
+DIMS-ONLY  score = sigmoid(-8.198175 - 26.743169*arousal - 5.105053*valence + 41.252174*dominance)   # angry_p unavailable fallback
+```
+
+**Gate** (`server/tests/test_stacked_heat.py`, cross-corpus: train CREMA-D,
+test RAVDESS — same protocol as `scripts/feature_bench.py`):
+
+| combo | auc(angry-vs-happy) | recall@5%FA | gate |
+|---|---|---|---|
+| STACKED (dims + angry_p) | 0.935 | 0.651 | ≥0.93 / ≥0.62 ✓ |
+| DIMS-ONLY fallback | 0.926 | 0.615 | ≥0.88 ✓ |
+| odyssey_dim alone (step 3, reference) | 0.897 | 0.590 | — |
+| iemocap alone (step 1 round, reference) | 0.867 | 0.500 | — |
+
+Plus a 20-row fixture (`server/tests/fixtures/stacked_heat_fixture.json`)
+pinning that the hard-coded constants reproduce the fit exactly
+(`test_stacked_heat_score_reproduces_the_fixture`).
+
+**Smoke test** (`test_smoke_both_backends_resident_angry_vote_and_classify_pcm`):
+both backends loaded and classified 4 real clips (CREMA-D speaker 1003
+angry/happy/neutral + one RAVDESS angry clip) in one process.
+`angry_vote`: angry=1.000, happy≈0.000, neutral≈0.000, RAVDESS angry=1.000
+(speaker 1001 was tried first and rejected for this smoke test — its angry
+and happy clips both saturate to ~1.0, the round-1 "reads voice identity"
+failure the module docstring already documents; speaker 1003 shows the
+clean split).
+
+**Latency** (`test_latency_angry_vote_2s_and_5s_clips`, CPU, `torch.
+set_num_threads(2)`, one call after a one-time warm-up):
+
+| clip length | measured |
+|---|---|
+| 2 s | 59.1 ms |
+| 5 s | 128.6 ms |
+
+Within the "~50-100 ms" estimate at 2 s; the 5 s clip runs a bit past 100 ms
+(transformer attention scales with sequence length) but stays comfortably
+under the ~3 s latency budget step 3/4 already committed to in the table
+above.

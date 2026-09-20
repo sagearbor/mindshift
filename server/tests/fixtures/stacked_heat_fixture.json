@@ -1,0 +1,242 @@
+[
+ {
+  "corpus": "cremad",
+  "emotion": "neutral",
+  "dims": {
+   "arousal": 0.358,
+   "valence": 0.3942,
+   "dominance": 0.3876
+  },
+  "angry_p": 0.0,
+  "stacked_score": 0.016799,
+  "dims_only_score": 0.021982
+ },
+ {
+  "corpus": "cremad",
+  "emotion": "neutral",
+  "dims": {
+   "arousal": 0.3132,
+   "valence": 0.4025,
+   "dominance": 0.399
+  },
+  "angry_p": 0.0,
+  "stacked_score": 0.067583,
+  "dims_only_score": 0.102541
+ },
+ {
+  "corpus": "ravdess",
+  "emotion": "neutral",
+  "dims": {
+   "arousal": 0.232,
+   "valence": 0.3548,
+   "dominance": 0.3544
+  },
+  "angry_p": 1.7182788848876953,
+  "stacked_score": 0.353482,
+  "dims_only_score": 0.168809
+ },
+ {
+  "corpus": "ravdess",
+  "emotion": "angry",
+  "dims": {
+   "arousal": 0.7028,
+   "valence": 0.3305,
+   "dominance": 0.714
+  },
+  "angry_p": 1.7182817459106445,
+  "stacked_score": 0.717325,
+  "dims_only_score": 0.68429
+ },
+ {
+  "corpus": "ravdess",
+  "emotion": "neutral",
+  "dims": {
+   "arousal": 0.3465,
+   "valence": 0.4623,
+   "dominance": 0.4356
+  },
+  "angry_p": 1.7182817459106445,
+  "stacked_score": 0.272263,
+  "dims_only_score": 0.135252
+ },
+ {
+  "corpus": "cremad",
+  "emotion": "angry",
+  "dims": {
+   "arousal": 0.9784,
+   "valence": 0.4504,
+   "dominance": 0.9374
+  },
+  "angry_p": 1.7182817459106445,
+  "stacked_score": 0.840222,
+  "dims_only_score": 0.881507
+ },
+ {
+  "corpus": "ravdess",
+  "emotion": "angry",
+  "dims": {
+   "arousal": 0.7393,
+   "valence": 0.1685,
+   "dominance": 0.7557
+  },
+  "angry_p": 1.7182817459106445,
+  "stacked_score": 0.908048,
+  "dims_only_score": 0.912509
+ },
+ {
+  "corpus": "ravdess",
+  "emotion": "neutral",
+  "dims": {
+   "arousal": 0.2435,
+   "valence": 0.3625,
+   "dominance": 0.3712
+  },
+  "angry_p": 1.7182786464691162,
+  "stacked_score": 0.420539,
+  "dims_only_score": 0.223062
+ },
+ {
+  "corpus": "ravdess",
+  "emotion": "happy",
+  "dims": {
+   "arousal": 0.5419,
+   "valence": 0.5038,
+   "dominance": 0.591
+  },
+  "angry_p": 1.7182817459106445,
+  "stacked_score": 0.408758,
+  "dims_only_score": 0.292724
+ },
+ {
+  "corpus": "cremad",
+  "emotion": "neutral",
+  "dims": {
+   "arousal": 0.36,
+   "valence": 0.4645,
+   "dominance": 0.4317
+  },
+  "angry_p": 0.0,
+  "stacked_score": 0.053082,
+  "dims_only_score": 0.084058
+ },
+ {
+  "corpus": "cremad",
+  "emotion": "happy",
+  "dims": {
+   "arousal": 0.405,
+   "valence": 0.3803,
+   "dominance": 0.4561
+  },
+  "angry_p": 0.0,
+  "stacked_score": 0.062653,
+  "dims_only_score": 0.103819
+ },
+ {
+  "corpus": "ravdess",
+  "emotion": "happy",
+  "dims": {
+   "arousal": 0.4136,
+   "valence": 0.4964,
+   "dominance": 0.4722
+  },
+  "angry_p": 1.7182817459106445,
+  "stacked_score": 0.188437,
+  "dims_only_score": 0.089968
+ },
+ {
+  "corpus": "cremad",
+  "emotion": "happy",
+  "dims": {
+   "arousal": 0.5818,
+   "valence": 0.4034,
+   "dominance": 0.5926
+  },
+  "angry_p": 0.0,
+  "stacked_score": 0.097263,
+  "dims_only_score": 0.202508
+ },
+ {
+  "corpus": "cremad",
+  "emotion": "angry",
+  "dims": {
+   "arousal": 0.875,
+   "valence": 0.412,
+   "dominance": 0.8598
+  },
+  "angry_p": 1.7182817459106445,
+  "stacked_score": 0.828681,
+  "dims_only_score": 0.85407
+ },
+ {
+  "corpus": "cremad",
+  "emotion": "happy",
+  "dims": {
+   "arousal": 0.506,
+   "valence": 0.5572,
+   "dominance": 0.5223
+  },
+  "angry_p": 1.8477439880371094e-05,
+  "stacked_score": 0.026167,
+  "dims_only_score": 0.046144
+ },
+ {
+  "corpus": "ravdess",
+  "emotion": "happy",
+  "dims": {
+   "arousal": 0.7223,
+   "valence": 0.4442,
+   "dominance": 0.7062
+  },
+  "angry_p": 1.7182817459106445,
+  "stacked_score": 0.414006,
+  "dims_only_score": 0.342957
+ },
+ {
+  "corpus": "cremad",
+  "emotion": "neutral",
+  "dims": {
+   "arousal": 0.3119,
+   "valence": 0.3924,
+   "dominance": 0.3855
+  },
+  "angry_p": 0.0,
+  "stacked_score": 0.046309,
+  "dims_only_score": 0.066616
+ },
+ {
+  "corpus": "cremad",
+  "emotion": "happy",
+  "dims": {
+   "arousal": 0.3361,
+   "valence": 0.4606,
+   "dominance": 0.3736
+  },
+  "angry_p": 0.0,
+  "stacked_score": 0.012748,
+  "dims_only_score": 0.015889
+ },
+ {
+  "corpus": "ravdess",
+  "emotion": "happy",
+  "dims": {
+   "arousal": 0.7862,
+   "valence": 0.5404,
+   "dominance": 0.7434
+  },
+  "angry_p": 1.128929853439331,
+  "stacked_score": 0.181658,
+  "dims_only_score": 0.211558
+ },
+ {
+  "corpus": "cremad",
+  "emotion": "angry",
+  "dims": {
+   "arousal": 0.8814,
+   "valence": 0.3356,
+   "dominance": 0.8869
+  },
+  "angry_p": 1.7182817459106445,
+  "stacked_score": 0.939431,
+  "dims_only_score": 0.957045
+ }
+]
