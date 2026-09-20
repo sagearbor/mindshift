@@ -164,7 +164,7 @@ class NudgePolicy:
         self,
         events: list[VectorEvent],
         t: float,
-        observed_s: float = WINDOW_S,
+        observed_s: float | None = WINDOW_S,
     ) -> list[NudgeEvent]:
         """Process vector events and return nudge events for level changes or de-escalation.
 
@@ -185,18 +185,27 @@ class NudgePolicy:
                 the server's own PCM path tick on. A turn-driven caller
                 (watch/relay.py) passes the turn's duration so the loudness
                 hold counts seconds of speech, not calls.
+                ``None`` means "this call carries NO loudness observation" and
+                leaves the hold's run untouched. Required for every non-audio
+                tick: an ``hr`` frame arriving mid-shout must not break a run
+                the wearer's voice is still building, or the wrist would stay
+                silent through a raised voice because a heart-rate sample
+                landed between two windows.
 
         Returns:
             List of NudgeEvent objects, at most one per channel per call
         """
         nudges = []
 
-        # Hold-N hysteresis, advanced exactly once per call (including quiet
-        # ticks — a window under the first rung is what BREAKS a run). The raw,
-        # unscaled level is what clears the rung: sensitivity is the wearer's
-        # preference about being told, not physics.
-        loud = any(e.vector == HOLD_VECTOR and e.level >= 1 for e in events)
-        loudness_may_escalate = self.hold.observe(loud, observed_s)
+        # Hold-N hysteresis, advanced exactly once per call that heard audio —
+        # including quiet ones, since a window under the first rung is what
+        # BREAKS a run. The raw, unscaled level is what clears the rung:
+        # sensitivity is the wearer's preference about being told, not physics.
+        if observed_s is None:
+            loudness_may_escalate = True    # no loudness in this call to gate
+        else:
+            loud = any(e.vector == HOLD_VECTOR and e.level >= 1 for e in events)
+            loudness_may_escalate = self.hold.observe(loud, observed_s)
 
         # Create a mapping of vector -> subscription for haptics-on subscriptions
         sub_by_vector: dict[str, VectorSubscription] = {}

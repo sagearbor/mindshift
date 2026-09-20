@@ -47,7 +47,6 @@ import {
   interruptingEvents,
   LoudnessBaseline,
   NudgePolicy,
-  WINDOW_S,
   yellingLevel,
   type NudgeEvent,
   type VectorEvent,
@@ -785,7 +784,10 @@ function buildWatchLane(
   for (const t of [...ticks.keys()].sort((a, b) => a - b)) {
     const evs = ticks.get(t) ?? [];
     events.push(...evs);
-    emitted.push(...policy.onEvents(evs, t, tickSeconds.get(t) ?? WINDOW_S));
+    // A tick with no fragment at this instant is a ground-truth `interrupting`
+    // or `airtime` event, not a loudness observation — `null` so it leaves the
+    // loudness hold's run alone rather than counting as a quiet window.
+    emitted.push(...policy.onEvents(evs, t, tickSeconds.get(t) ?? null));
   }
   const selfTurnAt = (t: number) => script.turns.find((st) => st.speaker === self && st.start - EPS <= t && t <= st.end + EPS) ?? null;
   const rows: WatchBuzz[] = emitted.map((n) => {

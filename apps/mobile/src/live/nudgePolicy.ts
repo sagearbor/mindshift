@@ -155,19 +155,25 @@ export class NudgePolicy {
    * @param observedS how many seconds of audio this call's observations cover.
    *   One 1 s window by default — the cadence the watch and the server's PCM
    *   path tick on. The phone observes once per TURN and passes its duration,
-   *   so the loudness hold counts seconds of speech, not calls.
+   *   so the loudness hold counts seconds of speech, not calls. `null` means
+   *   "this call carries NO loudness observation" and leaves the hold's run
+   *   untouched — required for any non-audio tick, since a tick that did not
+   *   hear the wearer is not evidence that they went quiet.
    */
-  onEvents(events: VectorEvent[], t: number, observedS = WINDOW_S): NudgeEvent[] {
+  onEvents(events: VectorEvent[], t: number, observedS: number | null = WINDOW_S): NudgeEvent[] {
     const nudges: NudgeEvent[] = [];
     const subByVector = new Map<string, Required<VectorSubscription>>();
     for (const s of this.subs) if (s.haptics) subByVector.set(s.vector, s);
 
-    // Hold-N hysteresis, advanced exactly once per call — including quiet
-    // ticks, because an observation under the first rung is what BREAKS a run.
-    // The RAW, unscaled level is what clears the rung: sensitivity is the
-    // user's preference about being told, not physics.
-    const loud = events.some((e) => e.vector === HOLD_VECTOR && e.level >= 1);
-    const loudnessMayEscalate = this.hold.observe(loud, observedS);
+    // Hold-N hysteresis, advanced exactly once per call that heard audio —
+    // including quiet ones, because an observation under the first rung is
+    // what BREAKS a run. The RAW, unscaled level is what clears the rung:
+    // sensitivity is the user's preference about being told, not physics.
+    let loudnessMayEscalate = true;
+    if (observedS !== null) {
+      const loud = events.some((e) => e.vector === HOLD_VECTOR && e.level >= 1);
+      loudnessMayEscalate = this.hold.observe(loud, observedS);
+    }
 
     const eventMax = new Map<Channel, { level: number; vectors: string[] }>();
     for (const c of this.channels) eventMax.set(c, { level: 0, vectors: [] });

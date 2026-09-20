@@ -160,6 +160,22 @@ describe("phone-side inputs", () => {
       { channel: "A", level: 3, t: 1.0, vectors: ["yelling"] },
     ]);
   });
+
+  it("hold-3s: a tick that heard no audio (observedS null) leaves the run alone", () => {
+    // The mirror of the server's `hr` frame: one policy serves both lanes, and
+    // a tick that did not hear the wearer is not evidence that they went quiet.
+    // Counting it as a quiet window would make a raised voice go unbuzzed
+    // because something else happened to tick in the middle of it.
+    const p = phoneNudgePolicy();
+    const loud = (t: number) => selfTurnVectorEvents(t, 15, { frustration: 0, defensiveness: 0 });
+    expect(p.onEvents(loud(1.0), 1.0)).toEqual([]);
+    expect(p.onEvents([], 1.5, null)).toEqual([]);
+    expect(p.hold.run).toBe(1);
+    expect(p.onEvents(loud(2.0), 2.0)).toEqual([]);
+    expect(p.onEvents(loud(3.0), 3.0)).toEqual([
+      { channel: "A", level: 3, t: 3.0, vectors: ["yelling"] },
+    ]);
+  });
 });
 
 // Don't-nag gate over the coach's lines (docs/research/2026-08-30-nudge-quality).

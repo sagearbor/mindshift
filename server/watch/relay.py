@@ -419,7 +419,11 @@ def push_vector_events(uid: str, events: list[VectorEvent], t: float) -> bool:
     """Feed already-computed vector events (e.g. call-mode ``interrupting``
     from server/calls.py) into ``uid``'s live watch session — the wrist
     runs its own NudgePolicy over them exactly like phone turn_local
-    vectors. Returns False (no-op) when no watch is live for the account."""
+    vectors. Returns False (no-op) when no watch is live for the account.
+
+    Carries no loudness observation (``_schedule``'s ``observed_s`` default is
+    None), so an interrupting nudge arriving mid-shout leaves the loudness
+    lane's hold alone rather than counting as a quiet window against it."""
     if not events:
         return False
     session = live_session_for(uid)
@@ -433,7 +437,7 @@ def _schedule(
     session: LiveWatchSession,
     events: list[VectorEvent],
     t: float,
-    observed_s: float = WINDOW_S,
+    observed_s: float | None = None,
 ) -> None:
     """Run ``session.emit`` on the socket's loop from wherever we're called."""
     if session.loop.is_closed():
@@ -506,5 +510,10 @@ def push_turn_local(uid: str, event: TurnLocalEvent, *, tone_flag: ToneFlagEvent
     # phone turns. A 4 s loud turn is four windows of hold — the same thing the
     # watch's own mic would have measured a window at a time. Clamped at one
     # window so a clipped/degenerate span can never shorten the hold.
-    duration_s = max(float(event.end_time) - float(event.start_time), WINDOW_S)
+    #
+    # None when the phone could not MEASURE this turn's loudness (no reported
+    # RMS, no baseline yet, or a turn at the silence floor): an unmeasured turn
+    # is not evidence that the wearer went quiet, and must not break a run.
+    _, over_db = loudness_level(rms, baseline)
+    duration_s = max(float(event.end_time) - float(event.start_time), WINDOW_S) if over_db is not None else None
     _schedule(session, events, t, duration_s)

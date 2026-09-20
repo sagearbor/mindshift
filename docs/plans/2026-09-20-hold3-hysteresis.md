@@ -62,6 +62,15 @@ of hold — and every observation is worth at least one window. That last rule i
 what makes `hold_s <= 1` byte-identical to the old ladder on every path, which is
 how the pre-2026-09-20 expectations in the test suites are pinned.
 
+**A tick that heard no audio leaves the run alone.** The watch's socket runs ONE
+policy for both lanes, so an `hr` frame calls `on_events` too, as does a
+call-mode `interrupting` relay. Those pass `observed_s=None`: a tick that did not
+hear the wearer is not evidence that they went quiet, and treating it as a quiet
+window would have made a raised voice go unbuzzed because a heart-rate sample
+landed between two of its windows — a bug only a device would ever have shown.
+The same rule covers a phone turn whose loudness could not be measured at all
+(no reported RMS, no baseline yet, or a turn at the silence floor).
+
 ### The escape hatch
 
 `hold_s` of **0 or 1 reproduces the old ladder exactly**, measured, not asserted:

@@ -180,6 +180,30 @@ def test_hold_env_override(monkeypatch):
     assert nudge_policy.heat_hold_s() == nudge_policy.HEAT_HOLD_S_DEFAULT
 
 
+def test_a_tick_that_heard_no_audio_leaves_the_run_alone():
+    """``observed_s=None`` is what every non-audio tick passes.
+
+    The watch's socket runs ONE policy for both lanes, so an ``hr`` frame calls
+    ``on_events`` too. If that counted as a quiet window the wrist would stay
+    silent through a raised voice because a heart-rate sample happened to land
+    between two of its windows — a bug you would only ever see on a device.
+    """
+    p = NudgePolicy(
+        [VectorSubscription(vector="yelling"), VectorSubscription(vector="hr_spike")],
+        hold_s=3.0,
+    )
+    loud = [VectorEvent(vector="yelling", level=3, t=0.0, value=20.0)]
+    assert p.on_events(loud, 1.0) == []                       # run 1
+    # An hr tick between the windows: it may nudge channel B, and it must not
+    # touch channel A's run.
+    hr = p.on_events([VectorEvent(vector="hr_spike", level=2, t=1.5, value=25.0)], 1.5, None)
+    assert [(n.channel, n.level) for n in hr] == [("B", 2)]
+    assert p.hold.run_s == 1.0, "the run survived a tick that heard no audio"
+    assert p.on_events(loud, 2.0) == []                       # run 2
+    got = p.on_events(loud, 3.0)                              # run 3 -> climbs
+    assert [(n.channel, n.level) for n in got] == [("A", 3)]
+
+
 def test_hold_counts_seconds_not_calls():
     """A turn-driven caller (watch/relay.py) observes once per TURN, so an
     observation carries how much audio it covers. One 4 s loud turn is four

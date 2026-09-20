@@ -356,7 +356,7 @@ export function recordingPolicy(inner: NudgePolicy, now: () => number = () => Na
   const log: PolicyCall[] = [];
   const spy = Object.create(inner) as NudgePolicy & { log: PolicyCall[] };
   spy.log = log;
-  spy.onEvents = (events: VectorEvent[], t: number, observedS?: number) => {
+  spy.onEvents = (events: VectorEvent[], t: number, observedS?: number | null) => {
     // Forward `observedS` untouched: it is what the loudness hold counts, so
     // swallowing it here would make the replay measure a different ladder than
     // the device runs.
