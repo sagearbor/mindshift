@@ -26,6 +26,14 @@
         "buildType": "apk"
       }
     },
+    "ios-simulator": {
+      "extends": "preview",
+      "distribution": "internal",
+      "channel": "preview",
+      "ios": {
+        "simulator": true
+      }
+    },
     "production": {
       "distribution": "store",
       "channel": "production",
@@ -36,6 +44,9 @@
       },
       "android": {
         "buildType": "app-bundle"
+      },
+      "ios": {
+        "autoIncrement": "buildNumber"
       }
     }
   },
