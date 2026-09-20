@@ -132,13 +132,23 @@ already says for step 2 — off → dark — and nothing more. Flagged to `main`
   full `COPY server/ ./server/`, and a backend added to `tone_id.TONE_BACKENDS`
   with no bake/exclude decision recorded fails loudly).
 
-**Deploy record:** built via `gcloud run deploy mindshift-api --source .
---no-traffic --tag tone` (Cloud Build, same mechanism `scripts/
-deploy_cloudrun.sh` uses) from the pre-existing revision `mindshift-api-00089-jgr`
-(4 vCPU / 8Gi, `MINDSHIFT_TONE_AUDIO=off`). No `--set-env-vars` /
-`--update-env-vars` was passed to the build step so every existing env var
-carried over unchanged onto the tagged revision; env was flipped afterward
-with `gcloud run services update --update-env-vars MINDSHIFT_TONE_AUDIO=dark`
-once `weights_present=True` was confirmed from the new revision's own startup
-log line. See the session report for the resulting revision name, image size
-delta and the exact `/health` payload observed.
+**Deploy record:** merged `eval/real-conversation-audit` into this worktree
+branch first (coordinator instruction — this worktree had branched from
+`main` at the same commit, not from `eval/real-conversation-audit` as
+originally briefed; merge was clean apart from an add/add conflict on this
+very file, resolved by keeping this section). Built via `gcloud run deploy
+mindshift-api --source . --no-traffic --tag tone` (Cloud Build, same
+mechanism `scripts/deploy_cloudrun.sh` uses) from the pre-existing revision
+`mindshift-api-00089-jgr` (4 vCPU / 8Gi, `MINDSHIFT_TONE_AUDIO=off`, image
+`sha256:4fe024ba...`). No `--set-env-vars` / `--update-env-vars` was passed to
+the build step so every existing env var carried over unchanged onto the
+tagged revision `mindshift-api-00093-mif` (image `sha256:e660f568...`) —
+confirmed `weights_present=true` for both `odyssey_dim` and `iemocap` from its
+own startup log line and `/health`. Env was then flipped with
+`gcloud run services update --update-env-vars MINDSHIFT_TONE_AUDIO=dark`,
+producing `mindshift-api-00094-nug` (same image `sha256:e660f568...` as
+`00093-mif` — confirmed by digest — env diff against `00089-jgr` is
+`MINDSHIFT_TONE_AUDIO: off -> dark` and nothing else). `00094-nug`'s startup
+log: `tone_mode=dark tone_backend=odyssey_dim tone_weights_present=True`; its
+`/health` matches. Traffic routed 100% to `mindshift-api-00094-nug`. See the
+session report for the full verification trail.
