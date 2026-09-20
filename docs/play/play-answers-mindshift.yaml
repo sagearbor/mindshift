@@ -18,9 +18,32 @@ _schema:
     - "`why:` is the justification — paste it into a Play appeal if one is ever needed."
     - "`proof:` is a file:line in this repo that makes the claim checkable."
     - "OWNER_MUST_SUPPLY means: stop, leave the field blank, report it, move on."
-  verified_against_commit: f04a5c1  # origin/main, 2026-08-25 (+ the account-deletion branch)
-  last_updated: 2026-08-26
+  verified_against_commit: d364c11  # ship/heat-judge-20260920 merged, 2026-09-20
+  last_updated: 2026-09-20
+  previously_verified_against: "f04a5c1 (origin/main, 2026-08-25) — the first derivation"
   authored_by: Claude (agent), from a full read of server/ and apps/mobile/
+  changed_2026_09_20:
+    what_this_marker_means: >
+      Every leaf this refresh CHANGED carries a sibling `changed_2026_09_20:`
+      note. A browser agent that already entered the 2026-08-26 answers into
+      the console can grep for that string and re-enter only those fields
+      instead of walking the whole pack again. A leaf with no such marker is
+      unchanged and does not need re-entering.
+    summary_of_what_moved:
+      - "Version: 1.18.0 is now versionCode 38 (was 34)."
+      - "Data safety: Health and fitness → Health info flips from NOT collected to COLLECTED — heart rate, from a paired Wear OS watch, stored per session."
+      - "Data safety: Personal info → Other info gains the server-computed arousal/valence/judge series (an inference about the user's emotional state, derived from their voice and persisted)."
+      - "Data safety: Audio gains the heat judge — live session audio is now scored by emotion models running on our own server, and the resulting per-second series is stored."
+      - "Data safety: in-app calls re-verified and UNCHANGED — still audio-only, still peer-to-peer, still never recorded. No video track exists anywhere in calls.py."
+      - "Data safety: the Wear OS companion now has its own pack, docs/play/play-answers-mindshift-wear.yaml, and its own (different) answers. Do not copy between them."
+    a_precondition_this_refresh_created: >
+      The privacy policy at https://arborfam-hub.web.app/privacy does NOT
+      mention heart rate at all, and it still says a live coaching session
+      "keeps no audio at all" — which stopped being true when Keep audio became
+      the default. Both statements must be fixed before this pack's Data safety
+      form is submitted, or the declaration and the policy will contradict each
+      other, which is the exact failure docs/play/README.md exists to prevent.
+      proof: apps/mobile/public/privacy/index.html:114-115,195-198,245-247
 
 app_identity:
   package_name: com.sagearbor.mindshift.app
@@ -31,8 +54,13 @@ app_identity:
     The Play app record already exists (versionCode 31 / 1.16.0 was uploaded by
     hand). This pack completes the "Set up your app" declarations only — it does
     NOT ship a release. See docs/plans/2026-08-24-realtime-three-tracks-handoff.md §9.
-  current_version: "1.18.0 (versionCode 34)"
+  current_version: "1.18.0 (versionCode 38)"
+  changed_2026_09_20: "versionCode 34 -> 38 (versionName unchanged at 1.18.0). Re-enter only if the console shows a version anywhere in App content."
   proof_version: apps/mobile/app.json:5,30
+  companion_wear_os_app:
+    value: "com.sagearbor.gauge.wear — a SEPARATE Play listing with its own answer pack."
+    changed_2026_09_20: "New cross-reference. The watch pack's Data safety answers differ on purpose (health data, device ids, login model); never import one listing's answers into the other."
+    see: docs/play/play-answers-mindshift-wear.yaml
 
 # ===========================================================================
 # 1. App access  (Policy → App content → App access)
@@ -426,7 +454,7 @@ data_safety:
     data_types_not_collected_at_all:
       - "Location (approximate and precise)"        # no location lib, no permission
       - "Financial info (all)"                      # no billing, no payments
-      - "Health and fitness (all)"                  # see _judgement_calls below
+      - "Health and fitness → Fitness info"         # no steps, workouts or calories anywhere
       - "Emails / SMS or MMS"                       # never read
       - "Photos"                                    # the avatar selfie stays in on-device SecureStore
       - "Contacts / Calendar"                       # no library, no permission
@@ -434,6 +462,17 @@ data_safety:
       - "Installed apps"                            # getSpeechRecognitionServices() is a local probe, never transmitted
       - "In-app search history"
       - "Device or other IDs"                       # no ad ID, no Android ID, no Firebase installation ID
+    changed_2026_09_20:
+      note: >
+        Two lines moved out of this list. "Health and fitness (all)" is now
+        "Health and fitness → Fitness info" only, because Health info IS
+        collected — see the new data_types block below. "Device or other IDs"
+        stays NOT collected FOR THE PHONE; the Wear OS listing declares one of
+        its own (an app-minted install UUID) and that is a difference between
+        the two packs, not an inconsistency.
+      proof:
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/sensors/HrSource.kt
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/prefs/GaugePrefs.kt
 
   # -------- the matrix. One block per Play data type that IS declared. -------
   data_types:
@@ -526,6 +565,102 @@ data_safety:
         - server/routers/voice.py:559-605                  # include_embeddings=true — uid-scoped, opt-in, to the owner only
         - server/routers/voice.py:1055-1067                # DELETE /voice/voiceprint — real delete, no tombstone
         - apps/mobile/src/live/speakerId.ts:169-186        # phone holds them in memory only, never persisted
+      changed_2026_09_20:
+        what_is_new: >
+          A SECOND thing now lives under this Play path: AN INFERENCE ABOUT THE
+          USER'S EMOTIONAL STATE, derived from the sound of their voice and
+          PERSISTED. The live pipeline feeds the session's PCM to a server-side
+          "heat judge" — a 2-second sliding window scored every second by an
+          emotion model — which produces an arousal number, a valence number
+          and a confirm/veto/unknown verdict for each window. Those three
+          per-second series are harvested at the end of a session and written
+          into the live-session document alongside the loudness and heart-rate
+          series. Play has no "emotion" or "inference" category, so it belongs
+          here next to the voiceprint, for the same reason the voiceprint does.
+        why_it_still_says_shared_false: >
+          The models run on OUR OWN Cloud Run instance. server/tone_id.py loads
+          pinned Hugging Face checkpoints at startup and scores audio on CPU
+          in-process — there is no emotion-API vendor, no outbound request, and
+          no new processor to add to the third-party list. The numbers go into
+          our own Firestore and nowhere else.
+        purposes_to_add_in_the_wizard: >
+          None. "App functionality" and "Personalization" already cover it —
+          the verdict's whole job is to veto a nudge the loudness ladder got
+          wrong, which is app functionality, and the stored series exists so the
+          product can tell whether it helped, which the block above already
+          declares under Analytics for the diagnostics types. Do NOT add
+          Advertising or marketing.
+        deletion: "Same as everything else on a live session — DELETE /me erases it."
+        proof:
+          - server/watch/heat_judge.py                     # the 2 s window / 1 s hop judge and its verdicts
+          - server/tone_id.py                              # the backends, pinned revisions, CPU, in-process
+          - server/audio_pipeline.py:2750-2760             # the PHONE's live session feeds PCM to the judge
+          - server/audio_pipeline.py:3107-3120             # the per-turn verdict
+          - server/audio_pipeline.py:3216-3218             # the verdict rides the turn's scores
+          - server/watch/routers/ws.py:88-114              # _heat_series harvests arousal/valence/judge
+          - server/watch/routers/ws.py:300-317             # ...and persists them on the session
+          - server/watch/relay.py                          # valence can veto a tone escalation
+
+    - play_path: "Health and fitness → Health info"
+      changed_2026_09_20: >
+        NEW BLOCK — this type was previously declared NOT collected. Tick it in
+        the wizard and answer the four questions from this block. This is the
+        single most important change in the 2026-09-20 refresh.
+      collected: true
+      shared: false
+      processed_ephemerally: false
+      required_or_optional: "Optional — users can choose whether it's collected"
+      purposes: ["App functionality", "Personalization", "Analytics"]
+      what_it_actually_is: >
+        HEART RATE, IN BEATS PER MINUTE. The phone binary itself reads no body
+        sensor — there is no sensor permission in app.json and no health library
+        in package.json. The data arrives from the MindShift Wear OS companion
+        (com.sagearbor.gauge.wear), which reads the wearer's pulse through Wear
+        Health Services and streams it to the MindShift backend as
+        {"type":"hr"} frames on the live-session socket. The server appends
+        EVERY sample — not just the ones that crossed a threshold — to
+        hr_bpm_series with a parallel hr_t_series, and persists both inside the
+        live-session document under the SAME MindShift account the phone app
+        signs into. The phone app is where a watch is paired to that account in
+        the first place (Settings → Watch), and the phone app's own live
+        sessions are what a companion-mode watch rides alongside.
+      why_it_is_declared_on_the_phone_listing_too: >
+        Play asks what YOUR APP collects, and a strict reading of "the phone
+        binary reads no sensor" would leave this untickable here. This pack
+        ticks it anyway, deliberately, for the same reason it over-declares
+        sharing (see _reading_note): the heart rate ends up in the phone
+        account's own session history, the phone app is the thing that
+        authorises the watch to collect it, and under-declaring a health data
+        type is the single worst mistake available on this form. The watch's
+        own listing declares it too, in its own pack. Over-declaring here costs
+        one extra row on the store's data-safety card; under-declaring costs an
+        enforcement action.
+      why_not_shared: >
+        The bpm values and the stored series reach no third party and no other
+        user. Nothing puts them in an outbound payload: the Deepgram socket
+        carries audio, the Anthropic request carries transcript text, and the
+        couples standing endpoint exposes session counts and a calm score,
+        never bpm.
+      optional_because: >
+        No watch, no heart rate. And even with a watch paired, the wearer can
+        decline the BODY_SENSORS permission and everything else keeps working —
+        every code path degrades to "no reading" rather than a fabricated value.
+      user_can_delete: >
+        Yes — the series lives inside live-session documents, which DELETE /me
+        erases along with everything else, and an individual watch session can
+        be deleted on its own.
+      proof:
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/sensors/HrSource.kt     # Wear Health Services, BODY_SENSORS
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/control/SentinelController.kt  # trySendHr / maybeSendCompanionHr, 5 s companion cadence
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/net/EpisodeWsClient.kt  # the {"type":"hr","bpm":...} frame
+        - server/watch/routers/ws.py:236-244                                        # hr_bpm_series / hr_t_series — EVERY sample
+        - server/watch/routers/ws.py:300-317                                        # persisted in LiveSession.series
+        - server/watch/routers/ws.py:319-337                                        # companion sockets save an HR-only document
+        - server/watch/models.py:83-95                                              # the "companion_hr" status
+        - apps/mobile/app.json:31-41                                                # the phone's own permissions — no body sensors
+        - apps/mobile/src/screens/WatchSetupScreen.tsx                              # where the phone pairs the watch
+        - server/account_deletion.py:290-297                                        # deletion reaches it
+      see_also: docs/play/play-answers-mindshift-wear.yaml
 
     - play_path: "Messages → Other in-app messages"
       collected: true
@@ -606,6 +741,25 @@ data_safety:
         - server/watch/store.py:37,56-84                            # pcm_b64 raw audio inside the Firestore doc
         - apps/mobile/src/api/client.ts:2031                        # POST /voice/enroll-direct (WAV upload)
         - server/main.py:3796-3830                                  # a share recipient gets a playback token for the OWNER's media
+      changed_2026_09_20:
+        what_is_new: >
+          Live-session audio is now also scored by emotion models ON OUR OWN
+          SERVER, in-process, as it streams — a 2-second sliding window every
+          second (the "heat judge"). The audio itself is not copied anywhere new
+          and no new vendor sees it: server/tone_id.py loads pinned Hugging Face
+          checkpoints at startup and runs them on CPU inside the Cloud Run
+          container. What IS new is the OUTPUT — an arousal/valence/verdict
+          series that gets stored — and that is declared under "Personal info →
+          Other info", not here.
+        the_four_wizard_answers_are_unchanged: >
+          Collected yes, shared yes, ephemeral no, Required, App functionality.
+          Nothing to re-enter for this type. This marker exists so a reader who
+          hears "emotion detection shipped" can confirm it did not change what
+          leaves the device.
+        proof:
+          - server/tone_id.py
+          - server/watch/heat_judge.py
+          - server/audio_pipeline.py:2750-2760
 
     - play_path: "Photos and videos → Videos"
       collected: true
@@ -747,20 +901,41 @@ data_safety:
 
   _judgement_calls:
     - field: "Health and fitness → Health info"
-      declared: "Not collected"
+      declared: "COLLECTED (Optional), not shared"
+      changed_2026_09_20: >
+        FLIPPED from "Not collected". The 2026-08-26 reasoning below is still
+        correct about transcripts and communication scores — those are not
+        health information and are not what changed. What changed is that a
+        paired Wear OS watch now reads the user's HEART RATE from an optical
+        body sensor and transmits it to the MindShift backend, where every
+        sample is stored per session under the account the phone app signs
+        into. A pulse is health information under any reading of Play's
+        definition, so the counter-argument below stopped being hypothetical
+        and the answer moved.
       reasoning: >
-        Play defines health info as "information about a user's health, such as
-        medical records or symptoms". MindShift stores conversation transcripts
-        and communication-quality scores (warmth, defensiveness, escalation) —
-        not diagnoses, symptoms, medications or medical records. The product
-        explicitly disclaims being a counseling replacement or a medical tool,
-        and is not HIPAA-certified.
-      counter_argument_the_owner_should_weigh: >
-        The app is sold to couples therapists and a therapist can hold clinical
-        notes on a patient's episodes. If MindShift ever adds a clinical
-        assessment, a diagnosis, or an integration with a medical record, flip
-        this to Collected and update the privacy policy in the same change.
-      proof: [PRD.md:22, PRD.md:248-254, server/recordings_store.py:1184-1190]
+        Heart rate, from the companion watch, stored per session. See the
+        "Health and fitness → Health info" block in data_types for the full
+        derivation. NOT shared: it reaches no third party and no other user.
+        OPTIONAL: it exists only if the user pairs a watch AND grants that
+        watch the body-sensor permission.
+      what_is_still_NOT_health_info: >
+        The original 2026-08-26 reasoning, unchanged and still load-bearing:
+        conversation transcripts and communication-quality scores (warmth,
+        defensiveness, escalation) are not diagnoses, symptoms, medications or
+        medical records. The product explicitly disclaims being a counselling
+        replacement or a medical tool and is not HIPAA-certified. Declaring
+        Health info does NOT mean declaring the transcripts as health data, and
+        it does NOT mean moving the store category — see the next entry.
+      still_to_weigh: >
+        If MindShift ever adds a clinical assessment, a diagnosis, or an
+        integration with a medical record, the store category and the Health
+        apps declaration have to be revisited too, not just this checkbox.
+      proof:
+        - PRD.md:22
+        - PRD.md:248-254
+        - server/recordings_store.py:1184-1190
+        - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/sensors/HrSource.kt
+        - server/watch/routers/ws.py:236-244
     - field: "Store listing category"
       declared: "Communication"
       reasoning: >
@@ -769,9 +944,34 @@ data_safety:
         which is the wrong regime for a tool that explicitly is not a medical
         device. "Communication" is honest: the app hosts calls and coaches
         conversations.
+      changed_2026_09_20: >
+        UNCHANGED, and deliberately so even though Health info is now declared.
+        Declaring a health DATA TYPE does not make an app a health APP: the
+        category question is about what the app is for, and this one is for
+        conversations. The heart rate is an input to a conversation cue — there
+        is no trend view, no resting-rate report, no health claim anywhere in
+        the UI. Do not "correct" the category to match the new checkbox, and do
+        not fill in the Health apps declaration (see other_declarations).
     - field: "Sharing with a therapist declared as Shared"
       declared: "Shared = Yes"
       reasoning: "See _reading_note at the top of this section."
+    - field: "In-app calls — audio or video?"
+      declared: "Audio only. Videos stays declared for RECORDING/UPLOAD only, not for calls."
+      changed_2026_09_20: >
+        RE-VERIFIED 2026-09-20 and UNCHANGED. server/calls.py contains no video
+        track, no camera negotiation and no video SDP handling of any kind —
+        the word "video" does not appear in the module. Media is peer-to-peer
+        WebRTC (a full mesh; two connections per client in a three-person
+        call), the server relays only SDP offers/answers and ICE candidates
+        over the participants' existing session sockets, and Cloudflare TURN
+        relays encrypted SRTP it cannot read only when a direct path fails. No
+        call audio is ever recorded: what IS persisted is one transcript
+        episode per participant, exactly as declared under Messages.
+      proof:
+        - server/calls.py:1-40          # "Audio flows PEER-TO-PEER over WebRTC ... no media through the server"
+        - server/calls.py:274-287       # the Cloudflare TURN mint
+        - server/calls.py:1107-1157     # what is persisted: transcript episodes, never media
+        - apps/mobile/src/live/call/callSession.ts:22-25   # the client asks for audio only
 
   _open_risks_the_owner_should_know_about:
     - >
@@ -806,6 +1006,40 @@ data_safety:
       Deleting a therapist link does NOT revoke episode grants already made
       (server/routers/therapist.py:12-14). The privacy policy states this
       explicitly so the declaration and the behaviour agree.
+    - changed_2026_09_20: >
+        NEW AND BLOCKING FOR THIS FORM. The privacy policy contradicts the code
+        in two places, and the README's rule is that the policy and the Data
+        safety matrix must say the same thing. (1) It says a live coaching
+        session "keeps no audio at all" and that the server "never writes that
+        audio down" — both stopped being true when Keep audio became the
+        default (DEFAULT_KEEP_AUDIO = true) and the phone started uploading the
+        session WAV to POST /sessions/{id}/audio. This pack has said audio is
+        kept by default since 2026-08-29; the policy page never caught up. (2)
+        It does not mention HEART RATE anywhere, which this refresh now
+        declares as collected. Fix both paragraphs before submitting the Data
+        safety form.
+      proof:
+        - apps/mobile/public/privacy/index.html:114-115
+        - apps/mobile/public/privacy/index.html:195-198
+        - apps/mobile/public/privacy/index.html:245-247
+        - apps/mobile/src/live/keepAudioPrefs.ts:21
+        - apps/mobile/src/live/liveAudioKeeper.ts
+    - changed_2026_09_20: >
+        NEW. An UNPAIRED Wear OS watch streams its microphone audio and heart
+        rate to the backend under the literal account id "default", because
+        MINDSHIFT_ALLOW_LEGACY_ACCOUNT defaults to true and the Cloud Run
+        deploy does not override it. That data belongs to no uid, so DELETE /me
+        can never reach it, and POST /me/claim-legacy lets the first account
+        that calls it adopt the whole "default" history. This does not change a
+        phone-listing answer, but it is the most Play-relevant thing the
+        2026-09-20 read turned up and it is written up in full in the watch
+        pack.
+      proof:
+        - server/watch/auth.py:149-153
+        - server/watch/config.py:16-19
+        - scripts/deploy_cloudrun.sh:130-131
+        - server/watch/routers/rest.py:360-378
+        - docs/play/play-answers-mindshift-wear.yaml
 
 # ===========================================================================
 # 6. Government apps  (Policy → App content → Government apps)
@@ -827,6 +1061,18 @@ other_declarations:
       If the console forces this form (it appears for Health & Fitness / Medical
       category apps), that means the store-listing category was set wrong. Fix
       the category to Communication instead of filling this form in.
+    changed_2026_09_20: >
+      STILL "Not applicable", even though Data safety now declares Health info.
+      Play's Health apps declaration is scoped to the Health & Fitness / Medical
+      CATEGORIES and to Health Connect integration. Neither app is in those
+      categories, and neither depends on androidx.health.connect — the watch's
+      only health dependency is androidx.health.services.client, the Wear
+      on-device sensor API, which is a different surface. Ticking a data type
+      does not opt the app into that regime and must not be treated as if it
+      does.
+    proof:
+      - apps/watch/wearApp/build.gradle.kts:111-134   # health-services-client, no health-connect
+      - apps/mobile/package.json                      # no health library on the phone at all
   data_deletion:
     value: "https://arborfam-hub.web.app/delete-account"
   news_apps:
@@ -1020,6 +1266,10 @@ graphics_checklist:
   wear_os_screenshots:
     value: "Skip — the Wear OS companion is a separate listing (com.sagearbor.gauge.wear)."
     proof: apps/mobile/src/screens/WatchSetupScreen.tsx:21-22
+    changed_2026_09_20: >
+      Still skip HERE, but that listing now has a pack of its own and its Wear
+      screenshots are its blocker: docs/play/play-answers-mindshift-wear.yaml,
+      graphics_checklist.wear_os_screenshots.
   promo_video:
     value: "Leave blank."
 
@@ -1135,6 +1385,7 @@ catch_all:
         - "Personal info → Email address"
         - "Personal info → User IDs"
         - "Personal info → Other info"
+        - "Health and fitness → Health info"   # changed_2026_09_20: NEW — tick this; it was unticked before
         - "Messages → Other in-app messages"
         - "Photos and videos → Videos"
         - "Audio → Voice or sound recordings"
@@ -1142,6 +1393,10 @@ catch_all:
         - "App activity → Other user-generated content"
         - "App info and performance → Crash logs"
         - "App info and performance → Diagnostics"
+      changed_2026_09_20:
+        the_only_new_tick: "Health and fitness → Health info. Everything else on this list was already ticked in the 2026-08-26 pass."
+        do_not_tick: "Health and fitness → Fitness info — there are no steps, workouts or calories anywhere in either app."
+        proof: apps/watch/wearApp/src/main/kotlin/app/gauge/wear/sensors/HrSource.kt
     step_3_data_usage_and_handling:
       instruction: >
         Play asks the SAME four questions for every ticked type. Read them off
@@ -1152,12 +1407,13 @@ catch_all:
           4. Why is this data collected/shared? (tick all)     → `purposes`
       purpose_options_and_which_ones_ever_apply:
         app_functionality: "Applies to every declared type."
-        analytics: "Only App interactions, Crash logs, Diagnostics."
+        analytics: "Only Health info, App interactions, Crash logs, Diagnostics."
         developer_communications: "Never."
         advertising_or_marketing: "NEVER. There are no ads. Do not tick this on anything."
         fraud_prevention_security_and_compliance: "Only User IDs."
-        personalization: "Only Personal info → Other info (the voiceprint) and Other user-generated content."
+        personalization: "Only Health info, Personal info → Other info (the voiceprint and the arousal/valence series) and Other user-generated content."
         account_management: "Only Name, Email address, User IDs."
+        changed_2026_09_20: "Health info added to Analytics and Personalization. Nothing was removed."
     step_4_review_and_submit:
       value: "See `notes_for_the_agent.hard_rules` before pressing anything on this screen."
 
@@ -1334,6 +1590,33 @@ _provenance:
     - server/recordings_store.py:68-72,238-253     # standard GCS bucket — Google-managed AES-256 by default
     - server/watch/store.py:478-482                # standard Firestore — encrypted at rest by default
     - note: "No CMEK anywhere in the repo, and no application-layer encryption. Stored objects are plaintext JSON/media inside an encrypted-at-rest bucket."
+  heart_rate_is_collected_by_the_paired_watch_and_stored_per_session:
+    # changed_2026_09_20: new provenance entry for the flipped Health info answer.
+    - apps/watch/wearApp/src/main/AndroidManifest.xml:7          # BODY_SENSORS on the watch
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/sensors/HrSource.kt   # Wear Health Services measure stream
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/control/SentinelController.kt  # per-window send; 5 s companion cadence
+    - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/net/EpisodeWsClient.kt:160-168  # the {"type":"hr"} frame
+    - server/watch/routers/ws.py:236-244                          # hr_bpm_series / hr_t_series — every sample
+    - server/watch/routers/ws.py:300-317                          # persisted in LiveSession.series
+    - server/watch/routers/ws.py:319-337                          # companion_hr documents
+    - apps/mobile/app.json:31-41                                  # the PHONE has no body-sensor permission
+    - server/account_deletion.py:290-297                          # deletion reaches it
+  emotional_state_is_inferred_from_voice_and_the_series_is_stored:
+    # changed_2026_09_20: the heat judge shipped on this branch.
+    - server/watch/heat_judge.py                                  # 2 s window, 1 s hop, confirm/veto/unknown
+    - server/tone_id.py                                           # the backends, pinned HF revisions, CPU, in-process
+    - server/audio_pipeline.py:2750-2760                          # the phone's live session feeds it PCM
+    - server/audio_pipeline.py:3107-3120,3216-3218                # the per-turn verdict rides the turn scores
+    - server/watch/routers/ws.py:88-114,300-317                   # arousal/valence/judge harvested and persisted
+    - server/watch/relay.py                                       # valence can veto a tone escalation
+    - note: "No emotion-API vendor exists in the stack. The models run on our own Cloud Run container."
+  in_app_call_media_is_still_audio_only:
+    # changed_2026_09_20: re-verified, unchanged.
+    - server/calls.py:1-40
+    - server/calls.py:274-287
+    - server/calls.py:1107-1157
+    - apps/mobile/src/live/call/callSession.ts:22-25
+    - note: "The string \"video\" does not appear anywhere in server/calls.py."
   no_retention_limit_on_stored_content:
     - note: "Repo-wide search finds no bucket lifecycle rule, no object TTL and no scheduled deletion."
     - server/main.py:580-586,4687-4688             # the only real TTL: analysis job state, 24 h, lazily deleted
