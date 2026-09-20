@@ -764,13 +764,23 @@ function buildWatchLane(
 ): WatchLane {
   const self = script.selfSpeaker;
   const ticks = new Map<number, VectorEvent[]>();
-  const add = (t: number, e: VectorEvent | null) => {
+  // How much audio each tick's observation covers — what the loudness hold
+  // counts (nudgePolicy.LoudnessHold). A fragment contributes its own
+  // duration, exactly as watch/relay.py forwards a phone turn's; a
+  // ground-truth-only tick is worth the default single window.
+  const tickSeconds = new Map<number, number>();
+  const add = (t: number, e: VectorEvent | null, seconds?: number) => {
     const list = ticks.get(t) ?? [];
     if (e) list.push(e);
     ticks.set(t, list);
+    if (seconds !== undefined) tickSeconds.set(t, Math.max(tickSeconds.get(t) ?? 0, seconds));
   };
   for (const f of fragments) {
-    add(f.end, f.coachedAsSelf ? { vector: "yelling", level: f.instantLevel, t: f.end, value: f.dbOverBaseline ?? 0 } : null);
+    add(
+      f.end,
+      f.coachedAsSelf ? { vector: "yelling", level: f.instantLevel, t: f.end, value: f.dbOverBaseline ?? 0 } : null,
+      f.end - f.start,
+    );
   }
   const ground: VectorEvent[] = [];
   if (self) {
@@ -784,7 +794,10 @@ function buildWatchLane(
   for (const t of [...ticks.keys()].sort((a, b) => a - b)) {
     const evs = ticks.get(t) ?? [];
     events.push(...evs);
-    emitted.push(...policy.onEvents(evs, t));
+    // A tick with no fragment at this instant is a ground-truth `interrupting`
+    // or `airtime` event, not a loudness observation — `null` so it leaves the
+    // loudness hold's run alone rather than counting as a quiet window.
+    emitted.push(...policy.onEvents(evs, t, tickSeconds.get(t) ?? null));
   }
   const selfTurnAt = (t: number) => script.turns.find((st) => st.speaker === self && st.start - EPS <= t && t <= st.end + EPS) ?? null;
   const rows: WatchBuzz[] = emitted.map((n) => {

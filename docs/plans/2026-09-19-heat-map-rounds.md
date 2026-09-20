@@ -111,6 +111,27 @@ tuning the loudness lane. Something other than loudness has to decide when a
 loud moment is worth a buzz** — words, valence with a stricter bar, or a
 learned model — and the corpus below is what it gets calibrated on.
 
+## Round 1c — hold-3s SHIPPED (2026-09-20)
+
+The one variant on the graph that was worth shipping on its own.
+`dose_sustained3s` — the ladder's first rung held for three consecutive 1 s
+windows before it may climb — is now the product on all three runtimes.
+Measured over the 121 recordings this page covers:
+
+| corpus | n | median dose, before | median dose, shipped |
+| --- | --- | --- | --- |
+| AMI | 12 | 97.0 /h | **46.4 /h** |
+| SBCSAE | 60 | 80.2 /h | **36.1 /h** |
+
+Full write-up, the knob (`MINDSHIFT_HEAT_HOLD_S` / `HEAT_HOLD_S`), what it
+costs, and the gates: **`docs/plans/2026-09-20-hold3-hysteresis.md`**.
+
+Note for reading this page from here on: **`dose_per_hour` is now the ladder
+we replaced**, kept as the baseline every variant is measured against;
+`dose_sustained3s` is what ships. The round-1b table above is likewise a
+pre-hold measurement — its conclusion is unchanged (no combination of loudness
+knobs reaches 12/h) and hold-3s is the largest single step toward it.
+
 ## Round 2 — diverse real conversation
 
 _(filled in as corpora land — see below)_

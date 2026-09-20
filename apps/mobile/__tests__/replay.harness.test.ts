@@ -318,7 +318,11 @@ describe("scriptedProvider + tone", () => {
       { text: "hi", atMs: 0, atSec: 0, vadSpeechKnown: true },
       { text: "there", atMs: 0, atSec: 0, vadSpeechKnown: false },
     ]);
-    const policy = recordingPolicy(phoneNudgePolicy());
+    // hold-3s: the subject here is the SPY's log shape, not the ladder, so the
+    // inner policy runs at the pre-2026-09-20 hold (1 s) — otherwise a
+    // single-window `yelling` observation would be gated and this would be
+    // quietly testing the hysteresis instead.
+    const policy = recordingPolicy(phoneNudgePolicy(20.0, 1.0));
     policy.onEvents([{ vector: "yelling", level: 2, t: 1 }, { vector: "aggressive_tone", level: 1, t: 1 }], 1);
     policy.onEvents([], 2);
     expect(policy.log.map((c) => [c.rawLevel, c.emitted.map((e) => e.level), c.levelAfter])).toEqual([
@@ -326,6 +330,17 @@ describe("scriptedProvider + tone", () => {
       [0, [], 2],
     ]);
     expect(policy.current()).toEqual({ A: 2 });
+  });
+
+  it("recordingPolicy forwards observedS, so a replay measures the ladder the device runs", () => {
+    // The spy wraps every onEvents call. Dropping the third argument would
+    // silently replay every turn as ONE 1 s window and under-report the dose.
+    const held = recordingPolicy(phoneNudgePolicy());
+    expect(held.onEvents([{ vector: "yelling", level: 2, t: 1 }], 1)).toEqual([]);
+    const passed = recordingPolicy(phoneNudgePolicy());
+    expect(passed.onEvents([{ vector: "yelling", level: 2, t: 1 }], 1, 3.0)).toEqual([
+      { channel: "A", level: 2, t: 1, vectors: ["yelling"] },
+    ]);
   });
 });
 

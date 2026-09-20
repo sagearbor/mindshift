@@ -49,6 +49,14 @@ SEED_WINDOWS = 3
 WINDOW_S = 1.0                      # SentinelController MAX_SLICE_BYTES 32000 / 2 / 16000
 YELLING_LEVELS = ((14.0, 3), (10.0, 2), (6.0, 1))     # NudgeStateMachine.levelFor
 COOLDOWN_S = 20.0                   # NudgePolicy: drop ONE level after this much quiet
+# Hold-N hysteresis, SHIPPED 2026-09-20 on all three runtimes: the first rung
+# must hold this many consecutive 1 s windows before the ladder may climb.
+# Mirrors server/nudge_policy.py HEAT_HOLD_S_DEFAULT (env MINDSHIFT_HEAT_HOLD_S),
+# apps/mobile/src/live/nudgePolicy.ts HEAT_HOLD_S and the watch's HEAT_HOLD_S.
+# `sustained()` below is the reference implementation the three ports match;
+# `audit()` applies it by default so this script measures what ships, and 0 or 1
+# reproduces the pre-2026-09-20 ladder exactly.
+HEAT_HOLD_S = 3
 PULSE_THRESHOLD_DB = 6.0            # pulseThresholdDbFor(SESSION)
 REMINDER_BASE_MS = {1: 120_000, 2: 60_000, 3: 10_000}
 REMINDER_CAP_MS = 120_000           # NudgeHapticSchedule.REMINDER_BACKOFF_CAP_MS
@@ -240,12 +248,13 @@ def speaking_at(speakers: dict[str, list[list[float]]], t: float) -> set[str]:
     return {s for s, spans in speakers.items() if any(a <= t <= b for a, b in spans)}
 
 
-def audit(meta: dict, corpus: Path, pulse_on: bool, reminder_backoff: bool) -> dict:
+def audit(meta: dict, corpus: Path, pulse_on: bool, reminder_backoff: bool, hold_s: int = HEAT_HOLD_S) -> dict:
     with wave.open(str(corpus / meta["mix"])) as w:
         sr = w.getframerate()
         pcm = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2")
     over = db_over_baseline(windows_dbfs(pcm, sr))
-    felt = replay(over, pulse_on, reminder_backoff)
+    # hold_s=0 or 1 is the pre-2026-09-20 ladder; the default is what ships.
+    felt = replay(over, pulse_on, reminder_backoff, gate=sustained(over, YELLING_LEVELS[-1][0], hold_s))
 
     # The coached user is, by convention, headset 0 — the choice is arbitrary
     # and the aggregate is reported across every speaker as the wearer below.
@@ -288,8 +297,12 @@ def main() -> int:
     manifest = json.loads((corpus / "manifest.json").read_text())
 
     scenarios = {
-        "SHIPPED TODAY (pulse off, reminder backs off)": dict(pulse_on=False, reminder_backoff=True),
-        "before 2026-09-10 (pulse on, flat reminder)":   dict(pulse_on=True, reminder_backoff=False),
+        f"SHIPPED TODAY (pulse off, reminder backs off, first rung holds {HEAT_HOLD_S} s)":
+            dict(pulse_on=False, reminder_backoff=True),
+        "before 2026-09-20 (no hold: one loud window climbs)":
+            dict(pulse_on=False, reminder_backoff=True, hold_s=0),
+        "before 2026-09-10 (pulse on, flat reminder, no hold)":
+            dict(pulse_on=True, reminder_backoff=False, hold_s=0),
     }
     results = {}
     for name, kw in scenarios.items():

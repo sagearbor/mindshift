@@ -29,7 +29,7 @@ VECTORS_PATH = Path(__file__).parent / "fixtures" / "policy_vectors" / "nudge_po
 def _load_cases() -> list[dict]:
     with VECTORS_PATH.open() as f:
         doc = json.load(f)
-    assert doc["_schema"]["version"] == 1
+    assert doc["_schema"]["version"] == 2
     return doc["cases"]
 
 
@@ -38,7 +38,15 @@ CASES = _load_cases()
 
 def _build_policy(config: dict) -> NudgePolicy:
     subs = [VectorSubscription(**s) for s in config["subscriptions"]]
-    return NudgePolicy(subs, cooldown_s=config["cooldown_s"], channels=config["channels"])
+    # `hold_s` is REQUIRED by schema v2 (the loudness ladder's hold-N
+    # hysteresis) — never defaulted here, so a case can't silently be replayed
+    # under a different gate than the one it was written for.
+    return NudgePolicy(
+        subs,
+        cooldown_s=config["cooldown_s"],
+        channels=config["channels"],
+        hold_s=config["hold_s"],
+    )
 
 
 def _watch_level_for(db_over_baseline: float) -> int:
@@ -80,6 +88,8 @@ def test_fixture_is_well_formed(case):
     assert "server" in case["applies_to"], "every case must run on the reference implementation"
     assert config["channels"], "at least one channel"
     assert len(set(config["channels"])) == len(config["channels"]), "channels are unique"
+    assert isinstance(config["hold_s"], float), "schema v2: every case declares hold_s explicitly"
+    assert config["hold_s"] >= 0.0
 
     last_t = float("-inf")
     for step in case["inputs"]:
@@ -136,8 +146,81 @@ def test_coverage_of_required_scenarios():
         "sustained_observation_refreshes_clock",
         "stepwise_deescalation_3_to_0",
         "full_decay_then_fresh_escalation",
+        # hold-3s (2026-09-20): the three cases the ladder's hysteresis is
+        # pinned by on all three runtimes.
+        "hold_two_loud_windows_then_quiet_never_buzzes",
+        "hold_three_loud_windows_escalates_on_the_third",
+        "hold_of_one_is_the_pre_hysteresis_ladder",
     }
     assert required <= names
+
+
+def test_the_shipped_hold_is_actually_exercised():
+    """A fixture where every case declared the legacy `hold_s: 1.0` would be
+    green and prove nothing about what ships. At least one case must run at
+    the runtime default, and at least one at 0.0 — the two ends of the knob."""
+    holds = {c["config"]["hold_s"] for c in CASES}
+    assert nudge_policy.HEAT_HOLD_S_DEFAULT in holds, (
+        f"no case runs at the shipped hold of {nudge_policy.HEAT_HOLD_S_DEFAULT}s"
+    )
+    assert 0.0 in holds and 1.0 in holds, "both no-gate values must stay pinned"
+
+
+def test_hold_env_override(monkeypatch):
+    """MINDSHIFT_HEAT_HOLD_S is the server's knob, read once per policy."""
+    monkeypatch.setenv(nudge_policy.HEAT_HOLD_ENV, "5")
+    assert nudge_policy.heat_hold_s() == 5.0
+    assert NudgePolicy([VectorSubscription(vector="yelling")]).hold.hold_s == 5.0
+    # Garbage and negatives fall back to the default rather than disabling the
+    # gate silently — a typo must never quietly restore the 97/hour ladder.
+    for bad in ("", "  ", "three", "-1"):
+        monkeypatch.setenv(nudge_policy.HEAT_HOLD_ENV, bad)
+        assert nudge_policy.heat_hold_s() == nudge_policy.HEAT_HOLD_S_DEFAULT
+    monkeypatch.delenv(nudge_policy.HEAT_HOLD_ENV)
+    assert nudge_policy.heat_hold_s() == nudge_policy.HEAT_HOLD_S_DEFAULT
+
+
+def test_a_tick_that_heard_no_audio_leaves_the_run_alone():
+    """``observed_s=None`` is what every non-audio tick passes.
+
+    The watch's socket runs ONE policy for both lanes, so an ``hr`` frame calls
+    ``on_events`` too. If that counted as a quiet window the wrist would stay
+    silent through a raised voice because a heart-rate sample happened to land
+    between two of its windows — a bug you would only ever see on a device.
+    """
+    p = NudgePolicy(
+        [VectorSubscription(vector="yelling"), VectorSubscription(vector="hr_spike")],
+        hold_s=3.0,
+    )
+    loud = [VectorEvent(vector="yelling", level=3, t=0.0, value=20.0)]
+    assert p.on_events(loud, 1.0) == []                       # run 1
+    # An hr tick between the windows: it may nudge channel B, and it must not
+    # touch channel A's run.
+    hr = p.on_events([VectorEvent(vector="hr_spike", level=2, t=1.5, value=25.0)], 1.5, None)
+    assert [(n.channel, n.level) for n in hr] == [("B", 2)]
+    assert p.hold.run_s == 1.0, "the run survived a tick that heard no audio"
+    assert p.on_events(loud, 2.0) == []                       # run 2
+    got = p.on_events(loud, 3.0)                              # run 3 -> climbs
+    assert [(n.channel, n.level) for n in got] == [("A", 3)]
+
+
+def test_hold_counts_seconds_not_calls():
+    """A turn-driven caller (watch/relay.py) observes once per TURN, so an
+    observation carries how much audio it covers. One 4 s loud turn is four
+    windows of hold; a sub-second one is still worth a whole window, which is
+    what keeps hold_s <= 1 byte-identical to the pre-hold ladder everywhere."""
+    hold = nudge_policy.LoudnessHold(3.0)
+    assert hold.observe(True, 4.0) is True
+    hold = nudge_policy.LoudnessHold(3.0)
+    assert hold.observe(True, 0.2) is False   # worth one window, not 0.2
+    assert hold.observe(True, 0.2) is False
+    assert hold.observe(True, 0.2) is True
+    # peek is pure: asking twice can't advance the run (the phone's instant
+    # haptic tier asks before the same turn's policy tick).
+    hold = nudge_policy.LoudnessHold(3.0)
+    assert hold.peek(True, 5.0) is True
+    assert hold.peek(True, 5.0) is True
+    assert hold.run_s == 0.0
 
 
 def test_watch_module_reexports_canonical_policy():

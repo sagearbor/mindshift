@@ -198,14 +198,23 @@ class _Recorder:
     """Stands in for ws.py's emit closure: records calls and runs a real
     NudgePolicy so the test can see nudges, not just events."""
 
-    def __init__(self, subs=None):
+    def __init__(self, subs=None, hold_s=1.0):
         self.calls: list[tuple[list[VectorEvent], float]] = []
-        self.policy = NudgePolicy(subs or [VectorSubscription(vector="yelling"), VectorSubscription(vector="aggressive_tone")])
+        # hold-3s: these cases are about the RELAY's conversion and routing, not
+        # the loudness ladder's hysteresis, so the stand-in policy runs at the
+        # pre-2026-09-20 hold. The hold on this path (a phone turn's duration is
+        # what it counts) is pinned by test_relay_hold.py.
+        self.policy = NudgePolicy(
+            subs or [VectorSubscription(vector="yelling"), VectorSubscription(vector="aggressive_tone")],
+            hold_s=hold_s,
+        )
         self.nudges = []
+        self.observed_s: list[float] = []
 
-    async def emit(self, events, t):
+    async def emit(self, events, t, observed_s=1.0):
         self.calls.append((events, t))
-        self.nudges.extend(self.policy.on_events(events, t))
+        self.observed_s.append(observed_s)
+        self.nudges.extend(self.policy.on_events(events, t, observed_s))
 
 
 def _session(engine: VectorEngine, recorder: _Recorder, account="alice") -> relay.LiveWatchSession:
@@ -359,10 +368,15 @@ def test_phone_turn_nudges_a_live_watch_socket_from_another_thread():
         assert vector_event["t"] == 0.0, "stamped with the watch stream clock (no window yet)"
         assert nudge == {"type": "nudge", "channel": "A", "level": 2, "t": 0.0, "vectors": ["aggressive_tone"]}
 
-        # The watch mic path still works exactly as before alongside it.
-        ws.send_bytes(pcm(0.4))
-        loud = json.loads(ws.receive_text())
-        assert loud["type"] == "vector_event" and loud["vector"] == "yelling"
+        # The watch mic path still works exactly as before alongside it — except
+        # that hold-3s (2026-09-20) makes the first rung hold for three
+        # consecutive 1 s windows before the loudness lane may climb. The
+        # vector_event (what was MEASURED) is emitted every window regardless;
+        # only the nudge waits.
+        for _ in range(3):
+            ws.send_bytes(pcm(0.4))
+            loud = json.loads(ws.receive_text())
+            assert loud["type"] == "vector_event" and loud["vector"] == "yelling"
         louder = json.loads(ws.receive_text())
         assert louder["type"] == "nudge" and louder["level"] == 3, "yelling 3 out-escalates the tone-2 the relay set"
 
@@ -567,3 +581,88 @@ async def _all_sessions(store) -> list:
     if hasattr(store, "_live_sessions"):
         return list(store._live_sessions.values())
     raise AssertionError("MemoryLiveSessionStore shape changed — update this helper")
+
+
+# ------------------------------------------------------------- hold-3s --
+#
+# The loudness ladder's first rung has to hold for three seconds before the
+# ladder may climb (docs/plans/2026-09-20-hold3-hysteresis.md). The watch's own
+# mic observes once per 1 s window; a phone turn relayed through here covers its
+# whole DURATION, and that is what `push_turn_local` passes as `observed_s`.
+# Without it the wrist would need three loud phone turns where the phone itself
+# buzzed after one, and the same conversation would be coached differently
+# depending on which device heard it.
+
+
+def test_the_relay_makes_the_first_rung_hold_in_seconds_of_turn():
+    async def run():
+        engine = VectorEngine(EnrollmentBaseline(
+            account_id="alice", rms_db=-30.0, f0_median=120.0, updated_at="x",
+        ))
+        rec = _Recorder(hold_s=3.0)
+        relay.register_live_session(_session(engine, rec))
+
+        # A 0.5 s yelp at +16 dB: loud, but worth one window of hold, so the
+        # wrist stays silent.
+        relay.push_turn_local("alice", _turn(
+            start_time=0.0, end_time=0.5, prosody=TurnProsody(rms_dbfs=-14.0),
+        ))
+        await asyncio.sleep(0)
+        assert [evs[0].vector for evs, _ in rec.calls] == ["yelling"], "measured and relayed"
+        assert rec.nudges == [], "half a second of raised voice is not a raised voice"
+
+        # A 4 s turn at the same loudness finishes the hold on its own.
+        relay.push_turn_local("alice", _turn(
+            start_time=1.0, end_time=5.0, prosody=TurnProsody(rms_dbfs=-14.0),
+        ))
+        await asyncio.sleep(0)
+        assert [n.level for n in rec.nudges] == [3]
+        # …and the durations reached the policy, not a default 1 s per call.
+        assert rec.observed_s == [1.0, 4.0]
+
+    asyncio.run(run())
+
+
+def test_a_long_loud_turn_still_waits_when_the_hold_is_longer_than_it():
+    """The knob is honoured end to end: at a 5 s hold the same 4 s turn is not
+    enough, which is what makes MINDSHIFT_HEAT_HOLD_S a real override rather
+    than a constant with an unused name."""
+    async def run():
+        engine = VectorEngine(EnrollmentBaseline(
+            account_id="alice", rms_db=-30.0, f0_median=120.0, updated_at="x",
+        ))
+        rec = _Recorder(hold_s=5.0)
+        relay.register_live_session(_session(engine, rec))
+        relay.push_turn_local("alice", _turn(
+            start_time=1.0, end_time=5.0, prosody=TurnProsody(rms_dbfs=-14.0),
+        ))
+        await asyncio.sleep(0)
+        assert rec.nudges == []
+        relay.push_turn_local("alice", _turn(
+            start_time=5.0, end_time=7.0, prosody=TurnProsody(rms_dbfs=-14.0),
+        ))
+        await asyncio.sleep(0)
+        assert [n.level for n in rec.nudges] == [3]
+
+    asyncio.run(run())
+
+
+def test_a_degenerate_turn_span_is_still_worth_one_window():
+    """A zero-length or backwards span must never SHORTEN the hold — the clamp
+    in push_turn_local is what keeps a malformed phone report from making the
+    ladder easier to climb rather than harder."""
+    async def run():
+        engine = VectorEngine(EnrollmentBaseline(
+            account_id="alice", rms_db=-30.0, f0_median=120.0, updated_at="x",
+        ))
+        rec = _Recorder(hold_s=3.0)
+        relay.register_live_session(_session(engine, rec))
+        for _ in range(3):
+            relay.push_turn_local("alice", _turn(
+                start_time=2.0, end_time=2.0, prosody=TurnProsody(rms_dbfs=-14.0),
+            ))
+            await asyncio.sleep(0)
+        assert rec.observed_s == [1.0, 1.0, 1.0]
+        assert [n.level for n in rec.nudges] == [3], "three windows, not three fractions of one"
+
+    asyncio.run(run())

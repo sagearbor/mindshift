@@ -6,6 +6,24 @@
 # escalation before we alert" brain). This module is a deliberate thin
 # re-export so every existing ``from watch.nudge_policy import NudgePolicy``
 # keeps working unchanged — do not add behaviour here; edit the flat module.
-from nudge_policy import DEFAULT_CHANNELS, NudgePolicy
+from nudge_policy import (
+    DEFAULT_CHANNELS,
+    HEAT_HOLD_ENV,
+    HEAT_HOLD_S_DEFAULT,
+    HOLD_VECTOR,
+    WINDOW_S,
+    LoudnessHold,
+    NudgePolicy,
+    heat_hold_s,
+)
 
-__all__ = ["DEFAULT_CHANNELS", "NudgePolicy"]
+__all__ = [
+    "DEFAULT_CHANNELS",
+    "HEAT_HOLD_ENV",
+    "HEAT_HOLD_S_DEFAULT",
+    "HOLD_VECTOR",
+    "WINDOW_S",
+    "LoudnessHold",
+    "NudgePolicy",
+    "heat_hold_s",
+]

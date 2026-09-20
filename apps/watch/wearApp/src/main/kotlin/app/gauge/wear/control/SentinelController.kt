@@ -73,6 +73,12 @@ class SentinelController(
     private val accel: ScalarSource? = null,
     private val selectedSignal: () -> SignalKind = { SignalKind.VOLUME },
     private val pulseIntervalMs: () -> Long? = { DEFAULT_PULSE_INTERVAL_MS },
+    /** Hold-N hysteresis on the OFFLINE loudness ladder, in seconds — see
+     *  [app.gauge.shared.LoudnessHold]. A debug seam, not a user setting: the service reads
+     *  [app.gauge.wear.prefs.GaugePrefs.heatHoldSeconds], which has no Settings row and is only
+     *  writable over adb, so a wearer can never end up on a hold they did not choose. Read ONCE
+     *  per controller (the state machine owns its run), unlike `pulseIntervalMs`. */
+    heatHoldS: () -> Double = { app.gauge.shared.HEAT_HOLD_S },
     /** Tier B: the session id COMPANION mode opens its socket under (see [companionSessionId] —
      *  deterministic per day+account in production, so a whole day of reconnects lands on one id).
      *  Null falls back to [ids] like every other episode. Mic-using modes never read this. */
@@ -95,7 +101,7 @@ class SentinelController(
     // capacity is fixed for the life of this controller instance.
     private val retroCaptureBuffer = app.gauge.shared.capture.RetroCaptureBuffer()
 
-    private val nudgeStateMachine = NudgeStateMachine()
+    private val nudgeStateMachine = NudgeStateMachine(holdS = heatHoldS())
     private val pulseEngine = PulseEngine(intervalMs = pulseIntervalMs, nowMs = nowMs)
 
     // I2: kept alongside pulseEngine so playChannelHapticIfApplicable can ask "what time is it

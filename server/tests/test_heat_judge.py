@@ -74,6 +74,11 @@ def _clean_registries(monkeypatch):
     # assert what happens after the wait, not how long it is.
     monkeypatch.setattr(hj, "JUDGE_WAIT_S", 0.02)
     monkeypatch.setattr(hj, "JUDGE_POLL_S", 0.005)
+    # These tests exercise the JUDGE, not the loudness hold that landed the
+    # same night: ``_loud_turn`` is 1.75 s of raised voice, under the shipped
+    # 3 s hold, so with the hold at its default no first-rung tap would ever
+    # reach the judge. hold_s=1 is byte-identical to the pre-hold ladder.
+    monkeypatch.setenv("MINDSHIFT_HEAT_HOLD_S", "1")
     hj.reset()
     relay._registry.clear()
     yield
@@ -309,7 +314,9 @@ class _Recorder:
     def __init__(self):
         self.calls: list[tuple[list, float]] = []
 
-    async def emit(self, events, t):
+    async def emit(self, events, t, observed_s=None):
+        # ``observed_s`` is the hold-3s loudness observation (2026-09-20); the
+        # judge tests don't assert on it, they only need to accept it.
         self.calls.append((events, t))
 
 

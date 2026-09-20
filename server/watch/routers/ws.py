@@ -57,7 +57,7 @@ from watch.models import (
     Participant,
     VectorEvent,
 )
-from watch.nudge_policy import NudgePolicy
+from watch.nudge_policy import WINDOW_S as NUDGE_WINDOW_S, NudgePolicy
 from watch.post_session import analyze_live_session
 from watch import heat_judge
 from watch.relay import LiveWatchSession, register_live_session, unregister_live_session
@@ -255,11 +255,17 @@ def make_ws_router(
         # all-day wrist socket would otherwise mint an empty junk doc per drop.
         companion = False
 
-        async def emit(events: list[VectorEvent], t: float) -> None:
+        async def emit(events: list[VectorEvent], t: float, observed_s: float | None = NUDGE_WINDOW_S) -> None:
             vector_events.extend(events)
             for e in events:
                 await websocket.send_json({"type": "vector_event", **e.model_dump()})
-            nudges = policy.on_events(events, t)
+            # ``observed_s`` only feeds the loudness hold (nudge_policy.
+            # LoudnessHold): this socket's own PCM path calls once per 1 s
+            # window and leaves the default; watch/relay.py passes a phone
+            # turn's duration; a non-audio tick (the ``hr`` path below) passes
+            # None so a heart-rate sample landing between two windows cannot
+            # break a run the wearer's voice is still building.
+            nudges = policy.on_events(events, t, observed_s)
             nudge_events.extend(nudges)
             for n in nudges:
                 await websocket.send_json({"type": "nudge", **n.model_dump()})
@@ -411,7 +417,11 @@ def make_ws_router(
                     hr_bpm_series.append(bpm)
                     hr_t_series.append(stream_t)
                     events = engine.push_hr(bpm, stream_t)
-                    await emit(events, stream_t)
+                    # observed_s=None: heart rate is not audio. This tick must
+                    # drive channel B and the cooldown clocks exactly as it
+                    # always has, and must NOT count as a quiet window against
+                    # the loudness lane's hold.
+                    await emit(events, stream_t, None)
                 elif msg_type == "end":
                     if companion and not hr_bpm_series:
                         # A companion socket that collected nothing has nothing

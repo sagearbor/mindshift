@@ -49,6 +49,17 @@ resources at build time (never a hand-maintained copy), and
 - Cooldown is **strictly** `elapsed > cooldown_s` — `cooldown_is_strictly_greater_than`
   pins the tie. Rounding of `level * sensitivity` is **half-up**, not
   banker's — `sensitivity_scales_with_half_up_rounding` pins 0.5 -> 1.
+- **Schema v2 (2026-09-20) adds a REQUIRED `config.hold_s`**: the loudness
+  ladder's hold-N hysteresis, in seconds. Each step is one 1 s window, so it
+  is a count of consecutive qualifying steps; a step whose `yelling` level is 0
+  (or that carries no `yelling` event) breaks the run, and a gated-out loud
+  step reads as level 0 for that call — it neither escalates nor refreshes the
+  sustain clock. Every driver reads it from the case and never defaults it, so
+  a case cannot be replayed under a gate it was not written for. The pre-v2
+  cases all declare `1.0` (the ladder they were written against); the six
+  `hold_*` cases pin the shipped `3.0` and prove `1.0` and `0.0` reproduce the
+  old one. Only the `yelling` lane is gated — `hold_gates_loudness_only_not_tone`
+  is the case that says so. See `docs/plans/2026-09-20-hold3-hysteresis.md`.
 
 ## `tone_escalation.json` specifics
 

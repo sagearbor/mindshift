@@ -1073,8 +1073,15 @@ export class FastLoop {
       } catch {
         activation = null;
       }
+      // hold-3s: the instant tier buzzes BEFORE this turn's policy tick, so it
+      // asks the policy's loudness hold what that tick will decide — `peek` is
+      // pure, so the turn is still counted exactly once, by `onEvents` below.
+      // Without this the hold would be inert on the phone: the instant haptic
+      // IS the buzz a wearer feels, and the policy tier only re-buzzes a level
+      // the instant tier did not already cover.
+      const holdOpen = this.policy.hold.peek(instantYellingLevel >= 1, duration);
       const instantLevel = Math.max(
-        instantYellingLevel,
+        holdOpen ? instantYellingLevel : 0,
         this.activationNudges && activation ? activation.level : 0,
       );
       if (instantLevel > (this.policy.current().A ?? 0) && this.deps.haptics) {
@@ -1211,7 +1218,10 @@ export class FastLoop {
             : []),
         ]
       : [];
-    this.emitNudges(this.policy.onEvents(nudgeEvents, span.end), instantBuzzedLevel);
+    // `duration` is how much audio this one observation covers — the loudness
+    // hold counts seconds of raised voice, not turns (nudgePolicy.LoudnessHold).
+    // Non-self turns tick with no events, which is what BREAKS a run.
+    this.emitNudges(this.policy.onEvents(nudgeEvents, span.end, duration), instantBuzzedLevel);
     this.emitPositives(turn, coachedAsSelf, measuredLoudLevel);
 
     if (suggestion && session.mode !== "therapist") {

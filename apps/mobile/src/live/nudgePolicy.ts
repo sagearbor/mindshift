@@ -42,6 +42,74 @@ export interface NudgeEvent {
 
 export const DEFAULT_CHANNELS: Channel[] = ["A", "B"];
 
+// ---------------------------------------------------------------------------
+// Hold-N hysteresis on the loudness ladder (2026-09-20)
+// ---------------------------------------------------------------------------
+// The ladder used to climb off a SINGLE observation that cleared +6 dB over
+// the speaker's own baseline. Measured over 32 h of real conversation
+// (AMI + SBCSAE, scripts/heat_map.py) that instantaneous crossing is most of
+// the dose: the median AMI meeting delivered 97 buzzes/hour and the median
+// SBCSAE recording 80, in conversations where nobody is angry. Requiring the
+// first rung to HOLD for three seconds before the ladder may climb halves it
+// (46.4 and 36.0) with no new signal — one loud second is a laugh, a cough or
+// a door; three in a row is a raised voice.
+//
+// Reference implementation: `sustained()` in scripts/conversation_audit.py.
+// Pinned across the three runtimes by
+// server/tests/fixtures/policy_vectors/nudge_policy.json (schema v2's
+// `config.hold_s`); mirrors are server/nudge_policy.py's HEAT_HOLD_S_DEFAULT
+// (overridable with MINDSHIFT_HEAT_HOLD_S) and the watch's HEAT_HOLD_S.
+
+/** The window the watch/server PCM paths run on; also the smallest amount of
+ *  audio any single observation is worth. */
+export const WINDOW_S = 1.0;
+
+/** Seconds the first rung must hold before ANY upward escalation on the
+ *  loudness lane. 0 or 1 reproduces the pre-2026-09-20 ladder exactly. */
+export const HEAT_HOLD_S = 3.0;
+
+/** The one vector the hold gates: `aggressive_tone` reads the WORDS, is the
+ *  better signal, and climbs the same channel untouched. */
+export const HOLD_VECTOR: VectorName = "yelling";
+
+/**
+ * "Has the ladder's first rung held long enough to escalate?" — a run of
+ * consecutive qualifying observations, reset by the first that does not
+ * qualify. Identical to `sustained()` when fed one 1 s window per call.
+ *
+ * Seconds, not calls: the phone observes once per TURN rather than once per
+ * window, so an observation carries how much audio it covers — a 4 s turn that
+ * read as loud is four windows of hold. Every observation is worth at least
+ * one window, which is what makes `holdS <= 1` byte-identical to the old
+ * ladder on the turn-driven paths as well as the window-driven ones.
+ */
+export class LoudnessHold {
+  private runS = 0;
+  constructor(private readonly holdS = HEAT_HOLD_S, private readonly windowS = WINDOW_S) {}
+
+  /** Seconds of consecutive qualifying observation so far. */
+  get run(): number {
+    return this.runS;
+  }
+
+  private nextRun(loud: boolean, observedS: number): number {
+    return loud ? this.runS + Math.max(observedS, this.windowS) : 0;
+  }
+
+  /** Would this observation open the gate? Pure — nothing is advanced. The
+   *  fast loop's instant haptic tier asks before the same turn's policy tick,
+   *  and asking must be free or the turn would count twice. */
+  peek(loud: boolean, observedS = WINDOW_S): boolean {
+    return this.nextRun(loud, observedS) >= this.holdS;
+  }
+
+  /** Advance the run and report whether this observation may escalate. */
+  observe(loud: boolean, observedS = WINDOW_S): boolean {
+    this.runS = this.nextRun(loud, observedS);
+    return this.runS >= this.holdS;
+  }
+}
+
 /** Half-up rounding (Kotlin Math.round), not banker's — 0.5 -> 1, 1.5 -> 2. */
 export function roundHalfUp(x: number): number {
   return x >= 0 ? Math.floor(x + 0.5) : Math.ceil(x - 0.5);
@@ -58,12 +126,18 @@ export class NudgePolicy {
   private readonly levels = new Map<Channel, number>();
   private readonly lastQualifyingT = new Map<Channel, number>();
 
+  /** The loudness lane's hold-N hysteresis. Public so the fast loop's instant
+   *  haptic tier can `peek` before this same turn's `onEvents` advances it. */
+  readonly hold: LoudnessHold;
+
   constructor(
     subs: VectorSubscription[],
     private readonly cooldownS = 20.0,
     channels: Channel[] = DEFAULT_CHANNELS,
+    holdS = HEAT_HOLD_S,
   ) {
     if (channels.length === 0) throw new Error("NudgePolicy needs at least one channel");
+    this.hold = new LoudnessHold(holdS);
     this.channels = [...new Set(channels)];
     this.subs = subs.map((s) => ({
       vector: s.vector,
@@ -77,14 +151,37 @@ export class NudgePolicy {
     }
   }
 
-  onEvents(events: VectorEvent[], t: number): NudgeEvent[] {
+  /**
+   * @param observedS how many seconds of audio this call's observations cover.
+   *   One 1 s window by default — the cadence the watch and the server's PCM
+   *   path tick on. The phone observes once per TURN and passes its duration,
+   *   so the loudness hold counts seconds of speech, not calls. `null` means
+   *   "this call carries NO loudness observation" and leaves the hold's run
+   *   untouched — required for any non-audio tick, since a tick that did not
+   *   hear the wearer is not evidence that they went quiet.
+   */
+  onEvents(events: VectorEvent[], t: number, observedS: number | null = WINDOW_S): NudgeEvent[] {
     const nudges: NudgeEvent[] = [];
     const subByVector = new Map<string, Required<VectorSubscription>>();
     for (const s of this.subs) if (s.haptics) subByVector.set(s.vector, s);
 
+    // Hold-N hysteresis, advanced exactly once per call that heard audio —
+    // including quiet ones, because an observation under the first rung is
+    // what BREAKS a run. The RAW, unscaled level is what clears the rung:
+    // sensitivity is the user's preference about being told, not physics.
+    let loudnessMayEscalate = true;
+    if (observedS !== null) {
+      const loud = events.some((e) => e.vector === HOLD_VECTOR && e.level >= 1);
+      loudnessMayEscalate = this.hold.observe(loud, observedS);
+    }
+
     const eventMax = new Map<Channel, { level: number; vectors: string[] }>();
     for (const c of this.channels) eventMax.set(c, { level: 0, vectors: [] });
     for (const e of events) {
+      // Loud, but the rung has not held long enough yet. The call then reads
+      // as E=0 for this lane, so it neither escalates nor refreshes the
+      // sustain clock — decay runs exactly as it would on a quiet window.
+      if (e.vector === HOLD_VECTOR && !loudnessMayEscalate) continue;
       const sub = subByVector.get(e.vector);
       if (!sub) continue;
       const slot = eventMax.get(sub.channel);
@@ -236,8 +333,10 @@ export function interruptingEvents(selfTurns: TurnSpan[], otherTurns: TurnSpan[]
   return out;
 }
 
-/** The phone's single-lane default: both voice vectors on channel A. */
-export function phoneNudgePolicy(cooldownS = 20.0): NudgePolicy {
+/** The phone's single-lane default: both voice vectors on channel A.
+ *  `holdS` is the loudness ladder's hold-N hysteresis — the shipped
+ *  [HEAT_HOLD_S] unless a test pins the pre-2026-09-20 ladder with 0 or 1. */
+export function phoneNudgePolicy(cooldownS = 20.0, holdS = HEAT_HOLD_S): NudgePolicy {
   return new NudgePolicy(
     [
       { vector: "yelling", sensitivity: 1.0, haptics: true, channel: "A" },
@@ -252,6 +351,7 @@ export function phoneNudgePolicy(cooldownS = 20.0): NudgePolicy {
     ],
     cooldownS,
     ["A"],
+    holdS,
   );
 }
 

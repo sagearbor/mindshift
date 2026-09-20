@@ -330,9 +330,22 @@ maybe("nudge verification from recorded files (real Silero + ECAPA, scripted STT
     expect(shout.isSelf).toBe(true);
     expect(shout.fragments.some((f) => f.coachedAsSelf)).toBe(true);
     expect(rep.scorecard.falsePositives).toBe(0);
-    // ...and it reaches the wrist through the INSTANT tier, ahead of the words.
-    expect(rep.scorecard.instantHaptics).toBeGreaterThan(0);
-    expect(Math.max(...rep.haptics.map((h) => h.level))).toBe(3);
+    // hold-3s: this used to reach the wrist through the INSTANT tier, ahead of
+    // the words. It no longer does, and the reason is worth stating plainly
+    // because it is the cost side of the 2026-09-20 trade
+    // (docs/plans/2026-09-20-hold3-hysteresis.md): the shout is one 2.43 s
+    // fragment — 0.57 s short of the 3 s the first rung must now hold — so the
+    // loudness lane is still serving its hold when the turn closes. It is a
+    // +29.8 dB shout and the most clear-cut loudness event in any fixture we
+    // hold, which is exactly why it is pinned here rather than left implicit.
+    // The turn is still a HIT (above): the words reach the same lane through
+    // `aggressive_tone`, a second or so later.
+    const shoutFragments = shout.fragments.filter((f) => f.coachedAsSelf);
+    expect(shoutFragments).toHaveLength(1);
+    expect(shoutFragments[0].end - shoutFragments[0].start).toBeLessThan(3.0);
+    expect(shoutFragments[0].instantLevel).toBe(3);   // measured, not gated away
+    expect(rep.scorecard.instantHaptics).toBe(0);
+    expect(Math.max(...rep.haptics.map((h) => h.level))).toBe(2);
 
     // The measurement that explains WHY one print could never do it, kept so
     // the reasoning cannot go stale even though the behaviour is now correct.
