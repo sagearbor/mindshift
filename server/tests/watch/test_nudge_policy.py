@@ -1,8 +1,23 @@
 # Ported from gauge@2157433 server/tests/test_nudge_policy.py; adapted per docs/plans/2026-08-15-phase1-one-repo-one-engine.md
 from watch.models import VectorEvent, VectorSubscription
-from watch.nudge_policy import NudgePolicy
+from watch.nudge_policy import NudgePolicy as _NudgePolicy
 
 SUBS = [VectorSubscription(vector="yelling"), VectorSubscription(vector="hr_spike")]
+
+
+def NudgePolicy(subs, hold_s=1.0, **kw):
+    """Every case in this file is about the ESCALATION machinery — per-channel
+    hysteresis, the strict-greater cooldown, stepwise decay, half-up
+    sensitivity rounding — none of which hold-3s (2026-09-20) touches.
+
+    They are built at ``hold_s=1.0``, the pre-2026-09-20 loudness gate, so a
+    single ``yelling`` observation still climbs and each case keeps asserting
+    what it was written for. The hold itself is pinned by
+    ``server/tests/fixtures/policy_vectors/nudge_policy.json``'s ``hold_*``
+    cases (all three runtimes) and by ``test_nudge_policy_vectors.py``.
+    """
+    return _NudgePolicy(subs, hold_s=hold_s, **kw)
+
 
 def ev(vector, level, t):
     return VectorEvent(vector=vector, level=level, t=t, value=0)

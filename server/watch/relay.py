@@ -93,6 +93,7 @@ from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
 from models.audio import ToneFlagEvent, TurnLocalEvent, TurnTextTone
+from nudge_policy import WINDOW_S
 from nudge_vocabulary import vocabulary_for_code
 from watch.models import VectorEvent, VectorName
 from watch.vectors import (
@@ -184,7 +185,12 @@ def valence_veto(tone_flag: ToneFlagEvent | None) -> tuple[bool, float | None]:
     return valence > VALENCE_VETO_MAX, valence
 
 
-Emit = Callable[[list[VectorEvent], float], Awaitable[None]]
+#: ws.py's per-connection ``emit(events, t, observed_s)``. The third argument
+#: is how many seconds of audio the observation covers: the watch's own PCM
+#: path ticks once per 1 s window and leaves it at the default, while a phone
+#: turn relayed from here covers its whole duration, which is what the
+#: loudness hold (``nudge_policy.LoudnessHold``) counts.
+Emit = Callable[..., Awaitable[None]]
 #: ws.py's per-connection "send one positive frame" closure — a raw send that
 #: touches neither the session's vector log nor its NudgePolicy.
 SendPositive = Callable[[str, float], Awaitable[None]]
@@ -423,12 +429,17 @@ def push_vector_events(uid: str, events: list[VectorEvent], t: float) -> bool:
     return True
 
 
-def _schedule(session: LiveWatchSession, events: list[VectorEvent], t: float) -> None:
+def _schedule(
+    session: LiveWatchSession,
+    events: list[VectorEvent],
+    t: float,
+    observed_s: float = WINDOW_S,
+) -> None:
     """Run ``session.emit`` on the socket's loop from wherever we're called."""
     if session.loop.is_closed():
         logger.debug("watch relay: loop for %s already closed; dropping %d event(s)", session.account_id, len(events))
         return
-    _schedule_coro(session, session.emit(events, t))
+    _schedule_coro(session, session.emit(events, t, observed_s))
 
 
 def _schedule_coro(session: LiveWatchSession, coro) -> None:
@@ -490,4 +501,10 @@ def push_turn_local(uid: str, event: TurnLocalEvent, *, tone_flag: ToneFlagEvent
         "watch relay: %s -> live session %s: %s",
         uid, session.live_session_id, ", ".join(f"{e.vector}={e.level}" for e in events),
     )
-    _schedule(session, events, t)
+    # The turn's own duration is how much audio this one observation covers, so
+    # the wrist's loudness hold counts seconds of raised voice rather than
+    # phone turns. A 4 s loud turn is four windows of hold — the same thing the
+    # watch's own mic would have measured a window at a time. Clamped at one
+    # window so a clipped/degenerate span can never shorten the hold.
+    duration_s = max(float(event.end_time) - float(event.start_time), WINDOW_S)
+    _schedule(session, events, t, duration_s)

@@ -13,6 +13,17 @@ including SpeechBrain." Evidence: `docs/research/2026-09-20-tone-model-options.m
    contract change (watch Kotlin `NudgePolicy`/`SentinelDetector`, phone
    `fastLoop.ts`, server `relay.py`) and must land in all three in one PR with
    the shared fixture updated.
+
+   > **Shipped 2026-09-20 at N = 3, not 5** — the fallback this item already
+   > names, taken as the default. Dose: AMI 97 → 46.4/h, SBCSAE 80 → 36.1/h.
+   > The reason is the cost side, which was not measurable until the chain was
+   > built: at 5 s a +29.8 dB shout lasting 2.4 s and a 3-second raised voice
+   > both go unbuzzed, and the scripted-scene and RAVDESS fixtures show real
+   > escalations starting to disappear. 3 s takes roughly half the available
+   > reduction and keeps the cue responsive; **5 s is a one-line change** —
+   > `MINDSHIFT_HEAT_HOLD_S=5` on the server, `HEAT_HOLD_S` on phone and watch
+   > — and the dose gate measures both. Full write-up and the measured costs:
+   > `docs/plans/2026-09-20-hold3-hysteresis.md`.
 2. **Flip Cloud Run `MINDSHIFT_TONE_AUDIO` from `off` to `dark`.** Logs
    arousal/valence/dominance beside every relayed session; no user-visible
    change. **Prerequisite:** bake the pinned 1.27 GB snapshot into the

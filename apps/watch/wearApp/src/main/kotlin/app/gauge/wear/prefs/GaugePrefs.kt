@@ -68,6 +68,33 @@ object GaugePrefs {
         prefs.edit().putString(KEY_PULSE_INTERVAL_MS, value).apply()
     }
 
+    private const val KEY_HEAT_HOLD_S = "heat_hold_s"
+
+    /**
+     * Hold-N hysteresis on the offline loudness ladder, in seconds — the wrist's half of the
+     * 2026-09-20 change (mirror: server `MINDSHIFT_HEAT_HOLD_S`, phone `HEAT_HOLD_S`). The first
+     * rung (+6 dB over the wearer's own baseline) must hold this long before the ladder may climb.
+     *
+     * **A DEBUG knob, deliberately with no Settings row.** Every other value than the shipped
+     * [app.gauge.shared.HEAT_HOLD_S] is worse for the wearer — 0 or 1 restores the ladder that
+     * delivered 97 buzzes/hour on the median real meeting, and a longer hold trades away real
+     * escalations — so this exists to reproduce a measurement on a device, not to be chosen from a
+     * menu. Set it with `adb shell` on a debug build; absent (the normal case) it reads the shared
+     * constant, and an unparseable or negative value falls back to it too, which is the same
+     * "a corrupt byte must pick the safe value" rule [pulseIntervalMs] follows.
+     */
+    fun heatHoldSeconds(context: Context): Double {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val raw = prefs.getString(KEY_HEAT_HOLD_S, null) ?: return app.gauge.shared.HEAT_HOLD_S
+        val parsed = raw.toDoubleOrNull() ?: return app.gauge.shared.HEAT_HOLD_S
+        return if (parsed >= 0.0) parsed else app.gauge.shared.HEAT_HOLD_S
+    }
+
+    fun setHeatHoldSeconds(context: Context, value: Double) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putString(KEY_HEAT_HOLD_S, value.toString()).apply()
+    }
+
     private const val KEY_CENTER_DISPLAY = "center_display"
 
     /** v0.2.4 (Addendum 2): "SPARKLINE" (default) or "DIAL" — THE single center-visualization

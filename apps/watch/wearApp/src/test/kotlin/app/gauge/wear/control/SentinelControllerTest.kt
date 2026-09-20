@@ -487,6 +487,7 @@ class SentinelControllerTest {
         diag: DiagLog = NOOP_DIAG,
         pulseIntervalMs: () -> Long? = { 250L },
         nowMs: () -> Long = { 0L },
+        heatHoldS: () -> Double = { app.gauge.shared.HEAT_HOLD_S },
     ): SentinelController {
         val haptics = HapticDirector(vibrator, nowMs = { 0L })
         return SentinelController(
@@ -498,6 +499,7 @@ class SentinelControllerTest {
             diag = diag,
             pulseIntervalMs = pulseIntervalMs,
             nowMs = nowMs,
+            heatHoldS = heatHoldS,
         )
     }
 
@@ -855,7 +857,11 @@ class SentinelControllerTest {
         val mic = ScriptedMic(quietThenTriggerWindows())
         val wsFactory = FakeWsFactory()
         val vibrator = FakeVibratorPort()
-        val controller = newController(Mode.STANDARD, mic, wsFactory, vibrator)
+        // hold-3s: this case is about the WS-failure FALLBACK, and it asserts the pulse verdict for
+        // exactly one post-failure window — the pulse train's spacing clamp means it cannot simply
+        // be given three. Pinned at the pre-2026-09-20 hold so it keeps testing the fallback; the
+        // hold on this same path is pinned by offlineLadderMakesTheFirstRungHold below.
+        val controller = newController(Mode.STANDARD, mic, wsFactory, vibrator, heatHoldS = { 1.0 })
 
         controller.arm()
         repeat(8) { controller.tick() } // reach STREAMING, WS open
@@ -883,6 +889,32 @@ class SentinelControllerTest {
         assertTrue(vibrator.calls.isEmpty(), "the controller itself must never call the vibrator for pulses")
         // No new frames sent to the (now-dead) WS after failure.
         assertEquals(sentBeforeFailureFollowup, ws.sentWindows.size)
+    }
+
+    @Test
+    fun offlineLadderMakesTheFirstRungHold() {
+        // hold-3s (2026-09-20) on the wrist's OWN fallback ladder: the same +12 dB window that used
+        // to raise channel A on sight now has to hold for three consecutive 1 s windows. This is
+        // the path that ships when the phone is unreachable, so it is the one that has to carry the
+        // change — the shipped default, not an override.
+        val mic = ScriptedMic(quietThenTriggerWindows())
+        val wsFactory = FakeWsFactory()
+        val controller = newController(Mode.STANDARD, mic, wsFactory)
+
+        controller.arm()
+        repeat(8) { controller.tick() } // reach STREAMING, WS open
+        requireNotNull(wsFactory.created.single().listener).onFailure(java.io.IOException("connection reset"))
+        assertFalse(controller.state.online)
+
+        mic.enqueue(tone(0.2))
+        controller.tick()
+        assertNull(controller.state.channelLevels["A"], "one loud window is not a raised voice")
+        mic.enqueue(tone(0.2))
+        controller.tick()
+        assertNull(controller.state.channelLevels["A"], "two is not either")
+        mic.enqueue(tone(0.2))
+        controller.tick()
+        assertEquals(2, controller.state.channelLevels["A"], "the third consecutive window climbs")
     }
 
     @Test

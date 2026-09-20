@@ -30,13 +30,31 @@ from server.tests.watch.test_vectors import pcm
 from watch.store import MemoryLiveSessionStore
 from watch.testing import create_watch_test_app
 
+# hold-3s (2026-09-20): the loudness ladder's first rung must hold for three
+# consecutive 1 s windows before channel A may climb (nudge_policy.LoudnessHold).
+# So a WS test that wants a loudness nudge has to stream a raised voice, not a
+# single loud window — and it needs enough QUIET windows first that the engine's
+# running-median baseline stays low while the loud ones arrive (push_pcm folds
+# every voiced window into that median, loud ones included, so 5 quiet windows
+# keep the median quiet across 3 loud ones).
+QUIET_SEED_WINDOWS = 5
+LOUD_HOLD_WINDOWS = 3
+
+
+def _stream_a_raised_voice(ws) -> None:
+    """QUIET_SEED_WINDOWS quiet windows, then LOUD_HOLD_WINDOWS loud ones —
+    the shortest stream that produces one channel-A loudness nudge."""
+    for _ in range(QUIET_SEED_WINDOWS):
+        ws.send_bytes(pcm(0.02))
+    for _ in range(LOUD_HOLD_WINDOWS):
+        ws.send_bytes(pcm(0.4))
+
 
 def test_ws_yelling_produces_nudge_and_saves_live_session():
     store = MemoryLiveSessionStore()
     client = TestClient(create_watch_test_app(store=store, allow_legacy=True))
     with client.websocket_connect("/ws/live-session/e1?account=alice") as ws:
-        ws.send_bytes(pcm(0.02))                       # quiet
-        ws.send_bytes(pcm(0.4))                        # loud → yelling (live-session-relative fallback)
+        _stream_a_raised_voice(ws)
         msgs = []
         ws.send_text(json.dumps({"type": "hr", "bpm": 120, "t": 2.0}))
         ws.send_text(json.dumps({"type": "end"}))
@@ -47,9 +65,13 @@ def test_ws_yelling_produces_nudge_and_saves_live_session():
                 break
     kinds = {m["type"] for m in msgs}
     assert "vector_event" in kinds and "nudge" in kinds
+    # …and specifically a LOUDNESS one. This used to be satisfied by the
+    # hr_spike frame above (120 bpm over a 65 resting default rides channel B),
+    # so the test would have stayed green on a loudness lane that never fired.
+    assert any(m["type"] == "nudge" and m["vectors"] == ["yelling"] for m in msgs)
     ls = asyncio.run(store.get_live_session("e1"))
     assert ls is not None and ls.status == "captured" and ls.owner_account == "alice"
-    assert len(ls.series["rms_db"]) == 2 and ls.nudge_events
+    assert len(ls.series["rms_db"]) == QUIET_SEED_WINDOWS + LOUD_HOLD_WINDOWS and ls.nudge_events
 
 
 def test_ws_unknown_text_type_gets_error_and_stays_open():
@@ -115,18 +137,20 @@ def test_ws_abrupt_disconnect_after_live_nudge_preserves_events():
     store = MemoryLiveSessionStore()
     client = TestClient(create_watch_test_app(store=store, allow_legacy=True))
     with client.websocket_connect("/ws/live-session/e10?account=default") as ws:
-        ws.send_bytes(pcm(0.02))  # quiet, seeds the running median
-        ws.send_bytes(pcm(0.4))   # loud -> yelling level 3, live nudge fires
-        vector_event = json.loads(ws.receive_text())
+        _stream_a_raised_voice(ws)   # hold-3s: a raised voice, not one window
+        for _ in range(LOUD_HOLD_WINDOWS):
+            vector_event = json.loads(ws.receive_text())
+            assert vector_event["type"] == "vector_event" and vector_event["vector"] == "yelling"
         nudge = json.loads(ws.receive_text())
-        assert vector_event["type"] == "vector_event" and vector_event["vector"] == "yelling"
         assert nudge["type"] == "nudge"
         # No "end" sent — abrupt disconnect, exactly like the production episode.
 
     ls = asyncio.run(store.get_live_session("e10"))
     assert ls is not None
     assert ls.status == "not_analyzed"
-    assert len(ls.vector_events) == 1 and ls.vector_events[0].vector == "yelling"
+    # Every loud window was MEASURED and emitted; only the escalation waited.
+    assert len(ls.vector_events) == LOUD_HOLD_WINDOWS
+    assert {e.vector for e in ls.vector_events} == {"yelling"}
     assert len(ls.nudge_events) == 1
 
 
@@ -139,29 +163,34 @@ def test_ws_bogus_hr_client_timestamp_does_not_corrupt_nudge_cooldown():
     store = MemoryLiveSessionStore()
     client = TestClient(create_watch_test_app(store=store, allow_legacy=True))
     with client.websocket_connect("/ws/live-session/e6?account=erin") as ws:
-        ws.send_bytes(pcm(0.02))  # window 1 (t 0->1): quiet, seeds the running median, no events
-        ws.send_bytes(pcm(0.4))   # window 2 (t 1->2): loud -> yelling level 3, channel A escalates 0->3
-        vector_event = json.loads(ws.receive_text())
+        # Windows 1-5 (t 0->5): quiet, seed the running median, no events.
+        # Windows 6-8 (t 5->8): loud -> yelling level 3 each; hold-3s means the
+        # THIRD of them is the first that may climb, so channel A escalates
+        # 0->3 at t=7.0 rather than at the first loud window.
+        _stream_a_raised_voice(ws)
+        for _ in range(LOUD_HOLD_WINDOWS):
+            vector_event = json.loads(ws.receive_text())
+            assert vector_event["type"] == "vector_event" and vector_event["vector"] == "yelling"
         nudge = json.loads(ws.receive_text())
-        assert vector_event["type"] == "vector_event" and vector_event["vector"] == "yelling"
-        assert nudge == {"type": "nudge", "channel": "A", "level": 3, "t": 1.0, "vectors": ["yelling"]}
+        assert nudge == {"type": "nudge", "channel": "A", "level": 3, "t": 7.0, "vectors": ["yelling"]}
 
-        # Bogus client timestamp, sent immediately (stream clock is only ~2.0s
+        # Bogus client timestamp, sent immediately (stream clock is only ~8.0s
         # in). Under the old bug (policy driven by client t) this alone would
-        # instantly satisfy "9999.0 - 1.0 > 20.0" and drop channel A early.
+        # instantly satisfy "9999.0 - 7.0 > 20.0" and drop channel A early.
         ws.send_text(json.dumps({"type": "hr", "bpm": 70, "t": 9999.0}))
 
-        # 20 more quiet windows (3..22): not enough stream-clock time has
-        # passed yet (cooldown_s=20.0) for a drop — expect total silence on
-        # the wire, proving the bogus HR t didn't leak into the policy clock.
+        # 20 more quiet windows (9..28, t0 8..27): not enough stream-clock time
+        # has passed yet (cooldown_s=20.0, and 27.0 - 7.0 == 20.0 is a tie, not
+        # a drop) — expect total silence on the wire, proving the bogus HR t
+        # didn't leak into the policy clock.
         for _ in range(20):
             ws.send_bytes(pcm(0.02))
 
-        # Window 23: stream clock now clears the cooldown boundary (t0=22.0,
-        # 22.0 - 1.0 > 20.0) -> exactly one step-down, driven by window count.
+        # Window 29: stream clock now clears the cooldown boundary (t0=28.0,
+        # 28.0 - 7.0 > 20.0) -> exactly one step-down, driven by window count.
         ws.send_bytes(pcm(0.02))
         drop = json.loads(ws.receive_text())
-        assert drop == {"type": "nudge", "channel": "A", "level": 2, "t": 22.0, "vectors": []}
+        assert drop == {"type": "nudge", "channel": "A", "level": 2, "t": 28.0, "vectors": []}
 
         ws.send_text(json.dumps({"type": "end"}))
         saved = json.loads(ws.receive_text())
@@ -244,12 +273,14 @@ def test_ws_pcm_buffer_caps_at_max_bytes_but_keeps_processing_live_windows(monke
     client = TestClient(create_watch_test_app(store=store, allow_legacy=True))
     with client.websocket_connect("/ws/live-session/e9?account=gail") as ws:
         with caplog.at_level("WARNING"):
-            ws.send_bytes(pcm(0.02))  # window 1 (quiet): fills the cap exactly
-            ws.send_bytes(pcm(0.4))   # window 2 (loud): over the cap, but still
-                                       # live-processed -> a real vector_event/nudge
-            vector_event = json.loads(ws.receive_text())
+            # Window 1 (quiet) fills the cap exactly; every window after it is
+            # over the cap but still live-processed -> real vector_events and,
+            # once hold-3s is satisfied, a real nudge.
+            _stream_a_raised_voice(ws)
+            for _ in range(LOUD_HOLD_WINDOWS):
+                vector_event = json.loads(ws.receive_text())
+                assert vector_event["type"] == "vector_event" and vector_event["vector"] == "yelling"
             nudge = json.loads(ws.receive_text())
-        assert vector_event["type"] == "vector_event" and vector_event["vector"] == "yelling"
         assert nudge["type"] == "nudge"
 
         ws.send_text(json.dumps({"type": "end"}))
@@ -258,10 +289,10 @@ def test_ws_pcm_buffer_caps_at_max_bytes_but_keeps_processing_live_windows(monke
 
     ls = asyncio.run(store.get_live_session("e9"))
     assert ls is not None
-    # Only window 1's audio was retained -- window 2 pushed past the cap.
+    # Only window 1's audio was retained -- window 2 onward pushed past the cap.
     assert len(base64.b64decode(ls.pcm_b64)) == 32000
-    # But BOTH windows still went through live vector/nudge detection.
-    assert len(ls.series["rms_db"]) == 2
+    # But EVERY window still went through live vector/nudge detection.
+    assert len(ls.series["rms_db"]) == QUIET_SEED_WINDOWS + LOUD_HOLD_WINDOWS
 
     assert any(
         "MAX_LIVE_SESSION_PCM_BYTES" in rec.message and "e9" in rec.message

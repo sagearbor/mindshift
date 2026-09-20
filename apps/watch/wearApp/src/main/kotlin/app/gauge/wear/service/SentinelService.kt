@@ -453,6 +453,9 @@ class SentinelService : Service() {
             accel = accel,
             selectedSignal = { selectedSignalPref() },
             pulseIntervalMs = { pulseIntervalMsPref() },
+            // Debug-only override of the loudness ladder's hold (no Settings row — see
+            // GaugePrefs.heatHoldSeconds); the shipped constant unless adb says otherwise.
+            heatHoldS = { GaugePrefs.heatHoldSeconds(applicationContext) },
             // Tier B: deterministic per-day+account id for the companion socket — see
             // control/CompanionSession.kt for why (relay keys by account; the id is for logs).
             companionSessionId = {

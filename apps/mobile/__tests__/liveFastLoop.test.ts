@@ -315,10 +315,19 @@ describe("FastLoop", () => {
     expect(h.nudges).toHaveLength(0);
     // The loud turn: +20 dB over baseline. Its text arrives, the LLM HANGS —
     // the yelling nudge must fire anyway, before the turn finalizes.
-    push(h.loop, toneInt16(1.0, -10));
+    // hold-3s: 3 s, not the 1 s this used to push. The instant tier now asks
+    // the loudness hold first, and three seconds of raised voice is exactly
+    // what the ladder requires before it may climb; a shorter shout is pinned
+    // by the test below. The LATENCY this case is about is unchanged — the
+    // haptic still lands ~40 ms after the turn closes, not after the LLM.
+    push(h.loop, toneInt16(3.0, -10));
     h.rec.emit({ text: "stop yelling at me", isFinal: true });
     push(h.loop, silenceInt16(0.5));
-    await sleep(80);
+    // Poll rather than sleep a fixed 80 ms: the instant tier's own work (VAD +
+    // embedding over three seconds of audio) is real CPU, and a hard sleep
+    // makes this flake under a loaded parallel jest run. The assertion below
+    // is still the one that matters — the LLM is STILL hanging when it fires.
+    for (let i = 0; i < 200 && h.haptic.length === 0; i++) await sleep(10);
     // The HAPTIC (the buzz the user feels) fires now, while STT/LLM are still
     // pending — no ~7 s wait. The on-screen nudge lands with the combined
     // policy tick when the turn finalizes.
@@ -328,6 +337,44 @@ describe("FastLoop", () => {
     await h.loop.settle();
     expect(h.turns).toHaveLength(3);
     expect(h.nudges.some((n) => n.level === 3)).toBe(true); // screen nudge arrived
+    await h.loop.stop();
+  });
+
+  it("hold-3s: a one-second shout does not buzz — the rung has to HOLD", async () => {
+    // The measured trade of 2026-09-20 (docs/plans/2026-09-20-hold3-hysteresis.md):
+    // a single loud second is a laugh, a cough or a door, and taking it as
+    // evidence is what put the median real meeting at 97 buzzes/hour. The
+    // turn is still RECORDED with its real loudness — only the ladder waits.
+    const D = 192;
+    const you = { personId: "p-you", displayName: "You", isSelf: true, embedding: unitVector(D, 0) };
+    const embedder: Embedder = { embed: async () => unitVector(D, 0, 0.2, 3) };
+    const h = harness({ embedder, labeler: new SpeakerLabeler([you]) });
+    await h.loop.start({ sessionId: "s-hold", mode: "earpiece", empathy: 50 });
+    for (const dbfs of [-30, -30]) {
+      push(h.loop, toneInt16(1.0, dbfs));
+      h.rec.emit({ text: "calm words here", isFinal: true });
+      push(h.loop, silenceInt16(0.5));
+      await h.loop.settle();
+    }
+    push(h.loop, toneInt16(1.0, -10));           // +20 dB, but only for a second
+    h.rec.emit({ text: "hey", isFinal: true });
+    push(h.loop, silenceInt16(0.5));
+    await h.loop.settle();
+    expect(h.haptic).toEqual([]);
+    expect(h.nudges).toHaveLength(0);
+    // Two more loud seconds finish the hold, and THEN it buzzes: the evidence
+    // accumulates, it is not thrown away.
+    for (const text of ["stop", "now"]) {
+      push(h.loop, toneInt16(1.0, -10));
+      h.rec.emit({ text, isFinal: true });
+      push(h.loop, silenceInt16(0.5));
+      await h.loop.settle();
+    }
+    // …landing on rung 2, not 3: LoudnessBaseline is a MEDIAN over the user's
+    // own turns, and by now two of the four it has heard were loud, so the
+    // baseline itself has risen. The point of this case is that the buzz
+    // lands at all once the hold is served.
+    expect(h.haptic).toEqual([2]);
     await h.loop.stop();
   });
 

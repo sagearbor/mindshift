@@ -1,12 +1,13 @@
 {
   "_schema": {
-    "version": 1,
+    "version": 2,
     "subject": "server/nudge_policy.py NudgePolicy (mirror: apps/watch/shared/.../NudgeStateMachine.kt)",
-    "description": "Golden test vectors for the nudge/escalation policy. Each case constructs one fresh policy from `config`, then feeds `inputs` in order — one policy call per input step — and asserts `expected[i]` after step i. Language-neutral on purpose: plain field names, timestamps in seconds as floats, no enums beyond the string literals listed here. A Kotlin (watch) or TypeScript (phone) port must produce identical `expected` from identical `inputs`.",
+    "description": "Golden test vectors for the nudge/escalation policy. Each case constructs one fresh policy from `config`, then feeds `inputs` in order — one policy call per input step — and asserts `expected[i]` after step i. Language-neutral on purpose: plain field names, timestamps in seconds as floats, no enums beyond the string literals listed here. A Kotlin (watch) or TypeScript (phone) port must produce identical `expected` from identical `inputs`. VERSION 2 (2026-09-20) adds the REQUIRED `config.hold_s` knob: the loudness ladder's hold-N hysteresis. Every pre-2026-09-20 case declares `hold_s: 1.0`, the behaviour those cases were written against (one qualifying window is enough to climb); the `hold_*` cases pin the shipped default of 3.0 and prove that 1.0 and 0.0 reproduce the old ladder exactly.",
     "config": {
       "cooldown_s": "float — seconds with no qualifying (>= current level) observation before the channel drops exactly ONE level; comparison is strict `elapsed > cooldown_s`, so an exact tie does NOT drop",
       "channels": "list of channel labels the policy runs, in emission order (\"A\" | \"B\"); the shipped watch default is [\"A\", \"B\"]",
-      "subscriptions": "list of {vector, sensitivity, haptics, channel}. `vector` is one of \"yelling\" | \"aggressive_tone\" | \"interrupting\" | \"airtime\" | \"hr_spike\"; `sensitivity` scales the incoming level (`round_half_up(level * sensitivity)` clamped to 0..3 — half-up, NOT banker's rounding: 0.5 -> 1, 1.5 -> 2); `haptics: false` means the vector never nudges; `channel` is the lane the vector escalates"
+      "subscriptions": "list of {vector, sensitivity, haptics, channel}. `vector` is one of \"yelling\" | \"aggressive_tone\" | \"interrupting\" | \"airtime\" | \"hr_spike\"; `sensitivity` scales the incoming level (`round_half_up(level * sensitivity)` clamped to 0..3 — half-up, NOT banker's rounding: 0.5 -> 1, 1.5 -> 2); `haptics: false` means the vector never nudges; `channel` is the lane the vector escalates",
+      "hold_s": "float seconds — how long the ladder's FIRST RUNG (+6 dB over baseline) must hold before the loudness lane may escalate. Each step is one 1 s window, so this is a count of consecutive qualifying steps; a step whose `yelling` level is 0 (or that carries no `yelling` event at all) BREAKS the run. A gated-out loud step reads as level 0 for that call — it neither escalates nor refreshes the sustain clock, so cooldown decay runs exactly as it would on a quiet window. 0.0 or 1.0 reproduces the pre-2026-09-20 ladder; the shipped default is 3.0 (server MINDSHIFT_HEAT_HOLD_S, phone/watch HEAT_HOLD_S). Only the `yelling` lane is gated — `aggressive_tone` is about the words and climbs the same channel untouched. Reference implementation: `sustained()` in scripts/conversation_audit.py."
     },
     "inputs": {
       "t": "float seconds — the policy clock for this call (monotonic within a case)",
@@ -29,6 +30,7 @@
       "applies_to": ["server", "watch", "phone"],
       "config": {
         "cooldown_s": 20.0,
+        "hold_s": 1.0,
         "channels": ["A"],
         "subscriptions": [{"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"}]
       },
@@ -49,6 +51,7 @@
       "applies_to": ["server", "watch", "phone"],
       "config": {
         "cooldown_s": 20.0,
+        "hold_s": 1.0,
         "channels": ["A"],
         "subscriptions": [{"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"}]
       },
@@ -67,6 +70,7 @@
       "applies_to": ["server", "watch", "phone"],
       "config": {
         "cooldown_s": 20.0,
+        "hold_s": 1.0,
         "channels": ["A"],
         "subscriptions": [{"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"}]
       },
@@ -89,6 +93,7 @@
       "applies_to": ["server", "watch", "phone"],
       "config": {
         "cooldown_s": 20.0,
+        "hold_s": 1.0,
         "channels": ["A"],
         "subscriptions": [{"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"}]
       },
@@ -109,6 +114,7 @@
       "applies_to": ["server", "watch", "phone"],
       "config": {
         "cooldown_s": 20.0,
+        "hold_s": 1.0,
         "channels": ["A"],
         "subscriptions": [{"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"}]
       },
@@ -129,6 +135,7 @@
       "applies_to": ["server", "watch", "phone"],
       "config": {
         "cooldown_s": 20.0,
+        "hold_s": 1.0,
         "channels": ["A"],
         "subscriptions": [{"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"}]
       },
@@ -153,6 +160,7 @@
       "applies_to": ["server", "watch", "phone"],
       "config": {
         "cooldown_s": 20.0,
+        "hold_s": 1.0,
         "channels": ["A"],
         "subscriptions": [{"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"}]
       },
@@ -179,6 +187,7 @@
       "applies_to": ["server", "watch", "phone"],
       "config": {
         "cooldown_s": 20.0,
+        "hold_s": 1.0,
         "channels": ["A"],
         "subscriptions": [{"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"}]
       },
@@ -205,6 +214,7 @@
       "applies_to": ["server", "phone"],
       "config": {
         "cooldown_s": 20.0,
+        "hold_s": 1.0,
         "channels": ["A", "B"],
         "subscriptions": [
           {"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"},
@@ -228,6 +238,7 @@
       "applies_to": ["server", "phone"],
       "config": {
         "cooldown_s": 20.0,
+        "hold_s": 1.0,
         "channels": ["A", "B"],
         "subscriptions": [{"vector": "yelling", "sensitivity": 1.0, "haptics": false, "channel": "A"}]
       },
@@ -244,6 +255,7 @@
       "applies_to": ["server", "phone"],
       "config": {
         "cooldown_s": 20.0,
+        "hold_s": 1.0,
         "channels": ["A"],
         "subscriptions": [{"vector": "yelling", "sensitivity": 0.5, "haptics": true, "channel": "A"}]
       },
@@ -264,6 +276,7 @@
       "applies_to": ["server", "phone"],
       "config": {
         "cooldown_s": 20.0,
+        "hold_s": 1.0,
         "channels": ["A"],
         "subscriptions": [{"vector": "yelling", "sensitivity": 2.0, "haptics": true, "channel": "A"}]
       },
@@ -282,6 +295,7 @@
       "applies_to": ["server", "phone"],
       "config": {
         "cooldown_s": 20.0,
+        "hold_s": 1.0,
         "channels": ["A"],
         "subscriptions": [
           {"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"},
@@ -305,6 +319,7 @@
       "applies_to": ["server", "phone"],
       "config": {
         "cooldown_s": 20.0,
+        "hold_s": 1.0,
         "channels": ["A"],
         "subscriptions": [
           {"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"},
@@ -318,6 +333,159 @@
       "expected": [
         {"nudges": [], "levels": {"A": 0}},
         {"nudges": [{"channel": "A", "level": 1, "vectors": ["yelling"]}], "levels": {"A": 1}}
+      ]
+    },
+    {
+      "name": "hold_two_loud_windows_then_quiet_never_buzzes",
+      "description": "hold-3s (a): two consecutive windows over the +6 dB first rung are not a raised voice — they are a laugh, a cough, or a door. The quiet window resets the run, so the two that follow start from zero and the wrist stays silent. This instantaneous crossing is most of the 97 buzzes/hour the pre-hold ladder delivered on the median real AMI meeting.",
+      "applies_to": ["server", "watch", "phone"],
+      "config": {
+        "cooldown_s": 20.0,
+        "hold_s": 3.0,
+        "channels": ["A"],
+        "subscriptions": [{"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"}]
+      },
+      "inputs": [
+        {"t": 1.0, "events": [{"vector": "yelling", "level": 1, "db_over_baseline": 7.0}]},
+        {"t": 2.0, "events": [{"vector": "yelling", "level": 1, "db_over_baseline": 7.0}]},
+        {"t": 3.0, "events": []},
+        {"t": 4.0, "events": [{"vector": "yelling", "level": 1, "db_over_baseline": 7.0}]},
+        {"t": 5.0, "events": [{"vector": "yelling", "level": 1, "db_over_baseline": 7.0}]}
+      ],
+      "expected": [
+        {"nudges": [], "levels": {"A": 0}},
+        {"nudges": [], "levels": {"A": 0}},
+        {"nudges": [], "levels": {"A": 0}},
+        {"nudges": [], "levels": {"A": 0}},
+        {"nudges": [], "levels": {"A": 0}}
+      ]
+    },
+    {
+      "name": "hold_three_loud_windows_escalates_on_the_third",
+      "description": "hold-3s (b): the third consecutive qualifying window is the first that may climb, and it emits the level the CURRENT window reads, not the one the run started at. Once the run is long enough the ladder behaves exactly as it always did — the very next window at +11 dB escalates to level 2 with no further wait.",
+      "applies_to": ["server", "watch", "phone"],
+      "config": {
+        "cooldown_s": 20.0,
+        "hold_s": 3.0,
+        "channels": ["A"],
+        "subscriptions": [{"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"}]
+      },
+      "inputs": [
+        {"t": 1.0, "events": [{"vector": "yelling", "level": 1, "db_over_baseline": 7.0}]},
+        {"t": 2.0, "events": [{"vector": "yelling", "level": 1, "db_over_baseline": 7.0}]},
+        {"t": 3.0, "events": [{"vector": "yelling", "level": 1, "db_over_baseline": 7.0}]},
+        {"t": 4.0, "events": [{"vector": "yelling", "level": 2, "db_over_baseline": 11.0}]},
+        {"t": 5.0, "events": []}
+      ],
+      "expected": [
+        {"nudges": [], "levels": {"A": 0}},
+        {"nudges": [], "levels": {"A": 0}},
+        {"nudges": [{"channel": "A", "level": 1, "vectors": ["yelling"]}], "levels": {"A": 1}},
+        {"nudges": [{"channel": "A", "level": 2, "vectors": ["yelling"]}], "levels": {"A": 2}},
+        {"nudges": [], "levels": {"A": 2}}
+      ]
+    },
+    {
+      "name": "hold_is_re_earned_after_a_quiet_window",
+      "description": "The gate is not a one-off arming. A single quiet window breaks the run, so climbing 1 -> 2 costs another three consecutive qualifying windows. The level does NOT decay meanwhile: the cooldown is 20 s and only seven have passed.",
+      "applies_to": ["server", "watch", "phone"],
+      "config": {
+        "cooldown_s": 20.0,
+        "hold_s": 3.0,
+        "channels": ["A"],
+        "subscriptions": [{"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"}]
+      },
+      "inputs": [
+        {"t": 1.0, "events": [{"vector": "yelling", "level": 1, "db_over_baseline": 7.0}]},
+        {"t": 2.0, "events": [{"vector": "yelling", "level": 1, "db_over_baseline": 7.0}]},
+        {"t": 3.0, "events": [{"vector": "yelling", "level": 1, "db_over_baseline": 7.0}]},
+        {"t": 4.0, "events": []},
+        {"t": 5.0, "events": [{"vector": "yelling", "level": 2, "db_over_baseline": 11.0}]},
+        {"t": 6.0, "events": [{"vector": "yelling", "level": 2, "db_over_baseline": 11.0}]},
+        {"t": 7.0, "events": [{"vector": "yelling", "level": 2, "db_over_baseline": 11.0}]}
+      ],
+      "expected": [
+        {"nudges": [], "levels": {"A": 0}},
+        {"nudges": [], "levels": {"A": 0}},
+        {"nudges": [{"channel": "A", "level": 1, "vectors": ["yelling"]}], "levels": {"A": 1}},
+        {"nudges": [], "levels": {"A": 1}},
+        {"nudges": [], "levels": {"A": 1}},
+        {"nudges": [], "levels": {"A": 1}},
+        {"nudges": [{"channel": "A", "level": 2, "vectors": ["yelling"]}], "levels": {"A": 2}}
+      ]
+    },
+    {
+      "name": "hold_of_one_is_the_pre_hysteresis_ladder",
+      "description": "hold-3s (c): hold_s = 1.0 reproduces the pre-2026-09-20 ladder exactly — one qualifying window escalates, repeats at the same level sustain silently, and a higher rung climbs immediately. Same inputs as hold_three_loud_windows_escalates_on_the_third; every expectation differs.",
+      "applies_to": ["server", "watch", "phone"],
+      "config": {
+        "cooldown_s": 20.0,
+        "hold_s": 1.0,
+        "channels": ["A"],
+        "subscriptions": [{"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"}]
+      },
+      "inputs": [
+        {"t": 1.0, "events": [{"vector": "yelling", "level": 1, "db_over_baseline": 7.0}]},
+        {"t": 2.0, "events": [{"vector": "yelling", "level": 1, "db_over_baseline": 7.0}]},
+        {"t": 3.0, "events": [{"vector": "yelling", "level": 1, "db_over_baseline": 7.0}]},
+        {"t": 4.0, "events": [{"vector": "yelling", "level": 2, "db_over_baseline": 11.0}]},
+        {"t": 5.0, "events": []}
+      ],
+      "expected": [
+        {"nudges": [{"channel": "A", "level": 1, "vectors": ["yelling"]}], "levels": {"A": 1}},
+        {"nudges": [], "levels": {"A": 1}},
+        {"nudges": [], "levels": {"A": 1}},
+        {"nudges": [{"channel": "A", "level": 2, "vectors": ["yelling"]}], "levels": {"A": 2}},
+        {"nudges": [], "levels": {"A": 2}}
+      ]
+    },
+    {
+      "name": "hold_of_zero_disables_the_gate",
+      "description": "hold_s = 0.0 is the same ladder as hold_s = 1.0: with no seconds to earn, every qualifying window may climb. Kept as its own case so 'either value pins the old behaviour' is executable rather than asserted in a comment.",
+      "applies_to": ["server", "watch", "phone"],
+      "config": {
+        "cooldown_s": 20.0,
+        "hold_s": 0.0,
+        "channels": ["A"],
+        "subscriptions": [{"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"}]
+      },
+      "inputs": [
+        {"t": 1.0, "events": [{"vector": "yelling", "level": 1, "db_over_baseline": 7.0}]},
+        {"t": 2.0, "events": [{"vector": "yelling", "level": 1, "db_over_baseline": 7.0}]},
+        {"t": 3.0, "events": [{"vector": "yelling", "level": 1, "db_over_baseline": 7.0}]},
+        {"t": 4.0, "events": [{"vector": "yelling", "level": 2, "db_over_baseline": 11.0}]},
+        {"t": 5.0, "events": []}
+      ],
+      "expected": [
+        {"nudges": [{"channel": "A", "level": 1, "vectors": ["yelling"]}], "levels": {"A": 1}},
+        {"nudges": [], "levels": {"A": 1}},
+        {"nudges": [], "levels": {"A": 1}},
+        {"nudges": [{"channel": "A", "level": 2, "vectors": ["yelling"]}], "levels": {"A": 2}},
+        {"nudges": [], "levels": {"A": 2}}
+      ]
+    },
+    {
+      "name": "hold_gates_loudness_only_not_tone",
+      "description": "The hold is a LOUDNESS rule. A hostile-tone turn climbs the same channel on its first observation, because `aggressive_tone` reads the words and is not the signal that produced the dose problem. Step 3 shows a +15 dB window still serving its hold while the tone lane holds the channel at 2.",
+      "applies_to": ["server", "phone"],
+      "config": {
+        "cooldown_s": 20.0,
+        "hold_s": 3.0,
+        "channels": ["A"],
+        "subscriptions": [
+          {"vector": "yelling", "sensitivity": 1.0, "haptics": true, "channel": "A"},
+          {"vector": "aggressive_tone", "sensitivity": 1.0, "haptics": true, "channel": "A"}
+        ]
+      },
+      "inputs": [
+        {"t": 1.0, "events": [{"vector": "yelling", "level": 1, "db_over_baseline": 7.0}]},
+        {"t": 2.0, "events": [{"vector": "aggressive_tone", "level": 2}]},
+        {"t": 3.0, "events": [{"vector": "yelling", "level": 3, "db_over_baseline": 15.0}, {"vector": "aggressive_tone", "level": 2}]}
+      ],
+      "expected": [
+        {"nudges": [], "levels": {"A": 0}},
+        {"nudges": [{"channel": "A", "level": 2, "vectors": ["aggressive_tone"]}], "levels": {"A": 2}},
+        {"nudges": [], "levels": {"A": 2}}
       ]
     }
   ]

@@ -52,7 +52,15 @@ def _turn_from(step: dict) -> tuple[TurnLocalEvent, ToneFlagEvent | None]:
 def test_case_replays_identically(case):
     config = case["config"]
     subs = [VectorSubscription(**s) for s in config["subscriptions"]]
-    policy = NudgePolicy(subs, cooldown_s=config["cooldown_s"], channels=config["channels"])
+    # hold-3s (2026-09-20): this file is about the RELAY's conversion — which
+    # rung a phone turn's loudness and tone land on, and that the two combine as
+    # the policy's per-channel max. Its steps are one-second turns, so under the
+    # shipped 3 s hold the loudness lane would never climb and every case would
+    # quietly become a tone-only test. Pinned at the pre-2026-09-20 gate so each
+    # case keeps asserting what it was written for; the hold on THIS path (a
+    # phone turn's duration is what it counts) is pinned by
+    # test_relay.py::test_the_relay_makes_the_first_rung_hold_in_seconds_of_turn.
+    policy = NudgePolicy(subs, cooldown_s=config["cooldown_s"], channels=config["channels"], hold_s=1.0)
     assert len(case["inputs"]) == len(case["expected"]), case["name"]
 
     for idx, (step, want) in enumerate(zip(case["inputs"], case["expected"])):

@@ -23,6 +23,8 @@ interface NudgeCase {
   applies_to: string[];
   config: {
     cooldown_s: number;
+    /** Schema v2: the loudness ladder's hold-N hysteresis, in seconds. */
+    hold_s: number;
     channels: Channel[];
     subscriptions: { vector: VectorName; sensitivity: number; haptics: boolean; channel: Channel }[];
   };
@@ -31,7 +33,7 @@ interface NudgeCase {
 }
 
 const doc = loadFixture<{ _schema: { version: number }; cases: NudgeCase[] }>("nudge_policy.json");
-expect(doc._schema.version).toBe(1);
+expect(doc._schema.version).toBe(2);
 const CASES = doc.cases.filter((c) => c.applies_to.includes("phone") || c.applies_to.includes("server"));
 
 describe("nudge_policy.json golden vectors", () => {
@@ -46,13 +48,19 @@ describe("nudge_policy.json golden vectors", () => {
       "sustained_observation_refreshes_clock",
       "stepwise_deescalation_3_to_0",
       "full_decay_then_fresh_escalation",
+      // hold-3s (2026-09-20): the loudness ladder's hysteresis, pinned on all three runtimes.
+      "hold_two_loud_windows_then_quiet_never_buzzes",
+      "hold_three_loud_windows_escalates_on_the_third",
+      "hold_of_one_is_the_pre_hysteresis_ladder",
     ]) {
       expect(names.has(n)).toBe(true);
     }
   });
 
   it.each(CASES.map((c) => [c.name, c] as const))("replays identically: %s", (_name, c) => {
-    const policy = new NudgePolicy(c.config.subscriptions, c.config.cooldown_s, c.config.channels);
+    // `hold_s` is REQUIRED by schema v2 and never defaulted here, so a case
+    // cannot silently be replayed under a different gate than it was written for.
+    const policy = new NudgePolicy(c.config.subscriptions, c.config.cooldown_s, c.config.channels, c.config.hold_s);
     expect(c.inputs.length).toBe(c.expected.length);
     c.inputs.forEach((step, i) => {
       const got = policy.onEvents(
@@ -118,9 +126,39 @@ describe("phone-side inputs", () => {
       { vector: "yelling", level: 3, t: 3.0, value: 15 },
       { vector: "aggressive_tone", level: 3, t: 3.0 },
     ]);
+    // hold-3s: one 1 s observation is not a raised voice, so the loudness lane
+    // is still serving its hold and only `aggressive_tone` is credited. The
+    // level is unchanged — the words alone reach 3 here — which is the point:
+    // the hold removes a REASON, never a nudge the tone lane would have made.
     const nudges = policy.onEvents(events, 3.0);
-    expect(nudges).toEqual([{ channel: "A", level: 3, t: 3.0, vectors: ["aggressive_tone", "yelling"] }]);
+    expect(nudges).toEqual([{ channel: "A", level: 3, t: 3.0, vectors: ["aggressive_tone"] }]);
     expect(policy.current()).toEqual({ A: 3 });
+  });
+
+  it("hold-3s: the loudness lane joins once the rung has held, by seconds or by windows", () => {
+    // A quiet-tongued but loud turn: nothing for the tone lane to carry, so
+    // this isolates the hold. Three 1 s windows, and the third climbs.
+    const byWindows = phoneNudgePolicy();
+    const loud = (t: number) => selfTurnVectorEvents(t, 15, { frustration: 0, defensiveness: 0 });
+    expect(byWindows.onEvents(loud(1.0), 1.0)).toEqual([]);
+    expect(byWindows.onEvents(loud(2.0), 2.0)).toEqual([]);
+    expect(byWindows.onEvents(loud(3.0), 3.0)).toEqual([
+      { channel: "A", level: 3, t: 3.0, vectors: ["yelling"] },
+    ]);
+
+    // The phone observes once per TURN, so one 3 s loud turn is the same three
+    // windows of hold and buzzes on the spot — that is why hold-3s costs the
+    // phone almost no real escalations while halving the watch's window-rate dose.
+    const byTurn = phoneNudgePolicy();
+    expect(byTurn.onEvents(loud(4.0), 4.0, 3.0)).toEqual([
+      { channel: "A", level: 3, t: 4.0, vectors: ["yelling"] },
+    ]);
+
+    // …and holdS 1 is the pre-2026-09-20 ladder: the first window climbs.
+    const legacy = phoneNudgePolicy(20.0, 1.0);
+    expect(legacy.onEvents(loud(1.0), 1.0)).toEqual([
+      { channel: "A", level: 3, t: 1.0, vectors: ["yelling"] },
+    ]);
   });
 });
 

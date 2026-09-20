@@ -911,6 +911,7 @@ def expected_watch_relay(turn_locals: list[dict], *, baseline_rms_db: float | No
     account's watch ENROLLMENT baseline when it has one (a throwaway
     account never does -> None -> running median of prior phone turns)."""
     from models.audio import TurnLocalEvent
+    from nudge_policy import WINDOW_S as _WINDOW_S
     from nudge_policy import NudgePolicy
     from watch import relay as watch_relay
     from watch.models import EnrollmentBaseline, VectorSubscription
@@ -934,7 +935,12 @@ def expected_watch_relay(turn_locals: list[dict], *, baseline_rms_db: float | No
         session.observe_phone_rms(rms)
         if not events:
             continue
-        nudges = policy.on_events(events, 0.0)
+        # Same third argument push_turn_local passes: the turn's own duration,
+        # which is what the loudness hold counts (nudge_policy.LoudnessHold).
+        # Omitting it would model every turn as one 1 s window and predict a
+        # silent wrist for turns the real relay escalates on.
+        observed_s = max(float(ev.end_time) - float(ev.start_time), _WINDOW_S)
+        nudges = policy.on_events(events, 0.0, observed_s)
         out.append({
             "turn_index": i,
             "events": [(e.vector, e.level) for e in events],

@@ -44,7 +44,7 @@ class NudgeStateMachineVectorsTest {
     @Test
     fun fixtureIsTheServerSchemaVersionThisTestUnderstands() {
         val doc = loadDoc()
-        assertEquals(1, doc["_schema"]!!.jsonObject["version"]!!.jsonPrimitive.int)
+        assertEquals(2, doc["_schema"]!!.jsonObject["version"]!!.jsonPrimitive.int)
         // A future fixture edit that drops every watch case would leave this test vacuously green;
         // the Python driver requires the same named scenarios, so pin them here too.
         val names = watchCases(doc).map { it["name"]!!.jsonPrimitive.content }.toSet()
@@ -55,6 +55,10 @@ class NudgeStateMachineVectorsTest {
             "sustained_observation_refreshes_clock",
             "stepwise_deescalation_3_to_0",
             "full_decay_then_fresh_escalation",
+            // hold-3s (2026-09-20): the loudness ladder's hysteresis, pinned on all three runtimes.
+            "hold_two_loud_windows_then_quiet_never_buzzes",
+            "hold_three_loud_windows_escalates_on_the_third",
+            "hold_of_one_is_the_pre_hysteresis_ladder",
         )) {
             assertTrue(required in names, "watch-tagged case '$required' missing from nudge_policy.json")
         }
@@ -78,7 +82,13 @@ class NudgeStateMachineVectorsTest {
                 assertEquals(true, sub["haptics"]!!.jsonPrimitive.content.toBoolean(), "$name: watch cases have haptics on")
             }
 
-            val sm = NudgeStateMachine(cooldownS = config["cooldown_s"]!!.jsonPrimitive.double)
+            // `hold_s` is REQUIRED by schema v2 (the loudness ladder's hold-N hysteresis) and is
+            // never defaulted here, so a case cannot silently be replayed under a different gate
+            // than the one it was written for.
+            val sm = NudgeStateMachine(
+                cooldownS = config["cooldown_s"]!!.jsonPrimitive.double,
+                holdS = config["hold_s"]!!.jsonPrimitive.double,
+            )
             val inputs = case["inputs"]!!.jsonArray.map { it.jsonObject }
             val expected = case["expected"]!!.jsonArray.map { it.jsonObject }
             assertEquals(inputs.size, expected.size, "$name: one expected entry per input step")
