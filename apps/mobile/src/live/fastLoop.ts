@@ -60,6 +60,12 @@ import {
 import { aggressiveToneLevel, CoachRepeatGate, LoudnessBaseline, phoneNudgePolicy, yellingLevel } from "./nudgePolicy";
 import { liveTurnKind } from "./naturalTurn";
 import { turnActivationAsync, type TurnActivation } from "./activation";
+import { instantHeatScore } from "./instantTier";
+
+/** The rolling window the acoustic instant tier scores, and how often. Both
+ *  fixed by the model: instantTier.model.json was fitted on 2 s windows. */
+export const HEAT_WINDOW_SECONDS = 2;
+export const HEAT_TICK_SECONDS = 1;
 import { OVERLAP_PROBE_MIN_SECONDS, probeOverlapAsync, type OverlapSummary } from "./overlapProbe";
 import type { TurnLocalEvent } from "./types";
 
@@ -105,6 +111,27 @@ export interface TurnLatency {
   attempts?: { provider: string; outcome: string; detail?: string }[];
 }
 
+/**
+ * One second's verdict from the acoustic instant tier (live/instantTier.ts):
+ * P(angry) over the rolling 2 s window that ended at `t`, measured on the
+ * phone from 16 kHz PCM with no model download and no network.
+ *
+ * DARK as of 2026-09-20. Nothing escalates on it — the confirm/veto policy
+ * lands after the judge merges. It exists so the replay report can show what
+ * it WOULD have said, second by second, next to what the shipped loudness
+ * ladder actually did.
+ */
+export interface HeatWindow {
+  /** End of the window, on the audio clock (seconds since session start). */
+  t: number;
+  /** P(angry) in [0, 1]. */
+  score: number;
+  /** Frames the extractor measured, and how many of them were voiced — a
+   *  window scored off two voiced frames deserves less weight than a full one. */
+  frames: number;
+  voicedFrames: number;
+}
+
 export interface LocalTurn {
   index: number;
   /** NaturalTurn tag (live/naturalTurn.ts): "backchannel" = a listener
@@ -115,6 +142,11 @@ export interface LocalTurn {
    *  other people's turns or when unmeasurable). Dark: recorded + shown in
    *  Developer mode; nudges only with deps.activationNudges. */
   activation: TurnActivation | null;
+  /** Highest acoustic instant-tier score (live/instantTier.ts) over the
+   *  per-second windows that ended inside this turn; null when the tier
+   *  never ran (silence, or a window too short to measure). DARK — recorded
+   *  and reported, never escalated. */
+  instantHeat: number | null;
   /** Single-mic overlap probe over a LONG self turn (live/overlapProbe.ts):
    *  mixed-voice seconds inside the span. Dark — Developer mode only; null
    *  on other turns, short turns, or without a voice model. */
@@ -169,6 +201,15 @@ export interface FastLoopDeps {
   onSttError?: (code: string, message: string) => void;
   /** A stage fell back mid-session (today: the VAD to the energy rule). */
   onDegrade?: (stage: "vad", reason: string) => void;
+  /** Every per-second acoustic instant-tier window (dark; see HeatWindow). */
+  onHeat?: (window: HeatWindow) => void;
+  /**
+   * Score the acoustic instant tier once a second (live/instantTier.ts).
+   * Default TRUE. It is the one thing in this loop that costs CPU without
+   * yet changing anything the user feels — ~11 ms per window in node, on the
+   * same queue as the VAD — so it gets a switch rather than a comment.
+   */
+  instantHeat?: boolean;
   haptics?: HapticSink | null;
   policy?: NudgePolicy;
   /** Don't-nag gate over the coach's own lines. Defaults to a real
@@ -305,6 +346,7 @@ export class FastLoop {
   private readonly repeatGate: CoachRepeatGate | null;
   private readonly activationNudges: boolean;
   private readonly overlapProbe: boolean;
+  private readonly instantHeat: boolean;
   private readonly baseline = new LoudnessBaseline();
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -356,6 +398,10 @@ export class FastLoop {
    *  frame — quiet is measured on the frame clock, like the segmenter. */
   private lastSpeechEnd = -Infinity;
   private lastFrameEnd = 0;
+  /** Audio-clock second the next instant-tier window closes at. */
+  private nextHeatSecond = HEAT_WINDOW_SECONDS;
+  /** Every per-second acoustic window this session produced (dark). */
+  readonly heatLog: HeatWindow[] = [];
   private sttAvailable = false;
   private sttStartSeconds = 0;
   private unsubscribe: (() => void)[] = [];
@@ -376,6 +422,7 @@ export class FastLoop {
     this.repeatGate = deps.repeatGate === undefined ? new CoachRepeatGate() : deps.repeatGate;
     this.activationNudges = deps.activationNudges ?? true;
     this.overlapProbe = deps.overlapProbe ?? false;
+    this.instantHeat = deps.instantHeat ?? true;
     this.historySamples = Math.round((deps.historySeconds ?? 30) * SILERO_SAMPLE_RATE);
     this.maxEmbedSamples = Math.round((deps.maxEmbedSeconds ?? MAX_EMBED_SECONDS) * SILERO_SAMPLE_RATE);
     this.maxPitchSeconds = deps.maxPitchSeconds ?? LIVE_MAX_PITCH_SECONDS;
@@ -597,6 +644,8 @@ export class FastLoop {
     this.held = null;
     this.lastSpeechEnd = -Infinity;
     this.lastFrameEnd = 0;
+    this.nextHeatSecond = HEAT_WINDOW_SECONDS;
+    this.heatLog.length = 0;
     this.latencyLog.length = 0;
     this.bindings = new Map();
     this.boundLabelOfPerson = new Map();
@@ -766,6 +815,8 @@ export class FastLoop {
     const span = this.segmenter.push(isSpeech, tStart, tEnd);
     if (span) this.enqueueTurn(span);
     if (this.quietEnoughToSpeak()) this.releaseHeld();
+    // Last: the dark acoustic tier must never sit in front of the real path.
+    this.tickHeat(tEnd);
   }
 
   /** Nobody is talking, and hasn't been for at least speakQuietMs. */
@@ -863,6 +914,53 @@ export class FastLoop {
    *  run. `sessionEndS` is the session's last audio second. */
   positiveSummary(sessionEndS: number): { counts: Record<PositiveCode, number>; calm: CalmStreak } {
     return { counts: { ...this.positiveCounts }, calm: this.positives.calm(sessionEndS) };
+  }
+
+  /**
+   * The acoustic instant tier, once a second, over the trailing 2 s of audio
+   * (live/instantTier.ts). Runs on the VAD queue, where it is already the
+   * cheap half: ~11 ms per window in node against the ~30 ms a Silero frame
+   * costs on-device, and the budget it was written to is 40 ms.
+   *
+   * Only windows that CONTAIN speech are scored. An acoustic anger score over
+   * two seconds of room tone is not a measurement, it is a number, and
+   * burning 11 ms to produce one would be the worst of both.
+   *
+   * DARK: the score is recorded and handed to `onHeat`; nothing escalates on
+   * it. Wiring it into the ladder needs the confirm/veto policy, which waits
+   * on the heat judge.
+   */
+  private tickHeat(tEnd: number): void {
+    if (!this.instantHeat) return;
+    while (tEnd >= this.nextHeatSecond) {
+      const end = this.nextHeatSecond;
+      this.nextHeatSecond += HEAT_TICK_SECONDS;
+      const start = end - HEAT_WINDOW_SECONDS;
+      if (this.lastSpeechEnd <= start) continue;
+      const pcm = this.sliceHistory({ start, end });
+      if (pcm.length === 0) continue;
+      const heat = instantHeatScore(pcm, SILERO_SAMPLE_RATE);
+      if (heat.score === null) continue;
+      const w: HeatWindow = {
+        t: end,
+        score: heat.score,
+        frames: heat.frames,
+        voicedFrames: heat.voicedFrames,
+      };
+      this.heatLog.push(w);
+      this.deps.onHeat?.(w);
+    }
+  }
+
+  /** The highest instant-tier score over the windows that closed inside a
+   *  span; null when the tier never ran there. */
+  private heatOverSpan(span: Span): number | null {
+    let max: number | null = null;
+    for (const w of this.heatLog) {
+      if (w.t <= span.start || w.t > span.end + HEAT_TICK_SECONDS) continue;
+      if (max === null || w.score > max) max = w.score;
+    }
+    return max;
   }
 
   private sliceHistory(span: Span): Float32Array {
@@ -1077,6 +1175,7 @@ export class FastLoop {
       index,
       kind: turnKind,
       activation,
+      instantHeat: this.heatOverSpan(span),
       overlap,
       speaker: verdict.speaker,
       text: aligned.text,

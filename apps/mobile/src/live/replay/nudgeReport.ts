@@ -127,6 +127,11 @@ export interface FragmentRow {
   frustration: number | null;
   defensiveness: number | null;
   activation: { probability: number; level: number } | null;
+  /** Highest ACOUSTIC instant-tier score over the per-second windows inside
+   *  this fragment (live/instantTier.ts; dark). `instantLevel` above is the
+   *  shipped loudness ladder — this is the rung the acoustic model would
+   *  have argued for, and the two are reported side by side on purpose. */
+  instantHeat: number | null;
   overlap: { mixedSeconds: number; longestMixedRunSeconds: number; windows: number } | null;
   policy: { atMs: number; rawLevel: number; levelAfter: number } | null;
   scriptTurn: number | null;
@@ -216,6 +221,8 @@ export interface TurnRow {
   instantLevelMax: number;
   toneLevelMax: number;
   activationMax: { probability: number; level: number } | null;
+  /** Highest acoustic instant-tier score anywhere on this turn (dark). */
+  instantHeatMax: number | null;
   overlapMax: { mixedSeconds: number; longestMixedRunSeconds: number } | null;
   /** Steamroll events a call would have raised on this (ground-truth) turn. */
   callMode: VectorEvent[];
@@ -553,6 +560,7 @@ export function buildNudgeReport(r: ReplayResult, generatedAt = new Date().toISO
       frustration,
       defensiveness,
       activation: lt.activation ? { probability: r3(lt.activation.probability), level: lt.activation.level } : null,
+      instantHeat: lt.instantHeat === null ? null : r3(lt.instantHeat),
       overlap: lt.overlap
         ? { mixedSeconds: lt.overlap.mixedSeconds, longestMixedRunSeconds: lt.overlap.longestMixedRunSeconds, windows: lt.overlap.windows }
         : null,
@@ -577,6 +585,7 @@ export function buildNudgeReport(r: ReplayResult, generatedAt = new Date().toISO
     const dbs = frags.map((f) => f.dbOverBaseline).filter((x): x is number => x !== null);
     const acts = frags.map((f) => f.activation).filter((a): a is NonNullable<FragmentRow["activation"]> => a !== null);
     const ovs = frags.map((f) => f.overlap).filter((o): o is NonNullable<FragmentRow["overlap"]> => o !== null);
+    const heats = frags.map((f) => f.instantHeat).filter((h): h is number => h !== null);
     return {
       index: st.index,
       speaker: st.speaker,
@@ -596,6 +605,7 @@ export function buildNudgeReport(r: ReplayResult, generatedAt = new Date().toISO
       instantLevelMax: Math.max(0, ...frags.map((f) => f.instantLevel)),
       toneLevelMax: Math.max(0, ...frags.filter((f) => f.coachedAsSelf).map((f) => f.toneLevel)),
       activationMax: acts.length ? acts.reduce((a, b) => (b.probability > a.probability ? b : a)) : null,
+      instantHeatMax: heats.length ? Math.max(...heats) : null,
       overlapMax: ovs.length
         ? {
             mixedSeconds: Math.max(...ovs.map((o) => o.mixedSeconds)),

@@ -1,0 +1,25 @@
+{
+ "_comment": "Measured by scripts/instant_tier_eval.ts running apps/mobile/src/live/instantTier.ts over the real corpus audio (2 s loudest window per clip, 16 kHz). RAVDESS is the cross-corpus number: the model was fitted on CREMA-D only and has never seen a RAVDESS actor, room or script. Regenerate with `npx tsx scripts/instant_tier_eval.ts`.",
+ "generated": "2026-09-20",
+ "crossCorpus": {
+  "corpus": "ravdess",
+  "n": 384,
+  "nAngry": 192,
+  "unscored": 0,
+  "aucAngryVsHappy": 0.7952
+ },
+ "withinCorpus": {
+  "corpus": "cremad",
+  "note": "trained on this corpus; not a generalisation claim",
+  "n": 500,
+  "nAngry": 367,
+  "unscored": 0,
+  "aucAngryVsHappy": 0.8399
+ },
+ "latency": {
+  "msPerWindow": 10.667,
+  "windowsBenched": 200,
+  "node": "v26.7.0",
+  "note": "node on the dev Mac; a phone JS engine is slower, budget is 40 ms"
+ }
+}
