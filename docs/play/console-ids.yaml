@@ -1,0 +1,16 @@
+# Google Play Console numeric ids — needed to deep-link into Console pages (the
+# Play Developer API never exposes them; they come from the Console URL bar).
+developer_account_id: "7699975610134980668"   # "Sage Child Arbor", personal account
+apps:
+  com.sagearbor.mindshift.app:
+    console_app_id: "4975426204431832627"
+    production_track_id: "4698091812124000859"
+  com.sagearbor.gauge.wear:
+    console_app_id: "4975829673983009446"
+url_patterns:
+  dashboard:      https://play.google.com/console/u/0/developers/{dev}/app/{app}/app-dashboard
+  app_content:    https://play.google.com/console/u/0/developers/{dev}/app/{app}/app-content/overview
+  fgs_declaration: https://play.google.com/console/u/0/developers/{dev}/app/{app}/app-content/foreground-services
+  production:     https://play.google.com/console/u/0/developers/{dev}/app/{app}/tracks/production
+  publishing:     https://play.google.com/console/u/0/developers/{dev}/app/{app}/publishing
+  store_listing:  https://play.google.com/console/u/0/developers/{dev}/app/{app}/main-store-listing
