@@ -315,7 +315,7 @@ Every number here is from `scripts/feature_bench.py --restrict-to tone`, on
 
 ## Round 3 — a dinner party at home (CHiME-6), and the final graph
 
-**121 recordings**, 55 hours of real conversation across five settings.
+**121 recordings**, 32 hours of real conversation (an earlier draft said 55; the rows in heat_map.json sum to 32.2 h) across five settings.
 CHiME-6 adds two real dinner parties (four friends cooking and eating, 4.5 h,
 eighteen 15-minute segments) recorded on each person's own binaural headset —
 the home counterpart to AMI's office, with the same free speaker truth.
