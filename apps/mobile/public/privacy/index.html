@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Privacy Policy — MindShift</title>
-<meta name="description" content="Exactly what MindShift does with your microphone audio, transcripts and voiceprint: what is stored, who it is sent to (Deepgram, Anthropic, Google, Cloudflare, Expo), how long it is kept, and how to delete it." />
+<meta name="description" content="Exactly what MindShift does with your microphone audio, transcripts, voiceprint, Wear OS heart rate and tone score: what is stored, who it is sent to (Deepgram, Anthropic, Google, Cloudflare, Expo), how long it is kept, and how to delete it." />
 <meta name="robots" content="index,follow" />
 <meta name="theme-color" content="#312E81" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23312E81'/%3E%3Cpath d='M9 12a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v3a5 5 0 0 1-5 5h-3l-4 3v-3a5 5 0 0 1-2-4z' fill='%23A5B4FC'/%3E%3C/svg%3E" />
@@ -104,7 +104,7 @@
 <header class="top">
   <p class="eyebrow">MindShift</p>
   <h1>Privacy Policy</h1>
-  <p class="updated">Last updated: 25 August 2026</p>
+  <p class="updated">Last updated: 20 September 2026</p>
 </header>
 
 <div class="lede">
@@ -112,12 +112,18 @@
   so it can coach you through it. To do that it sends your microphone audio to
   <strong>Deepgram</strong> to turn into text, and sends that text to
   <strong>Anthropic (Claude)</strong> to write the suggestions you see. A live
-  coaching session keeps <strong>no audio at all</strong> — nothing is written
-  down anywhere. Recordings are saved only when you tick the consent box, and
-  only you can see them until you deliberately share a session with a therapist
-  you name by email. There are <strong>no ads</strong>, no advertising or
-  analytics SDKs, and nothing is sold to anyone. You can delete any of it, and
-  you can delete all of it — see <a href="#delete">Deleting your data</a>.</p>
+  coaching session <strong>keeps its audio by default</strong> so you can
+  replay and re-analyse it — turn <em>Keep audio</em> off in Live Coach and
+  it is transcribed as it streams and thrown away instead. If you pair a
+  <strong>Wear OS watch</strong>, MindShift also reads your <strong>heart
+  rate</strong> and scores the sound of your voice for <strong>tone</strong> —
+  both stay on our own server and are never sent to anyone else. Recordings you
+  make outside a live session are saved only when you tick the consent box, and
+  only you can see any of it until you deliberately share a session with a
+  therapist you name by email. There are <strong>no ads</strong>, no
+  advertising or analytics SDKs, and nothing is sold to anyone. You can delete
+  any of it, and you can delete all of it — see
+  <a href="#delete">Deleting your data</a>.</p>
 </div>
 
 <h2 id="who">Who we are</h2>
@@ -125,9 +131,11 @@
 project, not a company. You can reach a human at
 <a href="mailto:sagearbor@gmail.com">sagearbor@gmail.com</a>.</p>
 <p>This policy covers the MindShift Android app
-(<code>com.sagearbor.mindshift.app</code>), the iOS app, and the web version at
-<a href="https://arborfam-hub.web.app">arborfam-hub.web.app</a>. Where the web
-version behaves differently, it says so below.</p>
+(<code>com.sagearbor.mindshift.app</code>), the iOS app, the web version at
+<a href="https://arborfam-hub.web.app">arborfam-hub.web.app</a>, and the
+MindShift Wear OS companion app (<code>com.sagearbor.gauge.wear</code>), which
+has no privacy policy of its own. Where one of these behaves differently, it
+says so below.</p>
 
 <h2 id="account">You need an account</h2>
 <p>MindShift requires a free account — there is no guest mode. Sign-in is
@@ -152,7 +160,19 @@ data.</p>
       <td>Microphone audio</td>
       <td>To transcribe what is said so the coach has something to work with</td>
       <td>Streamed to our server, and on to Deepgram for transcription</td>
-      <td><strong>No</strong> during live coaching. Only if you record or upload something and tick consent</td>
+      <td><strong>Yes, by default</strong>, for a live coaching session — turn <em>Keep audio</em> off and only the transcript remains. Recordings and uploads: only if you tick consent</td>
+    </tr>
+    <tr>
+      <td>Heart rate (Wear OS)</td>
+      <td>An extra signal, alongside your voice, for the wearer's own nudges and session recap</td>
+      <td>Sent from a paired watch to our server over your live session's connection</td>
+      <td>Yes, with the session it was measured in — until you delete it. Never sent anywhere else</td>
+    </tr>
+    <tr>
+      <td>Tone / arousal &amp; valence score</td>
+      <td>A second opinion on how heated a moment sounded, alongside loudness — used only for your own nudges and recap</td>
+      <td>Computed on our own server, from your session's audio. Never sent to a third party</td>
+      <td>Yes, with the session it was computed for — until you delete it</td>
     </tr>
     <tr>
       <td>Transcripts &amp; coaching suggestions</td>
@@ -192,15 +212,78 @@ data.</p>
 <p>During a live coaching session your phone streams audio to our server
 continuously, and our server streams it to <strong>Deepgram</strong>, a
 speech-to-text service, which turns it into text in real time.</p>
-<p>Our server <strong>never writes that audio down</strong>. It holds a rolling
-90-second buffer in memory purely so it can re-examine the tone of the sentence
-you just said, and that buffer disappears the moment the session ends or the
-connection drops. Nothing goes to a disk, a bucket or a database.</p>
+<p><strong>A live session keeps its audio by default.</strong> While it runs,
+our server holds a rolling 90-second buffer in memory to re-examine the tone of
+the sentence you just said, but the phone also writes the session's microphone
+audio to a file, and once you save the session that file is uploaded and stored
+— transcoded to a compressed copy, the same way an uploaded recording is — so
+you can replay and re-analyse it later and so MindShift can keep learning your
+voice. You can turn this off: in Live Coach, switch <strong>Keep audio</strong>
+off, and nothing is written down for that session — the live stream is only
+ever transcribed as it goes, the 90-second buffer disappears the moment the
+session ends or the connection drops, and no audio file is ever created or
+uploaded.</p>
 <p>To be plain about one thing that is easy to get wrong: MindShift also runs a
 fast coaching loop <em>on your phone</em>, and the app has a toggle for whether
 the phone or the server does the coaching. <strong>That toggle does not stop the
 audio upload.</strong> Audio goes to our server on every live session either
-way. If we ever change that, this page changes with it.</p>
+way; Keep audio is the separate control for whether that audio is kept. If we
+ever change any of this, this page changes with it.</p>
+
+<h3 id="heartrate">Heart rate (Wear OS)</h3>
+<p>If you pair a MindShift Wear OS watch to your account, the watch reads your
+heart rate from its optical sensor and sends it to our server. In an active
+watch session it sends a reading about once a second; in Companion mode, where
+your phone does the listening and the watch just sits alongside it, the watch
+still sends a reading roughly every 5 seconds for as long as that connection
+stays open. Either way it is an extra input alongside your voice — a heart-rate
+jump can contribute to the wearer's own in-the-moment nudge — and the full
+series is stored with the session, not just the moments it spiked, so we can
+tell honestly whether heart rate is adding anything at all.</p>
+<p>Heart rate is stored inside that session's record on our server and is
+<strong>never sent to Deepgram, Anthropic, or anyone else</strong>, and it is
+never shown to another user — a partner's shared standing card shows a calm
+score, never a number. It exists only if you pair a watch and grant it the body
+-sensor permission; decline that permission and the watch still works, it just
+has one fewer signal. Deleting the session deletes its heart-rate data with it;
+deleting your account deletes all of it.</p>
+
+<h3 id="tone">Tone (arousal and valence)</h3>
+<p>Our server also scores the sound of a live session's audio for how heated it
+sounds — two numbers, called <strong>arousal</strong> and <strong>valence</strong>,
+computed every second from a short rolling window of your voice. This is a
+second opinion alongside loudness, so a session that is loud but happy is not
+mistaken for one that is loud and angry. The models run <strong>on our own
+server</strong> — nothing is sent to an outside emotion-detection company — and
+the resulting series is stored with the session for the same reason the
+heart-rate series is: so it can be checked, and used only for your own nudges
+and after-the-session recap. It is not shared with anyone else and is deleted
+along with the session, or your whole account.</p>
+
+<h3>The Wear OS watch's microphone</h3>
+<p>A paired watch listens for you in one of a few modes, chosen in the watch
+app. In <strong>Battery Saver</strong> and <strong>Standard</strong> mode, the
+watch's microphone stays off until it detects something worth nudging on, and
+then streams your voice to our server in one-second pieces, together with a
+5-to-10-second buffer of audio from just before that moment so the nudge
+doesn't lose context. <strong>Session</strong> mode streams continuously in
+the same one-second pieces for as long as it is on, with no trigger at all.
+<strong>Companion</strong> mode is different from all three: the watch never
+opens its microphone at all — your phone listens instead, and the watch only
+receives heart rate and nudges. A live watch session keeps up to 30 minutes of
+whatever audio it streamed with the session record; past 30 minutes, the audio
+stops being kept while the watch keeps nudging.</p>
+<p>Two more things you can trigger from the watch:</p>
+<ul>
+  <li><strong>Save last 2 min</strong> — tap the chip, confirm the dialog, and
+  the last two minutes of the watch's rolling buffer is uploaded and kept until
+  you delete it.</li>
+  <li><strong>Journal</strong> — an opt-in toggle, <strong>off by default</strong>,
+  that when turned on uploads a short snapshot of your own voice every five
+  minutes. We filter it down to spans that match your own enrolled voice before
+  keeping anything, and every journal snapshot is deleted automatically after
+  <strong>48 hours</strong>, whether or not you turn the toggle off.</li>
+</ul>
 
 <h3>Transcripts and coaching suggestions</h3>
 <p>The transcribed text is sent to <strong>Anthropic (Claude)</strong>, which
@@ -272,6 +355,10 @@ job.</p>
   update every time it launches. That request carries your app version, platform,
   release channel and IP address. It carries none of your content.</li>
 </ul>
+<p>Your heart rate and the tone (arousal/valence) score described above are
+<strong>not</strong> on this list — the models that compute tone run inside our
+own server, not at any of these companies, and neither figure is ever included
+in what we send to Deepgram or Anthropic.</p>
 <p>On top of those, when the app transcribes on your phone it uses
 <strong>your phone's own speech recogniser</strong> — Android System
 Intelligence on Android, Apple's Speech framework on iOS. MindShift explicitly
@@ -315,11 +402,13 @@ happens because you asked for it.</p>
 </ul>
 
 <h2 id="calls">In-app calls</h2>
-<p>Call audio travels <strong>directly between the phones</strong> over WebRTC,
-encrypted end to end by the platform. It does not pass through our server and is
-never recorded. Our server only introduces the phones to each other and merges
-the text each phone transcribes for itself. If a direct connection cannot be
-made, the encrypted audio is relayed by Cloudflare, which cannot read it.</p>
+<p>In-app calls are <strong>audio only</strong> — there is no video. Call audio
+travels <strong>directly between the phones</strong> over WebRTC, encrypted end
+to end by the platform. It does not pass through our server and is
+<strong>never recorded</strong>. Our server only introduces the phones to each
+other and merges the text each phone transcribes for itself. If a direct
+connection cannot be made, the encrypted audio is relayed by Cloudflare's TURN
+service, which cannot read it.</p>
 
 <h2 id="security">How it is protected</h2>
 <ul>
@@ -336,11 +425,16 @@ made, the encrypted audio is relayed by Cloudflare, which cannot read it.</p>
 </ul>
 
 <h2 id="retention">How long we keep it</h2>
-<p>Live audio: not kept at all. Live transcripts: not kept until you save the
-session. Everything you do save — sessions, transcripts, analysis, audio and
-video derivatives, voiceprints, therapist links and notes — is kept
-<strong>until you delete it</strong>. There is no automatic expiry, and we would
-rather say that plainly than invent a retention period we do not enforce.</p>
+<p>Live transcripts: not kept until you save the session. Live audio: kept with
+the session by default once you save it — turn off <em>Keep audio</em> and it
+is never written down at all. Everything you do save — sessions, transcripts,
+analysis, audio and video derivatives, heart-rate and tone series, voiceprints,
+therapist links and notes — is kept <strong>until you delete it</strong>. There
+is no automatic expiry on any of that, and we would rather say that plainly than
+invent a retention period we do not enforce.</p>
+<p>Two exceptions, both on the Wear OS watch: a live watch session keeps at most
+30 minutes of streamed audio, and a Journal snapshot is deleted automatically
+after 48 hours regardless of when you turn the Journal toggle off.</p>
 
 <h2 id="delete">Deleting your data</h2>
 <p><strong>In the app, right now:</strong></p>
@@ -366,12 +460,14 @@ instructions are at
 <a href="https://arborfam-hub.web.app/delete-account">arborfam-hub.web.app/delete-account</a>,
 which also covers what to do if you can no longer sign in.</p>
 <p>Deleting your account erases: every stored recording and session (audio,
-video, transcripts, analysis, titles, speaker labels); your voiceprint and every
-person you enrolled; every share you granted and every session shared with you;
-your therapist link in both directions and your private notes; your unfinished
-uploads and analysis jobs; your watch pairing, live sessions, captures and group
-memberships; your diagnostic reports; your saved relationships and text-tool
-sessions; and your sign-in account itself.</p>
+video, transcripts, analysis, titles, speaker labels, and any heart-rate or
+tone series recorded with it); your voiceprint and every person you enrolled;
+every share you granted and every session shared with you; your therapist link
+in both directions and your private notes; your unfinished uploads and analysis
+jobs; your watch pairing, live sessions (including their streamed audio and
+heart rate), captures — including a "Save last 2 min" or Journal capture — and
+group memberships; your diagnostic reports; your saved relationships and
+text-tool sessions; and your sign-in account itself.</p>
 <p><strong>Sessions you shared with a therapist.</strong> Sharing grants a view;
 it never transfers ownership. The session stays yours, so deleting your account
 deletes the session itself and every grant that let anyone see it — and the
@@ -407,6 +503,17 @@ out of on that front.</p>
 its "last updated" date change in the same release. The product is early and it
 moves; the commitment is that this page keeps describing what the code actually
 does, not what would be convenient to say.</p>
+<h3>Change log</h3>
+<ul>
+  <li><strong>20 September 2026.</strong> Corrected two statements that had
+  gone stale: a live coaching session now says plainly that it keeps its audio
+  <em>by default</em> (with the Keep audio toggle to turn that off), instead of
+  claiming it keeps none. Added: heart rate from a paired Wear OS watch; the
+  tone (arousal/valence) score our server computes from a session's audio; and
+  a full description of what a paired watch's microphone does in each of its
+  modes, including "Save last 2 min" and the Journal toggle.</li>
+  <li><strong>25 August 2026.</strong> Previous version.</li>
+</ul>
 
 <h2 id="contact">Contact</h2>
 <p>Questions, deletion requests, or anything on this page that does not match
