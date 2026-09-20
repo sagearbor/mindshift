@@ -141,3 +141,5 @@ To roll back: unset `MINDSHIFT_HEAT_VALENCE_GATE`. No deploy needed.
 python scripts/valence_gate_calib.py              # the tables above
 pytest server/tests/watch/test_relay.py -q        # the behaviour, 29 tests
 ```
+
+> **Note (2026-09-20):** the "flip `MINDSHIFT_TONE_AUDIO=on` with the valence gate off is invisible to wearers" claim above is incomplete. `on` also enables `tone_id.surface_allowed()`, which pushes `ToneFlagEvent` to the phone and to call participants (`audio_pipeline._enrich_tone`) and writes `audio_escalated` into the stored recap (`live_sessions.audio_tone_allowed`). Production went `off → dark` on 2026-09-20 (revision 00094); `on` lands only with the heat judge gating those paths — see `2026-09-20-heat-judge-plan.md`.

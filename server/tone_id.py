@@ -442,6 +442,40 @@ def _snapshot(repo: str, revision: str, local_dir: str, patterns: tuple[str, ...
     )
 
 
+def prefetch(name: str | None = None) -> None:
+    """Download the pinned snapshot(s) for backend ``name`` (default: the
+    configured backend) into :func:`cache_dir`, WITHOUT constructing the
+    model — the same ``_snapshot`` calls each ``_load_*`` makes, split out so
+    the Dockerfile can bake weights into the image at build time (see the
+    ``INSTALL_VOICE`` layer) rather than paying a multi-hundred-MB download on
+    a live turn's cold start. Raises on failure (a build should fail loudly,
+    never ship silently with :func:`snapshot_present` false); verifies the
+    result with :func:`snapshot_present` for the same reason.
+
+    Kept in this module (not a separate script) so the Dockerfile's call and
+    the runtime loaders can never drift apart — both read the SAME
+    ``BACKEND_INFO`` source/revision constants.
+    """
+    name = _check_backend(name)
+    if name == "odyssey_dim":
+        _snapshot(ODYSSEY_SOURCE, ODYSSEY_REVISION, os.path.join(cache_dir(), "odyssey-dim"), _ODYSSEY_ALLOW_PATTERNS)
+        _snapshot(
+            ODYSSEY_SSL_SOURCE, ODYSSEY_SSL_REVISION,
+            os.path.join(cache_dir(), "wavlm-large"), _ODYSSEY_SSL_ALLOW_PATTERNS,
+        )
+    elif name == "superb_er":
+        _snapshot(SUPERB_SOURCE, SUPERB_REVISION, os.path.join(cache_dir(), "superb-er"), _SUPERB_ALLOW_PATTERNS)
+    else:  # iemocap
+        savedir = os.path.abspath(cache_dir())
+        _snapshot(TONE_SOURCE, TONE_REVISION, savedir, ("*",))
+        _snapshot(TONE_BASE_SOURCE, TONE_BASE_REVISION, os.path.join(savedir, "wav2vec2-base"), _BASE_ALLOW_PATTERNS)
+    if not snapshot_present(name=name):
+        raise ToneUnavailable(
+            f"prefetch({name!r}) ran but snapshot_present({name!r}) is still False — "
+            "check MINDSHIFT_TONE_CACHE and the allow_patterns above"
+        )
+
+
 def _load_iemocap():
     from speechbrain.inference.interfaces import foreign_class
 
@@ -1097,3 +1131,19 @@ def label_distribution(results: list[dict]) -> dict[str, int]:
         else:
             counts[tone["label"]] = counts.get(tone["label"], 0) + 1
     return counts
+
+
+# ---------------------------------------------------------------------------
+# CLI — `python tone_id.py BACKEND [BACKEND ...]` bakes pinned weights into a
+# Docker image layer at build time (see the Dockerfile's INSTALL_VOICE
+# block). No server/app import needed: only this file + huggingface_hub.
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    import sys
+
+    names = sys.argv[1:] or [backend()]
+    for _name in names:
+        print(f"tone_id: prefetching {_name!r} ({model_id(_name)}) into {cache_dir()!r}")
+        prefetch(_name)
+        print(f"tone_id: {_name!r} snapshot_present={snapshot_present(name=_name)}")
