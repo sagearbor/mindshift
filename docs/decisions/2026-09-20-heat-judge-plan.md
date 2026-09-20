@@ -606,3 +606,19 @@ pytest server/tests/test_heat_judge.py -q         # 44 tests
 The corpus-scale tests skip cleanly without the gitignored `tmp/` data (that
 includes CI); the rules, thresholds, wiring, degrade and latency all run
 everywhere.
+
+## Shipped 2026-09-20 (overnight, integration branch `ship/heat-judge-20260920`)
+
+| what | where | state |
+|---|---|---|
+| Server: hold-3s ladder + heat judge + baked weights, `MINDSHIFT_TONE_AUDIO=on` | Cloud Run `mindshift-api-00096-ruy` (image from build 39f7c886) | **serving 100%**; `/health` → `tone: mode=on, weights_present=true`. Rollback: `00094-nug` (dark, same weights) or `00089-jgr` (pre-tone). |
+| Phone: hold-3s, instant tier (dark), iOS config, versionCode 38 | EAS production build `01cb945c` | building → `eas submit` lands a Production **draft**; owner rolls out in Play Console |
+| Watch: 0.5.0 (vc16) hold-3s, praise, HR logging, reminder back-off | Play `com.sagearbor.gauge.wear`, track `wear:production` | **uploaded as draft**; owner reviews listing title / data safety, then rolls out |
+
+Merged-tree suites: pytest 2,267 + 44 judge tests (one live Deepgram diarization
+test fails identically on the untouched eval branch — Deepgram-side synthetic-voice
+limitation), jest 2,181, watch `:shared:jvmTest :wearApp:testDebugUnitTest` 582
+(JDK 17 via `/opt/homebrew/opt/openjdk@17`; the Android Studio JBR is JDK 25 and
+Gradle 8.9 refuses it). Not shipped: step 5's escalation policy (instant tier
+stays dark until the judge has real-session data); step 6 student (training on
+CPU tonight; GPU quota request `gpus-all-regions-1` pending on arborfam-hub).
