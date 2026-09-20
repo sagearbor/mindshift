@@ -37,3 +37,24 @@ including SpeechBrain." Evidence: `docs/research/2026-09-20-tone-model-options.m
 1 (dose win, zero model risk) → 2 (data starts flowing) → 3 (quality) → 4.
 Each step is verified from files: replay report + jest/pytest gate, never the
 owner (`verify-from-files-never-owner`).
+
+## Next steps and where each runs (2026-09-20, owner asked for the short form)
+
+Latency = speech event → nudge on that device. Watch column assumes a phone is
+present (relayed lane); watch-alone gets only rows 1 and 6. "5 s" earlier
+meant two different things: the hold-N hysteresis rule (a deliberate delay on
+the FIRST buzz of an episode, tunable 3 s) and the tone model's audio window
+(2 s is enough: 130 ms compute measured; it was trained on 3–11 s podcast
+segments, shorter than 2 s untested).
+
+| # | step | watch | phone | web/cloud |
+|---|---|---|---|---|
+| 1 | Hold-3s hysteresis on the loudness ladder, all runtimes | 3 s | 3 s | 3 s |
+| 2 | Bake WavLM weights into image; flip cloud flag to dark | NO (logs only) | NO | ~0.5 s compute, logging |
+| 3 | Sliding 2 s tone window every 1 s; arousal+valence confirm/veto | ~3 s via cloud | ~3 s via cloud | ~2.5 s |
+| 4 | Stack SpeechBrain angry-vs-happy vote on the judge | ~3 s via cloud | ~3 s via cloud | ~2.7 s |
+| 5 | eGeMAPS + linear model on device (instant tier) | NO until Kotlin port (~2 s) | ~2 s | ~2 s |
+| 6 | Distil 72 K student on our 31 h; run on watch | ~2 s | ~2 s | ~2 s |
+| 7 | Regenerate CHiME-6 speaker labels from transcripts | — | — | offline |
+| 8 | $50 OpenAI top-up; bench gpt-audio as labeller | NO | NO | 3–5 s, offline only |
+| 9 | Review and push eval/real-conversation-audit | — | — | — |
