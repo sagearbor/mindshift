@@ -34,6 +34,31 @@ RUN if [ "$INSTALL_VOICE" = "1" ]; then \
       pip install --no-cache-dir -r requirements-voice.txt ; \
     fi
 
+# Audio tone (server/tone_id.py, MINDSHIFT_TONE_AUDIO) needs its own pinned
+# Hugging Face weights, same reasoning as ECAPA below: pre-fetch at BUILD
+# time so a live turn on a cold instance never blocks on a ~1.3 GB download
+# (the default odyssey_dim backend) instead of running fully offline from the
+# baked-in cache. Backends baked here: `odyssey_dim` (the shipped default —
+# MIT WavLM-large SER baseline, plus the microsoft/wavlm-large CONFIG-only
+# snapshot its backbone is built from) and `iemocap` (the legacy backend
+# MINDSHIFT_TONE_BACKEND can still select). `superb_er` is deliberately NOT
+# baked — it is not a backend production selects today (see tone_id.py's
+# module docstring: its per-speaker delta is no better than volume alone);
+# server/tests/test_dockerfile_tone_prefetch.py fails the build the moment
+# that stops being true without a matching bake here.
+#
+# Only `tone_id.py` is copied into the image here — NOT the full `server/`
+# tree, which is copied below — so this expensive, multi-hundred-MB layer
+# stays cached across every OTHER server-code change, and only invalidates
+# (correctly) when tone_id.py's own pins change. `prefetch()` calls the
+# SAME `_snapshot`/`BACKEND_INFO` constants the runtime loaders use, so the
+# Dockerfile and the app can never drift onto different revisions.
+COPY server/tone_id.py ./server/tone_id.py
+ENV MINDSHIFT_TONE_CACHE=/app/server/.tone_cache
+RUN if [ "$INSTALL_VOICE" = "1" ]; then \
+      cd server && python tone_id.py odyssey_dim iemocap ; \
+    fi
+
 # Local Whisper STT (faster-whisper) is optional but ON by default: it powers
 # MINDSHIFT_UPLOAD_STT=whisper for prerecorded uploads AND the automatic
 # fallback when Deepgram is unavailable, plus STT_PROVIDER=whisper for live
@@ -66,7 +91,11 @@ COPY server/ ./server/
 # spending tens of seconds (and a HF fetch) exporting it on first request onto
 # Cloud Run's ephemeral filesystem. Only meaningful when the voice deps are in
 # the image; a torch-less build skips it and the route answers an honest 503.
-# The pinned checkpoint download (~20MB) happens here, once, at build time.
+# The pinned checkpoint download (~20MB) happens here, once, at build time —
+# `ecapa_onnx.export()` loads the model via `speaker_id._load_model()` first,
+# which is itself the ECAPA prefetch: no separate bake step is needed for
+# speaker_id's voiceprint checkpoint, only for tone_id's (above), which
+# nothing else in this file happens to load as a side effect.
 RUN if [ "$INSTALL_VOICE" = "1" ]; then \
       cd server && python -c "import ecapa_onnx; print('ECAPA ONNX ->', ecapa_onnx.export())" ; \
     fi

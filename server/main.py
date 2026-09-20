@@ -53,6 +53,15 @@ import recordings_store
 import therapist_links
 import speaker_id
 import word_metrics as word_metrics_mod
+# Audio tone (server/tone_id.py) — optional exactly like speaker_id above:
+# guarded so main imports (and every legacy path runs) on a checkout that
+# lacks the module. Used only for the startup log line + /health detail
+# below; audio_pipeline.py does its own (identical) guarded import for the
+# actual enrichment path.
+try:
+    import tone_id
+except ImportError:  # pragma: no cover — depends on which foundations landed
+    tone_id = None
 from audio_ingest import (
     AudioDecodeError,
     NoSpeechFound,
@@ -122,6 +131,28 @@ def _llm_key_present() -> bool:
 
 def _stt_provider() -> str:
     return (os.getenv("STT_PROVIDER") or "deepgram").strip().lower() or "deepgram"
+
+
+def _tone_status() -> dict:
+    """``{mode, backend, weights_present}`` for server-side audio tone
+    (server/tone_id.py) — used by the startup log line and the /health
+    detail so a deploy that flips MINDSHIFT_TONE_AUDIO=on can be verified
+    from logs/health without exercising a live audio session. ``mode`` and
+    ``backend`` come straight from the env-parsing functions (never crash on
+    a typo); ``weights_present`` is False, never a fabricated True, whenever
+    the module didn't import (torch/transformers absent) or its check
+    raises."""
+    if tone_id is None:
+        return {"mode": None, "backend": None, "weights_present": False}
+    try:
+        weights_present = tone_id.snapshot_present()
+    except Exception:  # noqa: BLE001 — a status probe must report, not crash
+        weights_present = False
+    return {
+        "mode": tone_id.mode(),
+        "backend": tone_id.backend(),
+        "weights_present": weights_present,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -922,14 +953,19 @@ async def lifespan(app: FastAPI):
     # unset → the recordings endpoints report an honest 503 and /analyze/upload
     # keeps its process-and-discard behaviour.
     app.state.recordings_store = recordings_store.create_store()
+    _tone = _tone_status()
     logger.info(
         "MindShift API started — model=%s provider=%s llm_key_present=%s "
-        "stt_provider=%s db_path=%s",
+        "stt_provider=%s db_path=%s tone_mode=%s tone_backend=%s "
+        "tone_weights_present=%s",
         MINDSHIFT_MODEL,
         _detected_provider(),
         "yes" if _llm_key_present() else "no",
         _stt_provider(),
         FilePath(DB_PATH).resolve(),
+        _tone["mode"],
+        _tone["backend"],
+        _tone["weights_present"],
     )
     yield
     app.state.llm_client.close()
@@ -1474,6 +1510,7 @@ async def healthz():
         "db": db_ok,
         "llm_key_present": _llm_key_present(),
         "stt_provider": _stt_provider(),
+        "tone": _tone_status(),
     }
     return JSONResponse(payload, status_code=200 if db_ok else 503)
 
