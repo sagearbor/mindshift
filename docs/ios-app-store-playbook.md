@@ -61,7 +61,8 @@ directory and each repo symlinks or reads them. Set up once, reuse everywhere.
 |---|---|---|
 | ASC API key | `~/.appstoreconnect/private_keys/AuthKey_<KEYID>.p8` (dir 700) | EAS, fastlane and altool all auto-discover this path |
 | Key ids + team | `~/.config/asc/asc.env` (600) | `source` it before any iOS build or submit |
-| Signing artefacts | `~/.config/ios-credentials/<bundle id>/` (700) | `credentials.json` points here |
+| Signing artefacts — certificate | `~/.config/ios-credentials/_team/` (700) | shared by **every** app on the team |
+| Signing artefacts — profile | `~/.config/ios-credentials/<bundle id>/` (700) | `credentials.json` points at both |
 | Play service accounts | `~/.config/play/<app>-sa.json` (600) | `scripts/play_publish.py`, `eas.json` |
 
 `asc.env` exports `EXPO_ASC_KEY_ID`, `EXPO_ASC_ISSUER_ID`,
@@ -335,17 +336,40 @@ Then one switch in `eas.json`:
 
 `credentials.json` holds the `.p12` password in clear text — gitignore it.
 
+### ⚠️ Run it with `/usr/bin/python3`
+
+PyJWT and requests are installed in the **system** interpreter on this machine,
+not in Homebrew's. With `/opt/homebrew/bin` ahead of `/usr/bin` on PATH the
+script dies on `import jwt`, which reads as a bug in the script rather than the
+wrong python. It now says which it is, but the shorter answer is to invoke
+`/usr/bin/python3` explicitly in any scripted use.
+
 ### ⚠️ `-legacy` is not optional
 
 OpenSSL 3 no longer writes the PKCS#12 algorithms Apple's tooling expects.
 Without `-legacy` the `.p12` is silently the wrong flavour.
 
-### ⚠️ Keep it idempotent
+### ⚠️ One certificate for the whole team — not one per app
 
-Apple caps distribution certificates at **two per team**. A script that mints
-one per run will brick the account's ability to sign on the third try. Reuse
-an existing certificate whose private key you still hold; only mint when the
-recorded certificate has disappeared from the account.
+Apple caps distribution certificates at **two per team**, and a single
+certificate signs **every** app on the team. The first version of
+`ios_credentials_bootstrap.py` kept the certificate under the per-bundle-id
+directory, so its "reuse what we already minted" check missed on every new app
+and minted a fresh one: app #2 consumed the last slot and app #3 could not sign
+at all. Fixed 2026-09-21 — the layout is now
+
+```
+~/.config/ios-credentials/_team/          dist.key, dist.cer, dist.p12,
+                                          p12_password.txt, cert_id.txt
+~/.config/ios-credentials/<bundle id>/    AppStore.mobileprovision
+```
+
+A certificate left over from the old layout is copied into `_team/` on the next
+run (non-destructive — the old files stay put, unused). The script also refuses
+to mint when the account already has two, listing them instead of letting Apple
+answer with an opaque 409.
+
+Certificates last one year; re-run to roll them.
 
 ### Adding a capability (Sign in with Apple, push, HealthKit)
 

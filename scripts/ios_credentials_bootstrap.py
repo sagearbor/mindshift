@@ -16,6 +16,20 @@ WHAT IT DOES (all idempotent — existing artefacts are reused, never duplicated
   4. creates an IOS_APP_STORE provisioning profile bound to both
   5. writes <project>/credentials.json pointing at the files
 
+WHERE THE ARTEFACTS LIVE — and why the split matters
+  ~/.config/ios-credentials/_team/          dist.key, dist.cer, dist.p12,
+                                            p12_password.txt, cert_id.txt
+  ~/.config/ios-credentials/<bundle id>/    AppStore.mobileprovision
+
+  ONE distribution certificate signs every app on the team, and Apple caps
+  them at TWO PER TEAM. An earlier version of this script kept the certificate
+  under the per-bundle-id directory, so the "reuse what we already minted"
+  check missed on every new app and minted a fresh certificate — the second
+  app took the last slot and the third could not sign at all. The certificate
+  is therefore team-level; only the provisioning profile is per app.
+  Pre-existing per-app certificates are migrated into _team/ automatically on
+  the next run.
+
 CREDENTIALS IT READS (machine-level, shared by every repo — see docs/play/README.md)
   ~/.config/asc/asc.env  ->  EXPO_ASC_KEY_ID, EXPO_ASC_ISSUER_ID,
                              EXPO_ASC_API_KEY_PATH, APPLE_TEAM_ID
@@ -44,8 +58,21 @@ import subprocess
 import sys
 import time
 
-import jwt
-import requests
+try:
+    import jwt
+    import requests
+except ModuleNotFoundError as exc:  # pragma: no cover - environment guard
+    # PyJWT and requests live in the SYSTEM python on this machine, not in
+    # Homebrew's. Running this with /opt/homebrew/bin on PATH ahead of /usr/bin
+    # fails here, and the traceback looks like a bug in the script rather than
+    # the wrong interpreter — so say which it is.
+    raise SystemExit(
+        f"{exc.name} is not available to {sys.executable}.\n"
+        "This script needs PyJWT and requests. On this machine they are in the "
+        "system interpreter, so run it as /usr/bin/python3, or install them "
+        "into whichever python you are using:\n"
+        f"  /usr/bin/python3 {' '.join(sys.argv)}"
+    ) from exc
 
 API = "https://api.appstoreconnect.apple.com"
 
@@ -111,10 +138,44 @@ def ensure_bundle_id(asc: ASC, bundle_id: str, name: str, team: str) -> str:
     return created["data"]["id"]
 
 
+def adopt_legacy_certificate(team_out: pathlib.Path) -> None:
+    """Migrate a certificate minted by the older per-bundle-id layout.
+
+    Versions of this script before 2026-09-21 stored the certificate under
+    ~/.config/ios-credentials/<bundle id>/. Copy the first complete set we find
+    into _team/ so existing apps keep their certificate and new apps reuse it
+    instead of burning one of Apple's two slots. Non-destructive: the old files
+    are left where they are, just no longer used.
+    """
+    if (team_out / "cert_id.txt").exists() and (team_out / "dist.key").exists():
+        return
+    root = team_out.parent
+    for d in sorted(root.iterdir()):
+        if not d.is_dir() or d == team_out:
+            continue
+        if not ((d / "cert_id.txt").exists() and (d / "dist.key").exists()):
+            continue
+        for f in ("cert_id.txt", "dist.key", "dist.cer", "dist.pem",
+                  "dist.p12", "p12_password.txt"):
+            src = d / f
+            if src.exists():
+                dst = team_out / f
+                dst.write_bytes(src.read_bytes())
+                dst.chmod(0o600)
+        print(f"  migrated the certificate from {d.name} into _team/ "
+              f"(it is shared by every app now)")
+        return
+
+
 def ensure_certificate(asc: ASC, out: pathlib.Path, email: str, name: str) -> str:
-    """Reuse the cert we previously minted here; only mint when the private key
-    has no matching certificate on the account (Apple caps distribution certs at
-    two per team, so blindly creating one will eventually fail)."""
+    """Reuse the team certificate; only mint when the private key we hold has
+    no matching certificate on the account.
+
+    Apple caps distribution certificates at two per team and one certificate
+    signs every app, so minting per app is always wrong — see the module
+    docstring.
+    """
+    adopt_legacy_certificate(out)
     cert_id_file = out / "cert_id.txt"
     if cert_id_file.exists() and (out / "dist.key").exists():
         cid = cert_id_file.read_text().strip()
@@ -124,13 +185,34 @@ def ensure_certificate(asc: ASC, out: pathlib.Path, email: str, name: str) -> st
             return cid
         print(f"  recorded certificate {cid} is gone from the account — minting a new one")
 
+    # Fail loudly rather than letting Apple reject the POST with a cryptic 409.
+    # Match the two types that share the iOS distribution cap exactly, NOT any
+    # type containing "DISTRIBUTION": MAC_APP_DISTRIBUTION and
+    # MAC_INSTALLER_DISTRIBUTION have their own separate limits, and counting
+    # them here would refuse to mint an iOS certificate while a slot was free.
+    existing = [c for c in asc.get("/v1/certificates?limit=200")["data"]
+                if c["attributes"]["certificateType"]
+                in ("IOS_DISTRIBUTION", "DISTRIBUTION")]
+    if len(existing) >= 2:
+        die("Apple allows 2 iOS distribution certificates per team and this "
+            f"account already has {len(existing)}:\n  " +
+            "\n  ".join(f"{c['id']}  {c['attributes'].get('name')}  "
+                        f"expires {c['attributes'].get('expirationDate')}"
+                        for c in existing) +
+            "\n\nOne certificate signs every app, so you almost certainly want to "
+            "reuse one rather than mint a third. If you still hold its private key, "
+            "put dist.key/dist.cer/cert_id.txt in "
+            f"{out} and re-run. Otherwise revoke an unused one at "
+            "developer.apple.com -> Certificates first.")
+
     key = out / "dist.key"
     if not key.exists():
         sh("openssl", "genrsa", "-out", str(key), "2048")
         key.chmod(0o600)
     csr = out / "dist.csr"
     sh("openssl", "req", "-new", "-key", str(key), "-out", str(csr),
-       "-subj", f"/emailAddress={email}/CN={name} Distribution/C=US")
+       # CN is team-level: this one certificate signs every app.
+       "-subj", f"/emailAddress={email}/CN={name}/C=US")
 
     created = asc.post("/v1/certificates", {"data": {"type": "certificates", "attributes": {
         "certificateType": "IOS_DISTRIBUTION", "csrContent": csr.read_text()}}})
@@ -203,29 +285,35 @@ def main() -> None:
     ap.add_argument("--name", required=True, help="app name, used for cert/profile labels")
     ap.add_argument("--project-dir", default=".", help="directory holding eas.json")
     ap.add_argument("--email", default="sagearbor@gmail.com")
+    ap.add_argument("--cert-name", default="Sage Arbor Distribution",
+                    help="Common Name on the shared team certificate")
     ap.add_argument("--store", default=None,
-                    help="where the artefacts live "
-                         "(default ~/.config/ios-credentials/<bundle id>)")
+                    help="root for the artefacts "
+                         "(default ~/.config/ios-credentials)")
     args = ap.parse_args()
 
-    # the whole bundle id, so com.x.app and com.y.app never collide
-    slug = args.bundle_id
-    out = pathlib.Path(args.store or f"~/.config/ios-credentials/{slug}").expanduser()
-    out.mkdir(parents=True, exist_ok=True)
-    out.chmod(0o700)
+    root = pathlib.Path(args.store or "~/.config/ios-credentials").expanduser()
+    # The certificate is shared by every app on the team; only the profile is
+    # per bundle id (the whole bundle id, so com.x.app and com.y.app never
+    # collide).
+    team_out = root / "_team"
+    out = root / args.bundle_id
+    for d in (root, team_out, out):
+        d.mkdir(parents=True, exist_ok=True)
+        d.chmod(0o700)
     team = os.environ.get("APPLE_TEAM_ID") or die("APPLE_TEAM_ID is not set")
 
     print(f"App Store Connect bootstrap for {args.bundle_id} (team {team})")
     asc = ASC()
     bid_id = ensure_bundle_id(asc, args.bundle_id, args.name, team)
-    cert_id = ensure_certificate(asc, out, args.email, args.name)
-    pw = ensure_p12(out)
+    cert_id = ensure_certificate(asc, team_out, args.email, args.cert_name)
+    pw = ensure_p12(team_out)
     profile = ensure_profile(asc, out, bid_id, cert_id, args.name)
 
     creds = pathlib.Path(args.project_dir) / "credentials.json"
     creds.write_text(json.dumps({"ios": {
         "provisioningProfilePath": str(profile),
-        "distributionCertificate": {"path": str(out / "dist.p12"), "password": pw},
+        "distributionCertificate": {"path": str(team_out / "dist.p12"), "password": pw},
     }}, indent=2) + "\n")
     creds.chmod(0o600)
     print(f"\nwrote {creds}")
