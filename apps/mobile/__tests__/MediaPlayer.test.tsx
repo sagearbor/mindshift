@@ -61,4 +61,48 @@ describe("MediaPlayer", () => {
 
     act(() => comp.unmount());
   });
+
+  it("configures the native now-playing notification (the real use of FOREGROUND_SERVICE_MEDIA_PLAYBACK)", async () => {
+    // Simulate a hostile prior state so the assertion proves MediaPlayer set
+    // these itself, not that they happened to default that way.
+    (player as unknown as Record<string, unknown>).showNowPlayingNotification =
+      false;
+    (player as unknown as Record<string, unknown>).staysActiveInBackground =
+      false;
+
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(
+        <MediaPlayer
+          uri="https://example.test/a.m4a"
+          mediaType="audio"
+          title="Project deadline extension agreement"
+          subtitle="Sat, Sep 20 · 3:04 PM"
+        />,
+      );
+    });
+
+    expect(
+      (player as unknown as Record<string, unknown>)
+        .showNowPlayingNotification,
+    ).toBe(true);
+    expect(
+      (player as unknown as Record<string, unknown>).staysActiveInBackground,
+    ).toBe(true);
+
+    // The title/subtitle props feed expo-video's own source metadata (the
+    // text the OS notification / lock-screen controls actually display).
+    const source = (globalThis as Record<string, unknown>)
+      .__expoVideoMockLastSource as {
+      uri: string;
+      metadata?: { title?: string; artist?: string };
+    };
+    expect(source.uri).toBe("https://example.test/a.m4a");
+    expect(source.metadata).toEqual({
+      title: "Project deadline extension agreement",
+      artist: "Sat, Sep 20 · 3:04 PM",
+    });
+
+    act(() => comp.unmount());
+  });
 });

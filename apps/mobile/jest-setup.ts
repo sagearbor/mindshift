@@ -185,7 +185,12 @@ jest.mock("expo-video", () => {
   (globalThis as Record<string, unknown>).__expoVideoMock = player;
   return {
     __esModule: true,
-    useVideoPlayer: (_source: unknown, setup?: (p: unknown) => void) => {
+    useVideoPlayer: (source: unknown, setup?: (p: unknown) => void) => {
+      // Stash the raw source (string uri, or {uri, metadata}) so tests can
+      // assert on what MediaPlayer built for the now-playing notification's
+      // title/subtitle, without the mock needing to understand its shape.
+      (globalThis as Record<string, unknown>).__expoVideoMockLastSource =
+        source;
       if (setup) setup(player);
       return player;
     },

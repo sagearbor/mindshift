@@ -87,7 +87,13 @@
           "enableBackgroundRecording": true
         }
       ],
-      "expo-video",
+      [
+        "expo-video",
+        {
+          "supportsBackgroundPlayback": true,
+          "supportsPictureInPicture": false
+        }
+      ],
       [
         "expo-camera",
         {

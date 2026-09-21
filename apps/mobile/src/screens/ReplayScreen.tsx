@@ -1229,6 +1229,8 @@ export default function ReplayScreen({
                 onPositionChange={handlePositionChange}
                 onDurationChange={handleDurationChange}
                 onError={handlePlayerError}
+                title={currentTitle}
+                subtitle={formatDateTime(detail.created_at) ?? undefined}
               />
               <View style={styles.overlayChart} pointerEvents="box-none">
                 {chart}
@@ -1254,6 +1256,8 @@ export default function ReplayScreen({
                   onPositionChange={handlePositionChange}
                   onDurationChange={handleDurationChange}
                   onError={handlePlayerError}
+                  title={currentTitle}
+                  subtitle={formatDateTime(detail.created_at) ?? undefined}
                 />
               )}
               <View style={styles.chartCard}>

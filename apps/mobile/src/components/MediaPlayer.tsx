@@ -2,6 +2,7 @@ import React, {
   forwardRef,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -41,6 +42,15 @@ interface MediaPlayerProps {
    *  stream that expired or blocked). ReplayScreen uses this to fall back from
    *  the linked source to the stored derivative. */
   onError?: (message?: string) => void;
+  /** Recording name shown as the title of the native "now playing"
+   *  notification / lock-screen controls (Android media-style notification,
+   *  iOS Control Center). Also feeds expo-video's own `metadata.title`. When
+   *  omitted, the notification still appears (showNowPlayingNotification is
+   *  always on) but with no title text. */
+  title?: string;
+  /** Secondary line under the title in the now-playing notification — this
+   *  screen passes the recording's recorded-at date. */
+  subtitle?: string;
 }
 
 /** mm:ss for the transport readout. */
@@ -64,10 +74,27 @@ export function formatTime(seconds: number): string {
  */
 const MediaPlayer = forwardRef<MediaPlayerHandle, MediaPlayerProps>(
   function MediaPlayer(
-    { uri, mediaType, onPositionChange, onDurationChange, onError },
+    {
+      uri,
+      mediaType,
+      onPositionChange,
+      onDurationChange,
+      onError,
+      title,
+      subtitle,
+    },
     ref,
   ) {
-    const player = useVideoPlayer(uri, (p) => {
+    // A plain string source works, but only an object source can carry
+    // `metadata` for the now-playing notification's title/subtitle. Memoized
+    // on [uri, title, subtitle] so useVideoPlayer doesn't see a "new" source
+    // (and reload the player) on every render.
+    const source = useMemo(
+      () => (title ? { uri, metadata: { title, artist: subtitle } } : uri),
+      [uri, title, subtitle],
+    );
+
+    const player = useVideoPlayer(source, (p) => {
       p.loop = false;
       // Play audibly, always. expo-video defaults are muted=false / volume=1.0,
       // but we set them explicitly so no prior state, prop, or platform quirk
@@ -77,6 +104,17 @@ const MediaPlayer = forwardRef<MediaPlayerHandle, MediaPlayerProps>(
       // utils/audioMode, not per-player here.)
       p.muted = false;
       p.volume = 1;
+      // Real native "now playing" media notification + lock-screen/Control
+      // Center controls while a recording plays — this is the actual feature
+      // that justifies the FOREGROUND_SERVICE_MEDIA_PLAYBACK permission
+      // declared in AndroidManifest (expo-video's own ExpoVideoPlaybackService
+      // foreground service). On Android this requires app.json's expo-video
+      // plugin option `supportsBackgroundPlayback: true` (adds the <service>
+      // entry + permission at prebuild time) — see app.json.
+      p.showNowPlayingNotification = true;
+      // Keep the service (and its notification/controls) alive when the user
+      // backgrounds the app mid-playback, instead of pausing on background.
+      p.staysActiveInBackground = true;
     });
 
     // Surface a load/decode failure so the parent can fall back to the stored
