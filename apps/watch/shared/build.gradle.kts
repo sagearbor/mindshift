@@ -69,7 +69,7 @@ tasks.named("jvmTestProcessResources") {
 
 android {
     namespace = "app.gauge.shared"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         // Lowered 30 -> 26 for the phone track (Plan 2b Task 1): androidApp targets minSdk 26,

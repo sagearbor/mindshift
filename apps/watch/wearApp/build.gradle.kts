@@ -16,14 +16,14 @@ val hasUploadKey = keystoreProps.containsKey("storeFile")
 
 android {
     namespace = "app.gauge.wear"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.sagearbor.gauge.wear"
         minSdk = 30
-        targetSdk = 34
-        versionCode = 16
-        versionName = "0.5.0"
+        targetSdk = 35
+        versionCode = 17
+        versionName = "0.5.1"
 
         buildConfigField(
             "String",

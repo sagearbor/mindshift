@@ -614,6 +614,7 @@ everywhere.
 | Server: hold-3s ladder + heat judge + baked weights, `MINDSHIFT_TONE_AUDIO=on` | Cloud Run `mindshift-api-00096-ruy` (image from build 39f7c886) | **serving 100%**; `/health` → `tone: mode=on, weights_present=true`. Rollback: `00094-nug` (dark, same weights) or `00089-jgr` (pre-tone). |
 | Phone: hold-3s, instant tier (dark), iOS config, versionCode 38 | EAS production build `01cb945c` | building → `eas submit` lands a Production **draft**; owner rolls out in Play Console |
 | Watch: 0.5.0 (vc16) hold-3s, praise, HR logging, reminder back-off | Play `com.sagearbor.gauge.wear`, track `wear:production` | **uploaded as draft**; owner reviews listing title / data safety, then rolls out |
+| Watch: 0.5.1 (vc17) — targetSdk 35 for Play (2026-09-21) | Play `com.sagearbor.gauge.wear`, track `wear:production` | **uploaded as draft** (replaces vc16 draft); Play's API-35 rejection fixed, no manifest/permission changes needed — `compileSdk`/`targetSdk` bump alone compiled clean, 582 tests pass |
 
 Merged-tree suites: pytest 2,267 + 44 judge tests (one live Deepgram diarization
 test fails identically on the untouched eval branch — Deepgram-side synthetic-voice
