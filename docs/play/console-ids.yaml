@@ -7,6 +7,20 @@ apps:
     production_track_id: "4698091812124000859"
   com.sagearbor.gauge.wear:
     console_app_id: "4975829673983009446"
+# IARC content-rating certificates ("Global Rating ID"), emailed by
+# noreply@globalratings.com when a questionnaire goes live. Only needed if a
+# title is later listed on another IARC storefront (Xbox, Nintendo eShop,
+# Epic), which asks for this id instead of re-running the questionnaire.
+# Google Play already holds them; nothing to enter there.
+# Both notices arrived 2026-09-21 titled only "MindShift" and neither names a
+# package, so the mapping below is UNRESOLVED. The phone app's Content ratings
+# declaration was last edited 2026-07-06, so at least one of these belongs to
+# the Wear app. Confirm in Console > App content > Actioned > Content ratings
+# before quoting either one to a storefront.
+iarc_global_rating_ids_2026_09_21:
+  - "97cc39e1-fbcd-8ede-8050-3f97e01aa499"   # notice sent 11:47:55Z
+  - "0940ce98-d6b1-80f0-8350-3f97e07eb398"   # notice sent 11:50:02Z
+
 url_patterns:
   dashboard:      https://play.google.com/console/u/0/developers/{dev}/app/{app}/app-dashboard
   app_content:    https://play.google.com/console/u/0/developers/{dev}/app/{app}/app-content/overview
@@ -14,3 +28,5 @@ url_patterns:
   production:     https://play.google.com/console/u/0/developers/{dev}/app/{app}/tracks/production
   publishing:     https://play.google.com/console/u/0/developers/{dev}/app/{app}/publishing
   store_listing:  https://play.google.com/console/u/0/developers/{dev}/app/{app}/main-store-listing
+  # "/app-content" alone bounces to the app list; the /overview suffix is required.
+  app_content_actioned: https://play.google.com/console/u/0/developers/{dev}/app/{app}/app-content/overview  # then the "Actioned" tab
