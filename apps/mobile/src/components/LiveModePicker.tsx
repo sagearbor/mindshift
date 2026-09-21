@@ -43,6 +43,12 @@ interface Props {
   onChange: (mode: LiveMode) => void;
   /** Locked while a session runs — the loop reads the mode at start. */
   disabled?: boolean;
+  /** Modes to leave OUT of the row entirely (not greyed out — absent).
+   *  Today's only user is guest mode hiding "Call": an in-app call needs a
+   *  second real account on the other end, so offering it to a guest would be
+   *  offering something that cannot work. Defaults to none, so every existing
+   *  caller renders exactly the five chips it always did. */
+  hiddenModes?: readonly LiveMode[];
 }
 
 /**
@@ -51,13 +57,25 @@ interface Props {
  * both who is on the mic and whether the coach speaks (therapist never
  * does). Persisted per account by the screen (src/live/modePrefs.ts).
  */
-export default function LiveModePicker({ value, onChange, disabled }: Props) {
-  const current = LIVE_MODE_OPTIONS.find((o) => o.mode === value) ?? LIVE_MODE_OPTIONS[0];
+export default function LiveModePicker({
+  value,
+  onChange,
+  disabled,
+  hiddenModes,
+}: Props) {
+  const options = hiddenModes?.length
+    ? LIVE_MODE_OPTIONS.filter((o) => !hiddenModes.includes(o.mode))
+    : LIVE_MODE_OPTIONS;
+  // The hint must describe a mode that is actually on screen: if the selected
+  // mode was just hidden, fall back to the first visible one rather than
+  // explaining a chip nobody can see.
+  const current =
+    options.find((o) => o.mode === value) ?? options[0] ?? LIVE_MODE_OPTIONS[0];
   return (
     <View style={styles.wrap} testID="live-mode-picker">
       <Text style={styles.label}>Session mode</Text>
       <View style={styles.row}>
-        {LIVE_MODE_OPTIONS.map((o) => {
+        {options.map((o) => {
           const active = o.mode === value;
           return (
             <TouchableOpacity

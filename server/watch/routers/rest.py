@@ -120,11 +120,17 @@ class AccountLookupResponse(BaseModel):
 class MeResponse(Principal):
     """GET /me's actual response shape (Task P3-6): every ``Principal`` field
     (account_id, email, legacy — unchanged wire contract, see
-    server/tests/watch/test_auth_routes.py's test_me_reports_legacy_flag) plus
+    server/tests/watch/test_auth_routes.py's test_me_reports_legacy_flag —
+    plus, since guest mode, ``is_guest`` and ``sign_in_provider``) plus
     ``has_paired_watch``, the one extra fact the mobile Settings screen needs
     to show "Set up your watch" as live state instead of guessing. Backed by
     ``PairingStore.has_device_tokens_for_account`` — see ``me()`` below for
-    the honest-degradation default when no pairing store is wired at all."""
+    the honest-degradation default when no pairing store is wired at all.
+
+    ``is_guest`` is additive: older clients ignore the key, and the phone
+    already knows from Firebase itself whether it signed in anonymously — the
+    field exists so the SERVER's view of the account is inspectable (and so a
+    support question about a guest account can be answered from one call)."""
     has_paired_watch: bool = False
 
 

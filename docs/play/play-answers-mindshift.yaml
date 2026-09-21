@@ -19,6 +19,8 @@ _schema:
     - "`proof:` is a file:line in this repo that makes the claim checkable."
     - "OWNER_MUST_SUPPLY means: stop, leave the field blank, report it, move on."
   verified_against_commit: d364c11  # ship/heat-judge-20260920 merged, 2026-09-20
+  # ...plus the guest-mode change of the same day (app_access, account_creation_methods,
+  # the Email-address data type, _provenance): docs/decisions/2026-09-20-guest-mode.md
   last_updated: 2026-09-20
   previously_verified_against: "f04a5c1 (origin/main, 2026-08-25) — the first derivation"
   authored_by: Claude (agent), from a full read of server/ and apps/mobile/
@@ -67,39 +69,70 @@ app_identity:
 # ===========================================================================
 app_access:
   question: "Is all or some functionality of your app restricted?"
-  value: "All or some functionality is restricted"
+  value: "All functionality is available without special access"
+  changed_2026_09_20_guest: >
+    FLIPPED from "All or some functionality is restricted". Guest mode
+    (2026-09-20) put a "Continue as guest" button on the login screen:
+    Firebase Anonymous Auth, one tap, no credentials, and the core product —
+    Live Coach, recordings, watch pairing — runs on it. Nothing a reviewer
+    needs sits behind a credential any more, so no demo account is required
+    and none should be entered.
   why: >
-    The app is a hard login gate. An unauthenticated user only ever sees the
-    login screen — there is no guest mode, no anonymous Firebase sign-in, and no
-    "skip" branch anywhere in the client.
+    The login screen offers "Continue as guest", which calls Firebase
+    signInAnonymously and drops straight into the app on a real (anonymous)
+    account. Everything that matters is available on it: Live Coach in every
+    mode except in-app Call, stored recordings, the voice profile, and watch
+    pairing. In-app Calls are the one thing a guest does not get, and that is
+    arithmetic rather than an access restriction — a call needs a second real
+    MindShift account on the OTHER phone, so no credential on THIS phone
+    could unlock it. A guest session is bounded by a cost quota (3 live
+    sessions per UTC day, 10 minutes per session), far more than a review
+    needs; the limits exist because an anonymous account is free to mint and
+    every live session spends real STT/LLM money.
   proof:
-    - apps/mobile/App.tsx:416-425   # auth gate: `if (!user) return <LoginScreen/>`
-    - apps/mobile/src/screens/LoginScreen.tsx:26-49  # email+password / Google / Apple only
+    - apps/mobile/src/screens/LoginScreen.tsx      # "Continue as guest" -> continueAsGuest()
+    - apps/mobile/src/store/authStore.ts           # continueAsGuest -> signInAnonymously; linkGuestToEmailPassword
+    - apps/mobile/src/components/GuestBanner.tsx   # the persistent guest banner + inline upgrade
+    - apps/mobile/src/screens/LiveCoachScreen.tsx  # GUEST_HIDDEN_MODES = ["call"]
+    - apps/mobile/__tests__/GuestMode.test.tsx     # guest button, banner, Calls hidden
+    - server/auth.py                               # anonymous tokens verify like any other
+    - server/guest_quota.py                        # 3 sessions/day, 10 min/session + the honest limits
+    - server/tests/test_guest_mode.py              # the quota, the is_guest flag, guest account deletion
   instructions_block:
-    name: "Full app — demo account"
+    name: "Full app — no account needed"
     # Play shows this text verbatim to the reviewer. Keep it short and literal.
     value: |
-      MindShift requires a free account. Sign in on the first screen with the
-      demo credentials below (email + password — do NOT use "Continue with
-      Google", it is tied to a real person's account).
+      No account is needed. MindShift opens on a sign-in screen; scroll to the
+      bottom and tap "Continue as guest".
 
-      After sign-in you land on Home. To exercise the core feature:
-        1. Tap "Live Coach".
+      TO TEST THE CORE FEATURE (about one minute):
+        1. Install and open the app, then tap "Continue as guest" at the
+           bottom of the first screen.
         2. Grant the microphone and speech-recognition permissions when asked.
-        3. Tap Start and speak for ~20 seconds (any speech is fine). Coaching
-           suggestions appear on screen within a few seconds.
-        4. Tap Stop. The session appears under "Your Day" / "Recordings".
+        3. On Home, tap "Live Coach".
+        4. Tap "Start Listening" and talk for about 20 seconds (any speech is
+           fine — two voices show the coaching best). Suggestions appear on
+           screen within a few seconds.
+        5. Tap "Stop Listening". The session is saved and appears under
+           "Your Day" / "Recordings".
 
-      The in-app Call feature needs a second signed-in account and is not
-      required to evaluate the app.
-    username: OWNER_MUST_SUPPLY
-    password: OWNER_MUST_SUPPLY
+      A yellow bar at the top says this is a guest session and offers
+      "Create account" — you do not need it. A guest is limited to 3 live
+      sessions per day and 10 minutes per session.
+
+      The in-app Call feature is hidden for guests: a call needs a second
+      MindShift account on the other phone, so it cannot be evaluated from a
+      single device either way.
+    username: ""
+    password: ""
   owner_action: >
-    Create a throwaway Firebase email/password account in the arborfam-hub
-    project (Firebase Console → Authentication → Users → Add user), e.g.
-    play-review@<something you control>. Do NOT hand Play a real account: any
-    reviewer who signs in can see that account's stored recordings, transcripts
-    and voiceprints. The agent must not invent credentials.
+    Nothing to supply — leave the username/password fields blank, and do NOT
+    enter a real account. (This answer used to require a throwaway demo
+    account; guest mode removed the need.) One standing precondition: Firebase
+    Console → arborfam-hub → Authentication → Sign-in method → Anonymous must
+    stay ENABLED. If it is ever turned off, the guest button reports "This
+    sign-in method isn't enabled for the app yet" and this entire section must
+    be reverted to the demo-account version.
   any_other_instructions: "No"
 
 # ===========================================================================
@@ -342,6 +375,34 @@ data_safety:
   overview:
     does_your_app_collect_or_share_any_of_the_required_user_data_types:
       value: "Yes"
+    account_creation_methods:
+      changed_2026_09_20_guest: "New key. Guest mode added the fourth method."
+      value:
+        - "Email and password"
+        - "Google (federated sign-in)"
+        - "Apple (federated sign-in) — placeholder in the UI, disabled, not yet live"
+        - "Other: anonymous guest accounts created in-app"
+      why: >
+        Play's account-deletion questionnaire asks how a user gets an account
+        in the first place, because that decides who must be offered the
+        in-app delete. Since 2026-09-20 there is a FOURTH way: tapping
+        "Continue as guest" silently creates a Firebase Anonymous Auth user —
+        the user never types anything, but an account with a uid genuinely
+        exists, data is stored under it, and it therefore gets exactly the
+        same self-serve deletion as every other account (see the deletion
+        answer below; DELETE /me is uid-scoped and never reads the sign-in
+        provider). A guest can also KEEP that account by linking an email or
+        Google credential onto the very same uid, which is an upgrade, not a
+        second account. Declaring this as "Other" rather than hiding it is
+        the honest answer: an account created without the user typing a
+        credential is still an account.
+      proof:
+        - apps/mobile/src/screens/LoginScreen.tsx       # Continue as guest, alongside email/Google/Apple
+        - apps/mobile/src/store/authStore.ts            # signInAnonymously; linkGuestToEmailPassword keeps the uid
+        - apps/mobile/src/components/AppleSignInButton.tsx  # the Apple placeholder is disabled, no onPress
+        - server/watch/auth.py                          # the anonymous account row: provider="anonymous", is_guest=True
+        - server/routers/account.py                     # DELETE /me — uid only, no provider check
+        - server/tests/test_guest_mode.py               # incl. deleting a guest account end to end
     is_all_of_the_user_data_collected_by_your_app_encrypted_in_transit:
       value: "Yes"
       why: >
@@ -370,7 +431,11 @@ data_safety:
         user itself. No email, no waiting period, no human in the loop; the
         user is signed out on success. The same control is in the web build
         (one Expo codebase — react-native-web), so a browser-only user has the
-        identical path. Play's required "delete account" path and its optional
+        identical path. GUEST ACCOUNTS ARE INCLUDED (changed 2026-09-20): an
+        anonymous "Continue as guest" account is a real account with a uid,
+        the delete control is in the same place for it, and the walk that
+        erases it never looks at how the uid signed in. Play's required
+        "delete account" path and its optional
         "delete some data" path are BOTH satisfied: partial deletes (one
         recording, the voiceprint, one enrolled person, one voice sample, one
         share grant, the therapist link, an in-progress upload) all still exist
@@ -499,12 +564,20 @@ data_safety:
       collected: true
       shared: true
       processed_ephemerally: false
-      required_or_optional: "Required"
+      required_or_optional: "Optional — users can choose whether it's collected"
+      changed_2026_09_20_guest: >
+        FLIPPED from "Required". Guest mode means a user can run the whole
+        product without ever giving an email: an anonymous account has none,
+        and the server never asks for one (server/auth.py reads no `email`
+        claim). It becomes collected only when the user signs up, or upgrades
+        a guest session by linking an email/Google credential.
       purposes: ["App functionality", "Account management"]
       what_it_actually_is: >
-        The account's sign-in email. Stored server-side inside therapist links,
-        inside every share grant, and in the watch-domain account record. Also
-        included verbatim in the auto-sent diagnostics report.
+        The account's sign-in email, when there is one. Stored server-side
+        inside therapist links, inside every share grant, and in the
+        watch-domain account record. Also included verbatim in the auto-sent
+        diagnostics report. An anonymous ("Continue as guest") account has no
+        email at all — the account row's `email` is null.
       why_shared: >
         A therapist sees the patient's email on shared sessions and vice versa,
         and a patient names their therapist BY email.
@@ -525,11 +598,19 @@ data_safety:
         The Firebase Auth uid. It is the tenancy key for literally everything —
         every stored object lives under recordings/{uid}/ or voiceprints/{uid}/,
         which is what makes it impossible for one account to read another's data.
+        A GUEST ("Continue as guest") account has one of these too: anonymous
+        sign-in mints a real uid, which is exactly why a guest's data is
+        isolated, addressable and deletable like anyone else's. The account
+        record additionally stores `is_guest` / `provider: "anonymous"` so the
+        server can apply the guest cost quota; it holds no extra identifier,
+        and nothing about the guest's device is recorded alongside it.
       why_shared: >
         A share recipient's client receives the owner's uid in the
         "shared with me" listing.
       proof:
-        - server/auth.py:69-80                             # verify_id_token -> uid
+        - server/auth.py                                   # verify_id_token -> uid; Identity.is_guest
+        - server/watch/auth.py                             # the accounts row: provider="anonymous", is_guest
+        - server/guest_quota.py                            # what the uid-keyed guest quota does and does not bound
         - server/recordings_store.py:29-32                 # every read/write/delete scoped under recordings/{uid}/
         - server/recordings_store.py:851-859               # shared/{recipient_uid}/{owner_uid}:{rid}.json
         - server/main.py:3232-3264                         # GET /recordings returns shared_with_me
@@ -1466,11 +1547,21 @@ catch_all:
 # 12. Provenance — every data-safety claim, mapped to the code that proves it
 # ===========================================================================
 _provenance:
-  login_is_required_no_guest_mode:
-    - apps/mobile/App.tsx:416-425
-    - apps/mobile/src/screens/LoginScreen.tsx:26-49
-    - server/auth.py:125-141                      # Bearer required on REST
-    - server/audio_pipeline.py:1506-1545          # WS closes 4401 without a valid id_token
+  # RENAMED 2026-09-20 (was `login_is_required_no_guest_mode`). Every request
+  # still needs a verified Firebase ID token — that has not changed. What
+  # changed is that a user can get one WITHOUT creating an account, via
+  # Anonymous Auth. There is still no unauthenticated path into any data.
+  sign_in_is_required_but_an_account_is_not:
+    - apps/mobile/App.tsx                         # auth gate: `if (!user) return <LoginScreen/>`
+    - apps/mobile/src/screens/LoginScreen.tsx     # email+password / Google / Apple / Continue as guest
+    - apps/mobile/src/store/authStore.ts          # continueAsGuest -> signInAnonymously
+    - server/auth.py                              # Bearer required on REST; anonymous tokens verify like any other
+    - server/audio_pipeline.py                    # WS closes 4401 without a valid id_token
+  guest_accounts_are_real_firebase_users_with_a_quota:
+    - apps/mobile/src/components/GuestBanner.tsx  # persistent banner + link-onto-the-same-uid upgrade
+    - server/guest_quota.py                       # 3 sessions/day, 10 min/session, and what the limit is NOT
+    - server/watch/auth.py                        # Principal.is_guest; ensure_account writes provider="anonymous"
+    - server/tests/test_guest_mode.py             # 37 tests: claims, flag, quota, deletion
   identity_provider_is_firebase_auth:
     - apps/mobile/src/auth/firebaseConfig.ts:14-30
     - server/auth.py:32,38-66,69-80

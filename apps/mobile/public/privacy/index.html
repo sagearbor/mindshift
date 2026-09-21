@@ -137,16 +137,33 @@ MindShift Wear OS companion app (<code>com.sagearbor.gauge.wear</code>), which
 has no privacy policy of its own. Where one of these behaves differently, it
 says so below.</p>
 
-<h2 id="account">You need an account</h2>
-<p>MindShift requires a free account — there is no guest mode. Sign-in is
-handled by <strong>Google Firebase Authentication</strong>. Depending on how you
-sign in we receive your <strong>email address</strong>, and if you use "Continue
-with Google" or "Sign in with Apple", your <strong>display name</strong>. We
-never see your password.</p>
-<p>Your account is identified internally by a Firebase user ID. Everything you
-store is filed under that ID, and every read, write and delete on our server is
-scoped to it, which is what stops one account from ever reaching another's
-data.</p>
+<h2 id="account">You need an account — but you can start without one</h2>
+<p>Sign-in is handled by <strong>Google Firebase Authentication</strong>.
+Depending on how you sign in we receive your <strong>email address</strong>, and
+if you use "Continue with Google" or "Sign in with Apple", your
+<strong>display name</strong>. We never see your password.</p>
+<p>You can also tap <strong>"Continue as guest"</strong>. That creates a real
+but <em>anonymous</em> account: we receive no email, no name and nothing that
+identifies you. A guest session works like any other — the app says so in a bar
+across the top of every screen — with two differences you should know about
+before you rely on it:</p>
+<ul>
+  <li><strong>It lives only on this device.</strong> There is no email or
+  password to sign back in with, so logging out, reinstalling, or losing the
+  phone loses everything recorded under it. Nobody, including us, can recover
+  it. Tap <strong>"Create account"</strong> in that bar to add an email or
+  Google sign-in; your existing sessions stay, because it attaches to the same
+  account rather than starting a new one.</li>
+  <li><strong>It is capped.</strong> A guest gets 3 live coaching sessions a
+  day, up to 10 minutes each. This is a cost limit, not a data one — every
+  session spends money on speech recognition and AI, and an anonymous account
+  is free to create.</li>
+</ul>
+<p>Your account — guest or not — is identified internally by a Firebase user
+ID. Everything you store is filed under that ID, and every read, write and
+delete on our server is scoped to it, which is what stops one account from ever
+reaching another's data. Deleting a guest account works exactly like deleting
+any other (see <a href="#delete">Deleting your data</a>).</p>
 
 <h2 id="what">What we handle, and why</h2>
 

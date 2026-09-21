@@ -327,7 +327,7 @@ describe("AdvancedScreen", () => {
     process.env.EXPO_PUBLIC_API_URL = "https://mindshift-api.example.run.app";
     act(() => {
       useAuthStore.setState({
-        user: { uid: "u1", email: "tester@example.com", displayName: "T" },
+        user: { uid: "u1", email: "tester@example.com", displayName: "T", isAnonymous: false },
       });
     });
     mockOta = baseOta({ supported: false });
@@ -399,7 +399,7 @@ describe("AdvancedScreen", () => {
   it("About falls back honestly when signed in without an email on file", async () => {
     act(() => {
       useAuthStore.setState({
-        user: { uid: "u2", email: null, displayName: null },
+        user: { uid: "u2", email: null, displayName: null, isAnonymous: false },
       });
     });
 

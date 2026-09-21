@@ -27,6 +27,7 @@ import LiveCoachScreen from "./src/screens/LiveCoachScreen";
 import LoginScreen from "./src/screens/LoginScreen";
 import OnboardingScreen from "./src/screens/OnboardingScreen";
 import UpdateBanner from "./src/components/UpdateBanner";
+import GuestBanner from "./src/components/GuestBanner";
 import AppChrome, { type AppChromeHandle } from "./src/components/AppChrome";
 import PushedScreenChrome from "./src/components/PushedScreenChrome";
 import { useAndroidBackHandler } from "./src/nav/useAndroidBackHandler";
@@ -825,6 +826,13 @@ export default function App({ initialUrl }: AppProps = {}) {
         {/* Sits above every screen: a downloaded OTA update surfaces a subtle
             "restart to apply" bar here, and stays out of the way otherwise. */}
         <UpdateBanner />
+        {/* Guest mode: a one-line, always-present reminder that this session's
+            data lives only on this device's anonymous account, with the
+            inline "Create account" upgrade. Renders null for a signed-up
+            account, so it can sit here unconditionally next to UpdateBanner.
+            Above the chrome on purpose — a guest must see it on EVERY screen,
+            not only the ones that happen to be primary. */}
+        <GuestBanner />
         {isPrimary(screen) ? (
           <AppChrome
             ref={chromeRef}

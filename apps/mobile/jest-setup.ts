@@ -314,11 +314,27 @@ jest.mock("firebase/auth", () => {
     }),
     signInWithEmailAndPassword: jest.fn().mockResolvedValue(undefined),
     createUserWithEmailAndPassword: jest.fn().mockResolvedValue(undefined),
+    // Guest mode: "Continue as guest" and the two upgrade paths that turn an
+    // anonymous uid into a permanent account without changing the uid.
+    signInAnonymously: jest.fn().mockResolvedValue(undefined),
     signInWithCredential: jest.fn().mockResolvedValue(undefined),
     signInWithPopup: jest.fn().mockResolvedValue(undefined),
     linkWithCredential: jest.fn().mockResolvedValue(undefined),
+    linkWithPopup: jest.fn().mockResolvedValue(undefined),
     sendPasswordResetEmail: jest.fn().mockResolvedValue(undefined),
     signOut: jest.fn().mockResolvedValue(undefined),
+    // Same static-helper shape as GoogleAuthProvider below — the guest
+    // upgrade builds an email/password credential to link.
+    EmailAuthProvider: Object.assign(
+      jest.fn(() => ({ providerId: "password" })),
+      {
+        credential: jest.fn((email: string, password: string) => ({
+          providerId: "password",
+          email,
+          password,
+        })),
+      },
+    ),
     // Constructable provider with static helpers, matching firebase/auth's API.
     GoogleAuthProvider: Object.assign(
       jest.fn(() => ({ providerId: "google.com" })),

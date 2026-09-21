@@ -81,12 +81,13 @@ from fastapi import APIRouter, Depends, File, HTTPException, Path, Request, Uplo
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 import audio_ingest
+import guest_quota
 import live_sessions
 import recordings_store
 import speaker_id
 import therapist_links
 from audio_pipeline import UUID_PATTERN
-from auth import get_current_uid
+from auth import Identity, get_current_identity, get_current_uid
 from models.audio import SpeakerIdentityEvent, ToneFlagEvent, TurnLocalEvent
 
 logger = logging.getLogger(__name__)
@@ -699,14 +700,54 @@ async def ingest_live(
     )
 
 
+async def _guest_gate(identity: Identity, body: LiveSessionIn) -> None:
+    """Refuse a guest ingest that is over quota, with words the app can show.
+
+    Two independent checks, both no-ops for a signed-up account:
+
+    * **Sessions per day.** Shares one counter with the WebSocket gate
+      (``guest_quota.SESSION_COUNTER``), keyed by ``session_id``, so the
+      ordinary case — the socket that coached this very session already
+      reserved it — is admitted again for free. Only a session the socket
+      never saw (a client that skipped the live path entirely) spends a new
+      slot here, which is exactly right: this POST is what buys the batch
+      analysis and the reflection, so it must be counted somewhere.
+    * **Minutes per session.** The socket already ends a guest at the cap, so
+      a span meaningfully past it means the client kept going without the
+      server. Refusing keeps the LLM spend bounded whether or not the client
+      honored the close. An unparseable span is NOT treated as over-limit
+      (``guest_quota.session_over_time_cap`` — a nonsense timestamp is a bug
+      to notice, not a user to cut off).
+
+    429, not 403: this is a rate/allowance verdict, and the phone already
+    renders a 429 detail rather than a generic failure.
+    """
+    if not identity.is_guest:
+        return
+    if guest_quota.session_over_time_cap(body.started_at, body.ended_at):
+        logger.info(
+            "Guest %s posted a session longer than the %d-minute cap — refusing",
+            identity.uid, guest_quota.GUEST_MAX_SESSION_MIN,
+        )
+        raise HTTPException(status_code=429, detail=guest_quota.GUEST_LIMIT_MESSAGE)
+    if not await guest_quota.admit_session(identity.uid, body.session_id):
+        logger.info(
+            "Guest %s is over the daily session allowance (%d/day) — refusing ingest",
+            identity.uid, guest_quota.GUEST_MAX_SESSIONS_PER_DAY,
+        )
+        raise HTTPException(status_code=429, detail=guest_quota.GUEST_LIMIT_MESSAGE)
+
+
 @router.post("/sessions/live", response_model=LiveSessionOut, status_code=201)
 async def ingest_live_session(
     body: LiveSessionIn,
     request: Request,
     uid: str = Depends(get_current_uid),
+    identity: Identity = Depends(get_current_identity),
     _rl: None = Depends(_rate_limit),
 ):
     store = _require_store(request)
+    await _guest_gate(identity, body)
     return await ingest_live(
         store, uid,
         session_id=body.session_id,

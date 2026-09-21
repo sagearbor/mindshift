@@ -91,6 +91,19 @@ export async function postLiveSession(body: LiveSessionBody): Promise<PostLiveSe
       body: JSON.stringify(body),
     });
     if (res.status === 404) return { status: "unsupported" };
+    if (res.status === 429) {
+      // Guest quota (server/guest_quota.py) or the generic per-IP limiter.
+      // Both answer with a `detail` sentence meant for the user; show it
+      // verbatim rather than "API error: 429", which tells them nothing
+      // about what to do next.
+      const detail = await res
+        .json()
+        .then((d: { detail?: unknown }) =>
+          typeof d?.detail === "string" ? d.detail : "",
+        )
+        .catch(() => "");
+      return { status: "failed", error: detail || `API error: ${res.status}` };
+    }
     if (!res.ok) return { status: "failed", error: `API error: ${res.status}` };
     const data = (await res.json()) as { episode_id?: string; shared_with?: unknown };
     const sharedWith = Array.isArray(data.shared_with)

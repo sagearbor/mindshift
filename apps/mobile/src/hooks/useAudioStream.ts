@@ -1921,6 +1921,20 @@ export function useAudioStream(
               );
               setSpeakerLabel((current) => (current === from ? to : current));
             }
+          } else if (data.type === "guest_limit") {
+            // Guest mode: the server refused (or is ending) this session
+            // because the anonymous account is over its quota — either the
+            // sessions-per-day allowance or the per-session minute cap (see
+            // server/guest_quota.py). The socket closes right after this
+            // frame with code 4429; show the server's own sentence rather
+            // than inventing one, so the app and the server can never
+            // disagree about what the limit is.
+            const message =
+              typeof data.message === "string" && data.message
+                ? data.message
+                : "Guest limit reached — create a free account to continue.";
+            shouldReconnect.current = false; // a retry cannot help
+            setLiveStatus(message);
           } else if (data.type === "transcription_unavailable") {
             // Be explicit instead of silently showing an empty live screen.
             setTranscriptionAvailable(false);

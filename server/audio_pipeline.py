@@ -41,6 +41,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
 import calls
+import guest_quota
 import llm_client
 from llm_client import LLMClient
 from models.audio import (
@@ -1432,6 +1433,16 @@ class SessionContext:
     # processed. None only during the pre-auth window; a session that reaches
     # provider setup always has it.
     uid: str | None = None
+    # Guest mode (Firebase Anonymous Auth — "Continue as guest" on the login
+    # screen). Set from the SAME verified claims as ``uid``, never from
+    # anything the client says about itself. A guest session is a real,
+    # fully-authenticated session; the only difference is that it is bounded
+    # by the quota in ``server/guest_quota.py``.
+    is_guest: bool = False
+    # ``time.monotonic()`` after which a GUEST session must be ended by the
+    # server (guest_quota.GUEST_MAX_SESSION_MIN). None for every signed-up
+    # account — their sessions are not time-capped at all.
+    guest_deadline: float | None = None
     # Net-new voice-profile context (all optional, all backward-compatible):
     # the config message may carry the relationship + coached-speaker ids so the
     # WS coach can load a voice profile once, at config time. With none set,
@@ -1563,6 +1574,40 @@ async def _close_ws_unauthorized(websocket: WebSocket, reason: str) -> None:
         )
     with contextlib.suppress(Exception):
         await websocket.close(code=4401, reason=reason)
+
+
+async def _close_ws_guest_limit(websocket: WebSocket, send_json=None) -> None:
+    """End a guest session that has hit one of its quotas.
+
+    Sends ONE ``{"type": "guest_limit", "message": ...}`` frame so the app can
+    say why in plain words (apps/mobile/src/hooks/useAudioStream.ts surfaces
+    it as the live status line), then closes with
+    ``guest_quota.GUEST_LIMIT_WS_CODE`` (4429, the private-use analogue of
+    HTTP 429). The close code is deliberately NOT 4401: this is not an auth
+    failure, the app must not treat it as a revoked sign-in, and a reconnect
+    cannot help — the message tells the user the one thing that can (create a
+    free account).
+
+    ``send_json`` is used when the session already has its serialized sender
+    (so a frame can't interleave with a worker's); the raw socket is the
+    fallback for the pre-handshake path, where no worker exists yet.
+    """
+    frame = {
+        "type": "guest_limit",
+        "message": guest_quota.GUEST_LIMIT_MESSAGE,
+        "max_sessions_per_day": guest_quota.GUEST_MAX_SESSIONS_PER_DAY,
+        "max_session_minutes": guest_quota.GUEST_MAX_SESSION_MIN,
+    }
+    with contextlib.suppress(Exception):
+        if send_json is not None:
+            await send_json(frame)
+        else:
+            await websocket.send_text(json.dumps(frame))
+    with contextlib.suppress(Exception):
+        await websocket.close(
+            code=guest_quota.GUEST_LIMIT_WS_CODE,
+            reason=guest_quota.GUEST_LIMIT_MESSAGE,
+        )
 
 
 async def _apply_config(ctx: SessionContext, payload: dict) -> None:
@@ -1759,15 +1804,35 @@ async def _authenticate(
         await _close_ws_unauthorized(websocket, "missing id_token")
         return False
     try:
-        from auth import verify_id_token
-        # verify_id_token is a blocking SDK call (cert fetch) — off the loop.
-        uid = await asyncio.to_thread(verify_id_token, token.strip())
+        import auth as auth_module
+        # Verification is a blocking SDK call (cert fetch) — off the loop.
+        # The IDENTITY form returns the sign-in provider from the same
+        # verified claims, so guest mode costs no second verification.
+        identity = await asyncio.to_thread(
+            auth_module.verify_id_token_identity, token.strip()
+        )
     except Exception:
         await _close_ws_unauthorized(websocket, "invalid id_token")
         return False
+    uid = identity.uid
     if not await _session_owner_ok(ctx.session_id, uid):
         await _close_ws_unauthorized(websocket, "session not owned by user")
         return False
+    # Guest quota — checked HERE, in the same breath as auth and before a
+    # single byte reaches Deepgram or Anthropic, for the same reason the
+    # Origin and session-id checks run before accept(): a rejected session
+    # must cost nothing. A signed-up account never enters this branch.
+    if identity.is_guest:
+        if not await guest_quota.admit_session(uid, ctx.session_id):
+            logger.info(
+                "Guest %s is over the daily session allowance (%d/day) — "
+                "refusing session %s",
+                uid, guest_quota.GUEST_MAX_SESSIONS_PER_DAY, ctx.session_id,
+            )
+            await _close_ws_guest_limit(websocket, send_json)
+            return False
+        ctx.is_guest = True
+        ctx.guest_deadline = time.monotonic() + guest_quota.guest_max_session_seconds()
     ctx.uid = uid
     await _apply_config(ctx, payload)
     await send_json({"type": "config_ack"})
@@ -2729,6 +2794,22 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
 
             # --- Disconnect ---
             if message.get("type") == "websocket.disconnect":
+                break
+
+            # --- Guest per-session time cap ---
+            # Checked on every inbound frame rather than on a timer: the cap
+            # exists to stop a guest session from SPENDING, and a session that
+            # sends nothing is spending nothing. A signed-up account has no
+            # deadline and never reaches this branch. The client is told why
+            # (one `guest_limit` frame) and the socket closes 4429; `break`
+            # falls through to the same cleanup an abrupt disconnect gets, so
+            # the transcriber is still finished and workers still cancelled.
+            if ctx.guest_deadline is not None and time.monotonic() >= ctx.guest_deadline:
+                logger.info(
+                    "Guest session %s hit the %d-minute cap — closing",
+                    session_id, guest_quota.GUEST_MAX_SESSION_MIN,
+                )
+                await _close_ws_guest_limit(websocket, send_json)
                 break
 
             # --- Binary audio chunk ---

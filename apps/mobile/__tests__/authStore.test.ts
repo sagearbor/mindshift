@@ -221,6 +221,10 @@ describe("authStore — auth state listener (initAuth)", () => {
       uid: "user-1",
       email: "a@b.com",
       displayName: "Ada",
+      // Guest mode: read straight off the Firebase User. The fake has no
+      // `isAnonymous`, which is exactly what a normal signed-up account
+      // looks like here, and must never read as a guest.
+      isAnonymous: false,
     });
     expect(useAuthStore.getState().initializing).toBe(false);
     expect(getCachedToken()).toBe("id-token-listener");

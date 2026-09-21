@@ -25,6 +25,7 @@ export default function LoginScreen() {
 
   const signIn = useAuthStore((s) => s.signIn);
   const signUp = useAuthStore((s) => s.signUp);
+  const continueAsGuest = useAuthStore((s) => s.continueAsGuest);
   const sendPasswordReset = useAuthStore((s) => s.sendPasswordReset);
   const busy = useAuthStore((s) => s.busy);
   const error = useAuthStore((s) => s.error);
@@ -47,6 +48,11 @@ export default function LoginScreen() {
     // sendPasswordReset handles the empty-email and error states honestly and
     // surfaces them via the store; nothing to await for the UI here.
     void sendPasswordReset(email);
+  };
+
+  const startGuestSession = () => {
+    // Errors surface via the store's `error` state, same as submit().
+    void continueAsGuest().catch(() => {});
   };
 
   const canSubmit = email.trim().length > 0 && password.length > 0 && !busy;
@@ -188,6 +194,27 @@ export default function LoginScreen() {
           )}
 
           <AppleSignInButton />
+
+          {/* Guest mode. Deliberately BELOW the real sign-in options and
+              styled as a secondary action: an account is still the better
+              choice for anyone who intends to keep using the app, and the
+              sub-line says why without nagging. It is not hidden or
+              reviewer-only — first-run friction is the other half of why it
+              exists. */}
+          <TouchableOpacity
+            testID="continue-as-guest"
+            accessibilityRole="button"
+            accessibilityLabel="Continue as guest"
+            style={[styles.guestButton, busy && styles.buttonDisabled]}
+            onPress={startGuestSession}
+            disabled={busy}
+          >
+            <Text style={styles.guestButtonText}>Continue as guest</Text>
+          </TouchableOpacity>
+          <Text testID="guest-explainer" style={styles.guestExplainer}>
+            Try Live Coach with no account. Your sessions stay on this
+            device&apos;s guest account until you create one.
+          </Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -306,6 +333,31 @@ const styles = StyleSheet.create({
   googleUnconfigured: {
     color: "#9CA3AF",
     fontSize: 13,
+    textAlign: "center",
+  },
+  // Secondary-action styling (outline, not filled): visibly available, and
+  // visibly not the recommended path — matches GoogleButtonBase's metrics so
+  // the stack of options below the divider reads as one group.
+  guestButton: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#FFFFFF",
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  guestButtonText: {
+    color: "#1F2937",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  guestExplainer: {
+    marginTop: 8,
+    marginBottom: 8,
+    color: "#6B7280",
+    fontSize: 12.5,
+    lineHeight: 17,
     textAlign: "center",
   },
 });

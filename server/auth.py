@@ -22,10 +22,20 @@ from __future__ import annotations
 import logging
 import os
 import time
+from dataclasses import dataclass
 
 from fastapi import Header, HTTPException
 
 logger = logging.getLogger(__name__)
+
+# The ``firebase.sign_in_provider`` value Firebase Anonymous Auth stamps on the
+# ID tokens it mints. A "Continue as guest" session (LoginScreen's
+# ``signInAnonymously``) is a REAL, fully verified Firebase user — same uid
+# contract, same signature check — that simply has no email and no way to sign
+# back in from another device. Nothing here treats it as less authenticated;
+# the only thing the provider decides is the guest COST QUOTA (see
+# server/guest_quota.py) and the ``is_guest`` flag on the account record.
+ANONYMOUS_PROVIDER = "anonymous"
 
 # The Firebase/GCP project that mints the ID tokens. On Cloud Run this is the
 # same project the service runs in, so ADC needs no key file. Overridable via
@@ -79,6 +89,62 @@ def verify_id_token_claims(token: str) -> dict:
 
     init_firebase()
     return fb_auth.verify_id_token(token)
+
+
+@dataclass(frozen=True)
+class Identity:
+    """Who the caller is, as read from ONE verified set of token claims.
+
+    ``uid`` is the same trusted subject :func:`verify_id_token` has always
+    returned. ``sign_in_provider`` is the additional fact guest mode needs:
+    Firebase stamps ``firebase.sign_in_provider`` on every ID token
+    (``password``, ``google.com``, ``apple.com``, ``anonymous``, …). It is
+    read here, next to the signature check, so no caller has to re-verify a
+    token just to learn how it was minted.
+    """
+
+    uid: str
+    email: str | None = None
+    sign_in_provider: str | None = None
+
+    @property
+    def is_guest(self) -> bool:
+        """True for a "Continue as guest" (Firebase Anonymous Auth) session."""
+        return self.sign_in_provider == ANONYMOUS_PROVIDER
+
+
+def sign_in_provider(claims: dict) -> str | None:
+    """The ``firebase.sign_in_provider`` claim, or ``None`` when absent.
+
+    Defensive about shape: a token whose ``firebase`` claim is missing or is
+    not a mapping yields ``None`` (unknown), never a crash and never a
+    fabricated provider. ``None`` is treated as NOT-guest everywhere — the
+    quota must never be applied to a real account because a claim was
+    unreadable.
+    """
+    block = claims.get("firebase")
+    if not isinstance(block, dict):
+        return None
+    provider = block.get("sign_in_provider")
+    return provider if isinstance(provider, str) else None
+
+
+def identity_from_claims(claims: dict) -> Identity:
+    """Build an :class:`Identity` from already-verified token claims."""
+    return Identity(
+        uid=claims["uid"],
+        email=claims.get("email"),
+        sign_in_provider=sign_in_provider(claims),
+    )
+
+
+def verify_id_token_identity(token: str) -> Identity:
+    """Verify a Firebase ID token and return the full :class:`Identity`.
+
+    One verification, both facts. :func:`verify_id_token` is the "just the
+    uid" wrapper over this so the two can never disagree about a token.
+    """
+    return identity_from_claims(verify_id_token_claims(token))
 
 
 def verify_id_token(token: str) -> str:
@@ -157,11 +223,48 @@ def resolve_email_by_uid(uid: str) -> str | None:
     return getattr(user, "email", None)
 
 
+async def get_current_identity(authorization: str = Header(default="")) -> Identity:
+    """FastAPI dependency: the verified :class:`Identity` from ``Authorization``.
+
+    Expects ``Authorization: Bearer <idToken>``. Rejects with 401 on a missing
+    or malformed header and on an invalid/expired token — exactly the contract
+    :func:`get_current_uid` has always had, which is now a thin projection of
+    this one (FastAPI caches a sub-dependency per request, so an endpoint may
+    depend on both without verifying the token twice).
+
+    An ANONYMOUS token is accepted here like any other: guest mode is a real,
+    signed Firebase identity. What it costs is bounded elsewhere — see
+    ``server/guest_quota.py``.
+    """
+    scheme, _, token = authorization.partition(" ")
+    token = token.strip()
+    if scheme != "Bearer" or not token:
+        raise HTTPException(status_code=401, detail="missing bearer token")
+    try:
+        return verify_id_token_identity(token)
+    except HTTPException:
+        raise
+    except Exception:
+        # Never leak provider internals (they can carry key ids / request urls).
+        raise HTTPException(status_code=401, detail="invalid or expired token")
+
+
 async def get_current_uid(authorization: str = Header(default="")) -> str:
     """FastAPI dependency: the verified Firebase uid from ``Authorization``.
 
     Expects ``Authorization: Bearer <idToken>``. Rejects with 401 on a missing
     or malformed header and on an invalid/expired token.
+
+    Deliberately NOT implemented as ``get_current_identity(...).uid``, even
+    though that would be one fewer verification on the single endpoint that
+    depends on both. Forty-odd routes depend on THIS name, and the test suite
+    turns auth on and off per endpoint by adding/removing exactly this
+    override (``app.dependency_overrides``); making it a projection of another
+    dependency would mean removing the override no longer restores real auth,
+    and every "this route is 401 without a token" test would silently pass
+    while proving nothing. One extra local JWT verification on
+    ``POST /sessions/live`` — once per live session, against cached signing
+    keys — is a much cheaper thing to pay than that.
     """
     scheme, _, token = authorization.partition(" ")
     token = token.strip()

@@ -14,7 +14,13 @@ os.environ["MINDSHIFT_DB_PATH"] = _tmp.name
 _tmp.close()
 
 from main import app, init_db  # noqa: E402 — must set env before import
-from auth import get_current_uid, get_fresh_uid  # noqa: E402
+from auth import (  # noqa: E402
+    ANONYMOUS_PROVIDER,
+    Identity,
+    get_current_identity,
+    get_current_uid,
+    get_fresh_uid,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -22,12 +28,20 @@ from auth import get_current_uid, get_fresh_uid  # noqa: E402
 # ---------------------------------------------------------------------------
 # Fake Firebase tokens → uids. The default token/uid keep the REST + WS tests
 # green once they present it; the two extra users drive cross-user isolation.
+# ``tok-guest`` is a "Continue as guest" (Firebase Anonymous Auth) token —
+# same shape, no email, ``sign_in_provider == "anonymous"``.
 FAKE_TOKENS = {
     "fake-id-token": "test-user",
     "tok-user-a": "user-a",
     "tok-user-b": "user-b",
+    "tok-guest": "guest-user",
 }
 DEFAULT_TEST_UID = "test-user"
+# Which of the fake tokens above were minted by anonymous sign-in.
+GUEST_TOKENS = {"tok-guest"}
+# Sending ``X-Test-Guest: 1`` makes the dependency override below act as a
+# guest, exactly the way ``X-Test-Uid`` makes it act as another user.
+GUEST_TEST_HEADER_TRUE = {"1", "true", "yes", "on"}
 
 
 def _test_uid_override(x_test_uid: str = Header(default=DEFAULT_TEST_UID)) -> str:
@@ -40,9 +54,32 @@ def _test_uid_override(x_test_uid: str = Header(default=DEFAULT_TEST_UID)) -> st
     return x_test_uid
 
 
+def _test_identity_override(
+    x_test_uid: str = Header(default=DEFAULT_TEST_UID),
+    x_test_guest: str = Header(default=""),
+) -> Identity:
+    """Stand-in for :func:`auth.get_current_identity` — the richer sibling of
+    ``_test_uid_override``.
+
+    Endpoints that need to know HOW the caller signed in (today: the guest
+    quota on ``POST /sessions/live``) depend on the identity rather than the
+    bare uid. Without this override those endpoints would fall through to real
+    Firebase for every test in the suite. ``X-Test-Guest: 1`` opts a request
+    into being an anonymous ("Continue as guest") caller; everything else is a
+    password account, which is what the suite has always simulated.
+    """
+    guest = x_test_guest.strip().lower() in GUEST_TEST_HEADER_TRUE
+    return Identity(
+        uid=x_test_uid,
+        email=None if guest else f"{x_test_uid}@example.test",
+        sign_in_provider=ANONYMOUS_PROVIDER if guest else "password",
+    )
+
+
 # Installed once on the shared app: every TestClient/AsyncClient built from
 # ``main.app`` (this conftest, tests/conftest, or any test module) inherits it.
 app.dependency_overrides[get_current_uid] = _test_uid_override
+app.dependency_overrides[get_current_identity] = _test_identity_override
 # Same stand-in for the FRESH-token dependency (auth.get_fresh_uid, used by
 # DELETE /me): the suite runs authenticated without real Firebase, so there is
 # no real ``iat`` to age. The freshness gate itself is exercised directly
@@ -58,13 +95,20 @@ def _server_test_auth(monkeypatch):
     * Ensures the DB schema exists — the WS auth handshake checks session
       ownership in the ``sessions`` table, so it must be present even for the
       WS tests that never build the ``client`` fixture.
-    * Replaces ``auth.verify_id_token`` with a keyless fake used by the WS
-      handshake and by the REST tests that drop the dependency override to hit
-      the real :func:`auth.get_current_uid`.
+    * Replaces ``auth.verify_id_token`` AND ``auth.verify_id_token_identity``
+      with keyless fakes used by the WS handshake and by the REST tests that
+      drop the dependency override to hit the real
+      :func:`auth.get_current_uid`. Both are patched (and agree with each
+      other) because the WS handshake reads the identity form — it needs the
+      sign-in provider for the guest quota — while REST still reads the uid
+      form.
+    * Clears the process-wide guest session counter, so a test that exhausts
+      a guest's daily allowance cannot leak that state into the next test.
     """
     asyncio.run(init_db())
 
     import auth
+    import guest_quota
 
     def _verify(token: str) -> str:
         try:
@@ -72,7 +116,28 @@ def _server_test_auth(monkeypatch):
         except KeyError:
             raise ValueError("invalid test token")
 
+    def _verify_identity(token: str) -> auth.Identity:
+        uid = _verify(token)
+        guest = token in GUEST_TOKENS
+        return auth.Identity(
+            uid=uid,
+            email=None if guest else f"{uid}@example.test",
+            sign_in_provider=ANONYMOUS_PROVIDER if guest else "password",
+        )
+
     monkeypatch.setattr(auth, "verify_id_token", _verify)
+    monkeypatch.setattr(auth, "verify_id_token_identity", _verify_identity)
+    guest_quota.SESSION_COUNTER.reset()
+
+    # Re-assert THIS module's overrides for every test under server/.
+    # tests/conftest.py installs its own on the very same shared ``main.app``
+    # at import time, and in a run that collects both trees the later import
+    # wins for everybody. The two are kept behaviourally identical on purpose
+    # (see the note on tests/conftest.py's _test_identity_override), but
+    # re-installing here means a future divergence can't silently disarm the
+    # guest-quota tests instead of failing loudly in the file that diverged.
+    app.dependency_overrides[get_current_uid] = _test_uid_override
+    app.dependency_overrides[get_current_identity] = _test_identity_override
 
 
 MOCK_RESPOND_JSON = json.dumps({

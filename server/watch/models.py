@@ -110,11 +110,17 @@ class EnrollmentBaseline(BaseModel):
 
 class Account(BaseModel):
     id: str                                     # verified token subject (Firebase uid)
-    provider: Literal["google", "legacy"] = "google"
+    provider: Literal["google", "legacy", "anonymous"] = "google"
     email: str | None = None
     display_name: str | None = None
     created_at: str
     updated_at: str
+    # "Continue as guest" (Firebase Anonymous Auth). Kept as its own boolean
+    # rather than only as a `provider` value because it is the thing every
+    # caller actually asks ("is this account a guest?"), and because existing
+    # account documents predate the field — a default of False makes every
+    # stored account read back as a real one, which is what they are.
+    is_guest: bool = False
 
 
 class SpeakerProfile(BaseModel):

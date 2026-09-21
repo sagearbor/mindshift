@@ -47,6 +47,12 @@ const STATUS_COLORS: Record<string, string> = {
   disconnected: "#EF4444",
 };
 
+/** Session modes a GUEST (anonymous account) is not offered. An in-app call
+ *  requires a second real account on the other end; every other mode works
+ *  exactly as it does for a signed-up account. Module-level so the prop keeps
+ *  a stable identity across renders. */
+const GUEST_HIDDEN_MODES: readonly LiveMode[] = ["call"];
+
 /** Plain words for the header status when developer mode is off — the raw
  *  socket state ("disconnected") reads as jargon to an invited tester. */
 const FRIENDLY_STATUS: Record<string, string> = {
@@ -489,7 +495,19 @@ export default function LiveCoachScreen({
   // Developer mode (Settings → Diagnostics): raw states, capability and
   // latency lines. Off = the clean tester surface; nothing is lost, hidden.
   const devMode = useDevModeStore((s) => s.devMode);
-  const mode: LiveMode = sessionMode ?? "earpiece";
+  // Guest mode: an in-app call needs a SECOND real account on the other end
+  // (one phone invites, the other joins and is coached on its own side), so
+  // the Call chip is left out entirely for a guest rather than offered and
+  // then failing. `GUEST_HIDDEN_MODES` is a stable module constant so the
+  // picker's `hiddenModes` prop doesn't change identity every render.
+  const isGuest = useAuthStore((s) => s.user?.isAnonymous === true);
+  const hiddenModes = isGuest ? GUEST_HIDDEN_MODES : undefined;
+  const requestedMode: LiveMode = sessionMode ?? "earpiece";
+  // A guest whose persisted mode is "call" (they linked an account, used
+  // calls, signed out, came back as a guest) falls back to the default
+  // rather than sitting on a mode with no chip on screen.
+  const guestWantedCall = isGuest && requestedMode === "call";
+  const mode: LiveMode = guestWantedCall ? "earpiece" : requestedMode;
   const isCall = mode === "call";
   // Journal mode ("listen for my voice"): no coaching, no transcript, no
   // server while it runs — the screen collapses to the journal panel + Stop.
@@ -681,7 +699,23 @@ export default function LiveCoachScreen({
       {/* The one choice that shapes the session: who's on the mic and whether
           the coach speaks. Locked while a session runs (the loop reads it at
           start). Persisted per account. */}
-      <LiveModePicker value={mode} onChange={handleModeChange} disabled={sessionActive} />
+      <LiveModePicker
+        value={mode}
+        onChange={handleModeChange}
+        disabled={sessionActive}
+        hiddenModes={hiddenModes}
+      />
+
+      {/* A guest who followed a call-invite link (or whose remembered mode
+          was Call) gets told why there is no Call chip, rather than being
+          silently dropped into earpiece mode. */}
+      {guestWantedCall ? (
+        <Text style={styles.guestCallsNote} testID="guest-calls-unavailable">
+          In-app calls need an account on both ends — create one from the
+          banner above to answer this invite. Everything else works as a
+          guest.
+        </Text>
+      ) : null}
 
       {/* Call mode: start / join / answer, then the in-call header and
           controls. The transcript and suggestions below are shared with
@@ -1135,6 +1169,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#F9FAFB",
+  },
+  guestCallsNote: {
+    marginHorizontal: 16,
+    marginBottom: 8,
+    color: "#6B7280",
+    fontSize: 12.5,
+    lineHeight: 17,
   },
   scrollArea: {
     flex: 1,

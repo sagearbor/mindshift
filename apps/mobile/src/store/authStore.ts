@@ -2,9 +2,12 @@ import { create } from "zustand";
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  signInAnonymously,
   signInWithCredential,
   signInWithPopup,
   linkWithCredential,
+  linkWithPopup,
+  EmailAuthProvider,
   sendPasswordResetEmail,
   signOut as fbSignOut,
   onIdTokenChanged,
@@ -20,6 +23,12 @@ export interface AuthUser {
   uid: string;
   email: string | null;
   displayName: string | null;
+  /** True for a "Continue as guest" session (Firebase Anonymous Auth). The
+   *  account is real and fully signed in — it just has no email, lives only
+   *  on this device, and is bounded by the server's guest quota. Drives the
+   *  persistent guest banner and hides in-app Calls (which need a second
+   *  real account on the other end). */
+  isAnonymous: boolean;
 }
 
 interface AuthState {
@@ -45,6 +54,18 @@ interface AuthState {
 
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
+  /** "Continue as guest": a real Firebase session with no account behind it
+   *  (Anonymous Auth). Everything the app does is uid-scoped, so a guest gets
+   *  the full product — the limits are the server's guest quota, not missing
+   *  features. The data lives under an anonymous uid that exists only on this
+   *  device: signing out, or losing the device, loses it. */
+  continueAsGuest: () => Promise<void>;
+  /** Turn the CURRENT anonymous session into a permanent email/password
+   *  account, keeping the same uid — so every recording, session and
+   *  voiceprint the guest already made stays theirs. See the implementation
+   *  for what happens when that email is already taken (we cannot merge two
+   *  accounts, and say so instead of pretending). */
+  linkGuestToEmailPassword: (email: string, password: string) => Promise<void>;
   /** WEB Google sign-in: Firebase popup. Resolves the whole OAuth dance in the
    *  SDK — no client id needed beyond the Firebase config. */
   signInWithGooglePopup: () => Promise<void>;
@@ -59,7 +80,16 @@ interface AuthState {
 }
 
 function toAuthUser(user: User): AuthUser {
-  return { uid: user.uid, email: user.email, displayName: user.displayName };
+  return {
+    uid: user.uid,
+    email: user.email,
+    displayName: user.displayName,
+    // `isAnonymous` is Firebase's own flag on the User, read straight through
+    // rather than inferred from a missing email — a real account can have no
+    // email (some providers), and a linked ex-guest keeps the same uid but
+    // stops being anonymous, which this tracks automatically.
+    isAnonymous: user.isAnonymous === true,
+  };
 }
 
 /** Extract the error code from an unknown Firebase error, or "". */
@@ -103,12 +133,53 @@ function authErrorMessage(err: unknown): string {
     case "auth/network-request-failed":
       return "Network error — check your connection and try again.";
     case "auth/operation-not-allowed":
+    // Firebase reports a disabled Anonymous provider as admin-restricted
+    // rather than operation-not-allowed. Same honest sentence: the method
+    // isn't switched on in the project, which is a config fact, not the
+    // user's fault and not something a retry fixes.
+    case "auth/admin-restricted-operation":
       return "This sign-in method isn't enabled for the app yet.";
     case "auth/user-disabled":
       return "This account has been disabled.";
     default:
       return "Something went wrong signing you in. Please try again.";
   }
+}
+
+/**
+ * Messages for a failed GUEST UPGRADE (linkWithCredential / linkWithPopup).
+ * Distinct from `authErrorMessage` because the two failures that matter here
+ * mean something completely different in this context — "that email already
+ * has an account" is not a sign-in error, it is the one case where the guest's
+ * existing data genuinely cannot come along, and pretending otherwise would be
+ * the worst kind of dishonest. Firebase has no merge-two-accounts primitive;
+ * the only honest options are "use a different email" or "sign out and sign in
+ * to that account, losing what this guest session recorded", and the message
+ * says exactly that.
+ */
+function linkErrorMessage(err: unknown): string {
+  switch (errorCode(err)) {
+    case "auth/email-already-in-use":
+    case "auth/credential-already-in-use":
+    case "auth/account-exists-with-different-credential":
+      return (
+        "An account already exists for that sign-in. We can't merge it with " +
+        "this guest session — use a different email, or log out and sign in " +
+        "to that account (this guest session's recordings would be lost)."
+      );
+    case "auth/provider-already-linked":
+      return "That sign-in is already linked to this account.";
+    case "auth/requires-recent-login":
+      return "Please log out and sign in again, then try creating the account.";
+    default:
+      return authErrorMessage(err);
+  }
+}
+
+/** The signed-in Firebase user iff it is an anonymous (guest) one. */
+function anonymousUser(): User | null {
+  const current = auth.currentUser;
+  return current && current.isAnonymous === true ? current : null;
 }
 
 /** Codes that mean "the OAuth popup was dismissed", not a real failure. */
@@ -155,13 +226,65 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
+  continueAsGuest: async () => {
+    set({ busy: true, error: null, notice: null });
+    try {
+      await signInAnonymously(auth);
+    } catch (err) {
+      set({ error: authErrorMessage(err) });
+      throw err;
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  linkGuestToEmailPassword: async (email, password) => {
+    const current = auth.currentUser;
+    if (!current || current.isAnonymous !== true) {
+      // Not a guest session — there is nothing to upgrade. Say so rather than
+      // silently doing nothing or, worse, creating a second account.
+      set({ error: "You're already signed in to an account.", notice: null });
+      return;
+    }
+    set({ busy: true, error: null, notice: null });
+    try {
+      const credential = EmailAuthProvider.credential(email.trim(), password);
+      await linkWithCredential(current, credential);
+      // Same uid, now with a way back in. onIdTokenChanged refreshes the
+      // store's user (isAnonymous flips to false), which retires the banner.
+      set({ notice: "Account created — your sessions are saved to it." });
+    } catch (err) {
+      set({ error: linkErrorMessage(err) });
+      throw err;
+    } finally {
+      set({ busy: false });
+    }
+  },
+
   signInWithGooglePopup: async () => {
     set({ busy: true, error: null, notice: null });
     try {
       const provider = new GoogleAuthProvider();
+      // A guest tapping Google is asking to KEEP what they have, so link the
+      // Google identity onto the anonymous uid instead of signing into a
+      // fresh one (which would strand the guest session's data).
+      const guest = anonymousUser();
+      if (guest) {
+        await linkWithPopup(guest, provider);
+        set({
+          pendingGoogleCredential: null,
+          pendingGoogleEmail: null,
+          notice: "Account created — your sessions are saved to it.",
+        });
+        return;
+      }
       await signInWithPopup(auth, provider);
       set({ pendingGoogleCredential: null, pendingGoogleEmail: null });
     } catch (err) {
+      if (anonymousUser()) {
+        set({ error: linkErrorMessage(err) });
+        return;
+      }
       handleGoogleSignInError(err, null, set);
     } finally {
       set({ busy: false });
@@ -172,6 +295,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ busy: true, error: null, notice: null });
     try {
       const credential = GoogleAuthProvider.credential(googleIdToken);
+      // Same guest-keeps-their-data rule as the web popup above.
+      const guest = anonymousUser();
+      if (guest) {
+        try {
+          await linkWithCredential(guest, credential);
+          set({
+            pendingGoogleCredential: null,
+            pendingGoogleEmail: null,
+            notice: "Account created — your sessions are saved to it.",
+          });
+        } catch (err) {
+          set({ error: linkErrorMessage(err) });
+        }
+        return;
+      }
       await signInWithCredential(auth, credential);
       set({ pendingGoogleCredential: null, pendingGoogleEmail: null });
     } catch (err) {

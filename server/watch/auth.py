@@ -93,11 +93,32 @@ class Principal(BaseModel):
     account_id: str
     email: str | None = None
     legacy: bool = False
+    # Guest mode: a "Continue as guest" session (Firebase Anonymous Auth).
+    # A fully verified identity with no email and no way to sign back in from
+    # another device — NOT a legacy/unauthenticated principal, which is what
+    # ``legacy`` means. Defaults False so a verifier that doesn't report a
+    # provider (the device-token verifier, every hand-written test stub) can
+    # never accidentally mark a real account as a guest.
+    is_guest: bool = False
+    # HOW this principal signed in, when the verifier can know it — Firebase's
+    # ``firebase.sign_in_provider`` claim ("password", "google.com",
+    # "anonymous", …). ``None`` means UNKNOWN, not "not a guest": a paired
+    # watch authenticates with an opaque device token that carries no such
+    # claim, so ``ensure_account`` must leave the stored guest flag alone in
+    # that case rather than silently promoting a guest to a real account (or
+    # the other way round) every time a watch calls home.
+    sign_in_provider: str | None = None
 
 
 class TokenVerifier(Protocol):
     def verify(self, token: str) -> dict:
-        """Return {"sub": str, "email": str | None}. Raise InvalidToken otherwise."""
+        """Return {"sub": str, "email": str | None}. Raise InvalidToken otherwise.
+
+        May ALSO return ``"sign_in_provider"`` (Firebase's
+        ``firebase.sign_in_provider`` claim) when the verifier can know it.
+        Optional on purpose: a device-token verifier has no such concept, and
+        an absent key is read as "not a guest" rather than guessed at.
+        """
         ...
 
 
@@ -144,7 +165,17 @@ def resolve_principal(
         sub = claims.get("sub")
         if not sub:
             raise HTTPException(status_code=401, detail="token has no subject")
-        return Principal(account_id=sub, email=claims.get("email"), legacy=False)
+        # ``sign_in_provider`` is optional in the TokenVerifier contract: only
+        # FirebaseTokenVerifier can know it, and a missing key must read as
+        # "not a guest", never as a guess.
+        provider = claims.get("sign_in_provider")
+        return Principal(
+            account_id=sub,
+            email=claims.get("email"),
+            legacy=False,
+            sign_in_provider=provider if isinstance(provider, str) else None,
+            is_guest=provider == mindshift_auth.ANONYMOUS_PROVIDER,
+        )
 
     if allow_legacy and account_param:
         return Principal(account_id=account_param, email=None, legacy=True)
@@ -192,7 +223,14 @@ class FirebaseTokenVerifier:
         sub = decoded.get("uid") or decoded.get("sub")
         if not sub:
             raise InvalidToken("token has no subject")
-        return {"sub": sub, "email": decoded.get("email")}
+        return {
+            "sub": sub,
+            "email": decoded.get("email"),
+            # Guest mode: the one extra claim, read from the SAME verified
+            # decode so nothing has to verify the token twice to learn how it
+            # was minted. ``None`` when the claim is absent/misshapen.
+            "sign_in_provider": mindshift_auth.sign_in_provider(decoded),
+        }
 
 
 class DeviceTokenVerifier:
@@ -305,28 +343,42 @@ AuthDep = Callable[..., Awaitable[Principal]]
 
 async def ensure_account(store: "LiveSessionStore", principal: Principal) -> "Account":
     """Just-in-time provisioning: first verified sight of a uid writes an
-    accounts doc; later sights refresh email/updated_at. Legacy principals
-    NEVER write an accounts row — "default" is a transition artifact, not a
-    real account."""
+    accounts doc; later sights refresh email/updated_at/is_guest. Legacy
+    principals NEVER write an accounts row — "default" is a transition
+    artifact, not a real account.
+
+    Guest mode: an anonymous principal is recorded as ``provider="anonymous"``
+    / ``is_guest=True``. Both are refreshed on every sight rather than written
+    once, so an account that STOPS being a guest — the "Create account" flow
+    links an email/password or Google credential onto the same uid, which
+    changes the provider on the very next token — is corrected to a real
+    account by the next request instead of being mislabelled forever."""
     # Function-local (not top-of-file) import of a concrete model: avoids
     # loading watch.models until an authenticated request actually needs
     # it, while still letting TYPE_CHECKING give real type-checking above.
     from watch.models import Account
 
     now = datetime.now(timezone.utc).isoformat()
+    # Only a verifier that actually read the sign-in provider may change the
+    # guest flag — see Principal.sign_in_provider. A watch's device token
+    # knows nothing about it, and must leave whatever is stored untouched.
+    provider_known = principal.sign_in_provider is not None
     existing = await store.get_account(principal.account_id)
     if existing is None:
         account = Account(
             id=principal.account_id,
-            provider="google",
+            provider="anonymous" if principal.is_guest else "google",
             email=principal.email,
             created_at=now,
             updated_at=now,
+            is_guest=principal.is_guest,
         )
     else:
-        account = existing.model_copy(
-            update={"email": principal.email, "updated_at": now}
-        )
+        update: dict = {"email": principal.email, "updated_at": now}
+        if provider_known:
+            update["provider"] = "anonymous" if principal.is_guest else "google"
+            update["is_guest"] = principal.is_guest
+        account = existing.model_copy(update=update)
     await store.put_account(account)
     return account
 

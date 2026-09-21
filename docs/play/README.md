@@ -14,7 +14,7 @@ This directory holds step 1's output for MindShift:
 | File | What it is |
 |---|---|
 | [`play-answers-mindshift.yaml`](play-answers-mindshift.yaml) | **Phone/web listing** — `com.sagearbor.mindshift.app`. Every Play Console field, its value, why, and a `file:line` that proves it. |
-| [`play-answers-mindshift-wear.yaml`](play-answers-mindshift-wear.yaml) | **Watch (Wear OS) listing** — `com.sagearbor.gauge.wear`, a *separate* Play record with a standalone form factor. Same schema. Its answers deliberately differ from the phone's in three places: it declares **Health info** (heart rate from the body sensor), it declares a **device ID** (an app-minted install UUID on every telemetry batch), and its **App access** is a partial restriction rather than a login wall — the watch runs unpaired. Never import one listing's answers into the other. |
+| [`play-answers-mindshift-wear.yaml`](play-answers-mindshift-wear.yaml) | **Watch (Wear OS) listing** — `com.sagearbor.gauge.wear`, a *separate* Play record with a standalone form factor. Same schema. Its answers deliberately differ from the phone's in three places: it declares **Health info** (heart rate from the body sensor), it declares a **device ID** (an app-minted install UUID on every telemetry batch), and it runs **unpaired** under a shared legacy principal rather than always holding a real account. Never import one listing's answers into the other. |
 | `../../apps/mobile/public/privacy/index.html` | The privacy policy. Deploys to <https://arborfam-hub.web.app/privacy>. Covers **both** listings — the watch has no policy of its own. |
 | `../../apps/mobile/public/delete-account/index.html` | The data-deletion page Play requires for any app with accounts. Deploys to <https://arborfam-hub.web.app/delete-account>. Also the watch's deletion URL: there is no delete control on the wrist. |
 | `../../server/tests/test_play_answer_packs.py` | The gate. Asserts both packs parse, carry every schema section, and that **every `proof:` path still resolves to a real file**. A rename that silently orphans a proof fails CI instead of quietly turning the pack back into a guess. |
@@ -85,6 +85,23 @@ Work through this list. Each item is a decision that cannot be inherited.
 2. **Is there a login?** If yes, App access needs a demo account — and the owner
    must supply it. Never invent credentials. Never hand Play a real account: a
    reviewer signing in sees that account's data.
+
+   > **Guest mode (2026-09-20).** MindShift no longer needs one. The login
+   > screen has a **"Continue as guest"** button (Firebase Anonymous Auth):
+   > one tap, no credentials, and the reviewer lands in the real app with
+   > Live Coach, recordings and watch pairing all working. Both packs
+   > therefore answer App access **"All functionality is available without
+   > special access"** with empty credential fields, and the reviewer
+   > instructions walk the guest path — phone: install → Continue as guest →
+   > Live Coach → Start Listening; watch: install the phone app → Continue as
+   > guest → Settings → Set up your watch → type the 6-character code the
+   > watch shows. A guest is a real, isolated, deletable Firebase account
+   > bounded by a cost quota (3 live sessions/day, 10 min/session); only
+   > in-app Calls are hidden, because a call needs a second account on the
+   > other phone. The standing precondition is that **Anonymous sign-in stays
+   > enabled** in the `arborfam-hub` Firebase project — if it is ever turned
+   > off, both packs' App access sections must revert to the demo-account
+   > version. See [`../decisions/2026-09-20-guest-mode.md`](../decisions/2026-09-20-guest-mode.md).
 3. **The data-type matrix.** Re-derive it. The questions to answer with code:
    - What leaves the device, on which endpoint, to whom? Grep for `fetch(`,
      `axios`, WebSocket URLs, SDK constructors.
@@ -165,7 +182,14 @@ makes this twenty minutes instead of a re-derivation.
    account's data changes the content rating's "users interact" answer and
    usually adds a `shared: true`. Check both directions — the Wear couples card
    was a receive-only surface and still counted.
-5. **Policy parity.** Re-read <https://arborfam-hub.web.app/privacy> against the
+5. **Auth model.** Did a new way to get in appear — a guest mode, an SSO
+   provider, a magic link? It moves *App access* (does a reviewer still need
+   credentials?), the *account-creation methods* answer under Data safety, and
+   whether the new kind of account is reachable by the in-app delete. Guest
+   mode moved all three on 2026-09-20; it would have been easy to ship it and
+   leave the packs asserting "there is no guest mode", which is exactly the
+   kind of stale claim a reviewer can disprove in one tap.
+6. **Policy parity.** Re-read <https://arborfam-hub.web.app/privacy> against the
    matrix you just refreshed. The policy and the declaration must say the same
    thing, and the policy is the half that rots first because nothing tests it.
    If you changed a data type in step 2, the policy paragraph changes in the

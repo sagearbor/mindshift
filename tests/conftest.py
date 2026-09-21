@@ -17,7 +17,7 @@ os.environ["MINDSHIFT_DB_PATH"] = _tmp.name
 _tmp.close()
 
 from main import app, init_db  # noqa: E402
-from auth import get_current_uid  # noqa: E402
+from auth import Identity, get_current_identity, get_current_uid  # noqa: E402
 
 # Auth is required on every data route now; these end-to-end tests run as a
 # single fixed user via a dependency override (keyless — no real Firebase). The
@@ -29,7 +29,34 @@ def _test_uid_override(x_test_uid: str = Header(default=DEFAULT_TEST_UID)) -> st
     return x_test_uid
 
 
+def _test_identity_override(
+    x_test_uid: str = Header(default=DEFAULT_TEST_UID),
+    x_test_guest: str = Header(default=""),
+) -> Identity:
+    """Mirror of ``server/conftest.py``'s override for the richer identity
+    dependency (endpoints that need the sign-in provider, e.g. the guest quota
+    on ``POST /sessions/live``).
+
+    It must behave IDENTICALLY to that one, ``X-Test-Guest`` included, even
+    though these end-to-end suites never send that header themselves. Both
+    conftests install their overrides on the SAME shared ``main.app`` at
+    import time, so in a run that collects both trees (which is exactly how
+    CI runs it — see pyproject's testpaths) whichever imported last wins for
+    every test in both. The duplication is deliberate: these two modules
+    cannot import each other (see the pythonpath comment in pyproject.toml),
+    and a subtly weaker copy here would silently disarm the guest tests over
+    there.
+    """
+    guest = x_test_guest.strip().lower() in {"1", "true", "yes", "on"}
+    return Identity(
+        uid=x_test_uid,
+        email=None if guest else f"{x_test_uid}@example.test",
+        sign_in_provider="anonymous" if guest else "password",
+    )
+
+
 app.dependency_overrides[get_current_uid] = _test_uid_override
+app.dependency_overrides[get_current_identity] = _test_identity_override
 
 # Shared mock payloads live in _mock_data so test modules can import them
 # unambiguously even when pytest collects both server/ and tests/ in one run

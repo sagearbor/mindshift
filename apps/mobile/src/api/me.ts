@@ -21,6 +21,11 @@ export interface Me {
   email: string | null;
   legacy: boolean;
   has_paired_watch: boolean;
+  /** The SERVER's view of whether this account signed in anonymously
+   *  ("Continue as guest"). Optional because an older server omits it; the
+   *  app's own guest state comes from Firebase (`AuthUser.isAnonymous`), so
+   *  nothing depends on this being present. */
+  is_guest?: boolean;
 }
 
 async function authHeaders(): Promise<Record<string, string>> {

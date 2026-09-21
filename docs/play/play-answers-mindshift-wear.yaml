@@ -28,8 +28,13 @@ _schema:
     so the two declarations cannot drift. Where it DIFFERS, the difference is
     called out inline (`differs_from_phone_pack:`). The three real differences
     are: (1) the watch collects HEART RATE, which the phone does not; (2) the
-    watch has no email/password login at all — it is paired to a phone account
-    with a short code; (3) the watch has no camera, no calls and no video.
+    watch has no login screen of its own at all — it is paired to a phone
+    account with a 6-character code shown on the watch, and it also runs
+    unpaired under a shared legacy principal, whereas the phone always holds a
+    real Firebase session (which, since 2026-09-20, may be an anonymous
+    "Continue as guest" one); (3) the watch has no camera, no calls and no
+    video. Since guest mode, BOTH packs answer App access "All functionality
+    is available without special access" and neither needs a demo account.
   the_one_claim_this_pack_had_to_correct: >
     The brief this pack was written from assumed "audio does NOT leave the watch
     on the watch-alone lane". THE CODE SAYS OTHERWISE and this pack follows the
@@ -41,6 +46,8 @@ _schema:
     opens the mic. See data_safety.data_types["Audio files → Voice or sound
     recordings"] and _provenance.watch_audio_leaves_the_device_on_every_mic_mode.
   verified_against_commit: d364c11  # ship/heat-judge-20260920 merged, 2026-09-20
+  # ...plus the guest-mode change of the same day (app_access, account_creation_methods,
+  # the Email-address data type, _provenance): docs/decisions/2026-09-20-guest-mode.md
   last_updated: 2026-09-20
   authored_by: Claude (agent), from a full read of apps/watch/ and server/watch/
 
@@ -75,22 +82,37 @@ app_identity:
 # ===========================================================================
 app_access:
   question: "Is all or some functionality of your app restricted?"
-  value: "All or some functionality is restricted"
+  value: "All functionality is available without special access"
+  changed_2026_09_20_guest: >
+    FLIPPED from "All or some functionality is restricted". Nothing about the
+    WATCH changed — the three account-only features are still account-only.
+    What changed is that getting an account stopped being a barrier: the
+    phone app now has a one-tap "Continue as guest" (Firebase Anonymous
+    Auth), and a guest account can pair a watch exactly like any other. So a
+    reviewer can reach every watch feature with no credentials from anybody,
+    which is what this Play question is actually asking. The reviewer
+    instructions below were rewritten to use that path.
   why: >
     The watch's CORE loop — arm the sentinel, feel the haptic nudges — runs
     without any sign-in at all, because the episode WebSocket falls back to an
     unauthenticated `?account=default` URL when no device token is stored and
     the server accepts it (MINDSHIFT_ALLOW_LEGACY_ACCOUNT defaults to true in
-    the production deploy). But three features ARE gated behind a paired
-    account, and a reviewer cannot see them without one: "You & your person"
-    (the couples standing card), "Save last 2 min" (retro capture upload) and
-    "Journal — keep what I say" (automatic periodic capture upload). All three
-    are hidden or refuse to act until `AccountPrefs.deviceToken` is non-null.
-    Declaring "restricted" is therefore the honest answer; declaring
-    "unrestricted" would be a mismatch a reviewer could trip over in one tap.
+    the production deploy). Three features DO need a paired account: "You &
+    your person" (the couples standing card), "Save last 2 min" (retro capture
+    upload) and "Journal — keep what I say" (automatic periodic capture
+    upload); all three are hidden or refuse to act until
+    `AccountPrefs.deviceToken` is non-null. Since 2026-09-20 that account
+    costs nothing to obtain — install the phone app, tap "Continue as guest",
+    and pair — so there is no credential a reviewer must be given and no part
+    of the app they cannot reach. No demo account is required; leave the
+    username/password fields blank.
   differs_from_phone_pack: >
-    The PHONE is a hard login gate (no guest mode at all). The WATCH is not —
-    it works unpaired. The restriction here is partial, not total.
+    The WATCH works unpaired; the PHONE always requires a signed-in Firebase
+    session. Since 2026-09-20 the phone's session can be an ANONYMOUS one
+    ("Continue as guest"), so neither listing needs a demo account any more —
+    but the two are still different models: the watch's unpaired mode is a
+    shared legacy `?account=default` principal with no account behind it,
+    while a phone guest is a real, isolated, deletable Firebase account.
   proof:
     - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/GlanceScreen.kt:208-226  # couples + retro chips behind uiState.signedIn
     - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/GlanceScreen.kt:305-316  # "Pair your watch first" for Journal
@@ -100,12 +122,16 @@ app_access:
     - server/watch/config.py:16-19                                                   # MINDSHIFT_ALLOW_LEGACY_ACCOUNT defaults true
     - scripts/deploy_cloudrun.sh:130-131                                             # ...and the deploy leaves it true
   instructions_block:
-    name: "Wear OS app — paired demo account"
+    name: "Wear OS app — no account needed"
     # Play shows this text verbatim to the reviewer. Keep it short and literal.
     # A Wear reviewer usually has a Wear OS emulator, not a physical watch.
+    # The pairing wording below is taken from the real screens:
+    # apps/mobile/src/screens/WatchSetupScreen.tsx (6-character code, "Pair")
+    # and apps/watch/.../ui/SignInScreen.kt (the watch shows the code).
     value: |
-      MindShift for Wear OS is a standalone watch app. It does NOT need the
-      phone app installed to run, and it does NOT use the Wearable Data Layer.
+      No account is needed. MindShift for Wear OS is a standalone watch app.
+      It does NOT need the phone app installed to run, and it does NOT use the
+      Wearable Data Layer.
 
       TO TEST THE CORE FEATURE WITHOUT ANY ACCOUNT (takes 2 minutes):
         1. Open MindShift on the watch. Allow the microphone permission when
@@ -119,31 +145,38 @@ app_access:
         4. Tap the ring again to turn it off.
 
       TO TEST THE ACCOUNT-ONLY FEATURES (couples standing card, "Save last
-      2 min", "Journal"):
-        1. On the watch, scroll down and tap "Sign in". A 5-character code
-           appears.
-        2. On any phone or desktop browser, open
-           https://arborfam-hub.web.app, sign in with the demo email and
-           password below, then go to Settings -> Watch and enter that code.
-           (Do NOT use "Continue with Google" — it is tied to a real person's
-           account.)
-        3. The watch screen advances by itself within a few seconds. The
+      2 min", "Journal") — still no credentials needed:
+        1. Install the MindShift PHONE app (com.sagearbor.mindshift.app) on
+           any Android phone, or open https://arborfam-hub.web.app in a
+           browser — it is the same app.
+        2. On its first screen, scroll to the bottom and tap "Continue as
+           guest". You are now signed in to a throwaway anonymous account.
+        3. Tap the round profile button in the top-right corner, then
+           "Settings", then "Set up your watch".
+        4. On the WATCH, scroll down and tap "Sign in". The watch displays a
+           6-character code.
+        5. Back in the phone app, under "Pair your watch", type that code into
+           the CODE box and tap "Pair". It pairs as soon as all 6 characters
+           are in; you will see "Watch paired ✓".
+        6. The watch screen advances by itself within about 10 seconds. The
            "You & your person" and "Save last 2 min" chips now appear.
 
       There is no chat, no calling and no camera in the watch app.
-    username: OWNER_MUST_SUPPLY
-    password: OWNER_MUST_SUPPLY
+    username: ""
+    password: ""
   owner_action: >
-    Use the SAME throwaway Firebase email/password account created for the
-    phone pack (Firebase Console → arborfam-hub → Authentication → Users), so
-    one demo account serves both listings. Do NOT hand Play a real account: a
-    reviewer who signs in and pairs a watch can see that account's stored
-    sessions, captures and voiceprints. The agent must not invent credentials.
+    Nothing to supply — leave the username/password fields blank, and do NOT
+    enter a real account. (This used to reuse the phone pack's throwaway demo
+    account; the phone's guest mode, added 2026-09-20, removed the need for
+    either listing.) One standing precondition, shared with the phone pack:
+    Firebase Console → arborfam-hub → Authentication → Sign-in method →
+    Anonymous must stay ENABLED, or the phone's guest button fails and these
+    instructions stop working.
   any_other_instructions: "No"
   agent_note: >
-    If Play offers only "All functionality is available without special access"
-    vs "All or some functionality is restricted", pick the second. If it then
-    asks for the name of the restricted area, use "Paired-account features".
+    Pick "All functionality is available without special access". If Play
+    still asks for an access-instructions block anyway, paste the
+    instructions_block text above and leave the credential fields empty.
 
 # ===========================================================================
 # 2. Ads  (Policy → App content → Ads)
@@ -412,6 +445,40 @@ data_safety:
   overview:
     does_your_app_collect_or_share_any_of_the_required_user_data_types:
       value: "Yes"
+    account_creation_methods:
+      changed_2026_09_20_guest: "New key. Guest mode added the fourth method."
+      value:
+        - "Email and password"
+        - "Google (federated sign-in)"
+        - "Apple (federated sign-in) — placeholder in the UI, disabled, not yet live"
+        - "Other: anonymous guest accounts created in-app"
+      differs_from_phone_pack: >
+        The list is the same because the ACCOUNT is the same — the watch app
+        creates no account of its own and has no sign-up screen. Every method
+        above happens in the phone/web app; the watch only redeems a
+        6-character pairing code against an account that already exists. A
+        watch running UNPAIRED has no account at all (it uses the shared
+        legacy "default" principal), which is why the pack declares unpaired
+        sessions as not reachable by deletion — see `not_reachable_by_deletion`.
+      why: >
+        Play's account-deletion questionnaire asks how a user gets an account,
+        because that decides who must be offered the in-app delete. Since
+        2026-09-20 there is a FOURTH way: tapping "Continue as guest" in the
+        phone/web app silently creates a Firebase Anonymous Auth user. The
+        user types nothing, but a real account with a uid exists, watch data
+        pairs to it and is stored under it, and it gets exactly the same
+        self-serve deletion as any other account (DELETE /me is uid-scoped and
+        never reads the sign-in provider). A guest account can pair a watch,
+        which is the whole reason this listing's App access no longer needs a
+        demo account.
+      proof:
+        - apps/mobile/src/screens/LoginScreen.tsx       # Continue as guest, alongside email/Google/Apple
+        - apps/mobile/src/store/authStore.ts            # signInAnonymously; linkGuestToEmailPassword keeps the uid
+        - apps/mobile/src/screens/WatchSetupScreen.tsx  # a guest pairs a watch through the same screen
+        - server/watch/routers/pairing.py               # POST /me/pair/claim — any authenticated account
+        - server/watch/auth.py                          # the anonymous account row: provider="anonymous", is_guest=True
+        - server/routers/account.py                     # DELETE /me — uid only, no provider check
+        - server/tests/test_guest_mode.py               # incl. a device token never un-guesting an account
     is_all_of_the_user_data_collected_by_your_app_encrypted_in_transit:
       value: "Yes"
       why: >
@@ -1554,6 +1621,15 @@ _provenance:
     - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/prefs/GaugePrefs.kt:126-154
     - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/journal/JournalScheduler.kt:44-52
     - server/watch/journal.py:10-20,80,146-178
+  a_guest_phone_account_can_pair_a_watch:
+    # Why App access flipped to "no special access" (2026-09-20): the account a
+    # watch pairs to can now be created with one tap and no credentials, and
+    # the pairing claim treats it like any other account.
+    - apps/mobile/src/screens/LoginScreen.tsx       # "Continue as guest"
+    - apps/mobile/src/screens/WatchSetupScreen.tsx  # the same 6-character pairing flow
+    - server/watch/routers/pairing.py               # POST /me/pair/claim — no provider check
+    - server/watch/auth.py                          # a device token leaves is_guest alone (it cannot know the provider)
+    - server/tests/test_guest_mode.py
   pairing_is_a_short_code_not_a_watch_login:
     - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/ui/SignInScreen.kt:63-118
     - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/auth/DevicePairingClient.kt:17-29,70-120

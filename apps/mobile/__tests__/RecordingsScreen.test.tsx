@@ -494,7 +494,7 @@ describe("RecordingsScreen cache-first (stale-while-revalidate)", () => {
   it("caches per account: another user's list never leaks in", async () => {
     writeRecordingsCache("linda", { recordings: cachedRows, sharedWithMe: [] }, Date.now());
     useAuthStore.setState({
-      user: { uid: "sage", email: "s@x", displayName: null },
+      user: { uid: "sage", email: "s@x", displayName: null, isAnonymous: false },
     });
     const pending = deferredList();
     let comp!: renderer.ReactTestRenderer;

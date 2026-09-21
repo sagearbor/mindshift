@@ -89,7 +89,12 @@ def test_legacy_account_param_still_works():
     _, client = _client()
     resp = client.get("/me", params={"account": "default"})
     assert resp.status_code == 200
-    assert resp.json() == {"account_id": "default", "email": None, "legacy": True}
+    assert resp.json() == {
+        "account_id": "default", "email": None, "legacy": True,
+        # Additive since guest mode; an unauthenticated legacy principal is
+        # emphatically not a guest account (see test_me_reports_legacy_flag).
+        "is_guest": False, "sign_in_provider": None,
+    }
 
 
 def test_bearer_token_identifies_account():
@@ -117,11 +122,18 @@ def test_legacy_principal_never_provisions_an_account_row():
 
 
 def test_me_reports_legacy_flag():
+    # Exact-shape assertions on purpose: /me's payload is a wire contract with
+    # the phone and the watch, so a field appearing or vanishing must be a
+    # deliberate edit here. `is_guest`/`sign_in_provider` arrived with guest
+    # mode; a stub verifier reports no provider, so both read as "not a
+    # guest" rather than as a guess (see watch/auth.py's Principal).
     _, client = _client()
     assert client.get("/me", params={"account": "default"}).json() == {
-        "account_id": "default", "email": None, "legacy": True}
+        "account_id": "default", "email": None, "legacy": True,
+        "is_guest": False, "sign_in_provider": None}
     assert client.get("/me", headers=AUTH).json() == {
-        "account_id": "uid-123", "email": "a@example.com", "legacy": False}
+        "account_id": "uid-123", "email": "a@example.com", "legacy": False,
+        "is_guest": False, "sign_in_provider": None}
 
 
 def test_bad_token_is_401_even_with_account_param():
