@@ -296,3 +296,29 @@ architectural rather than app-specific:
 - **No retention limit on stored user content.** "Until you delete it" is the
   truthful answer, and it is what the policy says — but a GCS lifecycle rule
   would be a better one.
+
+---
+
+## Where release credentials live (machine-level, shared by every repo)
+
+Credentials are per-**account**, not per-repo, so they live in the home
+directory and each repo gets a gitignored symlink. Set up once, reuse for all
+eight apps.
+
+| What | Path | Used by |
+|---|---|---|
+| Play service accounts | `~/.config/play/<app>-sa.json` (600) | `scripts/play_publish.py --service-account`, `eas.json` `serviceAccountKeyPath` |
+| App Store Connect API key | `~/.appstoreconnect/private_keys/AuthKey_<KEYID>.p8` (700 dir) | EAS, fastlane and altool all auto-discover this path |
+| ASC key ids + Apple team | `~/.config/asc/asc.env` (600) | `source ~/.config/asc/asc.env` before an iOS build/submit |
+
+In this repo `apps/mobile/play-service-account.json` is a **symlink** to
+`~/.config/play/mindshift-sa.json`, so `eas.json`'s relative path keeps working
+and nothing secret sits in the tree. Do the same in the next repo:
+
+```bash
+ln -s ~/.config/play/<app>-sa.json apps/mobile/play-service-account.json
+```
+
+`asc.env` exports `EXPO_ASC_KEY_ID`, `EXPO_ASC_ISSUER_ID` and
+`EXPO_ASC_API_KEY_PATH` — the three variables eas-cli reads for non-interactive
+Apple auth (verified against eas-cli 22.2.0), plus `APPLE_TEAM_ID`.
