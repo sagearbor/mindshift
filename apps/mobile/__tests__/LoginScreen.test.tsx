@@ -118,21 +118,65 @@ describe("LoginScreen", () => {
     act(() => comp.unmount());
   });
 
-  it("shows a disabled 'Continue with Apple' placeholder, honestly labeled coming soon", () => {
+  it("offers a working 'Continue with Apple' (Guideline 4.8 is mandatory given Google)", async () => {
     let comp!: renderer.ReactTestRenderer;
-    act(() => {
+    await act(async () => {
       comp = renderer.create(<LoginScreen />);
     });
 
     const appleButton = queryId(comp, "apple-button");
     expect(appleButton).toBeTruthy();
-    expect(appleButton!.props.disabled).toBe(true);
-    expect(appleButton!.props.accessibilityState).toEqual({ disabled: true });
-    expect(appleButton!.props.accessibilityLabel).toMatch(/apple.*coming soon/i);
+    // The old placeholder was disabled with no handler. Both are now the
+    // failure condition: a dead "coming soon" control is itself a rejection
+    // risk under Guideline 2.1, and 4.8 needs a real sign-in.
+    expect(appleButton!.props.disabled).toBeFalsy();
+    expect(typeof appleButton!.props.onPress).toBe("function");
 
-    // Pressing it fires nothing — there's no onPress at all, so there's
-    // nothing for the auth store to be called with.
-    expect(appleButton!.props.onPress).toBeUndefined();
+    act(() => comp.unmount());
+  });
+
+  it("hands Firebase the RAW nonce and Apple the HASHED one, never the reverse", async () => {
+    const appleMock = (globalThis as Record<string, unknown>)
+      .__appleAuthMock as { signInAsync: jest.Mock };
+    const signInWithAppleIdToken = jest.fn().mockResolvedValue(undefined);
+    useAuthStore.setState({ signInWithAppleIdToken });
+
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(<LoginScreen />);
+    });
+    await act(async () => {
+      queryId(comp, "apple-button")!.props.onPress();
+    });
+
+    // Apple signs the hash; Firebase re-hashes the raw value and compares.
+    expect(appleMock.signInAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ nonce: "sha256(raw-nonce-uuid)" }),
+    );
+    expect(signInWithAppleIdToken).toHaveBeenCalledWith(
+      "apple-id-token",
+      "raw-nonce-uuid",
+    );
+
+    act(() => comp.unmount());
+  });
+
+  it("treats a dismissed Apple sheet as a cancel, not an error", async () => {
+    const appleMock = (globalThis as Record<string, unknown>)
+      .__appleAuthMock as { signInAsync: jest.Mock };
+    appleMock.signInAsync.mockRejectedValueOnce({
+      code: "ERR_REQUEST_CANCELED",
+    });
+
+    let comp!: renderer.ReactTestRenderer;
+    await act(async () => {
+      comp = renderer.create(<LoginScreen />);
+    });
+    await act(async () => {
+      queryId(comp, "apple-button")!.props.onPress();
+    });
+
+    expect(useAuthStore.getState().error).toBeNull();
 
     act(() => comp.unmount());
   });

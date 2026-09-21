@@ -384,6 +384,44 @@ jest.mock("@react-native-google-signin/google-signin", () => {
   };
 });
 
+// Mock expo-crypto (the Sign in with Apple nonce). Deterministic on purpose:
+// the raw-nonce-to-Firebase / hashed-nonce-to-Apple contract is the easiest
+// thing to get backwards, so tests need to tell the two values apart.
+jest.mock("expo-crypto", () => ({
+  __esModule: true,
+  randomUUID: jest.fn(() => "raw-nonce-uuid"),
+  digestStringAsync: jest.fn(async (_alg: unknown, value: string) =>
+    `sha256(${value})`,
+  ),
+  CryptoDigestAlgorithm: { SHA256: "SHA-256" },
+}));
+
+// Mock expo-apple-authentication (native Apple button, Guideline 4.8). Tests
+// drive the outcome via `globalThis.__appleAuthMock`. The button is a real
+// native view, so it is stubbed as a plain host component that still forwards
+// testID/onPress — which is all the LoginScreen assertions need.
+jest.mock("expo-apple-authentication", () => {
+  const React = require("react");
+  const mock = {
+    isAvailableAsync: jest.fn().mockResolvedValue(true),
+    signInAsync: jest.fn().mockResolvedValue({
+      identityToken: "apple-id-token",
+      authorizationCode: "apple-auth-code",
+    }),
+  };
+  (globalThis as Record<string, unknown>).__appleAuthMock = mock;
+  return {
+    __esModule: true,
+    isAvailableAsync: mock.isAvailableAsync,
+    signInAsync: mock.signInAsync,
+    AppleAuthenticationButton: (props: Record<string, unknown>) =>
+      React.createElement("AppleAuthenticationButton", props),
+    AppleAuthenticationButtonType: { SIGN_IN: 0, CONTINUE: 1, SIGN_UP: 2 },
+    AppleAuthenticationButtonStyle: { WHITE: 0, WHITE_OUTLINE: 1, BLACK: 2 },
+    AppleAuthenticationScope: { FULL_NAME: 0, EMAIL: 1 },
+  };
+});
+
 // Mock expo-battery (recorder preflight). Defaults model a healthy device;
 // tests exercising the battery gate inject their own getBatteryLevel through
 // the recorder deps instead, so these are just safe module-resolution stubs.

@@ -12,6 +12,7 @@ import {
   signOut as fbSignOut,
   onIdTokenChanged,
   GoogleAuthProvider,
+  OAuthProvider,
   type AuthCredential,
   type User,
 } from "firebase/auth";
@@ -73,6 +74,17 @@ interface AuthState {
    *  @react-native-google-signin) for a Firebase session. Kept separate from the
    *  OAuth dance so the store stays UI-free. */
   signInWithGoogleIdToken: (googleIdToken: string) => Promise<void>;
+  /** iOS Sign in with Apple: exchange the identity token from
+   *  expo-apple-authentication for a Firebase session. Apple signs a nonce we
+   *  generate, so BOTH halves are required — the raw nonce goes to Firebase,
+   *  which hashes it and checks it matches the hash inside the token. Passing
+   *  the hash here instead is the classic mistake and fails as
+   *  `auth/invalid-credential`. Apple offers no equivalent of the Google popup,
+   *  so there is deliberately no web counterpart (see AppleSignInButton.web). */
+  signInWithAppleIdToken: (
+    identityToken: string,
+    rawNonce: string,
+  ) => Promise<void>;
   /** Send a Firebase password-reset email for `email`. */
   sendPasswordReset: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -177,6 +189,28 @@ function linkErrorMessage(err: unknown): string {
 }
 
 /** The signed-in Firebase user iff it is an anonymous (guest) one. */
+/**
+ * Sign-in-with-Apple failures worth naming. The one that will actually happen
+ * in the field is `auth/operation-not-allowed`: the code, the entitlement and
+ * the App ID capability can all be correct and Apple will still hand back a
+ * valid token that Firebase rejects, because enabling the Apple provider is a
+ * separate switch in the Firebase console. Saying so beats a generic retry
+ * message that sends someone hunting through their own app.
+ */
+function appleSignInErrorMessage(err: unknown): string {
+  switch (errorCode(err)) {
+    case "auth/operation-not-allowed":
+      return (
+        "Apple sign-in isn't switched on for this app's Firebase project yet. " +
+        "Use Google or continue as a guest for now."
+      );
+    case "auth/invalid-credential":
+      return "Apple's sign-in token wasn't accepted. Please try again.";
+    default:
+      return authErrorMessage(err);
+  }
+}
+
 function anonymousUser(): User | null {
   const current = auth.currentUser;
   return current && current.isAnonymous === true ? current : null;
@@ -320,6 +354,38 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         GoogleAuthProvider.credential(googleIdToken),
         set,
       );
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  signInWithAppleIdToken: async (identityToken, rawNonce) => {
+    set({ busy: true, error: null, notice: null });
+    try {
+      const credential = new OAuthProvider("apple.com").credential({
+        idToken: identityToken,
+        rawNonce,
+      });
+      // Same guest-keeps-their-data rule as the Google paths above: a guest who
+      // signs in with Apple upgrades the anonymous uid in place rather than
+      // stranding the sessions already recorded under it.
+      const guest = anonymousUser();
+      if (guest) {
+        try {
+          await linkWithCredential(guest, credential);
+          set({ notice: "Account created — your sessions are saved to it." });
+        } catch (err) {
+          set({ error: linkErrorMessage(err) });
+        }
+        return;
+      }
+      await signInWithCredential(auth, credential);
+    } catch (err) {
+      // No pending-credential dance here, unlike Google. Apple only releases an
+      // identity token once per authorization, so a stashed Apple credential
+      // could not be replayed after an email/password sign-in the way
+      // linkPendingGoogleCredential replays Google's.
+      set({ error: appleSignInErrorMessage(err) });
     } finally {
       set({ busy: false });
     }

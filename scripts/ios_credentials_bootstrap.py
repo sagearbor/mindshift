@@ -83,6 +83,11 @@ class ASC:
             die(f"GET {path} -> {r.status_code}: {r.text[:400]}")
         return r.json()
 
+    def delete(self, path: str) -> None:
+        r = requests.delete(f"{API}{path}", headers=self._headers(), timeout=30)
+        if r.status_code not in (200, 204):
+            die(f"DELETE {path} -> {r.status_code}: {r.text[:400]}")
+
     def post(self, path: str, body: dict) -> dict:
         r = requests.post(f"{API}{path}", headers=self._headers(),
                           data=json.dumps(body), timeout=30)
@@ -163,12 +168,22 @@ def ensure_profile(asc: ASC, out: pathlib.Path, bid_id: str, cert_id: str,
     profile_name = f"{name} App Store"
     for p in asc.get("/v1/profiles?limit=200")["data"]:
         a = p["attributes"]
-        if a["name"] == profile_name and a["profileState"] == "ACTIVE":
+        if a["name"] != profile_name:
+            continue
+        if a["profileState"] == "ACTIVE":
             if not path.exists():
                 full = asc.get(f"/v1/profiles/{p['id']}")["data"]["attributes"]
                 path.write_bytes(base64.b64decode(full["profileContent"]))
             print(f"  reusing profile '{profile_name}' (expires {a.get('expirationDate')})")
             return path
+        # Adding or removing an App ID capability (Sign in with Apple, push,
+        # HealthKit …) flips every profile bound to it to INVALID, and Apple
+        # refuses a second profile with the same name — so clear it out and
+        # reissue rather than failing with a name conflict.
+        print(f"  profile '{profile_name}' is {a['profileState']} "
+              f"(a capability changed) — deleting and reissuing")
+        asc.delete(f"/v1/profiles/{p['id']}")
+        path.unlink(missing_ok=True)
     created = asc.post("/v1/profiles", {"data": {
         "type": "profiles",
         "attributes": {"name": profile_name, "profileType": "IOS_APP_STORE"},
