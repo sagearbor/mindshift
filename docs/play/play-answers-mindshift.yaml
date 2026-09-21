@@ -1216,6 +1216,13 @@ other_declarations:
 # 8. Main store listing  (Grow → Store presence → Main store listing)
 # ===========================================================================
 store_listing:
+  rejection_2026_09_21: >
+    Play rejected the first submission under Misleading Claims: 'installed icon or name
+    differs from its store listing'. Store title was 'MindShift: Empathy Coach' and the
+    store icon was an old purple speech-bubble asset, while the installed app is named
+    'MindShift' (app.json name) with the brain adaptive icon. Fixed via API: title ->
+    'MindShift'; hi-res icon -> assets/play/store-icon-512-v2.png, rendered from
+    assets/adaptive-icon.png over #243040 exactly as the launcher shows it.
   app_name:
     value: "MindShift: Empathy Coach"
     char_count: 24
