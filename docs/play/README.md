@@ -322,3 +322,43 @@ ln -s ~/.config/play/<app>-sa.json apps/mobile/play-service-account.json
 `asc.env` exports `EXPO_ASC_KEY_ID`, `EXPO_ASC_ISSUER_ID` and
 `EXPO_ASC_API_KEY_PATH` — the three variables eas-cli reads for non-interactive
 Apple auth (verified against eas-cli 22.2.0), plus `APPLE_TEAM_ID`.
+
+### iOS signing: fully scripted, no interactive prompt (2026-09-21)
+
+The Apple half used to stop dead at a prompt. `eas build -p ios
+--non-interactive` refuses to mint a distribution certificate ("Distribution
+Certificate is not validated for non-interactive builds") and `eas credentials`
+has no non-interactive mode at all, so an unattended agent could not get past
+signing. The fix is to stop asking EAS for credentials and mint them directly
+against the App Store Connect API, then hand EAS a local `credentials.json`.
+
+`scripts/ios_credentials_bootstrap.py` does all of it, idempotently:
+
+```bash
+source ~/.config/asc/asc.env
+python3 scripts/ios_credentials_bootstrap.py \
+    --bundle-id com.sagearbor.mindshift.app --name MindShift \
+    --project-dir apps/mobile
+```
+
+It registers the bundle identifier, mints an iOS Distribution certificate from
+a locally generated CSR, builds the `.p12`, creates the `IOS_APP_STORE`
+provisioning profile, and writes `credentials.json`. Re-running reuses
+everything it already made, so it is safe in a loop or a rebuild. Artefacts
+live at `~/.config/ios-credentials/<bundle id>/` (700), alongside the other
+machine-level credentials in the table above, so the next repo needs only its
+own `--bundle-id`.
+
+One repo-side switch makes EAS use them:
+
+```json
+"production": { "ios": { "credentialsSource": "local" } }
+```
+
+`credentials.json` holds the `.p12` password in clear text, so it is
+gitignored in every repo that uses this.
+
+Two things the API still cannot do, both one-time and both the account owner's:
+creating the App Store Connect **app record** (`POST /v1/apps` answers
+`FORBIDDEN_ERROR … does not allow CREATE`), and generating the API key itself.
+Everything after those is scriptable.

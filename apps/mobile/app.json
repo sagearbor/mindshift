@@ -67,7 +67,7 @@
     },
     "ios": {
       "bundleIdentifier": "com.sagearbor.mindshift.app",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "supportsTablet": false,
       "infoPlist": {
         "NSMicrophoneUsageDescription": "MindShift uses your microphone to transcribe the conversation and coach you with suggestions in real time.",

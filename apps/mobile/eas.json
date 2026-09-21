@@ -46,7 +46,8 @@
         "buildType": "app-bundle"
       },
       "ios": {
-        "autoIncrement": "buildNumber"
+        "autoIncrement": "buildNumber",
+        "credentialsSource": "local"
       }
     }
   },
@@ -59,8 +60,6 @@
         "changesNotSentForReview": true
       },
       "ios": {
-        "appleId": "REPLACE_WITH_APPLE_ID_EMAIL",
-        "ascAppId": "REPLACE_WITH_APP_STORE_CONNECT_APP_ID",
         "appleTeamId": "553Y9KWR84"
       }
     }
