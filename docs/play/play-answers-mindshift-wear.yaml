@@ -1145,68 +1145,43 @@ store_listing:
       - apps/watch/shared/src/commonMain/kotlin/app/gauge/shared/sentinel/ModePolicy.kt:34-38
       - apps/watch/wearApp/src/main/kotlin/app/gauge/wear/haptics/HapticDirector.kt
   full_description:
-    char_count: 3947
+    char_count: 3668
     limit: 4000
-    replaces: "the existing 239-character full description"
+    replaces: "the pre-rejection 3947-character full description (see rejection_2026_09_21 below)"
     value: |
-      MindShift on your wrist is a conversation coach that does not ask you to look
-      at anything.
+      MindShift for Wear OS listens for your own raised voice and gives you a gentle buzz on the wrist when it rises, so you can catch yourself before a conversation turns heated. It works on the watch alone; nothing is shown on screen while it runs.
 
-      You arm it before a conversation you know is going to be hard. It listens for
-      your own voice getting louder than your own normal — not louder than some fixed
-      number, louder than YOU usually are — and when it does, it taps you. One buzz
-      for a first rung, a different pattern as it climbs. You feel it, you breathe,
-      you drop back down. Nobody else in the room knows anything happened.
+      You arm it before a conversation you know is going to be hard. It listens for your own voice getting louder than your own normal — not louder than some fixed number, louder than YOU usually are — and when it does, it taps you. One buzz for a first rung, a different pattern as it climbs. You feel it, you breathe, you drop back down. Nobody else in the room knows anything happened.
 
-      The moment you most need that signal is the moment you are least able to look
-      at a phone. A tap on the wrist lands in the one channel still free.
+      The moment you most need that signal is the moment you are least able to look at a screen. A tap on the wrist lands in the one channel still free.
 
       HOW IT WORKS
 
       Tap the ring to arm. Three listening modes:
 
-      • Standard — waits, then opens a session when you get about 6 dB over your own
-        baseline. Keeps a rolling ten seconds so the moment that set it off is kept.
+      • Standard — waits, then opens a session when you get about 6 dB over your own baseline. Keeps a rolling ten seconds so the moment that set it off is kept.
       • Battery saver — the same idea with a higher bar and a shorter buffer.
-      • Session — for the conversation you already know is the hard one. Stays open
-        from the moment you arm it.
-
-      There is also Companion mode, for when you are already running a MindShift
-      session on your phone. In Companion the watch never opens its microphone at all
-      — the phone is listening, and the watch is purely the thing that buzzes.
+      • Session — for the conversation you already know is the hard one. Stays open from the moment you arm it.
 
       HEART RATE
 
-      If you allow the body-sensor permission, the watch reads your heart rate while a
-      session is running, and a jump well over your resting rate can raise a cue of
-      its own. Deny it and everything else works the same — the app never guesses a
-      number it does not have.
+      If you allow the body-sensor permission, the watch reads your heart rate while a session is running, and a jump well over your resting rate can raise a cue of its own. Deny it and everything else works the same — the app never guesses a number it does not have.
 
       ON THE WATCH ITSELF
 
-      • A live meter — loudness, heart rate, movement or speaking rate, your pick —
-        as a sparkline or a dial.
+      • A live meter — loudness, heart rate, movement or speaking rate, your pick — as a sparkline or a dial.
       • A tile and a complication, so you can see whether it is armed at a glance.
-      • A settings screen that plays every haptic pattern on demand, so you learn the
-        vocabulary before you need it.
-      • "You & your person" — if you and a partner paired up in the MindShift app, a
-        card showing how the two of you are doing this week. No transcripts.
+      • A settings screen that plays every haptic pattern on demand, so you learn the vocabulary before you need it.
+      • "You & your person" — if you and a partner have linked accounts, a card showing how the two of you are doing this week. No transcripts.
 
       IT WORKS ON ITS OWN
 
-      A standalone Wear OS app: no phone app required, no Bluetooth link to your
-      phone — it reaches MindShift's servers by itself over Wi-Fi or LTE. Signing in
-      is optional; you can arm it and feel nudges with no account at all. Sign in, by
-      typing a five-character code into MindShift on any phone or browser, if you
-      want your sessions saved, the couples card, or the two features below.
+      A standalone Wear OS app: nothing else to install, no Bluetooth link needed — it reaches MindShift's servers by itself over Wi-Fi or LTE. Signing in is optional; you can arm it and feel nudges with no account at all. Sign in with a short code if you want your sessions saved, the couples card, or the two features below.
 
       SAVING AUDIO IS SOMETHING YOU TURN ON
 
-      • "Save last 2 min" grabs the last two minutes of your own audio, after a
-        confirmation tap, so you can go back to a moment that mattered.
-      • "Journal" is an opt-in toggle that keeps a few minutes at a time while it is
-        on. Raw journal uploads are deleted within 48 hours; after that only the
-        stretches matching your own enrolled voice are kept.
+      • "Save last 2 min" grabs the last two minutes of your own audio, after a confirmation tap, so you can go back to a moment that mattered.
+      • "Journal" is an opt-in toggle that keeps a few minutes at a time while it is on. Raw journal uploads are deleted within 48 hours; after that only the stretches matching your own enrolled voice are kept.
 
       Both are off until you turn them on, and switching Journal off clears its consent.
 
@@ -1214,24 +1189,51 @@ store_listing:
 
       The short version; the full version is at https://arborfam-hub.web.app/privacy.
 
-      • While a session is running, your audio and your heart rate go to MindShift's
-        servers. That is how the coaching is computed. In Companion mode no audio
-        leaves the watch, because the microphone is never opened.
-      • Your heart rate is used for your own cues and your own history. It is not sent
-        to anyone else and not shown to anyone else.
-      • Delete your whole account, and everything in it, yourself — in the MindShift
-        app or at https://arborfam-hub.web.app/delete-account.
+      • While a session is running, your audio and your heart rate go to MindShift's servers. That is how the coaching is computed.
+      • Your heart rate is used for your own cues and your own history. It is not sent to anyone else and not shown to anyone else.
+      • Delete your whole account, and everything in it, yourself, at https://arborfam-hub.web.app/delete-account.
       • No ads. No advertising or analytics SDKs. Nothing sold to anyone, ever.
 
       WHAT IT IS NOT
 
-      MindShift is a communication coach, not therapy, not counselling, and not a
-      medical or mental-health device. The heart rate it reads is an input to a
-      conversation cue, not a health measurement, and nothing here diagnoses or
-      treats anything. If you or someone else is in crisis, contact a qualified
-      professional or your local emergency services.
+      MindShift is a communication coach, not therapy, not counselling, and not a medical or mental-health device. The heart rate it reads is an input to a conversation cue, not a health measurement, and nothing here diagnoses or treats anything. If you or someone else is in crisis, contact a qualified professional or your local emergency services.
 
       Needs a Wear OS watch with a microphone. English only for now.
+    rejection_2026_09_21:
+      what_google_said: >
+        Metadata policy rejection, two findings: (a) "Unclear visuals: screenshots
+        fail to clearly convey the expected functionality" against the six wear
+        screenshots then live (wear-01-off.png .. wear-06-mode-picker.png); (b) a
+        vague-mention-of-another-app finding against this exact paragraph, which
+        stood in the description at the time: "There is also Companion mode, for
+        when you are already running a MindShift session on your phone. In
+        Companion the watch never opens its microphone at all — the phone is
+        listening, and the watch is purely the thing that buzzes."
+      what_changed_in_the_description: >
+        Removed the Companion-mode paragraph entirely, and every other sentence
+        that named "the phone app," "MindShift session on your phone," "MindShift
+        on any phone or browser," or otherwise pointed at the phone/web listing as
+        a separate product. The couples-card bullet now says "if you and a
+        partner have linked accounts" instead of "paired up in the MindShift app."
+        The sign-in sentence now says "Sign in with a short code" instead of
+        naming where that code is typed. The account-deletion bullet dropped "in
+        the MindShift app." The privacy bullet about audio leaving the watch
+        dropped its Companion-mode carve-out, since Companion mode is no longer
+        described (the watch's OWN mic-open/closed behavior in each of the three
+        remaining modes is unchanged in the code — this is a description edit
+        only, not a feature change; proof: ModePolicy.kt as cited above). The new
+        opening two sentences are the fix's own required lead-in, verified against
+        the code the same way as everything else here.
+      what_changed_in_the_screenshots: >
+        See docs/play/graphics/wear/v2/README.md — new captioned set replacing
+        the six uncaptioned ones, uploaded via images().deleteall +
+        images().upload in one edit.
+      how_verified: >
+        Re-read via edits().listings().get after commit: title 'MindShift',
+        shortDescription 71 chars, fullDescription 3668 chars, 5 wearScreenshots
+        images present. Commit required changesNotSentForReview=true (Play
+        refuses a plain commit after a rejection); the coordinator sends the
+        edit for review from the Console UI.
     truthfulness_audit:
       # Every factual claim above, and the file that backs it. Re-check this
       # list if the description is ever edited.
@@ -1239,8 +1241,6 @@ store_listing:
         proof: apps/watch/shared/src/commonMain/kotlin/app/gauge/shared/sentinel/SentinelDetector.kt
       - claim: "Standard ~6 dB, 10 s buffer; Battery saver 10 dB, 5 s; Session continuous"
         proof: apps/watch/shared/src/commonMain/kotlin/app/gauge/shared/sentinel/ModePolicy.kt:34-38
-      - claim: "Companion never opens the microphone"
-        proof: apps/watch/shared/src/commonMain/kotlin/app/gauge/shared/sentinel/ModePolicy.kt:21-24,38
       - claim: "heart rate optional, never fabricated"
         proof: apps/watch/wearApp/src/main/kotlin/app/gauge/wear/sensors/HrSource.kt:36-38
       - claim: "meter: loudness / heart rate / movement / speaking rate"
