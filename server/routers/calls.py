@@ -33,6 +33,16 @@
 * ``POST /calls/{id}/end``    — hang up: persists one episode per participant
                                 and tells the other socket ``call_ended``.
                                 Idempotent.
+* ``POST /calls/{id}/therapist/approve`` /
+  ``POST /calls/{id}/therapist/decline``
+                              — the therapist-seat consent (server/calls.py's
+                                module docstring): a coached participant lets
+                                the observer in, or refuses and removes her.
+                                403 for the therapist herself and for a
+                                non-member; 404 when no therapist has joined.
+                                While pending she is given nothing — not the
+                                transcript, not the coaching copies, not even
+                                a signaling path for audio.
 
 Signaling (``rtc_signal``), binding a socket (``call_join``), the merged
 transcript and per-participant coaching all happen over the EXISTING
@@ -157,6 +167,13 @@ class CallOut(BaseModel):
     ended_at: Optional[str]
     end_reason: Optional[str]
     turn_count: int
+    # Therapist-seat consent: "approved" (or no therapist) / "pending" until
+    # the participants listed in `therapist_approval_from` approve. While
+    # pending the observer receives nothing of the call.
+    therapist_approval: str = calls.APPROVAL_APPROVED
+    therapist_approval_from: list[str] = []
+    therapist_needs_your_approval: bool = False
+    therapist_auto_approved: bool = False
     # The caller's OWN episode, once the call ended and storage persisted it,
     # and the therapist emails it was auto-shared with (the linked therapist).
     episode_id: Optional[str]
@@ -246,6 +263,9 @@ async def join_by_code(
         )
     except calls.CallError as exc:
         _raise(exc)
+    # A new member changes who must approve the therapist seat (and whether
+    # standing consent covers it) — recompute before anyone is told the state.
+    await call.refresh_therapist_approval(_store(request))
     await call.broadcast_state()
     return call.rest_view(uid)
 
@@ -299,8 +319,40 @@ async def join_call(
         )
     except calls.CallError as exc:
         _raise(exc)
+    await call.refresh_therapist_approval(_store(request))
     # The host's phone (if already on the socket) learns the peer joined.
     await call.broadcast_state()
+    return call.rest_view(uid)
+
+
+@router.post("/{call_id}/therapist/approve", response_model=CallOut)
+async def approve_therapist(
+    request: Request,
+    call_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    uid: str = Depends(get_current_uid),
+):
+    """A coached participant lets the observing therapist into the call."""
+    call = _visible(call_id, uid)
+    try:
+        await call.approve_therapist_seat(uid)
+    except calls.CallError as exc:
+        _raise(exc)
+    return call.rest_view(uid)
+
+
+@router.post("/{call_id}/therapist/decline", response_model=CallOut)
+async def decline_therapist(
+    request: Request,
+    call_id: Annotated[str, Path(pattern=UUID_PATTERN)],
+    uid: str = Depends(get_current_uid),
+):
+    """A coached participant refuses the observer: she is removed from the
+    call (and was never given any of it). The seat is free again."""
+    call = _visible(call_id, uid)
+    try:
+        await call.decline_therapist_seat(uid)
+    except calls.CallError as exc:
+        _raise(exc)
     return call.rest_view(uid)
 
 

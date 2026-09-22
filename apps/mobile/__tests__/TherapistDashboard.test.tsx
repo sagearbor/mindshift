@@ -47,6 +47,7 @@ jest.mock("../src/api/therapist", () => ({
   listPatients: jest.fn(() => Promise.resolve([])),
   acceptPatient: jest.fn(),
   declinePatient: jest.fn(),
+  markPatientSeen: jest.fn(() => Promise.resolve("2026-03-01T00:00:00Z")),
 }));
 
 const mockSessions = [

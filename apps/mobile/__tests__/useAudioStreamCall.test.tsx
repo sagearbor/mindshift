@@ -78,6 +78,8 @@ const api: CallApi = {
   create: jest.fn().mockResolvedValue(created),
   join: jest.fn().mockResolvedValue(created),
   end: jest.fn().mockResolvedValue(undefined),
+  approveTherapist: jest.fn().mockResolvedValue(undefined),
+  declineTherapist: jest.fn().mockResolvedValue(undefined),
   // Only the pre-flight screen calls this; the session hook never does.
   ice: jest.fn().mockResolvedValue({
     iceServers: created.iceServers,
@@ -96,6 +98,8 @@ beforeEach(() => {
   (api.create as jest.Mock).mockReset().mockResolvedValue(created);
   (api.join as jest.Mock).mockReset().mockResolvedValue(created);
   (api.end as jest.Mock).mockReset().mockResolvedValue(undefined);
+  (api.approveTherapist as jest.Mock).mockReset().mockResolvedValue(undefined);
+  (api.declineTherapist as jest.Mock).mockReset().mockResolvedValue(undefined);
   mockFetch.mockReset().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
   useDiagnosticsStore.setState({ capability: null, capabilityReason: null, lastSession: null, sending: false, lastSent: null });
   useAuthStore.setState({ user: { uid: "a-sage", email: "sage@example.com" } as never });
@@ -238,5 +242,82 @@ describe("useAudioStream — Call mode", () => {
     expect(body.events[0].tag).toBe("client_diagnostics");
     expect(body.events[0].data.uid).toBe("a-sage");
     expect(body.events[0].data.last_session.transcriptionMessage).toBe("Deepgram key missing");
+  });
+
+  /**
+   * The therapist seat, from the tap down to the REST call. The server is
+   * the authority — it decides whether this caller may approve, and
+   * broadcasts the result — so the hook posts and waits, it never flips the
+   * local view to "approved" itself.
+   */
+  it("approve / decline post to the call, and carry the server's pending state", async () => {
+    const hook = await renderHook(() => useAudioStream({ callApi: api, makeRtcAdapter: () => adapter }));
+    const result = hook.result;
+    await act(async () => {
+      await result.current.startCall(50);
+    });
+    const ws = WS.i[0];
+    await act(() => {
+      ws.onopen?.({});
+    });
+    // Sage's therapist joined; the server says Dad must approve.
+    await act(() => {
+      ws.onmessage?.({
+        data: JSON.stringify({
+          type: "call_state",
+          call_id: "call-uuid-1",
+          therapist_approval: "pending",
+          therapist_approval_from: ["uid-b"],
+          therapist_needs_your_approval: false,
+          therapist_uid: "uid-c",
+          participants: [
+            { uid: "a-sage", slot: "A", label: "Speaker A", display_name: "You", role: "participant", is_self: true, connected: true },
+            { uid: "uid-b", slot: "B", label: "Speaker B", display_name: "Dad", role: "participant", is_self: false, connected: true },
+            { uid: "uid-c", slot: "C", label: "Speaker C", display_name: "Mom", role: "therapist", is_self: false, connected: true },
+          ],
+        }),
+      });
+    });
+    expect(result.current.call).toMatchObject({
+      therapistApproval: "pending",
+      therapistApprovalFrom: ["uid-b"],
+      therapistUid: "uid-c",
+    });
+
+    await act(async () => {
+      await result.current.approveTherapist();
+    });
+    expect(api.approveTherapist).toHaveBeenCalledWith("call-uuid-1");
+    // Still pending locally: only the server's next call_state moves it.
+    expect(result.current.call.therapistApproval).toBe("pending");
+    expect(result.current.call.error).toBeNull();
+
+    await act(async () => {
+      await result.current.declineTherapist();
+    });
+    expect(api.declineTherapist).toHaveBeenCalledWith("call-uuid-1");
+  });
+
+  it("a rejected approval surfaces, instead of a tap that quietly did nothing", async () => {
+    (api.approveTherapist as jest.Mock).mockRejectedValueOnce(
+      new Error("couldn't approve the therapist: only a participant can approve the therapist"),
+    );
+    const hook = await renderHook(() => useAudioStream({ callApi: api, makeRtcAdapter: () => adapter }));
+    const result = hook.result;
+    await act(async () => {
+      await result.current.startCall(50);
+    });
+    await act(async () => {
+      await result.current.approveTherapist();
+    });
+    expect(result.current.call.error).toContain("only a participant can approve the therapist");
+  });
+
+  it("with no call there is nothing to approve", async () => {
+    const hook = await renderHook(() => useAudioStream({ callApi: api, makeRtcAdapter: () => adapter }));
+    await act(async () => {
+      await hook.result.current.approveTherapist();
+    });
+    expect(api.approveTherapist).not.toHaveBeenCalled();
   });
 });

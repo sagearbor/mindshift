@@ -343,3 +343,185 @@ describe("Live Coach — Call mode", () => {
     expect(root.root.findByProps({ testID: "call-reconnecting" })).toBeTruthy();
   });
 });
+
+/**
+ * THE THERAPIST SEAT (server/calls.py). The observer who joins a call gets
+ * NOTHING — no audio, no transcript, no coaching — until every coached
+ * participant but the host approves. The rule for this screen: a pending
+ * therapist is never silent. The host must not believe their therapist is
+ * listening, the therapist must know she is not, and the person actually
+ * being asked gets the two buttons.
+ */
+describe("Live Coach — the therapist seat", () => {
+  const peer = (uid: string, displayName: string, role: "participant" | "therapist") => ({
+    uid,
+    label: `Speaker ${uid.toUpperCase()}`,
+    displayName,
+    role,
+    connected: role !== "therapist",
+    iceRestarts: 0,
+  });
+  const inCall = (over: Partial<CallView> = {}): CallView => ({
+    ...IDLE_CALL_VIEW,
+    status: "connected",
+    callId: "c1",
+    connectedAt: 1,
+    peers: [peer("b", "Dad", "participant"), peer("c", "Mom", "therapist")],
+    ...over,
+  });
+  const pending = (over: Partial<CallView> = {}) =>
+    inCall({
+      therapistApproval: "pending",
+      therapistApprovalFrom: ["b"],
+      therapistUid: "c",
+      ...over,
+    });
+  /** Every string rendered in the tree, in order — RN splits interpolated
+   *  sentences into fragments, so a substring check needs them joined. */
+  const flat = (root: renderer.ReactTestRenderer) =>
+    root.root
+      .findAll((n) => typeof n.type === "string")
+      .flatMap((n) => n.children)
+      .filter((c): c is string => typeof c === "string")
+      .join("");
+  const panel = (call: CallView, props: Record<string, unknown> = {}) => {
+    let root!: renderer.ReactTestRenderer;
+    act(() => {
+      root = track(renderer.create(
+        <CallPanel
+          call={call}
+          sessionActive
+          onStart={jest.fn()}
+          onJoin={jest.fn()}
+          onHangUp={jest.fn()}
+          onToggleMute={jest.fn()}
+          now={() => 1}
+          {...props}
+        />,
+      ));
+    });
+    return root;
+  };
+
+  it("asks the participant whose conversation it is, and says what is at stake", () => {
+    const onApproveTherapist = jest.fn();
+    const onDeclineTherapist = jest.fn();
+    const root = panel(pending({ therapistNeedsYourApproval: true }), {
+      onApproveTherapist,
+      onDeclineTherapist,
+    });
+    const ask = root.root.findByProps({ testID: "therapist-consent-ask" });
+    expect(ask).toBeTruthy();
+    expect(flat(root)).toContain("Mom wants to listen in");
+    // Plain words about what she would get, and that she has none of it yet.
+    const disclosure = root.root.findByProps({ testID: "therapist-consent-disclosure" }).props
+      .children as string;
+    expect(disclosure).toContain("transcript, tone and coaching");
+    expect(disclosure).toContain("they get none of it");
+    act(() => root.root.findByProps({ testID: "therapist-approve" }).props.onPress());
+    expect(onApproveTherapist).toHaveBeenCalledTimes(1);
+    act(() => root.root.findByProps({ testID: "therapist-decline" }).props.onPress());
+    expect(onDeclineTherapist).toHaveBeenCalledTimes(1);
+  });
+
+  it("the HOST sees she is waiting and cannot approve on anyone's behalf", () => {
+    const root = panel(pending({ therapistNeedsYourApproval: false }), {
+      onApproveTherapist: jest.fn(),
+      onDeclineTherapist: jest.fn(),
+    });
+    expect(root.root.findAllByProps({ testID: "therapist-approve" })).toHaveLength(0);
+    expect(root.root.findByProps({ testID: "therapist-consent-waiting" })).toBeTruthy();
+    const t = flat(root);
+    expect(t).toContain("Mom is waiting to be let in");
+    expect(t).toContain("Dad");
+    expect(t).toContain("can't hear the call yet");
+  });
+
+  it("the OBSERVER is told plainly that she is getting nothing", () => {
+    const root = panel(
+      pending({ selfRole: "therapist", peers: [peer("a", "Sage", "participant"), peer("b", "Dad", "participant")] }),
+    );
+    expect(root.root.findByProps({ testID: "therapist-consent-waiting-self" })).toBeTruthy();
+    const t = flat(root);
+    expect(t).toContain("Waiting to be let in");
+    expect(t).toContain("Dad must approve you joining");
+    expect(t).toContain("nothing of it reaches this screen");
+  });
+
+  it("the pending observer's own row never reads as 'connecting'", () => {
+    const root = panel(pending({ therapistNeedsYourApproval: true }));
+    expect(root.root.findByProps({ testID: "call-peer-c" }).props.children.join("")).toBe(
+      "Mom · waiting to be let in · therapist",
+    );
+    // Approved, she is an ordinary peer again.
+    const ok = panel(inCall({ therapistUid: "c" }));
+    expect(ok.root.findByProps({ testID: "call-peer-c" }).props.children.join("")).toBe(
+      "Mom · connecting · therapist",
+    );
+    expect(ok.root.findAllByProps({ testID: "therapist-consent-ask" })).toHaveLength(0);
+    expect(ok.root.findAllByProps({ testID: "therapist-consent-waiting" })).toHaveLength(0);
+  });
+
+  it("falls back to the slot label for a guest, who has no email or name", () => {
+    // A guest joins by code: the server's display_name falls through to the
+    // slot label. Nothing on this screen may assume an email exists.
+    const guest = pending({
+      therapistNeedsYourApproval: false,
+      peers: [
+        { uid: "b", label: "Speaker B", displayName: "Speaker B", role: "participant", connected: true, iceRestarts: 0 },
+        { uid: "c", label: "Speaker C", displayName: "Speaker C", role: "therapist", connected: false, iceRestarts: 0 },
+      ],
+    });
+    const root = panel(guest);
+    const t = flat(root);
+    expect(t).toContain("Speaker C is waiting to be let in");
+    expect(t).toContain("Speaker B");
+    expect(t).not.toContain("undefined");
+  });
+
+  it("names the approver honestly when they are not on our roster", () => {
+    const root = panel(pending({ therapistApprovalFrom: ["someone-we-cannot-name"], peers: [peer("c", "Mom", "therapist")] }));
+    const t = flat(root);
+    expect(t).toContain("the other participant");
+    // Never a raw uid on screen.
+    expect(t).not.toContain("someone-we-cannot-name");
+  });
+
+  it("surfaces a failed approve instead of pretending the tap worked", () => {
+    const root = panel(pending({ therapistNeedsYourApproval: true, error: "couldn't approve the therapist: HTTP 500" }));
+    expect(root.root.findByProps({ testID: "call-active-error" }).props.children).toBe(
+      "couldn't approve the therapist: HTTP 500",
+    );
+    // Still asking — the seat did not quietly become approved.
+    expect(root.root.findByProps({ testID: "therapist-consent-ask" })).toBeTruthy();
+  });
+
+  it("an auto-approved seat asks nobody (standing `live` consent)", () => {
+    const root = panel(inCall({ therapistUid: "c", therapistAutoApproved: true }));
+    expect(root.root.findAllByProps({ testID: "therapist-consent-ask" })).toHaveLength(0);
+    expect(root.root.findAllByProps({ testID: "therapist-consent-waiting" })).toHaveLength(0);
+  });
+
+  it("the screen hands the panel the hook's approve/decline", async () => {
+    const approveTherapist = jest.fn();
+    const declineTherapist = jest.fn();
+    mockUseAudioStream.mockReturnValue({
+      ...base,
+      sessionActive: true,
+      isRecording: true,
+      connectionStatus: "live",
+      call: pending({ therapistNeedsYourApproval: true }),
+      approveTherapist,
+      declineTherapist,
+    });
+    let root!: renderer.ReactTestRenderer;
+    act(() => {
+      root = track(renderer.create(<LiveCoachScreen />));
+    });
+    await flush();
+    act(() => root.root.findByProps({ testID: "therapist-approve" }).props.onPress());
+    expect(approveTherapist).toHaveBeenCalledTimes(1);
+    act(() => root.root.findByProps({ testID: "therapist-decline" }).props.onPress());
+    expect(declineTherapist).toHaveBeenCalledTimes(1);
+  });
+});

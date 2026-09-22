@@ -16,30 +16,66 @@ import {
   acceptPatient,
   declinePatient,
   listPatients,
+  markPatientSeen,
   type PatientLink,
 } from "../api/therapist";
+
+export interface PatientRow {
+  label: string;
+  sessions: number;
+  linked: boolean;
+  /** The link this row came from, when it came from one — what
+   *  POST /therapist/patients/{uid}/seen is addressed to. Null for a
+   *  patient who only shows up as a session label (shared by hand). */
+  patientUid: string | null;
+  /** This patient has a session NEWER than this therapist's read mark (or
+   *  has shared something and was never opened at all). */
+  unread: boolean;
+}
 
 /** The patient list: every account that named this one as therapist
  *  (accepted — pending ones are requests, shown separately) plus every
  *  patient label present in the session list, so a patient who shared by
- *  hand without linking still appears. "You" (own sessions) stays first. */
+ *  hand without linking still appears. "You" (own sessions) stays first.
+ *
+ *  `unread` compares the patient's newest session against the link's
+ *  `last_seen_at` (server-side, so every device this therapist uses agrees).
+ *  A linked patient who has shared something and was never opened has no
+ *  mark at all, and reads as unread. "You" is never unread — a read mark is
+ *  about someone else's sessions. */
 export function patientRows(
   sessions: SavedSession[],
   patients: PatientLink[],
-): { label: string; sessions: number; linked: boolean }[] {
+): PatientRow[] {
   const counts = new Map<string, number>();
-  for (const s of sessions) counts.set(s.role, (counts.get(s.role) ?? 0) + 1);
-  const linked = new Set(
-    patients
-      .filter((p) => p.status === "accepted" && p.patient_email)
-      .map((p) => p.patient_email as string),
-  );
-  const labels = new Set<string>([...counts.keys(), ...linked]);
-  const rows = [...labels].map((label) => ({
-    label,
-    sessions: counts.get(label) ?? 0,
-    linked: linked.has(label),
-  }));
+  const newest = new Map<string, number>();
+  for (const s of sessions) {
+    counts.set(s.role, (counts.get(s.role) ?? 0) + 1);
+    const at = Date.parse(s.date);
+    if (Number.isFinite(at)) newest.set(s.role, Math.max(newest.get(s.role) ?? 0, at));
+  }
+  const byEmail = new Map<string, PatientLink>();
+  for (const p of patients) {
+    if (p.status === "accepted" && p.patient_email) byEmail.set(p.patient_email, p);
+  }
+  const labels = new Set<string>([...counts.keys(), ...byEmail.keys()]);
+  const rows = [...labels].map((label) => {
+    const link = byEmail.get(label) ?? null;
+    const latest = newest.get(label) ?? null;
+    const seen = link?.last_seen_at ? Date.parse(link.last_seen_at) : NaN;
+    const unread =
+      label !== "You" &&
+      link !== null &&
+      latest !== null &&
+      (!Number.isFinite(seen) || latest > seen);
+    return {
+      label,
+      sessions: counts.get(label) ?? 0,
+      linked: link !== null,
+      patientUid: link?.patient_uid ?? null,
+      unread,
+    };
+  });
   rows.sort((a, b) => {
     if (a.label === "You") return -1;
     if (b.label === "You") return 1;
@@ -127,6 +163,32 @@ export default function TherapistDashboard({
       }
     },
     [],
+  );
+
+  /** Opening a patient IS reading them: POST .../seen stamps the link so
+   *  the unread mark clears here and on the therapist's other devices. The
+   *  local state is updated from the server's own timestamp; a failure is
+   *  silent on purpose — a read mark that did not stick is a stale badge,
+   *  never a reason to interrupt someone mid-review. */
+  const handleSelectPatient = useCallback(
+    (row: PatientRow) => {
+      setRoleFilter(roleFilter === row.label ? null : row.label);
+      if (roleFilter === row.label || !row.patientUid) return;
+      const uid = row.patientUid;
+      void markPatientSeen(uid)
+        .then((seenAt) => {
+          if (!seenAt) return;
+          setPatients((prev) =>
+            (prev ?? []).map((x) =>
+              x.patient_uid === uid ? { ...x, last_seen_at: seenAt } : x,
+            ),
+          );
+        })
+        .catch(() => {
+          // Best effort — see above.
+        });
+    },
+    [roleFilter, setRoleFilter],
   );
 
   const pending = useMemo(
@@ -241,15 +303,18 @@ export default function TherapistDashboard({
             style={[
               styles.filterChip,
               roleFilter === row.label && styles.filterChipActive,
+              row.unread && roleFilter !== row.label && styles.filterChipUnread,
             ]}
-            onPress={() => setRoleFilter(roleFilter === row.label ? null : row.label)}
+            onPress={() => handleSelectPatient(row)}
           >
             <Text
               style={[
                 styles.filterChipText,
                 roleFilter === row.label && styles.filterChipTextActive,
+                row.unread && roleFilter !== row.label && styles.filterChipTextUnread,
               ]}
             >
+              {row.unread ? "● " : ""}
               {row.label}
               {row.linked ? " ✓" : ""}
               {` · ${row.sessions}`}
@@ -411,6 +476,15 @@ const styles = StyleSheet.create({
   filterChipActive: {
     backgroundColor: "#4A90D9",
     borderColor: "#4A90D9",
+  },
+  // Something new since this therapist last opened the patient.
+  filterChipUnread: {
+    borderColor: "#4A90D9",
+    backgroundColor: "#EFF6FF",
+  },
+  filterChipTextUnread: {
+    color: "#1D4ED8",
+    fontWeight: "700",
   },
   filterChipText: {
     fontSize: 13,

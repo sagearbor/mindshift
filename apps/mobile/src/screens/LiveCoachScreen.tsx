@@ -177,6 +177,8 @@ export default function LiveCoachScreen({
     joinCall,
     hangUp,
     setCallMuted,
+    approveTherapist,
+    declineTherapist,
     callRoute,
     setCallRoute,
   } = useAudioStream({ keepAudio });
@@ -431,6 +433,16 @@ export default function LiveCoachScreen({
   const handleToggleRoute = useCallback(() => {
     setCallRoute?.(callRoute === "speaker" ? "earpiece" : "speaker");
   }, [setCallRoute, callRoute]);
+  // Therapist-seat consent: this participant lets the waiting observer in,
+  // or refuses (which removes her from the call). Only rendered for the
+  // people the server actually asks — CallPanel reads
+  // `therapistNeedsYourApproval`.
+  const handleApproveTherapist = useCallback(() => {
+    void approveTherapist?.();
+  }, [approveTherapist]);
+  const handleDeclineTherapist = useCallback(() => {
+    void declineTherapist?.();
+  }, [declineTherapist]);
 
   const handleReview = useCallback(() => {
     onReviewTranscript?.(
@@ -732,6 +744,8 @@ export default function LiveCoachScreen({
           onAnswer={handleAnswerCall}
           onHangUp={handleHangUp}
           onToggleMute={handleToggleMute}
+          onApproveTherapist={handleApproveTherapist}
+          onDeclineTherapist={handleDeclineTherapist}
           route={callRoute ?? "speaker"}
           onToggleRoute={handleToggleRoute}
         />

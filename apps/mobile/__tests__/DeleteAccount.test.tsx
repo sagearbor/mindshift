@@ -33,9 +33,13 @@ jest.mock("../src/api/client", () => ({
 }));
 jest.mock("../src/api/me", () => ({ getMe: jest.fn() }));
 jest.mock("../src/api/therapist", () => ({
+  // The pure consent readers (disclosureFor / consentGranted) stay real —
+  // TherapistLinkCard calls them on whatever getTherapistLink returns.
+  ...jest.requireActual("../src/api/therapist"),
   getTherapistLink: jest.fn(() => Promise.resolve({ linked: false })),
   setTherapistLink: jest.fn(),
   setAutoShare: jest.fn(),
+  setTherapistConsent: jest.fn(),
   unlinkTherapist: jest.fn(),
 }));
 

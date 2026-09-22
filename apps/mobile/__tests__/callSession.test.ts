@@ -350,3 +350,221 @@ describe("CallSession — misc", () => {
     expect(h.session.handleServerMessage(null)).toBe(false);
   });
 });
+
+/**
+ * Therapist-seat consent, as it arrives on `call_state` (server/calls.py
+ * `state_for`). The session does no policy of its own — it carries the
+ * server's answer to the screen — but it must carry it FAITHFULLY, because
+ * a lost "pending" is a therapist the participants never got asked about.
+ */
+describe("CallSession — the therapist seat", () => {
+  /** A roster with the approval fields the server always sends alongside. */
+  const stateWith = (h: ReturnType<typeof harness>, extra: Record<string, unknown>, ...ps: unknown[]) => ({
+    ...h.roster(...(ps as never[])),
+    ...extra,
+  });
+
+  it("is approved by default — a call with no observer never asks anyone", () => {
+    const h = harness();
+    h.session.begin(created("c1"));
+    h.session.handleServerMessage(h.roster(h.p("a-sage", "Sage"), h.p("b-dad", "Dad")));
+    expect(h.last()).toMatchObject({
+      therapistApproval: "approved",
+      therapistApprovalFrom: [],
+      therapistNeedsYourApproval: false,
+      therapistUid: null,
+    });
+  });
+
+  it("carries pending + who is being asked, and names the observer", () => {
+    // Dad's phone: the host (Sage) invited his therapist; Dad must approve.
+    const h = harness({ selfUid: "b-dad" });
+    h.session.begin(created("c1"));
+    h.session.handleServerMessage(
+      stateWith(
+        h,
+        {
+          therapist_approval: "pending",
+          therapist_approval_from: ["b-dad"],
+          therapist_needs_your_approval: true,
+          therapist_auto_approved: false,
+          therapist_uid: "c-mom",
+        },
+        h.p("a-sage", "Sage"),
+        h.p("b-dad", "Dad"),
+        h.p("c-mom", "Mom", true, "therapist"),
+      ),
+    );
+    expect(h.last()).toMatchObject({
+      therapistApproval: "pending",
+      therapistApprovalFrom: ["b-dad"],
+      therapistNeedsYourApproval: true,
+      therapistAutoApproved: false,
+      therapistUid: "c-mom",
+    });
+
+    // He taps Approve; the server broadcasts the new state.
+    h.session.handleServerMessage(
+      stateWith(
+        h,
+        { therapist_approval: "approved", therapist_approval_from: [], therapist_needs_your_approval: false },
+        h.p("a-sage", "Sage"),
+        h.p("b-dad", "Dad"),
+        h.p("c-mom", "Mom", true, "therapist"),
+      ),
+    );
+    expect(h.last()).toMatchObject({
+      therapistApproval: "approved",
+      therapistApprovalFrom: [],
+      therapistNeedsYourApproval: false,
+      therapistUid: "c-mom",
+    });
+  });
+
+  it("the HOST is never asked, but still sees that she is waiting", () => {
+    const h = harness({ selfUid: "a-sage" });
+    h.session.begin(created("c1"));
+    h.session.handleServerMessage(
+      stateWith(
+        h,
+        {
+          therapist_approval: "pending",
+          therapist_approval_from: ["b-dad"],
+          therapist_needs_your_approval: false,
+          therapist_uid: "c-mom",
+        },
+        h.p("a-sage", "Sage"),
+        h.p("b-dad", "Dad"),
+        h.p("c-mom", "Mom", true, "therapist"),
+      ),
+    );
+    expect(h.last().therapistApproval).toBe("pending");
+    expect(h.last().therapistNeedsYourApproval).toBe(false);
+  });
+
+  it("a non-empty approver list is pending even if the status string is missing", () => {
+    // Fail CLOSED: the screen keeps asking rather than quietly deciding the
+    // observer is in.
+    const h = harness({ selfUid: "b-dad" });
+    h.session.begin(created("c1"));
+    h.session.handleServerMessage(
+      stateWith(
+        h,
+        { therapist_approval_from: ["b-dad"] },
+        h.p("a-sage", "Sage"),
+        h.p("b-dad", "Dad"),
+        h.p("c-mom", "Mom", true, "therapist"),
+      ),
+    );
+    expect(h.last().therapistApproval).toBe("pending");
+    // Derived from the list, not only from the server's own boolean.
+    expect(h.last().therapistNeedsYourApproval).toBe(true);
+    // And the observer is nameable from the roster with no therapist_uid.
+    expect(h.last().therapistUid).toBe("c-mom");
+  });
+
+  it("standing consent shows as auto-approved, with nobody asked", () => {
+    const h = harness({ selfUid: "b-dad" });
+    h.session.begin(created("c1"));
+    h.session.handleServerMessage(
+      stateWith(
+        h,
+        {
+          therapist_approval: "approved",
+          therapist_approval_from: [],
+          therapist_auto_approved: true,
+          therapist_uid: "c-mom",
+        },
+        h.p("a-sage", "Sage"),
+        h.p("b-dad", "Dad"),
+        h.p("c-mom", "Mom", true, "therapist"),
+      ),
+    );
+    expect(h.last()).toMatchObject({
+      therapistApproval: "approved",
+      therapistAutoApproved: true,
+      therapistNeedsYourApproval: false,
+    });
+  });
+
+  it("builds NO peer connection to a pending observer, and one the moment she is approved", async () => {
+    // The server refuses her signaling both ways while pending, so a link
+    // built early strands (its offer and candidates are discarded and the
+    // same connection never recovers). Nothing is built until approval.
+    const h = harness({ selfUid: "a-sage" });
+    h.session.begin(created("c1"));
+    h.session.handleServerMessage(
+      stateWith(
+        h,
+        { therapist_approval: "pending", therapist_approval_from: ["b-dad"], therapist_uid: "c-mom" },
+        h.p("a-sage", "Sage"),
+        h.p("b-dad", "Dad"),
+        h.p("c-mom", "Mom", true, "therapist"),
+      ),
+    );
+    await flush();
+    await flush();
+    // Dad's link is live; Mom's is a roster row with nothing behind it.
+    expect(h.sig().map((m) => m.to)).toEqual(["b-dad"]);
+    expect(h.peerNames()).toEqual(["Dad", "Mom"]);
+    expect(h.last().peers.find((pr) => pr.uid === "c-mom")!.connected).toBe(false);
+
+    // Dad approves; the roster comes back approved and the mesh completes.
+    h.session.handleServerMessage(
+      stateWith(
+        h,
+        { therapist_approval: "approved", therapist_approval_from: [], therapist_uid: "c-mom" },
+        h.p("a-sage", "Sage"),
+        h.p("b-dad", "Dad"),
+        h.p("c-mom", "Mom", true, "therapist"),
+      ),
+    );
+    await flush();
+    await flush();
+    // (Dad's link re-offers — the existing "no remote description yet"
+    // retry — so compare the SET of peers we have signalled.)
+    expect([...new Set(h.sig().map((m) => m.to))].sort()).toEqual(["b-dad", "c-mom"]);
+  });
+
+  it("the pending observer's own phone opens no link to anyone", async () => {
+    const h = harness({ selfUid: "c-mom", role: "therapist" });
+    h.session.begin(created("c1"));
+    h.session.handleServerMessage(
+      stateWith(
+        h,
+        { therapist_approval: "pending", therapist_approval_from: ["b-dad"], therapist_uid: "c-mom" },
+        h.p("a-sage", "Sage"),
+        h.p("b-dad", "Dad"),
+        h.p("c-mom", "Mom", true, "therapist"),
+      ),
+    );
+    await flush();
+    await flush();
+    // She sees who is in the call and hears none of them.
+    expect(h.peerNames()).toEqual(["Dad", "Sage"]);
+    expect(h.sig()).toHaveLength(0);
+    expect(h.last().peers.every((pr) => !pr.connected)).toBe(true);
+  });
+
+  it("a declined observer leaves the roster and the seat is approved again", () => {
+    const h = harness({ selfUid: "b-dad" });
+    h.session.begin(created("c1"));
+    h.session.handleServerMessage(
+      stateWith(
+        h,
+        { therapist_approval: "pending", therapist_approval_from: ["b-dad"], therapist_uid: "c-mom" },
+        h.p("a-sage", "Sage"),
+        h.p("b-dad", "Dad"),
+        h.p("c-mom", "Mom", true, "therapist"),
+      ),
+    );
+    expect(h.last().therapistApproval).toBe("pending");
+    h.session.handleServerMessage(h.roster(h.p("a-sage", "Sage"), h.p("b-dad", "Dad")));
+    expect(h.last()).toMatchObject({
+      therapistApproval: "approved",
+      therapistApprovalFrom: [],
+      therapistUid: null,
+    });
+    expect(h.peerNames()).toEqual(["Sage"]);
+  });
+});

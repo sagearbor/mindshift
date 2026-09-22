@@ -22,6 +22,10 @@ interface CallPanelProps {
   onAnswer?: (code: string) => void;
   onHangUp: () => void;
   onToggleMute: () => void;
+  /** Therapist-seat consent: let the waiting observer in / refuse her.
+   *  Only ever called from the row this client is actually asked on. */
+  onApproveTherapist?: () => void;
+  onDeclineTherapist?: () => void;
   route?: AudioRoute;
   onToggleRoute?: () => void;
   /** Wall clock for the timer (tests). */
@@ -56,9 +60,37 @@ export function callStatusLabel(status: CallView["status"]): string {
   }
 }
 
-function peerStatus(peer: CallPeer): string {
+function peerStatus(peer: CallPeer, pendingTherapist: boolean): string {
+  // A pending observer is NOT "connecting" — she is being given nothing at
+  // all (no audio, no transcript, no coaching) and the row must say so, or
+  // the host reads a silent row as "she's in".
+  if (peer.role === "therapist" && pendingTherapist) return "waiting to be let in · therapist";
   const base = peer.connected ? "connected" : "connecting";
   return peer.role === "therapist" ? `${base} · therapist` : base;
+}
+
+/** What the observer is called on this screen. Never assume an email: the
+ *  server's display_name already falls back through declared name → email →
+ *  slot label ("Speaker C"), and a guest has no email at all. */
+export function therapistName(call: CallView): string {
+  const byUid = call.therapistUid
+    ? call.peers.find((p) => p.uid === call.therapistUid)
+    : null;
+  const peer = byUid ?? call.peers.find((p) => p.role === "therapist") ?? null;
+  return peer?.displayName || peer?.label || "The therapist";
+}
+
+/** The people whose approval is still missing, named. Uids we cannot name
+ *  (ourselves, or someone off the roster) are dropped — the sentence falls
+ *  back to a count so it is never a bare uid on screen. */
+export function pendingApproverNames(call: CallView): string {
+  const named = call.therapistApprovalFrom
+    .map((uid) => call.peers.find((p) => p.uid === uid))
+    .filter((p): p is CallPeer => Boolean(p))
+    .map((p) => p.displayName || p.label);
+  if (named.length > 0) return named.join(" and ");
+  const n = call.therapistApprovalFrom.length;
+  return n === 1 ? "the other participant" : `${n} other participants`;
 }
 
 /**
@@ -77,6 +109,8 @@ export default function CallPanel({
   onAnswer,
   onHangUp,
   onToggleMute,
+  onApproveTherapist,
+  onDeclineTherapist,
   route = "speaker",
   onToggleRoute,
   now = Date.now,
@@ -186,6 +220,7 @@ export default function CallPanel({
 
   const selfLabel = call.selfRole === "therapist" ? "You (therapist)" : "You";
   const statusLabel = callStatusLabel(call.status);
+  const therapistPending = call.therapistApproval === "pending";
   return (
     <View style={styles.card} testID="call-panel-active">
       <Text style={styles.header} testID="call-header" numberOfLines={1}>
@@ -196,10 +231,72 @@ export default function CallPanel({
         <View testID="call-peers">
           {call.peers.map((p) => (
             <Text key={p.uid} style={styles.peerRow} testID={`call-peer-${p.uid}`} numberOfLines={1}>
-              {p.displayName} · {peerStatus(p)}
+              {p.displayName} · {peerStatus(p, therapistPending)}
             </Text>
           ))}
         </View>
+      ) : null}
+      {/* THERAPIST-SEAT CONSENT (server/calls.py). Whoever is looking, a
+          pending observer is stated out loud: the host must not think their
+          therapist is listening, the observer must know she is not, and the
+          participant being asked gets the two buttons. */}
+      {therapistPending ? (
+        call.therapistNeedsYourApproval ? (
+          <View style={styles.consentBox} testID="therapist-consent-ask">
+            <Text style={styles.consentTitle}>
+              {therapistName(call)} wants to listen in
+            </Text>
+            <Text style={styles.consentBody} testID="therapist-consent-disclosure">
+              They would hear this call and see the transcript, tone and coaching
+              as it happens — including what you could have said. Until you
+              decide they get none of it: no audio, no transcript, nothing. At
+              the end they keep a copy of the session.
+            </Text>
+            <View style={styles.consentButtons}>
+              <TouchableOpacity
+                testID="therapist-approve"
+                accessibilityRole="button"
+                style={[styles.button, styles.buttonPrimary]}
+                onPress={onApproveTherapist}
+                disabled={!onApproveTherapist}
+              >
+                <Text style={styles.buttonPrimaryText}>Let them in</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                testID="therapist-decline"
+                accessibilityRole="button"
+                style={[styles.button, styles.buttonDanger]}
+                onPress={onDeclineTherapist}
+                disabled={!onDeclineTherapist}
+              >
+                <Text style={styles.buttonPrimaryText}>No, remove them</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : call.selfRole === "therapist" ? (
+          <View style={styles.consentBox} testID="therapist-consent-waiting-self">
+            <Text style={styles.consentTitle}>Waiting to be let in</Text>
+            <Text style={styles.consentBody}>
+              {pendingApproverNames(call)} must approve you joining. Until then
+              you can&apos;t hear the call and nothing of it reaches this screen.
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.consentBox} testID="therapist-consent-waiting">
+            <Text style={styles.consentTitle}>
+              {therapistName(call)} is waiting to be let in
+            </Text>
+            <Text style={styles.consentBody}>
+              They can&apos;t hear the call yet — {pendingApproverNames(call)} has
+              to approve it first.
+            </Text>
+          </View>
+        )
+      ) : null}
+      {call.error && active ? (
+        <Text style={styles.error} testID="call-active-error">
+          {call.error}
+        </Text>
       ) : null}
       {call.status === "waiting" && call.joinCode ? (
         <View style={styles.inviteBox} testID="call-invite">
@@ -335,6 +432,32 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#374151",
     paddingVertical: 1,
+  },
+  // The therapist-seat consent block: amber, like the dashboard's pending
+  // card — a question that is waiting on someone, not an error.
+  consentBox: {
+    backgroundColor: "#FFFBEB",
+    borderWidth: 1,
+    borderColor: "#FCD34D",
+    borderRadius: 10,
+    padding: 12,
+    gap: 6,
+  },
+  consentTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#92400E",
+  },
+  consentBody: {
+    fontSize: 13.5,
+    lineHeight: 19,
+    color: "#374151",
+  },
+  consentButtons: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 2,
   },
   inviteBox: {
     gap: 6,

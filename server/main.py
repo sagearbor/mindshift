@@ -43,6 +43,7 @@ from fastapi import (
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
+import consent
 import diarize_local
 import dynamics
 import episodes
@@ -4377,6 +4378,17 @@ async def share_recording(
     if shares is None:
         # Raced with a delete between the ownership check and the write.
         raise HTTPException(status_code=404, detail="Recording not found")
+    # Disclosure (server/consent.py): the owner's OWN tap is the consent for a
+    # hand-share — recorded on the episode so the recipient's dashboard can
+    # say "shared by hand by the patient" rather than guessing.
+    await therapist_links.stamp_episode_disclosure(
+        store_backend, uid, recording_id,
+        consent.episode_disclosure(
+            origin=consent.ORIGIN_MANUAL,
+            consent=consent.new_consent(granted_by=uid, scope=consent.SCOPE_EPISODES),
+            therapist_email=email,
+        ),
+    )
     return {"shares": shares}
 
 
