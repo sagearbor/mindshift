@@ -14,7 +14,13 @@ WHAT IT DOES (all idempotent — existing artefacts are reused, never duplicated
   2. generates an RSA key + CSR, POSTs it for an iOS Distribution certificate
   3. builds a .p12 from that certificate and key, with a random password
   4. creates an IOS_APP_STORE provisioning profile bound to both
-  5. writes <project>/credentials.json pointing at the files
+  5. repeats 1 and 4 for every extra Xcode target (--watch-target /
+     --extra-target): an App Extension, App Clip or watchOS companion has its
+     own bundle identifier and so needs its own profile — but it shares the one
+     team certificate
+  6. writes <project>/credentials.json pointing at the files, in EAS's
+     single-target form when there is one target and its MULTI-TARGET form
+     (keyed by Xcode target name) as soon as there is more than one
 
 WHERE THE ARTEFACTS LIVE — and why the split matters
   ~/.config/ios-credentials/_team/          dist.key, dist.cer, dist.p12,
@@ -41,6 +47,36 @@ USAGE
       --bundle-id com.sagearbor.mindshift.app \
       --name MindShift \
       --project-dir apps/mobile
+
+  # …with a watchOS companion target (Xcode target name MindShiftWatch):
+  python3 scripts/ios_credentials_bootstrap.py \
+      --bundle-id com.sagearbor.mindshift.app \
+      --name MindShift \
+      --project-dir apps/mobile \
+      --xcode-target MindShift \
+      --watch-target MindShiftWatch
+
+MULTI-TARGET credentials.json — and why the names matter
+  A project with more than one Xcode target needs credentials for EVERY target,
+  because each one is identified by its own bundle identifier
+  (docs.expo.dev/app-signing/local-credentials/#multi-target-project). The
+  multi-target form REPLACES the single-target form — `ios.provisioningProfilePath`
+  at the top level stops being read — and its keys are XCODE TARGET NAMES:
+
+    {"ios": {"MindShift":      {"provisioningProfilePath": …, "distributionCertificate": …},
+             "MindShiftWatch": {"provisioningProfilePath": …, "distributionCertificate": …}}}
+
+  Get a name wrong and the cloud build fails at signing with
+  "No profiles for 'com.x.app.watchkitapp' were found" after ~20 minutes. Read
+  the names out of the generated project rather than guessing them:
+
+    grep productName apps/mobile/ios/*.xcodeproj/project.pbxproj
+
+  For an Expo CNG project the same names must also appear in
+  extra.eas.build.experimental.ios.appExtensions — that config key, not a
+  pbxproj that does not exist yet, is how eas-cli enumerates targets. Config
+  plugins such as @bacons/apple-targets write it for you; check it with
+  `npx expo config --type introspect`.
 
 AFTER IT RUNS
   Add "credentialsSource": "local" to the ios block of the eas.json build
@@ -245,9 +281,20 @@ def ensure_p12(out: pathlib.Path) -> str:
 
 
 def ensure_profile(asc: ASC, out: pathlib.Path, bid_id: str, cert_id: str,
-                   name: str) -> pathlib.Path:
+                   profile_name: str) -> pathlib.Path:
+    """Fetch or create the App Store profile for one bundle id.
+
+    `profile_name` is Apple's globally-unique label for the profile, not the
+    app name — callers pass "<App> App Store" for the main app and
+    "<XcodeTarget> App Store" for each extra target, so a watch companion never
+    collides with its host.
+
+    profileType is IOS_APP_STORE for extra targets too, watchOS included: Apple
+    has no watch-specific store profile type and an iOS profile covers "iOS and
+    watchOS apps and App Clips". Verified 2026-09-22 — the POST for
+    com.sagearbor.mindshift.app.watchkitapp succeeded with IOS_APP_STORE.
+    """
     path = out / "AppStore.mobileprovision"
-    profile_name = f"{name} App Store"
     for p in asc.get("/v1/profiles?limit=200")["data"]:
         a = p["attributes"]
         if a["name"] != profile_name:
@@ -278,6 +325,31 @@ def ensure_profile(asc: ASC, out: pathlib.Path, bid_id: str, cert_id: str,
     return path
 
 
+def parse_extra_targets(args) -> list[tuple[str, str]]:
+    """Normalise --watch-target / --extra-target into [(bundle suffix, Xcode target)].
+
+    --watch-target NAME is sugar for --extra-target .watchkitapp=NAME, because
+    `.watchkitapp` is the suffix Apple expects on a watchOS companion and
+    getting it wrong is only discovered at upload time.
+    """
+    extras: list[tuple[str, str]] = []
+    if args.watch_target:
+        extras.append((".watchkitapp", args.watch_target))
+    for spec in args.extra_target or []:
+        suffix, sep, target = spec.partition("=")
+        if not sep or not suffix or not target:
+            die(f"--extra-target expects SUFFIX=XCODE_TARGET_NAME, got {spec!r}")
+        if not suffix.startswith("."):
+            die(f"--extra-target suffix must start with a dot, got {suffix!r}")
+        extras.append((suffix, target))
+    seen = set()
+    for suffix, target in extras:
+        if suffix in seen:
+            die(f"--extra-target/--watch-target gave the suffix {suffix} twice")
+        seen.add(suffix)
+    return extras
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -290,12 +362,27 @@ def main() -> None:
     ap.add_argument("--store", default=None,
                     help="root for the artefacts "
                          "(default ~/.config/ios-credentials)")
+    ap.add_argument("--xcode-target", default=None,
+                    help="Xcode target name of the main app — the credentials.json "
+                         "key in multi-target mode. Defaults to --name. Read it from "
+                         "`grep productName ios/*.xcodeproj/project.pbxproj`; only "
+                         "used when there is more than one target.")
+    ap.add_argument("--watch-target", default=None, metavar="XCODE_TARGET",
+                    help="Xcode target name of a watchOS companion. Mints "
+                         "<bundle-id>.watchkitapp and its own App Store profile.")
+    ap.add_argument("--extra-target", action="append", metavar="SUFFIX=XCODE_TARGET",
+                    help="generic form of --watch-target for app extensions and "
+                         "App Clips, e.g. .shareextension=ShareExtension. Repeatable.")
     args = ap.parse_args()
+
+    extras = parse_extra_targets(args)
+    main_target = args.xcode_target or args.name
 
     root = pathlib.Path(args.store or "~/.config/ios-credentials").expanduser()
     # The certificate is shared by every app on the team; only the profile is
     # per bundle id (the whole bundle id, so com.x.app and com.y.app never
-    # collide).
+    # collide). An extra target is just another bundle id under that rule — it
+    # gets its own directory and its own profile, and reuses the certificate.
     team_out = root / "_team"
     out = root / args.bundle_id
     for d in (root, team_out, out):
@@ -306,17 +393,49 @@ def main() -> None:
     print(f"App Store Connect bootstrap for {args.bundle_id} (team {team})")
     asc = ASC()
     bid_id = ensure_bundle_id(asc, args.bundle_id, args.name, team)
+    # ONE certificate for the whole team, minted at most once — see
+    # ensure_certificate(). Extra targets must never reach this code again:
+    # Apple caps iOS distribution certificates at two per team and a third app
+    # or target that minted its own would break signing for everything.
     cert_id = ensure_certificate(asc, team_out, args.email, args.cert_name)
     pw = ensure_p12(team_out)
-    profile = ensure_profile(asc, out, bid_id, cert_id, args.name)
+    profile = ensure_profile(asc, out, bid_id, cert_id, f"{args.name} App Store")
+
+    p12 = {"path": str(team_out / "dist.p12"), "password": pw}
+    targets: list[tuple[str, pathlib.Path]] = [(main_target, profile)]
+
+    for suffix, target_name in extras:
+        extra_bundle_id = args.bundle_id + suffix
+        extra_out = root / extra_bundle_id
+        extra_out.mkdir(parents=True, exist_ok=True)
+        extra_out.chmod(0o700)
+        print(f"  --- extra target {target_name} ({extra_bundle_id})")
+        extra_bid = ensure_bundle_id(asc, extra_bundle_id, target_name, team)
+        # Profile names are globally unique per team, so key them on the Xcode
+        # target name rather than the app name — "MindShift App Store" is
+        # already taken by the host app.
+        extra_profile = ensure_profile(asc, extra_out, extra_bid, cert_id,
+                                       f"{target_name} App Store")
+        targets.append((target_name, extra_profile))
 
     creds = pathlib.Path(args.project_dir) / "credentials.json"
-    creds.write_text(json.dumps({"ios": {
-        "provisioningProfilePath": str(profile),
-        "distributionCertificate": {"path": str(team_out / "dist.p12"), "password": pw},
-    }}, indent=2) + "\n")
+    if len(targets) == 1:
+        # Single-target form. Kept for apps with one target so existing repos
+        # are not churned; EAS reads either shape.
+        payload = {"ios": {"provisioningProfilePath": str(profile),
+                           "distributionCertificate": p12}}
+    else:
+        payload = {"ios": {name: {"provisioningProfilePath": str(path),
+                                  "distributionCertificate": p12}
+                           for name, path in targets}}
+    creds.write_text(json.dumps(payload, indent=2) + "\n")
     creds.chmod(0o600)
     print(f"\nwrote {creds}")
+    if len(targets) > 1:
+        print("  multi-target form, keyed by Xcode target name: " +
+              ", ".join(name for name, _ in targets))
+        print("  these must match `productName` in the generated pbxproj AND")
+        print("  extra.eas.build.experimental.ios.appExtensions[].targetName.")
     print('Now set "credentialsSource": "local" in the eas.json ios build profile,')
     print("and keep credentials.json out of git.")
 
