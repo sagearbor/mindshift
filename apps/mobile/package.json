@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@ai-sdk/provider": "3.0.15",
+    "@bacons/apple-targets": "^5.0.0",
     "@config-plugins/react-native-webrtc": "^15.0.2",
     "@expo/metro-runtime": "~57.0.3",
     "@react-native-community/slider": "5.2.0",

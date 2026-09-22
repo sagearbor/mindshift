@@ -67,7 +67,8 @@
     },
     "ios": {
       "bundleIdentifier": "com.sagearbor.mindshift.app",
-      "buildNumber": "3",
+      "buildNumber": "4",
+      "appleTeamId": "553Y9KWR84",
       "supportsTablet": false,
       "usesAppleSignIn": true,
       "infoPlist": {
@@ -151,7 +152,9 @@
             "useFrameworks": "static"
           }
         }
-      ]
+      ],
+      "./plugins/withWatchTargetVersion.js",
+      "@bacons/apple-targets"
     ],
     "extra": {
       "apiUrl": "${EXPO_PUBLIC_API_URL}",
