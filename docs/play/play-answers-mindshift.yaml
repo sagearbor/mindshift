@@ -400,7 +400,7 @@ data_safety:
       proof:
         - apps/mobile/src/screens/LoginScreen.tsx       # Continue as guest, alongside email/Google/Apple
         - apps/mobile/src/store/authStore.ts            # signInAnonymously; linkGuestToEmailPassword keeps the uid
-        - apps/mobile/src/components/AppleSignInButton.tsx  # the Apple placeholder is disabled, no onPress
+        - apps/mobile/src/components/AppleSignInButton.native.tsx  # renders null off iOS — not an account-creation path on Android
         - server/watch/auth.py                          # the anonymous account row: provider="anonymous", is_guest=True
         - server/routers/account.py                     # DELETE /me — uid only, no provider check
         - server/tests/test_guest_mode.py               # incl. deleting a guest account end to end
