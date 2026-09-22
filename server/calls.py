@@ -16,6 +16,18 @@ Design (owner-approved)
   signaling (SDP offers/answers, ICE candidates) between the members'
   existing ``/ws/session/{id}`` sockets — no second auth path, no media
   through the server.
+* THE THERAPIST SEAT NEEDS CONSENT (2026-08-25 — PLAUSIBLE P2 of the
+  adversarial review). The host hands out the join code; the OTHER
+  participant never agreed to a third listener. A therapist who joins is
+  ``pending`` until every coached participant other than the host has
+  approved (``POST /calls/{id}/therapist/approve``), unless she is
+  auto-approved: every coached participant's own therapist link names HER
+  and carries the ``live`` consent scope (server/consent.py) — i.e.
+  everyone in the call has already agreed, once, to this therapist
+  listening in. While pending she gets NOTHING of the conversation: her
+  signaling is refused (so no audio path is ever built), no ``transcript``
+  frames, no coaching copies, no turn of hers is merged, and no share
+  grant at the end. Declining removes her from the call.
 * Roles. A call has up to two ``participant``s (the people being coached —
   the host is always one) and up to one ``therapist`` (an observer: she
   sees the merged transcript and both participants' suggestions/nudges
@@ -185,6 +197,15 @@ SELF_PERSON_ID = "self"
 STATUS_OPEN = "open"        # created; fewer than two members joined
 STATUS_ACTIVE = "active"    # at least two members joined
 STATUS_ENDED = "ended"
+
+# The therapist seat's consent state (see the module docstring). Participants
+# are always APPROVED — the state exists for the observer only.
+APPROVAL_APPROVED = "approved"
+APPROVAL_PENDING = "pending"
+
+THERAPIST_PENDING_DETAIL = (
+    "waiting for the other participant to approve the therapist joining"
+)
 
 
 def now_iso() -> str:
@@ -587,6 +608,12 @@ class Call:
     end_reason: str | None = None
     # Wrong join codes presented so far (see JOIN_CODE_FAILURES_MAX).
     code_failures: int = 0
+    # Therapist-seat consent (module docstring). ``therapist_approvals`` is
+    # the coached participants who tapped Approve; ``therapist_auto_approved``
+    # is the standing-consent shortcut recomputed by
+    # :meth:`refresh_therapist_approval` whenever the roster changes.
+    therapist_approvals: dict[str, bool] = field(default_factory=dict)
+    therapist_auto_approved: bool = False
     store: Any = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)
     _t0: float = field(default_factory=time.monotonic, repr=False, compare=False)
@@ -638,6 +665,139 @@ class Call:
 
     def can_see(self, uid: str) -> bool:
         return uid in self.participants or uid == self.invitee_uid
+
+    # -- therapist-seat consent ---------------------------------------------
+
+    def approvers_required(self) -> list[str]:
+        """Coached participants whose approval the therapist seat needs: every
+        one EXCEPT the host, who chose to hand out the join code and can end
+        the call at any time. Empty while the host is alone (nobody else's
+        conversation is at stake yet) or while there is no therapist."""
+        if self.therapist() is None:
+            return []
+        return [p.uid for p in self.coached() if p.uid != self.host_uid]
+
+    def approvers_missing(self) -> list[str]:
+        if self.therapist_auto_approved:
+            return []
+        return [uid for uid in self.approvers_required() if not self.therapist_approvals.get(uid)]
+
+    def therapist_pending(self) -> bool:
+        """Whether the observer is still waiting to be let in. A pending
+        therapist receives nothing of the conversation — see push_turn,
+        fan_out, relay_signal and _persist_episodes."""
+        return self.therapist() is not None and bool(self.approvers_missing())
+
+    def is_muzzled(self, p: Participant) -> bool:
+        """This member must be given nothing of the call (a pending observer)."""
+        return p.is_therapist and self.therapist_pending()
+
+    def approve_therapist(self, uid: str) -> None:
+        """Record one coached participant's approval. Idempotent; a caller
+        who is not a coached participant is refused (the therapist may not
+        approve herself, and a stranger cannot approve at all)."""
+        p = self.participants.get(uid)
+        if p is None or p.is_therapist:
+            raise CallError(403, "only a participant can approve the therapist")
+        if self.therapist() is None:
+            raise CallError(404, "no therapist has joined this call")
+        self.therapist_approvals[uid] = True
+
+    async def approve_therapist_seat(self, uid: str) -> None:
+        """``POST /calls/{id}/therapist/approve`` — let the observer in."""
+        async with self.lock:
+            if self.ended:
+                raise CallError(410, "call has ended")
+            self.approve_therapist(uid)
+            self._seed_peer_names()
+            await self.broadcast_state()
+
+    async def decline_therapist_seat(self, uid: str) -> Participant | None:
+        """``POST /calls/{id}/therapist/decline`` — refuse the observer and
+        remove her from the call. Her socket is told and detached (her own
+        session keeps coaching her solo, like any other end); the seat is
+        free, and a later therapist starts pending again."""
+        async with self.lock:
+            if self.ended:
+                raise CallError(410, "call has ended")
+            p = self.participants.get(uid)
+            if p is None or p.is_therapist:
+                raise CallError(403, "only a participant can decline the therapist")
+            therapist = self.therapist()
+            if therapist is None:
+                raise CallError(404, "no therapist has joined this call")
+            self.participants.pop(therapist.uid, None)
+            self.therapist_approvals.clear()
+            self.therapist_auto_approved = False
+            self.names.pop(therapist.uid, None)
+            for given in self.names.values():
+                given.pop(therapist.uid, None)
+            endpoint, therapist.endpoint = therapist.endpoint, None
+            if endpoint is not None:
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(
+                        endpoint.send_json({
+                            "type": "call_ended",
+                            "call_id": self.call_id,
+                            "reason": "the participants did not approve you joining",
+                            "ended_by": uid,
+                            "episode_id": None,
+                            "recording_id": None,
+                            "shared_with": [],
+                            # Never the real count: she saw none of them.
+                            "turn_count": 0,
+                        }),
+                        timeout=DELIVERY_TIMEOUT_S,
+                    )
+                with contextlib.suppress(Exception):
+                    endpoint.detach()
+            logger.info(
+                "call %s: %s declined the therapist seat (%s removed)",
+                self.call_id, uid, therapist.uid,
+            )
+            self._seed_peer_names()
+            await self.broadcast_state()
+            return therapist
+
+    async def refresh_therapist_approval(self, store: Any = None) -> bool:
+        """Recompute the standing-consent shortcut for the therapist seat.
+
+        Auto-approved only when EVERY coached participant's own therapist
+        link names this therapist AND carries the ``live`` consent scope —
+        "my therapist may listen in", agreed once in Settings, by everyone
+        whose conversation this is. Anything less (a different therapist, a
+        missing link, an unreadable store) leaves the seat pending until the
+        others tap Approve. Best-effort and never raises: a store failure is
+        the strict answer, not an open door."""
+        import consent as consent_mod
+
+        if store is not None:
+            self.store = store
+        therapist = self.therapist()
+        if therapist is None:
+            self.therapist_auto_approved = False
+            return False
+        read = getattr(self.store, "read_therapist_link", None)
+        allowed = callable(read) and bool(self.coached())
+        if allowed:
+            for p in self.coached():
+                try:
+                    link = await read(p.uid)
+                except Exception:  # noqa: BLE001 — an unreadable link is a NO
+                    logger.warning(
+                        "call %s: therapist link read failed for %s", self.call_id, p.uid,
+                        exc_info=True,
+                    )
+                    allowed = False
+                    break
+                if not isinstance(link, dict) or link.get("therapist_uid") != therapist.uid:
+                    allowed = False
+                    break
+                if not consent_mod.has_consent(link, consent_mod.SCOPE_LIVE):
+                    allowed = False
+                    break
+        self.therapist_auto_approved = allowed
+        return allowed
 
     def expired(self, now: datetime | None = None) -> bool:
         """A call with NO socket bound past its TTL — open, or active only
@@ -700,9 +860,19 @@ class Call:
                 # The other participant's label is fixed by slot before they join.
                 peer_label = SLOT_LABELS["B" if me.slot == "A" else "A"]
         therapist = self.therapist()
+        missing = self.approvers_missing()
         return {
             "call_id": self.call_id,
             "status": self.status,
+            # Therapist-seat consent: "pending" until the other participant
+            # approves (or standing consent covers it). Every member sees the
+            # state; only a participant in `therapist_approval_from` can act.
+            "therapist_approval": (
+                APPROVAL_PENDING if (therapist is not None and missing) else APPROVAL_APPROVED
+            ),
+            "therapist_approval_from": missing,
+            "therapist_needs_your_approval": viewer_uid in missing,
+            "therapist_auto_approved": self.therapist_auto_approved,
             "host_uid": self.host_uid,
             "max_participants": self.max_participants,
             "self_uid": viewer_uid,
@@ -764,7 +934,7 @@ class Call:
         if self.ended:
             return
         for p in list(self.participants.values()):
-            if p.is_therapist and p.uid != from_uid and p.connected:
+            if p.is_therapist and p.uid != from_uid and p.connected and not self.is_muzzled(p):
                 await self._send(p, {**payload, "for_uid": from_uid})
 
     def _seed_peer_names(self) -> None:
@@ -891,8 +1061,14 @@ class Call:
         required. Raises CallError when there is nobody to deliver to — the
         client waits for ``call_state`` to show the peer connected before
         (re)offering."""
-        if from_uid not in self.participants:
+        sender = self.participants.get(from_uid)
+        if sender is None:
             raise CallError(403, "not a participant of this call")
+        # A pending observer gets no AUDIO PATH either: refusing her
+        # signaling (in both directions) is what makes "she hears nothing
+        # until you approve" true, rather than a UI promise.
+        if self.is_muzzled(sender):
+            raise CallError(409, THERAPIST_PENDING_DETAIL)
         if to_uid is None:
             if len(self.participants) > 2:
                 raise CallError(400, "'to' is required in a call with more than two members")
@@ -902,6 +1078,8 @@ class Call:
             target = self.participants.get(to_uid)
         if target is None or target.uid == from_uid:
             raise CallError(404, "peer has not joined")
+        if self.is_muzzled(target):
+            raise CallError(409, THERAPIST_PENDING_DETAIL)
         if not target.connected:
             raise CallError(409, "peer not connected")
         await self._send(target, {
@@ -939,7 +1117,9 @@ class Call:
         never raise into the sender."""
         payload = row if replaces_seq is None else {**row, "replaces_seq": replaces_seq}
         for other in self.others_of(uid):
-            if other.endpoint is None:
+            # A pending observer is given no line of the conversation — not
+            # the first copy and not the ``replaces_seq`` correction either.
+            if other.endpoint is None or self.is_muzzled(other):
                 continue
             try:
                 await asyncio.wait_for(
@@ -974,6 +1154,11 @@ class Call:
             p = self.participants.get(uid)
             if p is None:
                 raise CallError(403, "not a participant of this call")
+            if self.is_muzzled(p):
+                # A pending observer is not in the conversation: her words
+                # never enter the merged transcript (and so never enter a
+                # participant's episode of a call she was not let into).
+                return None
             local_start, local_end = float(data.get("start_time") or 0.0), float(data.get("end_time") or 0.0)
             start, end = self._timeline(p, local_start, local_end)
             source = data.get("transcript_source") or "on-device"
@@ -1147,9 +1332,10 @@ class Call:
                     "shared_with": list(p.shared_with),
                     "turn_count": len(self.turns),
                 }
-                if p.is_therapist:
+                if p.is_therapist and not self.therapist_pending():
                     # The observer's view: every participant's episode (she
-                    # was granted each). A participant learns only its own.
+                    # was granted each). A participant learns only its own,
+                    # and an observer nobody approved learns nothing.
                     frame["episodes"] = {q.uid: q.episode_id for q in self.coached()}
                 await self._send(p, frame)
         for p in list(self.participants.values()):
@@ -1184,7 +1370,10 @@ class Call:
         from routers.sessions import ingest_live
 
         session_id = f"call-{self.call_id}"
-        therapist = self.therapist()
+        # A therapist who was never approved was never on the call: no direct
+        # grant of anyone's episode (the patient's own LINK may still
+        # auto-share, which is that patient's separate standing choice).
+        therapist = None if self.therapist_pending() else self.therapist()
         for p in self.coached():
             turns = self.turns_for(p.uid, session_id)
             if not turns:
@@ -1246,8 +1435,25 @@ class Call:
                 self.call_id, p.uid, exc_info=True,
             )
             return
-        if shares is not None:
-            p.shared_with.append(who)
+        if shares is None:
+            return
+        p.shared_with.append(who)
+        # Disclosure (server/consent.py): why this therapist has the episode —
+        # she was ON the call, with everyone's approval. Best-effort paperwork
+        # that never affects the grant itself.
+        import consent as consent_mod
+        import therapist_links
+
+        await therapist_links.stamp_episode_disclosure(
+            self.store, p.uid, recording_id,
+            consent_mod.episode_disclosure(
+                origin=consent_mod.ORIGIN_IN_CALL,
+                consent=consent_mod.new_consent(
+                    granted_by=p.uid, scope=consent_mod.SCOPE_LIVE,
+                ),
+                therapist_email=therapist.email,
+            ),
+        )
 
 
 # ---------------------------------------------------------------------------

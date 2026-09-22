@@ -2651,6 +2651,10 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 )
             if ctx.call is not None and ctx.call is not call:
                 await ctx.call.leave(ctx.uid, call_endpoint)
+            # Therapist-seat consent: recompute BEFORE binding, so the very
+            # first call_state this socket sees already says whether the
+            # observer is pending (and nothing is relayed to her meanwhile).
+            await call.refresh_therapist_approval(recordings_store)
             participant = await call.bind(
                 ctx.uid, call_endpoint, store=recordings_store, display_name=display_name,
             )
