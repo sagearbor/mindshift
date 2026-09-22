@@ -53,6 +53,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from pydantic import BaseModel, Field
 
 import calls
+import usage_meter
 from audio_pipeline import UUID_PATTERN
 from auth import get_current_uid
 
@@ -201,6 +202,10 @@ async def create_call(
 ):
     import main
 
+    exceeded = usage_meter.check(uid, "call_create")
+    if exceeded is not None:
+        raise usage_meter.quota_error(exceeded)
+
     invitee_uid = body.invitee_uid
     invitee_email = _clean_email(body.invitee_email) if body.invitee_email else None
     if invitee_email and not invitee_uid:
@@ -222,6 +227,10 @@ async def create_call(
         )
     except calls.CallError as exc:
         _raise(exc)
+    # Cost guardrails: one call is up to three coached participants — the
+    # single most expensive thing this product does. Counted per host so the
+    # owner report can attribute spend to whoever placed the calls.
+    usage_meter.record(uid, **{usage_meter.KEY_CALLS_STARTED: 1})
     return call.rest_view(uid)
 
 

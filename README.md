@@ -61,6 +61,24 @@ pytest                 # backend — runs server/ + tests/ from the repo root
 npm test               # frontend — jest-expo (delegates to apps/mobile)
 ```
 
+## 💸 Cost guardrails
+
+Every coached turn is an LLM call and every live minute can be a Deepgram
+minute, so per-account spend is counted and capped.
+
+```bash
+# what each account has spent, priced (owner allowlist: MINDSHIFT_ADMIN_UIDS)
+python scripts/usage_report.py --id-token "$TOKEN" --since 2026-08-01
+```
+
+Soft daily caps (`MINDSHIFT_DAILY_*` in `env.example`) **degrade rather than
+break**: past the cap the live socket stops calling the cloud but keeps the
+transcript and the phone's on-device loop running, and sends one
+`quota_notice` frame saying what stopped and when it resets. The measured
+cost of a coached session, the per-therapist monthly estimate, and the three
+biggest levers to cut it are in
+[docs/plans/2026-08-25-cost-model.md](docs/plans/2026-08-25-cost-model.md).
+
 ## 📦 Deployment
 
 Web build via Expo web export. Mobile via Expo Go or EAS build.
