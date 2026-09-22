@@ -489,7 +489,7 @@ exports[`AnalyzeScreen renders the initial screen 1`] = `
                 }
               }
             >
-              🎙 Record audio (long sessions)
+              🎙️ Record audio (long sessions)
             </Text>
           </View>
           <View

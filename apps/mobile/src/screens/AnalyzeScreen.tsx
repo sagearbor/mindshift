@@ -796,7 +796,7 @@ export default function AnalyzeScreen({
                 onPress={onRecordVideo}
                 disabled={uploading}
               >
-                <Text style={styles.recordVideoButtonText}>⏺ Record video</Text>
+                <Text style={styles.recordVideoButtonText}>⏺️ Record video</Text>
               </TouchableOpacity>
             )}
 
@@ -809,7 +809,7 @@ export default function AnalyzeScreen({
               disabled={uploading}
             >
               <Text style={styles.recordAudioButtonText}>
-                🎙 Record audio (long sessions)
+                🎙️ Record audio (long sessions)
               </Text>
             </TouchableOpacity>
 
