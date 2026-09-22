@@ -44,6 +44,11 @@ Design (owner-approved)
   sender's, ``start_time``/``end_time`` are re-based onto the CALL timeline
   by a per-member offset fixed at that member's first turn (server seconds
   since the call started minus the turn's local end).
+* A member's network drops (a real call does, for ten to thirty seconds).
+  Its socket comes back, ``resume``s (server/session_resume.py) and rebinds:
+  the offset above is KEPT (same capture clock), the turns it buffered while
+  down are flushed and de-duplicated by ``turn_uid``, and the merged turns it
+  missed are replayed to it by ``turns_since``.
 * On end, ONE EPISODE PER PARTICIPANT (never for the therapist) through
   the existing live-session ingest (``routers.sessions.ingest_live``,
   mode ``"call"``): the full merged turn list (the therapist's turns
@@ -89,6 +94,8 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
+
+import session_resume
 
 logger = logging.getLogger(__name__)
 
@@ -581,6 +588,12 @@ class Call:
     names: dict[str, dict[str, str]] = field(default_factory=dict)
     turns: list[dict] = field(default_factory=list)
     seq: int = 0
+    # Session resume: ``turn_uid`` → the merged row's seq, for every turn this
+    # call has accepted. A member reconnecting after a network drop flushes
+    # the turns it could not send; any it had already delivered is ignored
+    # here rather than merged (and re-delivered) a second time. Bounded with
+    # the transcript itself — see push_turn.
+    turn_uids: dict[str, int] = field(default_factory=dict)
     started_at: str | None = None
     ended_at: str | None = None
     ended_by: str | None = None
@@ -814,9 +827,18 @@ class Call:
             self.status = STATUS_ACTIVE
         return p
 
-    async def bind(self, uid: str, endpoint: CallEndpoint, *, store: Any = None, display_name: str | None = None) -> Participant:
+    async def bind(self, uid: str, endpoint: CallEndpoint, *, store: Any = None,
+                   display_name: str | None = None, resume: bool = False) -> Participant:
         """Attach a live WS session to this member. A second socket for the
-        same uid (reconnect) replaces the first; the old one is detached."""
+        same uid (reconnect) replaces the first; the old one is detached.
+
+        ``resume`` is the RESUMED-session case (server/session_resume.py): the
+        phone's capture clock never restarted — it kept counting through the
+        drop and told the server where it is — so the sender→call-timeline
+        offset fixed at its first turn is still correct and is KEPT. Without
+        it (a genuinely new capture clock) the offset is re-fixed at the next
+        turn, exactly as before resume existed.
+        """
         async with self.lock:
             if self.ended:
                 raise CallError(410, "call has ended")
@@ -828,11 +850,12 @@ class Call:
             if p.endpoint is not None and p.endpoint is not endpoint:
                 with contextlib.suppress(Exception):
                     p.endpoint.detach()
-            if p.endpoint is not endpoint:
+            if p.endpoint is not endpoint and not resume:
                 # A new socket is a new capture clock (the phone's session
                 # restarted at 0): re-fix the sender→call-timeline offset at
                 # its next turn, or its turns would land before the ones
-                # already merged.
+                # already merged. A RESUMED socket is the same capture clock
+                # (see the docstring) and keeps its offset.
                 p.offset_s = None
             p.endpoint = endpoint
             if store is not None:
@@ -966,7 +989,12 @@ class Call:
         wording (no ``text_tone``, no sender clock), and only a second
         delivery can correct the line on their screens. They are not coached
         on it twice — same words, and the cloud copy already went through the
-        coach (see audio_pipeline's ``on_remote_turn``)."""
+        coach (see audio_pipeline's ``on_remote_turn``).
+
+        A turn whose ``turn_uid`` this call has already merged (the sender
+        re-sent it after a network drop — see server/session_resume.py) is
+        IGNORED: the stored row is returned unchanged and nobody is delivered
+        to a second time."""
         data = event.model_dump() if hasattr(event, "model_dump") else dict(event)
         async with self.lock:
             if self.ended:
@@ -974,6 +1002,17 @@ class Call:
             p = self.participants.get(uid)
             if p is None:
                 raise CallError(403, "not a participant of this call")
+            turn_uid = data.get("turn_uid")
+            if isinstance(turn_uid, str) and turn_uid in self.turn_uids:
+                known_seq = self.turn_uids[turn_uid]
+                logger.info(
+                    "call %s: ignoring %s's re-sent turn %s (already merged as seq %d)",
+                    self.call_id, uid, turn_uid, known_seq,
+                )
+                for t in reversed(self.turns):
+                    if t["seq"] == known_seq:
+                        return t
+                return None
             local_start, local_end = float(data.get("start_time") or 0.0), float(data.get("end_time") or 0.0)
             start, end = self._timeline(p, local_start, local_end)
             source = data.get("transcript_source") or "on-device"
@@ -982,6 +1021,7 @@ class Call:
                 self.seq += 1
             row = {
                 "seq": dup["seq"] if dup is not None else self.seq,
+                "turn_uid": turn_uid if isinstance(turn_uid, str) else None,
                 "participant_uid": uid,
                 "slot": p.slot,
                 "role": p.role,
@@ -1000,6 +1040,8 @@ class Call:
                 "tts_source": data.get("tts_source"),
                 "received_at": now_iso(),
             }
+            if isinstance(turn_uid, str):
+                self.turn_uids[turn_uid] = row["seq"]
             if dup is not None:
                 # How far the phone trailed the transcriber on this span — the
                 # width of the race a hold-back would have to cover. Logged so
@@ -1017,6 +1059,11 @@ class Call:
             p.turn_count += 1
             if len(self.turns) > CALL_MAX_TURNS:
                 del self.turns[:-CALL_MAX_TURNS]
+            if len(self.turn_uids) > CALL_MAX_TURNS:
+                # Bounded with the transcript: ids older than the retained
+                # turns can no longer be re-sent by any live client.
+                for key in list(self.turn_uids)[:-CALL_MAX_TURNS]:
+                    del self.turn_uids[key]
             await self._deliver(uid, row)
             await self._coach_overlap(uid, row)
             return row
@@ -1082,6 +1129,25 @@ class Call:
                 watch_relay.push_vector_events(member.uid, events, t)
             except Exception:  # noqa: BLE001 — no watch relay in this build
                 pass
+    def turns_since(self, viewer_uid: str, since_seq: int,
+                    limit: int = session_resume.RESUME_REPLAY_MAX) -> tuple[list[dict], int]:
+        """Merged rows ``viewer_uid`` has not seen — what a reconnecting phone
+        missed while its socket was down (server/session_resume.py).
+
+        Own turns are excluded: a member's own words are never delivered back
+        to it (its screen rendered them the moment its phone finalized them),
+        exactly as ``push_turn`` fans out. Returns ``(rows, dropped)`` where
+        ``dropped`` counts the oldest rows left out by ``limit`` — the recent
+        context is what a screen needs, and the whole call is never worth
+        replaying into a socket that just came back on a flaky network.
+        """
+        missed = [
+            t for t in self.turns
+            if t["seq"] > since_seq and t.get("participant_uid") != viewer_uid
+        ]
+        if len(missed) <= limit:
+            return missed, 0
+        return missed[-limit:], len(missed) - limit
 
     def turns_for(self, viewer_uid: str, session_id: str) -> list[dict]:
         """The merged transcript as ``viewer_uid``'s episode stores it: own

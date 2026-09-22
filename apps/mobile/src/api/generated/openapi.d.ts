@@ -3903,6 +3903,11 @@ export interface components {
             /** Session Id */
             session_id: string;
             /**
+             * Turn Uid
+             * @description Client-generated unique id for this turn (resume de-duplication)
+             */
+            turn_uid?: string | null;
+            /**
              * Speaker
              * @description Speaker label as the phone assigned it, e.g. 'Speaker A'
              */
