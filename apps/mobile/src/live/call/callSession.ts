@@ -47,6 +47,7 @@ import {
   type IceServer,
   type RtcSignalPayload,
   type SdpInit,
+  type TherapistApproval,
 } from "./types";
 
 export interface CallSessionDeps {
@@ -100,6 +101,13 @@ export class CallSession {
   private connectedAt: number | null = null;
   private muted = false;
   private closed = false;
+  /** Therapist-seat consent, straight off the last `call_state`. Default
+   *  "approved" = nobody is waiting (a call with no observer). */
+  private therapistApproval: TherapistApproval = "approved";
+  private therapistApprovalFrom: string[] = [];
+  private therapistNeedsYourApproval = false;
+  private therapistAutoApproved = false;
+  private therapistUid: string | null = null;
   private readonly role: CallRole;
   private readonly now: () => number;
   private readonly setTimeoutImpl: (fn: () => void, ms: number) => unknown;
@@ -134,6 +142,11 @@ export class CallSession {
     this.selfLabel = created.selfLabel;
     this.joinCode = created.joinCode;
     if (created.iceServers.length > 0) this.iceServers = created.iceServers;
+    this.therapistApproval = "approved";
+    this.therapistApprovalFrom = [];
+    this.therapistNeedsYourApproval = false;
+    this.therapistAutoApproved = false;
+    this.therapistUid = null;
     this.view = {
       ...IDLE_CALL_VIEW,
       selfRole: this.role,
@@ -222,14 +235,48 @@ export class CallSession {
     } else if (typeof msg.self_uid === "string") {
       this.selfUid = msg.self_uid;
     }
+    // Therapist-seat consent, once we know who WE are. Read strictly: a
+    // non-empty `therapist_approval_from` is pending whatever the status
+    // string says, so a server that sends the list and nothing else still
+    // makes the screen ask. `therapist_uid` falls back to the roster, so a
+    // pending observer is always nameable.
+    this.therapistApprovalFrom = (
+      Array.isArray(msg.therapist_approval_from) ? msg.therapist_approval_from : []
+    ).filter((uid): uid is string => typeof uid === "string" && uid.length > 0);
+    this.therapistApproval =
+      msg.therapist_approval === "pending" || this.therapistApprovalFrom.length > 0
+        ? "pending"
+        : "approved";
+    this.therapistNeedsYourApproval =
+      msg.therapist_needs_your_approval === true ||
+      (this.selfUid != null && this.therapistApprovalFrom.includes(this.selfUid));
+    this.therapistAutoApproved = msg.therapist_auto_approved === true;
+    this.therapistUid =
+      typeof msg.therapist_uid === "string" && msg.therapist_uid
+        ? msg.therapist_uid
+        : (participants.find((p) => p.role === "therapist")?.uid ?? null);
     const others = participants.filter((p) => !p.isSelf);
     const seen = new Set<string>();
     for (const p of others) {
       seen.add(p.uid);
       const existing = this.links.get(p.uid);
-      if (!p.connected) {
-        // Present but not connected (still joining, or dropped): drop any
-        // link so it rebuilds cleanly when they come (back).
+      // A PENDING observer gets no media path — on either side. The server
+      // refuses her signaling in BOTH directions (409, server/calls.py
+      // relay_signal), so a link built now strands: its offer and its
+      // trickled candidates are thrown away, and re-offering on the same
+      // connection after she is approved re-sends an SDP with no candidates
+      // behind it. So build nothing until the seat is approved, and let the
+      // roster update that approves her build the link from scratch. She
+      // stays ON the roster throughout (the screen must show her waiting) —
+      // a link with no connection behind it, exactly like someone who has
+      // not joined yet.
+      const pendingSeat =
+        this.therapistApproval === "pending" &&
+        (p.role === "therapist" || this.role === "therapist");
+      if (!p.connected || pendingSeat) {
+        // Present but not connected (still joining, dropped, or waiting to
+        // be let in): drop any link so it rebuilds cleanly when they come
+        // (back).
         if (existing) this.dropLink(p.uid);
         this.links.set(p.uid, this.freshLink(p));
         continue;
@@ -535,6 +582,11 @@ export class CallSession {
       connectedAt: this.connectedAt,
       muted: this.muted,
       iceRestarts: [...this.links.values()].reduce((n, l) => n + l.iceRestarts, 0),
+      therapistApproval: this.therapistApproval,
+      therapistApprovalFrom: this.therapistApprovalFrom,
+      therapistNeedsYourApproval: this.therapistNeedsYourApproval,
+      therapistAutoApproved: this.therapistAutoApproved,
+      therapistUid: this.therapistUid,
     };
     this.deps.onChange(this.view);
   }

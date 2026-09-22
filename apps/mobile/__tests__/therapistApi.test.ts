@@ -1,11 +1,15 @@
 import {
   acceptPatient,
+  consentGranted,
   declinePatient,
+  disclosureFor,
   getSessionNote,
   getTherapistLink,
   listPatients,
+  markPatientSeen,
   putSessionNote,
   setAutoShare,
+  setTherapistConsent,
   setTherapistLink,
   unlinkTherapist,
 } from "../src/api/therapist";
@@ -102,5 +106,51 @@ describe("therapist api", () => {
     expect(saved.updated_at).toBe("now");
     expect(fetchMock.mock.calls[1][1].method).toBe("PUT");
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ text: "Defensive." });
+  });
+
+  it("POST /therapist/consent grants and revokes ONE scope", async () => {
+    fetchMock.mockResolvedValueOnce(ok({ linked: true, consent: { scopes: { live: { granted: true } } } }));
+    const granted = await setTherapistConsent("live", true);
+    expect(consentGranted(granted, "live")).toBe(true);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/therapist\/consent$/);
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ scope: "live", granted: true });
+
+    fetchMock.mockResolvedValueOnce(ok({ linked: true, consent: { scopes: { live: { granted: false } } } }));
+    expect(consentGranted(await setTherapistConsent("live", false), "live")).toBe(false);
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ scope: "live", granted: false });
+
+    fetchMock.mockResolvedValueOnce(ok({ detail: "no therapist linked" }, 404));
+    await expect(setTherapistConsent("live", true)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("the disclosure is read from the server's reply, never invented", async () => {
+    fetchMock.mockResolvedValueOnce(ok({
+      linked: false,
+      consent: { text_version: "2026-08-25", scopes: { episodes: { granted: false, disclosure: "They will see it all." } } },
+    }));
+    const link = await getTherapistLink();
+    expect(disclosureFor(link, "episodes")).toBe("They will see it all.");
+    // A scope the server said nothing about is "" — the honest "I was not
+    // told what to show", never a hard-coded sentence.
+    expect(disclosureFor(link, "live")).toBe("");
+    expect(disclosureFor(null, "episodes")).toBe("");
+    expect(disclosureFor({ linked: false }, "episodes")).toBe("");
+    expect(consentGranted({ linked: false }, "episodes")).toBe(false);
+  });
+
+  it("POST /therapist/patients/{uid}/seen returns the server's read mark", async () => {
+    fetchMock.mockResolvedValueOnce(ok({ patient_uid: "u 1", last_seen_at: "2026-09-01T10:00:00Z" }));
+    expect(await markPatientSeen("u 1")).toBe("2026-09-01T10:00:00Z");
+    expect(fetchMock.mock.calls[0][0]).toMatch(/\/therapist\/patients\/u%201\/seen$/);
+    expect(fetchMock.mock.calls[0][1].method).toBe("POST");
+
+    // A reply without a timestamp is null, not a fabricated "now".
+    fetchMock.mockResolvedValueOnce(ok({ patient_uid: "u1" }));
+    expect(await markPatientSeen("u1")).toBeNull();
+
+    fetchMock.mockResolvedValueOnce(ok({ detail: "no such patient link" }, 404));
+    await expect(markPatientSeen("zz")).rejects.toMatchObject({ status: 404 });
   });
 });

@@ -470,6 +470,32 @@ export interface paths {
         patch: operations["patch_link_therapist_link_patch"];
         trace?: never;
     };
+    "/therapist/consent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set Consent
+         * @description Grant or revoke ONE consent scope on the caller's therapist link.
+         *
+         *     Revoking ``episodes`` stops auto-share at the next ingest and leaves
+         *     everything already shared alone (un-sharing a specific episode is
+         *     Replay's job — the patient can see and revoke each grant there).
+         *     Revoking ``live`` means a therapist joining a call the patient is on
+         *     needs the in-call approval instead of being let straight in.
+         */
+        post: operations["set_consent_therapist_consent_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/therapist/patients": {
         parameters: {
             query?: never;
@@ -498,6 +524,33 @@ export interface paths {
         put?: never;
         /** Accept Patient */
         post: operations["accept_patient_therapist_patients__patient_uid__accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/therapist/patients/{patient_uid}/seen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark Patient Seen
+         * @description "I have read this patient up to now." Stamps the link with THIS
+         *     therapist's read mark, so a dashboard on another device agrees about
+         *     which patients have something new. A patient whose newest session is
+         *     later than the mark shows as unread; a patient the therapist never
+         *     opened has no mark and reads as unread the moment they share anything.
+         *
+         *     Stored on the link (which is per patient AND per therapist — a patient
+         *     names one therapist), so there is no second document to keep in step.
+         */
+        post: operations["mark_patient_seen_therapist_patients__patient_uid__seen_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -535,6 +588,34 @@ export interface paths {
         post?: never;
         /** Delete Note */
         delete: operations["delete_note_therapist_notes__episode_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/therapist/export/{episode_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Episode
+         * @description The session the caller is looking at, as text or PDF (server/
+         *     therapist_export.py): transcript, tone, escalation markers, "what could
+         *     have been said", the sharing/consent record, and the CALLER's own private
+         *     notes.
+         *
+         *     Visibility is the notes rule — own the episode or hold a share grant,
+         *     anything else is a 404 (never confirming a foreign id). The notes
+         *     included are the caller's own by construction (notes are keyed by
+         *     viewer), so one therapist's export can never carry another's.
+         */
+        get: operations["export_episode_therapist_export__episode_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -628,6 +709,47 @@ export interface paths {
         put?: never;
         /** Join Call */
         post: operations["join_call_calls__call_id__join_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/calls/{call_id}/therapist/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Therapist
+         * @description A coached participant lets the observing therapist into the call.
+         */
+        post: operations["approve_therapist_calls__call_id__therapist_approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/calls/{call_id}/therapist/decline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decline Therapist
+         * @description A coached participant refuses the observer: she is removed from the
+         *     call (and was never given any of it). The seat is free again.
+         */
+        post: operations["decline_therapist_calls__call_id__therapist_decline_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2373,6 +2495,26 @@ export interface components {
             end_reason: string | null;
             /** Turn Count */
             turn_count: number;
+            /**
+             * Therapist Approval
+             * @default approved
+             */
+            therapist_approval: string;
+            /**
+             * Therapist Approval From
+             * @default []
+             */
+            therapist_approval_from: string[];
+            /**
+             * Therapist Needs Your Approval
+             * @default false
+             */
+            therapist_needs_your_approval: boolean;
+            /**
+             * Therapist Auto Approved
+             * @default false
+             */
+            therapist_auto_approved: boolean;
             /** Episode Id */
             episode_id: string | null;
             /**
@@ -2513,6 +2655,16 @@ export interface components {
             detail?: {
                 [key: string]: unknown;
             };
+        };
+        /** ConsentIn */
+        ConsentIn: {
+            /** Scope */
+            scope: string;
+            /**
+             * Granted
+             * @default true
+             */
+            granted: boolean;
         };
         /** ConsentRecord */
         ConsentRecord: {
@@ -3225,11 +3377,17 @@ export interface components {
          * MeResponse
          * @description GET /me's actual response shape (Task P3-6): every ``Principal`` field
          *     (account_id, email, legacy — unchanged wire contract, see
-         *     server/tests/watch/test_auth_routes.py's test_me_reports_legacy_flag) plus
+         *     server/tests/watch/test_auth_routes.py's test_me_reports_legacy_flag —
+         *     plus, since guest mode, ``is_guest`` and ``sign_in_provider``) plus
          *     ``has_paired_watch``, the one extra fact the mobile Settings screen needs
          *     to show "Set up your watch" as live state instead of guessing. Backed by
          *     ``PairingStore.has_device_tokens_for_account`` — see ``me()`` below for
          *     the honest-degradation default when no pairing store is wired at all.
+         *
+         *     ``is_guest`` is additive: older clients ignore the key, and the phone
+         *     already knows from Firebase itself whether it signed in anonymously — the
+         *     field exists so the SERVER's view of the account is inspectable (and so a
+         *     support question about a guest account can be answered from one call).
          */
         MeResponse: {
             /** Account Id */
@@ -3241,6 +3399,13 @@ export interface components {
              * @default false
              */
             legacy: boolean;
+            /**
+             * Is Guest
+             * @default false
+             */
+            is_guest: boolean;
+            /** Sign In Provider */
+            sign_in_provider?: string | null;
             /**
              * Has Paired Watch
              * @default false
@@ -3621,6 +3786,13 @@ export interface components {
             constructiveness: number;
             /** Overall */
             overall: number;
+        };
+        /** SeenOut */
+        SeenOut: {
+            /** Patient Uid */
+            patient_uid: string;
+            /** Last Seen At */
+            last_seen_at: string;
         };
         /**
          * SessionAudioAttachResponse
@@ -5036,6 +5208,41 @@ export interface operations {
             };
         };
     };
+    set_consent_therapist_consent_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConsentIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_patients_therapist_patients_get: {
         parameters: {
             query?: never;
@@ -5087,6 +5294,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mark_patient_seen_therapist_patients__patient_uid__seen_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                patient_uid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeenOut"];
                 };
             };
             /** @description Validation Error */
@@ -5220,6 +5460,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_episode_therapist_export__episode_id__get: {
+        parameters: {
+            query?: {
+                format?: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                episode_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
             };
             /** @description Validation Error */
             422: {
@@ -5382,6 +5657,72 @@ export interface operations {
                 "application/json": components["schemas"]["CallJoinIn"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_therapist_calls__call_id__therapist_approve_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decline_therapist_calls__call_id__therapist_decline_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

@@ -6,7 +6,7 @@ import renderer, { act, ReactTestInstance } from "react-test-renderer";
 import TherapistDashboard, { patientRows } from "../src/screens/TherapistDashboard";
 import { useDashboardStore, type SavedSession } from "../src/store/dashboardStore";
 import { listDashboardSessions } from "../src/api/client";
-import { acceptPatient, declinePatient, listPatients } from "../src/api/therapist";
+import { acceptPatient, declinePatient, listPatients, markPatientSeen } from "../src/api/therapist";
 
 /**
  * Unmount every tree this file creates.
@@ -45,11 +45,13 @@ jest.mock("../src/api/therapist", () => ({
   listPatients: jest.fn(),
   acceptPatient: jest.fn(),
   declinePatient: jest.fn(),
+  markPatientSeen: jest.fn(),
 }));
 const mockListSessions = listDashboardSessions as jest.Mock;
 const mockListPatients = listPatients as jest.Mock;
 const mockAccept = acceptPatient as jest.Mock;
 const mockDecline = declinePatient as jest.Mock;
+const mockSeen = markPatientSeen as jest.Mock;
 
 function queryId(comp: renderer.ReactTestRenderer, id: string): ReactTestInstance | null {
   const found = comp.root.findAll((n) => n.props?.testID === id && typeof n.type === "string");
@@ -81,6 +83,7 @@ beforeEach(() => {
   mockListPatients.mockReset().mockResolvedValue([]);
   mockAccept.mockReset();
   mockDecline.mockReset();
+  mockSeen.mockReset().mockResolvedValue("2026-08-25T00:00:00Z");
   act(() => {
     useDashboardStore.setState({ sessions: [], selectedSessionId: null, roleFilter: null, loading: false });
   });
@@ -94,10 +97,42 @@ describe("patientRows", () => {
       { patient_uid: "u3", patient_email: "pending@example.com", status: "pending", auto_share: true, created_at: null, accepted_at: null },
     ]);
     expect(rows).toEqual([
-      { label: "You", sessions: 1, linked: false },
-      { label: "alex@example.com", sessions: 0, linked: true },
-      { label: "sage@example.com", sessions: 1, linked: true },
+      { label: "You", sessions: 1, linked: false, patientUid: null, unread: false },
+      { label: "alex@example.com", sessions: 0, linked: true, patientUid: "u2", unread: false },
+      { label: "sage@example.com", sessions: 1, linked: true, patientUid: "u1", unread: true },
     ]);
+  });
+
+  /**
+   * The unread mark (POST /therapist/patients/{uid}/seen). It is server-side
+   * so every device this therapist uses agrees about what is new; it is
+   * about someone ELSE's sessions, so "You" is never unread.
+   */
+  it("a linked patient is unread until this therapist has opened them", () => {
+    const link = (last_seen_at: string | null) => ({
+      patient_uid: "u1", patient_email: "sage@example.com", status: "accepted" as const,
+      auto_share: true, created_at: null, accepted_at: null, last_seen_at,
+    });
+    const row = (last_seen_at: string | null) =>
+      patientRows([sageSession], [link(last_seen_at)]).find((r) => r.label === "sage@example.com")!;
+
+    // Never opened: unread the moment they share anything.
+    expect(row(null).unread).toBe(true);
+    // Read AFTER their newest session (2026-08-24T18:05Z): caught up.
+    expect(row("2026-08-25T00:00:00Z").unread).toBe(false);
+    // Read BEFORE it: something new since.
+    expect(row("2026-08-01T00:00:00Z").unread).toBe(true);
+    // An unparseable mark is not taken as "read" — it fails toward showing.
+    expect(row("not a date").unread).toBe(true);
+    // A patient with nothing shared yet has nothing to be unread about.
+    expect(patientRows([], [link(null)])[0].unread).toBe(false);
+    // "You" is your own list, never an unread patient.
+    expect(patientRows([ownSession], [])[0]).toMatchObject({ label: "You", unread: false });
+  });
+
+  it("a patient who shared by hand (no link) has no uid to mark seen", () => {
+    const row = patientRows([sageSession], [])[0];
+    expect(row).toMatchObject({ label: "sage@example.com", linked: false, patientUid: null, unread: false });
   });
 });
 
@@ -194,5 +229,72 @@ describe("TherapistDashboard — patients", () => {
     expect(queryId(comp!, "pending-patients")).toBeNull();
     expect(queryId(comp!, "session-e1")).toBeTruthy();
     expect(comp!.root.findByProps({ testID: "filter-You" })).toBeTruthy();
+  });
+
+  /** Opening a patient marks them read for THIS therapist, on the server. */
+  describe("the unread mark", () => {
+    const linked = (last_seen_at: string | null) => [{
+      patient_uid: "u1", patient_email: "sage@example.com", status: "accepted",
+      auto_share: true, created_at: null, accepted_at: "x", last_seen_at,
+    }];
+    const mount = async () => {
+      let comp!: renderer.ReactTestRenderer;
+      act(() => {
+        comp = track(renderer.create(<TherapistDashboard onSelectSession={jest.fn()} />));
+      });
+      await flush();
+      await flush();
+      return comp;
+    };
+
+    /** The chip's label, joined (RN splits it into fragments). */
+    const chip = (comp: renderer.ReactTestRenderer, id: string) =>
+      comp.root
+        .findByProps({ testID: id })
+        .findAll((n) => typeof n.type === "string")
+        .flatMap((n) => n.children)
+        .filter((c): c is string => typeof c === "string")
+        .join("");
+
+    it("shows a dot, and clears it by marking the patient seen", async () => {
+      mockListPatients.mockResolvedValue(linked(null));
+      const comp = await mount();
+      expect(chip(comp, "filter-sage@example.com")).toBe("● sage@example.com ✓ · 1");
+      await act(async () => {
+        press(comp, "filter-sage@example.com");
+      });
+      expect(mockSeen).toHaveBeenCalledWith("u1");
+      await flush();
+      // The dot is gone once the server's mark comes back — and stays gone
+      // when the filter is cleared again.
+      await act(async () => {
+        press(comp, "filter-sage@example.com");
+      });
+      expect(chip(comp, "filter-sage@example.com")).toBe("sage@example.com ✓ · 1");
+      // Deselecting is not a second "read": only opening marks.
+      expect(mockSeen).toHaveBeenCalledTimes(1);
+    });
+
+    it("doesn't mark a patient who has no link to mark", async () => {
+      mockListPatients.mockResolvedValue([]);
+      const comp = await mount();
+      await act(async () => {
+        press(comp, "filter-sage@example.com");
+      });
+      expect(mockSeen).not.toHaveBeenCalled();
+    });
+
+    it("a failed mark leaves the badge, never an error in the therapist's face", async () => {
+      mockListPatients.mockResolvedValue(linked(null));
+      mockSeen.mockRejectedValue(new Error("503"));
+      const comp = await mount();
+      await act(async () => {
+        press(comp, "filter-sage@example.com");
+        await Promise.resolve();
+      });
+      expect(queryId(comp, "patient-error")).toBeNull();
+      // Filtering still worked — the read mark is the only thing that didn't.
+      expect(queryId(comp, "session-e1")).toBeTruthy();
+    });
   });
 });

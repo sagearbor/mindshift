@@ -247,7 +247,16 @@ class TestLink:
     async def test_unlinked_by_default(self, client, store):
         res = await client.get("/therapist/link", headers=_h(PATIENT))
         assert res.status_code == 200
-        assert res.json() == {"linked": False}
+        body = res.json()
+        assert body["linked"] is False
+        # The disclosure rides along UNLINKED too: PUT /therapist/link records
+        # an "episodes" consent, so the patient must be able to read the
+        # sentence before they submit. Nothing is granted yet.
+        episodes = body["consent"]["scopes"]["episodes"]
+        assert episodes["granted"] is False
+        assert episodes["disclosure"] == consent.DISCLOSURES["episodes"]
+        assert body["consent"]["scopes"]["live"]["granted"] is False
+        assert body["consent"]["text_version"] == consent.TEXT_VERSION
 
     async def test_link_by_email_is_pending_with_auto_share_on(self, client, store):
         res = await _link(client, "Mom@Example.com ")
@@ -292,7 +301,7 @@ class TestLink:
         assert res.status_code == 200 and res.json()["auto_share"] is False
         assert store._links[PATIENT]["auto_share"] is False
         assert (await client.delete("/therapist/link", headers=_h(PATIENT))).status_code == 204
-        assert (await client.get("/therapist/link", headers=_h(PATIENT))).json() == {"linked": False}
+        assert (await client.get("/therapist/link", headers=_h(PATIENT))).json()["linked"] is False
         # Idempotent.
         assert (await client.delete("/therapist/link", headers=_h(PATIENT))).status_code == 204
 
@@ -333,7 +342,7 @@ class TestPatients:
         assert (await client.get("/therapist/link", headers=_h(PATIENT))).json()["status"] == "accepted"
         # Decline removes the link entirely.
         assert (await client.post(f"/therapist/patients/{PATIENT}/decline", headers=_h(THERAPIST))).status_code == 204
-        assert (await client.get("/therapist/link", headers=_h(PATIENT))).json() == {"linked": False}
+        assert (await client.get("/therapist/link", headers=_h(PATIENT))).json()["linked"] is False
         assert (await client.post(f"/therapist/patients/{PATIENT}/decline", headers=_h(THERAPIST))).status_code == 404
 
 

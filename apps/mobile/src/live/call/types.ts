@@ -114,6 +114,10 @@ export function isSdpPayload(p: RtcSignalPayload): p is SdpInit {
 
 // --- server -> client -------------------------------------------------------
 
+/** "approved" also means "there is no therapist" — the server only reports
+ *  "pending" while an observer is actually waiting. */
+export type TherapistApproval = "approved" | "pending";
+
 export interface CallStateMessage {
   type: "call_state";
   call_id: string;
@@ -121,6 +125,13 @@ export interface CallStateMessage {
   self_uid?: string;
   self_role?: CallRole | null;
   self_label?: string | null;
+  /** Therapist-seat consent (server/calls.py `state_for`). */
+  therapist_approval?: string | null;
+  /** Coached participants whose approval is still missing, by uid. */
+  therapist_approval_from?: string[] | null;
+  therapist_needs_your_approval?: boolean | null;
+  therapist_auto_approved?: boolean | null;
+  therapist_uid?: string | null;
   participants: {
     uid: string;
     slot?: string;
@@ -232,6 +243,22 @@ export interface CallView {
   muted: boolean;
   /** Total ICE restarts across all links (diagnostics). */
   iceRestarts: number;
+  /**
+   * Therapist-seat consent (server/calls.py "THE THERAPIST SEAT NEEDS
+   * CONSENT"). "pending" means an observer has joined and is being given
+   * NOTHING — no audio, no transcript, no coaching copies — until every
+   * coached participant but the host approves. Every member sees this; only
+   * a uid in `therapistApprovalFrom` can act on it.
+   */
+  therapistApproval: TherapistApproval;
+  /** Uids still to approve. Empty whenever `therapistApproval` is approved. */
+  therapistApprovalFrom: string[];
+  /** THIS client is one of them: show Approve / Decline. */
+  therapistNeedsYourApproval: boolean;
+  /** Standing `live` consent covered the seat, so nobody was asked in-call. */
+  therapistAutoApproved: boolean;
+  /** The observer's uid while one is in the call. */
+  therapistUid: string | null;
   error: string | null;
 }
 
@@ -247,6 +274,11 @@ export const IDLE_CALL_VIEW: CallView = {
   connectedAt: null,
   muted: false,
   iceRestarts: 0,
+  therapistApproval: "approved",
+  therapistApprovalFrom: [],
+  therapistNeedsYourApproval: false,
+  therapistAutoApproved: false,
+  therapistUid: null,
   error: null,
 };
 

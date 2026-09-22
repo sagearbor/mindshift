@@ -37,9 +37,13 @@ jest.mock("../src/api/me", () => ({
 // The "My therapist" card (TherapistLinkCard.test.tsx covers it) reads the
 // link on mount; keep it deterministic and unlinked here.
 jest.mock("../src/api/therapist", () => ({
+  // The pure consent readers (disclosureFor / consentGranted) stay real —
+  // TherapistLinkCard calls them on whatever getTherapistLink returns.
+  ...jest.requireActual("../src/api/therapist"),
   getTherapistLink: jest.fn(() => Promise.resolve({ linked: false })),
   setTherapistLink: jest.fn(),
   setAutoShare: jest.fn(),
+  setTherapistConsent: jest.fn(),
   unlinkTherapist: jest.fn(),
 }));
 

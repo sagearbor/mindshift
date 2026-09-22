@@ -22,6 +22,13 @@ export interface CallApi {
   join(joinCode: string, role?: CallRole, displayName?: string): Promise<CallCreated>;
   /** `POST /calls/{id}/end` — hang up for everyone; best effort. */
   end(callId: string): Promise<void>;
+  /** `POST /calls/{id}/therapist/approve` — this coached participant lets
+   *  the waiting observer in. NOT best-effort: a failure must surface, or
+   *  the tap silently did nothing and the therapist stays muted. */
+  approveTherapist(callId: string): Promise<void>;
+  /** `POST /calls/{id}/therapist/decline` — refuse the observer; the server
+   *  removes her from the call (she was given none of it). */
+  declineTherapist(callId: string): Promise<void>;
   /** `GET /calls/ice` — the ICE servers WITHOUT creating a call, for the
    *  connectivity pre-flight on the idle screen. */
   ice(): Promise<IceConfig>;
@@ -102,6 +109,20 @@ export const callApi: CallApi = {
     } catch {
       // Best effort: the socket closing ends it server-side too.
     }
+  },
+  async approveTherapist(callId) {
+    const res = await fetch(
+      `${API_URL}/calls/${encodeURIComponent(callId)}/therapist/approve`,
+      { method: "POST", headers: await authHeaders(), body: JSON.stringify({}) },
+    );
+    if (!res.ok) throw await describeFailure(res, "couldn't approve the therapist");
+  },
+  async declineTherapist(callId) {
+    const res = await fetch(
+      `${API_URL}/calls/${encodeURIComponent(callId)}/therapist/decline`,
+      { method: "POST", headers: await authHeaders(), body: JSON.stringify({}) },
+    );
+    if (!res.ok) throw await describeFailure(res, "couldn't decline the therapist");
   },
   async ice() {
     const res = await fetch(`${API_URL}/calls/ice`, { headers: await authHeaders() });

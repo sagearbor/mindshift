@@ -383,6 +383,12 @@ interface UseAudioStreamReturn {
   /** Hang up: ends the call for both sides and stops the session. */
   hangUp: () => Promise<void>;
   setCallMuted: (muted: boolean) => void;
+  /** Therapist-seat consent: let the waiting observer in / refuse her (she
+   *  is then removed from the call). Only meaningful for a coached
+   *  participant the server listed in `call.therapistApprovalFrom`; the
+   *  server refuses anyone else. A failure lands on `call.error`. */
+  approveTherapist: () => Promise<void>;
+  declineTherapist: () => Promise<void>;
   /** Where the other person's voice comes out on the phone (native only;
    *  the browser decides for itself). Speaker by default. */
   callRoute: AudioRoute;
@@ -2759,6 +2765,39 @@ export function useAudioStream(
     }
   }, []);
 
+  /**
+   * Therapist-seat consent (server/calls.py). A coached participant other
+   * than the host lets the waiting observer in — or refuses, which removes
+   * her from the call. The server is the authority: it answers with the new
+   * state and broadcasts `call_state`, so nothing is assumed locally. A
+   * failure is surfaced on the view's `error` (never swallowed — a silent
+   * no-op would leave the participant believing they approved).
+   */
+  const respondToTherapist = useCallback(async (approve: boolean) => {
+    const callId = callViewRef.current.callId;
+    if (!callId) return;
+    try {
+      if (approve) {
+        await callApiRef.current.approveTherapist(callId);
+      } else {
+        await callApiRef.current.declineTherapist(callId);
+      }
+      const v = { ...callViewRef.current, error: null };
+      callViewRef.current = v;
+      setCallView(v);
+    } catch (err) {
+      const v = {
+        ...callViewRef.current,
+        error: err instanceof Error ? err.message : String(err),
+      };
+      callViewRef.current = v;
+      setCallView(v);
+    }
+  }, []);
+
+  const approveTherapist = useCallback(() => respondToTherapist(true), [respondToTherapist]);
+  const declineTherapist = useCallback(() => respondToTherapist(false), [respondToTherapist]);
+
   const setCallRoute = useCallback((route: AudioRoute) => {
     callRouteRef.current = route;
     setCallRouteState(route);
@@ -2817,6 +2856,8 @@ export function useAudioStream(
     joinCall,
     hangUp,
     setCallMuted,
+    approveTherapist,
+    declineTherapist,
     callRoute,
     setCallRoute,
   };

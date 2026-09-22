@@ -96,9 +96,17 @@ def new_link(
 
 def patient_view(link: dict | None) -> dict:
     """What the PATIENT's settings screen sees. Never leaks the therapist's
-    uid — the client addresses the link by nothing but its own account."""
+    uid — the client addresses the link by nothing but its own account.
+
+    The ``consent`` block rides along even with NO link, every scope
+    ungranted. That is not decoration: ``PUT /therapist/link`` records an
+    ``episodes`` consent the moment the patient names someone, so the
+    patient must be able to READ the sentence they are agreeing to BEFORE
+    they submit — and the client must never keep its own copy of the
+    wording (a client copy would drift from the ``text_version`` the record
+    cites). Unlinked, this is the only place that sentence comes from."""
     if not link:
-        return {"linked": False}
+        return {"linked": False, "consent": consent_mod.view(None)}
     return {
         "linked": True,
         "therapist_email": link.get("therapist_email"),

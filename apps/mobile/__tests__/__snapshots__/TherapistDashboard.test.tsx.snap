@@ -298,6 +298,7 @@ exports[`TherapistDashboard renders filtered by role 1`] = `
                 "color": "#FFFFFF",
                 "fontWeight": "600",
               },
+              false,
             ]
           }
         >
@@ -353,6 +354,7 @@ exports[`TherapistDashboard renders filtered by role 1`] = `
                 "color": "#374151",
                 "fontSize": 13,
               },
+              false,
               false,
             ]
           }
@@ -835,6 +837,7 @@ exports[`TherapistDashboard renders with sessions 1`] = `
                 "fontSize": 13,
               },
               false,
+              false,
             ]
           }
         >
@@ -890,6 +893,7 @@ exports[`TherapistDashboard renders with sessions 1`] = `
                 "color": "#374151",
                 "fontSize": 13,
               },
+              false,
               false,
             ]
           }
