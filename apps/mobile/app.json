@@ -154,7 +154,13 @@
         }
       ],
       "./plugins/withWatchTargetVersion.js",
-      "@bacons/apple-targets"
+      "@bacons/apple-targets",
+      [
+        "expo-status-bar",
+        {
+          "style": "dark"
+        }
+      ]
     ],
     "extra": {
       "apiUrl": "${EXPO_PUBLIC_API_URL}",
