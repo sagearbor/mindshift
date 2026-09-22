@@ -389,6 +389,81 @@ answer with an opaque 409.
 
 Certificates last one year; re-run to roll them.
 
+### More than one Xcode target (watch app, share extension, App Clip)
+
+Every target has its own bundle identifier, so every target needs its own
+provisioning profile — but they all share the one team certificate. The script
+takes `--watch-target <XcodeTargetName>` (sugar for
+`--extra-target .watchkitapp=<name>`), registers `<bundle id>.watchkitapp`,
+mints a second `IOS_APP_STORE` profile, and switches `credentials.json` to
+EAS's **multi-target** form:
+
+```bash
+/usr/bin/python3 scripts/ios_credentials_bootstrap.py \
+    --bundle-id com.sagearbor.mindshift.app --name MindShift \
+    --project-dir apps/mobile \
+    --xcode-target MindShift --watch-target MindShiftWatch
+```
+
+```json
+{"ios": {"MindShift":      {"provisioningProfilePath": "…", "distributionCertificate": {…}},
+         "MindShiftWatch": {"provisioningProfilePath": "…", "distributionCertificate": {…}}}}
+```
+
+The multi-target form **replaces** the single-target one — `ios.provisioning‑
+ProfilePath` at the top level stops being read — and its keys are **Xcode target
+names**, not bundle ids and not app names. Read them out of the project rather
+than guessing:
+
+```bash
+grep productName apps/mobile/ios/*.xcodeproj/project.pbxproj
+```
+
+### ⚠️ `IOS_APP_STORE` is the profile type for a watch app too
+
+There is no watch-specific `profileType`. Apple's portal text says an iOS
+profile covers "iOS and watchOS apps and App Clips", and the
+`POST /v1/profiles` for `com.sagearbor.mindshift.app.watchkitapp` with
+`profileType: IOS_APP_STORE` was accepted on 2026-09-22. Profile *names* are
+unique per team, so name extra profiles after the target
+("MindShiftWatch App Store"), not the app.
+
+### ⚠️ For an Expo CNG project, eas-cli finds targets in app.json, not the pbxproj
+
+`ios/` does not exist when `eas build` starts, so eas-cli enumerates iOS targets
+from `extra.eas.build.experimental.ios.appExtensions` in the evaluated Expo
+config. A target that is missing there gets no credentials however correct
+`credentials.json` is. Config plugins that generate targets
+(`@bacons/apple-targets`, `expo-targets`) write that key themselves; confirm
+with `npx expo config --type introspect`, and check the `targetName` there
+matches the `credentials.json` key exactly.
+
+### ⚠️ A watch app that does not match the phone's version is rejected
+
+Apple compares the two bundles at upload: `ITMS-90473` for
+`CFBundleShortVersionString`, `ITMS-90379` for `CFBundleVersion`.
+`@bacons/apple-targets@5.0.0` hardcodes `MARKETING_VERSION = "1.0"` for every
+target it generates, and a `watch` target has no real `Info.plist`
+(`GENERATE_INFOPLIST_FILE = YES`), so the literal goes straight into the
+shipped plist. Fix it with a follow-on config plugin — see
+`apps/mobile/plugins/withWatchTargetVersion.js`, which must be listed **before**
+`@bacons/apple-targets` because config-plugin mods run in reverse registration
+order.
+
+Prove it locally instead of paying for a cloud build to find out:
+
+```bash
+npx expo prebuild -p ios --clean
+grep MARKETING_VERSION ios/*.xcodeproj/project.pbxproj
+xcodebuild -project ios/App.xcodeproj -target <WatchTarget> -sdk watchos \
+  -destination 'generic/platform=watchOS' CODE_SIGNING_ALLOWED=NO build
+/usr/libexec/PlistBuddy -c Print ios/build/Release-watchos/<WatchTarget>.app/Info.plist
+```
+
+The last command shows the *built* plist, which is the thing Apple actually
+validates. No watchOS simulator runtime is needed for any of this — only the
+watchOS SDK, which ships with Xcode.
+
 ### Adding a capability (Sign in with Apple, push, HealthKit)
 
 ```
