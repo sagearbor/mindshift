@@ -66,7 +66,25 @@ directory and each repo symlinks or reads them. Set up once, reuse everywhere.
 | Play service accounts | `~/.config/play/<app>-sa.json` (600) | `scripts/play_publish.py`, `eas.json` |
 
 `asc.env` exports `EXPO_ASC_KEY_ID`, `EXPO_ASC_ISSUER_ID`,
-`EXPO_ASC_API_KEY_PATH` and `APPLE_TEAM_ID`.
+`EXPO_ASC_API_KEY_PATH`, `APPLE_TEAM_ID` **and `EXPO_APPLE_TEAM_ID`**.
+
+### ⚠️ eas-cli wants the team id under its own name
+
+Set `EXPO_APPLE_TEAM_ID` as well as `APPLE_TEAM_ID`. With the three
+`EXPO_ASC_*` variables all set but the team id only under `APPLE_TEAM_ID`,
+`eas submit` reports
+
+> `App Store Connect credentials are incomplete, skipping TestFlight setup`
+
+and then offers to generate a brand-new API key — which it does through an
+interactive Apple ID login, i.e. straight back into the wall this whole
+approach exists to avoid. The check is a four-way `&&` on
+`EXPO_ASC_API_KEY_PATH`, `EXPO_ASC_KEY_ID`, `EXPO_ASC_ISSUER_ID` and
+`EXPO_APPLE_TEAM_ID` (`build/submit/ios/ensureTestFlightSetup.js`), and it
+names none of the four in the message. Verified on eas-cli 24.7.0.
+
+Answer **no** to "Generate a new App Store Connect API Key?" — a second key
+solves nothing and the generation path needs the password.
 
 ### ⚠️ Getting the .p8 onto the machine
 
