@@ -158,13 +158,27 @@ still_required_before_submission:
       be corrected FIRST — App Store Connect still holds the owner's old Carmel,
       IN address and they have moved to Charlotte, NC. Publishing a wrong address
       also risks failing Apple's verification.
-  - field: review notes
-    state: TODO
+  - field: review contact phone number
+    state: OWNER_MUST_SUPPLY
     note: >
-      No demo account needed — say so explicitly, and give the tap path to guest
-      mode, plus where account deletion lives (Settings → Account → Delete my
-      account, Guideline 5.1.1(v)). The Play pack's app_access.owner_action has
-      the wording.
+      Apple REQUIRES a phone number on the App Review contact, in +country-code
+      format, and rejects the whole appStoreReviewDetails write without it —
+      unlike Play, where it is optional. The Play pack's hard rule is never to
+      invent a phone number, so the field is left blank and reported. The review
+      NOTES were written separately and are stored; patching only notes and
+      demoAccountRequired succeeds, which is the workaround if this needs
+      editing again before the phone exists. contactEmail, contactFirstName and
+      contactLastName are also still empty because supplying any contact field
+      drags the phone requirement in with it.
+  - field: review notes
+    state: DONE
+    note: >
+      Written, 2080 chars, demoAccountRequired=false. Leads with "NO DEMO
+      ACCOUNT IS NEEDED — tap Continue as guest", gives the tap path to live
+      coaching and to account deletion (Guideline 5.1.1(v)), explains the
+      microphone purpose, and makes the invite-only case for Guideline 1.2
+      explicitly — including an offer to add a report-and-block path if the
+      reviewer wants one, which is cheaper than an appeal.
 
 gotchas_for_the_next_app:
   - "filter[identifier] on /v1/bundleIds is a PREFIX match: querying com.x.app also
