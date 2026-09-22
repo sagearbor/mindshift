@@ -164,7 +164,20 @@ def sh(*args: str) -> None:
 
 
 def ensure_bundle_id(asc: ASC, bundle_id: str, name: str, team: str) -> str:
-    found = asc.get(f"/v1/bundleIds?filter[identifier]={bundle_id}&limit=10")["data"]
+    # Apple's filter[identifier] is a PREFIX match, not an exact one, and the
+    # order is not the order you would hope for. Querying
+    # com.sagearbor.mindshift.app returns BOTH that record and
+    # com.sagearbor.mindshift.app.watchkitapp, with the watch one first — so
+    # taking data[0] silently resolves the parent app to its own watch target.
+    # Nothing failed while the parent profile already existed and was merely
+    # reused, which is exactly why this was worth catching before a reissue
+    # bound a profile to the wrong identifier. Always re-check exactly.
+    found = [b for b in asc.get(
+        f"/v1/bundleIds?filter[identifier]={bundle_id}&limit=200")["data"]
+        if b["attributes"]["identifier"] == bundle_id]
+    if len(found) > 1:
+        die(f"{len(found)} bundle id records claim {bundle_id} — resolve this at "
+            "developer.apple.com before continuing")
     if found:
         print(f"  bundle id {bundle_id} already registered (id={found[0]['id']})")
         return found[0]["id"]
@@ -325,6 +338,42 @@ def ensure_profile(asc: ASC, out: pathlib.Path, bid_id: str, cert_id: str,
     return path
 
 
+def remember_extra_targets(out: pathlib.Path, extras: list, clear: bool) -> list:
+    """Persist --extra-target choices so a later bare run cannot silently undo them.
+
+    The failure this prevents: once an app has a watch target, running
+
+        ios_credentials_bootstrap.py --bundle-id <id> --name <app>
+
+    without repeating --watch-target would write credentials.json back to the
+    single-target form, and the NEXT cloud build would fail at signing the watch
+    target with an error pointing nowhere near this script. Different sessions
+    and different repos share this tool, so "remember to pass the flag" is not a
+    safeguard anybody can rely on. The extras are therefore state, remembered
+    next to the profile they belong to, exactly like the certificate id.
+
+    Explicit flags always win and are re-saved; --no-extra-targets is the way to
+    deliberately go back to a single target.
+    """
+    state = out / "extra_targets.json"
+    if clear:
+        state.unlink(missing_ok=True)
+        print("  cleared the remembered extra targets (--no-extra-targets)")
+        return []
+    if extras:
+        state.write_text(json.dumps([list(e) for e in extras], indent=2) + "\n")
+        state.chmod(0o600)
+        return extras
+    if state.exists():
+        remembered = [tuple(e) for e in json.loads(state.read_text())]
+        if remembered:
+            print("  reusing remembered extra target(s): " +
+                  ", ".join(f"{t} ({sfx})" for sfx, t in remembered))
+            print("  (pass --no-extra-targets to drop them)")
+        return remembered
+    return []
+
+
 def parse_extra_targets(args) -> list[tuple[str, str]]:
     """Normalise --watch-target / --extra-target into [(bundle suffix, Xcode target)].
 
@@ -367,6 +416,9 @@ def main() -> None:
                          "key in multi-target mode. Defaults to --name. Read it from "
                          "`grep productName ios/*.xcodeproj/project.pbxproj`; only "
                          "used when there is more than one target.")
+    ap.add_argument("--no-extra-targets", action="store_true",
+                    help="forget any remembered extra targets and write the "
+                         "single-target credentials.json")
     ap.add_argument("--watch-target", default=None, metavar="XCODE_TARGET",
                     help="Xcode target name of a watchOS companion. Mints "
                          "<bundle-id>.watchkitapp and its own App Store profile.")
@@ -389,6 +441,8 @@ def main() -> None:
         d.mkdir(parents=True, exist_ok=True)
         d.chmod(0o700)
     team = os.environ.get("APPLE_TEAM_ID") or die("APPLE_TEAM_ID is not set")
+
+    extras = remember_extra_targets(out, extras, args.no_extra_targets)
 
     print(f"App Store Connect bootstrap for {args.bundle_id} (team {team})")
     asc = ASC()
