@@ -10,6 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.wear.compose.material.Chip
 import androidx.wear.compose.material.ChipDefaults
 import androidx.wear.compose.material.MaterialTheme
@@ -113,6 +114,11 @@ fun SignInScreen(onSignedIn: () -> Unit, modifier: Modifier = Modifier) {
                 text = errorText ?: code?.let { "Enter $it on your phone or gauge.app/pair" }
                     ?: "Getting a code…",
                 style = MaterialTheme.typography.body1,
+                // Left-aligned, this ran past the left edge of a round 454x454 face and
+                // ate the "E" of "Enter" — the pairing code is the one thing on this
+                // screen the user has to read. Centering matches every other caption in
+                // the app (see GlanceScreen) and keeps the line inside the circle.
+                textAlign = TextAlign.Center,
             )
         }
         item {
