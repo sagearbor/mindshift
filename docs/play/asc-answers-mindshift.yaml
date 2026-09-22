@@ -1,0 +1,178 @@
+# App Store Connect answer pack — MindShift (iOS)
+#
+# The Apple counterpart to play-answers-mindshift.yaml, and the same contract:
+# every answer is recorded with WHY, so the next session does not re-derive it
+# and the other seven apps can copy the reasoning rather than the values.
+#
+# Everything below was applied via the App Store Connect API on 2026-09-22 and
+# is in PREPARE_FOR_SUBMISSION. NOTHING HAS BEEN SUBMITTED. Submission is the
+# owner's decision.
+
+app:
+  name: "MindShift Coach"
+  name_why: >
+    "MindShift" is unavailable: two live apps already use it exactly (Jessica
+    Montet's, and Heidy Ubeda's), neither in the US storefront, which is why a
+    US-only search shows nothing. Apple's app-name uniqueness is global and
+    exact. The installed launcher label stays "MindShift" — Apple, unlike Play,
+    does not require the store name and the home-screen name to match. Editable
+    until submission.
+  apple_id: "6814688797"
+  bundle_id: com.sagearbor.mindshift.app
+  sku: MINDSHIFT-IOS-001
+  primary_locale: en-US
+  team_id: "553Y9KWR84"
+
+version:
+  version_string: "1.18.0"
+  version_string_why: >
+    Must equal the build's CFBundleShortVersionString. The record was created as
+    "1.0" by default; a mismatch is the ITMS-90473 family of upload rejections.
+  build_attached: "4"
+  build_state: VALID
+
+listing:
+  description:
+    source: store_listing.full_description in play-answers-mindshift.yaml
+    length: 3552
+    limit: 4000
+    amended: >
+      The Play copy ended "Requires a free account and a microphone." Guest mode
+      made that untrue, and account requirements are something App Review checks
+      directly, so the iOS copy now says no account is needed to try it. Worth
+      propagating back to the Play listing at the next listing edit.
+  promotional_text:
+    value: "Real-time coaching for hard conversations. Hear how you land, as you speak."
+    length: 75
+    limit: 170
+  keywords:
+    value: "empathy,communication,conversation,coach,tone of voice,listening,relationships,feedback,calm"
+    length: 92
+    limit: 100
+    why: >
+      Derived from the Play tag list (Voice Calling, Self-Improvement,
+      Relationships, Speech Recognition, Note Taking). Deliberately omits
+      "therapy", "counselling", "mental health" and "anxiety" — the app is
+      explicitly not a medical or mental-health service and the description says
+      so; keywords that imply otherwise invite both a rejection and a rating
+      problem.
+  support_url: https://arborfam-hub.web.app
+  marketing_url: https://arborfam-hub.web.app
+  privacy_policy_url: https://arborfam-hub.web.app/privacy
+  privacy_policy_note: >
+    Lives on appInfoLocalizations, not appStoreVersionLocalizations — a
+    different resource from the description, and easy to miss.
+
+categories:
+  primary: PRODUCTIVITY
+  secondary: LIFESTYLE
+  why: >
+    Apple has no "Communication" category, which is what the Play listing uses.
+    The Play pack's rule is to pick Utility / Productivity / Communication and
+    explicitly forbids Health & Fitness and Medical because those trigger the
+    health-app regime; Productivity is the closest Apple equivalent, with
+    Lifestyle as the stated fallback. Do NOT "correct" this to Health & Fitness
+    because heart rate is now a declared data type — see
+    data_safety._judgement_calls[1] in the Play pack: declaring a health data
+    type does not make this a health app.
+
+age_rating:
+  # Set via PATCH /v1/ageRatingDeclarations/{id}. Note the relationship hangs
+  # off appInfos, NOT appStoreVersions (that path 404s), and the API requires
+  # all 22 attributes in one request or it answers 409 naming each missing one.
+  # Type gotcha: most content questions are enums ("NONE"), but
+  # healthOrWellnessTopics, messagingAndChat, userGeneratedContent, advertising,
+  # gambling, lootBox, parentalControls, ageAssurance and unrestrictedWebAccess
+  # are BOOLEANs.
+  all_content_questions: NONE
+  all_content_questions_why: >
+    The app authors no media. No violence, sexual content, profanity, gambling,
+    drugs, weapons, horror or contests of any kind. A user's own transcript can
+    contain anything they say, but that is user-generated content shown only to
+    that user and to a therapist they deliberately invited — it belongs under
+    userGeneratedContent, not under the developer-content questions. This
+    mirrors content_rating.language.why in the Play pack.
+  medicalOrTreatmentInformation: NONE
+  medicalOrTreatmentInformation_why: >
+    The app is explicitly not therapy, counselling, or a medical service, does
+    not diagnose or treat, and says so in the description. It offers no
+    treatment information.
+  healthOrWellnessTopics: true
+  healthOrWellnessTopics_why: >
+    True and unavoidable: the app coaches emotional regulation and surfaces a
+    calm score. It makes no health claim, has no trend view and no resting-rate
+    report — but wellness topics are discussed, and this question asks about
+    topics, not claims.
+  messagingAndChat: true
+  userGeneratedContent: true
+  interaction_why: >
+    Declared TRUE deliberately. The app hosts in-app audio calls (WebRTC,
+    audio-only) and lets a user share a session — audio, transcript and analysis
+    — with a therapist they name by email. Invite-only, no discovery, no
+    stranger-to-stranger contact, nothing public. But the capability exists, and
+    the Play pack's standing rule is to answer conservatively; under-declaring a
+    capability is the worse failure, and the "Users Interact" descriptor it
+    produces is expected and correct.
+  ⚠_OWNER_DECISION_GUIDELINE_1_2: >
+    READ THIS BEFORE SUBMITTING. Declaring user-generated content and messaging
+    puts the app under App Store Review Guideline 1.2, which expects apps with
+    user-generated content to provide a way to filter objectionable content, a
+    mechanism to report it, and the ability to block abusive users. MindShift has
+    NONE of those, on the deliberate grounds that there is no public or shared
+    surface to moderate — content is private to the account and to people the
+    user personally invited (see
+    catch_all.one_line_answers_for_the_whole_console.has_a_content_moderation_system
+    in the Play pack).
+    Google accepted that reasoning. Apple may not, because 1.2 is a feature
+    requirement rather than a disclosure question. The realistic options are:
+    (a) submit as-is and argue the invite-only case in the review notes;
+    (b) add an in-app report/block path before submitting;
+    (c) reduce scope so sharing and calls are not user-to-user.
+    This was NOT decided autonomously — the declaration is accurate either way,
+    and the choice of how to handle 1.2 is the owner's.
+  advertising: false
+  unrestrictedWebAccess: false
+  unrestrictedWebAccess_note: >
+    No in-app browser. Two outbound links exist (the Wear listing, and the call
+    invite pointing at the app's own web build) and the Analyze screen accepts a
+    user-pasted media URL that the SERVER fetches — none of which renders
+    arbitrary web content inside the app.
+  parentalControls: false
+  ageAssurance: false
+  gambling: false
+  lootBox: false
+
+still_required_before_submission:
+  - field: screenshots
+    state: IN PROGRESS
+    note: >
+      Zero screenshot sets as of writing. An agent is capturing them from the
+      iOS simulator (guest mode, so no credentials) and uploading via the API.
+      Simulator captures are acceptable to Apple provided they show the real app.
+  - field: EU trader status
+    state: OWNER
+    note: >
+      Business → Complete Compliance Requirements. REQUIRED for EU distribution,
+      which the owner has asked for. Declaring trader makes Apple publish the
+      trader contact details on the EU listing, so the legal-entity address must
+      be corrected FIRST — App Store Connect still holds the owner's old Carmel,
+      IN address and they have moved to Charlotte, NC. Publishing a wrong address
+      also risks failing Apple's verification.
+  - field: review notes
+    state: TODO
+    note: >
+      No demo account needed — say so explicitly, and give the tap path to guest
+      mode, plus where account deletion lives (Settings → Account → Delete my
+      account, Guideline 5.1.1(v)). The Play pack's app_access.owner_action has
+      the wording.
+
+gotchas_for_the_next_app:
+  - "filter[identifier] on /v1/bundleIds is a PREFIX match: querying com.x.app also
+     returns com.x.app.watchkitapp, watch first. Always re-filter exactly."
+  - "POST /v1/apps is forbidden — the app record is the one thing the API cannot
+     create. FORBIDDEN_ERROR 'does not allow CREATE'."
+  - "ageRatingDeclaration hangs off appInfos, not appStoreVersions."
+  - "privacyPolicyUrl is on appInfoLocalizations; description/keywords are on
+     appStoreVersionLocalizations."
+  - "The age-rating PATCH is all-or-nothing: send all 22 attributes or read the
+     409 for the list of what you missed."
