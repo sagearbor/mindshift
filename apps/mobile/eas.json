@@ -60,6 +60,7 @@
         "changesNotSentForReview": true
       },
       "ios": {
+        "ascAppId": "6814688797",
         "appleTeamId": "553Y9KWR84"
       }
     }
