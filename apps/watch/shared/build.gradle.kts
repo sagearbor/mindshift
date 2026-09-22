@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.plugin.mpp.apple.XCFramework
+
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.kotlin.serialization)
@@ -33,9 +35,41 @@ val syncPolicyVectors by tasks.registering(Sync::class) {
     into(policyVectorsRoot)
 }
 
+// One XCFramework carrying every Apple target, so Xcode consumes a single
+// artifact: ./gradlew :shared:assembleMindShiftSharedXCFramework
+val xcframework = XCFramework("MindShiftShared")
+
 kotlin {
     jvm()
     androidTarget()
+
+    // watchOS (2026-09-22). The point of this module has always been that the
+    // POLICY is one implementation and the platforms are thin shells around it
+    // — that is what server/tests/fixtures/policy_vectors/ enforces across
+    // Python, TypeScript and Kotlin. Adding Apple targets makes a future
+    // watchOS app a fourth consumer of the same vectors rather than a second
+    // implementation that drifts.
+    //
+    // This costs almost nothing because commonMain is already free of JVM
+    // APIs (no java.*, no javax.*, no Thread, no System) — verified before
+    // these lines were added, and worth re-checking if that ever fails to
+    // compile: the fix is to move the offending code to a platform source
+    // set, never to add an Apple-side copy of a policy.
+    //
+    // watchosArm64        = real Apple Watch hardware
+    // watchosSimulatorArm64 = the simulator on this Apple Silicon Mac
+    // (watchosX64 is deliberately omitted: Intel Macs are not in play here.)
+    val appleTargets = listOf(watchosArm64(), watchosSimulatorArm64())
+    appleTargets.forEach { target ->
+        target.binaries.framework {
+            // Swift sees this as `import MindShiftShared`.
+            baseName = "MindShiftShared"
+            // Static: a watchOS app extension embedding a dynamic framework is
+            // more moving parts than this needs, and the module is small.
+            isStatic = true
+            xcframework.add(this)
+        }
+    }
 
     sourceSets {
         val commonMain by getting {

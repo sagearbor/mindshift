@@ -14,12 +14,12 @@ class DebugRing(capacity: Int = 200) {
     // exists to report crashes, so it must never itself crash on bad input —
     // clamp rather than propagate an IllegalArgumentException/NoSuchElementException.
     private val capacity: Int = capacity.coerceAtLeast(0)
-    private val lock = Any()
+    private val lock = RingLock()
     private val events = ArrayDeque<TelemetryEventOut>(this.capacity)
 
     fun add(level: String, tag: String, message: String, ts: String, stack: String? = null, data: JsonObject? = null) {
         if (capacity <= 0) return
-        synchronized(lock) {
+        lock.withLock {
             if (events.size >= capacity) {
                 events.removeFirst()
             }
@@ -29,9 +29,9 @@ class DebugRing(capacity: Int = 200) {
         }
     }
 
-    fun snapshot(): List<TelemetryEventOut> = synchronized(lock) { events.toList() }
+    fun snapshot(): List<TelemetryEventOut> = lock.withLock { events.toList() }
 
     fun clear() {
-        synchronized(lock) { events.clear() }
+        lock.withLock { events.clear() }
     }
 }
