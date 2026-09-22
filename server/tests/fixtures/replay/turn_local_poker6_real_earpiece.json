@@ -12,6 +12,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-poker6_real-earpiece",
+      "turn_uid": "replay-poker6_real-earpiece-1",
       "speaker": "Speaker A",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -34,6 +35,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-poker6_real-earpiece",
+      "turn_uid": "replay-poker6_real-earpiece-2",
       "speaker": "Unknown",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -56,6 +58,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-poker6_real-earpiece",
+      "turn_uid": "replay-poker6_real-earpiece-3",
       "speaker": "Speaker B",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -78,6 +81,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-poker6_real-earpiece",
+      "turn_uid": "replay-poker6_real-earpiece-4",
       "speaker": "Speaker C",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -100,6 +104,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-poker6_real-earpiece",
+      "turn_uid": "replay-poker6_real-earpiece-5",
       "speaker": "Speaker D",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -122,6 +127,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-poker6_real-earpiece",
+      "turn_uid": "replay-poker6_real-earpiece-6",
       "speaker": "Speaker E",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -144,6 +150,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-poker6_real-earpiece",
+      "turn_uid": "replay-poker6_real-earpiece-7",
       "speaker": "Speaker F",
       "speaker_person_id": null,
       "speaker_match_score": null,

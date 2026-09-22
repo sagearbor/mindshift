@@ -12,6 +12,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-1",
       "speaker": "Speaker A",
       "speaker_person_id": "p-Speaker A",
       "speaker_match_score": 0.6933812708485704,
@@ -41,6 +42,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-2",
       "speaker": "Unknown",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -70,6 +72,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-3",
       "speaker": "Speaker B",
       "speaker_person_id": "p-Speaker B",
       "speaker_match_score": 0.8000252377130403,
@@ -99,6 +102,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-4",
       "speaker": "Speaker B",
       "speaker_person_id": "p-Speaker B",
       "speaker_match_score": 0.7922964412524238,
@@ -128,6 +132,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-5",
       "speaker": "Speaker A",
       "speaker_person_id": "p-Speaker A",
       "speaker_match_score": 0.6690891898004099,
@@ -157,6 +162,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-6",
       "speaker": "Speaker A",
       "speaker_person_id": "p-Speaker A",
       "speaker_match_score": 0.6557059712082389,
@@ -186,6 +192,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-7",
       "speaker": "Speaker B",
       "speaker_person_id": "p-Speaker B",
       "speaker_match_score": 0.9099888065749092,
@@ -215,6 +222,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-8",
       "speaker": "Unknown",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -244,6 +252,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-9",
       "speaker": "Speaker A",
       "speaker_person_id": "p-Speaker A",
       "speaker_match_score": 0.787235503060306,
@@ -273,6 +282,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-10",
       "speaker": "Speaker A",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -302,6 +312,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-11",
       "speaker": "Speaker A",
       "speaker_person_id": "p-Speaker B",
       "speaker_match_score": 0.6947,
@@ -331,6 +342,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-12",
       "speaker": "Speaker A",
       "speaker_person_id": "p-Speaker B",
       "speaker_match_score": 0.7287,
@@ -360,6 +372,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-13",
       "speaker": "Unknown",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -389,6 +402,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-14",
       "speaker": "Speaker A",
       "speaker_person_id": "p-Speaker A",
       "speaker_match_score": 0.7915348330951657,
@@ -418,6 +432,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-15",
       "speaker": "Speaker A",
       "speaker_person_id": "p-Speaker B",
       "speaker_match_score": 0.7489,
@@ -447,6 +462,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-16",
       "speaker": "Speaker A",
       "speaker_person_id": "p-Speaker B",
       "speaker_match_score": 0.7611,
@@ -476,6 +492,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-17",
       "speaker": "Speaker A",
       "speaker_person_id": "p-Speaker B",
       "speaker_match_score": 0.7787,
@@ -505,6 +522,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-18",
       "speaker": "Speaker A",
       "speaker_person_id": "p-Speaker A",
       "speaker_match_score": 0.6978335698662426,
@@ -534,6 +552,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-19",
       "speaker": "Speaker A",
       "speaker_person_id": "p-Speaker A",
       "speaker_match_score": 0.6801818419036921,
@@ -563,6 +582,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-20",
       "speaker": "Speaker B",
       "speaker_person_id": "p-Speaker B",
       "speaker_match_score": 0.6568217052584285,
@@ -592,6 +612,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-21",
       "speaker": "Unknown",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -621,6 +642,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-22",
       "speaker": "Speaker A",
       "speaker_person_id": "p-Speaker B",
       "speaker_match_score": 0.7923,
@@ -650,6 +672,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-23",
       "speaker": "Speaker A",
       "speaker_person_id": "p-Speaker B",
       "speaker_match_score": 0.8047,
@@ -679,6 +702,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-24",
       "speaker": "Unknown",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -708,6 +732,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-25",
       "speaker": "Speaker A",
       "speaker_person_id": "p-Speaker A",
       "speaker_match_score": 0.715372457404551,
@@ -737,6 +762,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-26",
       "speaker": "Speaker B",
       "speaker_person_id": "p-Speaker B",
       "speaker_match_score": 0.7515686570150479,
@@ -766,6 +792,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-27",
       "speaker": "Unknown",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -795,6 +822,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-28",
       "speaker": "Unknown",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -824,6 +852,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-29",
       "speaker": "Unknown",
       "speaker_person_id": null,
       "speaker_match_score": null,
@@ -853,6 +882,7 @@
     {
       "type": "turn_local",
       "session_id": "replay-scene_couple_escalation-therapist",
+      "turn_uid": "replay-scene_couple_escalation-therapist-30",
       "speaker": "Unknown",
       "speaker_person_id": null,
       "speaker_match_score": null,

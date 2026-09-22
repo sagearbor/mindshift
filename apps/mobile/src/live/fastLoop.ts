@@ -305,6 +305,11 @@ export interface FastLoopDeps {
   /** Seconds of each speaker's finalized-turn PCM pooled for a mid-call
    *  "remember this voice" (most recent kept). 0 disables pooling. */
   speakerAudioSeconds?: number;
+  /** Session resume: fixes the per-session half of every `turn_uid` instead
+   *  of drawing a random one. Only the offline replay harness sets it, so
+   *  its committed dumps stay byte-stable when regenerated; a real session
+   *  must draw a fresh one (see newTurnUidPrefix). */
+  turnUidPrefix?: string;
 }
 
 export interface FastLoopSession {
@@ -325,6 +330,16 @@ export interface FastLoopSummary {
 const defaultNow = () =>
   typeof performance !== "undefined" ? performance.now() : Date.now();
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Session resume: the per-session half of a `turn_uid`. Uniqueness is all
+ * that is asked of it (the server only ever compares ids for equality), so
+ * time + randomness is plenty — no crypto dependency, and the shape stays
+ * inside the server's `[A-Za-z0-9._:-]{1,64}` bound.
+ */
+export function newTurnUidPrefix(random: () => number = Math.random): string {
+  return `t${Date.now().toString(36)}${Math.floor(random() * 0x1000000).toString(36)}`;
+}
 
 interface HeldSpeech {
   text: string;
@@ -405,6 +420,13 @@ export class FastLoop {
   private sttAvailable = false;
   private sttStartSeconds = 0;
   private unsubscribe: (() => void)[] = [];
+  /** Session resume (server/session_resume.py): a per-session prefix plus a
+   *  counter make every turn_local's `turn_uid`. The server ignores an id it
+   *  already processed, so a turn re-sent after a network drop is coached and
+   *  merged exactly once. The prefix is random so two sessions (or two phones
+   *  in one call) can never collide on "turn 3". */
+  private turnUidPrefix = "";
+  private turnUidSeq = 0;
 
   readonly latencyLog: TurnLatency[] = [];
 
@@ -646,6 +668,8 @@ export class FastLoop {
     this.lastFrameEnd = 0;
     this.nextHeatSecond = HEAT_WINDOW_SECONDS;
     this.heatLog.length = 0;
+    this.turnUidPrefix = this.deps.turnUidPrefix ?? newTurnUidPrefix();
+    this.turnUidSeq = 0;
     this.latencyLog.length = 0;
     this.bindings = new Map();
     this.boundLabelOfPerson = new Map();
@@ -1243,6 +1267,11 @@ export class FastLoop {
       this.deps.send({
         type: "turn_local",
         session_id: session.sessionId,
+        // Stamped here, once, so a turn the phone had to buffer through a
+        // network drop keeps the SAME id when it is finally sent — that is
+        // what lets the server ignore the copy that was in flight when the
+        // socket died (server/session_resume.py).
+        turn_uid: `${this.turnUidPrefix}-${(this.turnUidSeq += 1)}`,
         speaker: verdict.speaker,
         speaker_person_id: verdict.personId,
         speaker_match_score: verdict.score,
