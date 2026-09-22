@@ -61,7 +61,10 @@
       },
       "ios": {
         "ascAppId": "6814688797",
-        "appleTeamId": "553Y9KWR84"
+        "appleTeamId": "553Y9KWR84",
+        "ascApiKeyPath": "/Users/sagearbor/.appstoreconnect/private_keys/AuthKey_KW53SD5THJ.p8",
+        "ascApiKeyId": "KW53SD5THJ",
+        "ascApiKeyIssuerId": "39e04851-c5b1-4255-bab4-db1cfca564ab"
       }
     }
   }
