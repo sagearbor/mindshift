@@ -1919,7 +1919,21 @@ async def _authenticate(
         ctx.guest_deadline = time.monotonic() + guest_quota.guest_max_session_seconds()
     ctx.uid = uid
     await _apply_config(ctx, payload)
-    await send_json({"type": "config_ack"})
+    ack: dict[str, object] = {"type": "config_ack"}
+    if ctx.is_guest:
+        # Tell a guest the shape of their allowance on the way IN, not on the
+        # way out. These numbers were previously only ever sent by
+        # _close_ws_guest_limit — i.e. at the moment a limit refused a session —
+        # so the app could not warn anyone until it was already too late, and a
+        # device that had never hit a limit had nothing to show. The client
+        # caches them (guestLimitsStore) and must keep reading them from here
+        # rather than hardcoding: a hardcoded 3 becomes a lie the day the env
+        # changes.
+        ack["guest_limits"] = {
+            "max_sessions_per_day": guest_quota.GUEST_MAX_SESSIONS_PER_DAY,
+            "max_session_minutes": guest_quota.GUEST_MAX_SESSION_MIN,
+        }
+    await send_json(ack)
     return True
 
 

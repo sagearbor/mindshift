@@ -309,6 +309,38 @@ class TestWebSocketQuota:
         finally:
             ws.__exit__(None, None, None)
 
+    def test_config_ack_tells_a_guest_the_allowance_up_front(self, fake_ws, monkeypatch):
+        """The numbers must arrive on CONNECT, not only when a limit refuses.
+
+        They used to be sent solely by _close_ws_guest_limit — i.e. at the
+        moment a session was cut off — so the app could not warn anyone before
+        the fact, and a device that had never hit a limit had nothing to show
+        at all. Deliberately not the 3/10 defaults: a server that hardcoded
+        them would pass a 3/10 assertion by accident.
+        """
+        monkeypatch.setattr(guest_quota, "GUEST_MAX_SESSIONS_PER_DAY", 7)
+        monkeypatch.setattr(guest_quota, "GUEST_MAX_SESSION_MIN", 4)
+        ws, first = _open_guest(fake_ws, str(uuid.uuid4()))
+        try:
+            assert first["type"] == "config_ack"
+            assert first["guest_limits"] == {
+                "max_sessions_per_day": 7,
+                "max_session_minutes": 4,
+            }
+        finally:
+            ws.__exit__(None, None, None)
+
+    def test_a_signed_up_account_gets_no_guest_limits(self, fake_ws):
+        """Only a guest's ack carries them — a real account has no allowance."""
+        ws = fake_ws.websocket_connect(f"/ws/session/{uuid.uuid4()}").__enter__()
+        try:
+            ws.send_text(json.dumps({"type": "config", "id_token": "fake-id-token"}))
+            ack = json.loads(ws.receive_text())
+            assert ack["type"] == "config_ack"
+            assert "guest_limits" not in ack
+        finally:
+            ws.__exit__(None, None, None)
+
     def test_the_fourth_session_of_the_day_is_refused(self, fake_ws, monkeypatch):
         monkeypatch.setattr(guest_quota, "GUEST_MAX_SESSIONS_PER_DAY", 3)
         for _ in range(3):

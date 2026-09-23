@@ -1165,6 +1165,36 @@ describe("useAudioStream — guest_limit", () => {
     });
   });
 
+  it("learns the allowance from config_ack, BEFORE any limit refuses a session", async () => {
+    // The point of the feature. guest_limit only arrives when a limit is
+    // already refusing a session — too late to warn anyone, and never at all
+    // on a device that has not hit one. config_ack arrives on connect.
+    const { ws } = await startLiveSession();
+
+    await act(() =>
+      ws.emitServer({
+        type: "config_ack",
+        // Not the 3/10 defaults, so a hardcoded client fails this.
+        guest_limits: { max_sessions_per_day: 7, max_session_minutes: 4 },
+      }),
+    );
+
+    expect(useGuestLimitsStore.getState().maxSessionsPerDay).toBe(7);
+    expect(useGuestLimitsStore.getState().maxSessionMinutes).toBe(4);
+  });
+
+  it("a config_ack without guest_limits leaves what is already known alone", async () => {
+    // A signed-up account gets a bare config_ack. It must not wipe numbers
+    // cached from an earlier guest session on the same device.
+    useGuestLimitsStore.setState({ maxSessionsPerDay: 7, maxSessionMinutes: 4 });
+    const { ws } = await startLiveSession();
+
+    await act(() => ws.emitServer({ type: "config_ack" }));
+
+    expect(useGuestLimitsStore.getState().maxSessionsPerDay).toBe(7);
+    expect(useGuestLimitsStore.getState().maxSessionMinutes).toBe(4);
+  });
+
   it("learns both numbers off the wire and shows the server's own sentence", async () => {
     const { hook, ws } = await startLiveSession();
 

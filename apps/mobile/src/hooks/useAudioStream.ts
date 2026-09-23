@@ -2109,8 +2109,18 @@ export function useAudioStream(
             if (drainingRef.current) {
               finishDrain();
             }
+          } else if (data.type === "config_ack") {
+            // A guest's allowance arrives here, on CONNECT. The guest_limit
+            // frame below carries the same numbers but is only sent when a
+            // limit is refusing a session — too late to warn anyone, and
+            // nothing at all on a device that has never hit one. Same store,
+            // same shape, so the banner can state the real quota up front.
+            const limits = (data as { guest_limits?: unknown }).guest_limits;
+            if (limits && typeof limits === "object") {
+              useGuestLimitsStore.getState().learnFromServer(limits);
+            }
           }
-          // config_ack and other control frames need no UI action.
+          // Other control frames need no UI action.
         } catch {
           // Ignore malformed messages
         }
