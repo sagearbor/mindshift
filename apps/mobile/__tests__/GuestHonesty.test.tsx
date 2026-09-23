@@ -33,6 +33,8 @@ import {
   readGuestLimits,
   useGuestLimitsStore,
 } from "../src/store/guestLimitsStore";
+import { useGuestUpgradeStore } from "../src/store/guestUpgradeStore";
+import GuestSignOutConfirm from "../src/components/GuestSignOutConfirm";
 
 interface FirebaseAuthMock {
   currentUser: unknown;
@@ -125,6 +127,7 @@ beforeEach(() => {
   });
 });
 
+
 describe("Log out — a guest is warned, an account holder is not", () => {
   it("asks a GUEST first, and does not sign them out until they confirm", async () => {
     const comp = await boot(fakeGuest());
@@ -141,10 +144,15 @@ describe("Log out — a guest is warned, an account holder is not", () => {
     const body = String(queryId(comp, "guest-sign-out-body")!.props.children);
     expect(body).toMatch(/no way to sign back in/i);
     expect(body).toMatch(/doesn't delete/i);
-    // ...and it has to name the way out that keeps everything.
+    // ...and it has to OFFER the way out that keeps everything, not merely
+    // describe it. The sentence used to end "tap Create account in the guest
+    // bar at the top", which asks someone who has just been warned about
+    // losing their recordings to cancel the dialog and go hunting. There is
+    // now a button here, so assert the affordance rather than the wording.
     expect(
       String(queryId(comp, "guest-sign-out-keep")!.props.children),
-    ).toMatch(/create account/i);
+    ).toMatch(/creating an account/i);
+    expect(queryId(comp, "guest-sign-out-create-account")).toBeTruthy();
 
     act(() => comp.unmount());
   });
@@ -346,5 +354,49 @@ describe("GuestBanner — the limits are stated before one bites", () => {
     expect(guestLimitsLine(3, null)).toBe("Guest limit: 3 live sessions a day.");
     expect(guestLimitsLine(null, 10)).toBe("Guest limit: 10 minutes each.");
     expect(guestLimitsLine(null, null)).toBe(GUEST_LIMITS_UNKNOWN_TEXT);
+  });
+});
+
+describe("guest sign-out — the way out", () => {
+  beforeEach(() => useGuestUpgradeStore.setState({ requested: false }));
+
+  it("offers account creation at the moment the data is about to be lost", () => {
+    // The confirm used to only TELL the user to find a button elsewhere,
+    // after cancelling the dialog. This is the one screen where they have been
+    // told, in those words, that they are about to lose their recordings.
+    const onCancel = jest.fn();
+    let tree!: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(
+        <GuestSignOutConfirm onCancel={onCancel} onConfirm={jest.fn()} />,
+      );
+    });
+
+    act(() =>
+      tree.root
+        .findByProps({ testID: "guest-sign-out-create-account" })
+        .props.onPress(),
+    );
+
+    // Asks the banner to open its upgrade form, and closes the dialog so the
+    // form is reachable.
+    expect(useGuestUpgradeStore.getState().requested).toBe(true);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not sign the user out on the way to creating an account", () => {
+    const onConfirm = jest.fn();
+    let tree!: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(
+        <GuestSignOutConfirm onCancel={jest.fn()} onConfirm={onConfirm} />,
+      );
+    });
+    act(() =>
+      tree.root
+        .findByProps({ testID: "guest-sign-out-create-account" })
+        .props.onPress(),
+    );
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 });

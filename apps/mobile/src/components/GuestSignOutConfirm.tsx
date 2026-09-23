@@ -1,3 +1,4 @@
+import { useGuestUpgradeStore } from "../store/guestUpgradeStore";
 import React from "react";
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from "react-native";
 
@@ -47,8 +48,8 @@ export const GUEST_SIGN_OUT_BODY =
   "brand-new, empty account.";
 
 export const GUEST_SIGN_OUT_KEEP =
-  "To keep it instead: tap “Create account” in the guest bar at the " +
-  "top. Same account and same recordings — it just gains a way back in.";
+  "Creating an account keeps everything — the same account and the same " +
+  "recordings, it just gains a way back in.";
 
 export default function GuestSignOutConfirm({
   onCancel,
@@ -96,6 +97,21 @@ export default function GuestSignOutConfirm({
             </Text>
           </TouchableOpacity>
 
+          <TouchableOpacity
+            testID="guest-sign-out-create-account"
+            accessibilityRole="button"
+            style={styles.createButton}
+            onPress={() => {
+              // The whole point of this screen. Offering the way out HERE,
+              // rather than telling them to go and find a button in a banner
+              // they have to cancel this dialog to reach, is the difference
+              // between a warning and a rescue.
+              useGuestUpgradeStore.getState().request();
+              onCancel();
+            }}
+          >
+            <Text style={styles.createText}>Create an account instead</Text>
+          </TouchableOpacity>
           <TouchableOpacity
             testID="guest-sign-out-cancel"
             accessibilityRole="button"
@@ -186,6 +202,20 @@ const styles = StyleSheet.create({
   dangerButtonText: {
     color: "#FFFFFF",
     fontSize: 14,
+    fontWeight: "700",
+  },
+  createButton: {
+    paddingVertical: 13,
+    borderRadius: 10,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#4A90D9",
+    backgroundColor: "#EEF4FC",
+    marginBottom: 8,
+  },
+  createText: {
+    color: "#1F4E79",
+    fontSize: 15,
     fontWeight: "700",
   },
   cancelButton: {

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   StyleSheet,
 } from "react-native";
 import { useAuthStore } from "../store/authStore";
+import { useGuestUpgradeStore } from "../store/guestUpgradeStore";
 import { useGuestLimitsStore } from "../store/guestLimitsStore";
 import { googleSignInConfigured } from "../auth/firebaseConfig";
 import GoogleSignInButton from "./GoogleSignInButton";
@@ -89,6 +90,16 @@ export default function GuestBanner() {
   const maxSessionMinutes = useGuestLimitsStore((s) => s.maxSessionMinutes);
 
   const [open, setOpen] = useState(false);
+  // Opened from elsewhere — today, the confirm a guest sees when they are about
+  // to log out and lose everything. One-shot: consume it so a later render
+  // cannot re-open a form the user has closed.
+  const upgradeRequested = useGuestUpgradeStore((st) => st.requested);
+  const consumeUpgradeRequest = useGuestUpgradeStore((st) => st.consume);
+  useEffect(() => {
+    if (!upgradeRequested) return;
+    setOpen(true);
+    consumeUpgradeRequest();
+  }, [upgradeRequested, consumeUpgradeRequest]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
