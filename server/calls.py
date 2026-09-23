@@ -562,6 +562,11 @@ class Participant:
     email: str | None = None
     declared_name: str | None = None
     joined_at: str = field(default_factory=now_iso)
+    # The transcript sequence this member arrived at. Replay is clamped to it
+    # so a member never receives turns spoken before they were in the room —
+    # `since_seq` comes from the client and a therapist who sends 0 would
+    # otherwise be handed the whole conversation. See `turns_since`.
+    joined_seq: int = 0
     endpoint: CallEndpoint | None = None
     # Sender clock → call timeline (see the module docstring). None until
     # this member's first turn.
@@ -991,7 +996,10 @@ class Call:
         if self.is_full:
             raise CallError(409, "call is full")
         slot = self._next_slot(role)
-        p = Participant(uid=uid, slot=slot, role=role, email=email, declared_name=display_name)
+        p = Participant(
+            uid=uid, slot=slot, role=role, email=email,
+            declared_name=display_name, joined_seq=self.seq,
+        )
         self.participants[uid] = p
         if len(self.participants) >= 2:
             self.status = STATUS_ACTIVE
@@ -1329,9 +1337,24 @@ class Call:
         context is what a screen needs, and the whole call is never worth
         replaying into a socket that just came back on a flaky network.
         """
+        # CONSENT GATE. Every other send path asks the muzzle — push_turn,
+        # _deliver, fan_out, relay_signal, _persist_episodes — and this one did
+        # not, which made it a way around all of them: a PENDING observer whose
+        # socket sent {"type":"resume","since_seq":0} was handed the entire
+        # merged transcript, text, speaker and tone, while both participants'
+        # screens still read "waiting to be let in". Re-sending resume polled it
+        # in near-real time. Found by adversarial review, 2026-09-23.
+        p = self.participants.get(viewer_uid)
+        if p is None or self.is_muzzled(p):
+            return [], 0
+        # Replay is PROSPECTIVE, like approval. Clamping to the member's own
+        # join point stops an approved observer retro-fetching the ten minutes
+        # that happened before she was invited — `since_seq` is client-chosen,
+        # so trusting a 0 would hand over the whole call.
+        floor = max(since_seq, p.joined_seq)
         missed = [
             t for t in self.turns
-            if t["seq"] > since_seq and t.get("participant_uid") != viewer_uid
+            if t["seq"] > floor and t.get("participant_uid") != viewer_uid
         ]
         if len(missed) <= limit:
             return missed, 0

@@ -676,6 +676,19 @@ def usage_scope(site: str, feature: "str | None" = None):
 
     async def _scope_dep(uid: str = Depends(get_current_uid)):
         if feature:
+            # Load what OTHER instances already recorded for this uid today
+            # before judging the cap. Without it the daily budget was
+            # per-process-lifetime rather than per-UTC-day: prime() was called
+            # from exactly one place — a live socket opening — so every REST
+            # site (/respond, /score, /analyze, counterfactual, model download,
+            # call create) handed a cold instance's caller a brand-new full
+            # allowance. Cloud Run recycles constantly and scales to zero, so
+            # that was most of them. Found by adversarial review, 2026-09-23.
+            #
+            # Cheap by construction: prime() is a no-op within SEED_TTL_S (60 s)
+            # per uid, and swallows store failures rather than failing the
+            # request.
+            await _meter.prime(uid)
             exceeded = _meter.check(uid, feature)
             if exceeded is not None:
                 logger.info(

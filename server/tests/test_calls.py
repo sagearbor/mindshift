@@ -1835,3 +1835,73 @@ class TestTherapistSeatConsent:
         assert meta["share_origin"] == "in_call"
         assert meta["shared_with_therapist"] == EMAILS[THER]
         assert meta["consent"]["scope"] == "live" and meta["consent"]["granted_by"] == HOST
+
+
+# ---------------------------------------------------------------------------
+# Adversarial review 2026-09-23: the ways the consent muzzle and the
+# therapist-seat state machine can be got around.
+# ---------------------------------------------------------------------------
+
+class TestTherapistSeatConsentHoles:
+    def test_a_pending_observer_cannot_replay_the_transcript_with_resume(self, env):
+        """CONSENT BREAK. ``push_turn``/``_deliver``/``fan_out``/
+        ``relay_signal`` all refuse a pending observer — but the resume
+        handshake (server/session_resume.py) replays the merged call turns
+        straight out of ``Call.turns_since``, which asks nobody whether this
+        member is allowed to have them. She never even has to drop: a
+        ``resume`` frame with ``since_seq: 0`` right after ``call_join``
+        hands her the whole conversation."""
+        cid = _open_three(env, approve=False)
+        with open_ws(env.client, f"/ws/session/{HOST_SID}", token=HOST_TOKEN) as host, \
+                open_ws(env.client, f"/ws/session/{PEER_SID}", token=PEER_TOKEN) as peer, \
+                open_ws(env.client, f"/ws/session/{THER_SID}", token=THER_TOKEN) as ther:
+            _bind(host, cid)
+            _bind(peer, cid)
+            _bind(ther, cid)
+            _drain_state(host, 3)
+            host.send_text(json.dumps(_turn(HOST_SID, "Something I only told him.")))
+            recv_until(peer, lambda m: m.get("type") == "transcript")
+            ther.send_text(json.dumps({
+                "type": "resume", "session_id": THER_SID, "since_seq": 0,
+            }))
+            replay, seen = recv_until(ther, lambda m: m.get("type") == "resume_replay")
+            leaked = [m for m in seen if m.get("type") == "transcript"]
+            if replay["replayed"]:
+                extra, _ = recv_until(ther, lambda m: m.get("type") == "transcript")
+                leaked.append(extra)
+        assert replay["replayed"] == 0, "a pending observer was replayed the call transcript"
+        assert [m["text"] for m in leaked] == []
+
+    def test_an_approved_observer_is_not_handed_the_part_before_she_arrived(self, env):
+        """CONSENT BREAK, the worse half of the same hole. Approval is
+        PROSPECTIVE everywhere it is worded — the ask says "until you decide
+        they get none of it", and ``_deliver`` only ever pushes turns that
+        happen after she is let in. ``resume`` is retrospective: once
+        approved she can ask for ``since_seq: 0`` and be handed the whole
+        conversation from before she was ever on the call."""
+        created = _create(env, invitee_email=EMAILS[PEER], display_name="Sage")
+        cid, code = created["call_id"], created["join_code"]
+        assert _join(env, cid, PEER, display_name="Dad")[0] == 200
+        with open_ws(env.client, f"/ws/session/{HOST_SID}", token=HOST_TOKEN) as host, \
+                open_ws(env.client, f"/ws/session/{PEER_SID}", token=PEER_TOKEN) as peer:
+            _bind(host, cid)
+            _bind(peer, cid)
+            host.send_text(json.dumps(_turn(HOST_SID, "Said before she was invited.")))
+            recv_until(peer, lambda m: m.get("type") == "transcript")
+            # Only NOW is the therapist invited, and only now approved.
+            assert _join(env, cid, THER, join_code=code, role="therapist")[0] == 200
+            _approve_therapist(env, cid)
+            with open_ws(env.client, f"/ws/session/{THER_SID}", token=THER_TOKEN) as ther:
+                _bind(ther, cid, role="therapist")
+                ther.send_text(json.dumps({
+                    "type": "resume", "session_id": THER_SID, "since_seq": 0,
+                }))
+                replay, seen = recv_until(ther, lambda m: m.get("type") == "resume_replay")
+                leaked = [m for m in seen if m.get("type") == "transcript"]
+                if replay["replayed"]:
+                    extra, _ = recv_until(ther, lambda m: m.get("type") == "transcript")
+                    leaked.append(extra)
+        assert replay["replayed"] == 0, (
+            "an observer was replayed the conversation from before she joined"
+        )
+        assert [m["text"] for m in leaked] == []

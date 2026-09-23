@@ -436,7 +436,7 @@ class TestRestQuotas:
     ):
         monkeypatch.setattr(usage_meter, "DAILY_LLM_TOKEN_CAP", 10)
         usage_meter.record(TEST_UID, **{
-            usage_meter.llm_key("batch_analysis", "input_tokens"): 5000,
+            usage_meter.llm_key("respond", "input_tokens"): 5000,
         })
         resp = await client.post("/analyze", json={
             "turns": [
@@ -542,3 +542,67 @@ class TestAdminAllowlistParsing:
     def test_unset_is_empty(self, monkeypatch):
         monkeypatch.delenv("MINDSHIFT_ADMIN_UIDS", raising=False)
         assert usage_meter.admin_uids() == frozenset()
+
+
+# ---------------------------------------------------------------------------
+# Adversarial review 2026-09-23: the ways a daily cap does not hold.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+class TestQuotaAcrossARestart:
+    async def test_a_rest_cap_is_not_a_fresh_allowance_after_a_cold_start(
+        self, client, mock_respond, monkeypatch,
+    ):
+        """A daily cap must survive the process that counts it.
+
+        ``UsageMeter.check`` compares against ``_own`` (this process) plus
+        ``_seed`` (what other instances' shards held when last read), and
+        ``_seed`` is only ever filled by :meth:`prime`. ``prime`` is called
+        from exactly ONE place — ``audio_pipeline`` when a live socket opens
+        — and from the flusher, for uids this process has already counted
+        something for. No REST path primes anything.
+
+        So on a fresh instance (Cloud Run recycles them constantly, and the
+        service scales to zero) the account's whole spend for the day is
+        sitting in the store, ``_seed`` is empty, and every REST cap —
+        /analyze, /respond, /score, the counterfactual, the model download,
+        call creation — hands out a brand-new full daily allowance. The
+        guardrail is per process lifetime, not per UTC day.
+        """
+        monkeypatch.setattr(usage_meter, "DAILY_LLM_TOKEN_CAP", 10)
+
+        class PersistedDayStore:
+            """The store a restarted process finds: today's shard, written by
+            the instance that has just been recycled."""
+
+            async def read_usage_totals(self, uid, day, *, exclude_instance=None):
+                return {usage_meter.llm_key("respond", "input_tokens"): 5000}
+
+            async def write_usage_shard(self, uid, day, instance, counters):
+                return None
+
+        usage_meter.bind_store(PersistedDayStore())
+        # Nothing in memory — this process has counted nothing yet.
+        assert usage_meter.totals(TEST_UID) == {}
+
+        resp = await client.post("/respond", json={
+            "transcript_turn": "You never listen to me!",
+            "role": "Husband",
+            "empathy_slider": 50,
+        })
+        assert resp.status_code == 429, (
+            "the day's persisted spend was ignored — the cap reset with the process"
+        )
+
+    async def test_priming_is_what_would_have_made_it_hold(self, monkeypatch):
+        """The same store, with the one call nothing on a REST path makes."""
+        monkeypatch.setattr(usage_meter, "DAILY_LLM_TOKEN_CAP", 10)
+
+        class PersistedDayStore:
+            async def read_usage_totals(self, uid, day, *, exclude_instance=None):
+                return {usage_meter.llm_key("respond", "input_tokens"): 5000}
+
+        usage_meter.bind_store(PersistedDayStore())
+        assert usage_meter.check(TEST_UID, "batch_analysis") is None   # the bug
+        await usage_meter.prime(TEST_UID)
+        assert usage_meter.check(TEST_UID, "batch_analysis") is not None
