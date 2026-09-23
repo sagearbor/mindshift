@@ -264,7 +264,7 @@ describe("HomeDesignScreen — live preview", () => {
   it("mirrors the current tab slots, in order", () => {
     const { comp } = render();
     const preview = queryId(comp, "home-design-preview")!;
-    expect(textOf(preview)).toBe("Live CoachAnalyze a ConversationYour Growth");
+    expect(textOf(preview)).toBe("Live CoachAnalyze a conversationYour growth");
     act(() => comp.unmount());
   });
 

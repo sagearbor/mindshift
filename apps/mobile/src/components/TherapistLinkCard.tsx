@@ -61,6 +61,15 @@ export default function TherapistLinkCard() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Bumped by "Try again" — re-runs the load below. Settings has no
+  // RefreshControl, so the old "pull to refresh" instruction was impossible
+  // to follow (source review 2026-09-23).
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const retryLoad = useCallback(() => {
+    setLoadError(null);
+    setLoadAttempt((n) => n + 1);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     getTherapistLink()
@@ -76,7 +85,7 @@ export default function TherapistLinkCard() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadAttempt]);
 
   const submit = useCallback(async () => {
     const trimmed = email.trim();
@@ -152,9 +161,21 @@ export default function TherapistLinkCard() {
     <View style={styles.card} testID="therapist-link-card">
       <Text style={styles.title}>My therapist</Text>
       {link === null ? (
-        <Text style={styles.sub} testID="therapist-link-status">
-          {loadError ? `Couldn’t load your therapist link (${loadError})` : "Loading…"}
-        </Text>
+        <>
+          <Text style={styles.sub} testID="therapist-link-status">
+            {loadError ? `Couldn’t load your therapist link (${loadError})` : "Loading…"}
+          </Text>
+          {loadError ? (
+            <TouchableOpacity
+              testID="therapist-link-retry"
+              accessibilityRole="button"
+              style={styles.retryButton}
+              onPress={retryLoad}
+            >
+              <Text style={styles.retryText}>Try again</Text>
+            </TouchableOpacity>
+          ) : null}
+        </>
       ) : link.linked ? (
         <>
           <Text style={styles.sub} testID="therapist-link-status">
@@ -237,7 +258,7 @@ export default function TherapistLinkCard() {
           ) : (
             <Text style={styles.error} testID="therapist-disclosure-missing">
               Couldn’t load what you’d be agreeing to, so linking is off for
-              now. Pull to refresh, or try again in a moment.
+              now. Try again in a moment.
             </Text>
           )}
           <View style={styles.inputRow}>
@@ -385,6 +406,15 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#DC2626",
   },
+  retryButton: {
+    alignSelf: "flex-start",
+    marginTop: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    backgroundColor: "#4A90D9",
+  },
+  retryText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
   error: {
     marginTop: 8,
     fontSize: 13,

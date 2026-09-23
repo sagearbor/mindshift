@@ -14,9 +14,12 @@ interface LiveTranscriptProps {
   /** Whether the entry's speaker already has a name (then no "who?" hint —
    *  the label stays tappable to correct it). Default: unnamed. */
   isNamed?: (entry: TranscriptEntry) => boolean;
+  /** No session running yet. "Waiting for conversation..." before Start
+   *  read as if the app were already listening (UX walk 2026-09-23). */
+  idle?: boolean;
 }
 
-export default function LiveTranscript({ entries, onSpeakerPress, isNamed }: LiveTranscriptProps) {
+export default function LiveTranscript({ entries, onSpeakerPress, isNamed, idle = false }: LiveTranscriptProps) {
   const scrollRef = useRef<ScrollView>(null);
   const devMode = useDevModeStore((s) => s.devMode);
 
@@ -30,7 +33,9 @@ export default function LiveTranscript({ entries, onSpeakerPress, isNamed }: Liv
     return (
       <View style={styles.emptyContainer} testID="live-transcript-empty">
         <Text style={styles.emptyText}>
-          Waiting for conversation...
+          {idle
+            ? "Tap Start Listening — the conversation appears here as it happens."
+            : "Waiting for conversation..."}
         </Text>
       </View>
     );

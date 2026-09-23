@@ -29,6 +29,11 @@ export default function AccountMenu({
   onClose,
 }: AccountMenuProps) {
   const label = user?.email || user?.displayName || "this account";
+  // A guest has no email and no display name; "Signed in as this account"
+  // told them nothing (UX walk 2026-09-23). Say what is actually true.
+  const signedInLine = user?.isAnonymous
+    ? "Guest session — no account yet"
+    : `Signed in as ${label}`;
 
   return (
     <>
@@ -45,7 +50,7 @@ export default function AccountMenu({
         accessibilityViewIsModal
       >
         <Text style={styles.signedIn} testID="chrome-account-email">
-          Signed in as {label}
+          {signedInLine}
         </Text>
         <TouchableOpacity
           testID="chrome-account-settings"

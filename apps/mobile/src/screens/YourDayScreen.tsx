@@ -148,12 +148,13 @@ export default function YourDayScreen({
       <View style={styles.header}>
         <TouchableOpacity
           testID="your-day-back"
+          accessibilityRole="button"
           onPress={onBack}
           hitSlop={{ top: 10, bottom: 10, left: 8, right: 16 }}
         >
-          <Text style={styles.backText}>‹ Back</Text>
+          <Text style={styles.backText}>← Back</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Your Day</Text>
+        <Text style={styles.headerTitle}>Your day</Text>
         <View style={styles.headerSpacer} />
       </View>
 

@@ -65,7 +65,10 @@ export type DestScreen =
   | { name: "recordings"; returnTo: "home" | "analyze" }
   | { name: "growth" }
   | { name: "watch-setup" }
-  | { name: "advanced" }
+  // `section` scrolls Settings to that section on open — the hamburger's
+  // "Voice profile" used to land on the top of Settings, indistinguishable
+  // from tapping "Settings" (UX walk 2026-09-23).
+  | { name: "advanced"; section?: "voice" }
   | { name: "onboarding" }
   | { name: "dashboard" }
   // People labeling — case 3 like watch-setup: `returnTo` is patched in by
@@ -112,7 +115,7 @@ export const DESTINATIONS: readonly Destination[] = [
   },
   {
     id: "analyze",
-    title: "Analyze a Conversation",
+    title: "Analyze a conversation",
     iconId: "waveform",
     screen: { name: "analyze" },
     // Primary: the app's other core daily mode.
@@ -130,7 +133,7 @@ export const DESTINATIONS: readonly Destination[] = [
   },
   {
     id: "growth",
-    title: "Your Growth",
+    title: "Your growth",
     iconId: "trendline",
     screen: { name: "growth" },
     // Primary: the owner explicitly wants home to be able to lean on the
@@ -153,10 +156,9 @@ export const DESTINATIONS: readonly Destination[] = [
     title: "Voice profile",
     iconId: "voice",
     // Not a separate pushed screen in App.tsx today — voice profile
-    // management lives inline inside AdvancedScreen ("Voice" section). This
-    // is a section anchor: until Settings supports deep-linking to a scroll
-    // position, navigating here just opens Settings itself.
-    screen: { name: "advanced" },
+    // management lives inline inside AdvancedScreen ("Voice" section);
+    // `section` scrolls Settings there on open.
+    screen: { name: "advanced", section: "voice" },
     // Catalog-only: infrequent account-management action, and not even an
     // independently addressable screen yet.
     primaryEligible: false,
@@ -174,7 +176,7 @@ export const DESTINATIONS: readonly Destination[] = [
   },
   {
     id: "therapistDashboard",
-    title: "Dashboard",
+    title: "Therapist dashboard",
     iconId: "clipboard",
     screen: { name: "dashboard" },
     // Primary (2026-08-19 primary-eligible-expand): the owner asked whether

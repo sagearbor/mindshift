@@ -764,12 +764,12 @@ export default function AnalyzeScreen({
               onPress={onOpenRecordings}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Text style={styles.recordingsLinkText}>▶ Recordings</Text>
+              <Text style={styles.recordingsLinkText}>Past recordings ›</Text>
             </TouchableOpacity>
           )}
         </View>
 
-        <Text style={styles.heading}>Analyze a Conversation</Text>
+        <Text style={styles.heading}>Analyze a conversation</Text>
 
         <View style={styles.body}>
           {/* One-tap relationship context — frames the analysis honestly
@@ -831,7 +831,9 @@ export default function AnalyzeScreen({
             </Pressable>
 
             <View style={[styles.storeRow, !consent && styles.storeRowDisabled]}>
-              <Text style={styles.storeLabel}>Store for replay</Text>
+              <Text style={styles.storeLabel}>
+                {consent ? "Store for replay" : "Store for replay (tick the box above first)"}
+              </Text>
               <Switch
                 testID="store-toggle"
                 value={storeRecording}
@@ -883,7 +885,7 @@ export default function AnalyzeScreen({
                   disabled={uploading}
                 >
                   <Text style={styles.pickButtonText}>
-                    {picked ? "Choose a different file" : "Choose a recording"}
+                    {picked ? "Choose a different file" : "Choose a file"}
                   </Text>
                 </TouchableOpacity>
 

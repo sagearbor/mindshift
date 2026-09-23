@@ -9,7 +9,9 @@ import {
   ScrollView,
   Platform,
   StyleSheet,
+  Linking,
 } from "react-native";
+import { PRIVACY_POLICY_URL } from "../utils/legalLinks";
 import { useAuthStore } from "../store/authStore";
 import { googleSignInConfigured } from "../auth/firebaseConfig";
 import GoogleSignInButton from "../components/GoogleSignInButton";
@@ -93,7 +95,7 @@ export default function LoginScreen() {
           <Text style={styles.brand}>MindShift</Text>
           <Text style={styles.subtitle}>
             {mode === "signIn"
-              ? "Sign in to continue"
+              ? "Live tone coaching for the conversations that matter"
               : "Create your account"}
           </Text>
 
@@ -132,6 +134,7 @@ export default function LoginScreen() {
           {mode === "signIn" ? (
             <TouchableOpacity
               testID="forgot-password"
+              accessibilityRole="button"
               style={styles.forgot}
               onPress={forgotPassword}
               disabled={busy}
@@ -154,6 +157,7 @@ export default function LoginScreen() {
 
           <TouchableOpacity
             testID="submit-button"
+            accessibilityRole="button"
             style={[styles.primaryButton, !canSubmit && styles.buttonDisabled]}
             onPress={submit}
             disabled={!canSubmit}
@@ -162,13 +166,14 @@ export default function LoginScreen() {
               <ActivityIndicator color="#FFFFFF" />
             ) : (
               <Text style={styles.primaryButtonText}>
-                {mode === "signIn" ? "Sign In" : "Sign Up"}
+                {mode === "signIn" ? "Sign in" : "Sign up"}
               </Text>
             )}
           </TouchableOpacity>
 
           <TouchableOpacity
             testID="toggle-mode"
+            accessibilityRole="button"
             style={styles.toggle}
             onPress={toggleMode}
           >
@@ -212,9 +217,17 @@ export default function LoginScreen() {
             <Text style={styles.guestButtonText}>Continue as guest</Text>
           </TouchableOpacity>
           <Text testID="guest-explainer" style={styles.guestExplainer}>
-            Try Live Coach with no account. Your sessions stay on this
-            device&apos;s guest account until you create one.
+            Try it with no account. Your sessions stay on this device&apos;s
+            guest account until you create one.
           </Text>
+          <TouchableOpacity
+            testID="privacy-policy-link"
+            accessibilityRole="link"
+            style={styles.privacyLink}
+            onPress={() => void Linking.openURL(PRIVACY_POLICY_URL)}
+          >
+            <Text style={styles.privacyLinkText}>Privacy policy</Text>
+          </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -350,6 +363,18 @@ const styles = StyleSheet.create({
   guestButtonText: {
     color: "#1F2937",
     fontSize: 15,
+    fontWeight: "600",
+  },
+  privacyLink: {
+    alignSelf: "center",
+    marginTop: 10,
+    minHeight: 44,
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+  privacyLinkText: {
+    fontSize: 13,
+    color: "#4A90D9",
     fontWeight: "600",
   },
   guestExplainer: {

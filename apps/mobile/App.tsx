@@ -105,7 +105,7 @@ export type Screen =
   // not always Home. Optional (defaulting to Home when absent) so every
   // existing Home-originated `setScreen({ name: "advanced" })` call stays
   // valid unchanged.
-  | { name: "advanced"; returnTo?: Screen }
+  | { name: "advanced"; returnTo?: Screen; section?: "voice" }
   // Task N5 of P3-10: Settings' "Home screen design" editor — arrange
   // layoutStore's tabSlots/homeBoxes. Only reachable from Settings' own row
   // today (not the hamburger catalog — editing your own customization isn't
@@ -541,6 +541,9 @@ export default function App({ initialUrl }: AppProps = {}) {
             onJoinCodeConsumed={() => setScreen({ name: "live-coach" })}
             journalAction={screen.journalAction ?? null}
             onJournalActionConsumed={() => setScreen({ name: "live-coach" })}
+            onOpenVoiceSettings={() =>
+              setScreen({ name: "advanced", returnTo: screen, section: "voice" })
+            }
             onReviewTranscript={(turns) => {
               // Hand the finished live conversation to the text tools, where
               // Get Suggestions / Analyze dynamics work off the loaded turns.
@@ -581,6 +584,7 @@ export default function App({ initialUrl }: AppProps = {}) {
             // same dynamic-returnTo pattern as watch-setup/onboarding/
             // dashboard below.
             onBack={() => setScreen(screen.returnTo ?? { name: "home" })}
+            initialSection={screen.section}
             // N7 fix round 1 re-review (IMPORTANT 2, second pass): every one
             // of these six outbound pushes used to hardcode a bare
             // `returnTo: { name: "advanced" }`, discarding whatever
@@ -717,6 +721,7 @@ export default function App({ initialUrl }: AppProps = {}) {
                 returnTo: { name: "recordings", returnTo: screen.returnTo },
               })
             }
+            onAnalyze={() => setScreen({ name: "analyze" })}
           />
         );
       case "growth":
@@ -734,6 +739,7 @@ export default function App({ initialUrl }: AppProps = {}) {
             onOpenRecordings={() =>
               setScreen({ name: "recordings", returnTo: "home" })
             }
+            onOpenAnalyze={() => setScreen({ name: "analyze" })}
           />
         );
       case "your-day":

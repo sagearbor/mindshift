@@ -8,8 +8,8 @@ import {
   StyleSheet,
   Platform,
 } from "react-native";
-import EmpathySlider from "../components/EmpathySlider";
-import InterjectSlider from "../components/InterjectSlider";
+import EmpathySlider, { getEmpathyLabel } from "../components/EmpathySlider";
+import InterjectSlider, { getInterjectLabel } from "../components/InterjectSlider";
 import SuggestionCard from "../components/SuggestionCard";
 import LiveTranscript from "../components/LiveTranscript";
 import TherapistTranscript from "../components/TherapistTranscript";
@@ -94,6 +94,9 @@ interface LiveCoachScreenProps {
   journalAction?: "start" | "stop" | null;
   /** The action was executed (or ruled out) — so a re-render doesn't redo it. */
   onJournalActionConsumed?: () => void;
+  /** Opens Settings scrolled to the Voice section — the Journal gate's
+   *  "Train my voice" button. Optional; without it the gate stays text. */
+  onOpenVoiceSettings?: () => void;
 }
 
 export default function LiveCoachScreen({
@@ -104,6 +107,7 @@ export default function LiveCoachScreen({
   onJoinCodeConsumed,
   journalAction = null,
   onJournalActionConsumed,
+  onOpenVoiceSettings,
 }: LiveCoachScreenProps = {}) {
   // Keep this session's audio (default ON — see keepAudioPrefs.ts): read
   // once per account before the hook needs it; the switch below changes it
@@ -195,6 +199,11 @@ export default function LiveCoachScreen({
   const [speakAloud, setSpeakAloud] = useState(true);
   // Scoreboard (opt-in, remembered per account) + mid-call naming state.
   const [scoreboardOn, setScoreboardOn] = useState(false);
+  // The three toggles and two sliders are collapsed by default (UX walk
+  // 2026-09-23): eight controls stood between a first-time user and Start.
+  // The header row summarizes what they are set to; every control keeps
+  // rendering (display: none) so nothing about their behavior changes.
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const scoreboardLoadedRef = useRef(false);
   const [who, setWho] = useState<{ speaker: string; label: string } | null>(null);
   const [sheetPeople, setSheetPeople] = useState<ApiVoicePerson[]>([]);
@@ -759,6 +768,7 @@ export default function LiveCoachScreen({
           sessionActive={sessionActive}
           gate={journalGate}
           onRetryUploads={handleRetryJournalUploads}
+          onEnroll={onOpenVoiceSettings}
         />
       ) : null}
 
@@ -786,9 +796,33 @@ export default function LiveCoachScreen({
 
       {/* Pleasantness scoreboard (PRD §6): opt-in, off by default, remembered
           per account. A race to be nicer — both lines climbing is the win. */}
+      {isJournal ? null : (
+      <>
+      <TouchableOpacity
+        testID="coach-options-toggle"
+        accessibilityRole="button"
+        accessibilityState={{ expanded: optionsOpen }}
+        style={styles.optionsHeader}
+        onPress={() => setOptionsOpen((v) => !v)}
+      >
+        <Text style={styles.optionsTitle}>
+          {optionsOpen ? "Coaching options ▾" : "Coaching options ▸"}
+        </Text>
+        {optionsOpen ? null : (
+          <Text style={styles.optionsSummary} numberOfLines={1} testID="coach-options-summary">
+            {[
+              sessionMode === "therapist" ? "on-screen only" : speakAloud ? "speaks aloud" : "on-screen only",
+              keepAudio ? "keeps audio" : "audio not kept",
+              getEmpathyLabel(empathyLevel).toLowerCase(),
+              getInterjectLabel(interjectLevel).toLowerCase(),
+            ].join(" · ")}
+          </Text>
+        )}
+      </TouchableOpacity>
+      <View style={optionsOpen ? undefined : styles.hidden} testID="coach-options-body">
       {/* Speak aloud — only meaningful in a mode that would speak (therapist
           is always silent). Off keeps nudges on screen without any TTS. */}
-      {sessionMode !== "therapist" && !isJournal ? (
+      {sessionMode !== "therapist" ? (
         <View style={styles.modeRow} testID="speak-aloud-row">
           <Text style={styles.modeLabel}>Speak aloud</Text>
           <Switch
@@ -801,8 +835,6 @@ export default function LiveCoachScreen({
           </Text>
         </View>
       ) : null}
-      {isJournal ? null : (
-      <>
       <View style={styles.modeRow} testID="keep-audio-row">
         <Text style={styles.modeLabel}>Keep audio</Text>
         <Switch
@@ -826,6 +858,7 @@ export default function LiveCoachScreen({
           {scoreboardOn ? "who's being nicer — a race to be kind" : "off"}
         </Text>
       </View>
+      </View>
       {scoreboardOn || isTherapistCall ? (
         <ScoreboardPanel
           board={scoreboard ?? null}
@@ -834,7 +867,9 @@ export default function LiveCoachScreen({
             !liveCapable
               ? "Scores need on-device coaching, which this device can't run yet."
               : !liveMode
-                ? "Scores need on-device coaching — switch it on above, then start."
+                ? devMode
+                  ? "Scores need on-device coaching — switch it on above, then start."
+                  : "Scores need on-device coaching, which isn't on for this session."
                 : undefined
           }
         />
@@ -945,7 +980,7 @@ export default function LiveCoachScreen({
 
       {/* Empathy slider + interject: the coach's knobs — none in Journal mode. */}
       {isJournal ? null : (
-        <>
+        <View style={optionsOpen ? undefined : styles.hidden} testID="coach-options-sliders">
           <EmpathySlider
             value={empathyLevel}
             onValueChange={handleEmpathyChange}
@@ -954,7 +989,7 @@ export default function LiveCoachScreen({
             value={interjectLevel}
             onValueChange={handleInterjectChange}
           />
-        </>
+        </View>
       )}
 
       {/* Idle: the honest pre-flight (what will run on this phone, who the
@@ -1018,7 +1053,12 @@ export default function LiveCoachScreen({
       {isJournal ? null : isTherapist ? (
         <TherapistTranscript entries={transcript} onSpeakerPress={openWho} isNamed={isNamed} />
       ) : (
-        <LiveTranscript entries={transcript} onSpeakerPress={openWho} isNamed={isNamed} />
+        <LiveTranscript
+          entries={transcript}
+          onSpeakerPress={openWho}
+          isNamed={isNamed}
+          idle={!sessionActive}
+        />
       )}
 
       {who ? (
@@ -1343,6 +1383,26 @@ const styles = StyleSheet.create({
   errorBannerText: {
     fontSize: 13,
     color: "#991B1B",
+  },
+  hidden: {
+    display: "none",
+  },
+  optionsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  optionsTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#374151",
+  },
+  optionsSummary: {
+    flex: 1,
+    fontSize: 12,
+    color: "#6B7280",
   },
   modeRow: {
     flexDirection: "row",

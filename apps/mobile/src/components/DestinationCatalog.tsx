@@ -50,7 +50,9 @@ export default function DestinationCatalog({
           <Close size={22} />
         </TouchableOpacity>
       </View>
-      <ScrollView contentContainerStyle={styles.list}>
+      {/* flex:1 so the list scrolls instead of clipping its last rows on a
+          short screen (UX walk 2026-09-23: "Show tutorial" was cut off). */}
+      <ScrollView style={styles.flex} contentContainerStyle={styles.list}>
         {DESTINATIONS.map((dest) => {
           const Icon = getIcon(dest.iconId);
           return (
@@ -73,6 +75,9 @@ export default function DestinationCatalog({
 }
 
 const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
   overlay: {
     position: "absolute",
     top: 0,

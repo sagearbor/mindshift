@@ -19,6 +19,9 @@ interface Props {
   sessionActive: boolean;
   gate: JournalGate;
   onRetryUploads?: () => void;
+  /** Opens voice enrollment (Settings → Voice). Shown as a button under the
+   *  "enroll first" gate — the gate used to be text with nowhere to go. */
+  onEnroll?: () => void;
   /** Wall clock, injectable for tests. */
   now?: () => number;
 }
@@ -58,7 +61,7 @@ function timeOfDay(ms: number): string {
  * the final tally after Stop. No transcript, no suggestions — the journal
  * has none until the server analyzes the uploaded files.
  */
-export default function JournalPanel({ state, sessionActive, gate, onRetryUploads, now = Date.now }: Props) {
+export default function JournalPanel({ state, sessionActive, gate, onRetryUploads, onEnroll, now = Date.now }: Props) {
   // Developer mode off: no file-size or VAD-internals lines — the journal
   // reads as elapsed / times heard / uploads, in plain words.
   const devMode = useDevModeStore((s) => s.devMode);
@@ -92,9 +95,21 @@ export default function JournalPanel({ state, sessionActive, gate, onRetryUpload
             later as a recording, so the usual analysis and report cards run on them.
           </Text>
           {gate === "missing" ? (
-            <Text style={styles.gate} testID="journal-gate">
-              {JOURNAL_ENROLL_NOTE}
-            </Text>
+            <>
+              <Text style={styles.gate} testID="journal-gate">
+                {JOURNAL_ENROLL_NOTE}
+              </Text>
+              {onEnroll ? (
+                <TouchableOpacity
+                  testID="journal-enroll-button"
+                  accessibilityRole="button"
+                  style={styles.enrollButton}
+                  onPress={onEnroll}
+                >
+                  <Text style={styles.enrollButtonText}>Train my voice</Text>
+                </TouchableOpacity>
+              ) : null}
+            </>
           ) : gate === "checking" ? (
             <Text style={styles.hint} testID="journal-gate-checking">
               Checking for your voiceprint…
@@ -180,6 +195,19 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     lineHeight: 19,
     color: "#374151",
+  },
+  enrollButton: {
+    alignSelf: "flex-start",
+    backgroundColor: "#4A90D9",
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    marginBottom: 10,
+  },
+  enrollButtonText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "700",
   },
   gate: {
     fontSize: 13.5,

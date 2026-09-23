@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 
 import HeroWipe from "../components/HeroWipe";
 import HomeBoxGrid from "../components/HomeBoxGrid";
+import RecoveryHomeCard from "../recorder/RecoveryHomeCard";
 import { useLayoutStore } from "../store/layoutStore";
 import type { DestScreen } from "../nav/destinations";
 
@@ -35,6 +36,10 @@ export default function HomeScreen({ onNavigate, onOpenYourDay }: HomeScreenProp
     <View style={styles.container} testID="home-screen">
       {/* Web-only hero banner (Task P3-4b) — renders nothing on native. */}
       <HeroWipe />
+
+      {/* After a crash the app lands here, not on Analyze — say the saved
+          audio exists (UX walk 2026-09-23). Renders nothing when none is. */}
+      <RecoveryHomeCard onOpen={() => onNavigate({ name: "analyze" })} />
 
       <View style={styles.gridWrap}>
         <HomeBoxGrid boxes={homeBoxes} onNavigate={onNavigate} />
