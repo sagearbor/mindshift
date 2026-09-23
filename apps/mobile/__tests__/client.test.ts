@@ -27,6 +27,7 @@ import {
   postReanalyzeWithSegments,
   reportClientLog,
   enrollVoiceDirect,
+  exportSession,
 } from "../src/api/client";
 import {
   getFreshToken,
@@ -1764,5 +1765,34 @@ describe("postAnalyzeUpload — native file part", () => {
     expect(
       filePart instanceof MockFSFile || filePart instanceof Blob,
     ).toBe(true);
+  });
+});
+
+describe("exportSession", () => {
+  it("attaches the Authorization header — the endpoint requires an authed uid", async () => {
+    // Regression for a bug found 2026-09-23: dashboardStore called
+    // GET /session/{id}/export with a bare fetch and no headers, against an
+    // endpoint that depends on get_current_uid. Every Export tap 401'd, and
+    // nothing caught it because the call lived in the store rather than here,
+    // where authHeaders is.
+    setTokenProvider(async () => "tok-123");
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ text: "Alice: hi\nBob: hey" }),
+    });
+
+    const text = await exportSession("11111111-1111-4111-8111-111111111111");
+
+    expect(text).toBe("Alice: hi\nBob: hey");
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(String(url)).toContain("/session/11111111-1111-4111-8111-111111111111/export");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tok-123");
+  });
+
+  it("throws with the status when the server refuses", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 401 });
+    await expect(
+      exportSession("11111111-1111-4111-8111-111111111111"),
+    ).rejects.toThrow("Export error: 401");
   });
 });

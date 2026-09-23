@@ -2635,6 +2635,26 @@ export async function listDashboardSessions(): Promise<DashboardSession[]> {
   return Array.isArray(data.sessions) ? data.sessions : [];
 }
 
+/**
+ * The plain-text (or markdown) export of one session the caller owns.
+ *
+ * Lives here rather than in dashboardStore because `authHeaders` is module-
+ * private to this file — and the store's own copy of this call shipped with a
+ * bare `fetch` and no Authorization header, against an endpoint that depends on
+ * `get_current_uid` (server/main.py). Every Export tap 401'd.
+ */
+export async function exportSession(sessionId: string): Promise<string> {
+  const res = await fetch(`${API_URL}/session/${sessionId}/export`, {
+    method: "GET",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error(`Export error: ${res.status}`);
+  }
+  const data = (await res.json()) as { text?: string };
+  return data.text ?? "";
+}
+
 export async function postRespond(
   payload: RespondRequest,
 ): Promise<RespondResult> {

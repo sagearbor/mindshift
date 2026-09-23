@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import {
+  exportSession as exportSessionApi,
   listDashboardSessions,
   type CouldHaveSaid,
   type DashboardScoreboard,
@@ -111,10 +112,8 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     }
   },
 
-  exportSession: async (id: string) => {
-    const res = await fetch(`${API_URL}/session/${id}/export`);
-    if (!res.ok) throw new Error(`Export error: ${res.status}`);
-    const data = await res.json();
-    return data.text ?? "";
-  },
+  // Delegates to the API client because the Authorization header is built
+  // there. This used to be a bare fetch with no headers against an endpoint
+  // that requires an authenticated uid, so Export always failed.
+  exportSession: async (id: string) => exportSessionApi(id),
 }));
