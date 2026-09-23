@@ -1224,12 +1224,17 @@ store_listing:
     'MindShift'; hi-res icon -> assets/play/store-icon-512-v2.png, rendered from
     assets/adaptive-icon.png over #243040 exactly as the launcher shows it.
   app_name:
-    value: "MindShift: Empathy Coach"
-    char_count: 24
+    value: "MindShift"
+    char_count: 9
     limit: 30
     note: >
-      The installed launcher label stays "MindShift" (apps/mobile/app.json:3) —
-      the store name may differ and this one says what it is.
+      MUST equal the installed launcher label (apps/mobile/app.json:3). Play
+      rejected this listing on 2026-09-21 under Misleading Claims because the
+      store title read "MindShift: Empathy Coach" while the installed name was
+      "MindShift". The fix was applied to the live console, but THIS PACK kept
+      the rejected title until 2026-09-23 — so a console walk driven from here
+      would have re-entered it and reproduced the rejection. Do not reintroduce
+      a subtitle.
   short_description:
     value: "Real-time coaching for hard conversations. Hear how you land, as you speak."
     char_count: 75
@@ -1313,7 +1318,9 @@ store_listing:
       If you or someone else is in crisis, contact a qualified professional or
       your local emergency services.
 
-      Requires a free account and a microphone. English only for now.
+      Requires a microphone. No account needed to try it — tap "Continue as
+      guest"; create an account when you want your sessions kept. English only
+      for now.
   app_category:
     value: "Communication"
     alternative_if_rejected: "Lifestyle"
