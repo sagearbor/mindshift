@@ -313,7 +313,7 @@ function Header({
   return (
     <View style={styles.header}>
       <TouchableOpacity testID="avatar-back" onPress={onBack}>
-        <Text style={styles.backText}>‹ Back</Text>
+        <Text style={styles.backText}>← Back</Text>
       </TouchableOpacity>
       <Text style={styles.headerTitle}>{title}</Text>
       <View style={styles.headerSpacer} />
