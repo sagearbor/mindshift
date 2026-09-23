@@ -8,6 +8,7 @@ import {
   StyleSheet,
 } from "react-native";
 import { useAuthStore } from "../store/authStore";
+import { useGuestLimitsStore } from "../store/guestLimitsStore";
 import { googleSignInConfigured } from "../auth/firebaseConfig";
 import GoogleSignInButton from "./GoogleSignInButton";
 
@@ -16,6 +17,44 @@ import GoogleSignInButton from "./GoogleSignInButton";
 export const GUEST_BANNER_TEXT =
   "Guest session — your data is on this device's account only; create an " +
   "account to keep it";
+
+/** What the banner says while the server has not yet told this device the
+ *  quota's numbers. It states that the limits EXIST — the thing a guest was
+ *  never told until one of them bit — without inventing what they are. */
+export const GUEST_LIMITS_UNKNOWN_TEXT =
+  "Guest sessions have a daily limit and a time limit per session.";
+
+function plural(n: number, one: string, many: string): string {
+  return n === 1 ? one : many;
+}
+
+/**
+ * The quota line, built from the numbers the SERVER sent (see
+ * store/guestLimitsStore.ts: they ride the `guest_limit` frame and are cached
+ * on the device). Never a constant — whatever the deploy's env says is what a
+ * guest reads, so the app cannot drift into stating a limit that isn't the one
+ * being enforced. Each half is independent, so a server that told us only one
+ * of the two states that one and stays quiet about the other.
+ */
+export function guestLimitsLine(
+  maxSessionsPerDay: number | null,
+  maxSessionMinutes: number | null,
+): string {
+  const parts: string[] = [];
+  if (maxSessionsPerDay !== null) {
+    parts.push(
+      `${maxSessionsPerDay} live ` +
+        `${plural(maxSessionsPerDay, "session", "sessions")} a day`,
+    );
+  }
+  if (maxSessionMinutes !== null) {
+    parts.push(
+      `${maxSessionMinutes} ${plural(maxSessionMinutes, "minute", "minutes")} each`,
+    );
+  }
+  if (parts.length === 0) return GUEST_LIMITS_UNKNOWN_TEXT;
+  return `Guest limit: ${parts.join(", ")}.`;
+}
 
 /**
  * A thin, persistent bar shown above every screen while the signed-in user is
@@ -46,6 +85,8 @@ export default function GuestBanner() {
   const linkGuestToEmailPassword = useAuthStore(
     (s) => s.linkGuestToEmailPassword,
   );
+  const maxSessionsPerDay = useGuestLimitsStore((s) => s.maxSessionsPerDay);
+  const maxSessionMinutes = useGuestLimitsStore((s) => s.maxSessionMinutes);
 
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
@@ -64,9 +105,19 @@ export default function GuestBanner() {
   return (
     <View style={styles.wrap} testID="guest-banner">
       <View style={styles.row}>
-        <Text style={styles.text} testID="guest-banner-text">
-          {GUEST_BANNER_TEXT}
-        </Text>
+        <View style={styles.textColumn}>
+          <Text style={styles.text} testID="guest-banner-text">
+            {GUEST_BANNER_TEXT}
+          </Text>
+          {/* The other half of the honesty. Guest mode is CAPPED, and until
+              this line a guest found that out only when a cap cut a
+              conversation short mid-sentence. One muted line, no counter and
+              no nagging — and the numbers in it are the server's, never
+              ours (see guestLimitsLine). */}
+          <Text style={styles.limits} testID="guest-limits-text">
+            {guestLimitsLine(maxSessionsPerDay, maxSessionMinutes)}
+          </Text>
+        </View>
         <TouchableOpacity
           testID="guest-create-account"
           accessibilityRole="button"
@@ -165,11 +216,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
   },
-  text: {
+  textColumn: {
     flex: 1,
+    gap: 2,
+  },
+  text: {
     color: "#78350F",
     fontSize: 12,
     lineHeight: 16,
+  },
+  limits: {
+    color: "#92400E",
+    fontSize: 11,
+    lineHeight: 15,
   },
   cta: {
     paddingVertical: 4,

@@ -42,6 +42,7 @@ import type { TurnLatency } from "../live/fastLoop";
 import { summarizeSession, type SessionSummary } from "../live/sessionSummary";
 import { useLiveEpisodeStore } from "../store/liveEpisodeStore";
 import { useMoodStore } from "../store/moodStore";
+import { useGuestLimitsStore } from "../store/guestLimitsStore";
 import { detectLiveCapability, type LiveCapability } from "../live/capability";
 import type { LiveMode } from "../live/localLlm";
 import type { NudgeEvent } from "../live/nudgePolicy";
@@ -2062,6 +2063,14 @@ export function useAudioStream(
               typeof data.message === "string" && data.message
                 ? data.message
                 : "Guest limit reached — create a free account to continue.";
+            // The SAME frame carries the two numbers behind the refusal
+            // (`max_sessions_per_day`, `max_session_minutes`). They used to be
+            // dropped on the floor, which is why the app could only ever say
+            // "a limit" and never which one or how big. Hand them to the store
+            // that caches them so the guest banner can state the real quota
+            // BEFORE the next session instead of after it is cut off — and so
+            // the app never states a number the server did not give it.
+            useGuestLimitsStore.getState().learnFromServer(data);
             shouldReconnect.current = false; // a retry cannot help
             setLiveStatus(message);
           } else if (data.type === "resume_ack") {

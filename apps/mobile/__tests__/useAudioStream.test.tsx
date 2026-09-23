@@ -49,6 +49,7 @@ jest.mock("expo-audio", () => ({
 import * as Speech from "expo-speech";
 import { useAudioStream } from "../src/hooks/useAudioStream";
 import { setCachedToken } from "../src/auth/authToken";
+import { useGuestLimitsStore } from "../src/store/guestLimitsStore";
 
 const speakMock = Speech.speak as jest.Mock;
 const speechStopMock = Speech.stop as jest.Mock;
@@ -1144,5 +1145,55 @@ describe("useAudioStream — graceful stop handshake", () => {
     await act(() => ws2.emitOpen());
     expect(hook.result.current.connectionStatus).toBe("live");
     expect(hook.result.current.isRecording).toBe(true);
+  });
+});
+
+/**
+ * Guest mode: the server's `guest_limit` frame carries BOTH numbers behind
+ * the refusal (`max_sessions_per_day`, `max_session_minutes` — see
+ * `_close_ws_guest_limit` in server/audio_pipeline.py). The hook used to show
+ * the message and drop those numbers on the floor, which is why the app could
+ * only ever say "a limit" and never which one or how big. They now feed the
+ * store the guest banner reads, so the app states the REAL quota — this
+ * deploy's, not a constant compiled into the app.
+ */
+describe("useAudioStream — guest_limit", () => {
+  beforeEach(() => {
+    useGuestLimitsStore.setState({
+      maxSessionsPerDay: null,
+      maxSessionMinutes: null,
+    });
+  });
+
+  it("learns both numbers off the wire and shows the server's own sentence", async () => {
+    const { hook, ws } = await startLiveSession();
+
+    await act(() =>
+      ws.emitServer({
+        type: "guest_limit",
+        message: "Guest limit reached — create a free account to continue.",
+        // Deliberately NOT the 3/10 defaults: a client that hardcoded the
+        // defaults would pass a 3/10 assertion by accident, and fail this one.
+        max_sessions_per_day: 7,
+        max_session_minutes: 4,
+      }),
+    );
+
+    expect(useGuestLimitsStore.getState().maxSessionsPerDay).toBe(7);
+    expect(useGuestLimitsStore.getState().maxSessionMinutes).toBe(4);
+    expect(hook.result.current.liveStatus).toContain("Guest limit reached");
+  });
+
+  it("leaves the numbers unknown when the server sends none", async () => {
+    const { ws } = await startLiveSession();
+
+    await act(() =>
+      ws.emitServer({ type: "guest_limit", message: "Guest limit reached." }),
+    );
+
+    // No invention: an older server that omits them leaves the app saying
+    // that limits exist without naming them.
+    expect(useGuestLimitsStore.getState().maxSessionsPerDay).toBeNull();
+    expect(useGuestLimitsStore.getState().maxSessionMinutes).toBeNull();
   });
 });
