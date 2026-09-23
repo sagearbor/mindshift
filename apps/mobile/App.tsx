@@ -28,6 +28,7 @@ import LoginScreen from "./src/screens/LoginScreen";
 import OnboardingScreen from "./src/screens/OnboardingScreen";
 import UpdateBanner from "./src/components/UpdateBanner";
 import GuestBanner from "./src/components/GuestBanner";
+import GuestSignOutConfirm from "./src/components/GuestSignOutConfirm";
 import AppChrome, { type AppChromeHandle } from "./src/components/AppChrome";
 import PushedScreenChrome from "./src/components/PushedScreenChrome";
 import { useAndroidBackHandler } from "./src/nav/useAndroidBackHandler";
@@ -36,6 +37,7 @@ import { useAuthStore, initAuth } from "./src/store/authStore";
 import { useLayoutStore } from "./src/store/layoutStore";
 import { useAvatarStore } from "./src/store/avatarStore";
 import { useDevModeStore } from "./src/store/devModeStore";
+import { useGuestLimitsStore } from "./src/store/guestLimitsStore";
 import { useSessionStore } from "./src/store/sessionStore";
 import { useRecorderStore } from "./src/store/recorderStore";
 import { getOnboardingSeen, setOnboardingSeen } from "./src/utils/onboardingStorage";
@@ -359,6 +361,11 @@ export default function App({ initialUrl }: AppProps = {}) {
     // avatar slot first renders — same rationale as layoutStore's hydrate
     // above, minimizing any no-photo-then-photo flash.
     void useAvatarStore.getState().hydrate();
+    // Guest mode: the server's quota numbers, as last stated by the server
+    // itself (store/guestLimitsStore.ts). Loaded before the guest banner can
+    // render so a returning guest reads the real limits rather than the
+    // number-free fallback line.
+    void useGuestLimitsStore.getState().hydrate();
   }, []);
 
   const user = useAuthStore((s) => s.user);
@@ -381,9 +388,27 @@ export default function App({ initialUrl }: AppProps = {}) {
   // authStore's signOut() directly, reusing the same clear-state
   // +best-effort-file-delete path "Remove photo" already built
   // (avatarStore.removePhoto).
-  const handleSignOut = () => {
+  const doSignOut = () => {
+    setConfirmGuestSignOut(false);
     useAvatarStore.getState().removePhoto();
     void signOut();
+  };
+
+  // Guest mode: logging out is IRREVERSIBLE for an anonymous account — there
+  // is no email or password to sign back in with, so the next "Continue as
+  // guest" mints a different uid and this one's sessions can never be reached
+  // again. That belongs behind a confirmation (GuestSignOutConfirm), not
+  // behind the lowest-friction tap in the app, two rows above a delete flow
+  // that makes you type DELETE. A signed-in account with a credential loses
+  // nothing by logging out and goes straight through, unchanged — the check
+  // is `isAnonymous`, Firebase's own flag, not "has no email".
+  const [confirmGuestSignOut, setConfirmGuestSignOut] = useState(false);
+  const handleSignOut = () => {
+    if (user?.isAnonymous) {
+      setConfirmGuestSignOut(true);
+      return;
+    }
+    doSignOut();
   };
 
   // Task P3-7: has this account seen the first-launch onboarding walkthrough?
@@ -855,6 +880,16 @@ export default function App({ initialUrl }: AppProps = {}) {
             {renderScreen()}
           </PushedScreenChrome>
         )}
+        {/* Guest mode only (see handleSignOut). Last in the tree and
+            absolutely positioned, so it covers whichever chrome the Log out
+            was tapped in. The `isAnonymous` re-check keeps it impossible for
+            a stale `true` to hang over a signed-up account. */}
+        {confirmGuestSignOut && user?.isAnonymous ? (
+          <GuestSignOutConfirm
+            onCancel={() => setConfirmGuestSignOut(false)}
+            onConfirm={doSignOut}
+          />
+        ) : null}
       </SafeAreaView>
     </SafeAreaProvider>
   );
