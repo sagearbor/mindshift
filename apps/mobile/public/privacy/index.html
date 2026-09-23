@@ -104,7 +104,7 @@
 <header class="top">
   <p class="eyebrow">MindShift</p>
   <h1>Privacy Policy</h1>
-  <p class="updated">Last updated: 20 September 2026</p>
+  <p class="updated">Last updated: 23 September 2026</p>
 </header>
 
 <div class="lede">
@@ -320,7 +320,7 @@ is what gets stored. The audio it was derived from is not kept.</p>
 specific person. We treat it that way. It is never sent to Deepgram, to
 Anthropic, or to any other outside party — the only place it ever leaves our
 server is back to your own phone, so the phone can match speakers without
-uploading anything. One tap in <em>Settings → Advanced → Forget my voice</em>
+uploading anything. One tap in <em>Settings → Voice → Forget my voice</em>
 erases it for good; there is no tombstone and no backup copy.</p>
 
 <h3>Recordings and video</h3>
@@ -337,7 +337,7 @@ diagnostic report so we can find out why. It contains your user ID and email
 address, your phone's model and manufacturer, the OS and app version, and
 statistics about the session that failed (how many turns, how slow, which error).
 It does <strong>not</strong> contain your transcript or your audio. You can also
-send one deliberately from <em>Settings → Advanced</em>.</p>
+send one deliberately from <em>Settings → Diagnostics → Send diagnostics</em>.</p>
 <p>We do not use any third-party analytics or crash-reporting service. These
 reports go to our own server and nowhere else.</p>
 
@@ -402,6 +402,21 @@ happens because you asked for it.</p>
   session can read its full transcript and analysis, <em>and play back its
   stored audio or video</em> if you saved any. They can write private notes on
   it. They cannot delete anything of yours and cannot edit your sessions.</li>
+  <li><strong>What they can keep.</strong> Anyone you grant a session to — the
+  therapist you linked, or one person you handed a single session to — can also
+  <strong>download that session as a document</strong>, a text file or a PDF, to
+  put in a patient file. The document is the whole session in writing: your
+  email address, the session's title, date and length, the full transcript turn
+  by turn with its tone labels and scores, the turns flagged as escalations, the
+  "what you could have said" coaching, the record of how and when the session
+  reached them together with the consent wording you were shown, and their own
+  private notes. It does not contain your audio or video — it is text only.
+  <strong>Once it is downloaded, it is theirs.</strong> Removing the share stops
+  any further download straight away, because every request is checked against
+  the grant — but a file already saved on their computer is outside MindShift,
+  and neither un-sharing the session nor deleting your whole account can reach
+  it. That is what a patient file is for, and it is the one part of sharing you
+  cannot take back.</li>
   <li><strong>Sharing one session.</strong> You can also grant a single session
   to one email address from the session's own screen, without any link.</li>
   <li><strong>In-app calls.</strong> On a call, every member sees the shared
@@ -494,7 +509,9 @@ record of it sitting under someone else's account. Notes they wrote about anyone
 else's sessions, and everything else in their account, are untouched.</p>
 <p><strong>What deletion cannot reach.</strong> Videos the app also saved to your
 phone's own photo library are yours on your device — delete those from your
-gallery. Anything another person exported or screenshotted is beyond us.
+gallery. Anything another person exported or screenshotted is beyond us — that
+includes the session document a therapist downloaded, which holds the full
+transcript of that conversation.
 Operational server logs (timestamps, status codes, request ids and account
 identifiers — never transcripts, audio or analysis) persist briefly before
 rotating out. Telemetry sent by a paired watch identifies the device and carries
@@ -522,6 +539,15 @@ moves; the commitment is that this page keeps describing what the code actually
 does, not what would be convenient to say.</p>
 <h3>Change log</h3>
 <ul>
+  <li><strong>23 September 2026.</strong> Said something this page had only
+  hinted at: a therapist, or anyone else you grant a session to, can
+  <em>download that session as a text file or PDF</em> — transcript, tone,
+  escalations, coaching and the consent record — and a copy they have already
+  downloaded is beyond un-sharing and beyond account deletion. Removing the
+  share still stops any further download. Also corrected two tap paths that
+  pointed at a screen that does not exist: forgetting your voice is
+  <em>Settings → Voice</em>, and sending a diagnostic report is
+  <em>Settings → Diagnostics</em>, not "Settings → Advanced".</li>
   <li><strong>20 September 2026.</strong> Corrected two statements that had
   gone stale: a live coaching session now says plainly that it keeps its audio
   <em>by default</em> (with the Keep audio toggle to turn that off), instead of

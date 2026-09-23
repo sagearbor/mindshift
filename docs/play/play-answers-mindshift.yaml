@@ -249,12 +249,26 @@ content_rating:
         relayed to the others through the server. (2) Therapist sharing: a user
         can name a therapist by email, which grants that account read access to
         the user's session transcripts, analysis AND playback of any stored
-        audio/video for those sessions.
+        audio/video for those sessions — and lets them DOWNLOAD the session as
+        a text/PDF document they keep outside the app.
+      changed_2026_09_23: >
+        Added the export half of the therapist sharing answer. GET /therapist/
+        export/{episode_id}?format=text|pdf renders one session as a document
+        for a patient file — transcript, tone, escalation markers, the "what
+        could have been said" coaching, the sharing/consent record, and the
+        CALLER's own private notes (no audio, no video; text only). Any caller
+        with a verified token who owns the episode or holds a live share grant
+        can call it; a revoked grant is denied on the very next request, but a
+        file already downloaded is permanently outside our control. Re-enter
+        this answer only if the console shows the user-interaction why text.
       proof:
         - server/calls.py:15-21                     # P2P audio, server relays signaling only
         - server/audio_pipeline.py:2269-2273        # each member's turns pushed to the other sockets
         - server/routers/therapist.py:113-142       # PUT /therapist/link — name a therapist by email
         - server/main.py:3796-3830                  # media_url minted for a share recipient (they can play the audio)
+        - server/routers/therapist.py:383-441       # GET /therapist/export/{id} — own it or hold a grant, else 404
+        - server/therapist_export.py:1-38,206-214   # every section the downloaded document carries
+        - server/recordings_store.py:1170-1184      # find_share — a fresh read, so a revoked grant denies immediately
     - question: >
         Do those interactions happen with users the person does not know / can
         strangers contact each other?
@@ -476,12 +490,29 @@ data_safety:
         is in the privacy policy and on the /delete-account page.
       not_reachable_by_deletion: >
         Videos the app also saved to the user's own phone photo library (their
-        device, their copy); anything another person exported or screenshotted;
+        device, their copy); anything another person exported or screenshotted —
+        which now includes a real in-product export, not just a screenshot: a
+        therapist (or any share recipient) can download the session as a text or
+        PDF document via GET /therapist/export/{episode_id}, and that file is
+        theirs once saved. Deleting the account deletes the session, the grants
+        and the therapist's notes, and blocks any further export; it cannot
+        reach a document already downloaded;
         Cloud Run operational logs (timestamps, status codes, request ids,
         account identifiers — never transcripts/audio/analysis) until they
         rotate; watch-sent telemetry, which is keyed to a device id and carries
-        no account id at all. All three are stated on the /delete-account page
-        and in the privacy policy.
+        no account id at all. All of these are stated on the /delete-account
+        page and in the privacy policy.
+      changed_2026_09_23_export: >
+        not_reachable_by_deletion now names the therapist export explicitly
+        instead of burying it in "anything another person exported". The Play
+        ANSWER is unchanged — deletion is still Yes, self-serve, immediate, same
+        URL — so there is nothing to re-enter in the console; this is the pack
+        keeping its `why` honest. The privacy policy (therapist section and
+        "What deletion cannot reach") and the /delete-account page were
+        corrected in the same commit.
+      proof_export_is_not_reachable:
+        - server/routers/therapist.py:383-441   # the export endpoint; the grant is checked per request
+        - server/therapist_export.py            # what the downloaded document contains
       safety_guards: >
         The endpoint acts ONLY on the uid in the verified token — nothing in the
         path, query or body names an account, so a therapist can never delete a
@@ -758,12 +789,24 @@ data_safety:
       why_shared: >
         Transcript text is sent to Anthropic (Claude) to generate the coaching
         suggestions — raw and unredacted, with no PII scrubbing. And a therapist
-        the user named gets full read access to the transcript and analysis.
+        the user named gets full read access to the transcript and analysis —
+        plus a DOWNLOAD of it: GET /therapist/export/{episode_id} serves the
+        session as a text or PDF document (transcript, tone, escalations,
+        coaching, the consent record, their own notes) for a patient file.
+      changed_2026_09_23: >
+        why_shared and retention_truth now name the therapist export. The data
+        type, its Collected/Shared/Ephemeral/Required values and its purposes
+        are UNCHANGED — this was already "shared: true" — so nothing in the
+        Data safety form needs re-entering unless the console shows the prose.
       retention_truth: >
         Live sessions keep NOTHING server-side while they run (a bounded
         in-memory list, explicitly not persisted). A transcript becomes stored
         only when the phone POSTs the finished session, or when an upload is
         made with consent. Once stored there is no TTL — it lives until deleted.
+        One thing deletion cannot reach: a document a share recipient already
+        downloaded through /therapist/export is a file on their own machine.
+        Revoking the grant blocks the NEXT export (find_share is re-read per
+        request), not the copy they have.
       proof:
         - server/audio_pipeline.py:1179-1195               # _turn_prompt — raw text into the Anthropic prompt
         - server/llm_client.py:638-650                     # the Anthropic messages.create request shape
@@ -772,6 +815,8 @@ data_safety:
         - server/recordings_store.py:20-24,248-253         # turns.json + analysis.json in GCS when stored
         - server/main.py:3405-3430                         # a share recipient reads the owner's transcript + analysis
         - server/recordings_store.py:1184-1190             # therapist_notes/{uid}/{episode_id}.json
+        - server/routers/therapist.py:383-441              # GET /therapist/export/{id} — text/PDF download of the session
+        - server/therapist_export.py:206-214               # the document's sections, in order
 
     - play_path: "Audio files → Voice or sound recordings"
       collected: true

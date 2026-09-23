@@ -108,11 +108,24 @@ age_rating:
   interaction_why: >
     Declared TRUE deliberately. The app hosts in-app audio calls (WebRTC,
     audio-only) and lets a user share a session — audio, transcript and analysis
-    — with a therapist they name by email. Invite-only, no discovery, no
+    — with a therapist they name by email, who can also download that session as
+    a text/PDF document (GET /therapist/export/{episode_id}) and keep it outside
+    the app. Invite-only, no discovery, no
     stranger-to-stranger contact, nothing public. But the capability exists, and
     the Play pack's standing rule is to answer conservatively; under-declaring a
     capability is the worse failure, and the "Users Interact" descriptor it
     produces is expected and correct.
+  interaction_why_amended_2026_09_23: >
+    The export sentence was added after a store-claims audit found the privacy
+    policy never mentioned it. NO DECLARED VALUE CHANGED — messagingAndChat and
+    userGeneratedContent were already true, and this pack carries no App Privacy
+    (nutrition label) section, so nothing needs re-applying in App Store
+    Connect. Recorded here because the review notes already argue the
+    invite-only case for Guideline 1.2, and the next person writing that
+    argument should know a recipient can keep a permanent copy: it strengthens
+    the "private, invited, not a public surface" point rather than weakening it,
+    but it must not be discovered by a reviewer instead of disclosed by us.
+    proof: server/routers/therapist.py:383-441
   ⚠_OWNER_DECISION_GUIDELINE_1_2: >
     READ THIS BEFORE SUBMITTING. Declaring user-generated content and messaging
     puts the app under App Store Review Guideline 1.2, which expects apps with
