@@ -80,6 +80,13 @@ export function therapistName(call: CallView): string {
   return peer?.displayName || peer?.label || "The therapist";
 }
 
+/** Is an observer actually on this call? Roster-based rather than trusting a
+ *  status string, for the same reason the pending check is: a member the server
+ *  lists with role "therapist" is here whatever else the wire says. */
+export function therapistPresent(call: CallView): boolean {
+  return Boolean(call.therapistUid) || call.peers.some((p) => p.role === "therapist");
+}
+
 /** The people whose approval is still missing, named. Uids we cannot name
  *  (ourselves, or someone off the roster) are dropped — the sentence falls
  *  back to a count so it is never a bare uid on screen. */
@@ -290,8 +297,50 @@ export default function CallPanel({
               They can&apos;t hear the call yet — {pendingApproverNames(call)} has
               to approve it first.
             </Text>
+            {/* The host is never an approver, so without this they could watch
+                someone sit in their call with no way to remove them short of
+                ending it for everyone. The server accepts a decline from any
+                coached participant. */}
+            {/* This branch is already the non-therapist viewer (the ternary
+                above split off selfRole === "therapist"), so no further role
+                check is needed — TypeScript narrows it to "participant". */}
+            <TouchableOpacity
+              testID="therapist-decline"
+              accessibilityRole="button"
+              style={[styles.button, styles.buttonDanger]}
+              onPress={onDeclineTherapist}
+              disabled={!onDeclineTherapist}
+            >
+              <Text style={styles.buttonPrimaryText}>Remove them</Text>
+            </TouchableOpacity>
           </View>
         )
+      ) : null}
+      {/* CONSENT IS WITHDRAWABLE. An observer who is already in stays in unless
+          someone can put her out: `decline_therapist_seat` accepts any coached
+          participant at any time (server/calls.py), but this panel only ever
+          rendered the control while she was PENDING, and the host is never an
+          approver — so the host never saw it at all. That mattered most when
+          `approvers_required()` is empty: a forwarded "invite my therapist"
+          link taken while the host is alone is auto-approved with nobody asked,
+          and ending the call for everyone was the only way out. Found by
+          adversarial review, 2026-09-23. */}
+      {!therapistPending && therapistPresent(call) && call.selfRole !== "therapist" ? (
+        <View style={styles.consentBox} testID="therapist-remove-box">
+          <Text style={styles.consentBody}>
+            {therapistName(call)} is listening to this call and will keep a copy
+            of the session.
+          </Text>
+          <TouchableOpacity
+            testID="therapist-decline"
+            accessibilityRole="button"
+            style={[styles.button, styles.buttonDanger]}
+            onPress={onDeclineTherapist}
+            disabled={!onDeclineTherapist}
+          >
+            <Text style={styles.buttonPrimaryText}>Remove them</Text>
+          </TouchableOpacity>
+        </View>
       ) : null}
       {call.error && active ? (
         <Text style={styles.error} testID="call-active-error">

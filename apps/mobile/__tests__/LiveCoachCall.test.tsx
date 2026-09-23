@@ -496,6 +496,43 @@ describe("Live Coach — the therapist seat", () => {
     expect(root.root.findByProps({ testID: "therapist-consent-ask" })).toBeTruthy();
   });
 
+  /**
+   * Adversarial review 2026-09-23. The server lets a coached participant
+   * remove the observer at ANY time: `Call.decline_therapist_seat` checks
+   * only that the call is live, that the caller is a coached participant,
+   * and that a therapist is seated — it is NOT gated on `pending`. This
+   * screen only ever offers that control inside
+   * `therapistPending && therapistNeedsYourApproval`, so:
+   *
+   *  - once the seat is approved, nobody can change their mind; the observer
+   *    listens for the rest of the call and is granted a permanent copy of
+   *    every participant's episode at the end (Call._persist_episodes);
+   *  - the HOST is never in `therapist_approval_from` (approvers_required()
+   *    excludes them), so the host never sees the control at all — including
+   *    the case that matters most: an "Invite my therapist" link forwarded to
+   *    a stranger who takes the seat while the host is alone, where
+   *    approvers_required() is empty and the seat is auto-approved with
+   *    nobody asked. The host's only exit is ending the call for everyone.
+   */
+  it("an approved observer can still be removed — consent is revocable", () => {
+    const onDeclineTherapist = jest.fn();
+    const root = panel(inCall({ therapistUid: "c" }), { onDeclineTherapist });
+    // Behavioural, not a node count: findAllByProps returns the composite AND
+    // its host descendants for a TouchableOpacity, so a length assertion says
+    // more about react-test-renderer than about the product.
+    act(() => root.root.findByProps({ testID: "therapist-decline" }).props.onPress());
+    expect(onDeclineTherapist).toHaveBeenCalledTimes(1);
+  });
+
+  it("the HOST can remove an observer they never approved", () => {
+    const onDeclineTherapist = jest.fn();
+    const root = panel(pending({ therapistNeedsYourApproval: false }), {
+      onDeclineTherapist,
+    });
+    act(() => root.root.findByProps({ testID: "therapist-decline" }).props.onPress());
+    expect(onDeclineTherapist).toHaveBeenCalledTimes(1);
+  });
+
   it("an auto-approved seat asks nobody (standing `live` consent)", () => {
     const root = panel(inCall({ therapistUid: "c", therapistAutoApproved: true }));
     expect(root.root.findAllByProps({ testID: "therapist-consent-ask" })).toHaveLength(0);
