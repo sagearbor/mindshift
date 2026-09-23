@@ -265,7 +265,7 @@ export default function DynamicsScreen({
           onPress={onBack}
           hitSlop={{ top: 10, bottom: 10, left: 8, right: 16 }}
         >
-          <Text style={styles.backText}>‹ Back</Text>
+          <Text style={styles.backText}>← Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Conversation Dynamics</Text>
         <View style={styles.headerSpacer} />

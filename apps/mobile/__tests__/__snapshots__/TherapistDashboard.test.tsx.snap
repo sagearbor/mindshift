@@ -33,7 +33,7 @@ exports[`TherapistDashboard renders empty state 1`] = `
         }
       }
     >
-      Therapist Dashboard
+      Therapist dashboard
     </Text>
     <Text
       style={
@@ -165,7 +165,7 @@ exports[`TherapistDashboard renders filtered by role 1`] = `
         }
       }
     >
-      Therapist Dashboard
+      Therapist dashboard
     </Text>
     <Text
       style={
@@ -572,7 +572,7 @@ exports[`TherapistDashboard renders loading state 1`] = `
         }
       }
     >
-      Therapist Dashboard
+      Therapist dashboard
     </Text>
     <Text
       style={
@@ -704,7 +704,7 @@ exports[`TherapistDashboard renders with sessions 1`] = `
         }
       }
     >
-      Therapist Dashboard
+      Therapist dashboard
     </Text>
     <Text
       style={

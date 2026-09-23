@@ -59,6 +59,10 @@ interface GrowthScreenProps {
   /** Empty-state CTA → the recordings list, where "This is me" (the existing
    *  SpeakerEnrollment card on a recording's replay) starts voice tracking. */
   onOpenRecordings: () => void;
+  /** Empty-state CTA when there are NO recordings at all — sending a brand
+   *  new user to an empty recordings list was a dead end (UX walk
+   *  2026-09-23). Optional: without it the recordings CTA is shown. */
+  onOpenAnalyze?: () => void;
 }
 
 function filterKey(f: PartnerFilter): string {
@@ -137,6 +141,7 @@ export default function GrowthScreen({
   onBack,
   onOpenRecording,
   onOpenRecordings,
+  onOpenAnalyze,
 }: GrowthScreenProps) {
   const [result, setResult] = useState<GrowthResult | null>(null);
   const [error, setError] = useState(false);
@@ -334,9 +339,17 @@ export default function GrowthScreen({
             testID="growth-enroll-cta"
             accessibilityRole="button"
             style={styles.ctaButton}
-            onPress={onOpenRecordings}
+            onPress={
+              result.total_recordings === 0 && onOpenAnalyze
+                ? onOpenAnalyze
+                : onOpenRecordings
+            }
           >
-            <Text style={styles.ctaText}>Open past recordings</Text>
+            <Text style={styles.ctaText}>
+              {result.total_recordings === 0 && onOpenAnalyze
+                ? "Analyze a conversation"
+                : "Open past recordings"}
+            </Text>
           </TouchableOpacity>
         </View>
       );

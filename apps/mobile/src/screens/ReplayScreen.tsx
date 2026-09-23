@@ -916,7 +916,7 @@ export default function ReplayScreen({
           onPress={onBack}
           hitSlop={{ top: 10, bottom: 10, left: 8, right: 16 }}
         >
-          <Text style={styles.backText}>‹ Back</Text>
+          <Text style={styles.backText}>← Back</Text>
         </TouchableOpacity>
         {editingTitle ? (
           <View style={styles.titleEditRow}>

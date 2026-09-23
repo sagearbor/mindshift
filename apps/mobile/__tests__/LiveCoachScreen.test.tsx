@@ -701,3 +701,27 @@ describe("LiveCoachScreen", () => {
     expect(root!.root.findByProps({ testID: "mood-check-after" })).toBeTruthy();
   });
 });
+
+describe("LiveCoachScreen — coaching options are collapsed until asked for", () => {
+  const flushAll = () => act(async () => { await Promise.resolve(); });
+  it("hides the toggles and sliders behind a summary row, and opens on tap", async () => {
+    let component!: renderer.ReactTestRenderer;
+    act(() => {
+      component = renderer.create(<LiveCoachScreen />);
+    });
+    await flushAll();
+    const body = () => component.root.findAll((n) => n.props?.testID === "coach-options-body")[0];
+    const sliders = () => component.root.findAll((n) => n.props?.testID === "coach-options-sliders")[0];
+    expect(body().props.style).toEqual({ display: "none" });
+    expect(sliders().props.style).toEqual({ display: "none" });
+    // The controls still exist (every existing behavior test keeps working).
+    expect(component.root.findAll((n) => n.props?.testID === "keep-audio-switch").length).toBeGreaterThan(0);
+    const summary = component.root.findAll((n) => n.props?.testID === "coach-options-summary")[0];
+    expect(summary.props.children).toMatch(/keeps audio/);
+    const toggle = component.root.findAll((n) => n.props?.testID === "coach-options-toggle")[0];
+    act(() => toggle.props.onPress());
+    expect(body().props.style).toBeUndefined();
+    expect(sliders().props.style).toBeUndefined();
+    act(() => component.unmount());
+  });
+});

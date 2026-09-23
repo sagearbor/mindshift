@@ -2073,6 +2073,11 @@ export function useAudioStream(
             useGuestLimitsStore.getState().learnFromServer(data);
             shouldReconnect.current = false; // a retry cannot help
             setLiveStatus(message);
+            // `liveStatus` only renders in developer mode — a guest whose
+            // session was just cut off saw nothing but Stop turning back
+            // into Start (source review 2026-09-23). The error banner is the
+            // one place every user sees.
+            setMicError(message);
           } else if (data.type === "resume_ack") {
             // Session resume: the server accepted the handshake. `resumed:
             // false` means it had no memory of this session (a restart, or

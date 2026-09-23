@@ -6,6 +6,8 @@ import { View, Text, Image, StyleSheet } from "react-native";
 export interface AvatarUser {
   email: string | null;
   displayName: string | null;
+  /** Firebase anonymous ("Continue as guest") account. */
+  isAnonymous?: boolean;
 }
 
 interface AvatarProps {

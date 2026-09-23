@@ -329,7 +329,7 @@ function Header({ onBack }: { onBack: () => void }) {
   return (
     <View style={styles.header}>
       <TouchableOpacity testID="record-back" onPress={onBack}>
-        <Text style={styles.backText}>‹ Back</Text>
+        <Text style={styles.backText}>← Back</Text>
       </TouchableOpacity>
       <Text style={styles.headerTitle}>Record video</Text>
       <View style={styles.headerSpacer} />

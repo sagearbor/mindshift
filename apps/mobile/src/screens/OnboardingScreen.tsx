@@ -6,6 +6,7 @@ import {
   ScrollView,
   StyleSheet,
   Dimensions,
+  Platform,
   type LayoutChangeEvent,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
@@ -50,7 +51,14 @@ export default function OnboardingScreen({ onFinish }: OnboardingScreenProps) {
     (next: number) => {
       const clamped = clampCardIndex(next, ONBOARDING_CARDS.length);
       setIndex(clamped);
-      scrollRef.current?.scrollTo({ x: clamped * width, animated: true });
+      // Web: react-native-web's animated scrollTo (smooth scroll) fights the
+      // pager's CSS scroll-snap and settles back on the first card — the
+      // dots said 4/4 while the card still read "Live Coach" (UX walk
+      // 2026-09-23). An instant jump snaps correctly on every platform.
+      scrollRef.current?.scrollTo({
+        x: clamped * width,
+        animated: Platform.OS !== "web",
+      });
     },
     [width],
   );
@@ -104,6 +112,10 @@ export default function OnboardingScreen({ onFinish }: OnboardingScreenProps) {
         showsHorizontalScrollIndicator={false}
         onLayout={handleLayout}
         onMomentumScrollEnd={handleMomentumEnd}
+        // Web never fires onMomentumScrollEnd; onScroll (throttled) is the
+        // only way a manual swipe there can update the dots and buttons.
+        onScroll={Platform.OS === "web" ? handleMomentumEnd : undefined}
+        scrollEventThrottle={Platform.OS === "web" ? 100 : undefined}
         style={styles.flex}
       >
         {ONBOARDING_CARDS.map((card) => (

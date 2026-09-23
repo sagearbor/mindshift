@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -6,10 +6,14 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  Alert,
   ActivityIndicator,
   Switch,
+  Platform,
+  Linking,
+  type LayoutChangeEvent,
 } from "react-native";
+import { PRIVACY_POLICY_URL } from "../utils/legalLinks";
+import { showAlert } from "../utils/showAlert";
 
 import Constants from "expo-constants";
 import * as Application from "expo-application";
@@ -71,7 +75,11 @@ function backendHost(): string {
  * expo-updates module (or web) reads "Store build (no OTA yet)".
  */
 function otaSummary(ota: OtaStatus): string {
-  if (!ota.supported) return "Store build (no OTA yet)";
+  if (!ota.supported) {
+    // The browser always loads the latest deploy; "Store build" there was
+    // simply false (UX walk 2026-09-23).
+    return Platform.OS === "web" ? "Web app — always the latest version" : "Store build (no OTA yet)";
+  }
   if (ota.isEmbeddedLaunch) {
     return ota.channel
       ? `Store build · ${ota.channel} channel (no OTA applied yet)`
@@ -120,6 +128,9 @@ interface AdvancedScreenProps {
    *  avatarStore directly, same as the voice card's "Forget" action calls
    *  the API directly. */
   onSetProfilePhoto: () => void;
+  /** Scroll to this section once it has laid out — how the hamburger's
+   *  "Voice profile" lands on the Voice card instead of the page top. */
+  initialSection?: "voice";
 }
 
 /** A single copy-friendly label/value row in the About card. The value is
@@ -158,7 +169,18 @@ export default function AdvancedScreen({
   onOpenHomeDesign,
   onOpenPeople,
   onSetProfilePhoto,
+  initialSection,
 }: AdvancedScreenProps) {
+  const scrollRef = useRef<ScrollView>(null);
+  // Scroll once, the first time the requested section reports a layout —
+  // the Voice card only mounts after the profile loads, so this can't be
+  // a mount-time scrollTo.
+  const scrolledToSection = useRef(false);
+  const handleSectionLayout = (section: "voice") => (e: LayoutChangeEvent) => {
+    if (initialSection !== section || scrolledToSection.current) return;
+    scrolledToSection.current = true;
+    scrollRef.current?.scrollTo({ y: Math.max(0, e.nativeEvent.layout.y - 12), animated: false });
+  };
   // Voice profile card — full detail (per-sample provenance) once loaded.
   const [profile, setProfile] = useState<VoiceProfile | null>(null);
   // recording_id → display title, so a sample can say WHICH recording taught
@@ -201,11 +223,15 @@ export default function AdvancedScreen({
     Constants.expoConfig?.version ??
     "unknown";
   const buildVersion =
-    Application.nativeBuildVersion ??
+    Platform.OS === "web"
+      ? "web"
+      : Application.nativeBuildVersion ??
     (Constants.expoConfig?.android?.versionCode != null
       ? String(Constants.expoConfig.android.versionCode)
       : "unknown");
-  const accountEmail = user?.email ?? "No email on this account";
+  const accountEmail = user?.isAnonymous
+    ? "Guest — no account yet"
+    : (user?.email ?? "No email on this account");
   // "Send diagnostics" (src/diagnostics): the last session's record + the
   // capability probe, POSTed to /telemetry; the id is what the owner reads
   // out so an agent can pull the record with scripts/diagnostics_tail.py.
@@ -285,7 +311,7 @@ export default function AdvancedScreen({
   }, []);
 
   const confirmForget = useCallback(() => {
-    Alert.alert(
+    showAlert(
       "Forget my voice?",
       "This permanently deletes the numeric voice signature MindShift uses to " +
         'label you “You”. Your recordings are not affected. You can re-enroll ' +
@@ -302,10 +328,10 @@ export default function AdvancedScreen({
                 setProfile((p) =>
                   p ? { ...p, enrolled: false, enroll_count: 0, samples: [] } : p,
                 );
-                Alert.alert("Voice forgotten", "Your voice signature was deleted.");
+                showAlert("Voice forgotten", "Your voice signature was deleted.");
               })
               .catch(() => {
-                Alert.alert(
+                showAlert(
                   "Couldn’t forget your voice",
                   "Something went wrong. Please try again.",
                 );
@@ -418,6 +444,7 @@ export default function AdvancedScreen({
 
   return (
     <ScrollView
+      ref={scrollRef}
       style={styles.flex}
       contentContainerStyle={styles.content}
       testID="advanced-screen"
@@ -438,18 +465,6 @@ export default function AdvancedScreen({
       <Text style={styles.sectionHeading} testID="section-your-tools">
         Your tools
       </Text>
-
-      <TouchableOpacity
-        testID="advanced-dashboard"
-        accessibilityRole="button"
-        style={styles.row}
-        onPress={onOpenDashboard}
-      >
-        <Text style={styles.rowTitle}>Therapist Dashboard</Text>
-        <Text style={styles.rowSub}>
-          Saved coaching sessions grouped by role, with tone trends and export.
-        </Text>
-      </TouchableOpacity>
 
       <TouchableOpacity
         testID="advanced-watch-setup"
@@ -489,6 +504,21 @@ export default function AdvancedScreen({
           "Share with…" Replay offers, revocable there one by one). */}
       <TherapistLinkCard />
 
+      {/* Moved here from "Your tools" (UX walk 2026-09-23): it sat first in
+          Settings, above the watch and the tutorial, for every user — most of
+          whom are not therapists. */}
+      <TouchableOpacity
+        testID="advanced-dashboard"
+        accessibilityRole="button"
+        style={styles.row}
+        onPress={onOpenDashboard}
+      >
+        <Text style={styles.rowTitle}>Therapist dashboard</Text>
+        <Text style={styles.rowSub}>
+          For therapists: the sessions your patients have shared with you, with tone trends and export.
+        </Text>
+      </TouchableOpacity>
+
       <Text style={styles.sectionHeading} testID="section-appearance">
         Appearance
       </Text>
@@ -507,7 +537,11 @@ export default function AdvancedScreen({
 
       {profile && profile.available && profile.storage_enabled ? (
         <>
-          <Text style={styles.sectionHeading} testID="section-voice">
+          <Text
+            style={styles.sectionHeading}
+            testID="section-voice"
+            onLayout={handleSectionLayout("voice")}
+          >
             Voice
           </Text>
           {onOpenPeople ? (
@@ -664,8 +698,20 @@ export default function AdvancedScreen({
           testID="about-account"
           label="Signed in as"
           value={accountEmail}
-          last={!devMode}
+          last={false}
         />
+        {/* Store reviewers and users both look for this here; until now the
+            policy was only reachable from the store listing (source review
+            2026-09-23). */}
+        <TouchableOpacity
+          testID="about-privacy-policy"
+          accessibilityRole="link"
+          style={[styles.aboutRow, devMode ? null : styles.aboutRowLast]}
+          onPress={() => void Linking.openURL(PRIVACY_POLICY_URL)}
+        >
+          <Text style={styles.aboutLabel}>Privacy policy</Text>
+          <Text style={styles.aboutLink}>{PRIVACY_POLICY_URL.replace(/^https?:\/\//, "")} ›</Text>
+        </TouchableOpacity>
         {devMode ? (
           <AboutRow
             testID="about-backend"
@@ -806,7 +852,7 @@ export default function AdvancedScreen({
             testID="diagnostics-id"
           >
             {diagLastSent.ok
-              ? `Sent${diagLastSent.trigger === "auto" ? " automatically" : ""} · ID ${diagLastSent.id} — read this ID to Claude`
+              ? `Sent${diagLastSent.trigger === "auto" ? " automatically" : ""} · ID ${diagLastSent.id} — quote this ID when you report the problem`
               : `Couldn’t send (${diagLastSent.error ?? "unknown"}) · ID ${diagLastSent.id}`}
           </Text>
         ) : null}
@@ -1200,6 +1246,11 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     fontWeight: "600",
     color: "#6B7280",
+  },
+  aboutLink: {
+    fontSize: 14,
+    color: "#4A90D9",
+    fontWeight: "600",
   },
   aboutValue: {
     marginTop: 3,

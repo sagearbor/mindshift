@@ -236,7 +236,7 @@ export default function TherapistDashboard({
           <Text style={styles.backButtonText}>← Back</Text>
         </TouchableOpacity>
       )}
-      <Text style={styles.heading}>Therapist Dashboard</Text>
+      <Text style={styles.heading}>Therapist dashboard</Text>
 
       {/* Patients who named this account as their therapist and are waiting
           for an acknowledgement. Their sessions are already shared (the
@@ -338,7 +338,9 @@ export default function TherapistDashboard({
         />
       )}
 
-      {!loading && filteredSessions.length === 0 && (
+      {/* With no patients at all, the "no patients" hint above already says
+          it — a second "No sessions found." underneath was noise. */}
+      {!loading && filteredSessions.length === 0 && roles.length > 0 && (
         <Text style={styles.emptyText}>
           {roleFilter && rows.some((r) => r.label === roleFilter && r.linked)
             ? "No sessions from this patient yet — their next live session or recording will appear here."

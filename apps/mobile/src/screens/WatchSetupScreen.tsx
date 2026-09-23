@@ -8,8 +8,8 @@ import {
   StyleSheet,
   Linking,
   ActivityIndicator,
-  Alert,
 } from "react-native";
+import { showAlert } from "../utils/showAlert";
 
 import { claimWatchPairing, disconnectWatch } from "../api/watchPairing";
 import { getMe } from "../api/me";
@@ -107,7 +107,7 @@ export default function WatchSetupScreen({ onBack }: WatchSetupScreenProps) {
   }, []);
 
   const confirmDisconnect = useCallback(() => {
-    Alert.alert(
+    showAlert(
       "Disconnect this watch?",
       "This watch will stop being able to sign in as you. Your recordings " +
         "and data are safe — you can pair a watch again anytime.",
@@ -123,7 +123,7 @@ export default function WatchSetupScreen({ onBack }: WatchSetupScreenProps) {
                 setHasPairedWatch(false);
               })
               .catch(() => {
-                Alert.alert(
+                showAlert(
                   "Couldn’t disconnect the watch",
                   "Something went wrong. Please try again.",
                 );

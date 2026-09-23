@@ -64,7 +64,7 @@ describe("LoginScreen (web hero placement)", () => {
     const heroIndex = flat.findIndex((n) => n.props?.testID === "hero-wipe");
     const brandIndex = flat.findIndex((n) => n.props?.children === "MindShift");
     const subtitleIndex = flat.findIndex(
-      (n) => n.props?.children === "Sign in to continue",
+      (n) => n.props?.children === "Live tone coaching for the conversations that matter",
     );
 
     expect(heroIndex).toBeGreaterThan(-1);

@@ -52,7 +52,7 @@ exports[`AnalyzeScreen renders the initial screen 1`] = `
           }
         }
       >
-        Analyze a Conversation
+        Analyze a conversation
       </Text>
       <View
         style={
@@ -580,7 +580,7 @@ exports[`AnalyzeScreen renders the initial screen 1`] = `
                 }
               }
             >
-              Store for replay
+              Store for replay (tick the box above first)
             </Text>
             <RCTSwitch
               accessibilityRole="switch"
@@ -781,7 +781,7 @@ exports[`AnalyzeScreen renders the initial screen 1`] = `
                 }
               }
             >
-              Choose a recording
+              Choose a file
             </Text>
           </View>
         </View>

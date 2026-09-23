@@ -41,6 +41,10 @@ interface RecordingsScreenProps {
    *  Still passed (and rendered) when pushed from Analyze (`returnTo:
    *  "analyze"`), same as before this fix. */
   onBack?: () => void;
+  /** Empty-state CTA: a brand-new user landed on "No stored recordings
+   *  yet." with nowhere to go (UX walk 2026-09-23). Optional so existing
+   *  callers/tests keep rendering; the button hides without it. */
+  onAnalyze?: () => void;
 }
 
 /** Honest message for the list-level failures (same mapping spirit as
@@ -89,6 +93,7 @@ export function formatParticipants(
 export default function RecordingsScreen({
   onSelectRecording,
   onBack,
+  onAnalyze,
 }: RecordingsScreenProps) {
   const userId = useAuthStore((s) => s.user?.uid ?? null);
 
@@ -273,10 +278,11 @@ export default function RecordingsScreen({
         {onBack ? (
           <TouchableOpacity
             testID="recordings-back"
+            accessibilityRole="button"
             onPress={onBack}
             hitSlop={{ top: 10, bottom: 10, left: 8, right: 16 }}
           >
-            <Text style={styles.backText}>‹ Back</Text>
+            <Text style={styles.backText}>← Back</Text>
           </TouchableOpacity>
         ) : (
           <View style={styles.headerSpacer} />
@@ -338,6 +344,16 @@ export default function RecordingsScreen({
             }
           >
             <Text style={styles.emptyText}>No stored recordings yet.</Text>
+            {onAnalyze ? (
+              <TouchableOpacity
+                testID="recordings-empty-analyze"
+                accessibilityRole="button"
+                style={styles.emptyCta}
+                onPress={onAnalyze}
+              >
+                <Text style={styles.emptyCtaText}>Analyze a conversation</Text>
+              </TouchableOpacity>
+            ) : null}
           </ScrollView>
         )}
 
@@ -531,6 +547,14 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   emptyText: { color: MUTED, fontSize: 15 },
+  emptyCta: {
+    marginTop: 16,
+    backgroundColor: "#4A90D9",
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 22,
+  },
+  emptyCtaText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
   statusRow: {
     flexDirection: "row",
     alignItems: "center",

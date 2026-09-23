@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -9,6 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { showAlert } from "../utils/showAlert";
 
 import {
   deleteVoicePerson,
@@ -91,7 +91,7 @@ export default function PeopleScreen({ onBack, onOpenReplay }: PeopleScreenProps
       setLoadError(null);
     } catch {
       setPeople((prev) => prev ?? []);
-      setLoadError("Couldn’t load your people. Check your connection and pull to retry.");
+      setLoadError("Couldn’t load your people. Check your connection and try again.");
     }
   }, []);
 
@@ -132,7 +132,7 @@ export default function PeopleScreen({ onBack, onOpenReplay }: PeopleScreenProps
   // --- delete ---------------------------------------------------------------
   const confirmDelete = useCallback((p: VoicePerson) => {
     const name = personDisplayName(p);
-    Alert.alert(
+    showAlert(
       p.is_self ? "Forget my voice?" : `Forget ${name}’s voice?`,
       p.is_self
         ? "This permanently deletes the numeric voice signature used to label you “You”. Your recordings are not affected."
@@ -428,7 +428,7 @@ export default function PeopleScreen({ onBack, onOpenReplay }: PeopleScreenProps
       keyboardShouldPersistTaps="handled"
     >
       <TouchableOpacity testID="people-back" onPress={onBack} style={styles.backButton}>
-        <Text style={styles.backButtonText}>Back</Text>
+        <Text style={styles.backButtonText}>← Back</Text>
       </TouchableOpacity>
       <Text style={styles.heading}>People</Text>
       <Text style={styles.subheading}>
@@ -441,9 +441,22 @@ export default function PeopleScreen({ onBack, onOpenReplay }: PeopleScreenProps
         <ActivityIndicator size="small" color={PRIMARY} testID="people-loading" />
       ) : null}
       {loadError ? (
-        <Text style={styles.errorText} testID="people-load-error">
-          {loadError}
-        </Text>
+        <View testID="people-load-error-block">
+          <Text style={styles.errorText} testID="people-load-error">
+            {loadError}
+          </Text>
+          {/* The copy used to say "pull to retry" on a ScrollView with no
+              RefreshControl — an instruction nothing could obey (source
+              review 2026-09-23). */}
+          <TouchableOpacity
+            testID="people-retry"
+            accessibilityRole="button"
+            style={styles.retryButton}
+            onPress={() => void refresh()}
+          >
+            <Text style={styles.retryText}>Try again</Text>
+          </TouchableOpacity>
+        </View>
       ) : null}
       {available === false ? (
         <View style={styles.card} testID="people-unavailable">
@@ -665,4 +678,6 @@ const styles = StyleSheet.create({
   errorBox: { backgroundColor: "#FEF2F2", borderRadius: 8, padding: 10, marginVertical: 8 },
   errorTitle: { fontSize: 13.5, fontWeight: "700", color: DANGER, marginBottom: 2 },
   errorText: { fontSize: 13, lineHeight: 18, color: DANGER },
+  retryButton: { alignSelf: "flex-start", marginTop: 8, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 10, backgroundColor: PRIMARY },
+  retryText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
 });

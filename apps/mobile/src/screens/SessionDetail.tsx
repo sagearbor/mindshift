@@ -4,12 +4,12 @@ import {
   Text,
   TouchableOpacity,
   ScrollView,
-  Alert,
   Platform,
   Share,
   StyleSheet,
   useWindowDimensions,
 } from "react-native";
+import { showAlert } from "../utils/showAlert";
 import { useDashboardStore, ToneScores, type SavedSession } from "../store/dashboardStore";
 import ToneSparkline from "../components/ToneSparkline";
 import ToneSummaryCard from "../components/ToneSummaryCard";
@@ -200,7 +200,7 @@ export default function SessionDetail({
         if (typeof window !== "undefined") window.alert("Could not export session data.");
         return;
       }
-      Alert.alert("Export Failed", "Could not export session data.");
+      showAlert("Export Failed", "Could not export session data.");
     }
   };
 
@@ -289,7 +289,7 @@ export default function SessionDetail({
         <View style={styles.section}>
           <ToneSummaryCard
             summary={session.toneSummary}
-            title="Patient's tone"
+            title={session.shared ? "Patient's tone" : "Your tone"}
             testID="session-tone-summary"
           />
         </View>
