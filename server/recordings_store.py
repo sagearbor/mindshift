@@ -1720,6 +1720,38 @@ class RecordingsStore:
             return out
         return await asyncio.to_thread(_read)
 
+    async def delete_usage_for_account(self, uid: str) -> int:
+        """Delete every usage shard belonging to ``uid``, across every day.
+
+        Account deletion needs this and the day-major layout makes it awkward:
+        ``usage/{day}/{uid}/`` has no single prefix for one account, so there is
+        nothing to delete by key. Listing ``usage/`` wholesale would scan every
+        account's shards, so instead we enumerate the DAY prefixes once with a
+        delimiter (cheap — one entry per day, not per shard) and delete under
+        each ``usage/{day}/{uid}/``.
+
+        Not bounded by ``usage_meter.MAX_ROLLUP_DAYS``: that constant limits how
+        far the owner rollup READS, and a shard older than the window is still
+        this user's data. Deletion walks whatever days actually exist.
+        """
+        def _delete() -> int:
+            # One scan of usage/, matching on the uid segment. A delimiter walk
+            # would list fewer objects, but it needs the bucket's client handle
+            # and every other method here goes through self._bucket directly —
+            # staying with the same idiom keeps this testable against the same
+            # fake bucket as the rest of the deletion suite.
+            removed = 0
+            marker = f"/{uid}/"
+            for blob in list(self._bucket.list_blobs(prefix="usage/")):
+                rest = blob.name[len("usage/"):]
+                day, _, tail = rest.partition("/")
+                if not day or not tail.startswith(f"{uid}/"):
+                    continue
+                blob.delete()
+                removed += 1
+            return removed
+        return await asyncio.to_thread(_delete)
+
     async def list_usage(self, day: str) -> dict[str, dict[str, float]]:
         """``{uid: counters}`` for one day — one prefix scan over every shard.
 

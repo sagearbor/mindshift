@@ -809,3 +809,31 @@ async def test_delete_account_data_runs_with_no_stores_configured():
     assert summary.ok
     assert summary.total == 0
     assert set(summary.counts) == set(account_deletion.COUNT_KEYS)
+
+@pytest.mark.anyio
+async def test_usage_counters_are_deleted_and_other_accounts_keep_theirs(
+    client, store, bucket, watch_deps, deleted_users,
+):
+    """The cost-guardrails ledger must go with the account.
+
+    Regression for a gap found 2026-09-23: usage_meter began persisting
+    usage/{day}/{uid}/{instance}.json the day it merged, and no deletion tier
+    reached it — so a record of which days an account used the app, and how
+    much, outlived the account forever (the shards have no TTL). The
+    day-major layout is what made it easy to miss: there is no single
+    usage/{uid}/ prefix to delete.
+    """
+    other = BYSTANDER
+    bucket.objects[f"usage/2026-09-21/{ME}/inst-a.json"] = b'{"counters":{"stt.seconds":12}}'
+    bucket.objects[f"usage/2026-09-22/{ME}/inst-a.json"] = b'{"counters":{"live.minutes":5}}'
+    bucket.objects[f"usage/2026-09-22/{ME}/inst-b.json"] = b'{"counters":{"live.minutes":7}}'
+    bucket.objects[f"usage/2026-09-22/{other}/inst-a.json"] = b'{"counters":{"live.minutes":9}}'
+
+    resp = await client.request("DELETE", "/me", headers=_h(ME), json=CONFIRM)
+    assert resp.status_code == 200, resp.text
+
+    assert bucket.names("usage/") == [f"usage/2026-09-22/{other}/inst-a.json"], (
+        "every shard for the deleted uid must go, across ALL days, and no "
+        "other account's shard may be touched"
+    )
+    assert resp.json()["counts"]["usage_shards"] == 3

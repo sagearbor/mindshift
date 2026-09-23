@@ -119,6 +119,9 @@ COUNT_KEYS: tuple[str, ...] = (
     "watch_pairings",
     "groups_left",
     "diagnostic_reports",
+    # The cost-guardrails ledger (usage/{day}/{uid}/). Added 2026-09-23 —
+    # usage_meter started writing it the day it merged and no tier reached it.
+    "usage_shards",
     "text_sessions",
     "relationships",
 )
@@ -272,6 +275,28 @@ def purge_group_member(uid: str):
             group.created_by = ""
         return group
     return mutate
+
+
+async def delete_usage_tier(store, uid: str, summary: DeletionSummary) -> None:
+    """Delete the per-account daily usage ledger (cost guardrails).
+
+    Added 2026-09-23. ``usage_meter`` began persisting
+    ``usage/{day}/{uid}/{instance}.json`` — cloud STT seconds, live minutes,
+    calls started, model downloads and per-feature LLM token counts — on the
+    same day the feature merged, and nothing here reached it. That made this
+    module's own promise ("erases every tier of stored data for the
+    authenticated uid") false, and left a behavioural record of which days an
+    account used the app, for guests too, that survived deletion forever: the
+    shards have no TTL and ``usage_meter._prune_old_days`` only prunes the
+    in-memory dict.
+
+    BLOCKING, unlike diagnostics. A diagnostics report is a crash report the
+    user chose to send; this is an unavoidable record of their own usage,
+    written with no opt-out, so it belongs with the content tiers.
+    """
+    if store is None or not hasattr(store, "delete_usage_for_account"):
+        return
+    summary.add("usage_shards", await store.delete_usage_for_account(uid))
 
 
 async def delete_watch_tier(
@@ -440,6 +465,10 @@ async def delete_account_data(
         summary, "diagnostics",
         delete_diagnostics_tier(uid, summary, telemetry_store=telemetry_store),
         blocking=False,  # a crash report must never block an account deletion
+    )
+
+    await _run_tier(
+        summary, "usage", delete_usage_tier(recordings_store, uid, summary),
     )
 
     if db is not None:
