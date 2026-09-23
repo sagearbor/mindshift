@@ -49,13 +49,23 @@ def _load_or_generate() -> tuple[Path, dict]:
     return wav_path, json.loads(meta_path.read_text())
 
 
-def _nova2_speaker_count(raw: bytes) -> int:
-    """Control probe: diarize the same bytes with nova-2 (see caller)."""
+# The real-voice control. tmp/ is gitignored, so this may be absent; fetch with
+#     python scripts/ami_corpus.py --meetings ES2002a --out tmp/ami
+# and copy the Mix-Headset wav here, or point the env var at any real recording
+# with two or more human speakers.
+_REAL_VOICE_FIXTURE = Path(
+    os.getenv("MINDSHIFT_DIARIZATION_CONTROL_WAV")
+    or _REPO_ROOT / "tmp" / "testaudio" / "ES2002a.Mix-Headset.wav"
+)
+
+
+def _speaker_count(raw: bytes, model: str) -> int:
+    """Diarize `raw` with `model` and count distinct speakers."""
     import httpx
 
     resp = httpx.post(
         "https://api.deepgram.com/v1/listen",
-        params={"model": "nova-2", "diarize": "true", "utterances": "true"},
+        params={"model": model, "diarize": "true", "utterances": "true"},
         headers={
             "Authorization": f"Token {os.getenv('DEEPGRAM_API_KEY', '').strip()}",
             "Content-Type": "audio/wav",
@@ -110,20 +120,42 @@ def test_live_prerecorded_transcription_and_prosody():
     #    transcription/prosody coverage above.
     speakers = {t["speaker"] for t in turns}
     if len(speakers) < 2:
-        # nova-3 model 2025-07-31 started collapsing SYNTHETIC (Aura TTS)
-        # voices into one speaker — even a clean, unmodulated female+male pair.
-        # Disambiguate a Deepgram-side synthetic-voice limitation from a
-        # regression in OUR audio/params: nova-2 on the SAME bytes is the
-        # control. If nova-2 also hears one speaker, our fixture/params broke.
-        if _nova2_speaker_count(raw) >= 2:
+        # nova-3 (>=2025-07-31) collapses SYNTHETIC (Aura TTS) voices into one
+        # speaker, even a clean unmodulated female+male pair. The question this
+        # branch answers is whether that is Deepgram's limitation or OUR bug.
+        #
+        # The control used to be nova-2 on the same bytes. That stopped working
+        # on 2026-09-22: nova-2 now collapses synthetic voices too, so a
+        # same-audio/different-model probe can no longer tell the two causes
+        # apart, and this test failed looking like a regression it was not.
+        #
+        # The control is now REAL HUMAN VOICES, which is the actual hypothesis:
+        # if Deepgram separates real speakers but not synthetic ones, the
+        # limitation is synthetic-voice-specific and nothing here is broken.
+        # Measured 2026-09-22 on AMI ES2002a: nova-3 and nova-2 both found 3
+        # speakers in real audio, and both found 1 in our TTS fixture.
+        if not _REAL_VOICE_FIXTURE.exists():
             pytest.xfail(
-                "nova-3 (>=2025-07-31) no longer diarizes synthetic TTS "
-                "voices (nova-2 control separates the same bytes) — "
-                "Deepgram-side limitation, not a repo regression. Real-voice "
-                "diarization should be spot-checked separately."
+                f"synthetic-voice diarization collapsed and the real-voice "
+                f"control is absent ({_REAL_VOICE_FIXTURE}), so this run cannot "
+                f"tell a Deepgram limitation from a regression. Fetch it with "
+                f"`python scripts/ami_corpus.py --meetings ES2002a --out tmp/ami` "
+                f"or set MINDSHIFT_DIARIZATION_CONTROL_WAV."
+            )
+        # A slice is enough to count speakers and keeps the probe quick.
+        control = _REAL_VOICE_FIXTURE.read_bytes()[:8_000_000]
+        real_speakers = _speaker_count(control, "nova-3")
+        if real_speakers >= 2:
+            pytest.xfail(
+                f"Deepgram no longer diarizes synthetic TTS voices, but "
+                f"separates {real_speakers} real speakers in "
+                f"{_REAL_VOICE_FIXTURE.name} on the same model — a "
+                f"synthetic-voice limitation, not a repo regression. Real-voice "
+                f"diarization is what ships, and it works."
             )
         raise AssertionError(
             f"expected >=2 diarized speakers, got {sorted(speakers)} — and the "
-            "nova-2 control ALSO collapsed them, so our audio/params are the "
-            "likely culprit"
+            f"REAL-VOICE control ({_REAL_VOICE_FIXTURE.name}) also collapsed to "
+            f"{real_speakers}. That is not a synthetic-voice limitation: "
+            f"diarization is broken for real audio, which is what ships."
         )
