@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   StyleSheet,
   Platform,
+  Linking,
 } from "react-native";
 import {
   getRecordingPermissionsAsync,
@@ -115,6 +116,11 @@ export default function AudioRecordScreen({
   }
 
   const [micGranted, setMicGranted] = useState<boolean | null>(null);
+  // false once the user has permanently denied: Android then suppresses the
+  // dialog, so the Grant button silently does nothing and the screen is a dead
+  // end. The comment above this component says "Never a dead screen" — it was
+  // one. Found on the emulator, 2026-09-23.
+  const [micCanAskAgain, setMicCanAskAgain] = useState(true);
   const [report, setReport] = useState<PreflightReport | null>(null);
   const [ui, setUi] = useState<UiState>("preflight");
   const [phase, setPhase] = useState<SessionPhase>("idle");
@@ -307,8 +313,20 @@ export default function AudioRecordScreen({
         <View style={styles.centered} testID="audio-permission-gate">
           <Text style={styles.noteTitle}>A little access first</Text>
           <Text style={styles.noteText}>
-            Microphone access is needed to record the conversation.
+            {micCanAskAgain
+              ? "Microphone access is needed to record the conversation."
+              : "Microphone access was denied. Enable it for MindShift in your device Settings, then come back here."}
           </Text>
+          {!micCanAskAgain ? (
+            <TouchableOpacity
+              testID="open-settings-mic"
+              style={styles.primaryButton}
+              onPress={() => void Linking.openSettings()}
+            >
+              <Text style={styles.primaryButtonText}>Open Settings</Text>
+            </TouchableOpacity>
+          ) : null}
+          {micCanAskAgain ? (
           <TouchableOpacity
             testID="grant-audio-mic"
             style={styles.primaryButton}
@@ -316,7 +334,12 @@ export default function AudioRecordScreen({
               void (async () => {
                 try {
                   const p = await requestRecordingPermissionsAsync();
-                  if (mountedRef.current) setMicGranted(p.granted);
+                  if (mountedRef.current) {
+                    setMicGranted(p.granted);
+                    // expo-audio reports canAskAgain; once false the OS will
+                    // never show the dialog again from inside the app.
+                    setMicCanAskAgain(p.canAskAgain !== false);
+                  }
                 } catch {
                   if (mountedRef.current) setMicGranted(false);
                 }
@@ -325,6 +348,7 @@ export default function AudioRecordScreen({
           >
             <Text style={styles.primaryButtonText}>Grant access</Text>
           </TouchableOpacity>
+          ) : null}
         </View>
       </View>
     );
@@ -438,9 +462,15 @@ export default function AudioRecordScreen({
           </Text>
         )}
         {disclosure}
-        <Text style={styles.screenOffNote}>
-          You can turn the screen off — recording continues.
-        </Text>
+        {/* Only true when a foreground service can run, which needs the
+            notification permission. Rendering it unconditionally put it three
+            lines below "recording only works with the screen on — keep the app
+            open", and a user who believed this one lost the recording. */}
+        {backgroundCapable && (
+          <Text style={styles.screenOffNote}>
+            You can turn the screen off — recording continues.
+          </Text>
+        )}
         <TouchableOpacity
           testID="stop-audio-recording"
           style={styles.recordButtonWrap}
