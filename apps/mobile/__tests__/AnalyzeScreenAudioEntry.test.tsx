@@ -4,6 +4,11 @@ import AnalyzeScreen from "../src/screens/AnalyzeScreen";
 import type { AudioRecorderDeps } from "../src/recorder/AudioRecordScreen";
 import { MemoryFs } from "../src/recorder/memoryFs";
 import { RecorderSessionStore } from "../src/recorder/sessionStore";
+
+/** The signed-in uid these fixtures record as. Recorder files are OWNED:
+ *  a store built without an owner records nothing claimable and offers
+ *  nothing back (see RecorderSessionStore). */
+const OWNER = "uid-owner";
 import type { RecorderPort } from "../src/recorder/types";
 import { postAnalyzeUploadChunkedJob } from "../src/api/client";
 import type { UploadAnalyzeResult } from "../src/api/client";
@@ -117,7 +122,7 @@ class FakeRecorder implements RecorderPort {
 
 function makeDeps() {
   const fs = new MemoryFs();
-  const store = new RecorderSessionStore(fs);
+  const store = new RecorderSessionStore(fs, OWNER);
   let n = 0;
   const deps: AudioRecorderDeps = {
     store,
@@ -320,6 +325,35 @@ describe("AnalyzeScreen — crash recovery prompt", () => {
     expect(queryId(comp, "orphan-prompt")).toBeNull();
     expect(queryId(comp, "picked-file")).toBeNull();
     expect(store.listOrphanStitched()).toEqual([]);
+  });
+
+  // The 2026-09-23 privacy bug: record as guest A, log out, "Continue as
+  // guest" (a new anonymous uid) — and the Analyze screen offered guest A's
+  // audio to guest B, who could upload it as their own. Logging out ends the
+  // Firebase session; the document directory survives it.
+  const NEXT_GUEST = "uid-next-guest";
+
+  it("does not offer the previous account's unfinished session to the next guest", async () => {
+    const { fs, store, deps } = makeDeps();
+    seedOrphanedSession(fs, store); // recorded by OWNER
+    const asNextGuest = new RecorderSessionStore(fs, NEXT_GUEST);
+    const comp = await mountAnalyze({ ...deps, store: asNextGuest });
+    expect(queryId(comp, "recovery-prompt")).toBeNull();
+    // Not deleted either — the original owner still gets it back.
+    expect(store.listRecoverable()).toHaveLength(1);
+  });
+
+  it("does not offer the previous account's stitched file to the next guest", async () => {
+    const { fs, store, deps } = makeDeps();
+    const m = seedOrphanedSession(fs, store);
+    const file = store.finishToFile(m);
+    const asNextGuest = new RecorderSessionStore(fs, NEXT_GUEST);
+    const comp = await mountAnalyze({ ...deps, store: asNextGuest });
+    expect(queryId(comp, "orphan-prompt")).toBeNull();
+    expect(queryId(comp, "orphan-use")).toBeNull();
+    // Still on disk and still the original owner's to recover.
+    expect(fs.exists(file.uri)).toBe(true);
+    expect(store.listOrphanStitched().map((o) => o.uri)).toEqual([file.uri]);
   });
 
   it("a rescued file that analyzes SUCCESSFULLY is deleted — never re-offered", async () => {

@@ -1,5 +1,10 @@
 import { MemoryFs } from "../src/recorder/memoryFs";
 import { RecorderSessionStore } from "../src/recorder/sessionStore";
+
+/** The signed-in uid these fixtures record as. Recorder files are OWNED:
+ *  a store built without an owner records nothing claimable and offers
+ *  nothing back (see RecorderSessionStore). */
+const OWNER = "uid-owner";
 import { SegmentedAudioSession } from "../src/recorder/segmentedSession";
 import type { RecorderPort } from "../src/recorder/types";
 
@@ -84,7 +89,7 @@ class FakeRecorder implements RecorderPort {
 
 function makeHarness(opts: { failPrepareAfter?: number } = {}) {
   const fs = new MemoryFs();
-  const store = new RecorderSessionStore(fs);
+  const store = new RecorderSessionStore(fs, OWNER);
   const recorders: FakeRecorder[] = [];
   let t = 1_000_000;
   const makeRecorder = () => {
