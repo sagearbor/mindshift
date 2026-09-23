@@ -199,6 +199,26 @@ export class CallSession {
       this.end("ended", null);
       return true;
     }
+    // Server refusals arrive as a bare {"error": "..."} with no type, and every
+    // one of them used to be parsed, matched against nothing, and dropped. The
+    // sequence that wedges: both phones lose the network together, the server
+    // ends the call and persists the episodes into dead sockets, a phone
+    // reconnects and re-sends call_join, and the server refuses it — leaving a
+    // screen showing a live call that no longer exists, with Hang up the only
+    // way out. Found by adversarial review, 2026-09-23.
+    const err = (data as { error?: unknown }).error;
+    if (typeof err === "string" && err) {
+      // Only a JOIN refusal is fatal. An rtc_signal refusal is EXPECTED while a
+      // therapist seat is pending — the server declines her signaling by
+      // design — and failing the call on it would turn the consent gate into an
+      // outage. Anything else is surfaced without tearing the call down.
+      if (err.startsWith("call_join")) {
+        this.fail(err);
+      } else {
+        this.note(err);
+      }
+      return true;
+    }
     return false;
   }
 
@@ -544,6 +564,15 @@ export class CallSession {
       }
     }
     this.view = { ...this.view, status, error };
+    this.deps.onChange(this.view);
+  }
+
+  /** Surface a server refusal on the screen WITHOUT ending the call. */
+  private note(error: string) {
+    if (this.closed) return;
+    // Same field end() writes, so the screen renders it the same way — but the
+    // call keeps running.
+    this.view = { ...this.view, error };
     this.deps.onChange(this.view);
   }
 

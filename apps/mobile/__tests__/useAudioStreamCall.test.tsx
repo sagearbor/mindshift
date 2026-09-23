@@ -313,6 +313,42 @@ describe("useAudioStream — Call mode", () => {
     expect(result.current.call.error).toContain("only a participant can approve the therapist");
   });
 
+  /**
+   * Adversarial review 2026-09-23. Every refusal the live socket can send
+   * about a call arrives as a bare `{"error": "..."}` frame:
+   * "call_join: call has ended", "call_join: no such call",
+   * "call_join: not a participant of this call",
+   * "rtc_signal: <therapist pending>", "resume session_id mismatch".
+   * Nothing in useAudioStream or callSession reads `data.error`, so the
+   * refusal is parsed, matched against nothing, and dropped.
+   *
+   * The sequence that makes it bite: both phones on a two-way call lose the
+   * network at the same moment (same wifi, a lift, a tunnel). The server's
+   * last `leave` ends the call and persists the episodes into sockets that
+   * are already dead. Ten seconds later a phone reconnects, resumes, and
+   * re-sends `call_join` — which the server refuses with 410 "call has
+   * ended". The phone shows a live call that no longer exists and never
+   * learns its episode id.
+   */
+  it("a call_join the server refuses is surfaced, not swallowed", async () => {
+    const hook = await renderHook(() => useAudioStream({ callApi: api, makeRtcAdapter: () => adapter }));
+    const result = hook.result;
+    await act(async () => {
+      await result.current.startCall(50);
+    });
+    const ws = WS.i[0];
+    await act(() => {
+      ws.onopen?.({});
+    });
+    await act(() => {
+      ws.onmessage?.({ data: JSON.stringify({ error: "call_join: call has ended" }) });
+    });
+    await act(async () => {
+      await flush();
+    });
+    expect(result.current.call.error).toBeTruthy();
+  });
+
   it("with no call there is nothing to approve", async () => {
     const hook = await renderHook(() => useAudioStream({ callApi: api, makeRtcAdapter: () => adapter }));
     await act(async () => {
