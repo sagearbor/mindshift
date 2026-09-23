@@ -50,6 +50,13 @@ export interface SessionManifest {
   mimeType: string;
   segmentSeconds: number;
   segments: SegmentRecord[];
+  /** Firebase uid of the account that was signed in when this session was
+   *  created — the ONLY account recovery may offer it back to. Anonymous
+   *  ("Continue as guest") accounts have a real uid and no email, so this is
+   *  keyed on uid and never on email. Absent on sessions written before
+   *  ownership existed; an absent owner is unclaimable, never "anyone's"
+   *  (see RecorderSessionStore.claimableBy). */
+  ownerUid?: string;
   /** Which engine produced this session ("stream" = v2 gapless). Purely
    *  diagnostic: on disk both engines produce the same recoverable shape
    *  (a directory of independently playable segments + this manifest), so

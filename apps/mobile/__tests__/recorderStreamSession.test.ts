@@ -17,6 +17,11 @@ import {
   RecorderSessionStore,
   segmentFileName,
 } from "../src/recorder/sessionStore";
+
+/** The signed-in uid these fixtures record as. Recorder files are OWNED:
+ *  a store built without an owner records nothing claimable and offers
+ *  nothing back (see RecorderSessionStore). */
+const OWNER = "uid-owner";
 import {
   StreamAudioSession,
   DEFAULT_FLUSH_MS,
@@ -74,7 +79,7 @@ interface HarnessOpts {
 
 function makeHarness(opts: HarnessOpts = {}) {
   const fs = new MemoryFs();
-  const store = new RecorderSessionStore(fs);
+  const store = new RecorderSessionStore(fs, OWNER);
   const sources: FakePcmSource[] = [];
   let t = 1_000_000;
   const session = new StreamAudioSession({
@@ -315,7 +320,7 @@ describe("StreamAudioSession — crash recovery (v2)", () => {
     }
 
     // "Relaunch": a fresh store over the same disk.
-    const relaunchStore = new RecorderSessionStore(h.fs);
+    const relaunchStore = new RecorderSessionStore(h.fs, OWNER);
     const recoverable = relaunchStore.listRecoverable();
     expect(recoverable).toHaveLength(1);
     expect(recoverable[0].totalDurationMs).toBe(5000);
@@ -333,7 +338,7 @@ describe("StreamAudioSession — crash recovery (v2)", () => {
     await h.session.start();
     await h.pushSeconds(0, 45); // 2 closed segments + 5 s flushed in the third
 
-    const relaunchStore = new RecorderSessionStore(h.fs);
+    const relaunchStore = new RecorderSessionStore(h.fs, OWNER);
     const [rec] = relaunchStore.listRecoverable();
     expect(rec.segmentCount).toBe(3);
     const file = relaunchStore.finishToFile(rec.manifest);
@@ -345,7 +350,7 @@ describe("StreamAudioSession — crash recovery (v2)", () => {
     const h = makeHarness();
     await h.session.start();
     h.source.push(ramp(0, 300)); // 0.3 s, never flushed
-    const relaunchStore = new RecorderSessionStore(h.fs);
+    const relaunchStore = new RecorderSessionStore(h.fs, OWNER);
     expect(relaunchStore.listRecoverable()).toEqual([]);
     // The empty session directory was cleaned up by the scan.
     expect(h.fs.listDirNames("file:///doc/recorder-sessions")).toEqual([]);
@@ -390,7 +395,7 @@ describe("StreamAudioSession — crash recovery (v2)", () => {
     await h.session.start();
     await h.pushSeconds(0, 5);
 
-    const relaunchStore = new RecorderSessionStore(h.fs);
+    const relaunchStore = new RecorderSessionStore(h.fs, OWNER);
     const recoverable = relaunchStore.listRecoverable();
     expect(recoverable).toHaveLength(2);
     for (const rec of recoverable) {

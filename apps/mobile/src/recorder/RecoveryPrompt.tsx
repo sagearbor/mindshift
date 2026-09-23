@@ -34,7 +34,15 @@ export default function RecoveryPrompt({
         const { RecorderSessionStore: Store } = require("./sessionStore");
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         const { ExpoRecorderFs } = require("./expoFs");
-        storeRef.current = new Store(new ExpoRecorderFs());
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { currentRecordingOwnerUid } = require("./owner");
+        // Owner-scoped: the scans below offer back only what the signed-in
+        // uid recorded. Without this, logging out and continuing as a new
+        // guest offered the PREVIOUS person's audio to the new one.
+        storeRef.current = new Store(
+          new ExpoRecorderFs(),
+          currentRecordingOwnerUid,
+        );
       }
       setPending(storeRef.current?.listRecoverable() ?? []);
       setOrphans(storeRef.current?.listOrphanStitched() ?? []);

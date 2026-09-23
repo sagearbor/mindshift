@@ -18,6 +18,11 @@ import AudioRecordScreen from "../src/recorder/AudioRecordScreen";
 import type { AudioRecorderDeps } from "../src/recorder/AudioRecordScreen";
 import { MemoryFs } from "../src/recorder/memoryFs";
 import { RecorderSessionStore } from "../src/recorder/sessionStore";
+
+/** The signed-in uid these fixtures record as. Recorder files are OWNED:
+ *  a store built without an owner records nothing claimable and offers
+ *  nothing back (see RecorderSessionStore). */
+const OWNER = "uid-owner";
 import type { PcmFrame, PcmSource } from "../src/recorder/pcmSource";
 import type { RecordedAudioFile, RecorderPort } from "../src/recorder/types";
 
@@ -127,7 +132,7 @@ class FakeRecorder implements RecorderPort {
 
 function makeStreamDeps() {
   const fs = new MemoryFs();
-  const store = new RecorderSessionStore(fs);
+  const store = new RecorderSessionStore(fs, OWNER);
   const sources: FakePcmSource[] = [];
   const deps: AudioRecorderDeps = {
     store,
@@ -166,7 +171,7 @@ function makeStreamDeps() {
 
 function makeV1Deps(overrides: Partial<AudioRecorderDeps> = {}) {
   const fs = new MemoryFs();
-  const store = new RecorderSessionStore(fs);
+  const store = new RecorderSessionStore(fs, OWNER);
   const recorders: FakeRecorder[] = [];
   const deps: AudioRecorderDeps = {
     store,
@@ -275,7 +280,7 @@ describe("AudioRecordScreen — engine selection", () => {
 
   it('honors an explicit engine: "recorder" escape hatch even with a PcmSource available', async () => {
     const fs = new MemoryFs();
-    const store = new RecorderSessionStore(fs);
+    const store = new RecorderSessionStore(fs, OWNER);
     const recorders: FakeRecorder[] = [];
     const sources: FakePcmSource[] = [];
     const deps: AudioRecorderDeps = {

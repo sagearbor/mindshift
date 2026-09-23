@@ -557,7 +557,12 @@ export default function AnalyzeScreen({
         const { RecorderSessionStore: Store } = require("../recorder/sessionStore");
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         const { ExpoRecorderFs } = require("../recorder/expoFs");
-        store = new Store(new ExpoRecorderFs()) as RecorderSessionStore;
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { currentRecordingOwnerUid } = require("../recorder/owner");
+        store = new Store(
+          new ExpoRecorderFs(),
+          currentRecordingOwnerUid,
+        ) as RecorderSessionStore;
       }
       store.discardOrphan(uri);
     } catch {

@@ -7,6 +7,7 @@ import * as Battery from "expo-battery";
 import type { AudioRecorderDeps } from "./AudioRecordScreen";
 import { RECORDER_ENGINE } from "./engine";
 import { ExpoRecorderFs } from "./expoFs";
+import { currentRecordingOwnerUid } from "./owner";
 import { ExpoPcmSource } from "./expoPcmSource";
 import {
   formatForPlatform,
@@ -103,7 +104,12 @@ async function configureAudioSession(
 export function defaultAudioRecorderDeps(): AudioRecorderDeps {
   const engine = RECORDER_ENGINE;
   return {
-    store: new RecorderSessionStore(new ExpoRecorderFs()),
+    // Sessions are stamped with whoever is signed in when recording starts,
+    // so a later account can never be offered this one's audio.
+    store: new RecorderSessionStore(
+      new ExpoRecorderFs(),
+      currentRecordingOwnerUid,
+    ),
     makeRecorder: makeExpoRecorderFactory(),
     makePcmSource: () => new ExpoPcmSource(),
     engine,

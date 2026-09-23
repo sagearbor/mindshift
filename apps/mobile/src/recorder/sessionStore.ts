@@ -18,6 +18,25 @@ export interface CreateSessionOptions {
   engine?: "stream" | "recorder";
 }
 
+/**
+ * Who may claim recordings on this device right now: a uid, or a thunk that
+ * reads the live one (production passes the auth store, so a sign-out between
+ * constructing the store and scanning the disk is seen). Null = nobody known,
+ * which claims nothing.
+ */
+export type OwnerSource = string | null | (() => string | null);
+
+/** Sidecar carrying the owning uid of a stitched output, written next to it
+ *  as "<name>.owner". A stitched file has no manifest to stamp, and the uid
+ *  is stored verbatim as file CONTENT (not in the file name or a directory
+ *  name) so no uid ever has to survive a charset or path-safety rewrite. */
+const OWNER_SUFFIX = ".owner";
+
+/** Name of a stitched output (excluding its owner sidecar). */
+function isStitchedName(name: string): boolean {
+  return name.startsWith("mindshift-audio-") && !name.endsWith(OWNER_SUFFIX);
+}
+
 /** Canonical segment file name ("seg-000.wav") — shared by the v1 move-in
  *  path (finalizeSegment) and the v2 write-in-place path (StreamAudioSession)
  *  so both produce identical on-disk sessions. */
@@ -40,12 +59,60 @@ let sessionCounter = 0;
  * the disk tells the whole truth: a manifest with segments and no clean
  * finish IS a recoverable session — no flags, no heuristics. finishToFile()
  * removes the session directory, which is what "finished cleanly" means.
+ *
+ * Everything on that disk is OWNED. The document directory outlives a Firebase
+ * sign-out, so without an owner the next account to open the app — the next
+ * guest on a shared or handed-over phone — was offered the previous person's
+ * conversation and could upload it as their own (found on an emulator
+ * 2026-09-23). Every session manifest and every stitched output now carries
+ * the uid that made it, and the scans below offer back only what the CURRENT
+ * uid owns. Nothing is deleted to achieve that: logging out and back into the
+ * SAME account still finds the recording waiting.
  */
 export class RecorderSessionStore {
   /** Public so the v2 stream engine (which appends to segment files in
    *  place rather than moving finished recorder files in) can share the one
-   *  filesystem seam instead of being handed a second, possibly-different fs. */
-  constructor(readonly fs: RecorderFs) {}
+   *  filesystem seam instead of being handed a second, possibly-different fs.
+   *
+   *  `owner` defaults to null — fail CLOSED: a store wired without an owner
+   *  records no owner and offers nothing back, rather than silently handing
+   *  the disk to whoever asks. */
+  constructor(
+    readonly fs: RecorderFs,
+    private readonly owner: OwnerSource = null,
+  ) {}
+
+  /** The uid that may claim recordings right now; null when unknown. */
+  private currentOwnerUid(): string | null {
+    const uid = typeof this.owner === "function" ? this.owner() : this.owner;
+    return typeof uid === "string" && uid.length > 0 ? uid : null;
+  }
+
+  /**
+   * May the signed-in account be offered something stamped `ownerUid`?
+   *
+   * Only on an exact uid match. An UNOWNED artifact (written before ownership
+   * existed, or by a store with no owner) matches nobody: we cannot know who
+   * recorded it, and adopting it into the first account that happens to open
+   * the app is precisely the bug. Such files are left on disk, not deleted.
+   */
+  private claimableBy(ownerUid: string | undefined): boolean {
+    const me = this.currentOwnerUid();
+    return me !== null && ownerUid === me;
+  }
+
+  /** Uid stamped on a stitched output, or null when it carries none. */
+  private stitchedOwnerUid(uri: string): string | null {
+    const sidecar = `${uri}${OWNER_SUFFIX}`;
+    try {
+      if (!this.fs.exists(sidecar)) return null;
+      const uid = this.fs.readText(sidecar).trim();
+      return uid.length > 0 ? uid : null;
+    } catch {
+      // An unreadable sidecar is an unknown owner, never a free-for-all.
+      return null;
+    }
+  }
 
   private rootDir(): string {
     return `${this.fs.documentDirUri()}/recorder-sessions`;
@@ -74,6 +141,11 @@ export class RecorderSessionStore {
     sessionCounter += 1;
     const now = new Date();
     const sessionId = `${now.getTime()}-${sessionCounter}`;
+    // Stamped once, at creation, and carried by every later rewrite (both
+    // upsertSegment and finalizeSegment spread the manifest forward) — so the
+    // "rewritten after EVERY finalized segment" invariant above keeps the
+    // owner as durable as the segment list itself.
+    const ownerUid = this.currentOwnerUid();
     const manifest: SessionManifest = {
       version: 1,
       sessionId,
@@ -84,6 +156,7 @@ export class RecorderSessionStore {
       mimeType: opts.mimeType,
       segmentSeconds: opts.segmentSeconds,
       segments: [],
+      ...(ownerUid ? { ownerUid } : {}),
       ...(opts.engine ? { engine: opts.engine } : {}),
     };
     this.fs.ensureDir(this.sessionDir(sessionId));
@@ -141,10 +214,10 @@ export class RecorderSessionStore {
   }
 
   /**
-   * Scan for sessions that never finished. Sessions with zero finished
-   * segments (crashed before the first rotation — nothing recoverable) are
-   * cleaned up silently. Corrupt manifests are skipped without blocking the
-   * healthy ones.
+   * Scan for sessions that never finished — ONLY those owned by the signed-in
+   * uid. Sessions with zero finished segments (crashed before the first
+   * rotation — nothing recoverable) are cleaned up silently. Corrupt manifests
+   * are skipped without blocking the healthy ones.
    */
   listRecoverable(): RecoverableSession[] {
     const root = this.rootDir();
@@ -165,6 +238,9 @@ export class RecorderSessionStore {
         // still matter to someone debugging) but don't offer recovery on it.
         continue;
       }
+      // Someone else's (or an unowned legacy) session: not ours to offer, and
+      // not ours to clean up either — leave the directory exactly as found.
+      if (!this.claimableBy(manifest.ownerUid)) continue;
       const segments = manifest.segments.filter((s) =>
         this.fs.exists(`${dir}/${s.file}`),
       );
@@ -204,17 +280,24 @@ export class RecorderSessionStore {
     // order is chronological.
     this.fs.ensureDir(out);
     const KEEP = 3;
-    const existing = this.fs
-      .listFileNames(out)
-      .filter((n) => n.startsWith("mindshift-audio-"))
-      .sort();
+    const existing = this.fs.listFileNames(out).filter(isStitchedName).sort();
     for (const old of existing.slice(0, Math.max(0, existing.length - (KEEP - 1)))) {
       this.fs.deleteRecursive(`${out}/${old}`);
+      // The sidecar follows its file — never left behind to describe nothing.
+      const sidecar = `${out}/${old}${OWNER_SUFFIX}`;
+      if (this.fs.exists(sidecar)) this.fs.deleteRecursive(sidecar);
     }
     const name = `mindshift-audio-${Date.now()}-${Math.random()
       .toString(36)
       .slice(2, 6)}${manifest.extension}`;
     const uri = `${out}/${name}`;
+    // Owner sidecar BEFORE the audio: a death between the two leaves a sidecar
+    // describing a file that doesn't exist (invisible to every scan), never an
+    // unowned — and therefore unclaimable — recording. The session's own owner
+    // is what carries over, so a recovery run by the right account still
+    // produces a file that account can claim.
+    const ownerUid = manifest.ownerUid ?? this.currentOwnerUid();
+    if (ownerUid) this.fs.writeText(`${uri}${OWNER_SUFFIX}`, ownerUid);
     this.fs.writeBytes(uri, stitched);
 
     this.fs.deleteRecursive(dir);
@@ -237,14 +320,18 @@ export class RecorderSessionStore {
    * when recovery stitches a file and the subsequent upload fails or the app
    * dies before it runs (the 2026-08-14 incident: a broken OTA made the
    * upload unreachable, the app restarted, and the audio was stranded with
-   * no UI path back to it). The recovery prompt offers these too.
+   * no UI path back to it). The recovery prompt offers these too — but only
+   * the ones the signed-in uid owns (see claimableBy).
    */
   listOrphanStitched(): RecordedAudioFile[] {
     const out = this.outDir();
     if (!this.fs.exists(out)) return [];
     return this.fs
       .listFileNames(out)
-      .filter((n) => n.startsWith("mindshift-audio-"))
+      .filter(isStitchedName)
+      .filter((name) =>
+        this.claimableBy(this.stitchedOwnerUid(`${out}/${name}`) ?? undefined),
+      )
       .map((name) => {
         const uri = `${out}/${name}`;
         const mimeType = name.endsWith(".aac") ? "audio/aac" : "audio/wav";
@@ -257,9 +344,12 @@ export class RecorderSessionStore {
       });
   }
 
-  /** Delete one orphaned stitched output (user chose not to use it). */
+  /** Delete one orphaned stitched output, and its owner sidecar (user chose
+   *  not to use it, or already analyzed it). */
   discardOrphan(uri: string): void {
     if (this.fs.exists(uri)) this.fs.deleteRecursive(uri);
+    const sidecar = `${uri}${OWNER_SUFFIX}`;
+    if (this.fs.exists(sidecar)) this.fs.deleteRecursive(sidecar);
   }
 
   freeBytes(): number | null {
