@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-  <dict/>
+<dict>
+	<!-- Apple's delivery check (ITMS-90713) requires this TOP-LEVEL key; Xcode
+	     only writes the nested CFBundleIcons/CFBundlePrimaryIcon entry for a
+	     watch target, so the first delivery with a watch app (build 5,
+	     2026-09-25) was refused. The icon catalog itself is generated from
+	     expo-target.config.js `icon` on every prebuild. -->
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
+</dict>
 </plist>
