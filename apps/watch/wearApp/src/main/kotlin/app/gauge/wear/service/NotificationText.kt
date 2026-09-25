@@ -15,7 +15,10 @@ fun notificationText(state: ControllerState): String = when (state.sentinel) {
     SentinelState.ARMED -> "On · ${modeLabel(state.mode)}"
     SentinelState.STREAMING -> when {
         // Companion (Tier B): no mic, no episode — the phone listens; the watch renders nudges.
-        state.mode == Mode.COMPANION && state.online -> "Companion · phone listens"
+        // "phone listens" only once the server has acked the companion hello (2026-09-25 —
+        // before that the socket is open but the server may not know it is a companion at all).
+        state.mode == Mode.COMPANION && state.online && state.companionAcked -> "Companion · phone listens"
+        state.mode == Mode.COMPANION && state.online -> "Companion · connecting"
         state.mode == Mode.COMPANION -> "Companion · offline"
         state.online -> "Episode active"
         else -> "Episode active · offline · local nudges"
