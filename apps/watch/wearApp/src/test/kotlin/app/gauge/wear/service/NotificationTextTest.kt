@@ -10,6 +10,7 @@ private fun state(
     sentinel: SentinelState,
     mode: Mode = Mode.STANDARD,
     online: Boolean = true,
+    companionAcked: Boolean = false,
 ) = ControllerState(
     sentinel = sentinel,
     mode = mode,
@@ -17,6 +18,7 @@ private fun state(
     channelLevels = emptyMap(),
     lastVector = null,
     sparkline = emptyList(),
+    companionAcked = companionAcked,
 )
 
 class NotificationTextTest {
@@ -58,5 +60,23 @@ class NotificationTextTest {
     @Test
     fun cooldownShowsCoolingDown() {
         assertEquals("Cooling down", notificationText(state(SentinelState.COOLDOWN)))
+    }
+
+    // 2026-09-25: "phone listens" is a claim about the SERVER (it registered the companion), so it
+    // waits for the companion_ack the client used to drop. Before the ack the socket is merely open.
+    @Test
+    fun companionSaysConnectingUntilAckedThenPhoneListens() {
+        assertEquals(
+            "Companion · connecting",
+            notificationText(state(SentinelState.STREAMING, mode = Mode.COMPANION, online = true)),
+        )
+        assertEquals(
+            "Companion · phone listens",
+            notificationText(state(SentinelState.STREAMING, mode = Mode.COMPANION, online = true, companionAcked = true)),
+        )
+        assertEquals(
+            "Companion · offline",
+            notificationText(state(SentinelState.STREAMING, mode = Mode.COMPANION, online = false, companionAcked = true)),
+        )
     }
 }

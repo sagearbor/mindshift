@@ -166,6 +166,12 @@ class SentinelController(
     // (onEpisodeSaved/onFailure) on OkHttp's thread.
     private var ws: EpisodeWs? = null
     private var online: Boolean = true
+    // 2026-09-25 protocol parity: the three server frames the client used to drop. All three are
+    // written by WS listener callbacks (OkHttp's thread) and read by the state getter, so they
+    // live under `lock` with `ws`/`online`. See ControllerState's own KDoc for each.
+    private var companionAcked: Boolean = false
+    private var lastServerError: String? = null
+    private var lastSessionSaved: SessionSaved? = null
     private val channelLevels = mutableMapOf<String, Int>()
     private var lastVector: String? = null
     private val sparkline = ArrayDeque<Double>()
@@ -209,6 +215,9 @@ class SentinelController(
                 armedShoutTap = armedShoutTap,
                 retroCaptureAvailableSeconds = retroCaptureBuffer.availableSeconds(),
                 sparklineSignal = sparklineKind,
+                companionAcked = companionAcked,
+                lastServerError = lastServerError,
+                lastSessionSaved = lastSessionSaved,
             )
         }
 
@@ -263,6 +272,11 @@ class SentinelController(
             // `lock` acquisition as the rest of this block, same contract as every other field
             // touched here.
             channelLevels.clear()
+            // A disarmed sentinel reports nothing about a socket it no longer has: no ack, no
+            // server error, no saved status (same "stale across sessions" rule as channelLevels).
+            companionAcked = false
+            lastServerError = null
+            lastSessionSaved = null
             // Track 1: a disarmed watch stops repeating the last episode's cue (PRD §6 reminders
             // are for a conversation that's still happening). Under `lock` like every other
             // HapticDirector call in this class.
@@ -659,6 +673,10 @@ class SentinelController(
             // Track 1: same "fresh episode, clean slate" rule for the PRD §6 reminder — episode
             // N+1 must not inherit episode N's repeat cadence any more than its level.
             haptics.clearReminder()
+            // Same clean slate for the server's own verdicts on the PREVIOUS episode: its error
+            // frame and its saved status belong to that socket, not this one.
+            lastServerError = null
+            lastSessionSaved = null
         }
         // Fail-soft (Task 7): factory.create()/open()/the preamble send are all real I/O (or, on a
         // fresh install missing INTERNET/RECORD_AUDIO wiring, a SecurityException) that must never
@@ -676,7 +694,8 @@ class SentinelController(
             // thread before open() even returns. Writing ws/online post-open() would silently
             // clobber a same-or-later onFailure's ws=null/online=false back to "healthy" — this
             // ordering guarantees onFailure, however fast, is always the last writer.
-            synchronized(lock) { ws = client; online = true }
+            // companionAcked=false alongside: a NEW socket must be re-acked (see ControllerState).
+            synchronized(lock) { ws = client; online = true; companionAcked = false }
             client.open(nextEpisodeId(), buildListener(token))
             sendCompanionHelloIfApplicable(client)
 
@@ -755,7 +774,7 @@ class SentinelController(
             // hazard this avoids) for ws/online specifically: publish them BEFORE calling open(),
             // so a synchronous (or fast-racing) onFailure from the listener is always the last
             // writer for those two fields.
-            synchronized(lock) { ws = client; online = true }
+            synchronized(lock) { ws = client; online = true; companionAcked = false }
             client.open(newId, buildListener(token))
             sendCompanionHelloIfApplicable(client)
             // Reached only if open() itself didn't throw synchronously (a throw here is caught
@@ -803,6 +822,7 @@ class SentinelController(
     private fun goOfflineAndArmReconnect(): Long = synchronized(lock) {
         ws = null
         online = false
+        companionAcked = false // a dead socket's ack is worth nothing; the next one must re-ack
         reconnectPolicy.onFailure(nowMsSupplier())
     }
 
@@ -824,6 +844,7 @@ class SentinelController(
         if (wsListenerGeneration.get() != token) return@synchronized null
         ws = null
         online = false
+        companionAcked = false // same as goOfflineAndArmReconnect: the ack died with the socket
         reconnectPolicy.onFailure(nowMsSupplier())
     }
 
@@ -974,7 +995,7 @@ class SentinelController(
                 client.end()
             } catch (t: Throwable) {
                 diag.log("error", "SentinelController", "end failed: $t")
-                synchronized(lock) { ws = null; online = false }
+                synchronized(lock) { ws = null; online = false; companionAcked = false }
             }
             wsEndSent = true
         }
@@ -1046,13 +1067,56 @@ class SentinelController(
             }
         }
 
-        override fun onEpisodeSaved(id: String) {
+        // The client always dispatches the two-arg overload; this one exists for the interface
+        // contract (and any test that fires the id-only form) and reports an unknown status.
+        override fun onEpisodeSaved(id: String) = onEpisodeSaved(id, null)
+
+        override fun onEpisodeSaved(id: String, status: String?) {
             try {
-                synchronized(lock) {
-                    if (wsListenerGeneration.get() == token) ws = null
+                val current = synchronized(lock) {
+                    val ok = wsListenerGeneration.get() == token
+                    if (ok) {
+                        ws = null
+                        lastSessionSaved = SessionSaved(id, status)
+                    }
+                    ok
                 }
+                // The status is the whole point (2026-09-25): "companion" means the server kept
+                // NOTHING by design, "companion_hr" only heart rate, "captured" the full episode.
+                // Without it telemetry could not tell a junk-free companion day from a lost one.
+                if (current) diag.log("info", "EpisodeWs", "live session saved: id=$id status=${status ?: "unknown"}")
             } catch (t: Throwable) {
                 diag.log("error", "SentinelController", "onEpisodeSaved failed: $t")
+            }
+        }
+
+        override fun onCompanionAck() {
+            try {
+                val current = synchronized(lock) {
+                    val ok = wsListenerGeneration.get() == token
+                    if (ok) companionAcked = true
+                    ok
+                }
+                if (current) diag.log("info", "EpisodeWs", "companion ack received")
+            } catch (t: Throwable) {
+                diag.log("error", "SentinelController", "onCompanionAck failed: $t")
+            }
+        }
+
+        override fun onServerError(detail: String) {
+            // Surfaced, not acted on: the server keeps the socket open after an error frame (see
+            // server/watch/routers/ws.py — it `continue`s), so this is NOT a disconnect and must
+            // not touch `online`/the reconnect ladder. It IS the only way the server can say the
+            // watch's frames are wrong, so it goes to telemetry at error level and to the screen.
+            try {
+                val current = synchronized(lock) {
+                    val ok = wsListenerGeneration.get() == token
+                    if (ok) lastServerError = detail
+                    ok
+                }
+                if (current) diag.log("error", "EpisodeWs", "server error frame: $detail")
+            } catch (t: Throwable) {
+                diag.log("error", "SentinelController", "onServerError failed: $t")
             }
         }
 

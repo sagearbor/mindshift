@@ -182,4 +182,27 @@ data class ControllerState(
      * series follows the wearer's signal selection now (volume: dbOverBaseline; others: the
      * meter's raw units). Consumers normalize per-kind; see GaugeViewModel.resolveSparkline. */
     val sparklineSignal: SignalKind = SignalKind.VOLUME,
+    /** Tier B (2026-09-25): whether the server has answered this socket's `{"type":"companion"}`
+     * hello with `companion_ack`. `online` alone only says the socket opened; until the ack lands
+     * the server may still be treating it as an ordinary mic session (an older server answers the
+     * hello with an `error` frame instead), so the UI says "connecting" rather than "phone listens".
+     * Always `false` outside COMPANION mode, and reset to `false` on every (re)connect — each new
+     * socket re-announces itself and must be re-acked. Mirrors the watchOS client, whose ladder
+     * only reaches `.open` on this ack (apps/mobile/targets/watch/WatchStore.swift). */
+    val companionAcked: Boolean = false,
+    /** The `detail` of the most recent server `{"type":"error"}` frame this episode, or `null`.
+     * The server's only channel for "your frames are wrong" (`malformed_json` / `unknown_type`,
+     * see server/watch/routers/ws.py); the socket stays open after one, so this is surfaced as a
+     * caption rather than treated as a disconnect. Cleared on a fresh episode and on disarm. */
+    val lastServerError: String? = null,
+    /** The most recent `live_session_saved` frame this armed run, or `null`. Carries the server's
+     * `status` ("captured" / "companion" / "companion_hr") so a companion socket that persisted
+     * nothing is no longer indistinguishable on-watch from a fully captured session. Cleared on
+     * a fresh episode and on disarm — [app.gauge.wear.ui.GaugeViewModel] shows it only during
+     * COOLDOWN, the natural "the episode just ended" window. */
+    val lastSessionSaved: SessionSaved? = null,
 )
+
+/** One `live_session_saved` frame as the server sent it: the id and its `status` (`null` only if
+ * the server omitted the field — it never does today, but the contract is honest about it). */
+data class SessionSaved(val id: String, val status: String?)

@@ -2,9 +2,10 @@ import Foundation
 
 /// A frame the server sends down the live-session socket.
 ///
-/// `server/watch/routers/ws.py:261`, `:271`, `:281`, `:391`. Only the four the
-/// wrist acts on are modelled; anything else decodes to `.other` rather than
-/// failing, the same posture as Kotlin's `ignoreUnknownKeys`.
+/// `server/watch/routers/ws.py:261`, `:271`, `:281`, `:391`, `:434-485`, `:377`/`:489`.
+/// Every frame the server sends is modelled (the same set `EpisodeWsClient.kt`
+/// dispatches); anything unknown decodes to `.other` rather than failing, the
+/// same posture as Kotlin's `ignoreUnknownKeys`.
 enum ServerFrame {
     /// `{"type":"nudge", channel, level, t, vectors}` — feeds the escalation
     /// ladder and the reminder.
@@ -17,6 +18,16 @@ enum ServerFrame {
     case vectorEvent(vector: String, level: Int, t: Double)
     /// The server's ack of our `{"type":"companion"}` hello (`ws.py:391`).
     case companionAck
+    /// `{"type":"live_session_saved", live_session_id, status}` — the answer to
+    /// `{"type":"end"}`. `status` is "companion" (nothing persisted, by design),
+    /// "companion_hr" (only heart rate kept) or "captured" (a real mic episode);
+    /// `nil` only if the server omitted it. Was decoded as `.other` and dropped
+    /// until 2026-09-25 — the same bug the Wear client had (`EpisodeWsClient.kt`).
+    case liveSessionSaved(id: String, status: String?)
+    /// `{"type":"error", detail}` — `malformed_json` or `unknown_type` today. The
+    /// socket stays open afterwards (`ws.py` `continue`s), so this is a message,
+    /// not a drop, and it is the ONLY way the server says the watch's frames are
+    /// wrong (an older server answers the companion hello with one).
     case error(detail: String)
     case other(type: String)
 
@@ -45,6 +56,9 @@ enum ServerFrame {
             )
         case "companion_ack":
             return .companionAck
+        case "live_session_saved":
+            guard let id = obj["live_session_id"] as? String else { return .other(type: type) }
+            return .liveSessionSaved(id: id, status: obj["status"] as? String)
         case "error":
             return .error(detail: obj["detail"] as? String ?? "unknown")
         default:

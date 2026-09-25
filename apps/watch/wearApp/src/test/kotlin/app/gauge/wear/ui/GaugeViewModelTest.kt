@@ -6,6 +6,7 @@ import app.gauge.shared.signals.SignalAvailability
 import app.gauge.shared.signals.SignalKind
 import app.gauge.wear.control.ControllerState
 import app.gauge.wear.control.MeterReading
+import app.gauge.wear.control.SessionSaved
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -28,6 +29,9 @@ private fun state(
     availability: SignalAvailability = SignalAvailability.UNKNOWN,
     retroCaptureAvailableSeconds: Double = 0.0,
     sparklineSignal: SignalKind = SignalKind.VOLUME,
+    companionAcked: Boolean = false,
+    lastServerError: String? = null,
+    lastSessionSaved: SessionSaved? = null,
 ) = ControllerState(
     sentinel = sentinel,
     mode = mode,
@@ -39,6 +43,9 @@ private fun state(
     retroCaptureAvailableSeconds = retroCaptureAvailableSeconds,
     availability = availability,
     sparklineSignal = sparklineSignal,
+    companionAcked = companionAcked,
+    lastServerError = lastServerError,
+    lastSessionSaved = lastSessionSaved,
 )
 
 /** Shorthand matching the brief's own `ui(state)` helper name — builds a [GaugeViewModel] from
@@ -670,5 +677,72 @@ class GaugeViewModelTest {
         // unlike signedIn's separate AccountBus) -- pinned so the field can't silently regress to
         // its 0.0 default if a future refactor drops the wiring.
         assertEquals(87.5, ui(state(retroCaptureAvailableSeconds = 87.5)).retroCaptureAvailableSeconds)
+    }
+
+    // --- 2026-09-25 protocol parity: companion_ack / error / live_session_saved.status -----------
+
+    @Test
+    fun companionLabelSaysConnectingUntilTheServerAcks() = runTest {
+        val open = state(sentinel = SentinelState.STREAMING, mode = Mode.COMPANION, online = true)
+        assertEquals("Companion · connecting", ui(open).armedLabel)
+        assertEquals("Companion · connecting", ui(open).centerText, "the calm centre shows the same label")
+        assertEquals("Companion", ui(open.copy(companionAcked = true)).armedLabel)
+        assertEquals("Companion · offline", ui(open.copy(online = false, companionAcked = true)).armedLabel)
+    }
+
+    @Test
+    fun companionAckDoesNotChangeMicEpisodeLabels() = runTest {
+        // The ack is a companion-only concept; a STANDARD episode never waits on it.
+        assertEquals("Episode", ui(state(sentinel = SentinelState.STREAMING, online = true)).armedLabel)
+    }
+
+    @Test
+    fun serverErrorIsTranslatedToPlainLanguage() = runTest {
+        val streaming = state(sentinel = SentinelState.STREAMING)
+        assertNull(ui(streaming).serverError)
+        assertEquals(
+            "Server couldn't read what the watch sent",
+            ui(streaming.copy(lastServerError = "malformed_json")).serverError,
+        )
+        assertEquals(
+            "Server didn't recognize the watch — update the app",
+            ui(streaming.copy(lastServerError = "unknown_type")).serverError,
+        )
+        // An unknown detail is still a complaint: shown verbatim, never hidden.
+        assertEquals("Server reported: rate_limited", ui(streaming.copy(lastServerError = "rate_limited")).serverError)
+    }
+
+    @Test
+    fun serverErrorMappingIsThePureFunctionTheSwiftPortMirrors() {
+        // apps/mobile/targets/watch/Policy/PurePorts.swift's WatchWireText copies these strings
+        // byte for byte; scripts/watchos_policy_vectors.swift replays the same three inputs.
+        assertEquals("Server couldn't read what the watch sent", serverErrorText("malformed_json"))
+        assertEquals("Server didn't recognize the watch — update the app", serverErrorText("unknown_type"))
+        assertEquals("Server reported: x", serverErrorText("x"))
+        assertEquals("Saved", sessionOutcomeText("captured"))
+        assertEquals("Heart rate saved", sessionOutcomeText("companion_hr"))
+        assertNull(sessionOutcomeText("companion"))
+        assertNull(sessionOutcomeText(null))
+        assertNull(sessionOutcomeText("not_analyzed"))
+    }
+
+    @Test
+    fun sessionOutcomeShowsOnlyDuringCooldown() = runTest {
+        val saved = SessionSaved("ep-1", "captured")
+        assertEquals("Saved", ui(state(sentinel = SentinelState.COOLDOWN, lastSessionSaved = saved)).sessionOutcome)
+        // Not while streaming (the frame cannot even have arrived yet), not once back to ARMED,
+        // and never while DISARMED — the controller clears the field there anyway.
+        assertNull(ui(state(sentinel = SentinelState.STREAMING, lastSessionSaved = saved)).sessionOutcome)
+        assertNull(ui(state(sentinel = SentinelState.ARMED, lastSessionSaved = saved)).sessionOutcome)
+        assertNull(ui(state(sentinel = SentinelState.DISARMED, lastSessionSaved = saved)).sessionOutcome)
+        assertNull(ui(state(sentinel = SentinelState.COOLDOWN)).sessionOutcome)
+    }
+
+    @Test
+    fun companionThatPersistedNothingClaimsNothing() = runTest {
+        val cooldown = state(sentinel = SentinelState.COOLDOWN, mode = Mode.COMPANION)
+        assertNull(ui(cooldown.copy(lastSessionSaved = SessionSaved("c", "companion"))).sessionOutcome)
+        assertEquals("Heart rate saved", ui(cooldown.copy(lastSessionSaved = SessionSaved("c", "companion_hr"))).sessionOutcome)
+        assertNull(ui(cooldown.copy(lastSessionSaved = SessionSaved("c", null))).sessionOutcome, "an absent status is not dressed up as Saved")
     }
 }
