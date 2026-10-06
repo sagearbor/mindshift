@@ -1946,4 +1946,198 @@ class SentinelControllerTest {
         c.tick() // a disarmed companion tick is a no-op — and still never reads the mic
         assertEquals(SentinelState.DISARMED, c.state.sentinel)
     }
+
+    // --- 2026-09-25 protocol parity: companion_ack / error / live_session_saved.status -----------
+
+    @Test
+    fun companionIsNotAckedUntilTheServerSaysSoAndTheAckIsLogged() {
+        val wsFactory = FakeWsFactory()
+        val diag = mutableListOf<String>()
+        val c = SentinelController(
+            mode = Mode.COMPANION,
+            mic = forbiddenMic,
+            wsFactory = wsFactory,
+            haptics = HapticDirector(FakeVibratorPort(), nowMs = { 0L }),
+            ids = FakeEpisodeIdFactory(),
+            companionSessionId = { "companion-20260925-alice" },
+            diag = DiagLog { l, t, m -> diag.add("$l/$t/$m") },
+        )
+        c.arm()
+        val ws = wsFactory.created.single()
+        assertTrue(c.state.online, "the socket opened")
+        assertFalse(c.state.companionAcked, "open is not registered: the hello has not been answered yet")
+
+        ws.listener!!.onCompanionAck()
+
+        assertTrue(c.state.companionAcked)
+        assertTrue(diag.any { it == "info/EpisodeWs/companion ack received" }, "got: $diag")
+    }
+
+    @Test
+    fun companionReconnectMustBeReAckedByTheNewSocket() {
+        var clock = 0L
+        val wsFactory = FakeWsFactory()
+        val c = companionController(wsFactory, nowMs = { clock })
+        c.arm()
+        val ws1 = wsFactory.created.single()
+        ws1.listener!!.onCompanionAck()
+        assertTrue(c.state.companionAcked)
+
+        ws1.listener!!.onFailure(java.io.IOException("connection reset"))
+        assertFalse(c.state.companionAcked, "a dead socket's ack is worth nothing")
+        clock += 2_000; c.tick() // the 2s backoff fires a reconnect (see the reconnect test above)
+        val ws2 = wsFactory.created[1]
+        assertTrue(c.state.online)
+        assertFalse(c.state.companionAcked, "the fresh socket re-announced itself and awaits its own ack")
+
+        ws1.listener!!.onCompanionAck() // stale: superseded socket
+        assertFalse(c.state.companionAcked, "a superseded socket's late ack must not mark the new one registered")
+        ws2.listener!!.onCompanionAck()
+        assertTrue(c.state.companionAcked)
+    }
+
+    @Test
+    fun companionDisarmClearsTheAck() {
+        val wsFactory = FakeWsFactory()
+        val c = companionController(wsFactory)
+        c.arm()
+        wsFactory.created.single().listener!!.onCompanionAck()
+        assertTrue(c.state.companionAcked)
+        c.disarm()
+        assertFalse(c.state.companionAcked)
+    }
+
+    @Test
+    fun serverErrorFrameIsSurfacedLoggedAndDoesNotTouchTheConnection() {
+        val mic = ScriptedMic(quietThenTriggerWindows())
+        val wsFactory = FakeWsFactory()
+        val diag = mutableListOf<String>()
+        val controller = newController(
+            Mode.STANDARD,
+            mic,
+            wsFactory = wsFactory,
+            diag = DiagLog { l, t, m -> diag.add("$l/$t/$m") },
+        )
+        controller.arm()
+        repeat(8) { controller.tick() } // reach STREAMING, WS open
+        val ws = wsFactory.created.single()
+
+        ws.listener!!.onServerError("malformed_json")
+
+        assertEquals("malformed_json", controller.state.lastServerError)
+        // The server keeps the socket open after an error frame (ws.py `continue`s), so this is a
+        // message, not a drop: still online, no reconnect armed, no new client created.
+        assertTrue(controller.state.online)
+        controller.tick()
+        assertEquals(1, wsFactory.created.size)
+        assertTrue(diag.any { it == "error/EpisodeWs/server error frame: malformed_json" }, "got: $diag")
+    }
+
+    @Test
+    fun serverErrorFromASupersededSocketIsIgnored() {
+        var clock = 0L
+        val wsFactory = FakeWsFactory()
+        val c = companionController(wsFactory, nowMs = { clock })
+        c.arm()
+        val ws1 = wsFactory.created.single()
+        ws1.listener!!.onFailure(java.io.IOException("connection reset"))
+        clock += 2_000; c.tick()
+        assertEquals(2, wsFactory.created.size)
+
+        ws1.listener!!.onServerError("unknown_type")
+
+        assertNull(c.state.lastServerError, "a stale socket's complaint must not be pinned on the live one")
+    }
+
+    @Test
+    fun serverErrorIsClearedByTheNextEpisodeAndByDisarm() {
+        // Two triggered episodes back to back: STANDARD's ARMED -> STREAMING -> COOLDOWN -> ARMED
+        // cycle, no disarm in between. Episode 1's error must not be reported against episode 2.
+        val mic = ScriptedMic(quietThenTriggerWindows())
+        val wsFactory = FakeWsFactory()
+        val controller = newController(Mode.STANDARD, mic, wsFactory = wsFactory)
+        controller.arm()
+        repeat(8) { controller.tick() }
+        assertEquals(SentinelState.STREAMING, controller.state.sentinel)
+        wsFactory.created.single().listener!!.onServerError("malformed_json")
+        assertEquals("malformed_json", controller.state.lastServerError)
+
+        // Ride the episode out: silence (the ScriptedMic fill) until STREAMING ends and COOLDOWN
+        // returns to ARMED, then trigger again.
+        var guard = 0
+        while (controller.state.sentinel != SentinelState.ARMED && guard++ < 600) controller.tick()
+        assertEquals(SentinelState.ARMED, controller.state.sentinel, "episode 1 should have ended")
+        assertEquals("malformed_json", controller.state.lastServerError, "still reported while merely ARMED: nothing has replaced it yet")
+        mic.enqueueMany(2, tone(0.2))
+        guard = 0
+        while (controller.state.sentinel != SentinelState.STREAMING && guard++ < 20) controller.tick()
+        assertEquals(SentinelState.STREAMING, controller.state.sentinel, "episode 2 should have started")
+        assertEquals(2, wsFactory.created.size)
+        assertNull(controller.state.lastServerError, "episode 2 starts with a clean slate")
+
+        wsFactory.created[1].listener!!.onServerError("unknown_type")
+        assertEquals("unknown_type", controller.state.lastServerError)
+        controller.disarm()
+        assertNull(controller.state.lastServerError)
+    }
+
+    @Test
+    fun liveSessionSavedStatusIsRecordedAndLoggedThenClearedByTheNextEpisode() {
+        val mic = ScriptedMic(quietThenTriggerWindows())
+        val wsFactory = FakeWsFactory()
+        val diag = mutableListOf<String>()
+        val controller = newController(
+            Mode.STANDARD,
+            mic,
+            wsFactory = wsFactory,
+            diag = DiagLog { l, t, m -> diag.add("$l/$t/$m") },
+        )
+        controller.arm()
+        repeat(8) { controller.tick() }
+        val ws1 = wsFactory.created.single()
+        assertNull(controller.state.lastSessionSaved)
+
+        ws1.listener!!.onEpisodeSaved("ep-1", "captured")
+
+        assertEquals(SessionSaved("ep-1", "captured"), controller.state.lastSessionSaved)
+        assertTrue(diag.any { it == "info/EpisodeWs/live session saved: id=ep-1 status=captured" }, "got: $diag")
+
+        // The next episode's socket owns the next verdict — episode 1's is gone from state.
+        var guard = 0
+        while (controller.state.sentinel != SentinelState.ARMED && guard++ < 600) controller.tick()
+        mic.enqueueMany(2, tone(0.2))
+        guard = 0
+        while (controller.state.sentinel != SentinelState.STREAMING && guard++ < 20) controller.tick()
+        assertEquals(2, wsFactory.created.size)
+        assertNull(controller.state.lastSessionSaved)
+    }
+
+    @Test
+    fun liveSessionSavedIdOnlyStillDropsTheClientAndReportsUnknownStatus() {
+        // The id-only callback is the pre-2026-09-25 contract; it still releases the client (the
+        // original behaviour) and records the save with an honest null status, never "captured".
+        val mic = ScriptedMic(quietThenTriggerWindows())
+        val wsFactory = FakeWsFactory()
+        val diag = mutableListOf<String>()
+        val controller = newController(
+            Mode.STANDARD, mic, wsFactory = wsFactory,
+            diag = DiagLog { l, t, m -> diag.add("$l/$t/$m") },
+        )
+        controller.arm()
+        repeat(8) { controller.tick() }
+        wsFactory.created.single().listener!!.onEpisodeSaved("ep-2")
+        assertEquals(SessionSaved("ep-2", null), controller.state.lastSessionSaved)
+        assertTrue(diag.any { it == "info/EpisodeWs/live session saved: id=ep-2 status=unknown" }, "got: $diag")
+    }
+
+    @Test
+    fun companionSavedStatusDistinguishesNothingKeptFromHeartRateKept() {
+        val wsFactory = FakeWsFactory()
+        val c = companionController(wsFactory)
+        c.arm()
+        wsFactory.created.single().listener!!.onEpisodeSaved("companion-20260830-alice", "companion_hr")
+        assertEquals("companion_hr", c.state.lastSessionSaved?.status)
+        c.disarm()
+        assertNull(c.state.lastSessionSaved, "disarm reports nothing about a socket it no longer has")
+    }
 }

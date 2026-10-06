@@ -59,6 +59,27 @@ struct ListeningView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
+                // 2026-09-25: the server's own complaint about this session's
+                // frames (an `error` frame — previously decoded and dropped).
+                // Red caption, the same failure idiom `GlanceScreen.kt` uses for
+                // "Mic permission required" and "Couldn't save — try again".
+                if let error = store.lastServerError {
+                    Text(error)
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                }
+
+                // 2026-09-25: what the server kept when the session ended
+                // (`live_session_saved.status` — previously dropped). Absent for
+                // a companion session that persisted nothing, because nothing is
+                // exactly what was kept.
+                if let outcome = store.lastSessionOutcome {
+                    Text(outcome)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
                 if let nudge = store.lastNudge {
                     NudgeFlashView(nudge: nudge)
                 }

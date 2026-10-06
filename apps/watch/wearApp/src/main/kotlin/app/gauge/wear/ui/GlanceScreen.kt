@@ -189,6 +189,33 @@ fun GlanceScreen(
                 )
             }
         }
+        // 2026-09-25: the server's own complaint about this episode's frames (an `error` frame —
+        // previously matched and silently dropped). Same failure idiom as the line above and the
+        // retro-capture "Couldn't save" toast: caption2 in the error colour, precomputed by
+        // GaugeViewModel (GlanceUi.serverError), absent when there is nothing to say.
+        uiState.serverError?.let { error ->
+            item {
+                Text(
+                    text = error,
+                    style = MaterialTheme.typography.caption2,
+                    color = MaterialTheme.colors.error,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+        // 2026-09-25: what the server kept when the episode ended (live_session_saved.status —
+        // previously dropped). GaugeViewModel only emits it during COOLDOWN, so it reads as a
+        // toast like the retro-capture "Saved" line below, never as a standing claim.
+        uiState.sessionOutcome?.let { outcome ->
+            item {
+                Text(
+                    text = outcome,
+                    style = MaterialTheme.typography.caption2,
+                    color = MaterialTheme.colors.primary,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
         item {
             Chip(
                 modifier = Modifier.fillMaxWidth(),

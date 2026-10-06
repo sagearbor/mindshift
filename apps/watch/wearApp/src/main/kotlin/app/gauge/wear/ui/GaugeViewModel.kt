@@ -77,7 +77,37 @@ data class GlanceUi(
      * new combine input was needed — [ControllerState.toGlanceUi] reads it straight off its own
      * receiver. */
     val retroCaptureAvailableSeconds: Double = 0.0,
+    /** 2026-09-25: the plain-language line for the most recent server `error` frame this episode,
+     * or `null` when the server has not complained. Built by [serverErrorText] from
+     * [ControllerState.lastServerError]; rendered in the error colour like every other failure
+     * caption on [GlanceScreen] ("Mic permission required", "Couldn't save — try again"). */
+    val serverError: String? = null,
+    /** 2026-09-25: what the server said it kept when the episode ended — "Saved" for a captured
+     * mic episode, "Heart rate saved" for a companion socket that kept only HR — or `null`. Shown
+     * ONLY during COOLDOWN (the natural just-ended window) so it reads as a toast, never as a
+     * standing claim; a companion socket that persisted nothing (status "companion") shows
+     * nothing, because nothing is exactly what was kept. See [sessionOutcomeText]. */
+    val sessionOutcome: String? = null,
 )
+
+/** The wearer-facing line for a server `{"type":"error","detail":...}` frame. The two details the
+ * server sends today (server/watch/routers/ws.py) get a specific sentence; anything else is still
+ * shown verbatim rather than hidden — an unknown complaint is a complaint. Mirrored byte-for-byte
+ * in apps/mobile/targets/watch/Policy/PurePorts.swift (`WatchWireText.serverError`). */
+internal fun serverErrorText(detail: String): String = when (detail) {
+    "malformed_json" -> "Server couldn't read what the watch sent"
+    "unknown_type" -> "Server didn't recognize the watch — update the app"
+    else -> "Server reported: $detail"
+}
+
+/** The wearer-facing line for a `live_session_saved.status`, or `null` when there is nothing honest
+ * to claim: "companion" persisted nothing BY DESIGN (Tier B), and an unknown/absent status must not
+ * be dressed up as "Saved". Mirrored in PurePorts.swift (`WatchWireText.sessionOutcome`). */
+internal fun sessionOutcomeText(status: String?): String? = when (status) {
+    "captured" -> "Saved"
+    "companion_hr" -> "Heart rate saved"
+    else -> null
+}
 
 /** v0.2.4 (Addendum 2): which single visualization owns the main screen's center. Exactly one at
  * a time — never both (founder-ratified). */
@@ -327,6 +357,11 @@ private fun ControllerState.toGlanceUi(
         centerDisplay = centerDisplay,
         signedIn = signedIn,
         retroCaptureAvailableSeconds = retroCaptureAvailableSeconds,
+        serverError = lastServerError?.let(::serverErrorText),
+        // COOLDOWN only: the episode has just ended and the server has just answered `end`.
+        // ARMED/DISARMED afterwards show nothing — the controller clears the field on the next
+        // episode and on disarm anyway, this just keeps the line from lingering in between.
+        sessionOutcome = if (sentinel == SentinelState.COOLDOWN) sessionOutcomeText(lastSessionSaved?.status) else null,
     )
 }
 
@@ -342,8 +377,12 @@ private fun ControllerState.armedLabel(): String = when (sentinel) {
     SentinelState.DISARMED -> "Off"
     SentinelState.ARMED -> "On"
     SentinelState.STREAMING -> when {
-        // Tier B: COMPANION's STREAMING is "socket open, phone listening", not an episode.
-        mode == Mode.COMPANION && online -> "Companion"
+        // Tier B: COMPANION's STREAMING is "socket open, phone listening", not an episode — and
+        // "phone listening" is only true once the server has ACKED the companion hello. Before the
+        // ack the socket is merely open (an older server would answer with an error frame and
+        // treat the watch as a mic session), so say "connecting" rather than claim registration.
+        mode == Mode.COMPANION && online && companionAcked -> "Companion"
+        mode == Mode.COMPANION && online -> "Companion · connecting"
         mode == Mode.COMPANION -> "Companion · offline"
         online -> "Episode"
         else -> "Episode · offline"

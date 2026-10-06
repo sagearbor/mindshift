@@ -20,8 +20,10 @@
 // WHAT IT COVERS, AND WHAT IT DELIBERATELY DOES NOT
 //
 // It pins the VOCABULARY (codes, icons, names, flash text, polarity, levels,
-// source vectors, the 120 s positive cap) and the watchOS haptic column's
-// completeness. It does NOT pin the reminder SCHEDULE, because no fixture
+// source vectors, the 120 s positive cap), the watchOS haptic column's
+// completeness, and (since 2026-09-25) the decoding of the three server frames
+// both watch clients used to drop — live_session_saved.status, companion_ack
+// and error — plus the wearer-facing lines for them. It does NOT pin the reminder SCHEDULE, because no fixture
 // describes it — that is covered instead by the live Kotlin/Swift parity check
 // (`SharedPolicy.parityFailures`), which runs 900+ comparisons on the simulator
 // and logs the result. `scripts/verify_watchos_policy.sh` runs both lanes.
@@ -208,6 +210,73 @@ for (code, row) in WatchHapticVocabulary.table where row.fidelity != .full {
 expectEqual(Int(WatchHapticVocabulary.interTapMs),
             (constants["min_gap_ms"] as? NSNumber)?.intValue ?? 170,
             "inter-tap gap == MIN_GAP_MS")
+
+// MARK: - 7. The server frames both watch clients used to drop (2026-09-25)
+
+// `ServerFrame.decode` is the watchOS twin of `EpisodeWsClient.dispatch`, and
+// `WatchWireText` the twin of `GaugeViewModel.kt`'s `serverErrorText` /
+// `sessionOutcomeText`. The inputs below are the exact frames
+// server/watch/routers/ws.py sends (pinned server-side by
+// server/tests/watch/test_companion_ws.py and test_ws_ingest.py); the expected
+// strings are the ones `GaugeViewModelTest` pins on Android, so the two wrists
+// say the same thing about the same server.
+
+// live_session_saved carries its status — "companion" (nothing kept, by
+// design), "companion_hr" (heart rate only), "captured" (a real episode).
+if case .liveSessionSaved(let id, let status)? = ServerFrame.decode(
+    #"{"type":"live_session_saved","live_session_id":"companion-3","status":"companion"}"#
+) {
+    expectEqual(id, "companion-3", "live_session_saved id")
+    expectEqual(status, "companion", "live_session_saved status")
+} else {
+    expect(false, "live_session_saved must decode to .liveSessionSaved, not .other")
+}
+if case .liveSessionSaved(_, let status)? = ServerFrame.decode(
+    #"{"type":"live_session_saved","live_session_id":"e9"}"#
+) {
+    expect(status == nil, "an absent status decodes as nil, never invented")
+} else {
+    expect(false, "live_session_saved without a status still decodes")
+}
+if case .other? = ServerFrame.decode(#"{"type":"live_session_saved","status":"captured"}"#) {
+    expect(true, "")
+} else {
+    expect(false, "live_session_saved without an id is not a save")
+}
+
+// companion_ack: the answer to the {"type":"companion"} hello.
+if case .companionAck? = ServerFrame.decode(#"{"type":"companion_ack"}"#) {
+    expect(true, "")
+} else {
+    expect(false, "companion_ack must decode to .companionAck")
+}
+
+// error: the server's only "your frames are wrong" channel. Both details it
+// sends today, plus the fallback for a missing one.
+for (raw, detail) in [
+    (#"{"type":"error","detail":"malformed_json"}"#, "malformed_json"),
+    (#"{"type":"error","detail":"unknown_type"}"#, "unknown_type"),
+    (#"{"type":"error"}"#, "unknown"),
+] {
+    if case .error(let got)? = ServerFrame.decode(raw) {
+        expectEqual(got, detail, "error detail for \(raw)")
+    } else {
+        expect(false, "\(raw) must decode to .error")
+    }
+}
+
+// The wearer-facing lines — byte-identical to GaugeViewModel.kt's.
+expectEqual(WatchWireText.serverError(detail: "malformed_json"),
+            "Server couldn't read what the watch sent", "serverError(malformed_json)")
+expectEqual(WatchWireText.serverError(detail: "unknown_type"),
+            "Server didn't recognize the watch — update the app", "serverError(unknown_type)")
+expectEqual(WatchWireText.serverError(detail: "rate_limited"),
+            "Server reported: rate_limited", "serverError(unknown detail) is shown, not hidden")
+expectEqual(WatchWireText.sessionOutcome(status: "captured"), "Saved", "sessionOutcome(captured)")
+expectEqual(WatchWireText.sessionOutcome(status: "companion_hr"), "Heart rate saved", "sessionOutcome(companion_hr)")
+expect(WatchWireText.sessionOutcome(status: "companion") == nil, "a companion that persisted nothing claims nothing")
+expect(WatchWireText.sessionOutcome(status: nil) == nil, "an absent status is not dressed up as Saved")
+expect(WatchWireText.sessionOutcome(status: "not_analyzed") == nil, "an unknown status is not dressed up as Saved")
 
 // MARK: - Report
 

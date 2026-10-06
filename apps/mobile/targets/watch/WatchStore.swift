@@ -56,6 +56,15 @@ final class WatchStore: ObservableObject {
     @Published private(set) var phoneReachable = false
     @Published private(set) var hapticLog: [HapticAttempt] = []
     @Published private(set) var reminderCountdownS: Int?
+    /// 2026-09-25: the plain-language line for the most recent server `error`
+    /// frame this session, or `nil`. `WatchWireText.serverError` — the same
+    /// strings `GaugeViewModel.kt`'s `serverErrorText` shows on Wear. Cleared
+    /// when a session starts and when it stops.
+    @Published private(set) var lastServerError: String?
+    /// 2026-09-25: what the server said it kept when the session ended
+    /// (`live_session_saved.status` → `WatchWireText.sessionOutcome`), or `nil`
+    /// — including for status "companion", which persisted nothing by design.
+    @Published private(set) var lastSessionOutcome: String?
 
     enum SocketState: Equatable {
         case closed
@@ -311,6 +320,10 @@ final class WatchStore: ObservableObject {
         // A fresh session starts the back-off ladder over
         // (`ReconnectPolicy.kt:44-55` — reset on a fresh episode and on disarm).
         reconnect.reset()
+        // ...and a clean slate for the server's verdicts on the PREVIOUS session
+        // (`SentinelController.startStreaming` clears the same two fields).
+        lastServerError = nil
+        lastSessionOutcome = nil
         openSocket()
         startTicking()
     }
@@ -339,6 +352,10 @@ final class WatchStore: ObservableObject {
         }
         socketState = .closed
         clearReminder()
+        // Disarm reports nothing about a socket it no longer has
+        // (`SentinelController.disarm` clears the same fields on Wear).
+        lastServerError = nil
+        lastSessionOutcome = nil
         if phase == .listening { phase = tokens.isSignedIn ? .idle : .signIn }
     }
 
@@ -431,7 +448,24 @@ final class WatchStore: ObservableObject {
             applyPositive(code: code, t: t)
         case .vectorEvent:
             break // Nothing on this screen shows raw vectors yet.
-        case .error, .other:
+        case .liveSessionSaved(let id, let status):
+            // The status is the whole point: "companion" means the server kept
+            // NOTHING by design, "companion_hr" only heart rate, "captured" a
+            // full episode. Logged with the `MINDSHIFT_WATCH_` prefix family so
+            // a simulator run can be checked by grep, like the policy line.
+            NSLog("MINDSHIFT_WATCH_WS live_session_saved id=%@ status=%@", id, status ?? "unknown")
+            lastSessionOutcome = WatchWireText.sessionOutcome(status: status)
+        case .error(let detail):
+            // Surfaced, not acted on: the server keeps the socket open after an
+            // error frame, so this must not touch `socketState` or the ladder.
+            // It IS the only way the server can say our frames are wrong
+            // (an older server answers the companion hello with `unknown_type`
+            // and then treats this socket as a mic session), so it is logged at
+            // error level and shown on the listening screen — it used to be
+            // matched here and dropped, the same bug as `EpisodeWsClient.kt:140`.
+            NSLog("MINDSHIFT_WATCH_WS error detail=%@", detail)
+            lastServerError = WatchWireText.serverError(detail: detail)
+        case .other:
             break
         }
     }

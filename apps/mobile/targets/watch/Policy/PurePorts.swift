@@ -201,3 +201,36 @@ func companionSessionId(accountId: String, now: Date = Date()) -> String {
     let safe = String(accountId.filter { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }.prefix(24))
     return "companion-\(day)-\(safe.isEmpty ? "anon" : safe)"
 }
+
+// MARK: - WatchWireText
+
+/// Port of `GaugeViewModel.kt`'s `serverErrorText` / `sessionOutcomeText`
+/// (2026-09-25): the wearer-facing lines for the two server frames both watch
+/// clients used to drop. The strings are byte-for-byte the Wear ones, so the
+/// two wrists say the same thing about the same server; `GaugeViewModelTest`
+/// pins them on Android and `scripts/watchos_policy_vectors.swift` replays the
+/// same inputs here.
+enum WatchWireText {
+    /// `{"type":"error","detail":...}`. The two details the server sends today
+    /// (`server/watch/routers/ws.py`) get a specific sentence; anything else is
+    /// still shown verbatim rather than hidden — an unknown complaint is a
+    /// complaint.
+    static func serverError(detail: String) -> String {
+        switch detail {
+        case "malformed_json": return "Server couldn't read what the watch sent"
+        case "unknown_type": return "Server didn't recognize the watch — update the app"
+        default: return "Server reported: \(detail)"
+        }
+    }
+
+    /// `live_session_saved.status`, or `nil` when there is nothing honest to
+    /// claim: "companion" persisted nothing BY DESIGN, and an unknown or absent
+    /// status must not be dressed up as "Saved".
+    static func sessionOutcome(status: String?) -> String? {
+        switch status {
+        case "captured": return "Saved"
+        case "companion_hr": return "Heart rate saved"
+        default: return nil
+        }
+    }
+}

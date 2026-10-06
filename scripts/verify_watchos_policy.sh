@@ -42,7 +42,9 @@ echo "== lane 1: JSON vectors vs the Swift policy =="
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# Only the platform-free files. SharedPolicySeam's `#if canImport(MindShiftShared)`
+# Only the platform-free files (CompanionSocket.swift is Foundation-only — its
+# `ServerFrame` decoder is what section 7 of the vectors exercises).
+# SharedPolicySeam's `#if canImport(MindShiftShared)`
 # is false here, so this compiles and exercises the SWIFT FALLBACK — which is
 # exactly the implementation that ships when the framework is not linked, and
 # therefore exactly the one the fixtures need to pin.
@@ -54,6 +56,7 @@ swiftc -O \
   "$WATCH_SRC/Policy/WatchHapticVocabulary.swift" \
   "$WATCH_SRC/Policy/PurePorts.swift" \
   "$WATCH_SRC/IO/WatchApi.swift" \
+  "$WATCH_SRC/IO/CompanionSocket.swift" \
   "$WORK/main.swift" \
   -o "$WORK/vectors" 2>&1 | grep -v 'warning: .*never used' || true
 

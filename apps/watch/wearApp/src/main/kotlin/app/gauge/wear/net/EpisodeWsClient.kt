@@ -21,7 +21,8 @@ import okio.ByteString.Companion.toByteString
 
 /**
  * OkHttp WebSocket client that streams episode audio/HR to the Gauge backend
- * and dispatches inbound vector/nudge/episode-saved frames to a [Listener].
+ * and dispatches inbound vector/nudge/positive/companion_ack/error/live_session_saved frames to a
+ * [Listener] — the complete server→watch frame set of server/watch/routers/ws.py.
  *
  * This class owns no threading of its own: [open] hands control to OkHttp,
  * whose reader thread drives every [Listener] callback (see the KDoc on
@@ -61,6 +62,29 @@ class EpisodeWsClient(
          *  keeps compiling and simply ignores praise. */
         fun onPositive(p: PositiveEvent) {}
         fun onEpisodeSaved(id: String)
+
+        /** The server's `live_session_saved` frame, WITH its `status` — "captured" for a mic
+         *  episode that was persisted, "companion" for a companion socket that (by design)
+         *  persisted nothing, "companion_hr" for one that kept only heart rate (see
+         *  server/watch/routers/ws.py's `end` handling). `null` only if the server omitted it.
+         *  Default delegates to the id-only [onEpisodeSaved] so every older listener keeps
+         *  compiling and behaving exactly as before; the client always dispatches THIS overload. */
+        fun onEpisodeSaved(id: String, status: String?) = onEpisodeSaved(id)
+
+        /** The server's `companion_ack`: the `{"type":"companion"}` hello was understood and this
+         *  socket is registered as a no-persistence companion. Until it arrives the server may
+         *  still be treating the socket as an ordinary mic session (an older server answers the
+         *  hello with an `error` frame instead). Default no-op, same rationale as [onPositive]. */
+        fun onCompanionAck() {}
+
+        /** A server `{"type":"error","detail":...}` frame. The server sends exactly two details
+         *  today — `malformed_json` (a text frame it could not parse, including a bad `hr` frame)
+         *  and `unknown_type` (a frame type it does not know, e.g. `companion`/`heartbeat` on a
+         *  server too old for Tier B) — and keeps the socket open afterwards. This is the ONLY
+         *  channel by which the server tells the watch its frames are wrong, so it must never be
+         *  dropped on the floor again (it was, silently, until 2026-09-25). Default no-op. */
+        fun onServerError(detail: String) {}
+
         fun onFailure(t: Throwable)
         fun onClosed()
     }
@@ -135,9 +159,21 @@ class EpisodeWsClient(
                 "positive" -> listener.onPositive(wireJson.decodeFromString(PositiveEvent.serializer(), text))
                 "live_session_saved" -> {
                     val id = obj["live_session_id"]?.jsonPrimitive?.content
-                    if (id != null) listener.onEpisodeSaved(id)
+                    // `status` rides along (server/watch/routers/ws.py sends it on every saved
+                    // frame); the two-arg overload defaults back to the id-only callback for
+                    // listeners that never asked for it.
+                    val status = obj["status"]?.jsonPrimitive?.content
+                    if (id != null) listener.onEpisodeSaved(id, status)
                 }
-                "error" -> { /* server-reported error frame; nothing to dispatch, avoid crashing. */ }
+                "companion_ack" -> listener.onCompanionAck()
+                "error" -> {
+                    // Logged HERE as well as dispatched: a listener may not be wired (tests, an
+                    // older controller), and this frame is the server's only way to say "your
+                    // frames are wrong". No android.util.Log — this class is JVM-tested.
+                    val detail = obj["detail"]?.jsonPrimitive?.content ?: "unknown"
+                    println("EpisodeWsClient: server error frame: $detail")
+                    listener.onServerError(detail)
+                }
                 else -> { /* unknown/future frame type: ignore silently per wire contract. */ }
             }
         } catch (e: Exception) {
