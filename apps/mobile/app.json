@@ -67,7 +67,7 @@
     },
     "ios": {
       "bundleIdentifier": "com.sagearbor.mindshift.app",
-      "buildNumber": "5",
+      "buildNumber": "6",
       "appleTeamId": "553Y9KWR84",
       "supportsTablet": false,
       "usesAppleSignIn": true,
