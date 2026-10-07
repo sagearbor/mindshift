@@ -83,6 +83,7 @@ import type { AudioRoute, RtcAdapter } from "../live/call/rtc";
 import { IDLE_CALL_VIEW, type CallClientMessage, type CallRole, type CallView } from "../live/call/types";
 import { summarizeLatency, summarizeSpeakerId, useDiagnosticsStore, type SessionDiagnostics } from "../diagnostics/diagnostics";
 import { useAuthStore } from "../store/authStore";
+import { createDefaultAudioRouteProbe, ROUTE_POLL_MS, type AudioRouteProbe, type AudioRouteState } from "../live/audioRoute";
 
 const API_URL =
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:8000";
@@ -183,6 +184,9 @@ export interface UseAudioStreamOptions {
   postSession?: (body: LiveSessionBody) => Promise<PostLiveSessionResult>;
   /** Pre-flight capability probe (what the loop would load right now). */
   probeCapabilities?: () => Promise<FastLoopCapabilities>;
+  /** Earpiece mode's private-route check (live/audioRoute.ts). Built once
+   *  per session; the default reads expo-audio's input devices. */
+  makeAudioRouteProbe?: () => AudioRouteProbe;
   /** Mid-call naming: upload a speaker's pooled session audio as a new
    *  person's voiceprint (production: live/enrollFromSession.ts). */
   enrollSpeaker?: (
@@ -301,6 +305,11 @@ interface UseAudioStreamReturn {
   speechAvailable: boolean;
   /** True when new top suggestions should be spoken aloud (earpiece mode). */
   speechEnabled: boolean;
+  /** Earpiece mode only: is a private audio route (Bluetooth / wired
+   *  headset) connected? Anything but "private" means the coach is SILENT
+   *  (never the loudspeaker) and the screen says why. Null outside an
+   *  earpiece session. */
+  privateAudioRoute: AudioRouteState | null;
   setSpeechEnabled: (enabled: boolean) => void;
   startSession: (
     sessionId: string,
@@ -556,6 +565,7 @@ export function useAudioStream(
   const [micError, setMicError] = useState("");
   const [speechAvailable, setSpeechAvailable] = useState(detectSpeechSupport);
   const [speechEnabled, setSpeechEnabledState] = useState(false);
+  const [privateAudioRoute, setPrivateAudioRoute] = useState<AudioRouteState | null>(null);
 
   // --- On-device fast loop (Track 3) ---------------------------------------
   // Capability is probed once (synchronously — it's a native module query,
@@ -884,6 +894,57 @@ export function useAudioStream(
    *  that window a cloud suggestion took the "loop not live" branch and was
    *  voiced. */
   const stopRequestedRef = useRef(false);
+
+  // --- Earpiece privacy: never the loudspeaker (live/audioRoute.ts) ---------
+  const makeRouteProbeRef = useRef(options.makeAudioRouteProbe ?? (() => createDefaultAudioRouteProbe()));
+  makeRouteProbeRef.current = options.makeAudioRouteProbe ?? (() => createDefaultAudioRouteProbe());
+  const routeProbeRef = useRef<AudioRouteProbe | null>(null);
+  const routePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const routeStateRef = useRef<AudioRouteState | null>(null);
+
+  /** Read the route now; on a loss of the private route cut any utterance in
+   *  flight and give one haptic tap (the screen shows the notice). */
+  const checkPrivateRoute = useCallback((): AudioRouteState => {
+    if (!routeProbeRef.current) routeProbeRef.current = makeRouteProbeRef.current();
+    const state = routeProbeRef.current.check();
+    const previous = routeStateRef.current;
+    if (state !== previous) {
+      routeStateRef.current = state;
+      setPrivateAudioRoute(state);
+      if (state !== "private") {
+        stopSpeechSafely();
+        if (previous === "private") void expoHaptics.nudge(2, null).catch(() => {});
+      }
+    }
+    return state;
+  }, []);
+
+  /** True when earpiece mode must stay silent right now (no private route). */
+  const earpieceRouteBlocksSpeech = useCallback((): boolean => {
+    if (sessionModeRef.current !== "earpiece") return false;
+    return checkPrivateRoute() !== "private";
+  }, [checkPrivateRoute]);
+
+  const startRoutePoll = useCallback(() => {
+    if (routePollRef.current !== null) clearInterval(routePollRef.current);
+    routePollRef.current = null;
+    routeProbeRef.current?.dispose();
+    routeProbeRef.current = null;
+    routeStateRef.current = null;
+    setPrivateAudioRoute(null);
+    if (sessionModeRef.current !== "earpiece") return;
+    checkPrivateRoute();
+    routePollRef.current = setInterval(() => {
+      if (sessionModeRef.current === "earpiece") checkPrivateRoute();
+    }, ROUTE_POLL_MS);
+  }, [checkPrivateRoute]);
+
+  const stopRoutePoll = useCallback(() => {
+    if (routePollRef.current !== null) clearInterval(routePollRef.current);
+    routePollRef.current = null;
+    routeProbeRef.current?.dispose();
+    routeProbeRef.current = null;
+  }, []);
   const drainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Wall-clock time (ms epoch) at which the drain must end no matter what —
    *  the absolute cap the re-armed inactivity window can never exceed. */
@@ -950,6 +1011,9 @@ export function useAudioStream(
       if (liveActiveRef.current && loopModeRef.current === "therapist") return;
       // A therapist observing a call is never spoken to either.
       if (callRef.current?.selfRole === "therapist") return;
+      // Earpiece mode: a private route (headset) or NOTHING — checked right
+      // before every utterance, never falling back to the loudspeaker.
+      if (earpieceRouteBlocksSpeech()) return;
       try {
         // Unconditional stop guarantees most-recent-wins without tracking
         // speaking state (Speech.stop() is a no-op when nothing is speaking,
@@ -965,7 +1029,7 @@ export function useAudioStream(
         markSpeechUnavailable(err);
       }
     },
-    [markSpeechUnavailable],
+    [markSpeechUnavailable, earpieceRouteBlocksSpeech],
   );
 
   /**
@@ -1541,6 +1605,7 @@ export function useAudioStream(
     drainingRef.current = false;
     sessionActiveRef.current = false;
     stopRequestedRef.current = true;
+    stopRoutePoll();
     stopSpeechSafely();
     // A call outlives nothing: if the session ends for any reason (server
     // close, reconnect exhaustion) the WebRTC side goes down with it.
@@ -1596,6 +1661,7 @@ export function useAudioStream(
     // Silence FIRST, synchronously: whatever happens below (loop drain, the
     // session POST, the drain window) nothing is spoken from here on.
     stopRequestedRef.current = true;
+    stopRoutePoll();
     stopSpeechSafely();
     if (drainingRef.current) return; // Stop already in progress.
     if (journalRef.current) {
@@ -1671,6 +1737,7 @@ export function useAudioStream(
         drainTimerRef.current = null;
       }
       stopRequestedRef.current = true;
+      stopRoutePoll();
       drainingRef.current = false;
       sessionActiveRef.current = false;
       shouldReconnect.current = false;
@@ -2202,6 +2269,7 @@ export function useAudioStream(
           pendingRef.current = new Int16Array(0);
           resamplerRef.current = null;
           stopRequestedRef.current = true;
+          stopRoutePoll();
           stopSpeechSafely(); // Session is dead — stop coaching aloud too.
           void stopFastLoop().finally(() => recordSessionDiagnostics());
           // Restore a playback audio session so later replay is audible.
@@ -2505,6 +2573,8 @@ export function useAudioStream(
         return;
       }
       setJournal(IDLE_JOURNAL_STATE);
+      // Earpiece mode: watch the private audio route for the whole session.
+      startRoutePoll();
 
       if (Platform.OS === "web") {
         await startWebSession(sessionId, empathyLevel);
@@ -2592,6 +2662,7 @@ export function useAudioStream(
       startJournalSession,
       startFastLoop,
       beginAudioKeep,
+      startRoutePoll,
       liveCapability.capable,
     ],
   );
@@ -3026,6 +3097,7 @@ export function useAudioStream(
     transcriptionMessage,
     micError,
     speechAvailable,
+    privateAudioRoute,
     speechEnabled,
     setSpeechEnabled,
     startSession,

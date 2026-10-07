@@ -307,6 +307,32 @@ describe("LiveCoachScreen", () => {
     expect(root!.root.findAllByProps({ testID: "speech-unavailable-note" })).toHaveLength(0);
   });
 
+  it("earpiece mode with no headset says the coach is silent (never the phone speaker)", async () => {
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      sessionActive: true,
+      sessionMode: "earpiece",
+      privateAudioRoute: "public",
+    });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = track(renderer.create(<LiveCoachScreen />));
+    });
+    await flush();
+    const note = root!.root.findByProps({ testID: "earpiece-route-lost-note" });
+    expect(JSON.stringify(note.props.children)).toMatch(/No headset connected/);
+
+    // Headset back: the note goes away.
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      sessionActive: true,
+      sessionMode: "earpiece",
+      privateAudioRoute: "private",
+    });
+    act(() => root!.update(<LiveCoachScreen />));
+    expect(root!.root.findAllByProps({ testID: "earpiece-route-lost-note" })).toHaveLength(0);
+  });
+
   it("hides the unavailable note when TTS works", async () => {
     let root: renderer.ReactTestRenderer;
     act(() => {

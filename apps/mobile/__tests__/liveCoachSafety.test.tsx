@@ -260,3 +260,126 @@ describe("A. STOP means stop", () => {
     expect(speakMock).not.toHaveBeenCalled();
   });
 });
+
+/** A route probe the test flips like a headset being plugged/unplugged. */
+function switchableRoute(initial: "private" | "public" | "unknown" = "private") {
+  const state = { route: initial as "private" | "public" | "unknown", checks: 0 };
+  return {
+    state,
+    make: () => ({
+      check: () => {
+        state.checks += 1;
+        return state.route;
+      },
+      dispose: () => {},
+    }),
+  };
+}
+
+const LEGACY = { capability: { capable: false, reason: "test: server path" } } as const;
+
+describe("B. Earpiece mode never falls back to the loudspeaker", () => {
+  it("headset removed mid-session: speech is cut, nothing more is spoken, and the screen state says why; reconnecting restores it", async () => {
+    {
+      const route = switchableRoute("private");
+      const { hook, ws } = await startEarpieceSession({ ...LEGACY, makeAudioRouteProbe: route.make });
+      expect(hook.result.current.privateAudioRoute).toBe("private");
+
+      await act(() => ws.emitServer(cloudSuggestion("Breathe first.")));
+      expect(speakMock).toHaveBeenCalledTimes(1);
+      speechStopMock.mockClear();
+
+      // The earpiece comes out (Bluetooth disconnects) while it is talking.
+      route.state.route = "public";
+      await act(async () => {
+        await flush(600); // one route poll (ROUTE_POLL_MS)
+      });
+      expect(speechStopMock).toHaveBeenCalled(); // the line in flight is cut
+      expect(hook.result.current.privateAudioRoute).toBe("public");
+
+      await act(() => ws.emitServer(cloudSuggestion("Say it calmly.")));
+      expect(speakMock).toHaveBeenCalledTimes(1); // silent, not the speaker
+      // Still shown on screen.
+      expect(hook.result.current.suggestions[0].texts[0]).toBe("Say it calmly.");
+
+      // Headset back: speech resumes.
+      route.state.route = "private";
+      await act(async () => {
+        await flush(600);
+      });
+      expect(hook.result.current.privateAudioRoute).toBe("private");
+      await act(() => ws.emitServer(cloudSuggestion("Ask what they need.")));
+      expect(speakMock).toHaveBeenCalledTimes(2);
+      expect(speakMock.mock.calls[1][0]).toBe("Ask what they need.");
+
+      await act(async () => {
+        await hook.result.current.stopSession();
+      });
+    }
+  });
+
+  it("the route is checked right before every utterance, not only on the poll", async () => {
+    const route = switchableRoute("private");
+    const { hook, ws } = await startEarpieceSession({ ...LEGACY, makeAudioRouteProbe: route.make });
+    route.state.route = "public"; // disconnect lands between two polls
+    await act(() => ws.emitServer(cloudSuggestion("Not out loud.")));
+    expect(speakMock).not.toHaveBeenCalled();
+    expect(hook.result.current.privateAudioRoute).toBe("public");
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+  });
+
+  it("a platform that cannot tell the route ('unknown') is treated as no headset", async () => {
+    const route = switchableRoute("unknown");
+    const { hook, ws } = await startEarpieceSession({ ...LEGACY, makeAudioRouteProbe: route.make });
+    await act(() => ws.emitServer(cloudSuggestion("Not out loud.")));
+    expect(speakMock).not.toHaveBeenCalled();
+    expect(hook.result.current.privateAudioRoute).toBe("unknown");
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+  });
+
+  it("the on-device loop's own lines obey the same gate", async () => {
+    const route = switchableRoute("public");
+    const fake = makeFakeFastLoop();
+    const { hook } = await startEarpieceSession({
+      makeFastLoop: fake.make,
+      makeAudioRouteProbe: route.make,
+      postSession: async () => ({ status: "unsupported" as const }),
+    });
+    await act(async () => {
+      feed(toneInt16(1.0, -20));
+      fake.rec.emit({ text: "you always do this", isFinal: true });
+      feed(silenceInt16(0.5));
+      await fake.loop!.settle();
+      await flush();
+    });
+    expect(hook.result.current.suggestions[0].source).toBe("on-device");
+    expect(speakMock).not.toHaveBeenCalled();
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+  });
+
+  it("In-person (speaker) mode speaks aloud by design and is not gated", async () => {
+    const route = switchableRoute("public");
+    const hook = await renderHook(() => useAudioStream({ ...LEGACY, makeAudioRouteProbe: route.make }));
+    await act(() => {
+      hook.result.current.setSpeechEnabled(true);
+      hook.result.current.setSessionMode("speaker");
+    });
+    await act(async () => {
+      await hook.result.current.startSession("speaker-1", 50);
+    });
+    const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+    await act(() => ws.emitOpen());
+    await act(() => ws.emitServer(cloudSuggestion("Out loud is fine here.")));
+    expect(speakMock).toHaveBeenCalledTimes(1);
+    expect(hook.result.current.privateAudioRoute).toBeNull();
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+  });
+});

@@ -145,6 +145,7 @@ export default function LiveCoachScreen({
     transcriptionMessage,
     micError,
     speechAvailable,
+    privateAudioRoute,
     setSpeechEnabled,
     startSession,
     stopSession,
@@ -978,6 +979,16 @@ export default function LiveCoachScreen({
         </Text>
       ) : null}
 
+      {/* Earpiece mode never falls back to the loudspeaker: with no headset
+          connected the coach is silent and says so here. */}
+      {sessionActive && sessionMode === "earpiece" && privateAudioRoute != null && privateAudioRoute !== "private" ? (
+        <Text style={styles.routeLostText} testID="earpiece-route-lost-note" accessibilityLiveRegion="polite">
+          {privateAudioRoute === "unknown"
+            ? "Can't confirm a headset here — the coach stays silent in earpiece mode. Suggestions show on screen."
+            : "No headset connected — the coach is silent (earpiece mode never uses the phone speaker). Reconnect it to hear suggestions."}
+        </Text>
+      ) : null}
+
       {/* Empathy slider + interject: the coach's knobs — none in Journal mode. */}
       {isJournal ? null : (
         <View style={optionsOpen ? undefined : styles.hidden} testID="coach-options-sliders">
@@ -1435,6 +1446,13 @@ const styles = StyleSheet.create({
   },
   sessionStripWarn: {
     color: "#B45309",
+  },
+  routeLostText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#B45309",
+    paddingHorizontal: 16,
+    paddingBottom: 4,
   },
   speechUnavailableText: {
     fontSize: 12,
