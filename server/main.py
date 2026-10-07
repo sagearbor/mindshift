@@ -1531,6 +1531,53 @@ def self_feedback_prompt(
     return _append_voice_profile("\n\n".join(parts), voice_profile)
 
 
+# Mid-stream identity (owner requirement C, 2026-10-07). Until the server
+# KNOWS which speaker is the wearer (a voiceprint match, the user tapping a
+# label as themselves, or the phone asserting `wearer_known`), a turn may
+# have come from the wearer or from anyone else. A coach switched on in the
+# middle of a heated exchange must still help — so it gives cues that are
+# safe whoever the wearer turns out to be, and never scripts a reply in
+# anyone's voice (the dinner failure: "I think I did well on the quiz",
+# written for the owner, about his son's day).
+COACH_UNKNOWN_WEARER_RULES = (
+    "The wearer is not yet identified: you do not know which speaker is "
+    "wearing the earpiece, so the line below may have been said by the "
+    "wearer or by someone else. Give only speaker-neutral cues that help "
+    "whoever the wearer is, about pace, listening, tone, and curiosity "
+    "(\"slow down\", \"let them finish\", \"ask an open question\", "
+    "\"acknowledge before answering\"). Never write a first-person line for "
+    "the wearer to say. Never attribute any statement to anyone, and never "
+    "say \"you said\" or \"they said\". Never mention anyone's facts, plans, "
+    "or feelings."
+)
+
+
+def unknown_wearer_prompt(
+    slider: int, role: str | None = None, *, relationship: str | None = None,
+) -> str:
+    """System prompt for a live turn while the wearer is NOT known.
+
+    Same core job, stance and ground rules as :func:`empathy_system_prompt`
+    (so coaching style stays continuous once the wearer is confirmed), plus
+    :data:`COACH_UNKNOWN_WEARER_RULES`, and the live output contract with
+    cues capped at 6 words. Same JSON keys as the live suggestion prompt,
+    so the pipeline's parser and events are unchanged. No voice profile:
+    it describes how the wearer phrases replies, and there are no replies
+    here.
+    """
+    preamble = _coach_preamble(slider, role, relationship)
+    contract = (
+        "Give exactly 3 speaker-neutral cues, each at most 6 words, the best "
+        "one first. Respond with ONLY a JSON object (no prose, no code "
+        "fences) with keys in this order: \"suggestions\" (a list of exactly "
+        "3 strings) and \"importance\" (an integer 0-100: how much a "
+        "coaching interjection is needed at THIS moment — high for "
+        "emotionally charged or pivotal turns; low for small talk, filler, "
+        "or logistics). No other keys."
+    )
+    return f"{preamble}\n\n{COACH_UNKNOWN_WEARER_RULES}\n\n{contract}"
+
+
 # ---------------------------------------------------------------------------
 # LLM helpers
 # ---------------------------------------------------------------------------

@@ -114,7 +114,11 @@ class TestHistoryForPrompt:
         u = _utt("hi", "Speaker B")
         _remember_utterance(ctx, u)
         h = _history_for_prompt(ctx, u, is_self=None)
-        assert h == {"turns": [], "coach": [], "self": False}
+        # No verdict and no confirmed wearer: an UNKNOWN-wearer turn.
+        assert h == {"turns": [], "coach": [], "self": False, "unknown": True}
+        assert _render_history(h).startswith("The wearer is not yet identified")
+        h = _history_for_prompt(ctx, u, is_self=False)
+        assert h == {"turns": [], "coach": [], "self": False, "unknown": False}
         assert _render_history(h).startswith("Each suggestion is a cue for the wearer")
 
     def test_whispered_nudges_render_as_such(self, ctx):
