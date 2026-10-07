@@ -288,12 +288,16 @@ interface UseAudioStreamReturn {
    *  second late finds the advice already gone. */
   suggestions: SuggestionEntry[];
   speakerLabel: string;
-  /** Which diarized speaker is the coached user ("Speaker A" | "Speaker B" |
-   *  null). Diarization labels are assigned PER SESSION by speaking order —
-   *  "Speaker A" is whoever speaks first in THAT session, not a stable
-   *  identity — so this resets to "Speaker A" (the "you speak first"
-   *  convention) at every session start. It toggles freely within a session. */
+  /** Which diarized speaker the USER said is them ("Speaker A" | "Speaker B"),
+   *  or null — the default at every session start. There is no "you speak
+   *  first" convention any more (2026-10-07: coaching switched on mid-way
+   *  through an argument coached the son as the wearer): a diarization label
+   *  is never the wearer's identity unless the user picks it. */
   selfSpeaker: string | null;
+  /** True once the on-device voiceprint has matched the WEARER's enrolled
+   *  voice this session (an absolute match). Sent to the server as
+   *  `wearer_voice_confirmed`. */
+  wearerVoiceConfirmed: boolean;
   setSelfSpeaker: (label: string) => void;
   connectionStatus: ConnectionStatus;
   transcriptionAvailable: boolean;
@@ -535,6 +539,18 @@ export function cloudAnswersOpenMoment(
   return false;
 }
 
+/** How the wearer's identity is known this session (see wearerIdentityRef). */
+export type WearerIdentity = "voiceprint" | "user_label" | "unconfirmed";
+
+/** The wire fields that tell the server whether the wearer is known —
+ *  sent on the first config frame and again on every change. */
+export function wearerIdentityConfig(identity: WearerIdentity): {
+  wearer_voice_confirmed: boolean;
+  wearer_identity: WearerIdentity;
+} {
+  return { wearer_voice_confirmed: identity === "voiceprint", wearer_identity: identity };
+}
+
 /** {"E": 2, "D": 1} over every positive DETECTED so far — the summary counts
  *  what happened, not only what buzzed. */
 function countPositives(rows: readonly PositiveNudge[]): Record<string, number> {
@@ -551,13 +567,10 @@ export function useAudioStream(
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [suggestions, setSuggestions] = useState<SuggestionEntry[]>([]);
   const [speakerLabel, setSpeakerLabel] = useState("");
-  // Default "Speaker A" encodes the "you speak first" convention — the server
-  // labels the first voice it hears "Speaker A". Reset to this default at
-  // every session start (see startSession): diarization labels are assigned
-  // per session, so a previous session's toggle would mis-type every turn.
-  const [selfSpeaker, setSelfSpeakerState] = useState<string | null>(
-    "Speaker A",
-  );
+  // No default: who the wearer is comes from the on-device voiceprint or from
+  // the user, never from speaking order (see selfSpeaker in the return type).
+  const [selfSpeaker, setSelfSpeakerState] = useState<string | null>(null);
+  const [wearerVoiceConfirmed, setWearerVoiceConfirmed] = useState(false);
   const [connectionStatus, setConnectionStatus] =
     useState<ConnectionStatus>("idle");
   const [transcriptionAvailable, setTranscriptionAvailable] = useState(true);
@@ -864,7 +877,31 @@ export function useAudioStream(
   const interjectRef = useRef(0);
   /** Mirrors selfSpeaker so the long-lived onopen closure reads the current
    *  choice at config-send time, not a stale render's value. */
-  const selfSpeakerRef = useRef<string | null>("Speaker A");
+  const selfSpeakerRef = useRef<string | null>(null);
+  /** Wearer identity for the server's coach (wire: `wearer_voice_confirmed`
+   *  + `wearer_identity`). "voiceprint" = the on-device voiceprint matched the
+   *  wearer's enrolled voice (absolute match); "user_label" = the user said
+   *  which voice is theirs (chip or "Who is this?"); "unconfirmed" = neither
+   *  yet — coaching still runs (it must work when switched on mid-argument)
+   *  but the server keeps its lines speaker-neutral. */
+  const wearerIdentityRef = useRef<WearerIdentity>("unconfirmed");
+
+  /** Raise the wearer identity (never lowers it within a session) and tell
+   *  the server on the config channel when it changes. */
+  const noteWearerIdentity = useCallback((next: WearerIdentity) => {
+    const rank: Record<WearerIdentity, number> = { unconfirmed: 0, user_label: 1, voiceprint: 2 };
+    if (rank[next] <= rank[wearerIdentityRef.current]) return;
+    wearerIdentityRef.current = next;
+    if (next === "voiceprint") setWearerVoiceConfirmed(true);
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify({ type: "config", ...wearerIdentityConfig(next) }));
+      } catch {
+        // Socket mid-close: the next (re)open's config carries it.
+      }
+    }
+  }, []);
   /** Monotonic source of suggestion feed entry ids (see SuggestionEntry.id).
    *  Not reset per session — keeping it strictly increasing avoids key reuse. */
   const suggestionIdRef = useRef(0);
@@ -1271,6 +1308,8 @@ export function useAudioStream(
               },
             ]);
           }
+          // The wearer's own enrolled voice, matched outright on-device.
+          if (turn.isSelf === true && turn.matchBasis === "absolute") noteWearerIdentity("voiceprint");
           const recent = recentLocalTurnsRef.current;
           recent.push({ text: turn.text, hadSuggestion: turn.suggestion !== null });
           if (recent.length > MAX_SUGGESTION_FEED) recent.splice(0, recent.length - MAX_SUGGESTION_FEED);
@@ -1391,7 +1430,7 @@ export function useAudioStream(
         setLiveStatus(`On-device coaching unavailable (${msg}) — using the server.`);
       }
     },
-    [speakSuggestion, sendOrQueueTurn],
+    [speakSuggestion, sendOrQueueTurn, noteWearerIdentity],
   );
 
   /**
@@ -1791,9 +1830,12 @@ export function useAudioStream(
             type: "config",
             empathy_slider: empathyRef.current,
             interject_level: interjectRef.current,
-            // Which diarized voice is the coached user's. Read from the ref so
-            // a toggle made before the socket opened is still honoured here.
+            // Which diarized voice the USER said is theirs — null unless
+            // they picked one (no "Speaker A" convention). Read from the ref
+            // so a toggle made before the socket opened is still honoured.
             self_speaker: selfSpeakerRef.current,
+            // Whether the wearer's voice is confirmed (see wearerIdentityRef).
+            ...wearerIdentityConfig(wearerIdentityRef.current),
             // On-device TTS: the server must not synthesize audio for us;
             // and report its per-stage latency with session_complete.
             ...(liveActiveRef.current
@@ -2558,14 +2600,14 @@ export function useAudioStream(
       // Fresh session, fresh protocol detection: don't let the previous
       // server's transcript events silence a legacy server's fallback.
       sawTranscriptEventRef.current = false;
-      // Fresh session, fresh diarization: "Speaker A" is whoever speaks first
-      // in THIS session, so a previous session's toggle must never leak into
-      // the new initial config frame — it could invert coaching entirely
-      // (nudges for the other person, response cards for the user). Reset
-      // BEFORE the socket opens so onopen always sends the per-session
-      // "you speak first" default.
-      selfSpeakerRef.current = "Speaker A";
-      setSelfSpeakerState("Speaker A");
+      // Fresh session, fresh diarization: a previous session's toggle must
+      // never leak into the new initial config frame — it could invert
+      // coaching entirely. Reset BEFORE the socket opens: nobody is the
+      // wearer until the voiceprint matches or the user says so.
+      selfSpeakerRef.current = null;
+      setSelfSpeakerState(null);
+      wearerIdentityRef.current = "unconfirmed";
+      setWearerVoiceConfirmed(false);
 
       if (sessionModeRef.current === "journal") {
         // Mic + journal recorder only: no socket, no loop, no keeper.
@@ -2701,6 +2743,7 @@ export function useAudioStream(
   const setSelfSpeaker = useCallback((label: string) => {
     selfSpeakerRef.current = label;
     setSelfSpeakerState(label);
+    noteWearerIdentity("user_label");
     // The on-device loop applies the same convention to its own unknown
     // clusters (nudge vs response, haptics on self turns only).
     fastLoopRef.current?.setSelfSpeakerFallback(label);
@@ -2709,7 +2752,7 @@ export function useAudioStream(
         JSON.stringify({ type: "config", self_speaker: label }),
       );
     }
-  }, []);
+  }, [noteWearerIdentity]);
 
   const setLiveMode = useCallback((on: boolean) => {
     liveModeRef.current = on;
@@ -2780,6 +2823,7 @@ export function useAudioStream(
       if (choice.isSelf) {
         selfSpeakerRef.current = speaker;
         setSelfSpeakerState(speaker);
+        noteWearerIdentity("user_label");
       }
       // The record carries the person id the user chose (the loop's later
       // turns do too); the stored episode attaches it only once that person
@@ -2877,7 +2921,7 @@ export function useAudioStream(
       }
       return { text, enrolled, seconds };
     },
-    [],
+    [noteWearerIdentity],
   );
 
   const runPreflight = useCallback(async () => {
@@ -3092,6 +3136,7 @@ export function useAudioStream(
     speakerLabel,
     selfSpeaker,
     setSelfSpeaker,
+    wearerVoiceConfirmed,
     connectionStatus,
     transcriptionAvailable,
     transcriptionMessage,

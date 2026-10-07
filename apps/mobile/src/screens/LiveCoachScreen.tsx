@@ -141,6 +141,7 @@ export default function LiveCoachScreen({
     suggestions,
     selfSpeaker,
     setSelfSpeaker,
+    wearerVoiceConfirmed,
     connectionStatus,
     transcriptionMessage,
     micError,
@@ -408,10 +409,10 @@ export default function LiveCoachScreen({
     }
   }, [sessionActive, stopSession, startSession, empathyLevel, interjectLevel, sessionSummary]);
 
-  // Flip the coached user's identity between the two diarized speakers. The
-  // server labels the first voice it hears "Speaker A", so that's the default.
+  // Tell the coach which diarized voice is yours. Nothing is assumed (no
+  // "you speak first"): the first tap picks Speaker A, then it flips A↔B.
   const handleToggleSelfSpeaker = useCallback(() => {
-    setSelfSpeaker(selfSpeaker === "Speaker B" ? "Speaker A" : "Speaker B");
+    setSelfSpeaker(selfSpeaker === "Speaker A" ? "Speaker B" : "Speaker A");
   }, [selfSpeaker, setSelfSpeaker]);
 
   // Call mode (src/live/call): every action here is one tap that does
@@ -682,8 +683,8 @@ export default function LiveCoachScreen({
 
       {/* Identity chip: which diarized voice is the user's. Shown once there's
           a session or a first transcript line — before that the toggle would
-          be meaningless. Tapping flips A↔B; the hint reminds the "you speak
-          first" convention while idle. Therapist mode has no "you" on the
+          be meaningless. Until the voiceprint or the user says which voice is
+          theirs it reads "not set" — never a speaking-order guess. Therapist mode has no "you" on the
           mic, so the chip is hidden there. */}
       {!isTherapist && !isCall && !isJournal && (sessionActive || transcript.length > 0) && (
         <View style={styles.identityRow}>
@@ -693,11 +694,11 @@ export default function LiveCoachScreen({
             onPress={handleToggleSelfSpeaker}
           >
             <Text style={styles.identityChipText}>
-              You: {selfSpeaker ?? "Speaker A"} ⇄
+              You: {selfSpeaker ?? (wearerVoiceConfirmed ? "your voiceprint" : "not set")} ⇄
             </Text>
           </TouchableOpacity>
-          {connectionStatus === "idle" && (
-            <Text style={styles.identityHint}>you speak first</Text>
+          {selfSpeaker === null && !wearerVoiceConfirmed && (
+            <Text style={styles.identityHint}>tap to pick your voice</Text>
           )}
         </View>
       )}

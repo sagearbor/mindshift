@@ -41,7 +41,8 @@ import { FakeSpeechRecognizer } from "../src/live/stt";
 import { cloudProvider, ProviderChain, parseSuggestionJson } from "../src/live/localLlm";
 import type { FastLoopHandlers } from "../src/live/defaultDeps";
 import type { LiveSessionBody, PostLiveSessionResult } from "../src/api/liveSessions";
-import { silenceInt16, toneInt16 } from "../src/live/testing/synth";
+import { silenceInt16, toneInt16, unitVector } from "../src/live/testing/synth";
+import { SpeakerLabeler } from "../src/live/speakerId";
 
 const speakMock = Speech.speak as jest.Mock;
 const speechStopMock = Speech.stop as jest.Mock;
@@ -378,6 +379,61 @@ describe("B. Earpiece mode never falls back to the loudspeaker", () => {
     await act(() => ws.emitServer(cloudSuggestion("Out loud is fine here.")));
     expect(speakMock).toHaveBeenCalledTimes(1);
     expect(hook.result.current.privateAudioRoute).toBeNull();
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+  });
+});
+
+describe("C. Mid-stream identity: no 'Speaker A' shortcut", () => {
+  it("starts unconfirmed (coaching still runs) and tells the server once the on-device voiceprint matches the wearer", async () => {
+    const D = 192;
+    const fake = makeFakeFastLoop();
+    const originalMake = fake.make;
+    fake.make = async (handlers: FastLoopHandlers) => {
+      const build = await originalMake(handlers);
+      // The son speaks first (an unenrolled voice), then the wearer.
+      const queue = [unitVector(D, 7), unitVector(D, 0)];
+      fake.loop = new FastLoop({
+        ...handlers,
+        vad: new EnergyVad(-45, 0.032),
+        embedder: { embed: async () => queue.shift() ?? unitVector(D, 9) },
+        labeler: new SpeakerLabeler([{ personId: "self", displayName: "Sage", isSelf: true, embedding: unitVector(D, 0) }]),
+        recognizer: fake.rec,
+        llm: new ProviderChain([{ name: "os", isAvailable: async () => true, suggest: async () => parseSuggestionJson(GOOD) }]),
+        sttGraceMs: 100,
+        pollMs: 5,
+      });
+      return { ...build, loop: fake.loop };
+    };
+    const { hook, ws } = await startEarpieceSession({
+      makeFastLoop: fake.make,
+      postSession: async () => ({ status: "unsupported" as const }),
+    });
+    const first = ws.sentJson().find((m) => m.type === "config" && "self_speaker" in m);
+    expect(first).toMatchObject({ self_speaker: null, wearer_voice_confirmed: false, wearer_identity: "unconfirmed" });
+    expect(JSON.stringify(ws.sentJson())).not.toContain("Speaker A");
+
+    const turn = async (text: string) => {
+      await act(async () => {
+        feed(toneInt16(2.0, -20));
+        fake.rec.emit({ text, isFinal: true });
+        feed(silenceInt16(0.5));
+        await fake.loop!.settle();
+        await flush();
+      });
+    };
+    // Mid-argument switch-on: the first voice is NOT the wearer by default,
+    // and an unconfirmed session still coaches (a response card).
+    await turn("you never let me finish");
+    expect(hook.result.current.wearerVoiceConfirmed).toBe(false);
+    expect(hook.result.current.suggestions[0].kind).toBe("response");
+    expect(ws.sentJson().filter((m) => m.wearer_voice_confirmed === true)).toHaveLength(0);
+
+    await turn("okay, I hear you");
+    expect(hook.result.current.wearerVoiceConfirmed).toBe(true);
+    const confirmations = ws.sentJson().filter((m) => m.type === "config" && m.wearer_voice_confirmed === true);
+    expect(confirmations).toEqual([{ type: "config", wearer_voice_confirmed: true, wearer_identity: "voiceprint" }]);
     await act(async () => {
       await hook.result.current.stopSession();
     });

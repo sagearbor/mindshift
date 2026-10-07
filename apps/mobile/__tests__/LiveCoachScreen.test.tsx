@@ -444,6 +444,26 @@ describe("LiveCoachScreen", () => {
     expect(setSelfSpeaker).toHaveBeenCalledWith("Speaker B");
   });
 
+  it("identity chip assumes nobody: 'not set' until the user picks, first tap picks Speaker A", async () => {
+    const setSelfSpeaker = jest.fn();
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      sessionActive: true,
+      selfSpeaker: null,
+      wearerVoiceConfirmed: false,
+      setSelfSpeaker,
+    });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = track(renderer.create(<LiveCoachScreen />));
+    });
+    await flush();
+    const chip = root!.root.findByProps({ testID: "self-speaker-chip" });
+    expect(JSON.stringify(chip.findByType(require("react-native").Text).props.children)).toContain("not set");
+    act(() => chip.props.onPress());
+    expect(setSelfSpeaker).toHaveBeenCalledWith("Speaker A");
+  });
+
   it("hides the identity chip before any session — and always in therapist mode", async () => {
     let root: renderer.ReactTestRenderer;
     act(() => {

@@ -724,8 +724,11 @@ describe("useAudioStream live mode", () => {
         await flush();
       });
     };
-    await turn("first voice"); // Speaker A = you by convention -> nudge
-    expect(hook.result.current.suggestions[0].kind).toBe("nudge");
+    // No "you speak first" convention: nobody is the wearer until the
+    // voiceprint or the user says so, so the first voice gets a response.
+    expect(hook.result.current.selfSpeaker).toBeNull();
+    await turn("first voice");
+    expect(hook.result.current.suggestions[0].kind).toBe("response");
     await act(() => hook.result.current.setSelfSpeaker("Speaker B"));
     expect(ws.sentJson().some((m) => m.type === "config" && m.self_speaker === "Speaker B")).toBe(true);
     await turn("second voice"); // Speaker B is now you -> nudge (not a response)
