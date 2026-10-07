@@ -176,6 +176,20 @@ STOP_DRAIN_TIMEOUT_S = 30.0
 UTTERANCE_BUFFER_MAX = 1000
 UTTERANCE_BUFFER_KEEP = 500
 
+# DEBUG SAVE (owner-approved 2026-10-07, "for now, maybe not forever"):
+# POST /sessions/live with ZERO phone turns is stored instead of refused
+# (422), using THIS server's own transcript of that session when it has one
+# (see _DEBUG_TRANSCRIPTS below). Born from a family-dinner session where
+# the phone produced no turns and the only record of what went wrong was
+# lost. Turn it off with MINDSHIFT_LIVE_DEBUG_SAVE_EMPTY_SESSIONS=0: the
+# 422 returns and no server transcript is kept in memory at all.
+LIVE_DEBUG_SAVE_EMPTY_SESSIONS = (
+    os.getenv("MINDSHIFT_LIVE_DEBUG_SAVE_EMPTY_SESSIONS", "1") != "0"
+)
+# Bounds for the process-local transcript registry the debug save reads.
+DEBUG_TRANSCRIPT_TTL_S = 6 * 3600.0
+DEBUG_TRANSCRIPT_MAX_SESSIONS = 64
+
 # Track 3-server: latency instrumentation. The last N per-stage timings are
 # kept per session (a deque each) so the stop handler can report p50/p95
 # without the memory growing with an hour-long session. 200 utterances is
@@ -1554,6 +1568,9 @@ class SessionContext:
     # validated by main.validate_session_context: stripped, <= 4000 chars,
     # longer is rejected). Prompt-only and in-memory: never persisted.
     session_context: str | None = None
+    # The debug-save registry entry for this session (None while the flag is
+    # off) -- see _debug_register_session.
+    debug_transcript: "_DebugTranscript | None" = None
     utterances: list[Utterance] = field(default_factory=list)
     # Verified Firebase uid, set by the WS auth handshake before any audio is
     # processed. None only during the pre-auth window; a session that reaches
@@ -1717,15 +1734,83 @@ def _transcript_frame(
     return frame
 
 
+@dataclass
+class _DebugTranscript:
+    """What the debug save may read back for one (uid, session_id): the
+    live utterance buffers of every connection the session had (a resume
+    opens a new one), plus the wearer's typed context at its latest value."""
+    stamp: float
+    parts: list[list[Utterance]] = field(default_factory=list)
+    session_context: str | None = None
+
+
+# (uid, session_id) -> _DebugTranscript; insertion-ordered, oldest evicted.
+# Process-local and best-effort (a POST landing on another instance finds
+# nothing and stores the session without a transcript). Empty, and never
+# written, while LIVE_DEBUG_SAVE_EMPTY_SESSIONS is off.
+_DEBUG_TRANSCRIPTS: dict[tuple[str, str], _DebugTranscript] = {}
+
+
+def _debug_register_session(ctx: SessionContext) -> None:
+    """Make this connection's utterance buffer readable by the debug save
+    (by REFERENCE: later turns show up without further calls). No-op with
+    the flag off or before auth."""
+    if not LIVE_DEBUG_SAVE_EMPTY_SESSIONS or not ctx.uid:
+        return
+    now = time.monotonic()
+    for key, entry in list(_DEBUG_TRANSCRIPTS.items()):
+        if now - entry.stamp > DEBUG_TRANSCRIPT_TTL_S:
+            del _DEBUG_TRANSCRIPTS[key]
+    key = (ctx.uid, ctx.session_id)
+    entry = _DEBUG_TRANSCRIPTS.pop(key, None) or _DebugTranscript(stamp=now)
+    entry.stamp = now
+    if not any(part is ctx.utterances for part in entry.parts):
+        entry.parts.append(ctx.utterances)
+    if ctx.session_context is not None:
+        entry.session_context = ctx.session_context
+    _DEBUG_TRANSCRIPTS[key] = entry
+    while len(_DEBUG_TRANSCRIPTS) > DEBUG_TRANSCRIPT_MAX_SESSIONS:
+        del _DEBUG_TRANSCRIPTS[next(iter(_DEBUG_TRANSCRIPTS))]
+    ctx.debug_transcript = entry
+
+
+def debug_server_transcript(uid: str, session_id: str) -> tuple[list[dict], str | None] | None:
+    """(turn dicts shaped like TurnLocalEvent dumps, session_context) for
+    the debug save, or None when this process has nothing for that
+    uid+session (or the flag is off). Turns are in time order, duplicates
+    across connections dropped, marked ``transcript_source: "cloud"``."""
+    if not LIVE_DEBUG_SAVE_EMPTY_SESSIONS:
+        return None
+    entry = _DEBUG_TRANSCRIPTS.get((uid, session_id))
+    if entry is None:
+        return None
+    seen: set[tuple] = set()
+    turns: list[dict] = []
+    for u in sorted(
+        (u for part in entry.parts for u in part), key=lambda u: (u.start_time, u.end_time),
+    ):
+        key = (u.speaker, u.text, u.start_time, u.end_time)
+        if key in seen or not u.text.strip():
+            continue
+        seen.add(key)
+        turns.append({
+            "type": "turn_local", "session_id": session_id, "speaker": u.speaker,
+            "text": u.text, "start_time": float(u.start_time), "end_time": float(u.end_time),
+            "transcript_source": "cloud", "is_self": None,
+        })
+    return turns, entry.session_context
+
+
 def _remember_utterance(ctx: SessionContext, utterance: Utterance) -> None:
     """Append to the session's in-memory utterance buffer, bounded (P1-9).
 
     Nothing reads this buffer yet; it is kept (rather than removed) as the
     natural attachment point for a future in-session summary/context feature,
     but capped so an hour-long session cannot grow process memory without
-    bound. Deliberately NOT persisted anywhere: whether live-session
-    transcripts may be stored server-side at all is a flagged human/product
-    decision, and this module must not pre-empt it.
+    bound. Not persisted by this module. The one exception is the owner-
+    approved debug save (LIVE_DEBUG_SAVE_EMPTY_SESSIONS): when the phone
+    POSTs a session with zero turns, the ingest reads this buffer via
+    debug_server_transcript and stores it. Flag off -> never read.
     """
     ctx.utterances.append(utterance)
     if len(ctx.utterances) > UTTERANCE_BUFFER_MAX:
@@ -1820,6 +1905,9 @@ async def _apply_config(ctx: SessionContext, payload: dict) -> dict[str, str]:
         from main import validate_session_context
         try:
             ctx.session_context = validate_session_context(payload["session_context"])
+            if ctx.debug_transcript is not None:
+                # Kept ONLY for the debug save (flag on, zero phone turns).
+                ctx.debug_transcript.session_context = ctx.session_context
         except ValueError as exc:
             rejected["session_context"] = str(exc)
     if "interject_level" in payload:
@@ -2356,6 +2444,9 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
     # 4401; just return (no worker task has been created yet, so nothing leaks).
     if not await _authenticate(websocket, ctx, send_json):
         return
+    # Debug save (LIVE_DEBUG_SAVE_EMPTY_SESSIONS): expose this session's own
+    # transcript to POST /sessions/live, for a phone that produced no turns.
+    _debug_register_session(ctx)
 
     # Cost guardrails: refresh what OTHER server instances have already
     # counted for this account today, ONCE, before any spend — so a second

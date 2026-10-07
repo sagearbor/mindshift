@@ -182,7 +182,9 @@ class LiveSessionIn(BaseModel):
     started_at: str
     ended_at: str
     mode: LiveMode
-    turns: list[TurnLocalEvent] = Field(min_length=1, max_length=LIVE_MAX_TURNS)
+    # Normally at least one turn. Zero is accepted ONLY while the debug save
+    # is on (audio_pipeline.LIVE_DEBUG_SAVE_EMPTY_SESSIONS) -- see _consistent.
+    turns: list[TurnLocalEvent] = Field(max_length=LIVE_MAX_TURNS)
     tone_flags: list[ToneFlagEvent] = Field(default_factory=list)
     speaker_identities: list[SpeakerIdentityEvent] = Field(default_factory=list)
     # Mid-call naming: raw wire label → the name/person the user gave it.
@@ -223,6 +225,10 @@ class LiveSessionIn(BaseModel):
 
     @model_validator(mode="after")
     def _consistent(self) -> "LiveSessionIn":
+        import audio_pipeline
+
+        if not self.turns and not audio_pipeline.LIVE_DEBUG_SAVE_EMPTY_SESSIONS:
+            raise ValueError("turns: at least one turn is required")
         # Every turn must belong to THIS session — a mixed payload is a
         # client bug we refuse at the door rather than store as one episode.
         for turn in self.turns:
@@ -599,6 +605,7 @@ async def ingest_live(
     analyze: bool,
     reflect: bool,
     mood_before: int | None = None,
+    debug_meta: dict | None = None,
 ) -> LiveSessionOut:
     """Store one finished live session for ``uid`` and schedule its
     post-ingest analysis — the body of ``POST /sessions/live``, callable
@@ -689,6 +696,9 @@ async def ingest_live(
     # PATCH below — and save_live_session() carries it over on a re-POST.
     if mood_before is not None:
         meta["mood_before"] = mood_before
+    if debug_meta:
+        # Debug save only (zero phone turns, flag on) -- see the handler.
+        meta.update(debug_meta)
     try:
         await store.save_live_session(
             uid, recording_id, meta=meta, turns=turns, analysis=analysis,
@@ -791,13 +801,38 @@ async def ingest_live_session(
 ):
     store = _require_store(request)
     await _guest_gate(identity, body)
+    turn_events = [t.model_dump() for t in body.turns]
+    debug_meta: dict | None = None
+    if not turn_events:
+        # DEBUG SAVE (audio_pipeline.LIVE_DEBUG_SAVE_EMPTY_SESSIONS; the
+        # model already refused zero turns with the flag off): the phone
+        # produced no turns, so keep the session and, when this process has
+        # it, the server's own cloud transcript of it. The wearer-typed
+        # session_context is stored ONLY here -- never on a normal ingest.
+        import audio_pipeline
+
+        found = audio_pipeline.debug_server_transcript(uid, body.session_id)
+        server_turns, server_context = found if found else ([], None)
+        turn_events = [TurnLocalEvent(**t).model_dump() for t in server_turns]
+        debug_meta = {
+            "debug_no_phone_turns": True,
+            "debug_transcript_source": "server" if turn_events else "none",
+        }
+        kept_context = body.session_context or server_context
+        if kept_context:
+            debug_meta["debug_session_context"] = kept_context
+        logger.info(
+            "Debug-saving live session %s for uid=%s with no phone turns "
+            "(%d server turns)", body.session_id, uid, len(turn_events),
+        )
     return await ingest_live(
         store, uid,
         session_id=body.session_id,
         started_at=body.started_at,
         ended_at=body.ended_at,
         mode=body.mode,
-        turn_events=[t.model_dump() for t in body.turns],
+        debug_meta=debug_meta,
+        turn_events=turn_events,
         tone_flags=[f.model_dump() for f in body.tone_flags],
         identities=[s.model_dump() for s in body.speaker_identities],
         speaker_labels={sp: lbl.model_dump() for sp, lbl in body.speaker_labels.items()},
