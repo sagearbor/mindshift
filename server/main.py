@@ -1243,6 +1243,10 @@ from routers import account as _account_router  # noqa: E402
 
 app.include_router(_account_router.router)
 
+from routers import library as _library_router  # noqa: E402 — coach knowledge library (server/library/)
+
+app.include_router(_library_router.router)
+
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
