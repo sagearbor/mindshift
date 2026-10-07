@@ -110,6 +110,13 @@ async def _delete_rate_limit(request: Request) -> None:
         )
 
 
+def _library_service():
+    """The coach knowledge library's process-wide service (server/library/)."""
+    import library
+
+    return library.get_service()
+
+
 class DeleteAccountRequest(BaseModel):
     """The type-to-confirm guard, as a model so FastAPI answers 422 for a
     missing body, a wrong value and a malformed one alike — one rejection
@@ -184,6 +191,7 @@ async def delete_me(
             telemetry_store=getattr(watch_deps, "telemetry_store", None),
             blobs=getattr(watch_deps, "blobs", None),
             db=db,
+            library=_library_service(),
         )
     finally:
         await db.close()
