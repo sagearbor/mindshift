@@ -631,10 +631,18 @@ export type WearerIdentity = "voiceprint" | "user_label" | "unconfirmed";
 /** The wire fields that tell the server whether the wearer is known —
  *  sent on the first config frame and again on every change. */
 export function wearerIdentityConfig(identity: WearerIdentity): {
+  wearer_known: boolean;
   wearer_voice_confirmed: boolean;
   wearer_identity: WearerIdentity;
 } {
-  return { wearer_voice_confirmed: identity === "voiceprint", wearer_identity: identity };
+  return {
+    // The server's gate (audio_pipeline._resolve_wearer): it trusts
+    // `self_speaker` only while this is true, and stays speaker-neutral
+    // otherwise. The other two fields are diagnostics detail.
+    wearer_known: identity !== "unconfirmed",
+    wearer_voice_confirmed: identity === "voiceprint",
+    wearer_identity: identity,
+  };
 }
 
 /** {"E": 2, "D": 1} over every positive DETECTED so far — the summary counts
@@ -1352,7 +1360,11 @@ export function useAudioStream(
     const keepCopy = () => {
       if (payloadKeeper) payloadKeeper.save(kept);
     };
-    if (emptyReason !== null) {
+    // Zero on-device turns: with the debug flag on, POST anyway so the
+    // server keeps its own transcript (server flag
+    // LIVE_DEBUG_SAVE_EMPTY_SESSIONS); with it off, skip as before.
+    if (emptyReason !== null) postSkipReasonRef.current = emptyReason;
+    if (emptyReason !== null && !keepPayloadRef.current) {
       console.warn(`[useAudioStream] POST /sessions/live skipped: ${emptyReason}`);
       kept.attempts.push({ at: new Date().toISOString(), status: "skipped", error: emptyReason });
       keepCopy();
@@ -1852,6 +1864,8 @@ export function useAudioStream(
     if (lastEpisodeRef.current?.postStatus === "failed") errors.push("POST /sessions/live failed");
     if (lastEpisodeRef.current?.postStatus === "skipped") {
       errors.push(`POST /sessions/live skipped: ${postSkipReasonRef.current ?? "no turns"}`);
+    } else if (postSkipReasonRef.current) {
+      errors.push(`POST /sessions/live sent with 0 turns: ${postSkipReasonRef.current}`);
     }
     // The loop ran but heard nothing the transcript did: it is broken, not
     // "the cloud answered everything" (2026-10-07, dx-NCRN-SAQE).

@@ -412,7 +412,7 @@ describe("C. Mid-stream identity: no 'Speaker A' shortcut", () => {
       postSession: async () => ({ status: "unsupported" as const }),
     });
     const first = ws.sentJson().find((m) => m.type === "config" && "self_speaker" in m);
-    expect(first).toMatchObject({ self_speaker: null, wearer_voice_confirmed: false, wearer_identity: "unconfirmed" });
+    expect(first).toMatchObject({ self_speaker: null, wearer_known: false, wearer_voice_confirmed: false, wearer_identity: "unconfirmed" });
     expect(JSON.stringify(ws.sentJson())).not.toContain("Speaker A");
 
     const turn = async (text: string) => {
@@ -434,7 +434,7 @@ describe("C. Mid-stream identity: no 'Speaker A' shortcut", () => {
     await turn("okay, I hear you");
     expect(hook.result.current.wearerVoiceConfirmed).toBe(true);
     const confirmations = ws.sentJson().filter((m) => m.type === "config" && m.wearer_voice_confirmed === true);
-    expect(confirmations).toEqual([{ type: "config", wearer_voice_confirmed: true, wearer_identity: "voiceprint" }]);
+    expect(confirmations).toEqual([{ type: "config", wearer_known: true, wearer_voice_confirmed: true, wearer_identity: "voiceprint" }]);
     await act(async () => {
       await hook.result.current.stopSession();
     });
@@ -732,7 +732,7 @@ describe("E. The session POST: never turns: [], a local copy, and retries", () =
     expect(KEEP_LIVE_SESSION_PAYLOAD_FOR_DEBUG).toBe(true);
   });
 
-  it("no on-device turns: the POST is skipped (never turns: []), the reason is kept and reported", async () => {
+  it("no on-device turns, debug flag OFF: the POST is skipped (never turns: []), the reason is kept and reported", async () => {
     const fake = makeFakeFastLoop();
     const mem = memoryKeeper();
     const posted: LiveSessionBody[] = [];
@@ -740,6 +740,7 @@ describe("E. The session POST: never turns: [], a local copy, and retries", () =
       {
         makeFastLoop: fake.make,
         makePayloadKeeper: () => mem.keeper,
+        keepSessionPayload: false,
         postSession: async (body) => {
           posted.push(body);
           return { status: "failed" as const, error: "API error: 422" };
@@ -755,16 +756,46 @@ describe("E. The session POST: never turns: [], a local copy, and retries", () =
     });
     expect(posted).toHaveLength(0);
     expect(hook.result.current.lastEpisode?.postStatus).toBe("skipped");
-    const kept = mem.read("live-empty");
-    expect(kept.body.turns).toEqual([]);
-    expect(kept.empty_turns_reason).toBe("on-device loop finalized 0 turns while transcript had 1");
-    expect(kept.attempts).toEqual([expect.objectContaining({ status: "skipped" })]);
     await act(async () => {
       ws.emitServer({ type: "session_complete" });
       await flush();
     });
     expect(useDiagnosticsStore.getState().lastSession!.errors).toContain(
       "POST /sessions/live skipped: on-device loop finalized 0 turns while transcript had 1",
+    );
+  });
+
+  it("no on-device turns, debug flag ON: the session is still POSTed so the server keeps its transcript, and the reason is reported", async () => {
+    const fake = makeFakeFastLoop();
+    const mem = memoryKeeper();
+    const posted: LiveSessionBody[] = [];
+    const { hook, ws } = await startEarpieceSession(
+      {
+        makeFastLoop: fake.make,
+        makePayloadKeeper: () => mem.keeper,
+        postSession: async (body) => {
+          posted.push(body);
+          return { status: "created" as const, episodeId: "ep-1", sharedWith: [] };
+        },
+      },
+      "live-empty-debug",
+    );
+    await act(async () => {
+      ws.emitServer({ type: "transcript", speaker: "Speaker A", text: "hello there", start_time: 0, end_time: 1 });
+    });
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    expect(posted).toHaveLength(1);
+    expect(posted[0].turns).toEqual([]);
+    const kept = mem.read("live-empty-debug");
+    expect(kept.empty_turns_reason).toBe("on-device loop finalized 0 turns while transcript had 1");
+    await act(async () => {
+      ws.emitServer({ type: "session_complete" });
+      await flush();
+    });
+    expect(useDiagnosticsStore.getState().lastSession!.errors).toContain(
+      "POST /sessions/live sent with 0 turns: on-device loop finalized 0 turns while transcript had 1",
     );
   });
 
