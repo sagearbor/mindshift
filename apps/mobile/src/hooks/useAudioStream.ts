@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 import {
   useAudioStream as useMicrophoneStream,
   requestRecordingPermissionsAsync,
@@ -767,6 +767,10 @@ export function useAudioStream(
   const startWallMsRef = useRef(0);
   const loopUpAtRef = useRef<string | null>(null);
   const loopStartupMsRef = useRef<number | null>(null);
+  /** This session expected an on-device loop (live mode on a capable device). */
+  const loopExpectedRef = useRef(false);
+  /** One background snapshot per session (see the AppState effect). */
+  const backgroundSnapshotSentRef = useRef(false);
   /** The ended loop's summary health (for the diagnostics record). */
   const loopHealthRef = useRef<LoopDiagnostics | null>(null);
   /** Start-up step timing of this session's loop (for diagnostics). */
@@ -1814,9 +1818,22 @@ export function useAudioStream(
    * diagnostics"; sent automatically when the session had errors, so a
    * failed demo is diagnosable without the owner doing anything.
    */
-  const recordSessionDiagnostics = useCallback(() => {
+  const recordSessionDiagnostics = useCallback((snapshot: "backgrounded" | null = null) => {
     if (!sessionIdRef.current) return;
     const call = callViewRef.current;
+    // A mid-session snapshot reads the RUNNING loop's health (the session
+    // record proper is written when the loop has stopped).
+    const liveLoop = fastLoopRef.current;
+    const loopRecord: LoopDiagnostics | null =
+      loopHealthRef.current ??
+      (snapshot && liveLoop
+        ? {
+            ...liveLoop.health(),
+            ...loopStepsRef.current,
+            startupMs: loopStartupMsRef.current,
+            sttRestartCodes: {},
+          }
+        : null);
     const errors: string[] = [];
     if (micErrorRef.current) errors.push(`mic: ${micErrorRef.current}`);
     if (sttFailureRef.current) errors.push(`stt: ${sttFailureRef.current}`);
@@ -1838,7 +1855,7 @@ export function useAudioStream(
     }
     // The loop ran but heard nothing the transcript did: it is broken, not
     // "the cloud answered everything" (2026-10-07, dx-NCRN-SAQE).
-    const health = loopHealthRef.current;
+    const health = loopRecord;
     const heard = transcriptRef.current.length + serverUtterancesRef.current;
     if (health && health.localTurns === 0 && heard > 0) {
       errors.push(
@@ -1851,9 +1868,16 @@ export function useAudioStream(
         `on-device loop stalled: ${LOOP_STALL_SERVER_UTTERANCES}+ server utterances in a row with no on-device turn`,
       );
     }
+    // Stop landed before the on-device loop ever came up (the dinner loop
+    // took ≈8.5 s): say so — that session never had local coaching.
+    if (!snapshot && loopExpectedRef.current && !loopUpAtRef.current && !/unavailable/i.test(liveStatusRef.current)) {
+      const ms = startWallMsRef.current ? Date.now() - startWallMsRef.current : null;
+      errors.push(`session ended before the on-device loop came up${ms !== null ? ` (${ms} ms after Start)` : ""}`);
+    }
     if (call.status === "failed" && call.error) errors.push(`call: ${call.error}`);
     if (call.iceRestarts > 0) errors.push(`call: ${call.iceRestarts} ICE restart(s)`);
     const record: SessionDiagnostics = {
+      ...(snapshot ? { snapshot } : {}),
       sessionId: sessionIdRef.current,
       mode: sessionModeRef.current,
       startedAt: sessionStartedAtRef.current || null,
@@ -1875,7 +1899,7 @@ export function useAudioStream(
       transcriptionMessage: transcriptionMessageRef.current || null,
       postStatus: lastEpisodeRef.current?.postStatus ?? "none",
       loopUpAt: loopUpAtRef.current,
-      loop: loopHealthRef.current,
+      loop: loopRecord,
       call:
         call.status === "idle"
           ? null
@@ -1889,11 +1913,26 @@ export function useAudioStream(
     };
     const store = useDiagnosticsStore.getState();
     store.recordSession(record);
-    if (errors.length > 0) {
+    // A backgrounded session may be about to be swiped away (the dinner
+    // session left no record at all): its snapshot always goes out.
+    if (errors.length > 0 || snapshot) {
       const user = useAuthStore.getState().user;
-      void store.send("auto", { uid: user?.uid ?? null, email: user?.email ?? null });
+      void store.send(snapshot ?? "auto", { uid: user?.uid ?? null, email: user?.email ?? null });
     }
   }, [liveCapability.capable]);
+
+  // App sent to the background mid-session (recents / swipe-away / another
+  // app): send ONE diagnostics snapshot now — a swiped-away app never gets to
+  // its Stop, and the 2026-10-07 dinner session left no diagnostics.
+  useEffect(() => {
+    const sub = AppState.addEventListener?.("change", (next) => {
+      if (next !== "background") return;
+      if (!sessionActiveRef.current || journalRef.current || backgroundSnapshotSentRef.current) return;
+      backgroundSnapshotSentRef.current = true;
+      recordSessionDiagnostics("backgrounded");
+    });
+    return () => sub?.remove?.();
+  }, [recordSessionDiagnostics]);
 
   /**
    * Final cleanup shared by every way a session ends after a manual stop:
@@ -2899,10 +2938,10 @@ export function useAudioStream(
       loopStallSeenRef.current = false;
       // Cold-start pre-roll: collect from the first captured frame whenever
       // an on-device loop will be brought up for this session.
-      prerollRef.current =
-        liveModeRef.current && liveCapability.capable && sessionModeRef.current !== "journal"
-          ? { chunks: [], samples: 0, dropped: 0 }
-          : null;
+      loopExpectedRef.current =
+        liveModeRef.current && liveCapability.capable && sessionModeRef.current !== "journal";
+      backgroundSnapshotSentRef.current = false;
+      prerollRef.current = loopExpectedRef.current ? { chunks: [], samples: 0, dropped: 0 } : null;
       localTurnsRef.current = [];
       toneFlagsRef.current = [];
       identitiesRef.current = [];

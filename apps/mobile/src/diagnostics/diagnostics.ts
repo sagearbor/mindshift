@@ -146,6 +146,10 @@ export function summarizeSpeakerId(
 }
 
 export interface SessionDiagnostics {
+  /** Set on a MID-SESSION snapshot ("backgrounded": the app left the
+   *  foreground during a session and may be killed); absent on the record
+   *  written when a session ends. */
+  snapshot?: "backgrounded";
   sessionId: string;
   mode: string;
   startedAt: string | null;
@@ -287,7 +291,7 @@ export interface DeviceDiarizationEvent {
   created_at: string;
 }
 
-export type DiagnosticsTrigger = "manual" | "auto" | "device_diarization";
+export type DiagnosticsTrigger = "manual" | "auto" | "device_diarization" | "backgrounded";
 
 export interface DiagnosticsPayload {
   diagnostics_id: string;
@@ -391,7 +395,7 @@ export interface DiagnosticsState {
   setCapability: (capability: FastLoopCapabilities | null, reason: string | null) => void;
   recordSession: (session: SessionDiagnostics) => void;
   /** Build + POST. Resolves with the outcome; also kept in `lastSent`. */
-  send: (trigger: "manual" | "auto", who: { uid: string | null; email: string | null }) => Promise<SendOutcome>;
+  send: (trigger: "manual" | "auto" | "backgrounded", who: { uid: string | null; email: string | null }) => Promise<SendOutcome>;
   /** Remember a voice-separation run AND post it right away as its own
    *  record (trigger "device_diarization") so its id can be read off the
    *  replay screen. Never throws. */

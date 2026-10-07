@@ -1087,3 +1087,79 @@ describe("Session context (session_context)", () => {
     });
   });
 });
+
+// --- Diagnostics that survive an early Stop or a swiped-away app ----------
+import { AppState } from "react-native";
+
+describe("Diagnostics are sent even when the session never got going or the app is swiped away", () => {
+  it("Stop before the on-device loop is up: the record says so and is auto-sent", async () => {
+    const fake = makeFakeFastLoop();
+    const { hook, ws, slow, starting } = await startWithSlowLoop(fake, []);
+    const sendSpy = jest.spyOn(useDiagnosticsStore.getState(), "send");
+    await act(async () => {
+      feed(toneInt16(1.0, -20));
+      await hook.result.current.stopSession();
+    });
+    await act(async () => {
+      ws.emitServer({ type: "session_complete" });
+      await flush();
+    });
+    const dx = useDiagnosticsStore.getState().lastSession!;
+    expect(dx.loopUpAt).toBeNull();
+    expect(dx.errors.some((e) => /^session ended before the on-device loop came up \(\d+ ms after Start\)$/.test(e))).toBe(true);
+    expect(sendSpy).toHaveBeenCalledWith("auto", expect.anything());
+    sendSpy.mockRestore();
+    // The build finishing later never brings a loop up for a stopped session.
+    await act(async () => {
+      slow.release();
+      await starting();
+      await flush();
+    });
+    expect(hook.result.current.liveStatus).not.toMatch(/^On-device:/);
+  });
+
+  it("app backgrounded mid-session (about to be swiped away): ONE snapshot with the running loop's health is sent", async () => {
+    let onChange: ((s: string) => void) | null = null;
+    const addSpy = jest.spyOn(AppState, "addEventListener").mockImplementation(((_: string, cb: (s: string) => void) => {
+      onChange = cb;
+      return { remove: () => {} };
+    }) as never);
+    const sendSpy = jest.spyOn(useDiagnosticsStore.getState(), "send");
+    try {
+      const fake = makeFakeFastLoop();
+      const { hook, ws } = await startEarpieceSession({
+        makeFastLoop: fake.make,
+        postSession: async () => ({ status: "unsupported" as const }),
+      });
+      await act(async () => {
+        ws.emitServer({ type: "transcript", speaker: "Speaker A", text: "pass the salt", start_time: 0, end_time: 1 });
+        feed(silenceInt16(1.0));
+        await fake.loop!.settle();
+      });
+      await act(async () => {
+        onChange!("background");
+        await flush();
+      });
+      expect(sendSpy).toHaveBeenCalledTimes(1);
+      expect(sendSpy).toHaveBeenCalledWith("backgrounded", expect.anything());
+      const dx = useDiagnosticsStore.getState().lastSession!;
+      expect(dx.snapshot).toBe("backgrounded");
+      expect(dx.loop).toMatchObject({ turns: 0, localTurns: 0 });
+      expect(dx.loop!.vadFrames).toBeGreaterThan(0);
+      expect(dx.errors).toContain("on-device loop finalized 0 turns while transcript had 1");
+      // Only once per session.
+      await act(async () => {
+        onChange!("active");
+        onChange!("background");
+        await flush();
+      });
+      expect(sendSpy).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await hook.result.current.stopSession();
+      });
+    } finally {
+      addSpy.mockRestore();
+      sendSpy.mockRestore();
+    }
+  });
+});
