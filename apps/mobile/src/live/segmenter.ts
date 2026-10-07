@@ -125,6 +125,10 @@ export function energySpeechSegments(
  */
 export class StreamingSegmenter {
   private current: Span | null = null;
+  /** Diagnostics: spans finalized (kept) and dropped as shorter than
+   *  `minSeconds`, since the last reset. */
+  closed = 0;
+  droppedShort = 0;
 
   constructor(private readonly cfg: SegmenterConfig = DEFAULT_SEGMENTER_CONFIG) {}
 
@@ -170,9 +174,16 @@ export class StreamingSegmenter {
 
   reset() {
     this.current = null;
+    this.closed = 0;
+    this.droppedShort = 0;
   }
 
   private keep(span: Span): Span | null {
-    return span.end - span.start >= this.cfg.minSeconds ? span : null;
+    if (span.end - span.start >= this.cfg.minSeconds) {
+      this.closed += 1;
+      return span;
+    }
+    this.droppedShort += 1;
+    return null;
   }
 }

@@ -43,6 +43,7 @@ import type { FastLoopHandlers } from "../src/live/defaultDeps";
 import type { LiveSessionBody, PostLiveSessionResult } from "../src/api/liveSessions";
 import { silenceInt16, toneInt16, unitVector } from "../src/live/testing/synth";
 import { SpeakerLabeler } from "../src/live/speakerId";
+import { useDiagnosticsStore } from "../src/diagnostics/diagnostics";
 
 const speakMock = Speech.speak as jest.Mock;
 const speechStopMock = Speech.stop as jest.Mock;
@@ -536,6 +537,28 @@ describe("Cold start: audio from Start reaches the loop once it is up", () => {
     expect(posted).toHaveLength(1);
     expect(typeof posted[0].loop_up_at).toBe("string");
     expect(posted[0].started_at <= posted[0].loop_up_at!).toBe(true);
+
+    // The diagnostics record carries the loop's own health counters.
+    await act(async () => {
+      ws.emitServer({ type: "session_complete" });
+      await flush();
+    });
+    const dx = useDiagnosticsStore.getState().lastSession!;
+    expect(dx.loopUpAt).toBe(posted[0].loop_up_at);
+    expect(dx.loop).toMatchObject({
+      turns: 3,
+      localTurns: 1,
+      spansClosed: 3,
+      spansDroppedShort: 0,
+    });
+    expect(dx.loop!.prerollSeconds).toBeGreaterThanOrEqual(7.9);
+    expect(dx.loop!.vadFrames).toBeGreaterThan(0);
+    expect(dx.loop!.vadSpeechFrames).toBeGreaterThan(0);
+    expect(dx.loop!.inputDbfs).not.toBeNull();
+    expect(dx.loop!.inputDbfs!).toBeLessThan(0);
+    expect(typeof dx.loop!.startupMs).toBe("number");
+    expect(dx.loop!.sttRestartCodes).toEqual({});
+    expect(dx.loop!.liveSeconds).toBeGreaterThanOrEqual(0);
   });
 
   it("replays the real family recording (fixtures/pcm16k_family_real_6s.wav ×2) with the loop up at 8 s: the first 8 s still yields turns", async () => {

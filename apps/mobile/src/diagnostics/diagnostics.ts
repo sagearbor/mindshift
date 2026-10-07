@@ -23,7 +23,7 @@ import * as Updates from "expo-updates";
 import Constants from "expo-constants";
 import { create } from "zustand";
 import type { FastLoopCapabilities } from "../live/defaultDeps";
-import type { TurnLatency } from "../live/fastLoop";
+import type { FastLoopHealth, TurnLatency } from "../live/fastLoop";
 import { authHeaders } from "../api/liveSessions";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:8000";
@@ -165,8 +165,21 @@ export interface SessionDiagnostics {
   /** POST /sessions/live outcome. */
   postStatus: "created" | "unsupported" | "failed" | "none";
   call: { status: string; iceRestarts: number; error: string | null; connectedSeconds: number | null } | null;
+  /** When the on-device loop came up (startedAt is the user's Start);
+   *  null when it never did. Absent in older records. */
+  loopUpAt?: string | null;
+  /** The on-device loop's own account (null on the legacy path). */
+  loop?: LoopDiagnostics | null;
   /** Every problem worth a diagnostics send, in plain words. */
   errors: string[];
+}
+
+/** FastLoopHealth plus what only the hook knows: how long the loop took to
+ *  come up after Start, and the recognizer's restart error codes. */
+export interface LoopDiagnostics extends FastLoopHealth {
+  /** Start → loop up, ms; null when the loop never came up. */
+  startupMs: number | null;
+  sttRestartCodes: Record<string, number>;
 }
 
 export interface DeviceInfo {

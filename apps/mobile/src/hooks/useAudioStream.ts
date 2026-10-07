@@ -81,7 +81,13 @@ import { createNativeRtcAdapter } from "../live/call/rtcNative";
 import { createWebRtcAdapter } from "../live/call/callWeb";
 import type { AudioRoute, RtcAdapter } from "../live/call/rtc";
 import { IDLE_CALL_VIEW, type CallClientMessage, type CallRole, type CallView } from "../live/call/types";
-import { summarizeLatency, summarizeSpeakerId, useDiagnosticsStore, type SessionDiagnostics } from "../diagnostics/diagnostics";
+import {
+  summarizeLatency,
+  summarizeSpeakerId,
+  useDiagnosticsStore,
+  type LoopDiagnostics,
+  type SessionDiagnostics,
+} from "../diagnostics/diagnostics";
 import { useAuthStore } from "../store/authStore";
 import { createDefaultAudioRouteProbe, ROUTE_POLL_MS, type AudioRouteProbe, type AudioRouteState } from "../live/audioRoute";
 
@@ -699,6 +705,8 @@ export function useAudioStream(
   const startWallMsRef = useRef(0);
   const loopUpAtRef = useRef<string | null>(null);
   const loopStartupMsRef = useRef<number | null>(null);
+  /** The ended loop's summary health (for the diagnostics record). */
+  const loopHealthRef = useRef<LoopDiagnostics | null>(null);
   /** True from the loop's start until it has stopped — gates which server
    *  events are rendered (the phone owns the transcript while it runs). */
   const liveActiveRef = useRef(false);
@@ -1186,6 +1194,13 @@ export function useAudioStream(
       setLatencySummary(report.split("\n")[0]);
       latencyLogRef.current = summary.latencyLog;
       sttRestartsRef.current = summary.sttRestarts ?? 0;
+      if (summary.health) {
+        loopHealthRef.current = {
+          ...summary.health,
+          startupMs: loopStartupMsRef.current,
+          sttRestartCodes: summary.sttRestartCodes ?? {},
+        };
+      }
     }
     if (sessionModeRef.current === "call") {
       // An in-app call is persisted by the SERVER (one episode per
@@ -1679,6 +1694,8 @@ export function useAudioStream(
       micError: micErrorRef.current || null,
       transcriptionMessage: transcriptionMessageRef.current || null,
       postStatus: lastEpisodeRef.current?.postStatus ?? "none",
+      loopUpAt: loopUpAtRef.current,
+      loop: loopHealthRef.current,
       call:
         call.status === "idle"
           ? null
@@ -2658,6 +2675,7 @@ export function useAudioStream(
       sessionStartedAtRef.current = new Date(startWallMsRef.current).toISOString();
       loopUpAtRef.current = null;
       loopStartupMsRef.current = null;
+      loopHealthRef.current = null;
       // Cold-start pre-roll: collect from the first captured frame whenever
       // an on-device loop will be brought up for this session.
       prerollRef.current =
