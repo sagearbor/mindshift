@@ -200,6 +200,17 @@ class LiveSessionIn(BaseModel):
     # ``mood_after`` (answered a beat later) is NOT here: see
     # PATCH /sessions/live/{episode_id}/mood below.
     mood_before: Optional[int] = Field(default=None, ge=1, le=9)
+    # The wearer-typed session background (main.SESSION_CONTEXT_MAX_CHARS,
+    # same cap as the live socket; longer is a 422, never truncated).
+    # PRIVACY: accepted so a client may send its whole session state, but
+    # NOT persisted -- ingest_live never writes it into the stored episode.
+    session_context: Optional[str] = None
+
+    @field_validator("session_context")
+    @classmethod
+    def _session_context(cls, value: Optional[str]) -> Optional[str]:
+        from main import validate_session_context
+        return validate_session_context(value)
 
     @field_validator("started_at", "ended_at")
     @classmethod

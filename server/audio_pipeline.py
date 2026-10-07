@@ -1119,6 +1119,7 @@ class SuggestionJob:
     # lines for the prompt (None when COACH_CONTEXT is off).
     history: dict | None = None
     relationship: str | None = None
+    session_context: str | None = None
     # Enqueue-time wearer identity (WEARER_SELF / WEARER_OTHER /
     # WEARER_UNKNOWN, see _resolve_wearer). None only for a job built
     # directly (tests): process_segment then derives it from is_self alone.
@@ -1549,6 +1550,10 @@ class SessionContext:
     # Optional relationship hint (main.COACH_RELATIONSHIPS: child | partner |
     # parent | coworker | friend | other). None = generic, any conversation.
     relationship: str | None = None
+    # Wearer-typed background for this session (config `session_context`,
+    # validated by main.validate_session_context: stripped, <= 4000 chars,
+    # longer is rejected). Prompt-only and in-memory: never persisted.
+    session_context: str | None = None
     utterances: list[Utterance] = field(default_factory=list)
     # Verified Firebase uid, set by the WS auth handshake before any audio is
     # processed. None only during the pre-auth window; a session that reaches
@@ -1792,17 +1797,31 @@ async def _close_ws_guest_limit(websocket: WebSocket, send_json=None) -> None:
         )
 
 
-async def _apply_config(ctx: SessionContext, payload: dict) -> None:
+async def _apply_config(ctx: SessionContext, payload: dict) -> dict[str, str]:
     """Apply a config frame's non-auth fields to the session context.
 
     Shared by the initial auth handshake and later in-session config updates so
     empathy/role/voice-profile handling lives in exactly one place. The voice
     profile is loaded once, uid-scoped, the first time both ids are known.
+
+    Returns ``{field: reason}`` for values that were REJECTED rather than
+    silently ignored (today only ``session_context``); the caller reports
+    them via :func:`_send_config_ack`.
     """
+    rejected: dict[str, str] = {}
     if "empathy_slider" in payload:
         val = payload["empathy_slider"]
         if isinstance(val, int) and 0 <= val <= 100:
             ctx.empathy_slider = val
+    # Wearer-typed background. Unlike the silently-ignored fields here, a bad
+    # value is REPORTED (returned in `rejected`; the caller tells the client)
+    # and the previous context is kept -- never silently truncated.
+    if "session_context" in payload:
+        from main import validate_session_context
+        try:
+            ctx.session_context = validate_session_context(payload["session_context"])
+        except ValueError as exc:
+            rejected["session_context"] = str(exc)
     if "interject_level" in payload:
         val = payload["interject_level"]
         if isinstance(val, int) and 0 <= val <= 100:
@@ -1884,6 +1903,7 @@ async def _apply_config(ctx: SessionContext, payload: dict) -> None:
                 "Voice profile lookup failed for session %s",
                 ctx.session_id, exc_info=True,
             )
+    return rejected
 
 
 # Mid-call naming (`speaker_label` frames). Same slug rule as
@@ -2043,7 +2063,7 @@ async def _authenticate(
         ctx.is_guest = True
         ctx.guest_deadline = time.monotonic() + guest_quota.guest_max_session_seconds()
     ctx.uid = uid
-    await _apply_config(ctx, payload)
+    rejected = await _apply_config(ctx, payload) or {}
     ack: dict[str, object] = {"type": "config_ack"}
     if ctx.is_guest:
         # Tell a guest the shape of their allowance on the way IN, not on the
@@ -2058,8 +2078,21 @@ async def _authenticate(
             "max_sessions_per_day": guest_quota.GUEST_MAX_SESSIONS_PER_DAY,
             "max_session_minutes": guest_quota.GUEST_MAX_SESSION_MIN,
         }
-    await send_json(ack)
+    await _send_config_ack(send_json, rejected, ack)
     return True
+
+
+async def _send_config_ack(send_json, rejected: dict[str, str], ack: dict | None = None) -> None:
+    """The config ack, plus -- only when a value was rejected -- a
+    ``rejected`` map on the ack and one ``{"error": ...}`` frame per field,
+    AFTER the ack so a client waiting for the ack is never confused. A clean
+    config frame gets exactly the old ``{"type": "config_ack"}``."""
+    ack = dict(ack or {"type": "config_ack"})
+    if rejected:
+        ack["rejected"] = dict(rejected)
+    await send_json(ack)
+    for reason in rejected.values():
+        await send_json({"error": reason})
 
 
 async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
@@ -2114,6 +2147,15 @@ async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                                                  a reported turn are dropped.
         config keys ``tts`` ("server" | "on-device" | null) and
         ``report_latency`` (bool) — see ``_apply_config``.
+        Coaching config keys (all optional, accepted on every config frame):
+        ``relationship`` (child|partner|parent|coworker|friend|other|null) —
+        a light tone hint; ``wearer_known`` (bool) — the phone vouches that
+        ``self_speaker`` IS the wearer (without it the label is not trusted
+        and turns are coached speaker-neutrally, see ``_resolve_wearer``);
+        ``session_context`` (string <= 4000 chars after strip, or null to
+        clear) — wearer-typed background; a longer value is rejected:
+        the ack carries ``rejected: {"session_context": reason}`` and an
+        ``{"error": reason}`` frame follows it.
         {"type": "speaker_label", "speaker": "Speaker B",
          "display_name": "Mom", "person_id": "mom" | null,
          "is_self": false}                    — mid-call naming: the coach's
@@ -2461,6 +2503,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                     speaker_name=speaker_name,
                     stream=progressive, stats=hedge_stats,
                     history=job.history, relationship=job.relationship,
+                    session_context=job.session_context,
                 )
             timing.llm_end = ctx.latency.now()
             note_hedge()
@@ -2529,6 +2572,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 on_first_suggestion=on_first_suggestion if progressive else None,
                 speaker_name=speaker_name, stats=hedge_stats,
                 history=job.history, relationship=job.relationship,
+                session_context=job.session_context,
                 wearer_unknown=identity == WEARER_UNKNOWN,
             )
         timing.llm_end = ctx.latency.now()
@@ -2699,6 +2743,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             interject_level=ctx.interject_level,
             role=ctx.role,
             relationship=ctx.relationship,
+            session_context=ctx.session_context,
             self_speaker=ctx.self_speaker,
             timing=timing,
             is_self=is_self,
@@ -3370,8 +3415,8 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                     # is verified only on the FIRST config — the auth handshake
                     # above — so later frames reuse the established uid and need
                     # not (and do not) re-present a token.
-                    await _apply_config(ctx, payload)
-                    await send_json({"type": "config_ack"})
+                    rejected = await _apply_config(ctx, payload) or {}
+                    await _send_config_ack(send_json, rejected)
                 elif msg_type == "turn_local":
                     # Track 3-server: a phone-finalized turn. Validated with
                     # the shared model so a malformed report is rejected at
@@ -4226,6 +4271,7 @@ async def _generate_suggestions(
     history: dict | None = None,
     relationship: str | None = None,
     wearer_unknown: bool = False,
+    session_context: str | None = None,
 ) -> tuple[list[str], int]:
     """Call LLMClient.complete(); parse suggestions + moment importance.
 
@@ -4253,11 +4299,14 @@ async def _generate_suggestions(
 
     if wearer_unknown:
         # Speaker-neutral cues only -- see main.COACH_UNKNOWN_WEARER_RULES.
-        system = unknown_wearer_prompt(empathy_slider, role, relationship=relationship)
+        system = unknown_wearer_prompt(
+            empathy_slider, role, relationship=relationship,
+            session_context=session_context,
+        )
     else:
         system = empathy_system_prompt(
             empathy_slider, role, voice_profile, live=LIVE_PROMPT,
-            relationship=relationship,
+            relationship=relationship, session_context=session_context,
         )
     user_content = _turn_prompt(utterance, tone_context, speaker_name, history)
 
@@ -4311,6 +4360,7 @@ async def _generate_nudge(
     stats: dict | None = None,
     history: dict | None = None,
     relationship: str | None = None,
+    session_context: str | None = None,
 ) -> tuple[str, int]:
     """Call the LLM for a SELF turn; parse the single delivery nudge + urgency.
 
@@ -4334,6 +4384,7 @@ async def _generate_nudge(
 
     system = self_feedback_prompt(
         empathy_slider, role, voice_profile, relationship=relationship,
+        session_context=session_context,
     )
     # tone_context renders the phone's measurements as hints (Track 3-server);
     # None keeps the prompt byte-identical. No streaming PREVIEW for a nudge
