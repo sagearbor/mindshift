@@ -154,6 +154,8 @@ export class ExpoSpeechRecognizer implements SpeechRecognizer {
   private readonly now: () => number;
   /** Restarts so far (for logs/tests). */
   restarts = 0;
+  /** Diagnostics: the non-fatal error codes that preceded those restarts. */
+  restartErrorCodes: Record<string, number> = {};
 
   constructor(private readonly options: ExpoSttOptions = {}) {
     this.restartDelayMs = options.restartDelayMs ?? DEFAULT_RESTART_DELAY_MS;
@@ -186,7 +188,10 @@ export class ExpoSpeechRecognizer implements SpeechRecognizer {
       }),
       m.addListener("error", (e) => {
         if (this.stopped) return; // #165: stop() itself can emit "client".
-        if (RESTARTABLE_STT_ERRORS.has(e.error)) return; // the `end` that follows restarts us
+        if (RESTARTABLE_STT_ERRORS.has(e.error)) {
+          this.restartErrorCodes[e.error] = (this.restartErrorCodes[e.error] ?? 0) + 1;
+          return; // the `end` that follows restarts us
+        }
         this.fatal = true;
         for (const cb of this.errorCbs) cb(e.error, e.message);
       }),

@@ -143,6 +143,12 @@ export default function SessionSummaryCard({ summary, episode, therapist, share,
         </View>
       ) : null}
 
+      {episode?.postStatus === "skipped" ? (
+        <Text style={styles.note} testID="summary-post-skipped">
+          Not saved to your account — the phone&apos;s own listener caught no turns this time (reported in diagnostics).
+        </Text>
+      ) : null}
+
       {episode?.postStatus === "failed" ? (
         <Text style={styles.note} testID="summary-post-failed">
           Couldn’t save this session to your account — the transcript is still here.
