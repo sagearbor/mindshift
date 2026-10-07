@@ -333,6 +333,24 @@ describe("LiveCoachScreen", () => {
     expect(root!.root.findAllByProps({ testID: "earpiece-route-lost-note" })).toHaveLength(0);
   });
 
+  it("relationship chips: nothing preselected; a tap sets it, a second tap clears it", async () => {
+    const setRelationship = jest.fn();
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, relationship: null, setRelationship });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = track(renderer.create(<LiveCoachScreen />));
+    });
+    await flush();
+    const chip = root!.root.findByProps({ testID: "relationship-parent" });
+    expect(chip.props.accessibilityState).toEqual({ selected: false });
+    act(() => chip.props.onPress());
+    expect(setRelationship).toHaveBeenCalledWith("parent");
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, relationship: "parent", setRelationship });
+    act(() => root!.update(<LiveCoachScreen />));
+    act(() => root!.root.findByProps({ testID: "relationship-parent" }).props.onPress());
+    expect(setRelationship).toHaveBeenLastCalledWith(null);
+  });
+
   it("hides the unavailable note when TTS works", async () => {
     let root: renderer.ReactTestRenderer;
     act(() => {

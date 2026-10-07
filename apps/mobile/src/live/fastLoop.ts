@@ -329,6 +329,8 @@ export interface FastLoopSession {
    *  turn_local (the server's transcript owns those words) and are not
    *  coached by the local LLM. */
   preroll?: Int16Array;
+  /** Who the user said they are talking with (null/absent = generic). */
+  relationship?: string | null;
   /** Samples captured before `preroll` that the phone's bounded pre-roll
    *  buffer had to drop — the loop clock starts here so times still line
    *  up with the capture clock. */
@@ -812,6 +814,11 @@ export class FastLoop {
     if (this.session) this.session.empathy = level;
   }
 
+  /** Mid-session edit of who the user is talking with. */
+  setRelationship(relationship: string | null) {
+    if (this.session) this.session.relationship = relationship;
+  }
+
   /** Which unknown-cluster label counts as the coached user when there is
    *  no voiceprint verdict (null = no convention). Takes effect from the
    *  next finalized turn. */
@@ -1288,6 +1295,7 @@ export class FastLoop {
         context,
         prosodyHint: prosodyHint(prosody),
         mode: session.mode,
+        ...(session.relationship ? { relationship: session.relationship } : {}),
       });
       llmMs = this.now() - tl0;
       provider = result.provider;

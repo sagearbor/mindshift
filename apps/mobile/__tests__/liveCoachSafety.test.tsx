@@ -872,3 +872,72 @@ describe("E. The session POST: never turns: [], a local copy, and retries", () =
     expect(names[0]).toBe("live-1003.json"); // oldest three dropped
   });
 });
+
+// --- F. Optional relationship, generic by default --------------------------
+describe("F. Relationship: never assumed, sent only when chosen", () => {
+  it("unset: no relationship on the config frame or the POST; chosen: on both, and mid-session edits go out as config", async () => {
+    const fake = makeFakeFastLoop();
+    const posted: LiveSessionBody[] = [];
+    const { hook, ws } = await startEarpieceSession({
+      makeFastLoop: fake.make,
+      postSession: async (body) => {
+        posted.push(body);
+        return { status: "unsupported" as const };
+      },
+    });
+    const first = ws.sentJson().find((m) => m.type === "config" && "self_speaker" in m);
+    expect("relationship" in first).toBe(false);
+    expect(hook.result.current.relationship).toBeNull();
+    await act(() => hook.result.current.setRelationship("child"));
+    expect(ws.sentJson().at(-1)).toEqual({ type: "config", relationship: "child" });
+    await oneLocalTurn(fake);
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    expect(posted[0].relationship).toBe("child");
+  });
+
+  it("a relationship chosen before Start rides the first config frame and reaches the on-device prompt", async () => {
+    const seen: unknown[] = [];
+    const fake = makeFakeFastLoop();
+    const originalMake = fake.make;
+    fake.make = async (handlers: FastLoopHandlers) => {
+      const build = await originalMake(handlers);
+      fake.loop = new FastLoop({
+        ...handlers,
+        vad: new EnergyVad(-45, 0.032),
+        embedder: null,
+        labeler: null,
+        recognizer: fake.rec,
+        llm: new ProviderChain([
+          {
+            name: "os",
+            isAvailable: async () => true,
+            suggest: async (input) => {
+              seen.push(input.relationship);
+              return parseSuggestionJson(GOOD);
+            },
+          },
+        ]),
+        sttGraceMs: 100,
+        pollMs: 5,
+      });
+      return { ...build, loop: fake.loop };
+    };
+    const hook = await renderHook(() =>
+      useAudioStream({ capability: { capable: true, reason: "ok" }, makeFastLoop: fake.make, postSession: async () => ({ status: "unsupported" as const }) }),
+    );
+    await act(() => hook.result.current.setRelationship("coworker"));
+    await act(async () => {
+      await hook.result.current.startSession("rel-2", 50);
+    });
+    const ws = FakeWebSocket.instances.at(-1)!;
+    await act(() => ws.emitOpen());
+    expect(ws.sentJson().find((m) => m.type === "config" && "self_speaker" in m).relationship).toBe("coworker");
+    await oneLocalTurn(fake);
+    expect(seen).toEqual(["coworker"]);
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+  });
+});

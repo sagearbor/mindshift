@@ -97,6 +97,7 @@ import {
   type KeptSessionPayload,
   type SessionPayloadKeeper,
 } from "../live/sessionPayloadKeep";
+import { isRelationship, type Relationship } from "../live/sessionContext";
 import { createDefaultAudioRouteProbe, ROUTE_POLL_MS, type AudioRouteProbe, type AudioRouteState } from "../live/audioRoute";
 
 const API_URL =
@@ -358,6 +359,10 @@ interface UseAudioStreamReturn {
    *  only), call (an in-app call; only the user's voice on this mic). */
   sessionMode: LiveMode;
   setSessionMode: (mode: LiveMode) => void;
+  /** Optional: who the user is talking with. Null (the default) = generic —
+   *  no relationship is ever assumed. Sent as `relationship`. */
+  relationship: Relationship | null;
+  setRelationship: (relationship: Relationship | null) => void;
   /** What the fast loop actually loaded, or why it isn't running. Empty on
    *  the legacy path. */
   liveStatus: string;
@@ -652,6 +657,8 @@ export function useAudioStream(
   );
   const [liveMode, setLiveModeState] = useState(liveCapability.capable);
   const [sessionMode, setSessionModeState] = useState<LiveMode>("earpiece");
+  const [relationship, setRelationshipState] = useState<Relationship | null>(null);
+  const relationshipRef = useRef<Relationship | null>(null);
   const [liveStatus, setLiveStatus] = useState("");
   const [nudgeFlash, setNudgeFlash] = useState<NudgeEvent | null>(null);
   /** 💚 The most recent thing the user did WELL (positiveNudges.ts). Only
@@ -1276,6 +1283,7 @@ export function useAudioStream(
       ended_at: new Date().toISOString(),
       mode: liveSessionModeOf(sessionModeRef.current),
       ...(loopUpAtRef.current ? { loop_up_at: loopUpAtRef.current } : {}),
+      ...(relationshipRef.current ? { relationship: relationshipRef.current } : {}),
       turns: localTurnsRef.current,
       tone_flags: toneFlagsRef.current,
       speaker_identities: identitiesRef.current,
@@ -1573,6 +1581,7 @@ export function useAudioStream(
           sessionId,
           mode: loopModeRef.current,
           empathy,
+          relationship: relationshipRef.current,
           ...(before && before.samples > 0
             ? { preroll: joinPreroll(before), prerollOffsetSamples: before.dropped }
             : {}),
@@ -2058,6 +2067,8 @@ export function useAudioStream(
             self_speaker: selfSpeakerRef.current,
             // Whether the wearer's voice is confirmed (see wearerIdentityRef).
             ...wearerIdentityConfig(wearerIdentityRef.current),
+            // Who they are talking with — only when the user said so.
+            ...(relationshipRef.current ? { relationship: relationshipRef.current } : {}),
             // On-device TTS: the server must not synthesize audio for us;
             // and report its per-stage latency with session_complete.
             ...(liveActiveRef.current
@@ -3016,6 +3027,19 @@ export function useAudioStream(
     setLiveModeState(on);
   }, []);
 
+  const setRelationship = useCallback((next: Relationship | null) => {
+    const value = next && isRelationship(next) ? next : null;
+    if (relationshipRef.current === value) return;
+    relationshipRef.current = value;
+    setRelationshipState(value);
+    fastLoopRef.current?.setRelationship(value);
+    const ws = wsRef.current;
+    if (sessionActiveRef.current && ws && ws.readyState === WebSocket.OPEN) {
+      // null clears a relationship chosen earlier in the session.
+      ws.send(JSON.stringify({ type: "config", relationship: value }));
+    }
+  }, []);
+
   const setSessionMode = useCallback((mode: LiveMode) => {
     sessionModeRef.current = mode;
     loopModeRef.current = mode;
@@ -3412,6 +3436,8 @@ export function useAudioStream(
     setLiveMode,
     sessionMode,
     setSessionMode,
+    relationship,
+    setRelationship,
     liveStatus,
     nudgeFlash,
     clearNudgeFlash,

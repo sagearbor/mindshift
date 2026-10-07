@@ -60,6 +60,9 @@ export interface LiveSessionBody {
    *  user's Start; the gap is the loop's cold start. Absent when no loop
    *  ran. Older servers ignore the key. */
   loop_up_at?: string;
+  /** Who the user said they were talking with (child, partner, parent,
+   *  coworker, friend, other). Omitted when unset — generic. */
+  relationship?: string;
   turns: TurnLocalEvent[];
   tone_flags?: ToneFlagEvent[];
   speaker_identities?: SpeakerIdentityEvent[];

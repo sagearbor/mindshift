@@ -55,6 +55,9 @@ export interface SuggestInput {
   /** One-line delivery cue from prosody, e.g. "loud, fast". Optional. */
   prosodyHint?: string;
   mode: LiveMode;
+  /** Who the coached person is talking with, when they said so. Unset =
+   *  generic (nothing about the relationship goes in the prompt). */
+  relationship?: string | null;
 }
 
 export interface SuggestOutput {
@@ -125,7 +128,13 @@ export function buildPrompt(input: SuggestInput): { system: string; user: string
       `${input.speaker}, verbatim, first person, 10 words or fewer, in a ` +
       `${stance(input.empathy)} stance.`;
   const cue = input.prosodyHint ? `\nDelivery cue: ${input.prosodyHint}.` : "";
+  // Only what the user told us; nothing is assumed when unset.
+  const rel =
+    input.relationship && input.relationship !== "other"
+      ? `The coached person is talking with their ${input.relationship}.\n\n`
+      : "";
   const user =
+    rel +
     (history ? `Earlier:\n${history}\n\n` : "") +
     `Latest turn from ${who}: "${input.text}"${cue}\n\n${task}`;
   return { system: SUGGESTION_SYSTEM_PROMPT, user };

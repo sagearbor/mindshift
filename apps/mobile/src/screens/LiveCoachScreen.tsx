@@ -38,6 +38,7 @@ import type { CallRole } from "../live/call/types";
 import { listVoicePeople, patchSessionMood, type VoicePerson } from "../api/liveSessions";
 import { getTherapistLink, type TherapistLink } from "../api/therapist";
 import * as apiClient from "../api/client";
+import ConversationContextPanel from "../components/ConversationContextPanel";
 import type { VoicePerson as ApiVoicePerson } from "../api/client";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -158,6 +159,8 @@ export default function LiveCoachScreen({
     setLiveMode,
     sessionMode,
     setSessionMode,
+    relationship,
+    setRelationship,
     liveStatus,
     nudgeFlash,
     clearNudgeFlash,
@@ -988,6 +991,15 @@ export default function LiveCoachScreen({
             ? "Can't confirm a headset here — the coach stays silent in earpiece mode. Suggestions show on screen."
             : "No headset connected — the coach is silent (earpiece mode never uses the phone speaker). Reconnect it to hear suggestions."}
         </Text>
+      ) : null}
+
+      {/* About this conversation (optional, generic by default): before Start
+          and editable mid-session. Not for an observer or the journal. */}
+      {!isTherapist && !isJournal && setRelationship ? (
+        <ConversationContextPanel
+          relationship={relationship ?? null}
+          onRelationshipChange={setRelationship}
+        />
       ) : null}
 
       {/* Empathy slider + interject: the coach's knobs — none in Journal mode. */}
