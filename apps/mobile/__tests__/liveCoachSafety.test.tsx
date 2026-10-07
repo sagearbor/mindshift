@@ -592,3 +592,104 @@ describe("Cold start: audio from Start reaches the loop once it is up", () => {
     });
   });
 });
+
+// --- D. A loop that hears nothing while the transcript fills ---------------
+describe("D. Zero local turns while the transcript shows speech = a broken loop", () => {
+  it("replay: the real family recording is transcribed by the server, the loop yields no turns — nothing is voiced, the status says why, diagnostics report it", async () => {
+    const wav = readWav16kMono(nodePath.join(__dirname, "fixtures/pcm16k_family_real_6s.wav"));
+    // A loop whose VAD never fires (the dinner symptom: latency log empty,
+    // providers={}), fed the real recording.
+    const rec = new FakeSpeechRecognizer();
+    let loop: FastLoop | null = null;
+    const make = async (handlers: FastLoopHandlers) => {
+      loop = new FastLoop({
+        ...handlers,
+        vad: new EnergyVad(6, 0.032), // +6 dBFS: never speech
+        embedder: null,
+        labeler: null,
+        recognizer: rec,
+        llm: new ProviderChain([cloudProvider()]),
+        sttGraceMs: 100,
+        pollMs: 5,
+      });
+      return {
+        loop,
+        status: "energy VAD · speaker-ID off · LLM cloud",
+        capabilities: {
+          vad: "energy" as const,
+          speakerId: { active: false, reason: "test", enrolled: 0, model: null, droppedForModel: 0 },
+          llm: ["cloud"],
+        },
+      };
+    };
+    const posted: LiveSessionBody[] = [];
+    const { hook, ws } = await startEarpieceSession({
+      makeFastLoop: make,
+      postSession: async (body) => {
+        posted.push(body);
+        return { status: "unsupported" as const };
+      },
+    });
+    await act(async () => {
+      feed(wav);
+      await loop!.settle();
+    });
+    // The server transcribes what was said and coaches every utterance.
+    const lines = ["you never help", "I did the dishes", "that was yesterday", "fine whatever", "can we not do this now"];
+    for (const [i, text] of lines.entries()) {
+      await act(async () => {
+        ws.emitServer({ type: "transcript", speaker: i % 2 ? "Speaker B" : "Speaker A", text, start_time: i, end_time: i + 0.8 });
+        ws.emitServer(cloudSuggestion(`Cloud line ${i}`, text));
+        await flush(5);
+      });
+    }
+    expect(loop!.turnsSoFar).toHaveLength(0);
+    // Shown on screen, never in the earpiece — not even the first ones.
+    expect(hook.result.current.suggestions.map((sg) => sg.texts[0])).toContain("Cloud line 4");
+    expect(speakMock).not.toHaveBeenCalled();
+    expect(hook.result.current.liveStatus).toMatch(/on-device listening stalled/);
+
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    await act(async () => {
+      ws.emitServer({ type: "session_complete" });
+      await flush();
+    });
+    const dx = useDiagnosticsStore.getState().lastSession!;
+    expect(dx.errors).toContain("on-device loop finalized 0 turns while transcript had 5");
+    expect(dx.loop).toMatchObject({ turns: 0, localTurns: 0, spansClosed: 0, vadSpeechFrames: 0 });
+    expect(dx.loop!.vadFrames).toBeGreaterThan(100); // it got audio; the VAD never fired
+  });
+
+  it("a loop that resumes producing turns clears the stall (cloud lines can be voiced again)", async () => {
+    const fake = makeFakeFastLoop({ provider: "cloud" });
+    const { hook, ws } = await startEarpieceSession({
+      makeFastLoop: fake.make,
+      postSession: async () => ({ status: "unsupported" as const }),
+    });
+    for (let i = 0; i < 3; i++) {
+      await act(async () => {
+        ws.emitServer({ type: "transcript", speaker: "Speaker A", text: `missed ${i}`, start_time: i, end_time: i + 0.5 });
+      });
+    }
+    expect(hook.result.current.liveStatus).toMatch(/stalled/);
+    await act(async () => {
+      feed(toneInt16(1.0, -20));
+      fake.rec.emit({ text: "okay let me listen", isFinal: true });
+      feed(silenceInt16(0.5));
+      await fake.loop!.settle();
+      await flush();
+    });
+    expect(hook.result.current.liveStatus).not.toMatch(/stalled/);
+    // The phone had nothing to say for its latest turn: the cloud's answer to it is voiced.
+    await act(async () => {
+      ws.emitServer(cloudSuggestion("Thank them for waiting.", "okay let me listen"));
+      await flush();
+    });
+    expect(speakMock).toHaveBeenCalledWith("Thank them for waiting.", expect.anything());
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+  });
+});

@@ -467,6 +467,15 @@ const MAX_PENDING_TURNS = 50;
  */
 const MAX_PREROLL_SAMPLES = 16000 * 60;
 
+/**
+ * Loop stall: this many server-transcribed utterances in a row with no
+ * on-device turn while the loop is up means the loop is not hearing the
+ * conversation (2026-10-07: a whole dinner, ZERO local turns, every cloud
+ * suggestion voiced). From then on cloud lines are shown, never spoken,
+ * and the session's diagnostics report it as an error.
+ */
+export const LOOP_STALL_SERVER_UTTERANCES = 3;
+
 interface PrerollBuffer {
   chunks: Int16Array[];
   samples: number;
@@ -556,8 +565,14 @@ export function cloudAnswersOpenMoment(
   recent: readonly { text: string; hadSuggestion: boolean }[],
   utteranceText: string | null,
 ): boolean {
-  const latest = recent.length > 0 ? recent[recent.length - 1] : null;
-  if (utteranceText === null) return latest ? !latest.hadSuggestion : true;
+  // The phone has not finalized a single turn of its own: it cannot place
+  // the moment (or who spoke) at all. Before 2026-10-07 this said "the cloud
+  // is the only voice there is" and voiced EVERY cloud line — with a broken
+  // loop that meant a whole dinner of lines aimed at the wrong person. The
+  // line still shows on screen; the earpiece stays quiet.
+  if (recent.length === 0) return false;
+  const latest = recent[recent.length - 1];
+  if (utteranceText === null) return !latest.hadSuggestion;
   let idx = -1;
   for (let i = recent.length - 1; i >= 0; i--) {
     if (recent[i].text === utteranceText) {
@@ -565,7 +580,7 @@ export function cloudAnswersOpenMoment(
       break;
     }
   }
-  if (idx === -1) return latest ? !latest.hadSuggestion : true;
+  if (idx === -1) return !latest.hadSuggestion;
   if (idx === recent.length - 1) return !recent[idx].hadSuggestion;
   return false;
 }
@@ -721,6 +736,14 @@ export function useAudioStream(
    *  reported (a span its VAD missed, caught by the server) is the only
    *  voice there is and is spoken. */
   const recentLocalTurnsRef = useRef<{ text: string; hadSuggestion: boolean }[]>([]);
+  /** Server-transcribed utterances while the loop is up: since the last
+   *  on-device turn (stall detector) and in total (diagnostics). */
+  const serverUtterancesSinceLocalRef = useRef(0);
+  const serverUtterancesRef = useRef(0);
+  /** Sticky per session: the loop stalled (see LOOP_STALL_SERVER_UTTERANCES). */
+  const loopStalledRef = useRef(false);
+  /** Ever stalled this session (the live flag clears when turns resume). */
+  const loopStallSeenRef = useRef(false);
   /** Everything the phone told the server this session, for POST /sessions/live. */
   const localTurnsRef = useRef<TurnLocalEvent[]>([]);
   /** Session resume: turns finalized while the socket was down, oldest first
@@ -1358,6 +1381,14 @@ export function useAudioStream(
               },
             ]);
           }
+          // A turn the loop really heard: it is not stalled (any more).
+          if (!turn.beforeLoopUp) {
+            serverUtterancesSinceLocalRef.current = 0;
+            if (loopStalledRef.current) {
+              loopStalledRef.current = false;
+              setLiveStatus((st) => st.replace(/ · on-device listening stalled.*$/, ""));
+            }
+          }
           // The wearer's own enrolled voice, matched outright on-device.
           if (turn.isSelf === true && turn.matchBasis === "absolute") noteWearerIdentity("voiceprint");
           const recent = recentLocalTurnsRef.current;
@@ -1671,6 +1702,21 @@ export function useAudioStream(
     }
     if (/unavailable|failed/i.test(liveStatusRef.current)) errors.push(`live: ${liveStatusRef.current}`);
     if (lastEpisodeRef.current?.postStatus === "failed") errors.push("POST /sessions/live failed");
+    // The loop ran but heard nothing the transcript did: it is broken, not
+    // "the cloud answered everything" (2026-10-07, dx-NCRN-SAQE).
+    const health = loopHealthRef.current;
+    const heard = transcriptRef.current.length + serverUtterancesRef.current;
+    if (health && health.localTurns === 0 && heard > 0) {
+      errors.push(
+        health.turns === 0
+          ? `on-device loop finalized 0 turns while transcript had ${heard}`
+          : `on-device loop finalized ${health.turns} turns but sent 0 (all before it was up) while transcript had ${heard}`,
+      );
+    } else if (loopStallSeenRef.current) {
+      errors.push(
+        `on-device loop stalled: ${LOOP_STALL_SERVER_UTTERANCES}+ server utterances in a row with no on-device turn`,
+      );
+    }
     if (call.status === "failed" && call.error) errors.push(`call: ${call.error}`);
     if (call.iceRestarts > 0) errors.push(`call: ${call.iceRestarts} ICE restart(s)`);
     const record: SessionDiagnostics = {
@@ -2017,6 +2063,23 @@ export function useAudioStream(
           // are never echoed — so in a call every transcript event is remote.
           const inCall = callRef.current !== null;
           const remoteTurn = inCall && data.type === "transcript";
+          if (data.type === "transcript" && !remoteTurn && liveActiveRef.current && !liveSttFailedRef.current) {
+            // The server heard an utterance the phone's loop should have.
+            serverUtterancesRef.current += 1;
+            serverUtterancesSinceLocalRef.current += 1;
+            if (
+              !loopStalledRef.current &&
+              serverUtterancesSinceLocalRef.current >= LOOP_STALL_SERVER_UTTERANCES
+            ) {
+              loopStalledRef.current = true;
+              loopStallSeenRef.current = true;
+              stopSpeechSafely();
+              setLiveStatus(
+                (st) =>
+                  `${st} · on-device listening stalled: the server heard ${serverUtterancesSinceLocalRef.current} utterances the phone did not — suggestions on screen only`,
+              );
+            }
+          }
           if (
             data.type === "transcript" &&
             (!liveActiveRef.current || liveSttFailedRef.current || remoteTurn)
@@ -2191,6 +2254,8 @@ export function useAudioStream(
                 // A suggestion that lands after Stop is never voiced (and
                 // never handed to the loop's hold slot).
                 !stopRequestedRef.current &&
+                // A stalled loop can't place the moment: screen only.
+                !loopStalledRef.current &&
                 (!liveActiveRef.current ||
                   liveSttFailedRef.current ||
                   (source === "cloud" &&
@@ -2676,6 +2741,10 @@ export function useAudioStream(
       loopUpAtRef.current = null;
       loopStartupMsRef.current = null;
       loopHealthRef.current = null;
+      serverUtterancesSinceLocalRef.current = 0;
+      serverUtterancesRef.current = 0;
+      loopStalledRef.current = false;
+      loopStallSeenRef.current = false;
       // Cold-start pre-roll: collect from the first captured frame whenever
       // an on-device loop will be brought up for this session.
       prerollRef.current =
