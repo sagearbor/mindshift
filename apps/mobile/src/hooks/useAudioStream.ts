@@ -35,7 +35,12 @@ import type {
   FastLoopCapabilities,
   FastLoopHandlers,
 } from "../live/defaultDeps";
-import { createDefaultFastLoop, expoHaptics, probeFastLoopCapabilities } from "../live/defaultDeps";
+import {
+  createDefaultFastLoop,
+  expoHaptics,
+  probeFastLoopCapabilities,
+  type FastLoopBuildTimings,
+} from "../live/defaultDeps";
 import { createWebFastLoop, primeWebRecognizer, probeWebFastLoopCapabilities } from "../live/webDeps";
 import type { SpeechRecognizer } from "../live/stt";
 import type { TurnLatency } from "../live/fastLoop";
@@ -764,6 +769,12 @@ export function useAudioStream(
   const loopStartupMsRef = useRef<number | null>(null);
   /** The ended loop's summary health (for the diagnostics record). */
   const loopHealthRef = useRef<LoopDiagnostics | null>(null);
+  /** Start-up step timing of this session's loop (for diagnostics). */
+  const loopStepsRef = useRef<{ buildMs: number | null; startMs: number | null; buildTimings: FastLoopBuildTimings | null }>({
+    buildMs: null,
+    startMs: null,
+    buildTimings: null,
+  });
   /** True from the loop's start until it has stopped — gates which server
    *  events are rendered (the phone owns the transcript while it runs). */
   const liveActiveRef = useRef(false);
@@ -1279,6 +1290,7 @@ export function useAudioStream(
       if (summary.health) {
         loopHealthRef.current = {
           ...summary.health,
+          ...loopStepsRef.current,
           startupMs: loopStartupMsRef.current,
           sttRestartCodes: summary.sttRestartCodes ?? {},
         };
@@ -1579,7 +1591,10 @@ export function useAudioStream(
         },
       };
       try {
+        const buildT0 = Date.now();
         const build = await makeFastLoopRef.current(handlers, loopModeRef.current);
+        loopStepsRef.current = { buildMs: Date.now() - buildT0, startMs: null, buildTimings: build.timings ?? null };
+        const startT0 = Date.now();
         if (!sessionActiveRef.current || drainingRef.current || stopRequestedRef.current) {
           // The user stopped while models were loading: don't start now.
           prerollRef.current = null;
@@ -1612,6 +1627,7 @@ export function useAudioStream(
           void build.loop.stop().catch(() => {});
           return;
         }
+        loopStepsRef.current = { ...loopStepsRef.current, startMs: Date.now() - startT0 };
         // Frames that arrived during start(), then hand the mic to the loop
         // in the same tick (no frame can slip between the two).
         const during = prerollRef.current as PrerollBuffer | null;
@@ -2875,6 +2891,7 @@ export function useAudioStream(
       loopUpAtRef.current = null;
       loopStartupMsRef.current = null;
       loopHealthRef.current = null;
+      loopStepsRef.current = { buildMs: null, startMs: null, buildTimings: null };
       postSkipReasonRef.current = null;
       serverUtterancesSinceLocalRef.current = 0;
       serverUtterancesRef.current = 0;

@@ -24,6 +24,7 @@ import Constants from "expo-constants";
 import { create } from "zustand";
 import type { FastLoopCapabilities } from "../live/defaultDeps";
 import type { FastLoopHealth, TurnLatency } from "../live/fastLoop";
+import type { FastLoopBuildTimings } from "../live/defaultDeps";
 import { authHeaders } from "../api/liveSessions";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:8000";
@@ -179,6 +180,12 @@ export interface SessionDiagnostics {
 export interface LoopDiagnostics extends FastLoopHealth {
   /** Start → loop up, ms; null when the loop never came up. */
   startupMs: number | null;
+  /** Of that: building the loop (models, voiceprints) and starting it
+   *  (recognizer + pre-roll), ms. */
+  buildMs: number | null;
+  startMs: number | null;
+  /** The native builder's per-step timing (reused pre-flight build or not). */
+  buildTimings: FastLoopBuildTimings | null;
   sttRestartCodes: Record<string, number>;
 }
 

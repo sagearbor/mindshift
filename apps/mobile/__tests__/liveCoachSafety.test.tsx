@@ -557,6 +557,10 @@ describe("Cold start: audio from Start reaches the loop once it is up", () => {
     expect(dx.loop!.inputDbfs).not.toBeNull();
     expect(dx.loop!.inputDbfs!).toBeLessThan(0);
     expect(typeof dx.loop!.startupMs).toBe("number");
+    // Start-up broken into its steps: building the loop and starting it.
+    expect(typeof dx.loop!.buildMs).toBe("number");
+    expect(typeof dx.loop!.startMs).toBe("number");
+    expect(dx.loop!.buildTimings).toBeNull(); // the test's builder reports none
     expect(dx.loop!.sttRestartCodes).toEqual({});
     expect(dx.loop!.liveSeconds).toBeGreaterThanOrEqual(0);
   });
