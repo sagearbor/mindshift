@@ -454,6 +454,31 @@ const MAX_PENDING_SAMPLES = TARGET_SAMPLE_RATE * 5;
 const MAX_PENDING_TURNS = 50;
 
 /**
+ * Cold-start pre-roll bound: the most audio (16 kHz int16 samples) kept from
+ * Start while the on-device loop is still building (≈8.5 s measured on the
+ * Pixel 10, 2026-10-07). 60 s ≈ 1.9 MB; older audio is dropped and its
+ * length handed to the loop so its clock still matches the capture clock.
+ */
+const MAX_PREROLL_SAMPLES = 16000 * 60;
+
+interface PrerollBuffer {
+  chunks: Int16Array[];
+  samples: number;
+  dropped: number;
+}
+
+/** Concatenate a pre-roll buffer's chunks (oldest first). */
+function joinPreroll(buf: PrerollBuffer): Int16Array {
+  const out = new Int16Array(buf.samples);
+  let at = 0;
+  for (const c of buf.chunks) {
+    out.set(c, at);
+    at += c.length;
+  }
+  return out;
+}
+
+/**
  * Maps the empathy slider to the coaching stance label shown on each
  * suggestion. This describes how the suggestion was generated — it is not a
  * claim about detected tone (the server's suggestion event carries no tone).
@@ -665,6 +690,15 @@ export function useAudioStream(
   const loopModeRef = useRef<LiveMode>("earpiece");
   /** The running loop for this session (null on the legacy path). */
   const fastLoopRef = useRef<FastLoop | null>(null);
+  /** Cold-start pre-roll: every captured frame from Start until the loop is
+   *  up (null when no loop is expected / once it is up). */
+  const prerollRef = useRef<PrerollBuffer | null>(null);
+  /** Date.now() at Start, and when the loop actually came up — kept apart:
+   *  `started_at` is Start, `loop_up_at` is the loop (they differed by
+   *  ≈8.5 s in the dinner test). */
+  const startWallMsRef = useRef(0);
+  const loopUpAtRef = useRef<string | null>(null);
+  const loopStartupMsRef = useRef<number | null>(null);
   /** True from the loop's start until it has stopped — gates which server
    *  events are rendered (the phone owns the transcript while it runs). */
   const liveActiveRef = useRef(false);
@@ -1169,6 +1203,7 @@ export function useAudioStream(
       started_at: sessionStartedAtRef.current,
       ended_at: new Date().toISOString(),
       mode: liveSessionModeOf(sessionModeRef.current),
+      ...(loopUpAtRef.current ? { loop_up_at: loopUpAtRef.current } : {}),
       turns: localTurnsRef.current,
       tone_flags: toneFlagsRef.current,
       speaker_identities: identitiesRef.current,
@@ -1388,6 +1423,7 @@ export function useAudioStream(
         const build = await makeFastLoopRef.current(handlers, loopModeRef.current);
         if (!sessionActiveRef.current || drainingRef.current || stopRequestedRef.current) {
           // The user stopped while models were loading: don't start now.
+          prerollRef.current = null;
           void build.loop.stop().catch(() => {});
           primedRecognizer?.stop();
           return;
@@ -1397,20 +1433,34 @@ export function useAudioStream(
         liveSttFailedRef.current = false;
         recentLocalTurnsRef.current = [];
         build.loop.setSelfSpeakerFallback(selfSpeakerRef.current);
+        // Everything captured since Start goes in as the loop's pre-roll;
+        // capture keeps collecting while the recognizer starts.
+        const before = prerollRef.current;
+        prerollRef.current = before ? { chunks: [], samples: 0, dropped: 0 } : null;
         await build.loop.start({
           sessionId,
           mode: loopModeRef.current,
           empathy,
+          ...(before && before.samples > 0
+            ? { preroll: joinPreroll(before), prerollOffsetSamples: before.dropped }
+            : {}),
         });
         if (stopRequestedRef.current) {
           // Stop landed while the recognizer was starting: never go live.
+          prerollRef.current = null;
           void build.loop.stop().catch(() => {});
           return;
         }
+        // Frames that arrived during start(), then hand the mic to the loop
+        // in the same tick (no frame can slip between the two).
+        const during = prerollRef.current as PrerollBuffer | null;
+        prerollRef.current = null;
+        if (during && during.samples > 0) build.loop.pushSamples(joinPreroll(during));
         fastLoopRef.current = build.loop;
         lastLoopRef.current = null;
         liveActiveRef.current = true;
-        sessionStartedAtRef.current = new Date().toISOString();
+        loopUpAtRef.current = new Date().toISOString();
+        loopStartupMsRef.current = startWallMsRef.current ? Date.now() - startWallMsRef.current : null;
         setLiveStatus(
           sttFailure
             ? `On-device: ${build.status} · ${sttFailure}.`
@@ -1426,6 +1476,7 @@ export function useAudioStream(
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        prerollRef.current = null;
         primedRecognizer?.stop();
         setLiveStatus(`On-device coaching unavailable (${msg}) — using the server.`);
       }
@@ -1500,7 +1551,23 @@ export function useAudioStream(
       capturedSamplesRef.current += int16.length;
       // The on-device fast loop (when running) hears exactly what the server
       // hears — one 16 kHz mono int16 conversion, two consumers.
-      fastLoopRef.current?.pushSamples(int16);
+      const loop = fastLoopRef.current;
+      if (loop) {
+        loop.pushSamples(int16);
+      } else {
+        // The loop is still building: keep the frames for its pre-roll so
+        // the opening seconds still become turns (bounded, oldest dropped).
+        const pre = prerollRef.current;
+        if (pre) {
+          pre.chunks.push(int16);
+          pre.samples += int16.length;
+          while (pre.samples > MAX_PREROLL_SAMPLES && pre.chunks.length > 1) {
+            const old = pre.chunks.shift()!;
+            pre.samples -= old.length;
+            pre.dropped += old.length;
+          }
+        }
+      }
       // …and the kept-audio WAV is the third consumer of the same frames.
       keeperRef.current?.append(int16);
       pendingRef.current = concatInt16(pendingRef.current, int16);
@@ -1644,6 +1711,7 @@ export function useAudioStream(
     drainingRef.current = false;
     sessionActiveRef.current = false;
     stopRequestedRef.current = true;
+    prerollRef.current = null;
     stopRoutePoll();
     stopSpeechSafely();
     // A call outlives nothing: if the session ends for any reason (server
@@ -1700,6 +1768,7 @@ export function useAudioStream(
     // Silence FIRST, synchronously: whatever happens below (loop drain, the
     // session POST, the drain window) nothing is spoken from here on.
     stopRequestedRef.current = true;
+    prerollRef.current = null;
     stopRoutePoll();
     stopSpeechSafely();
     if (drainingRef.current) return; // Stop already in progress.
@@ -1776,6 +1845,7 @@ export function useAudioStream(
         drainTimerRef.current = null;
       }
       stopRequestedRef.current = true;
+      prerollRef.current = null;
       stopRoutePoll();
       drainingRef.current = false;
       sessionActiveRef.current = false;
@@ -2311,6 +2381,7 @@ export function useAudioStream(
           pendingRef.current = new Int16Array(0);
           resamplerRef.current = null;
           stopRequestedRef.current = true;
+          prerollRef.current = null;
           stopRoutePoll();
           stopSpeechSafely(); // Session is dead — stop coaching aloud too.
           void stopFastLoop().finally(() => recordSessionDiagnostics());
@@ -2581,9 +2652,18 @@ export function useAudioStream(
       setEscalationCount(0);
       escalationRef.current = 0;
       latencyLogRef.current = [];
-      // The legacy path never starts the fast loop, so stamp the start here
-      // too (startFastLoop re-stamps when the loop actually comes up).
-      sessionStartedAtRef.current = new Date().toISOString();
+      // Start is the session's start — the loop's own start (loop_up_at) is
+      // recorded separately when it comes up.
+      startWallMsRef.current = Date.now();
+      sessionStartedAtRef.current = new Date(startWallMsRef.current).toISOString();
+      loopUpAtRef.current = null;
+      loopStartupMsRef.current = null;
+      // Cold-start pre-roll: collect from the first captured frame whenever
+      // an on-device loop will be brought up for this session.
+      prerollRef.current =
+        liveModeRef.current && liveCapability.capable && sessionModeRef.current !== "journal"
+          ? { chunks: [], samples: 0, dropped: 0 }
+          : null;
       localTurnsRef.current = [];
       toneFlagsRef.current = [];
       identitiesRef.current = [];

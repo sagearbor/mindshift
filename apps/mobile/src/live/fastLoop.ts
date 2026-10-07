@@ -157,6 +157,9 @@ export interface LocalTurn {
   transcriptFinal: boolean;
   startTime: number;
   endTime: number;
+  /** True when the span lies wholly in the cold-start pre-roll (captured
+   *  before the loop came up): no on-device words, not sent as turn_local. */
+  beforeLoopUp?: boolean;
   isSelf: boolean | null;
   personId: string | null;
   /** The person's name when identified (a voiceprint match or a mid-call
@@ -316,6 +319,20 @@ export interface FastLoopSession {
   sessionId: string;
   mode: LiveMode;
   empathy: number;
+  /** Cold-start pre-roll: the 16 kHz int16 the phone captured from Start
+   *  until this loop came up (≈8.5 s on the Pixel 10, 2026-10-07 — the
+   *  models load while the mic already streams). Pushed through the VAD /
+   *  segmenter / speaker-ID before the recognizer starts, so the loop's
+   *  clock is the capture clock and the opening seconds of a heated
+   *  exchange still become turns. The OS recognizer never heard this audio:
+   *  turns wholly inside it carry no words (`beforeLoopUp`), are not sent as
+   *  turn_local (the server's transcript owns those words) and are not
+   *  coached by the local LLM. */
+  preroll?: Int16Array;
+  /** Samples captured before `preroll` that the phone's bounded pre-roll
+   *  buffer had to drop — the loop clock starts here so times still line
+   *  up with the capture clock. */
+  prerollOffsetSamples?: number;
 }
 
 export interface FastLoopSummary {
@@ -419,6 +436,8 @@ export class FastLoop {
   readonly heatLog: HeatWindow[] = [];
   private sttAvailable = false;
   private sttStartSeconds = 0;
+  /** Audio-clock end of the cold-start pre-roll (0 = none). */
+  private prerollEndSeconds = 0;
   private unsubscribe: (() => void)[] = [];
   /** Session resume (server/session_resume.py): a per-session prefix plus a
    *  counter make every turn_local's `turn_uid`. The server ignores an id it
@@ -683,6 +702,21 @@ export class FastLoop {
     this.deps.labeler?.reset();
     for (const u of this.unsubscribe) u();
     this.unsubscribe = [];
+
+    // Cold-start pre-roll: replay what the mic captured before the loop was
+    // up, in expo-audio-sized buffers, BEFORE the recognizer starts — so the
+    // recognizer's start lands at the right place on the audio clock.
+    this.samplesSeen = Math.max(0, Math.round(session.prerollOffsetSamples ?? 0));
+    this.prerollEndSeconds = 0;
+    const preroll = session.preroll;
+    if (preroll && preroll.length > 0) {
+      const chunk = Math.round(SILERO_SAMPLE_RATE / 10);
+      for (let off = 0; off < preroll.length; off += chunk) {
+        this.pushSamples(preroll.subarray(off, Math.min(off + chunk, preroll.length)));
+      }
+      this.prerollEndSeconds = this.audioClock;
+    }
+    this.sttStartSeconds = this.audioClock;
 
     const rec = this.deps.recognizer;
     if (rec) {
@@ -1001,11 +1035,18 @@ export class FastLoop {
     return out;
   }
 
+  /** True for a span that ended inside the cold-start pre-roll. */
+  private isBeforeLoopUp(span: Span): boolean {
+    return this.prerollEndSeconds > 0 && span.end <= this.prerollEndSeconds;
+  }
+
   private async waitForText(span: Span): Promise<{ text: string; final: boolean; waitedMs: number }> {
     const t0 = this.now();
     if (!this.deps.recognizer || !this.sttAvailable) {
       return { text: "", final: true, waitedMs: 0 };
     }
+    // Pre-roll: the recognizer was not running yet — no words can come.
+    if (this.isBeforeLoopUp(span)) return { text: "", final: true, waitedMs: 0 };
     // Poll until final words cover the span or the grace window closes;
     // interim text is accepted at the deadline rather than nothing.
     for (;;) {
@@ -1031,7 +1072,10 @@ export class FastLoop {
     // production capability gate never starts the loop without STT) still
     // reports its turns — there are no words to claim, and identity,
     // prosody and the turn ranges are the point of the record.
-    const sttOwned = this.deps.recognizer === null || this.sttAvailable;
+    // A span wholly inside the cold-start pre-roll was never heard by the
+    // recognizer: its words (if any) are the server's, never claimed here.
+    const beforeLoopUp = this.isBeforeLoopUp(span);
+    const sttOwned = (this.deps.recognizer === null || this.sttAvailable) && !beforeLoopUp;
 
     // Speaker-ID and STT are independent — run them together.
     const speakerPromise = (async (): Promise<{ verdict: SpeakerVerdict; ms: number }> => {
@@ -1213,6 +1257,7 @@ export class FastLoop {
       transcriptFinal: aligned.final,
       startTime: span.start,
       endTime: span.end,
+      ...(beforeLoopUp ? { beforeLoopUp: true } : {}),
       isSelf: verdict.isSelf,
       personId: verdict.personId,
       displayName: verdict.displayName,

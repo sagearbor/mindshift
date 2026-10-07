@@ -56,6 +56,10 @@ export interface LiveSessionBody {
   started_at: string;
   ended_at: string;
   mode: LiveSessionMode;
+  /** When the on-device loop actually came up (ISO). `started_at` is the
+   *  user's Start; the gap is the loop's cold start. Absent when no loop
+   *  ran. Older servers ignore the key. */
+  loop_up_at?: string;
   turns: TurnLocalEvent[];
   tone_flags?: ToneFlagEvent[];
   speaker_identities?: SpeakerIdentityEvent[];

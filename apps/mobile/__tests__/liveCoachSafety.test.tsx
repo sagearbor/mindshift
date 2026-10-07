@@ -439,3 +439,133 @@ describe("C. Mid-stream identity: no 'Speaker A' shortcut", () => {
     });
   });
 });
+
+// --- Cold start: the loop comes up ~8 s after Start ---------------------------
+import * as nodePath from "path";
+import { readWav16kMono } from "../src/live/replay/wav";
+
+/** A makeFastLoop whose build only finishes when the test says so — the
+ *  ≈8.5 s model load the Pixel 10 showed on 2026-10-07. */
+function slowBuild(fake: ReturnType<typeof makeFakeFastLoop>) {
+  let release: () => void = () => {};
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
+  const make = async (handlers: FastLoopHandlers) => {
+    await gate;
+    return fake.make(handlers);
+  };
+  return { make, release: () => release() };
+}
+
+async function startWithSlowLoop(fake: ReturnType<typeof makeFakeFastLoop>, posted: LiveSessionBody[]) {
+  const slow = slowBuild(fake);
+  const hook = await renderHook(() =>
+    useAudioStream({
+      capability: { capable: true, reason: "ok" },
+      makeFastLoop: slow.make,
+      postSession: async (body) => {
+        posted.push(body);
+        return { status: "unsupported" as const };
+      },
+    }),
+  );
+  await act(() => {
+    hook.result.current.setSpeechEnabled(true);
+    hook.result.current.setSessionMode("earpiece");
+  });
+  let starting: Promise<void> = Promise.resolve();
+  await act(async () => {
+    starting = hook.result.current.startSession("cold-1", 50);
+    await flush();
+  });
+  const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+  await act(() => ws.emitOpen());
+  return { hook, ws, slow, starting: () => starting };
+}
+
+describe("Cold start: audio from Start reaches the loop once it is up", () => {
+  it("speech at t=0 and t=3 s, loop up at 8 s: both become loop turns on the capture clock, not claimed as on-device words", async () => {
+    const fake = makeFakeFastLoop();
+    const posted: LiveSessionBody[] = [];
+    const { hook, ws, slow, starting } = await startWithSlowLoop(fake, posted);
+
+    // 8 s of a heated opening while the models load: 1 s, pause, 1 s, pause.
+    await act(async () => {
+      feed(toneInt16(1.0, -20));
+      feed(silenceInt16(2.0));
+      feed(toneInt16(1.0, -20));
+      feed(silenceInt16(4.0));
+    });
+    expect(fake.loop).toBeNull(); // still building
+    await act(async () => {
+      slow.release();
+      await starting();
+      await fake.loop!.settle();
+      await flush();
+    });
+
+    // After the loop is up, a turn the recognizer does hear.
+    await act(async () => {
+      feed(toneInt16(1.0, -20));
+      fake.rec.emit({ text: "can we slow down", isFinal: true });
+      feed(silenceInt16(0.5));
+      await fake.loop!.settle();
+      await flush();
+    });
+
+    const turns = fake.loop!.turnsSoFar;
+    const early = turns.filter((t) => t.endTime <= 8);
+    expect(early.length).toBe(2);
+    expect(early[0].startTime).toBeCloseTo(0, 0);
+    expect(early[1].startTime).toBeCloseTo(3, 0);
+    expect(early.every((t) => t.beforeLoopUp === true && t.text === "")).toBe(true);
+    const late = turns.filter((t) => t.startTime >= 8);
+    expect(late).toHaveLength(1);
+    expect(late[0].text).toBe("can we slow down");
+    expect(late[0].startTime).toBeCloseTo(8, 0); // capture clock, not loop clock
+
+    // Only the turn the phone actually heard is claimed as on-device words.
+    const turnLocal = ws.sentJson().filter((m) => m.type === "turn_local");
+    expect(turnLocal.map((m) => m.text)).toEqual(["can we slow down"]);
+
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    // started_at is Start; loop_up_at is when the loop came up.
+    expect(posted).toHaveLength(1);
+    expect(typeof posted[0].loop_up_at).toBe("string");
+    expect(posted[0].started_at <= posted[0].loop_up_at!).toBe(true);
+  });
+
+  it("replays the real family recording (fixtures/pcm16k_family_real_6s.wav ×2) with the loop up at 8 s: the first 8 s still yields turns", async () => {
+    const wav = readWav16kMono(nodePath.join(__dirname, "fixtures/pcm16k_family_real_6s.wav"));
+    const scene = new Int16Array(wav.length * 2);
+    scene.set(wav, 0);
+    scene.set(wav, wav.length);
+    const fake = makeFakeFastLoop();
+    const posted: LiveSessionBody[] = [];
+    const { hook, slow, starting } = await startWithSlowLoop(fake, posted);
+    const cut = 8 * 16000;
+    await act(async () => {
+      feed(scene.subarray(0, cut));
+    });
+    await act(async () => {
+      slow.release();
+      await starting();
+    });
+    await act(async () => {
+      feed(scene.subarray(cut));
+      feed(silenceInt16(1.0));
+      await fake.loop!.settle();
+      await flush();
+    });
+    const turns = fake.loop!.turnsSoFar;
+    expect(turns.length).toBeGreaterThan(0);
+    expect(turns.some((t) => t.startTime < 8)).toBe(true);
+    expect(Math.max(...turns.map((t) => t.endTime))).toBeGreaterThan(8);
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+  });
+});
