@@ -338,6 +338,13 @@ describe("useAudioStream live mode", () => {
     await act(async () => {
       await flush();
     });
+    // One real turn: a session with none is never POSTed (turns: [] is a 422).
+    await act(async () => {
+      feed(toneInt16(1.0, -20));
+      fake.rec.emit({ text: "how was your day", isFinal: true });
+      feed(silenceInt16(0.5));
+      await fake.loop!.settle();
+    });
     await act(async () => {
       await hook.result.current.stopSession();
     });
@@ -365,6 +372,13 @@ describe("useAudioStream live mode", () => {
     await act(() => ws.emitOpen());
     await act(async () => {
       await flush();
+    });
+    // One real turn: a session with none is never POSTed (turns: [] is a 422).
+    await act(async () => {
+      feed(toneInt16(1.0, -20));
+      fake.rec.emit({ text: "how was your day", isFinal: true });
+      feed(silenceInt16(0.5));
+      await fake.loop!.settle();
     });
     await act(async () => {
       await hook.result.current.stopSession();

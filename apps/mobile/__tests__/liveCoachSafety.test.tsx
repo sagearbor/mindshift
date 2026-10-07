@@ -693,3 +693,182 @@ describe("D. Zero local turns while the transcript shows speech = a broken loop"
     });
   });
 });
+
+// --- E. Session POST: never `turns: []`; local copy + retry (debug flag) ----
+import { MemoryFs } from "../src/recorder/memoryFs";
+import {
+  createSessionPayloadKeeper,
+  isRetryablePostFailure,
+  KEEP_LIVE_SESSION_PAYLOAD_FOR_DEBUG,
+  MAX_KEPT_PAYLOADS,
+  type KeptSessionPayload,
+} from "../src/live/sessionPayloadKeep";
+
+const PAYLOAD_DIR = "file:///doc/live-session-payloads";
+
+function memoryKeeper() {
+  const fs = new MemoryFs();
+  const keeper = createSessionPayloadKeeper(fs, PAYLOAD_DIR);
+  const read = (sessionId: string) => JSON.parse(fs.readText(`${PAYLOAD_DIR}/${sessionId}.json`)) as KeptSessionPayload;
+  return { fs, keeper, read };
+}
+
+async function oneLocalTurn(fake: ReturnType<typeof makeFakeFastLoop>, text = "we need to talk") {
+  await act(async () => {
+    feed(toneInt16(1.0, -20));
+    fake.rec.emit({ text, isFinal: true });
+    feed(silenceInt16(0.5));
+    await fake.loop!.settle();
+    await flush();
+  });
+}
+
+describe("E. The session POST: never turns: [], a local copy, and retries", () => {
+  it("the debug flag is one named switch, on for now", () => {
+    expect(KEEP_LIVE_SESSION_PAYLOAD_FOR_DEBUG).toBe(true);
+  });
+
+  it("no on-device turns: the POST is skipped (never turns: []), the reason is kept and reported", async () => {
+    const fake = makeFakeFastLoop();
+    const mem = memoryKeeper();
+    const posted: LiveSessionBody[] = [];
+    const { hook, ws } = await startEarpieceSession(
+      {
+        makeFastLoop: fake.make,
+        makePayloadKeeper: () => mem.keeper,
+        postSession: async (body) => {
+          posted.push(body);
+          return { status: "failed" as const, error: "API error: 422" };
+        },
+      },
+      "live-empty",
+    );
+    await act(async () => {
+      ws.emitServer({ type: "transcript", speaker: "Speaker A", text: "hello there", start_time: 0, end_time: 1 });
+    });
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    expect(posted).toHaveLength(0);
+    expect(hook.result.current.lastEpisode?.postStatus).toBe("skipped");
+    const kept = mem.read("live-empty");
+    expect(kept.body.turns).toEqual([]);
+    expect(kept.empty_turns_reason).toBe("on-device loop finalized 0 turns while transcript had 1");
+    expect(kept.attempts).toEqual([expect.objectContaining({ status: "skipped" })]);
+    await act(async () => {
+      ws.emitServer({ type: "session_complete" });
+      await flush();
+    });
+    expect(useDiagnosticsStore.getState().lastSession!.errors).toContain(
+      "POST /sessions/live skipped: on-device loop finalized 0 turns while transcript had 1",
+    );
+  });
+
+  it("a transient failure is retried until it lands; every attempt is in the kept copy", async () => {
+    const fake = makeFakeFastLoop();
+    const mem = memoryKeeper();
+    const outcomes: PostLiveSessionResult[] = [
+      { status: "failed", error: "Network request failed" },
+      { status: "failed", error: "API error: 503" },
+      { status: "created", episodeId: "ep-9", sharedWith: [] },
+    ];
+    const posted: LiveSessionBody[] = [];
+    const { hook } = await startEarpieceSession(
+      {
+        makeFastLoop: fake.make,
+        makePayloadKeeper: () => mem.keeper,
+        postRetryDelaysMs: [5, 5, 5],
+        postSession: async (body) => {
+          posted.push(body);
+          return outcomes.shift()!;
+        },
+      },
+      "live-retry",
+    );
+    await oneLocalTurn(fake);
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    expect(hook.result.current.lastEpisode?.postStatus).toBe("failed"); // first try
+    await act(async () => {
+      await flush(80);
+    });
+    expect(posted).toHaveLength(3);
+    expect(posted.every((b) => b.turns.length === 1)).toBe(true);
+    expect(hook.result.current.lastEpisode).toMatchObject({ postStatus: "created", episodeId: "ep-9" });
+    const kept = mem.read("live-retry");
+    expect(kept.empty_turns_reason).toBeNull();
+    expect(kept.attempts.map((a) => a.status)).toEqual(["failed", "failed", "created"]);
+  });
+
+  it("a 4xx (e.g. 422) is not retried — the same body would be refused again — but it is kept", async () => {
+    const fake = makeFakeFastLoop();
+    const mem = memoryKeeper();
+    const posted: LiveSessionBody[] = [];
+    const { hook } = await startEarpieceSession(
+      {
+        makeFastLoop: fake.make,
+        makePayloadKeeper: () => mem.keeper,
+        postRetryDelaysMs: [5, 5],
+        postSession: async (body) => {
+          posted.push(body);
+          return { status: "failed" as const, error: "API error: 422" };
+        },
+      },
+      "live-422",
+    );
+    await oneLocalTurn(fake);
+    await act(async () => {
+      await hook.result.current.stopSession();
+      await flush(40);
+    });
+    expect(posted).toHaveLength(1);
+    expect(mem.read("live-422").attempts).toEqual([expect.objectContaining({ status: "failed", error: "API error: 422" })]);
+  });
+
+  it("flag off: no copy, no retry", async () => {
+    const fake = makeFakeFastLoop();
+    const mem = memoryKeeper();
+    const posted: LiveSessionBody[] = [];
+    const { hook } = await startEarpieceSession(
+      {
+        makeFastLoop: fake.make,
+        keepSessionPayload: false,
+        makePayloadKeeper: () => mem.keeper,
+        postRetryDelaysMs: [5],
+        postSession: async (body) => {
+          posted.push(body);
+          return { status: "failed" as const, error: "Network request failed" };
+        },
+      },
+      "live-off",
+    );
+    await oneLocalTurn(fake);
+    await act(async () => {
+      await hook.result.current.stopSession();
+      await flush(40);
+    });
+    expect(posted).toHaveLength(1);
+    expect(mem.fs.exists(`${PAYLOAD_DIR}/live-off.json`)).toBe(false);
+  });
+
+  it("retry rules and the on-disk cap", () => {
+    expect(isRetryablePostFailure("Network request failed")).toBe(true);
+    expect(isRetryablePostFailure("API error: 500")).toBe(true);
+    expect(isRetryablePostFailure("API error: 429")).toBe(true);
+    expect(isRetryablePostFailure("API error: 422")).toBe(false);
+    expect(isRetryablePostFailure("API error: 401")).toBe(false);
+    const mem = memoryKeeper();
+    for (let i = 0; i < MAX_KEPT_PAYLOADS + 3; i++) {
+      mem.keeper.save({
+        saved_at: "x",
+        body: { session_id: `live-${1000 + i}`, started_at: "a", ended_at: "b", mode: "earpiece", turns: [] },
+        empty_turns_reason: "test",
+        attempts: [],
+      });
+    }
+    const names = mem.fs.listFileNames(PAYLOAD_DIR).sort();
+    expect(names).toHaveLength(MAX_KEPT_PAYLOADS);
+    expect(names[0]).toBe("live-1003.json"); // oldest three dropped
+  });
+});

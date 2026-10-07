@@ -163,7 +163,7 @@ export interface SessionDiagnostics {
   micError: string | null;
   transcriptionMessage: string | null;
   /** POST /sessions/live outcome. */
-  postStatus: "created" | "unsupported" | "failed" | "none";
+  postStatus: "created" | "unsupported" | "failed" | "skipped" | "none";
   call: { status: string; iceRestarts: number; error: string | null; connectedSeconds: number | null } | null;
   /** When the on-device loop came up (startedAt is the user's Start);
    *  null when it never did. Absent in older records. */

@@ -89,6 +89,14 @@ import {
   type SessionDiagnostics,
 } from "../diagnostics/diagnostics";
 import { useAuthStore } from "../store/authStore";
+import {
+  KEEP_LIVE_SESSION_PAYLOAD_FOR_DEBUG,
+  POST_RETRY_DELAYS_MS,
+  isRetryablePostFailure,
+  openDefaultSessionPayloadKeeper,
+  type KeptSessionPayload,
+  type SessionPayloadKeeper,
+} from "../live/sessionPayloadKeep";
 import { createDefaultAudioRouteProbe, ROUTE_POLL_MS, type AudioRouteProbe, type AudioRouteState } from "../live/audioRoute";
 
 const API_URL =
@@ -188,6 +196,13 @@ export interface UseAudioStreamOptions {
   makeFastLoop?: (handlers: FastLoopHandlers, mode: LiveMode) => Promise<FastLoopBuild>;
   /** POST the finished session (Track 2's /sessions/live). */
   postSession?: (body: LiveSessionBody) => Promise<PostLiveSessionResult>;
+  /** KEEP_LIVE_SESSION_PAYLOAD_FOR_DEBUG override: keep a local copy of the
+   *  session payload and retry a transiently failed POST. */
+  keepSessionPayload?: boolean;
+  /** Where that copy goes (default: the app's document dir; null = nowhere). */
+  makePayloadKeeper?: () => SessionPayloadKeeper | null;
+  /** Waits before each POST retry (default POST_RETRY_DELAYS_MS). */
+  postRetryDelaysMs?: readonly number[];
   /** Pre-flight capability probe (what the loop would load right now). */
   probeCapabilities?: () => Promise<FastLoopCapabilities>;
   /** Earpiece mode's private-route check (live/audioRoute.ts). Built once
@@ -277,8 +292,10 @@ export type PreflightState =
 export interface LastEpisode {
   episodeId: string | null;
   /** "created" = stored; "unsupported" = server predates /sessions/live;
-   *  "failed" = the POST failed (the transcript is still on screen). */
-  postStatus: "created" | "unsupported" | "failed";
+   *  "failed" = the POST failed (the transcript is still on screen);
+   *  "skipped" = nothing to POST — the on-device loop sent no turns (the
+   *  reason is in diagnostics; never a `turns: []` POST). */
+  postStatus: "created" | "unsupported" | "failed" | "skipped";
   /** Therapist emails the server auto-shared it with at ingest. */
   sharedWith: string[];
 }
@@ -769,6 +786,14 @@ export function useAudioStream(
   makeFastLoopRef.current = options.makeFastLoop ?? defaultMakeFastLoop;
   const postSessionRef = useRef(options.postSession ?? postLiveSession);
   postSessionRef.current = options.postSession ?? postLiveSession;
+  const keepPayloadRef = useRef(options.keepSessionPayload ?? KEEP_LIVE_SESSION_PAYLOAD_FOR_DEBUG);
+  keepPayloadRef.current = options.keepSessionPayload ?? KEEP_LIVE_SESSION_PAYLOAD_FOR_DEBUG;
+  const payloadKeeperRef = useRef(options.makePayloadKeeper ?? openDefaultSessionPayloadKeeper);
+  payloadKeeperRef.current = options.makePayloadKeeper ?? openDefaultSessionPayloadKeeper;
+  const retryDelaysRef = useRef(options.postRetryDelaysMs ?? POST_RETRY_DELAYS_MS);
+  retryDelaysRef.current = options.postRetryDelaysMs ?? POST_RETRY_DELAYS_MS;
+  /** Why the session POST was skipped (no turns), for diagnostics. */
+  const postSkipReasonRef = useRef<string | null>(null);
   const probeRef = useRef(options.probeCapabilities ?? defaultProbeCapabilities);
   probeRef.current = options.probeCapabilities ?? defaultProbeCapabilities;
 
@@ -1189,6 +1214,15 @@ export function useAudioStream(
    * out while the socket is still open — callers that can't wait (unmount,
    * reconnect exhaustion) fire-and-forget it.
    */
+  /** Why a finished session has no on-device turns, in words. */
+  const emptyTurnsReason = (): string => {
+    const health = loopHealthRef.current;
+    const heard = transcriptRef.current.length + serverUtterancesRef.current;
+    if (!health) return `the on-device loop produced no record (transcript had ${heard})`;
+    if (health.turns === 0) return `on-device loop finalized 0 turns while transcript had ${heard}`;
+    return `all ${health.turns} on-device turns were before the loop was up (no on-device words); transcript had ${heard}`;
+  };
+
   const stopFastLoop = useCallback(async () => {
     const loop = fastLoopRef.current;
     // The kept audio is settled by the SAME call that posts the session (the
@@ -1261,44 +1295,96 @@ export function useAudioStream(
     localTurnsRef.current = [];
     toneFlagsRef.current = [];
     identitiesRef.current = [];
+    // Never send `turns: []` (the server's 422 lost the dinner session): with
+    // no on-device turn the POST is skipped and the reason recorded.
+    const turnCount = body.turns.length;
+    const emptyReason = turnCount === 0 ? emptyTurnsReason() : null;
+    const payloadKeeper = keepPayloadRef.current ? payloadKeeperRef.current() : null;
+    const kept: KeptSessionPayload = {
+      saved_at: new Date().toISOString(),
+      body,
+      empty_turns_reason: emptyReason,
+      attempts: [],
+    };
+    const keepCopy = () => {
+      if (payloadKeeper) payloadKeeper.save(kept);
+    };
+    if (emptyReason !== null) {
+      console.warn(`[useAudioStream] POST /sessions/live skipped: ${emptyReason}`);
+      kept.attempts.push({ at: new Date().toISOString(), status: "skipped", error: emptyReason });
+      keepCopy();
+      postSkipReasonRef.current = emptyReason;
+      lastEpisodeRef.current = { episodeId: null, postStatus: "skipped", sharedWith: [] };
+      setLastEpisode(lastEpisodeRef.current);
+      await settleAudioKeep(keeper, null);
+      return;
+    }
+    keepCopy();
+    const attemptPost = async (): Promise<PostLiveSessionResult> => {
+      const r = await postSessionRef.current(body);
+      kept.attempts.push({
+        at: new Date().toISOString(),
+        status: r.status,
+        ...(r.status === "failed" ? { error: r.error } : {}),
+      });
+      keepCopy();
+      return r;
+    };
     // 404 (endpoint not deployed yet) is "unsupported", not a failure — the
     // transcript is already on screen; the record is a bonus.
-    const turnCount = body.turns.length;
-    const result = await postSessionRef.current(body);
-    if (result.status === "failed") {
-      console.warn("[useAudioStream] POST /sessions/live failed:", result.error);
-      lastEpisodeRef.current = { episodeId: null, postStatus: "failed", sharedWith: [] };
-      setLastEpisode(lastEpisodeRef.current);
-    } else if (result.status === "unsupported") {
-      lastEpisodeRef.current = { episodeId: null, postStatus: "unsupported", sharedWith: [] };
-      setLastEpisode(lastEpisodeRef.current);
-    } else {
-      lastEpisodeRef.current = {
-        episodeId: result.episodeId || null,
-        postStatus: "created",
-        sharedWith: result.sharedWith ?? [],
-      };
-      setLastEpisode(lastEpisodeRef.current);
-      if (result.episodeId) {
-        // Confirmed by the server: Your Day can show it right away.
-        useLiveEpisodeStore.getState().remember({
-          episodeId: result.episodeId,
-          sessionId: body.session_id,
-          startedAt: body.started_at,
-          mode: body.mode,
-          title: `Live session · ${body.mode}`,
-          turnCount,
+    const applyResult = (result: PostLiveSessionResult) => {
+      if (result.status === "failed") {
+        console.warn("[useAudioStream] POST /sessions/live failed:", result.error);
+        lastEpisodeRef.current = { episodeId: null, postStatus: "failed", sharedWith: [] };
+        setLastEpisode(lastEpisodeRef.current);
+      } else if (result.status === "unsupported") {
+        lastEpisodeRef.current = { episodeId: null, postStatus: "unsupported", sharedWith: [] };
+        setLastEpisode(lastEpisodeRef.current);
+      } else {
+        lastEpisodeRef.current = {
+          episodeId: result.episodeId || null,
+          postStatus: "created",
           sharedWith: result.sharedWith ?? [],
-        });
+        };
+        setLastEpisode(lastEpisodeRef.current);
+        if (result.episodeId) {
+          // Confirmed by the server: Your Day can show it right away.
+          useLiveEpisodeStore.getState().remember({
+            episodeId: result.episodeId,
+            sessionId: body.session_id,
+            startedAt: body.started_at,
+            mode: body.mode,
+            title: `Live session · ${body.mode}`,
+            turnCount,
+            sharedWith: result.sharedWith ?? [],
+          });
+        }
       }
+    };
+    const episodeOf = (r: PostLiveSessionResult) =>
+      r.status === "created" && r.episodeId ? r.episodeId : null;
+    const result = await attemptPost();
+    applyResult(result);
+    if (result.status === "failed" && keepPayloadRef.current && isRetryablePostFailure(result.error)) {
+      // Transient failure: retry in the background (Stop must not wait on
+      // it); the kept audio waits for the outcome.
+      const delays = retryDelaysRef.current;
+      void (async () => {
+        let last: PostLiveSessionResult = result;
+        for (const ms of delays) {
+          await new Promise((r) => setTimeout(r, ms));
+          last = await attemptPost();
+          if (last.status !== "failed" || !isRetryablePostFailure(last.error)) break;
+        }
+        applyResult(last);
+        await settleAudioKeep(keeper, episodeOf(last));
+      })();
+      return;
     }
     // Attach the kept audio to the stored episode (or drop it when there is
     // none). Awaited so a stop that completes has settled the file; an
     // upload failure never fails the session — it leaves a retry.
-    await settleAudioKeep(
-      keeper,
-      result.status === "created" && result.episodeId ? result.episodeId : null,
-    );
+    await settleAudioKeep(keeper, episodeOf(result));
   }, [settleAudioKeep]);
 
   /**
@@ -1702,6 +1788,9 @@ export function useAudioStream(
     }
     if (/unavailable|failed/i.test(liveStatusRef.current)) errors.push(`live: ${liveStatusRef.current}`);
     if (lastEpisodeRef.current?.postStatus === "failed") errors.push("POST /sessions/live failed");
+    if (lastEpisodeRef.current?.postStatus === "skipped") {
+      errors.push(`POST /sessions/live skipped: ${postSkipReasonRef.current ?? "no turns"}`);
+    }
     // The loop ran but heard nothing the transcript did: it is broken, not
     // "the cloud answered everything" (2026-10-07, dx-NCRN-SAQE).
     const health = loopHealthRef.current;
@@ -2741,6 +2830,7 @@ export function useAudioStream(
       loopUpAtRef.current = null;
       loopStartupMsRef.current = null;
       loopHealthRef.current = null;
+      postSkipReasonRef.current = null;
       serverUtterancesSinceLocalRef.current = 0;
       serverUtterancesRef.current = 0;
       loopStalledRef.current = false;
