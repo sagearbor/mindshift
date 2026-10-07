@@ -111,7 +111,7 @@ class VertexEmbedder:
                     )
                     if resp.status_code != 200:
                         raise EmbeddingUnavailable(
-                            f"Vertex embeddings HTTP {resp.status_code}"
+                            f"Vertex embeddings HTTP {resp.status_code}{_google_reason(resp)}"
                         )
                     preds = resp.json().get("predictions") or []
                     if len(preds) != len(batch):
@@ -123,6 +123,18 @@ class VertexEmbedder:
             logger.warning("Vertex embedding failed", exc_info=True)
             raise EmbeddingUnavailable(f"embedding failed ({type(exc).__name__})") from exc
         return out
+
+
+def _google_reason(resp) -> str:
+    """Short machine reason from a Google API error body (e.g. SERVICE_DISABLED
+    when aiplatform.googleapis.com is not enabled) — no free-text echo."""
+    try:
+        err = resp.json().get("error", {})
+        reasons = [d.get("reason") for d in err.get("details", []) if d.get("reason")]
+        tag = reasons[0] if reasons else err.get("status")
+        return f" ({tag})" if tag else ""
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 def resolve_project() -> str | None:
