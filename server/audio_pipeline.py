@@ -1109,7 +1109,7 @@ class SuggestionJob:
     utterance: Utterance
     empathy_slider: int
     interject_level: int
-    role: str
+    role: str | None
     self_speaker: str | None
     timing: UtteranceTiming
     is_self: bool | None = None
@@ -1117,6 +1117,7 @@ class SuggestionJob:
     # Enqueue-time snapshot of the recent exchange + the coach's own recent
     # lines for the prompt (None when COACH_CONTEXT is off).
     history: dict | None = None
+    relationship: str | None = None
     prev_done: "asyncio.Future[None] | None" = field(default=None, repr=False, compare=False)
     done: "asyncio.Future[None] | None" = field(default=None, repr=False, compare=False)
 
@@ -1285,10 +1286,11 @@ _SELF_GUIDANCE = (
     "coach already whispered above."
 )
 _OTHER_GUIDANCE = (
-    "Each suggestion is something the user can say verbatim, first person, "
-    "10 words or fewer, grounded in what was just said. Do not reword a line "
-    "the coach already gave above, and do not open with the same words it "
-    "opened with (vary \"I hear you\" / \"You're right\" / \"Let's\")."
+    "Each suggestion is a cue for the wearer, 10 words or fewer, grounded in "
+    "what was just said: mostly their manner or next move (\"ask what part "
+    "was hardest\"); a line to say only if it adds no facts the wearer has "
+    "not said. Do not reword a line the coach already gave above, and do not "
+    "open with the same words it opened with."
 )
 
 
@@ -1356,7 +1358,7 @@ def _render_history(history: dict) -> str:
     for t in turns:
         rows.append((float(t["t"]), 0, f'- {t["who"]}: "{t["text"]}"'))
     for c in coach:
-        what = "whispered to the user" if c.get("kind") == "nudge" else "suggested the user say"
+        what = "whispered to the wearer" if c.get("kind") == "nudge" else "suggested to the wearer"
         rows.append((float(c["t"]), 1, f'- (coach {what}: "{c["text"]}")'))
     rows.sort(key=lambda r: (r[0], r[1]))
     lines: list[str] = []
@@ -1459,7 +1461,14 @@ class SessionContext:
     # every turn — the pre-slider behaviour. Orthogonal to empathy_slider,
     # which sets the STYLE of suggestions, not when to deliver them.
     interject_level: int = 0
-    role: str = "Husband"
+    # Legacy free-text role from older clients. None by default (2026-10-07):
+    # the coach used to assume "Husband" for every live session, which at a
+    # family dinner pitched coaching at a son as if he were a spouse. When an
+    # older client still sends one, it is a light hint in the prompt only.
+    role: str | None = None
+    # Optional relationship hint (main.COACH_RELATIONSHIPS: child | partner |
+    # parent | coworker | friend | other). None = generic, any conversation.
+    relationship: str | None = None
     utterances: list[Utterance] = field(default_factory=list)
     # Verified Firebase uid, set by the WS auth handshake before any audio is
     # processed. None only during the pre-auth window; a session that reaches
@@ -1715,6 +1724,17 @@ async def _apply_config(ctx: SessionContext, payload: dict) -> None:
         # clamp the length (cost + injection surface).
         if isinstance(role_val, str):
             ctx.role = role_val[:MAX_ROLE_CHARS]
+        elif role_val is None:
+            ctx.role = None
+    # Optional relationship hint: a known slug sets it, JSON null resets it,
+    # anything else is ignored (validated-or-ignored like the fields above).
+    if "relationship" in payload:
+        from main import normalize_relationship
+        rel_hint = payload["relationship"]
+        if rel_hint is None:
+            ctx.relationship = None
+        elif normalize_relationship(rel_hint) is not None:
+            ctx.relationship = normalize_relationship(rel_hint)
     # Optional voice-profile context. These only feed a DB lookup (not the
     # prompt directly), but clamp length anyway as defence in depth.
     rel_val = payload.get("relationship_id")
@@ -1944,7 +1964,7 @@ async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
     --------
     Client → Server (binary):  raw audio chunks
     Client → Server (text):    JSON control messages, e.g.
-        {"type": "config", "empathy_slider": 75, "role": "Husband",
+        {"type": "config", "empathy_slider": 75, "relationship": "child",
          "id_token": "<firebase id token>"}
         The FIRST frame must be such a config carrying a valid ``id_token``
         (the WS handshake cannot send an Authorization header): the server
@@ -2335,7 +2355,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                     ctx.voice_profile, job.tone_context,
                     speaker_name=speaker_name,
                     stream=progressive, stats=hedge_stats,
-                    history=job.history,
+                    history=job.history, relationship=job.relationship,
                 )
             timing.llm_end = ctx.latency.now()
             note_hedge()
@@ -2403,7 +2423,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 ctx.voice_profile, job.tone_context,
                 on_first_suggestion=on_first_suggestion if progressive else None,
                 speaker_name=speaker_name, stats=hedge_stats,
-                history=job.history,
+                history=job.history, relationship=job.relationship,
             )
         timing.llm_end = ctx.latency.now()
         note_hedge()
@@ -2571,6 +2591,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             empathy_slider=ctx.empathy_slider,
             interject_level=ctx.interject_level,
             role=ctx.role,
+            relationship=ctx.relationship,
             self_speaker=ctx.self_speaker,
             timing=timing,
             is_self=is_self,
@@ -3999,7 +4020,7 @@ async def _generate_suggestions(
     llm: LLMClient,
     utterance: Utterance,
     empathy_slider: int,
-    role: str,
+    role: str | None = None,
     voice_profile: dict | None = None,
     tone_context: dict | None = None,
     *,
@@ -4007,6 +4028,7 @@ async def _generate_suggestions(
     speaker_name: str | None = None,
     stats: dict | None = None,
     history: dict | None = None,
+    relationship: str | None = None,
 ) -> tuple[list[str], int]:
     """Call LLMClient.complete(); parse suggestions + moment importance.
 
@@ -4034,6 +4056,7 @@ async def _generate_suggestions(
 
     system = empathy_system_prompt(
         empathy_slider, role, voice_profile, live=LIVE_PROMPT,
+        relationship=relationship,
     )
     user_content = _turn_prompt(utterance, tone_context, speaker_name, history)
 
@@ -4078,7 +4101,7 @@ async def _generate_nudge(
     llm: LLMClient,
     utterance: Utterance,
     empathy_slider: int,
-    role: str,
+    role: str | None = None,
     voice_profile: dict | None = None,
     tone_context: dict | None = None,
     speaker_name: str | None = None,
@@ -4086,6 +4109,7 @@ async def _generate_nudge(
     stream: bool = False,
     stats: dict | None = None,
     history: dict | None = None,
+    relationship: str | None = None,
 ) -> tuple[str, int]:
     """Call the LLM for a SELF turn; parse the single delivery nudge + urgency.
 
@@ -4107,7 +4131,9 @@ async def _generate_nudge(
     """
     from main import self_feedback_prompt
 
-    system = self_feedback_prompt(empathy_slider, role, voice_profile)
+    system = self_feedback_prompt(
+        empathy_slider, role, voice_profile, relationship=relationship,
+    )
     # tone_context renders the phone's measurements as hints (Track 3-server);
     # None keeps the prompt byte-identical. No streaming PREVIEW for a nudge
     # (one short phrase, nothing to preview) — but with ``stream=True`` and

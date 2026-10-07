@@ -106,23 +106,23 @@ class TestHistoryForPrompt:
         assert lines[1:4] == [
             '- Speaker B: "turn 2"',
             '- Speaker B: "turn 3"',
-            '- (coach suggested the user say: "Tell me more.")',
+            '- (coach suggested to the wearer: "Tell me more.")',
         ]
-        assert lines[-1].startswith("Each suggestion is something the user can say verbatim")
+        assert lines[-1].startswith("Each suggestion is a cue for the wearer")
 
     def test_empty_history_still_carries_the_guidance(self, ctx):
         u = _utt("hi", "Speaker B")
         _remember_utterance(ctx, u)
         h = _history_for_prompt(ctx, u, is_self=None)
         assert h == {"turns": [], "coach": [], "self": False}
-        assert _render_history(h).startswith("Each suggestion is something the user can say verbatim")
+        assert _render_history(h).startswith("Each suggestion is a cue for the wearer")
 
     def test_whispered_nudges_render_as_such(self, ctx):
         u = _utt("Fine.", "Speaker A", 0, 1)
         _remember_utterance(ctx, u)
         _remember_coaching(ctx, u, "ease up", "nudge")
         h = _history_for_prompt(ctx, _utt("Whatever.", "Speaker A", 2, 3), is_self=True)
-        assert '- (coach whispered to the user: "ease up")' in _render_history(h)
+        assert '- (coach whispered to the wearer: "ease up")' in _render_history(h)
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +263,7 @@ class TestThroughTheWorker:
         assert "Nudge ONLY if something about HOW" in prompts[0]
         assert prompts[1].startswith('Transcript turn: "I SAID you never listen!"')
         assert '- You: "You never listen to me."' in prompts[1]
-        assert '- (coach whispered to the user: "ease up")' in prompts[1]
+        assert '- (coach whispered to the wearer: "ease up")' in prompts[1]
         assert '- You: "I SAID you never listen!"' in prompts[2]
 
     def test_context_off_keeps_the_single_turn_prompt(self, env, monkeypatch):

@@ -1283,7 +1283,10 @@ class TestInputValidation:
             assert recv_skipping_transcripts(ws)["type"] == "suggestion"
 
         system = app.state.llm_client.complete.call_args.kwargs["system"]
-        assert "Husband" in system  # default role survived the bad config
+        # No role default any more (2026-10-07): the bad value is ignored and
+        # the prompt stays generic — no relationship is assumed.
+        assert "Husband" not in system
+        assert "Context the wearer selected" not in system
 
 
 # ---------------------------------------------------------------------------
@@ -1358,7 +1361,7 @@ class TestVoiceProfileWS:
             assert recv_skipping_transcripts(ws)["type"] == "suggestion"
 
         system = app.state.llm_client.complete.call_args.kwargs["system"]
-        assert system == empathy_system_prompt(50, "Husband", live=True)
+        assert system == empathy_system_prompt(50, live=True)
 
     def test_ws_unknown_profile_falls_back_cleanly(self, fake_ws):
         """A relationship/participant with no stored profile → no block, no error."""
@@ -1388,7 +1391,7 @@ class TestVoiceProfileWS:
             assert recv_skipping_transcripts(ws)["type"] == "suggestion"
 
         system = app.state.llm_client.complete.call_args.kwargs["system"]
-        assert system == empathy_system_prompt(50, "Husband", live=True)
+        assert system == empathy_system_prompt(50, live=True)
 
 
 # ---------------------------------------------------------------------------

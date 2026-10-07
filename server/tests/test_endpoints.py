@@ -572,7 +572,7 @@ class TestLivePromptContract:
         live = empathy_system_prompt(50, "Husband", live=True)
         assert "tone_score" not in live
         assert live.index('"suggestions"') < live.index('"importance"')
-        assert "at most 15 words" in live
+        assert "at most 10 words" in live  # short cues (2026-10-07), was 15
         assert "no code fences" in live
 
     def test_default_prompt_is_unchanged_for_rest(self):

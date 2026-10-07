@@ -179,7 +179,7 @@ class RoutingLLM:
                     for sp in speakers
                 },
             })
-        if "real-time delivery coach" in system:
+        if "Produce ONE nudge" in system:
             return json.dumps({"nudge": "ease up", "importance": 70})
         return json.dumps({
             "suggestions": ["I hear you.", "That sounds hard.", "Tell me more."],
