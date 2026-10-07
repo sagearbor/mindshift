@@ -873,6 +873,17 @@ export function useAudioStream(
   const sessionActiveRef = useRef(false);
   /** True while a graceful stop is waiting for the server's final events. */
   const drainingRef = useRef(false);
+  /** STOP means stop (2026-10-07 dinner test: the coach kept talking after
+   *  Stop until the app was swiped away). Set SYNCHRONOUSLY on the first
+   *  line of every way a session ends — before the loop drains, before the
+   *  session POST, before the drain window — and only cleared by the next
+   *  startSession. While set, nothing is ever spoken: not the loop's last
+   *  in-flight turn, not a held line, not a cloud suggestion that lands
+   *  during the stop (they may still render on screen). `drainingRef` alone
+   *  was not enough: it is only raised AFTER the loop drain + POST, and in
+   *  that window a cloud suggestion took the "loop not live" branch and was
+   *  voiced. */
+  const stopRequestedRef = useRef(false);
   const drainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Wall-clock time (ms epoch) at which the drain must end no matter what —
    *  the absolute cap the re-armed inactivity window can never exceed. */
@@ -932,6 +943,7 @@ export function useAudioStream(
     (text: string) => {
       if (!speechEnabledRef.current) return; // Visual mode: stay silent.
       if (!speechAvailableRef.current) return; // No TTS here: honest silence.
+      if (stopRequestedRef.current) return; // User pressed stop: never talk again.
       if (drainingRef.current) return; // User pressed stop: don't keep talking.
       // Therapist mode is on-screen only, by contract — the fast loop never
       // asks to speak in it, and neither may the cloud's suggestion event.
@@ -1271,7 +1283,7 @@ export function useAudioStream(
       };
       try {
         const build = await makeFastLoopRef.current(handlers, loopModeRef.current);
-        if (!sessionActiveRef.current || drainingRef.current) {
+        if (!sessionActiveRef.current || drainingRef.current || stopRequestedRef.current) {
           // The user stopped while models were loading: don't start now.
           void build.loop.stop().catch(() => {});
           primedRecognizer?.stop();
@@ -1287,6 +1299,11 @@ export function useAudioStream(
           mode: loopModeRef.current,
           empathy,
         });
+        if (stopRequestedRef.current) {
+          // Stop landed while the recognizer was starting: never go live.
+          void build.loop.stop().catch(() => {});
+          return;
+        }
         fastLoopRef.current = build.loop;
         lastLoopRef.current = null;
         liveActiveRef.current = true;
@@ -1523,6 +1540,8 @@ export function useAudioStream(
     }
     drainingRef.current = false;
     sessionActiveRef.current = false;
+    stopRequestedRef.current = true;
+    stopSpeechSafely();
     // A call outlives nothing: if the session ends for any reason (server
     // close, reconnect exhaustion) the WebRTC side goes down with it.
     const call = callRef.current;
@@ -1574,6 +1593,10 @@ export function useAudioStream(
   }, [finishDrain]);
 
   const stopSession = useCallback(async () => {
+    // Silence FIRST, synchronously: whatever happens below (loop drain, the
+    // session POST, the drain window) nothing is spoken from here on.
+    stopRequestedRef.current = true;
+    stopSpeechSafely();
     if (drainingRef.current) return; // Stop already in progress.
     if (journalRef.current) {
       // Journal mode has no socket to drain and no record to post.
@@ -1647,6 +1670,7 @@ export function useAudioStream(
         clearTimeout(drainTimerRef.current);
         drainTimerRef.current = null;
       }
+      stopRequestedRef.current = true;
       drainingRef.current = false;
       sessionActiveRef.current = false;
       shouldReconnect.current = false;
@@ -1968,6 +1992,9 @@ export function useAudioStream(
               const voiceIt =
                 !muted &&
                 !forName &&
+                // A suggestion that lands after Stop is never voiced (and
+                // never handed to the loop's hold slot).
+                !stopRequestedRef.current &&
                 (!liveActiveRef.current ||
                   liveSttFailedRef.current ||
                   (source === "cloud" &&
@@ -2174,6 +2201,7 @@ export function useAudioStream(
           call?.hangUp();
           pendingRef.current = new Int16Array(0);
           resamplerRef.current = null;
+          stopRequestedRef.current = true;
           stopSpeechSafely(); // Session is dead — stop coaching aloud too.
           void stopFastLoop().finally(() => recordSessionDiagnostics());
           // Restore a playback audio session so later replay is audible.
@@ -2409,6 +2437,7 @@ export function useAudioStream(
         finishDrain();
       }
       sessionActiveRef.current = true;
+      stopRequestedRef.current = false;
 
       sessionIdRef.current = sessionId;
       empathyRef.current = empathyLevel;
