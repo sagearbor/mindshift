@@ -58,6 +58,9 @@ export interface SuggestInput {
   /** Who the coached person is talking with, when they said so. Unset =
    *  generic (nothing about the relationship goes in the prompt). */
   relationship?: string | null;
+  /** The user's own words about this conversation, already trimmed to the
+   *  on-device budget (sessionContext.ts ON_DEVICE_CONTEXT_MAX_CHARS). */
+  sessionContext?: string | null;
 }
 
 export interface SuggestOutput {
@@ -133,7 +136,11 @@ export function buildPrompt(input: SuggestInput): { system: string; user: string
     input.relationship && input.relationship !== "other"
       ? `The coached person is talking with their ${input.relationship}.\n\n`
       : "";
+  const background = input.sessionContext
+    ? `Background from the coached person: "${input.sessionContext}"\n\n`
+    : "";
   const user =
+    background +
     rel +
     (history ? `Earlier:\n${history}\n\n` : "") +
     `Latest turn from ${who}: "${input.text}"${cue}\n\n${task}`;

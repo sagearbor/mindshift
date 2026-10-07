@@ -331,6 +331,9 @@ export interface FastLoopSession {
   preroll?: Int16Array;
   /** Who the user said they are talking with (null/absent = generic). */
   relationship?: string | null;
+  /** The user's context for this conversation, trimmed for the on-device
+   *  prompt (null/absent = none). */
+  sessionContext?: string | null;
   /** Samples captured before `preroll` that the phone's bounded pre-roll
    *  buffer had to drop — the loop clock starts here so times still line
    *  up with the capture clock. */
@@ -812,6 +815,11 @@ export class FastLoop {
 
   setEmpathy(level: number) {
     if (this.session) this.session.empathy = level;
+  }
+
+  /** Mid-session edit of the user's context (already trimmed). */
+  setSessionContext(sessionContext: string | null) {
+    if (this.session) this.session.sessionContext = sessionContext;
   }
 
   /** Mid-session edit of who the user is talking with. */
@@ -1296,6 +1304,7 @@ export class FastLoop {
         prosodyHint: prosodyHint(prosody),
         mode: session.mode,
         ...(session.relationship ? { relationship: session.relationship } : {}),
+        ...(session.sessionContext ? { sessionContext: session.sessionContext } : {}),
       });
       llmMs = this.now() - tl0;
       provider = result.provider;

@@ -97,7 +97,12 @@ import {
   type KeptSessionPayload,
   type SessionPayloadKeeper,
 } from "../live/sessionPayloadKeep";
-import { isRelationship, type Relationship } from "../live/sessionContext";
+import {
+  clampSessionContext,
+  isRelationship,
+  onDeviceSessionContext,
+  type Relationship,
+} from "../live/sessionContext";
 import { createDefaultAudioRouteProbe, ROUTE_POLL_MS, type AudioRouteProbe, type AudioRouteState } from "../live/audioRoute";
 
 const API_URL =
@@ -363,6 +368,11 @@ interface UseAudioStreamReturn {
    *  no relationship is ever assumed. Sent as `relationship`. */
   relationship: Relationship | null;
   setRelationship: (relationship: Relationship | null) => void;
+  /** Optional free text about this conversation (≤ SESSION_CONTEXT_MAX_CHARS,
+   *  enforced here too). Sent as `session_context` on the config frame and
+   *  POST /sessions/live when non-empty; a mid-session edit goes out as a
+   *  config update after a short pause in typing. Never in diagnostics. */
+  setSessionContext: (text: string) => void;
   /** What the fast loop actually loaded, or why it isn't running. Empty on
    *  the legacy path. */
   liveStatus: string;
@@ -497,6 +507,9 @@ const MAX_PREROLL_SAMPLES = 16000 * 60;
  * and the session's diagnostics report it as an error.
  */
 export const LOOP_STALL_SERVER_UTTERANCES = 3;
+
+/** A mid-session context edit is sent after this long without typing. */
+export const CONTEXT_SEND_DEBOUNCE_MS = 800;
 
 interface PrerollBuffer {
   chunks: Int16Array[];
@@ -659,6 +672,11 @@ export function useAudioStream(
   const [sessionMode, setSessionModeState] = useState<LiveMode>("earpiece");
   const [relationship, setRelationshipState] = useState<Relationship | null>(null);
   const relationshipRef = useRef<Relationship | null>(null);
+  /** The user's session context (private — never in diagnostics), and what
+   *  the server was last told ("" = nothing). */
+  const sessionContextRef = useRef("");
+  const sentContextRef = useRef("");
+  const contextSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [liveStatus, setLiveStatus] = useState("");
   const [nudgeFlash, setNudgeFlash] = useState<NudgeEvent | null>(null);
   /** 💚 The most recent thing the user did WELL (positiveNudges.ts). Only
@@ -1284,6 +1302,7 @@ export function useAudioStream(
       mode: liveSessionModeOf(sessionModeRef.current),
       ...(loopUpAtRef.current ? { loop_up_at: loopUpAtRef.current } : {}),
       ...(relationshipRef.current ? { relationship: relationshipRef.current } : {}),
+      ...(sessionContextRef.current.trim() ? { session_context: sessionContextRef.current } : {}),
       turns: localTurnsRef.current,
       tone_flags: toneFlagsRef.current,
       speaker_identities: identitiesRef.current,
@@ -1582,6 +1601,7 @@ export function useAudioStream(
           mode: loopModeRef.current,
           empathy,
           relationship: relationshipRef.current,
+          sessionContext: onDeviceSessionContext(sessionContextRef.current),
           ...(before && before.samples > 0
             ? { preroll: joinPreroll(before), prerollOffsetSamples: before.dropped }
             : {}),
@@ -1872,6 +1892,8 @@ export function useAudioStream(
     drainingRef.current = false;
     sessionActiveRef.current = false;
     stopRequestedRef.current = true;
+    if (contextSendTimerRef.current !== null) clearTimeout(contextSendTimerRef.current);
+    contextSendTimerRef.current = null;
     prerollRef.current = null;
     stopRoutePoll();
     stopSpeechSafely();
@@ -1929,6 +1951,8 @@ export function useAudioStream(
     // Silence FIRST, synchronously: whatever happens below (loop drain, the
     // session POST, the drain window) nothing is spoken from here on.
     stopRequestedRef.current = true;
+    if (contextSendTimerRef.current !== null) clearTimeout(contextSendTimerRef.current);
+    contextSendTimerRef.current = null;
     prerollRef.current = null;
     stopRoutePoll();
     stopSpeechSafely();
@@ -2006,6 +2030,8 @@ export function useAudioStream(
         drainTimerRef.current = null;
       }
       stopRequestedRef.current = true;
+      if (contextSendTimerRef.current !== null) clearTimeout(contextSendTimerRef.current);
+      contextSendTimerRef.current = null;
       prerollRef.current = null;
       stopRoutePoll();
       drainingRef.current = false;
@@ -2069,6 +2095,12 @@ export function useAudioStream(
             ...wearerIdentityConfig(wearerIdentityRef.current),
             // Who they are talking with — only when the user said so.
             ...(relationshipRef.current ? { relationship: relationshipRef.current } : {}),
+            // The user's own context, only when they wrote some.
+            ...(() => {
+              const ctx = sessionContextRef.current.trim() ? sessionContextRef.current : "";
+              sentContextRef.current = ctx;
+              return ctx ? { session_context: ctx } : {};
+            })(),
             // On-device TTS: the server must not synthesize audio for us;
             // and report its per-stage latency with session_complete.
             ...(liveActiveRef.current
@@ -2563,6 +2595,8 @@ export function useAudioStream(
           pendingRef.current = new Int16Array(0);
           resamplerRef.current = null;
           stopRequestedRef.current = true;
+          if (contextSendTimerRef.current !== null) clearTimeout(contextSendTimerRef.current);
+          contextSendTimerRef.current = null;
           prerollRef.current = null;
           stopRoutePoll();
           stopSpeechSafely(); // Session is dead — stop coaching aloud too.
@@ -3040,6 +3074,30 @@ export function useAudioStream(
     }
   }, []);
 
+  const setSessionContext = useCallback((text: string) => {
+    const value = clampSessionContext(text);
+    sessionContextRef.current = value;
+    fastLoopRef.current?.setSessionContext(onDeviceSessionContext(value));
+    if (contextSendTimerRef.current !== null) clearTimeout(contextSendTimerRef.current);
+    contextSendTimerRef.current = null;
+    if (!sessionActiveRef.current) return; // the first config frame carries it
+    contextSendTimerRef.current = setTimeout(() => {
+      contextSendTimerRef.current = null;
+      const current = sessionContextRef.current.trim() ? sessionContextRef.current : "";
+      // Nothing new — or still nothing at all — sends nothing.
+      if (current === sentContextRef.current) return;
+      const ws = wsRef.current;
+      if (!sessionActiveRef.current || !ws || ws.readyState !== WebSocket.OPEN) return;
+      try {
+        // "" clears a context sent earlier in the session.
+        ws.send(JSON.stringify({ type: "config", session_context: current }));
+        sentContextRef.current = current;
+      } catch {
+        // Socket mid-close: a reconnect's config frame carries it.
+      }
+    }, CONTEXT_SEND_DEBOUNCE_MS);
+  }, []);
+
   const setSessionMode = useCallback((mode: LiveMode) => {
     sessionModeRef.current = mode;
     loopModeRef.current = mode;
@@ -3438,6 +3496,7 @@ export function useAudioStream(
     setSessionMode,
     relationship,
     setRelationship,
+    setSessionContext,
     liveStatus,
     nudgeFlash,
     clearNudgeFlash,

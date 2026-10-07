@@ -351,6 +351,30 @@ describe("LiveCoachScreen", () => {
     expect(setRelationship).toHaveBeenLastCalledWith(null);
   });
 
+  it("session context: the remembered text is loaded, handed to the hook, saved on edit and cleared in one tap", async () => {
+    const ctxModule = require("../src/live/sessionContext");
+    const store = { load: jest.fn(() => "Raise talk"), save: jest.fn(), clear: jest.fn() };
+    const spy = jest.spyOn(ctxModule, "defaultSessionContextStore").mockReturnValue(store);
+    const setSessionContext = jest.fn();
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, setSessionContext, setRelationship: jest.fn(), relationship: null });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = track(renderer.create(<LiveCoachScreen />));
+    });
+    await flush();
+    const input = root!.root.findByProps({ testID: "session-context-input" });
+    expect(input.props.value).toBe("Raise talk");
+    expect(setSessionContext).toHaveBeenCalledWith("Raise talk");
+    act(() => input.props.onChangeText("Raise talk with Dana"));
+    expect(setSessionContext).toHaveBeenLastCalledWith("Raise talk with Dana");
+    expect(store.save).toHaveBeenLastCalledWith("Raise talk with Dana");
+    act(() => root!.root.findByProps({ testID: "session-context-clear" }).props.onPress());
+    expect(setSessionContext).toHaveBeenLastCalledWith("");
+    expect(store.clear).toHaveBeenCalled();
+    expect(root!.root.findByProps({ testID: "session-context-input" }).props.value).toBe("");
+    spy.mockRestore();
+  });
+
   it("hides the unavailable note when TTS works", async () => {
     let root: renderer.ReactTestRenderer;
     act(() => {

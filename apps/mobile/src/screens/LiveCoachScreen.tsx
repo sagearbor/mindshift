@@ -39,6 +39,7 @@ import { listVoicePeople, patchSessionMood, type VoicePerson } from "../api/live
 import { getTherapistLink, type TherapistLink } from "../api/therapist";
 import * as apiClient from "../api/client";
 import ConversationContextPanel from "../components/ConversationContextPanel";
+import { defaultSessionContextStore } from "../live/sessionContext";
 import type { VoicePerson as ApiVoicePerson } from "../api/client";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -161,6 +162,7 @@ export default function LiveCoachScreen({
     setSessionMode,
     relationship,
     setRelationship,
+    setSessionContext,
     liveStatus,
     nudgeFlash,
     clearNudgeFlash,
@@ -192,6 +194,29 @@ export default function LiveCoachScreen({
     setCallRoute,
   } = useAudioStream({ keepAudio });
   const callView = call ?? IDLE_CALL_VIEW;
+
+  // The user's own words about this conversation: remembered on this device
+  // (so it can be reused), handed to the hook, which sends it.
+  const contextStoreRef = useRef(defaultSessionContextStore());
+  const [contextText, setContextText] = useState(() => contextStoreRef.current.load());
+  useEffect(() => {
+    setSessionContext?.(contextText);
+    // Only on mount: later edits go through handleContextChange.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const handleContextChange = useCallback(
+    (text: string) => {
+      setContextText(text);
+      setSessionContext?.(text);
+      contextStoreRef.current.save(text);
+    },
+    [setSessionContext],
+  );
+  const handleContextClear = useCallback(() => {
+    setContextText("");
+    setSessionContext?.("");
+    contextStoreRef.current.clear();
+  }, [setSessionContext]);
 
   const userId = useAuthStore((s) => s.user?.uid ?? null);
   const [empathyLevel, setEmpathyLevel] = useState(50);
@@ -999,6 +1024,9 @@ export default function LiveCoachScreen({
         <ConversationContextPanel
           relationship={relationship ?? null}
           onRelationshipChange={setRelationship}
+          sessionContext={contextText}
+          onSessionContextChange={handleContextChange}
+          onClearSessionContext={handleContextClear}
         />
       ) : null}
 

@@ -38,7 +38,7 @@ import { useAudioStream, type UseAudioStreamOptions } from "../src/hooks/useAudi
 import { FastLoop } from "../src/live/fastLoop";
 import { EnergyVad } from "../src/live/vad";
 import { FakeSpeechRecognizer } from "../src/live/stt";
-import { cloudProvider, ProviderChain, parseSuggestionJson } from "../src/live/localLlm";
+import { buildPrompt, cloudProvider, ProviderChain, parseSuggestionJson } from "../src/live/localLlm";
 import type { FastLoopHandlers } from "../src/live/defaultDeps";
 import type { LiveSessionBody, PostLiveSessionResult } from "../src/api/liveSessions";
 import { silenceInt16, toneInt16, unitVector } from "../src/live/testing/synth";
@@ -936,6 +936,148 @@ describe("F. Relationship: never assumed, sent only when chosen", () => {
     expect(ws.sentJson().find((m) => m.type === "config" && "self_speaker" in m).relationship).toBe("coworker");
     await oneLocalTurn(fake);
     expect(seen).toEqual(["coworker"]);
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+  });
+});
+
+// --- Session context: the user's own words about this conversation -------
+import { buildDiagnosticsPayload } from "../src/diagnostics/diagnostics";
+import { CONTEXT_SEND_DEBOUNCE_MS } from "../src/hooks/useAudioStream";
+
+const RAISE = "Meeting with my boss to ask for a raise; this year I shipped the billing rewrite.";
+
+describe("Session context (session_context)", () => {
+  it("an empty field sends nothing — no key on the config frame or the POST", async () => {
+    const fake = makeFakeFastLoop();
+    const posted: LiveSessionBody[] = [];
+    const { hook, ws } = await startEarpieceSession({
+      makeFastLoop: fake.make,
+      postSession: async (body) => {
+        posted.push(body);
+        return { status: "unsupported" as const };
+      },
+    });
+    await act(() => hook.result.current.setSessionContext("   "));
+    await act(async () => {
+      await flush(CONTEXT_SEND_DEBOUNCE_MS + 100);
+    });
+    expect(ws.sentJson().some((m) => "session_context" in m)).toBe(false);
+    await oneLocalTurn(fake);
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    expect("session_context" in posted[0]).toBe(false);
+  });
+
+  it("written before Start: on the first config frame, the POST and the on-device prompt; never in diagnostics", async () => {
+    const prompts: string[] = [];
+    const fake = makeFakeFastLoop();
+    const originalMake = fake.make;
+    fake.make = async (handlers: FastLoopHandlers) => {
+      const build = await originalMake(handlers);
+      fake.loop = new FastLoop({
+        ...handlers,
+        vad: new EnergyVad(-45, 0.032),
+        embedder: null,
+        labeler: null,
+        recognizer: fake.rec,
+        llm: new ProviderChain([
+          {
+            name: "os",
+            isAvailable: async () => true,
+            suggest: async (input) => {
+              prompts.push(buildPrompt(input).user);
+              return parseSuggestionJson(GOOD);
+            },
+          },
+        ]),
+        sttGraceMs: 100,
+        pollMs: 5,
+      });
+      return { ...build, loop: fake.loop };
+    };
+    const posted: LiveSessionBody[] = [];
+    const hook = await renderHook(() =>
+      useAudioStream({
+        capability: { capable: true, reason: "ok" },
+        makeFastLoop: fake.make,
+        postSession: async (body) => {
+          posted.push(body);
+          return { status: "failed" as const, error: "API error: 500" };
+        },
+        postRetryDelaysMs: [],
+      }),
+    );
+    await act(() => hook.result.current.setSessionContext(RAISE));
+    await act(async () => {
+      await hook.result.current.startSession("ctx-1", 50);
+    });
+    const ws = FakeWebSocket.instances.at(-1)!;
+    await act(() => ws.emitOpen());
+    expect(ws.sentJson().find((m) => m.type === "config" && "self_speaker" in m).session_context).toBe(RAISE);
+    await oneLocalTurn(fake);
+    expect(prompts[0]).toContain(`Background from the coached person: "${RAISE}"`);
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    expect(posted[0].session_context).toBe(RAISE);
+    await act(async () => {
+      ws.emitServer({ type: "session_complete" });
+      await flush();
+    });
+    // Private: the session record, and the payload a send would POST, omit it.
+    const state = useDiagnosticsStore.getState();
+    expect(state.lastSession?.errors.length).toBeGreaterThan(0); // the failed POST makes it auto-send
+    expect(JSON.stringify(state.lastSession)).not.toContain("raise");
+    const payload = buildDiagnosticsPayload({
+      trigger: "auto",
+      uid: null,
+      email: null,
+      capability: state.capability,
+      capabilityReason: state.capabilityReason,
+      lastSession: state.lastSession,
+      deviceDiarization: null,
+    } as Parameters<typeof buildDiagnosticsPayload>[0]);
+    expect(JSON.stringify(payload)).not.toContain("raise");
+  });
+
+  it("edited mid-session: one config update after typing pauses; clearing sends an empty one", async () => {
+    const fake = makeFakeFastLoop();
+    const { hook, ws } = await startEarpieceSession({
+      makeFastLoop: fake.make,
+      postSession: async () => ({ status: "unsupported" as const }),
+    });
+    await act(() => {
+      hook.result.current.setSessionContext("Talk");
+      hook.result.current.setSessionContext("Talking about");
+      hook.result.current.setSessionContext("Talking about the move");
+    });
+    await act(async () => {
+      await flush(CONTEXT_SEND_DEBOUNCE_MS + 150);
+    });
+    const updates = () => ws.sentJson().filter((m) => m.type === "config" && "session_context" in m);
+    expect(updates()).toEqual([{ type: "config", session_context: "Talking about the move" }]);
+    await act(() => hook.result.current.setSessionContext(""));
+    await act(async () => {
+      await flush(CONTEXT_SEND_DEBOUNCE_MS + 150);
+    });
+    expect(updates().at(-1)).toEqual({ type: "config", session_context: "" });
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+  });
+
+  it("is capped at 4,000 characters before it leaves the phone", async () => {
+    const hook = await renderHook(() => useAudioStream({ ...LEGACY }));
+    await act(() => hook.result.current.setSessionContext("x".repeat(5000)));
+    await act(async () => {
+      await hook.result.current.startSession("ctx-cap", 50);
+    });
+    const ws = FakeWebSocket.instances.at(-1)!;
+    await act(() => ws.emitOpen());
+    expect(ws.sentJson().find((m) => m.type === "config" && "self_speaker" in m).session_context).toHaveLength(4000);
     await act(async () => {
       await hook.result.current.stopSession();
     });

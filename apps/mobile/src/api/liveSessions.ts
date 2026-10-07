@@ -63,6 +63,9 @@ export interface LiveSessionBody {
   /** Who the user said they were talking with (child, partner, parent,
    *  coworker, friend, other). Omitted when unset — generic. */
   relationship?: string;
+  /** The user's own description of the conversation (≤ 4000 chars).
+   *  Omitted when empty. */
+  session_context?: string;
   turns: TurnLocalEvent[];
   tone_flags?: ToneFlagEvent[];
   speaker_identities?: SpeakerIdentityEvent[];
