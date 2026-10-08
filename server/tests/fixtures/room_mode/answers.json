@@ -1,0 +1,13 @@
+{
+  "answers": {
+    "3d1fb562f7a48d7dd7b1b1f662eb3583d779c2d2a61838dc26b5ee61bb3f37c3": {
+      "question": "Question addressed to you (asked by Speaker C): what did Acme buy last quarter?",
+      "response": "```json\n{\n  \"answer\": \"Acme bought 120 seats of the Pro plan for $48,000 in Q3 2026.\",\n  \"known\": true,\n  \"source_item_ids\": [\"ITEM-ACME\"]\n}\n```"
+    },
+    "5e6f549b87f8a9f065c68b7841adf9139274b79dc8cde90efb5b6684b83c1cb1": {
+      "question": "Question addressed to you (asked by Speaker B): what's Acme's churn rate?",
+      "response": "```json\n{\n  \"answer\": \"I don't have that in the library or in this conversation.\",\n  \"known\": false,\n  \"source_item_ids\": []\n}\n```"
+    }
+  },
+  "model": "claude-haiku-4-5-20251001"
+}

@@ -38,8 +38,9 @@ export async function authHeaders(json = true): Promise<Record<string, string>> 
 }
 
 /** Wire value of the session mode (`speaker` = the "In person" mode; `call`
- *  = an in-app call — server/routers/sessions.py LiveMode). */
-export type LiveSessionMode = "earpiece" | "speaker" | "therapist" | "call";
+ *  = an in-app call; `room` = the meeting-room assistant —
+ *  server/routers/sessions.py LiveMode). */
+export type LiveSessionMode = "earpiece" | "speaker" | "therapist" | "call" | "room";
 
 /** A speaker the user NAMED during (or right after) the session — stored
  *  server-side as the human-assertion rung (manual / manual-person), the

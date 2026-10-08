@@ -39,9 +39,12 @@ export interface TextTone {
  * all-day "listen for my voice" mode (src/live/journalRecorder.ts): mic
  * open, no STT / coaching / cloud while listening — only the owner's own
  * stretches are kept and uploaded later as a stored recording. It never
- * reaches the LLM or the server's live-session ingest.
+ * reaches the LLM or the server's live-session ingest. `room` is the
+ * meeting-room assistant (src/live/roomMode.ts): answers aloud only when
+ * addressed ("MindShift, …"), library cards on screen, no personal coaching —
+ * the on-device loop never runs in it, so it never reaches suggest().
  */
-export type LiveMode = "earpiece" | "speaker" | "therapist" | "call" | "journal";
+export type LiveMode = "earpiece" | "speaker" | "therapist" | "call" | "journal" | "room";
 
 export interface SuggestInput {
   text: string;

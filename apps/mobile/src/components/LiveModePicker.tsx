@@ -2,7 +2,7 @@ import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import type { LiveMode } from "../live/localLlm";
 
-/** The five session shapes, with the one line each needs to be picked
+/** The six session shapes, with the one line each needs to be picked
  *  correctly. Exported so the screen's explainer and tests share the copy.
  *  "In person" keeps its original wire value `speaker` (see LiveMode);
  *  "Journal" is the all-day listen-for-my-voice mode (no coaching). */
@@ -35,6 +35,11 @@ export const LIVE_MODE_OPTIONS: readonly {
     mode: "journal",
     label: "Journal",
     hint: "Listen for my voice all day — keeps only what you say; no coaching, no transcription until later.",
+  },
+  {
+    mode: "room",
+    label: "Room",
+    hint: "An assistant for the whole meeting — say “MindShift, …” to ask it out loud; library facts show on screen. No personal coaching.",
   },
 ];
 
