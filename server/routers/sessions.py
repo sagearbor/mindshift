@@ -725,6 +725,8 @@ async def ingest_live(
     )
     reflect_scheduled = bool(
         reflect
+        # Room mode served a whole meeting: no personal coaching afterwards.
+        and mode != "room"
         and self_label is not None
         and analysis["live"].get("could_have_said") is None
     )
