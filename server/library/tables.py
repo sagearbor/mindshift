@@ -551,10 +551,16 @@ def _answer_sheet(src: Source, sheet: Sheet, raw: str, title_tokens: set[str]) -
                 year = v[1]
             else:
                 conds.append((col_combos[k], v))
+        if conds:
+            candidates = set(sheet.values[conds[0][0]][conds[0][1]])
+            for ci, p in conds[1:]:
+                candidates &= set(sheet.values[ci][p])
+            pool = sorted(candidates)
+        else:
+            pool = range(len(sheet.rows))
         rows = [
-            ri for ri in range(len(sheet.rows))
+            ri for ri in pool
             if ri not in sheet.total_rows
-            and all(ri in set(sheet.values[ci][p]) for ci, p in conds)
             and (year is None or str(sheet.rows[ri][sheet.date_cols[0]] or "").startswith(year))
         ]
         if not rows:
