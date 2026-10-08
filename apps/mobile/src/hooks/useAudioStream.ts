@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 import {
   useAudioStream as useMicrophoneStream,
   requestRecordingPermissionsAsync,
@@ -35,7 +35,12 @@ import type {
   FastLoopCapabilities,
   FastLoopHandlers,
 } from "../live/defaultDeps";
-import { createDefaultFastLoop, expoHaptics, probeFastLoopCapabilities } from "../live/defaultDeps";
+import {
+  createDefaultFastLoop,
+  expoHaptics,
+  probeFastLoopCapabilities,
+  type FastLoopBuildTimings,
+} from "../live/defaultDeps";
 import { createWebFastLoop, primeWebRecognizer, probeWebFastLoopCapabilities } from "../live/webDeps";
 import type { SpeechRecognizer } from "../live/stt";
 import type { TurnLatency } from "../live/fastLoop";
@@ -81,8 +86,29 @@ import { createNativeRtcAdapter } from "../live/call/rtcNative";
 import { createWebRtcAdapter } from "../live/call/callWeb";
 import type { AudioRoute, RtcAdapter } from "../live/call/rtc";
 import { IDLE_CALL_VIEW, type CallClientMessage, type CallRole, type CallView } from "../live/call/types";
-import { summarizeLatency, summarizeSpeakerId, useDiagnosticsStore, type SessionDiagnostics } from "../diagnostics/diagnostics";
+import {
+  summarizeLatency,
+  summarizeSpeakerId,
+  useDiagnosticsStore,
+  type LoopDiagnostics,
+  type SessionDiagnostics,
+} from "../diagnostics/diagnostics";
 import { useAuthStore } from "../store/authStore";
+import {
+  KEEP_LIVE_SESSION_PAYLOAD_FOR_DEBUG,
+  POST_RETRY_DELAYS_MS,
+  isRetryablePostFailure,
+  openDefaultSessionPayloadKeeper,
+  type KeptSessionPayload,
+  type SessionPayloadKeeper,
+} from "../live/sessionPayloadKeep";
+import {
+  clampSessionContext,
+  isRelationship,
+  onDeviceSessionContext,
+  type Relationship,
+} from "../live/sessionContext";
+import { createDefaultAudioRouteProbe, ROUTE_POLL_MS, type AudioRouteProbe, type AudioRouteState } from "../live/audioRoute";
 
 const API_URL =
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:8000";
@@ -181,8 +207,18 @@ export interface UseAudioStreamOptions {
   makeFastLoop?: (handlers: FastLoopHandlers, mode: LiveMode) => Promise<FastLoopBuild>;
   /** POST the finished session (Track 2's /sessions/live). */
   postSession?: (body: LiveSessionBody) => Promise<PostLiveSessionResult>;
+  /** KEEP_LIVE_SESSION_PAYLOAD_FOR_DEBUG override: keep a local copy of the
+   *  session payload and retry a transiently failed POST. */
+  keepSessionPayload?: boolean;
+  /** Where that copy goes (default: the app's document dir; null = nowhere). */
+  makePayloadKeeper?: () => SessionPayloadKeeper | null;
+  /** Waits before each POST retry (default POST_RETRY_DELAYS_MS). */
+  postRetryDelaysMs?: readonly number[];
   /** Pre-flight capability probe (what the loop would load right now). */
   probeCapabilities?: () => Promise<FastLoopCapabilities>;
+  /** Earpiece mode's private-route check (live/audioRoute.ts). Built once
+   *  per session; the default reads expo-audio's input devices. */
+  makeAudioRouteProbe?: () => AudioRouteProbe;
   /** Mid-call naming: upload a speaker's pooled session audio as a new
    *  person's voiceprint (production: live/enrollFromSession.ts). */
   enrollSpeaker?: (
@@ -267,8 +303,10 @@ export type PreflightState =
 export interface LastEpisode {
   episodeId: string | null;
   /** "created" = stored; "unsupported" = server predates /sessions/live;
-   *  "failed" = the POST failed (the transcript is still on screen). */
-  postStatus: "created" | "unsupported" | "failed";
+   *  "failed" = the POST failed (the transcript is still on screen);
+   *  "skipped" = nothing to POST — the on-device loop sent no turns (the
+   *  reason is in diagnostics; never a `turns: []` POST). */
+  postStatus: "created" | "unsupported" | "failed" | "skipped";
   /** Therapist emails the server auto-shared it with at ingest. */
   sharedWith: string[];
 }
@@ -284,12 +322,16 @@ interface UseAudioStreamReturn {
    *  second late finds the advice already gone. */
   suggestions: SuggestionEntry[];
   speakerLabel: string;
-  /** Which diarized speaker is the coached user ("Speaker A" | "Speaker B" |
-   *  null). Diarization labels are assigned PER SESSION by speaking order —
-   *  "Speaker A" is whoever speaks first in THAT session, not a stable
-   *  identity — so this resets to "Speaker A" (the "you speak first"
-   *  convention) at every session start. It toggles freely within a session. */
+  /** Which diarized speaker the USER said is them ("Speaker A" | "Speaker B"),
+   *  or null — the default at every session start. There is no "you speak
+   *  first" convention any more (2026-10-07: coaching switched on mid-way
+   *  through an argument coached the son as the wearer): a diarization label
+   *  is never the wearer's identity unless the user picks it. */
   selfSpeaker: string | null;
+  /** True once the on-device voiceprint has matched the WEARER's enrolled
+   *  voice this session (an absolute match). Sent to the server as
+   *  `wearer_voice_confirmed`. */
+  wearerVoiceConfirmed: boolean;
   setSelfSpeaker: (label: string) => void;
   connectionStatus: ConnectionStatus;
   transcriptionAvailable: boolean;
@@ -301,6 +343,11 @@ interface UseAudioStreamReturn {
   speechAvailable: boolean;
   /** True when new top suggestions should be spoken aloud (earpiece mode). */
   speechEnabled: boolean;
+  /** Earpiece mode only: is a private audio route (Bluetooth / wired
+   *  headset) connected? Anything but "private" means the coach is SILENT
+   *  (never the loudspeaker) and the screen says why. Null outside an
+   *  earpiece session. */
+  privateAudioRoute: AudioRouteState | null;
   setSpeechEnabled: (enabled: boolean) => void;
   startSession: (
     sessionId: string,
@@ -322,6 +369,15 @@ interface UseAudioStreamReturn {
    *  only), call (an in-app call; only the user's voice on this mic). */
   sessionMode: LiveMode;
   setSessionMode: (mode: LiveMode) => void;
+  /** Optional: who the user is talking with. Null (the default) = generic —
+   *  no relationship is ever assumed. Sent as `relationship`. */
+  relationship: Relationship | null;
+  setRelationship: (relationship: Relationship | null) => void;
+  /** Optional free text about this conversation (≤ SESSION_CONTEXT_MAX_CHARS,
+   *  enforced here too). Sent as `session_context` on the config frame and
+   *  POST /sessions/live when non-empty; a mid-session edit goes out as a
+   *  config update after a short pause in typing. Never in diagnostics. */
+  setSessionContext: (text: string) => void;
   /** What the fast loop actually loaded, or why it isn't running. Empty on
    *  the legacy path. */
   liveStatus: string;
@@ -441,6 +497,43 @@ const MAX_PENDING_SAMPLES = TARGET_SAMPLE_RATE * 5;
 const MAX_PENDING_TURNS = 50;
 
 /**
+ * Cold-start pre-roll bound: the most audio (16 kHz int16 samples) kept from
+ * Start while the on-device loop is still building (≈8.5 s measured on the
+ * Pixel 10, 2026-10-07). 60 s ≈ 1.9 MB; older audio is dropped and its
+ * length handed to the loop so its clock still matches the capture clock.
+ */
+const MAX_PREROLL_SAMPLES = 16000 * 60;
+
+/**
+ * Loop stall: this many server-transcribed utterances in a row with no
+ * on-device turn while the loop is up means the loop is not hearing the
+ * conversation (2026-10-07: a whole dinner, ZERO local turns, every cloud
+ * suggestion voiced). From then on cloud lines are shown, never spoken,
+ * and the session's diagnostics report it as an error.
+ */
+export const LOOP_STALL_SERVER_UTTERANCES = 3;
+
+/** A mid-session context edit is sent after this long without typing. */
+export const CONTEXT_SEND_DEBOUNCE_MS = 800;
+
+interface PrerollBuffer {
+  chunks: Int16Array[];
+  samples: number;
+  dropped: number;
+}
+
+/** Concatenate a pre-roll buffer's chunks (oldest first). */
+function joinPreroll(buf: PrerollBuffer): Int16Array {
+  const out = new Int16Array(buf.samples);
+  let at = 0;
+  for (const c of buf.chunks) {
+    out.set(c, at);
+    at += c.length;
+  }
+  return out;
+}
+
+/**
  * Maps the empathy slider to the coaching stance label shown on each
  * suggestion. This describes how the suggestion was generated — it is not a
  * claim about detected tone (the server's suggestion event carries no tone).
@@ -512,8 +605,14 @@ export function cloudAnswersOpenMoment(
   recent: readonly { text: string; hadSuggestion: boolean }[],
   utteranceText: string | null,
 ): boolean {
-  const latest = recent.length > 0 ? recent[recent.length - 1] : null;
-  if (utteranceText === null) return latest ? !latest.hadSuggestion : true;
+  // The phone has not finalized a single turn of its own: it cannot place
+  // the moment (or who spoke) at all. Before 2026-10-07 this said "the cloud
+  // is the only voice there is" and voiced EVERY cloud line — with a broken
+  // loop that meant a whole dinner of lines aimed at the wrong person. The
+  // line still shows on screen; the earpiece stays quiet.
+  if (recent.length === 0) return false;
+  const latest = recent[recent.length - 1];
+  if (utteranceText === null) return !latest.hadSuggestion;
   let idx = -1;
   for (let i = recent.length - 1; i >= 0; i--) {
     if (recent[i].text === utteranceText) {
@@ -521,9 +620,29 @@ export function cloudAnswersOpenMoment(
       break;
     }
   }
-  if (idx === -1) return latest ? !latest.hadSuggestion : true;
+  if (idx === -1) return !latest.hadSuggestion;
   if (idx === recent.length - 1) return !recent[idx].hadSuggestion;
   return false;
+}
+
+/** How the wearer's identity is known this session (see wearerIdentityRef). */
+export type WearerIdentity = "voiceprint" | "user_label" | "unconfirmed";
+
+/** The wire fields that tell the server whether the wearer is known —
+ *  sent on the first config frame and again on every change. */
+export function wearerIdentityConfig(identity: WearerIdentity): {
+  wearer_known: boolean;
+  wearer_voice_confirmed: boolean;
+  wearer_identity: WearerIdentity;
+} {
+  return {
+    // The server's gate (audio_pipeline._resolve_wearer): it trusts
+    // `self_speaker` only while this is true, and stays speaker-neutral
+    // otherwise. The other two fields are diagnostics detail.
+    wearer_known: identity !== "unconfirmed",
+    wearer_voice_confirmed: identity === "voiceprint",
+    wearer_identity: identity,
+  };
 }
 
 /** {"E": 2, "D": 1} over every positive DETECTED so far — the summary counts
@@ -542,13 +661,10 @@ export function useAudioStream(
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [suggestions, setSuggestions] = useState<SuggestionEntry[]>([]);
   const [speakerLabel, setSpeakerLabel] = useState("");
-  // Default "Speaker A" encodes the "you speak first" convention — the server
-  // labels the first voice it hears "Speaker A". Reset to this default at
-  // every session start (see startSession): diarization labels are assigned
-  // per session, so a previous session's toggle would mis-type every turn.
-  const [selfSpeaker, setSelfSpeakerState] = useState<string | null>(
-    "Speaker A",
-  );
+  // No default: who the wearer is comes from the on-device voiceprint or from
+  // the user, never from speaking order (see selfSpeaker in the return type).
+  const [selfSpeaker, setSelfSpeakerState] = useState<string | null>(null);
+  const [wearerVoiceConfirmed, setWearerVoiceConfirmed] = useState(false);
   const [connectionStatus, setConnectionStatus] =
     useState<ConnectionStatus>("idle");
   const [transcriptionAvailable, setTranscriptionAvailable] = useState(true);
@@ -556,6 +672,7 @@ export function useAudioStream(
   const [micError, setMicError] = useState("");
   const [speechAvailable, setSpeechAvailable] = useState(detectSpeechSupport);
   const [speechEnabled, setSpeechEnabledState] = useState(false);
+  const [privateAudioRoute, setPrivateAudioRoute] = useState<AudioRouteState | null>(null);
 
   // --- On-device fast loop (Track 3) ---------------------------------------
   // Capability is probed once (synchronously — it's a native module query,
@@ -566,6 +683,13 @@ export function useAudioStream(
   );
   const [liveMode, setLiveModeState] = useState(liveCapability.capable);
   const [sessionMode, setSessionModeState] = useState<LiveMode>("earpiece");
+  const [relationship, setRelationshipState] = useState<Relationship | null>(null);
+  const relationshipRef = useRef<Relationship | null>(null);
+  /** The user's session context (private — never in diagnostics), and what
+   *  the server was last told ("" = nothing). */
+  const sessionContextRef = useRef("");
+  const sentContextRef = useRef("");
+  const contextSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [liveStatus, setLiveStatus] = useState("");
   const [nudgeFlash, setNudgeFlash] = useState<NudgeEvent | null>(null);
   /** 💚 The most recent thing the user did WELL (positiveNudges.ts). Only
@@ -642,6 +766,27 @@ export function useAudioStream(
   const loopModeRef = useRef<LiveMode>("earpiece");
   /** The running loop for this session (null on the legacy path). */
   const fastLoopRef = useRef<FastLoop | null>(null);
+  /** Cold-start pre-roll: every captured frame from Start until the loop is
+   *  up (null when no loop is expected / once it is up). */
+  const prerollRef = useRef<PrerollBuffer | null>(null);
+  /** Date.now() at Start, and when the loop actually came up — kept apart:
+   *  `started_at` is Start, `loop_up_at` is the loop (they differed by
+   *  ≈8.5 s in the dinner test). */
+  const startWallMsRef = useRef(0);
+  const loopUpAtRef = useRef<string | null>(null);
+  const loopStartupMsRef = useRef<number | null>(null);
+  /** This session expected an on-device loop (live mode on a capable device). */
+  const loopExpectedRef = useRef(false);
+  /** One background snapshot per session (see the AppState effect). */
+  const backgroundSnapshotSentRef = useRef(false);
+  /** The ended loop's summary health (for the diagnostics record). */
+  const loopHealthRef = useRef<LoopDiagnostics | null>(null);
+  /** Start-up step timing of this session's loop (for diagnostics). */
+  const loopStepsRef = useRef<{ buildMs: number | null; startMs: number | null; buildTimings: FastLoopBuildTimings | null }>({
+    buildMs: null,
+    startMs: null,
+    buildTimings: null,
+  });
   /** True from the loop's start until it has stopped — gates which server
    *  events are rendered (the phone owns the transcript while it runs). */
   const liveActiveRef = useRef(false);
@@ -656,6 +801,14 @@ export function useAudioStream(
    *  reported (a span its VAD missed, caught by the server) is the only
    *  voice there is and is spoken. */
   const recentLocalTurnsRef = useRef<{ text: string; hadSuggestion: boolean }[]>([]);
+  /** Server-transcribed utterances while the loop is up: since the last
+   *  on-device turn (stall detector) and in total (diagnostics). */
+  const serverUtterancesSinceLocalRef = useRef(0);
+  const serverUtterancesRef = useRef(0);
+  /** Sticky per session: the loop stalled (see LOOP_STALL_SERVER_UTTERANCES). */
+  const loopStalledRef = useRef(false);
+  /** Ever stalled this session (the live flag clears when turns resume). */
+  const loopStallSeenRef = useRef(false);
   /** Everything the phone told the server this session, for POST /sessions/live. */
   const localTurnsRef = useRef<TurnLocalEvent[]>([]);
   /** Session resume: turns finalized while the socket was down, oldest first
@@ -681,6 +834,14 @@ export function useAudioStream(
   makeFastLoopRef.current = options.makeFastLoop ?? defaultMakeFastLoop;
   const postSessionRef = useRef(options.postSession ?? postLiveSession);
   postSessionRef.current = options.postSession ?? postLiveSession;
+  const keepPayloadRef = useRef(options.keepSessionPayload ?? KEEP_LIVE_SESSION_PAYLOAD_FOR_DEBUG);
+  keepPayloadRef.current = options.keepSessionPayload ?? KEEP_LIVE_SESSION_PAYLOAD_FOR_DEBUG;
+  const payloadKeeperRef = useRef(options.makePayloadKeeper ?? openDefaultSessionPayloadKeeper);
+  payloadKeeperRef.current = options.makePayloadKeeper ?? openDefaultSessionPayloadKeeper;
+  const retryDelaysRef = useRef(options.postRetryDelaysMs ?? POST_RETRY_DELAYS_MS);
+  retryDelaysRef.current = options.postRetryDelaysMs ?? POST_RETRY_DELAYS_MS;
+  /** Why the session POST was skipped (no turns), for diagnostics. */
+  const postSkipReasonRef = useRef<string | null>(null);
   const probeRef = useRef(options.probeCapabilities ?? defaultProbeCapabilities);
   probeRef.current = options.probeCapabilities ?? defaultProbeCapabilities;
 
@@ -854,7 +1015,31 @@ export function useAudioStream(
   const interjectRef = useRef(0);
   /** Mirrors selfSpeaker so the long-lived onopen closure reads the current
    *  choice at config-send time, not a stale render's value. */
-  const selfSpeakerRef = useRef<string | null>("Speaker A");
+  const selfSpeakerRef = useRef<string | null>(null);
+  /** Wearer identity for the server's coach (wire: `wearer_voice_confirmed`
+   *  + `wearer_identity`). "voiceprint" = the on-device voiceprint matched the
+   *  wearer's enrolled voice (absolute match); "user_label" = the user said
+   *  which voice is theirs (chip or "Who is this?"); "unconfirmed" = neither
+   *  yet — coaching still runs (it must work when switched on mid-argument)
+   *  but the server keeps its lines speaker-neutral. */
+  const wearerIdentityRef = useRef<WearerIdentity>("unconfirmed");
+
+  /** Raise the wearer identity (never lowers it within a session) and tell
+   *  the server on the config channel when it changes. */
+  const noteWearerIdentity = useCallback((next: WearerIdentity) => {
+    const rank: Record<WearerIdentity, number> = { unconfirmed: 0, user_label: 1, voiceprint: 2 };
+    if (rank[next] <= rank[wearerIdentityRef.current]) return;
+    wearerIdentityRef.current = next;
+    if (next === "voiceprint") setWearerVoiceConfirmed(true);
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify({ type: "config", ...wearerIdentityConfig(next) }));
+      } catch {
+        // Socket mid-close: the next (re)open's config carries it.
+      }
+    }
+  }, []);
   /** Monotonic source of suggestion feed entry ids (see SuggestionEntry.id).
    *  Not reset per session — keeping it strictly increasing avoids key reuse. */
   const suggestionIdRef = useRef(0);
@@ -873,6 +1058,68 @@ export function useAudioStream(
   const sessionActiveRef = useRef(false);
   /** True while a graceful stop is waiting for the server's final events. */
   const drainingRef = useRef(false);
+  /** STOP means stop (2026-10-07 dinner test: the coach kept talking after
+   *  Stop until the app was swiped away). Set SYNCHRONOUSLY on the first
+   *  line of every way a session ends — before the loop drains, before the
+   *  session POST, before the drain window — and only cleared by the next
+   *  startSession. While set, nothing is ever spoken: not the loop's last
+   *  in-flight turn, not a held line, not a cloud suggestion that lands
+   *  during the stop (they may still render on screen). `drainingRef` alone
+   *  was not enough: it is only raised AFTER the loop drain + POST, and in
+   *  that window a cloud suggestion took the "loop not live" branch and was
+   *  voiced. */
+  const stopRequestedRef = useRef(false);
+
+  // --- Earpiece privacy: never the loudspeaker (live/audioRoute.ts) ---------
+  const makeRouteProbeRef = useRef(options.makeAudioRouteProbe ?? (() => createDefaultAudioRouteProbe()));
+  makeRouteProbeRef.current = options.makeAudioRouteProbe ?? (() => createDefaultAudioRouteProbe());
+  const routeProbeRef = useRef<AudioRouteProbe | null>(null);
+  const routePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const routeStateRef = useRef<AudioRouteState | null>(null);
+
+  /** Read the route now; on a loss of the private route cut any utterance in
+   *  flight and give one haptic tap (the screen shows the notice). */
+  const checkPrivateRoute = useCallback((): AudioRouteState => {
+    if (!routeProbeRef.current) routeProbeRef.current = makeRouteProbeRef.current();
+    const state = routeProbeRef.current.check();
+    const previous = routeStateRef.current;
+    if (state !== previous) {
+      routeStateRef.current = state;
+      setPrivateAudioRoute(state);
+      if (state !== "private") {
+        stopSpeechSafely();
+        if (previous === "private") void expoHaptics.nudge(2, null).catch(() => {});
+      }
+    }
+    return state;
+  }, []);
+
+  /** True when earpiece mode must stay silent right now (no private route). */
+  const earpieceRouteBlocksSpeech = useCallback((): boolean => {
+    if (sessionModeRef.current !== "earpiece") return false;
+    return checkPrivateRoute() !== "private";
+  }, [checkPrivateRoute]);
+
+  const startRoutePoll = useCallback(() => {
+    if (routePollRef.current !== null) clearInterval(routePollRef.current);
+    routePollRef.current = null;
+    routeProbeRef.current?.dispose();
+    routeProbeRef.current = null;
+    routeStateRef.current = null;
+    setPrivateAudioRoute(null);
+    if (sessionModeRef.current !== "earpiece") return;
+    checkPrivateRoute();
+    routePollRef.current = setInterval(() => {
+      if (sessionModeRef.current === "earpiece") checkPrivateRoute();
+    }, ROUTE_POLL_MS);
+  }, [checkPrivateRoute]);
+
+  const stopRoutePoll = useCallback(() => {
+    if (routePollRef.current !== null) clearInterval(routePollRef.current);
+    routePollRef.current = null;
+    routeProbeRef.current?.dispose();
+    routeProbeRef.current = null;
+  }, []);
   const drainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Wall-clock time (ms epoch) at which the drain must end no matter what —
    *  the absolute cap the re-armed inactivity window can never exceed. */
@@ -932,12 +1179,16 @@ export function useAudioStream(
     (text: string) => {
       if (!speechEnabledRef.current) return; // Visual mode: stay silent.
       if (!speechAvailableRef.current) return; // No TTS here: honest silence.
+      if (stopRequestedRef.current) return; // User pressed stop: never talk again.
       if (drainingRef.current) return; // User pressed stop: don't keep talking.
       // Therapist mode is on-screen only, by contract — the fast loop never
       // asks to speak in it, and neither may the cloud's suggestion event.
       if (liveActiveRef.current && loopModeRef.current === "therapist") return;
       // A therapist observing a call is never spoken to either.
       if (callRef.current?.selfRole === "therapist") return;
+      // Earpiece mode: a private route (headset) or NOTHING — checked right
+      // before every utterance, never falling back to the loudspeaker.
+      if (earpieceRouteBlocksSpeech()) return;
       try {
         // Unconditional stop guarantees most-recent-wins without tracking
         // speaking state (Speech.stop() is a no-op when nothing is speaking,
@@ -953,7 +1204,7 @@ export function useAudioStream(
         markSpeechUnavailable(err);
       }
     },
-    [markSpeechUnavailable],
+    [markSpeechUnavailable, earpieceRouteBlocksSpeech],
   );
 
   /**
@@ -1011,6 +1262,15 @@ export function useAudioStream(
    * out while the socket is still open — callers that can't wait (unmount,
    * reconnect exhaustion) fire-and-forget it.
    */
+  /** Why a finished session has no on-device turns, in words. */
+  const emptyTurnsReason = (): string => {
+    const health = loopHealthRef.current;
+    const heard = transcriptRef.current.length + serverUtterancesRef.current;
+    if (!health) return `the on-device loop produced no record (transcript had ${heard})`;
+    if (health.turns === 0) return `on-device loop finalized 0 turns while transcript had ${heard}`;
+    return `all ${health.turns} on-device turns were before the loop was up (no on-device words); transcript had ${heard}`;
+  };
+
   const stopFastLoop = useCallback(async () => {
     const loop = fastLoopRef.current;
     // The kept audio is settled by the SAME call that posts the session (the
@@ -1039,6 +1299,14 @@ export function useAudioStream(
       setLatencySummary(report.split("\n")[0]);
       latencyLogRef.current = summary.latencyLog;
       sttRestartsRef.current = summary.sttRestarts ?? 0;
+      if (summary.health) {
+        loopHealthRef.current = {
+          ...summary.health,
+          ...loopStepsRef.current,
+          startupMs: loopStartupMsRef.current,
+          sttRestartCodes: summary.sttRestartCodes ?? {},
+        };
+      }
     }
     if (sessionModeRef.current === "call") {
       // An in-app call is persisted by the SERVER (one episode per
@@ -1056,6 +1324,9 @@ export function useAudioStream(
       started_at: sessionStartedAtRef.current,
       ended_at: new Date().toISOString(),
       mode: liveSessionModeOf(sessionModeRef.current),
+      ...(loopUpAtRef.current ? { loop_up_at: loopUpAtRef.current } : {}),
+      ...(relationshipRef.current ? { relationship: relationshipRef.current } : {}),
+      ...(sessionContextRef.current.trim() ? { session_context: sessionContextRef.current } : {}),
       turns: localTurnsRef.current,
       tone_flags: toneFlagsRef.current,
       speaker_identities: identitiesRef.current,
@@ -1075,44 +1346,100 @@ export function useAudioStream(
     localTurnsRef.current = [];
     toneFlagsRef.current = [];
     identitiesRef.current = [];
+    // Never send `turns: []` (the server's 422 lost the dinner session): with
+    // no on-device turn the POST is skipped and the reason recorded.
+    const turnCount = body.turns.length;
+    const emptyReason = turnCount === 0 ? emptyTurnsReason() : null;
+    const payloadKeeper = keepPayloadRef.current ? payloadKeeperRef.current() : null;
+    const kept: KeptSessionPayload = {
+      saved_at: new Date().toISOString(),
+      body,
+      empty_turns_reason: emptyReason,
+      attempts: [],
+    };
+    const keepCopy = () => {
+      if (payloadKeeper) payloadKeeper.save(kept);
+    };
+    // Zero on-device turns: with the debug flag on, POST anyway so the
+    // server keeps its own transcript (server flag
+    // LIVE_DEBUG_SAVE_EMPTY_SESSIONS); with it off, skip as before.
+    if (emptyReason !== null) postSkipReasonRef.current = emptyReason;
+    if (emptyReason !== null && !keepPayloadRef.current) {
+      console.warn(`[useAudioStream] POST /sessions/live skipped: ${emptyReason}`);
+      kept.attempts.push({ at: new Date().toISOString(), status: "skipped", error: emptyReason });
+      keepCopy();
+      postSkipReasonRef.current = emptyReason;
+      lastEpisodeRef.current = { episodeId: null, postStatus: "skipped", sharedWith: [] };
+      setLastEpisode(lastEpisodeRef.current);
+      await settleAudioKeep(keeper, null);
+      return;
+    }
+    keepCopy();
+    const attemptPost = async (): Promise<PostLiveSessionResult> => {
+      const r = await postSessionRef.current(body);
+      kept.attempts.push({
+        at: new Date().toISOString(),
+        status: r.status,
+        ...(r.status === "failed" ? { error: r.error } : {}),
+      });
+      keepCopy();
+      return r;
+    };
     // 404 (endpoint not deployed yet) is "unsupported", not a failure — the
     // transcript is already on screen; the record is a bonus.
-    const turnCount = body.turns.length;
-    const result = await postSessionRef.current(body);
-    if (result.status === "failed") {
-      console.warn("[useAudioStream] POST /sessions/live failed:", result.error);
-      lastEpisodeRef.current = { episodeId: null, postStatus: "failed", sharedWith: [] };
-      setLastEpisode(lastEpisodeRef.current);
-    } else if (result.status === "unsupported") {
-      lastEpisodeRef.current = { episodeId: null, postStatus: "unsupported", sharedWith: [] };
-      setLastEpisode(lastEpisodeRef.current);
-    } else {
-      lastEpisodeRef.current = {
-        episodeId: result.episodeId || null,
-        postStatus: "created",
-        sharedWith: result.sharedWith ?? [],
-      };
-      setLastEpisode(lastEpisodeRef.current);
-      if (result.episodeId) {
-        // Confirmed by the server: Your Day can show it right away.
-        useLiveEpisodeStore.getState().remember({
-          episodeId: result.episodeId,
-          sessionId: body.session_id,
-          startedAt: body.started_at,
-          mode: body.mode,
-          title: `Live session · ${body.mode}`,
-          turnCount,
+    const applyResult = (result: PostLiveSessionResult) => {
+      if (result.status === "failed") {
+        console.warn("[useAudioStream] POST /sessions/live failed:", result.error);
+        lastEpisodeRef.current = { episodeId: null, postStatus: "failed", sharedWith: [] };
+        setLastEpisode(lastEpisodeRef.current);
+      } else if (result.status === "unsupported") {
+        lastEpisodeRef.current = { episodeId: null, postStatus: "unsupported", sharedWith: [] };
+        setLastEpisode(lastEpisodeRef.current);
+      } else {
+        lastEpisodeRef.current = {
+          episodeId: result.episodeId || null,
+          postStatus: "created",
           sharedWith: result.sharedWith ?? [],
-        });
+        };
+        setLastEpisode(lastEpisodeRef.current);
+        if (result.episodeId) {
+          // Confirmed by the server: Your Day can show it right away.
+          useLiveEpisodeStore.getState().remember({
+            episodeId: result.episodeId,
+            sessionId: body.session_id,
+            startedAt: body.started_at,
+            mode: body.mode,
+            title: `Live session · ${body.mode}`,
+            turnCount,
+            sharedWith: result.sharedWith ?? [],
+          });
+        }
       }
+    };
+    const episodeOf = (r: PostLiveSessionResult) =>
+      r.status === "created" && r.episodeId ? r.episodeId : null;
+    const result = await attemptPost();
+    applyResult(result);
+    if (result.status === "failed" && keepPayloadRef.current && isRetryablePostFailure(result.error)) {
+      // Transient failure: retry in the background (Stop must not wait on
+      // it); the kept audio waits for the outcome.
+      const delays = retryDelaysRef.current;
+      void (async () => {
+        let last: PostLiveSessionResult = result;
+        for (const ms of delays) {
+          await new Promise((r) => setTimeout(r, ms));
+          last = await attemptPost();
+          if (last.status !== "failed" || !isRetryablePostFailure(last.error)) break;
+        }
+        applyResult(last);
+        await settleAudioKeep(keeper, episodeOf(last));
+      })();
+      return;
     }
     // Attach the kept audio to the stored episode (or drop it when there is
     // none). Awaited so a stop that completes has settled the file; an
     // upload failure never fails the session — it leaves a retry.
-    await settleAudioKeep(
-      keeper,
-      result.status === "created" && result.episodeId ? result.episodeId : null,
-    );
+    await settleAudioKeep(keeper, episodeOf(result));
   }, [settleAudioKeep]);
 
   /**
@@ -1195,6 +1522,16 @@ export function useAudioStream(
               },
             ]);
           }
+          // A turn the loop really heard: it is not stalled (any more).
+          if (!turn.beforeLoopUp) {
+            serverUtterancesSinceLocalRef.current = 0;
+            if (loopStalledRef.current) {
+              loopStalledRef.current = false;
+              setLiveStatus((st) => st.replace(/ · on-device listening stalled.*$/, ""));
+            }
+          }
+          // The wearer's own enrolled voice, matched outright on-device.
+          if (turn.isSelf === true && turn.matchBasis === "absolute") noteWearerIdentity("voiceprint");
           const recent = recentLocalTurnsRef.current;
           recent.push({ text: turn.text, hadSuggestion: turn.suggestion !== null });
           if (recent.length > MAX_SUGGESTION_FEED) recent.splice(0, recent.length - MAX_SUGGESTION_FEED);
@@ -1270,9 +1607,13 @@ export function useAudioStream(
         },
       };
       try {
+        const buildT0 = Date.now();
         const build = await makeFastLoopRef.current(handlers, loopModeRef.current);
-        if (!sessionActiveRef.current || drainingRef.current) {
+        loopStepsRef.current = { buildMs: Date.now() - buildT0, startMs: null, buildTimings: build.timings ?? null };
+        const startT0 = Date.now();
+        if (!sessionActiveRef.current || drainingRef.current || stopRequestedRef.current) {
           // The user stopped while models were loading: don't start now.
+          prerollRef.current = null;
           void build.loop.stop().catch(() => {});
           primedRecognizer?.stop();
           return;
@@ -1282,15 +1623,37 @@ export function useAudioStream(
         liveSttFailedRef.current = false;
         recentLocalTurnsRef.current = [];
         build.loop.setSelfSpeakerFallback(selfSpeakerRef.current);
+        // Everything captured since Start goes in as the loop's pre-roll;
+        // capture keeps collecting while the recognizer starts.
+        const before = prerollRef.current;
+        prerollRef.current = before ? { chunks: [], samples: 0, dropped: 0 } : null;
         await build.loop.start({
           sessionId,
           mode: loopModeRef.current,
           empathy,
+          relationship: relationshipRef.current,
+          sessionContext: onDeviceSessionContext(sessionContextRef.current),
+          ...(before && before.samples > 0
+            ? { preroll: joinPreroll(before), prerollOffsetSamples: before.dropped }
+            : {}),
         });
+        if (stopRequestedRef.current) {
+          // Stop landed while the recognizer was starting: never go live.
+          prerollRef.current = null;
+          void build.loop.stop().catch(() => {});
+          return;
+        }
+        loopStepsRef.current = { ...loopStepsRef.current, startMs: Date.now() - startT0 };
+        // Frames that arrived during start(), then hand the mic to the loop
+        // in the same tick (no frame can slip between the two).
+        const during = prerollRef.current as PrerollBuffer | null;
+        prerollRef.current = null;
+        if (during && during.samples > 0) build.loop.pushSamples(joinPreroll(during));
         fastLoopRef.current = build.loop;
         lastLoopRef.current = null;
         liveActiveRef.current = true;
-        sessionStartedAtRef.current = new Date().toISOString();
+        loopUpAtRef.current = new Date().toISOString();
+        loopStartupMsRef.current = startWallMsRef.current ? Date.now() - startWallMsRef.current : null;
         setLiveStatus(
           sttFailure
             ? `On-device: ${build.status} · ${sttFailure}.`
@@ -1306,11 +1669,12 @@ export function useAudioStream(
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        prerollRef.current = null;
         primedRecognizer?.stop();
         setLiveStatus(`On-device coaching unavailable (${msg}) — using the server.`);
       }
     },
-    [speakSuggestion, sendOrQueueTurn],
+    [speakSuggestion, sendOrQueueTurn, noteWearerIdentity],
   );
 
   /**
@@ -1380,7 +1744,23 @@ export function useAudioStream(
       capturedSamplesRef.current += int16.length;
       // The on-device fast loop (when running) hears exactly what the server
       // hears — one 16 kHz mono int16 conversion, two consumers.
-      fastLoopRef.current?.pushSamples(int16);
+      const loop = fastLoopRef.current;
+      if (loop) {
+        loop.pushSamples(int16);
+      } else {
+        // The loop is still building: keep the frames for its pre-roll so
+        // the opening seconds still become turns (bounded, oldest dropped).
+        const pre = prerollRef.current;
+        if (pre) {
+          pre.chunks.push(int16);
+          pre.samples += int16.length;
+          while (pre.samples > MAX_PREROLL_SAMPLES && pre.chunks.length > 1) {
+            const old = pre.chunks.shift()!;
+            pre.samples -= old.length;
+            pre.dropped += old.length;
+          }
+        }
+      }
       // …and the kept-audio WAV is the third consumer of the same frames.
       keeperRef.current?.append(int16);
       pendingRef.current = concatInt16(pendingRef.current, int16);
@@ -1450,9 +1830,22 @@ export function useAudioStream(
    * diagnostics"; sent automatically when the session had errors, so a
    * failed demo is diagnosable without the owner doing anything.
    */
-  const recordSessionDiagnostics = useCallback(() => {
+  const recordSessionDiagnostics = useCallback((snapshot: "backgrounded" | null = null) => {
     if (!sessionIdRef.current) return;
     const call = callViewRef.current;
+    // A mid-session snapshot reads the RUNNING loop's health (the session
+    // record proper is written when the loop has stopped).
+    const liveLoop = fastLoopRef.current;
+    const loopRecord: LoopDiagnostics | null =
+      loopHealthRef.current ??
+      (snapshot && liveLoop
+        ? {
+            ...liveLoop.health(),
+            ...loopStepsRef.current,
+            startupMs: loopStartupMsRef.current,
+            sttRestartCodes: {},
+          }
+        : null);
     const errors: string[] = [];
     if (micErrorRef.current) errors.push(`mic: ${micErrorRef.current}`);
     if (sttFailureRef.current) errors.push(`stt: ${sttFailureRef.current}`);
@@ -1469,9 +1862,36 @@ export function useAudioStream(
     }
     if (/unavailable|failed/i.test(liveStatusRef.current)) errors.push(`live: ${liveStatusRef.current}`);
     if (lastEpisodeRef.current?.postStatus === "failed") errors.push("POST /sessions/live failed");
+    if (lastEpisodeRef.current?.postStatus === "skipped") {
+      errors.push(`POST /sessions/live skipped: ${postSkipReasonRef.current ?? "no turns"}`);
+    } else if (postSkipReasonRef.current) {
+      errors.push(`POST /sessions/live sent with 0 turns: ${postSkipReasonRef.current}`);
+    }
+    // The loop ran but heard nothing the transcript did: it is broken, not
+    // "the cloud answered everything" (2026-10-07, dx-NCRN-SAQE).
+    const health = loopRecord;
+    const heard = transcriptRef.current.length + serverUtterancesRef.current;
+    if (health && health.localTurns === 0 && heard > 0) {
+      errors.push(
+        health.turns === 0
+          ? `on-device loop finalized 0 turns while transcript had ${heard}`
+          : `on-device loop finalized ${health.turns} turns but sent 0 (all before it was up) while transcript had ${heard}`,
+      );
+    } else if (loopStallSeenRef.current) {
+      errors.push(
+        `on-device loop stalled: ${LOOP_STALL_SERVER_UTTERANCES}+ server utterances in a row with no on-device turn`,
+      );
+    }
+    // Stop landed before the on-device loop ever came up (the dinner loop
+    // took ≈8.5 s): say so — that session never had local coaching.
+    if (!snapshot && loopExpectedRef.current && !loopUpAtRef.current && !/unavailable/i.test(liveStatusRef.current)) {
+      const ms = startWallMsRef.current ? Date.now() - startWallMsRef.current : null;
+      errors.push(`session ended before the on-device loop came up${ms !== null ? ` (${ms} ms after Start)` : ""}`);
+    }
     if (call.status === "failed" && call.error) errors.push(`call: ${call.error}`);
     if (call.iceRestarts > 0) errors.push(`call: ${call.iceRestarts} ICE restart(s)`);
     const record: SessionDiagnostics = {
+      ...(snapshot ? { snapshot } : {}),
       sessionId: sessionIdRef.current,
       mode: sessionModeRef.current,
       startedAt: sessionStartedAtRef.current || null,
@@ -1492,6 +1912,8 @@ export function useAudioStream(
       micError: micErrorRef.current || null,
       transcriptionMessage: transcriptionMessageRef.current || null,
       postStatus: lastEpisodeRef.current?.postStatus ?? "none",
+      loopUpAt: loopUpAtRef.current,
+      loop: loopRecord,
       call:
         call.status === "idle"
           ? null
@@ -1505,11 +1927,26 @@ export function useAudioStream(
     };
     const store = useDiagnosticsStore.getState();
     store.recordSession(record);
-    if (errors.length > 0) {
+    // A backgrounded session may be about to be swiped away (the dinner
+    // session left no record at all): its snapshot always goes out.
+    if (errors.length > 0 || snapshot) {
       const user = useAuthStore.getState().user;
-      void store.send("auto", { uid: user?.uid ?? null, email: user?.email ?? null });
+      void store.send(snapshot ?? "auto", { uid: user?.uid ?? null, email: user?.email ?? null });
     }
   }, [liveCapability.capable]);
+
+  // App sent to the background mid-session (recents / swipe-away / another
+  // app): send ONE diagnostics snapshot now — a swiped-away app never gets to
+  // its Stop, and the 2026-10-07 dinner session left no diagnostics.
+  useEffect(() => {
+    const sub = AppState.addEventListener?.("change", (next) => {
+      if (next !== "background") return;
+      if (!sessionActiveRef.current || journalRef.current || backgroundSnapshotSentRef.current) return;
+      backgroundSnapshotSentRef.current = true;
+      recordSessionDiagnostics("backgrounded");
+    });
+    return () => sub?.remove?.();
+  }, [recordSessionDiagnostics]);
 
   /**
    * Final cleanup shared by every way a session ends after a manual stop:
@@ -1523,6 +1960,12 @@ export function useAudioStream(
     }
     drainingRef.current = false;
     sessionActiveRef.current = false;
+    stopRequestedRef.current = true;
+    if (contextSendTimerRef.current !== null) clearTimeout(contextSendTimerRef.current);
+    contextSendTimerRef.current = null;
+    prerollRef.current = null;
+    stopRoutePoll();
+    stopSpeechSafely();
     // A call outlives nothing: if the session ends for any reason (server
     // close, reconnect exhaustion) the WebRTC side goes down with it.
     const call = callRef.current;
@@ -1574,6 +2017,14 @@ export function useAudioStream(
   }, [finishDrain]);
 
   const stopSession = useCallback(async () => {
+    // Silence FIRST, synchronously: whatever happens below (loop drain, the
+    // session POST, the drain window) nothing is spoken from here on.
+    stopRequestedRef.current = true;
+    if (contextSendTimerRef.current !== null) clearTimeout(contextSendTimerRef.current);
+    contextSendTimerRef.current = null;
+    prerollRef.current = null;
+    stopRoutePoll();
+    stopSpeechSafely();
     if (drainingRef.current) return; // Stop already in progress.
     if (journalRef.current) {
       // Journal mode has no socket to drain and no record to post.
@@ -1647,6 +2098,11 @@ export function useAudioStream(
         clearTimeout(drainTimerRef.current);
         drainTimerRef.current = null;
       }
+      stopRequestedRef.current = true;
+      if (contextSendTimerRef.current !== null) clearTimeout(contextSendTimerRef.current);
+      contextSendTimerRef.current = null;
+      prerollRef.current = null;
+      stopRoutePoll();
       drainingRef.current = false;
       sessionActiveRef.current = false;
       shouldReconnect.current = false;
@@ -1700,9 +2156,20 @@ export function useAudioStream(
             type: "config",
             empathy_slider: empathyRef.current,
             interject_level: interjectRef.current,
-            // Which diarized voice is the coached user's. Read from the ref so
-            // a toggle made before the socket opened is still honoured here.
+            // Which diarized voice the USER said is theirs — null unless
+            // they picked one (no "Speaker A" convention). Read from the ref
+            // so a toggle made before the socket opened is still honoured.
             self_speaker: selfSpeakerRef.current,
+            // Whether the wearer's voice is confirmed (see wearerIdentityRef).
+            ...wearerIdentityConfig(wearerIdentityRef.current),
+            // Who they are talking with — only when the user said so.
+            ...(relationshipRef.current ? { relationship: relationshipRef.current } : {}),
+            // The user's own context, only when they wrote some.
+            ...(() => {
+              const ctx = sessionContextRef.current.trim() ? sessionContextRef.current : "";
+              sentContextRef.current = ctx;
+              return ctx ? { session_context: ctx } : {};
+            })(),
             // On-device TTS: the server must not synthesize audio for us;
             // and report its per-stage latency with session_complete.
             ...(liveActiveRef.current
@@ -1797,6 +2264,23 @@ export function useAudioStream(
           // are never echoed — so in a call every transcript event is remote.
           const inCall = callRef.current !== null;
           const remoteTurn = inCall && data.type === "transcript";
+          if (data.type === "transcript" && !remoteTurn && liveActiveRef.current && !liveSttFailedRef.current) {
+            // The server heard an utterance the phone's loop should have.
+            serverUtterancesRef.current += 1;
+            serverUtterancesSinceLocalRef.current += 1;
+            if (
+              !loopStalledRef.current &&
+              serverUtterancesSinceLocalRef.current >= LOOP_STALL_SERVER_UTTERANCES
+            ) {
+              loopStalledRef.current = true;
+              loopStallSeenRef.current = true;
+              stopSpeechSafely();
+              setLiveStatus(
+                (st) =>
+                  `${st} · on-device listening stalled: the server heard ${serverUtterancesSinceLocalRef.current} utterances the phone did not — suggestions on screen only`,
+              );
+            }
+          }
           if (
             data.type === "transcript" &&
             (!liveActiveRef.current || liveSttFailedRef.current || remoteTurn)
@@ -1968,6 +2452,11 @@ export function useAudioStream(
               const voiceIt =
                 !muted &&
                 !forName &&
+                // A suggestion that lands after Stop is never voiced (and
+                // never handed to the loop's hold slot).
+                !stopRequestedRef.current &&
+                // A stalled loop can't place the moment: screen only.
+                !loopStalledRef.current &&
                 (!liveActiveRef.current ||
                   liveSttFailedRef.current ||
                   (source === "cloud" &&
@@ -2174,6 +2663,11 @@ export function useAudioStream(
           call?.hangUp();
           pendingRef.current = new Int16Array(0);
           resamplerRef.current = null;
+          stopRequestedRef.current = true;
+          if (contextSendTimerRef.current !== null) clearTimeout(contextSendTimerRef.current);
+          contextSendTimerRef.current = null;
+          prerollRef.current = null;
+          stopRoutePoll();
           stopSpeechSafely(); // Session is dead — stop coaching aloud too.
           void stopFastLoop().finally(() => recordSessionDiagnostics());
           // Restore a playback audio session so later replay is audible.
@@ -2409,6 +2903,7 @@ export function useAudioStream(
         finishDrain();
       }
       sessionActiveRef.current = true;
+      stopRequestedRef.current = false;
 
       sessionIdRef.current = sessionId;
       empathyRef.current = empathyLevel;
@@ -2442,9 +2937,25 @@ export function useAudioStream(
       setEscalationCount(0);
       escalationRef.current = 0;
       latencyLogRef.current = [];
-      // The legacy path never starts the fast loop, so stamp the start here
-      // too (startFastLoop re-stamps when the loop actually comes up).
-      sessionStartedAtRef.current = new Date().toISOString();
+      // Start is the session's start — the loop's own start (loop_up_at) is
+      // recorded separately when it comes up.
+      startWallMsRef.current = Date.now();
+      sessionStartedAtRef.current = new Date(startWallMsRef.current).toISOString();
+      loopUpAtRef.current = null;
+      loopStartupMsRef.current = null;
+      loopHealthRef.current = null;
+      loopStepsRef.current = { buildMs: null, startMs: null, buildTimings: null };
+      postSkipReasonRef.current = null;
+      serverUtterancesSinceLocalRef.current = 0;
+      serverUtterancesRef.current = 0;
+      loopStalledRef.current = false;
+      loopStallSeenRef.current = false;
+      // Cold-start pre-roll: collect from the first captured frame whenever
+      // an on-device loop will be brought up for this session.
+      loopExpectedRef.current =
+        liveModeRef.current && liveCapability.capable && sessionModeRef.current !== "journal";
+      backgroundSnapshotSentRef.current = false;
+      prerollRef.current = loopExpectedRef.current ? { chunks: [], samples: 0, dropped: 0 } : null;
       localTurnsRef.current = [];
       toneFlagsRef.current = [];
       identitiesRef.current = [];
@@ -2461,14 +2972,14 @@ export function useAudioStream(
       // Fresh session, fresh protocol detection: don't let the previous
       // server's transcript events silence a legacy server's fallback.
       sawTranscriptEventRef.current = false;
-      // Fresh session, fresh diarization: "Speaker A" is whoever speaks first
-      // in THIS session, so a previous session's toggle must never leak into
-      // the new initial config frame — it could invert coaching entirely
-      // (nudges for the other person, response cards for the user). Reset
-      // BEFORE the socket opens so onopen always sends the per-session
-      // "you speak first" default.
-      selfSpeakerRef.current = "Speaker A";
-      setSelfSpeakerState("Speaker A");
+      // Fresh session, fresh diarization: a previous session's toggle must
+      // never leak into the new initial config frame — it could invert
+      // coaching entirely. Reset BEFORE the socket opens: nobody is the
+      // wearer until the voiceprint matches or the user says so.
+      selfSpeakerRef.current = null;
+      setSelfSpeakerState(null);
+      wearerIdentityRef.current = "unconfirmed";
+      setWearerVoiceConfirmed(false);
 
       if (sessionModeRef.current === "journal") {
         // Mic + journal recorder only: no socket, no loop, no keeper.
@@ -2476,6 +2987,8 @@ export function useAudioStream(
         return;
       }
       setJournal(IDLE_JOURNAL_STATE);
+      // Earpiece mode: watch the private audio route for the whole session.
+      startRoutePoll();
 
       if (Platform.OS === "web") {
         await startWebSession(sessionId, empathyLevel);
@@ -2563,6 +3076,7 @@ export function useAudioStream(
       startJournalSession,
       startFastLoop,
       beginAudioKeep,
+      startRoutePoll,
       liveCapability.capable,
     ],
   );
@@ -2601,6 +3115,7 @@ export function useAudioStream(
   const setSelfSpeaker = useCallback((label: string) => {
     selfSpeakerRef.current = label;
     setSelfSpeakerState(label);
+    noteWearerIdentity("user_label");
     // The on-device loop applies the same convention to its own unknown
     // clusters (nudge vs response, haptics on self turns only).
     fastLoopRef.current?.setSelfSpeakerFallback(label);
@@ -2609,11 +3124,48 @@ export function useAudioStream(
         JSON.stringify({ type: "config", self_speaker: label }),
       );
     }
-  }, []);
+  }, [noteWearerIdentity]);
 
   const setLiveMode = useCallback((on: boolean) => {
     liveModeRef.current = on;
     setLiveModeState(on);
+  }, []);
+
+  const setRelationship = useCallback((next: Relationship | null) => {
+    const value = next && isRelationship(next) ? next : null;
+    if (relationshipRef.current === value) return;
+    relationshipRef.current = value;
+    setRelationshipState(value);
+    fastLoopRef.current?.setRelationship(value);
+    const ws = wsRef.current;
+    if (sessionActiveRef.current && ws && ws.readyState === WebSocket.OPEN) {
+      // null clears a relationship chosen earlier in the session.
+      ws.send(JSON.stringify({ type: "config", relationship: value }));
+    }
+  }, []);
+
+  const setSessionContext = useCallback((text: string) => {
+    const value = clampSessionContext(text);
+    sessionContextRef.current = value;
+    fastLoopRef.current?.setSessionContext(onDeviceSessionContext(value));
+    if (contextSendTimerRef.current !== null) clearTimeout(contextSendTimerRef.current);
+    contextSendTimerRef.current = null;
+    if (!sessionActiveRef.current) return; // the first config frame carries it
+    contextSendTimerRef.current = setTimeout(() => {
+      contextSendTimerRef.current = null;
+      const current = sessionContextRef.current.trim() ? sessionContextRef.current : "";
+      // Nothing new — or still nothing at all — sends nothing.
+      if (current === sentContextRef.current) return;
+      const ws = wsRef.current;
+      if (!sessionActiveRef.current || !ws || ws.readyState !== WebSocket.OPEN) return;
+      try {
+        // "" clears a context sent earlier in the session.
+        ws.send(JSON.stringify({ type: "config", session_context: current }));
+        sentContextRef.current = current;
+      } catch {
+        // Socket mid-close: a reconnect's config frame carries it.
+      }
+    }, CONTEXT_SEND_DEBOUNCE_MS);
   }, []);
 
   const setSessionMode = useCallback((mode: LiveMode) => {
@@ -2680,6 +3232,7 @@ export function useAudioStream(
       if (choice.isSelf) {
         selfSpeakerRef.current = speaker;
         setSelfSpeakerState(speaker);
+        noteWearerIdentity("user_label");
       }
       // The record carries the person id the user chose (the loop's later
       // turns do too); the stored episode attaches it only once that person
@@ -2777,7 +3330,7 @@ export function useAudioStream(
       }
       return { text, enrolled, seconds };
     },
-    [],
+    [noteWearerIdentity],
   );
 
   const runPreflight = useCallback(async () => {
@@ -2992,11 +3545,13 @@ export function useAudioStream(
     speakerLabel,
     selfSpeaker,
     setSelfSpeaker,
+    wearerVoiceConfirmed,
     connectionStatus,
     transcriptionAvailable,
     transcriptionMessage,
     micError,
     speechAvailable,
+    privateAudioRoute,
     speechEnabled,
     setSpeechEnabled,
     startSession,
@@ -3009,6 +3564,9 @@ export function useAudioStream(
     setLiveMode,
     sessionMode,
     setSessionMode,
+    relationship,
+    setRelationship,
+    setSessionContext,
     liveStatus,
     nudgeFlash,
     clearNudgeFlash,

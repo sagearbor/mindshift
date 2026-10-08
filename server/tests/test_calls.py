@@ -163,7 +163,7 @@ class RoutingLLM:
 
     def complete(self, system: str, user: str, **_) -> str:
         self.calls.append((system, user))
-        if "real-time delivery coach" in system:
+        if "Produce ONE nudge" in system:
             return NUDGE_LLM_JSON
         if system.startswith(main.ANALYZE_SYSTEM_PROMPT):
             n = int(user.split("Conversation (")[1].split(" turns")[0])

@@ -56,6 +56,16 @@ export interface LiveSessionBody {
   started_at: string;
   ended_at: string;
   mode: LiveSessionMode;
+  /** When the on-device loop actually came up (ISO). `started_at` is the
+   *  user's Start; the gap is the loop's cold start. Absent when no loop
+   *  ran. Older servers ignore the key. */
+  loop_up_at?: string;
+  /** Who the user said they were talking with (child, partner, parent,
+   *  coworker, friend, other). Omitted when unset — generic. */
+  relationship?: string;
+  /** The user's own description of the conversation (≤ 4000 chars).
+   *  Omitted when empty. */
+  session_context?: string;
   turns: TurnLocalEvent[];
   tone_flags?: ToneFlagEvent[];
   speaker_identities?: SpeakerIdentityEvent[];

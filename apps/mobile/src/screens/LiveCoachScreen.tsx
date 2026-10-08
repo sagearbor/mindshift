@@ -38,6 +38,8 @@ import type { CallRole } from "../live/call/types";
 import { listVoicePeople, patchSessionMood, type VoicePerson } from "../api/liveSessions";
 import { getTherapistLink, type TherapistLink } from "../api/therapist";
 import * as apiClient from "../api/client";
+import ConversationContextPanel from "../components/ConversationContextPanel";
+import { defaultSessionContextStore } from "../live/sessionContext";
 import type { VoicePerson as ApiVoicePerson } from "../api/client";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -141,10 +143,12 @@ export default function LiveCoachScreen({
     suggestions,
     selfSpeaker,
     setSelfSpeaker,
+    wearerVoiceConfirmed,
     connectionStatus,
     transcriptionMessage,
     micError,
     speechAvailable,
+    privateAudioRoute,
     setSpeechEnabled,
     startSession,
     stopSession,
@@ -156,6 +160,9 @@ export default function LiveCoachScreen({
     setLiveMode,
     sessionMode,
     setSessionMode,
+    relationship,
+    setRelationship,
+    setSessionContext,
     liveStatus,
     nudgeFlash,
     clearNudgeFlash,
@@ -187,6 +194,29 @@ export default function LiveCoachScreen({
     setCallRoute,
   } = useAudioStream({ keepAudio });
   const callView = call ?? IDLE_CALL_VIEW;
+
+  // The user's own words about this conversation: remembered on this device
+  // (so it can be reused), handed to the hook, which sends it.
+  const contextStoreRef = useRef(defaultSessionContextStore());
+  const [contextText, setContextText] = useState(() => contextStoreRef.current.load());
+  useEffect(() => {
+    setSessionContext?.(contextText);
+    // Only on mount: later edits go through handleContextChange.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const handleContextChange = useCallback(
+    (text: string) => {
+      setContextText(text);
+      setSessionContext?.(text);
+      contextStoreRef.current.save(text);
+    },
+    [setSessionContext],
+  );
+  const handleContextClear = useCallback(() => {
+    setContextText("");
+    setSessionContext?.("");
+    contextStoreRef.current.clear();
+  }, [setSessionContext]);
 
   const userId = useAuthStore((s) => s.user?.uid ?? null);
   const [empathyLevel, setEmpathyLevel] = useState(50);
@@ -407,10 +437,10 @@ export default function LiveCoachScreen({
     }
   }, [sessionActive, stopSession, startSession, empathyLevel, interjectLevel, sessionSummary]);
 
-  // Flip the coached user's identity between the two diarized speakers. The
-  // server labels the first voice it hears "Speaker A", so that's the default.
+  // Tell the coach which diarized voice is yours. Nothing is assumed (no
+  // "you speak first"): the first tap picks Speaker A, then it flips A↔B.
   const handleToggleSelfSpeaker = useCallback(() => {
-    setSelfSpeaker(selfSpeaker === "Speaker B" ? "Speaker A" : "Speaker B");
+    setSelfSpeaker(selfSpeaker === "Speaker A" ? "Speaker B" : "Speaker A");
   }, [selfSpeaker, setSelfSpeaker]);
 
   // Call mode (src/live/call): every action here is one tap that does
@@ -681,8 +711,8 @@ export default function LiveCoachScreen({
 
       {/* Identity chip: which diarized voice is the user's. Shown once there's
           a session or a first transcript line — before that the toggle would
-          be meaningless. Tapping flips A↔B; the hint reminds the "you speak
-          first" convention while idle. Therapist mode has no "you" on the
+          be meaningless. Until the voiceprint or the user says which voice is
+          theirs it reads "not set" — never a speaking-order guess. Therapist mode has no "you" on the
           mic, so the chip is hidden there. */}
       {!isTherapist && !isCall && !isJournal && (sessionActive || transcript.length > 0) && (
         <View style={styles.identityRow}>
@@ -692,11 +722,11 @@ export default function LiveCoachScreen({
             onPress={handleToggleSelfSpeaker}
           >
             <Text style={styles.identityChipText}>
-              You: {selfSpeaker ?? "Speaker A"} ⇄
+              You: {selfSpeaker ?? (wearerVoiceConfirmed ? "your voiceprint" : "not set")} ⇄
             </Text>
           </TouchableOpacity>
-          {connectionStatus === "idle" && (
-            <Text style={styles.identityHint}>you speak first</Text>
+          {selfSpeaker === null && !wearerVoiceConfirmed && (
+            <Text style={styles.identityHint}>tap to pick your voice</Text>
           )}
         </View>
       )}
@@ -976,6 +1006,28 @@ export default function LiveCoachScreen({
           Spoken suggestions aren&apos;t available on this platform — showing
           them on screen only.
         </Text>
+      ) : null}
+
+      {/* Earpiece mode never falls back to the loudspeaker: with no headset
+          connected the coach is silent and says so here. */}
+      {sessionActive && sessionMode === "earpiece" && privateAudioRoute != null && privateAudioRoute !== "private" ? (
+        <Text style={styles.routeLostText} testID="earpiece-route-lost-note" accessibilityLiveRegion="polite">
+          {privateAudioRoute === "unknown"
+            ? "Can't confirm a headset here — the coach stays silent in earpiece mode. Suggestions show on screen."
+            : "No headset connected — the coach is silent (earpiece mode never uses the phone speaker). Reconnect it to hear suggestions."}
+        </Text>
+      ) : null}
+
+      {/* About this conversation (optional, generic by default): before Start
+          and editable mid-session. Not for an observer or the journal. */}
+      {!isTherapist && !isJournal && setRelationship ? (
+        <ConversationContextPanel
+          relationship={relationship ?? null}
+          onRelationshipChange={setRelationship}
+          sessionContext={contextText}
+          onSessionContextChange={handleContextChange}
+          onClearSessionContext={handleContextClear}
+        />
       ) : null}
 
       {/* Empathy slider + interject: the coach's knobs — none in Journal mode. */}
@@ -1435,6 +1487,13 @@ const styles = StyleSheet.create({
   },
   sessionStripWarn: {
     color: "#B45309",
+  },
+  routeLostText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#B45309",
+    paddingHorizontal: 16,
+    paddingBottom: 4,
   },
   speechUnavailableText: {
     fontSize: 12,

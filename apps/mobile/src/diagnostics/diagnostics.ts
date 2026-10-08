@@ -23,7 +23,8 @@ import * as Updates from "expo-updates";
 import Constants from "expo-constants";
 import { create } from "zustand";
 import type { FastLoopCapabilities } from "../live/defaultDeps";
-import type { TurnLatency } from "../live/fastLoop";
+import type { FastLoopHealth, TurnLatency } from "../live/fastLoop";
+import type { FastLoopBuildTimings } from "../live/defaultDeps";
 import { authHeaders } from "../api/liveSessions";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:8000";
@@ -145,6 +146,10 @@ export function summarizeSpeakerId(
 }
 
 export interface SessionDiagnostics {
+  /** Set on a MID-SESSION snapshot ("backgrounded": the app left the
+   *  foreground during a session and may be killed); absent on the record
+   *  written when a session ends. */
+  snapshot?: "backgrounded";
   sessionId: string;
   mode: string;
   startedAt: string | null;
@@ -163,10 +168,29 @@ export interface SessionDiagnostics {
   micError: string | null;
   transcriptionMessage: string | null;
   /** POST /sessions/live outcome. */
-  postStatus: "created" | "unsupported" | "failed" | "none";
+  postStatus: "created" | "unsupported" | "failed" | "skipped" | "none";
   call: { status: string; iceRestarts: number; error: string | null; connectedSeconds: number | null } | null;
+  /** When the on-device loop came up (startedAt is the user's Start);
+   *  null when it never did. Absent in older records. */
+  loopUpAt?: string | null;
+  /** The on-device loop's own account (null on the legacy path). */
+  loop?: LoopDiagnostics | null;
   /** Every problem worth a diagnostics send, in plain words. */
   errors: string[];
+}
+
+/** FastLoopHealth plus what only the hook knows: how long the loop took to
+ *  come up after Start, and the recognizer's restart error codes. */
+export interface LoopDiagnostics extends FastLoopHealth {
+  /** Start → loop up, ms; null when the loop never came up. */
+  startupMs: number | null;
+  /** Of that: building the loop (models, voiceprints) and starting it
+   *  (recognizer + pre-roll), ms. */
+  buildMs: number | null;
+  startMs: number | null;
+  /** The native builder's per-step timing (reused pre-flight build or not). */
+  buildTimings: FastLoopBuildTimings | null;
+  sttRestartCodes: Record<string, number>;
 }
 
 export interface DeviceInfo {
@@ -267,7 +291,7 @@ export interface DeviceDiarizationEvent {
   created_at: string;
 }
 
-export type DiagnosticsTrigger = "manual" | "auto" | "device_diarization";
+export type DiagnosticsTrigger = "manual" | "auto" | "device_diarization" | "backgrounded";
 
 export interface DiagnosticsPayload {
   diagnostics_id: string;
@@ -371,7 +395,7 @@ export interface DiagnosticsState {
   setCapability: (capability: FastLoopCapabilities | null, reason: string | null) => void;
   recordSession: (session: SessionDiagnostics) => void;
   /** Build + POST. Resolves with the outcome; also kept in `lastSent`. */
-  send: (trigger: "manual" | "auto", who: { uid: string | null; email: string | null }) => Promise<SendOutcome>;
+  send: (trigger: "manual" | "auto" | "backgrounded", who: { uid: string | null; email: string | null }) => Promise<SendOutcome>;
   /** Remember a voice-separation run AND post it right away as its own
    *  record (trigger "device_diarization") so its id can be read off the
    *  replay screen. Never throws. */

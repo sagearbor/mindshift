@@ -176,6 +176,20 @@ STOP_DRAIN_TIMEOUT_S = 30.0
 UTTERANCE_BUFFER_MAX = 1000
 UTTERANCE_BUFFER_KEEP = 500
 
+# DEBUG SAVE (owner-approved 2026-10-07, "for now, maybe not forever"):
+# POST /sessions/live with ZERO phone turns is stored instead of refused
+# (422), using THIS server's own transcript of that session when it has one
+# (see _DEBUG_TRANSCRIPTS below). Born from a family-dinner session where
+# the phone produced no turns and the only record of what went wrong was
+# lost. Turn it off with MINDSHIFT_LIVE_DEBUG_SAVE_EMPTY_SESSIONS=0: the
+# 422 returns and no server transcript is kept in memory at all.
+LIVE_DEBUG_SAVE_EMPTY_SESSIONS = (
+    os.getenv("MINDSHIFT_LIVE_DEBUG_SAVE_EMPTY_SESSIONS", "1") != "0"
+)
+# Bounds for the process-local transcript registry the debug save reads.
+DEBUG_TRANSCRIPT_TTL_S = 6 * 3600.0
+DEBUG_TRANSCRIPT_MAX_SESSIONS = 64
+
 # Track 3-server: latency instrumentation. The last N per-stage timings are
 # kept per session (a deque each) so the stop handler can report p50/p95
 # without the memory growing with an hour-long session. 200 utterances is
@@ -1093,8 +1107,9 @@ class SuggestionJob:
     empathy/interject/role/self_speaker are snapshotted at ENQUEUE time so a
     mid-flight config change never retypes an already-queued turn (the
     pre-existing tuple contract, now named). ``is_self`` is the phone's
-    verdict from turn_local — when it is not None it WINS over the fragile
-    ``self_speaker`` label comparison; None means "decide the legacy way".
+    verdict from turn_local; with the session's CONFIRMED labels it becomes
+    ``identity`` at enqueue (see _resolve_wearer) — a bare ``self_speaker``
+    label is never enough to treat a turn as the wearer's.
     ``tone_context`` is the phone's text-tone/prosody for the prompt.
 
     ``prev_done`` / ``done`` form the per-session ORDERING CHAIN that keeps
@@ -1109,7 +1124,7 @@ class SuggestionJob:
     utterance: Utterance
     empathy_slider: int
     interject_level: int
-    role: str
+    role: str | None
     self_speaker: str | None
     timing: UtteranceTiming
     is_self: bool | None = None
@@ -1117,6 +1132,12 @@ class SuggestionJob:
     # Enqueue-time snapshot of the recent exchange + the coach's own recent
     # lines for the prompt (None when COACH_CONTEXT is off).
     history: dict | None = None
+    relationship: str | None = None
+    session_context: str | None = None
+    # Enqueue-time wearer identity (WEARER_SELF / WEARER_OTHER /
+    # WEARER_UNKNOWN, see _resolve_wearer). None only for a job built
+    # directly (tests): process_segment then derives it from is_self alone.
+    identity: str | None = None
     prev_done: "asyncio.Future[None] | None" = field(default=None, repr=False, compare=False)
     done: "asyncio.Future[None] | None" = field(default=None, repr=False, compare=False)
 
@@ -1285,11 +1306,78 @@ _SELF_GUIDANCE = (
     "coach already whispered above."
 )
 _OTHER_GUIDANCE = (
-    "Each suggestion is something the user can say verbatim, first person, "
-    "10 words or fewer, grounded in what was just said. Do not reword a line "
-    "the coach already gave above, and do not open with the same words it "
-    "opened with (vary \"I hear you\" / \"You're right\" / \"Let's\")."
+    "Each suggestion is a cue for the wearer, 10 words or fewer, grounded in "
+    "what was just said: mostly their manner or next move (\"ask what part "
+    "was hardest\"); a line to say only if it adds no facts the wearer has "
+    "not said. Do not reword a line the coach already gave above, and do not "
+    "open with the same words it opened with."
 )
+
+# While the wearer is unknown (see _resolve_wearer) the per-turn guidance
+# restates the neutral rules right next to the turn being coached.
+_UNKNOWN_GUIDANCE = (
+    "The wearer is not yet identified: each suggestion is a speaker-neutral "
+    "cue of 6 words or fewer. No first-person lines, no attributing anything "
+    "to anyone, no \"you said\"."
+)
+
+# Wearer identity for one turn (owner requirement C, 2026-10-07).
+WEARER_SELF = "self"
+WEARER_OTHER = "other"
+WEARER_UNKNOWN = "unknown"
+
+
+def _resolve_wearer(ctx: SessionContext, utterance: Utterance, is_self: bool | None) -> str:
+    """Is this turn the wearer's own, someone else's, or not yet knowable?
+
+    Only CONFIRMED identity counts:
+
+    * ``is_self`` on the turn -- the phone's voiceprint verdict on a
+      turn_local, or structural in a call -- decides, and is remembered for
+      that label (``ctx.self_labels`` / ``ctx.other_labels``);
+    * a label confirmed earlier (that verdict, the user tapping it via a
+      ``speaker_label`` frame, or the server's own voiceprint match -- see
+      :func:`_confirm_wearer_by_voiceprint`);
+    * ``self_speaker`` ONLY when the phone also said ``wearer_known: true``;
+    * once some label is the confirmed wearer, every other label is OTHER.
+
+    Anything else is UNKNOWN. In particular a bare ``self_speaker`` label --
+    the phone defaults it to "Speaker A", i.e. whoever Deepgram heard first --
+    is never taken as the wearer (at a family dinner that made the owner's
+    son "the wearer")."""
+    label = utterance.speaker
+    if is_self is True:
+        ctx.self_labels.add(label)
+        ctx.other_labels.discard(label)
+        return WEARER_SELF
+    if is_self is False:
+        ctx.other_labels.add(label)
+        ctx.self_labels.discard(label)
+        return WEARER_OTHER
+    if label in ctx.self_labels:
+        return WEARER_SELF
+    if label in ctx.other_labels:
+        return WEARER_OTHER
+    if ctx.wearer_known and ctx.self_speaker:
+        return WEARER_SELF if label == ctx.self_speaker else WEARER_OTHER
+    if ctx.self_labels:
+        return WEARER_OTHER
+    return WEARER_UNKNOWN
+
+
+def _record_voiceprint_verdict(
+    ctx: SessionContext, label: str, is_self: bool, person_id: str | None,
+) -> None:
+    """Fold a SERVER voiceprint verdict into the session's identity: a match
+    to the wearer's print confirms the label as the wearer; a match to
+    another enrolled person confirms it as someone else. No match decides
+    nothing (a raised voice can miss the wearer's print)."""
+    if is_self:
+        ctx.self_labels.add(label)
+        ctx.other_labels.discard(label)
+    elif person_id:
+        ctx.other_labels.add(label)
+        ctx.self_labels.discard(label)
 
 
 def _remember_coaching(ctx: SessionContext, utterance: Utterance, text: str, kind: str) -> None:
@@ -1306,6 +1394,7 @@ def _remember_coaching(ctx: SessionContext, utterance: Utterance, text: str, kin
 
 def _history_for_prompt(
     ctx: SessionContext, utterance: Utterance, *, is_self: bool | None,
+    identity: str | None = None,
 ) -> dict | None:
     """The context block for THIS turn's prompt, or ``None`` when the
     feature is off (the prompt is then byte-identical to the single-turn
@@ -1319,12 +1408,12 @@ def _history_for_prompt(
     """
     if not COACH_CONTEXT:
         return None
-    if is_self is True:
-        ctx.self_labels.add(utterance.speaker)
-    elif is_self is False:
-        ctx.self_labels.discard(utterance.speaker)
+    if identity is None:
+        identity = _resolve_wearer(ctx, utterance, is_self)
+    # Only CONFIRMED wearer labels are shown as "You" (see _resolve_wearer):
+    # an unconfirmed self_speaker label is shown by its raw name.
     self_labels = set(ctx.self_labels)
-    if ctx.self_speaker:
+    if ctx.wearer_known and ctx.self_speaker:
         self_labels.add(ctx.self_speaker)
 
     turns: list[dict] = []
@@ -1345,7 +1434,10 @@ def _history_for_prompt(
         for c in ctx.coaching_log
         if float(c["t"]) >= since or c is ctx.coaching_log[-1]
     ][-COACH_CONTEXT_TURNS:] if ctx.coaching_log else []
-    return {"turns": turns, "coach": coach_lines, "self": bool(is_self)}
+    return {
+        "turns": turns, "coach": coach_lines,
+        "self": identity == WEARER_SELF, "unknown": identity == WEARER_UNKNOWN,
+    }
 
 
 def _render_history(history: dict) -> str:
@@ -1356,14 +1448,19 @@ def _render_history(history: dict) -> str:
     for t in turns:
         rows.append((float(t["t"]), 0, f'- {t["who"]}: "{t["text"]}"'))
     for c in coach:
-        what = "whispered to the user" if c.get("kind") == "nudge" else "suggested the user say"
+        what = "whispered to the wearer" if c.get("kind") == "nudge" else "suggested to the wearer"
         rows.append((float(c["t"]), 1, f'- (coach {what}: "{c["text"]}")'))
     rows.sort(key=lambda r: (r[0], r[1]))
     lines: list[str] = []
     if rows:
         lines.append("Recent exchange before this turn (oldest first):")
         lines.extend(r[2] for r in rows)
-    lines.append(_SELF_GUIDANCE if history.get("self") else _OTHER_GUIDANCE)
+    if history.get("self"):
+        lines.append(_SELF_GUIDANCE)
+    elif history.get("unknown"):
+        lines.append(_UNKNOWN_GUIDANCE)
+    else:
+        lines.append(_OTHER_GUIDANCE)
     return "\n".join(lines)
 
 
@@ -1459,7 +1556,21 @@ class SessionContext:
     # every turn — the pre-slider behaviour. Orthogonal to empathy_slider,
     # which sets the STYLE of suggestions, not when to deliver them.
     interject_level: int = 0
-    role: str = "Husband"
+    # Legacy free-text role from older clients. None by default (2026-10-07):
+    # the coach used to assume "Husband" for every live session, which at a
+    # family dinner pitched coaching at a son as if he were a spouse. When an
+    # older client still sends one, it is a light hint in the prompt only.
+    role: str | None = None
+    # Optional relationship hint (main.COACH_RELATIONSHIPS: child | partner |
+    # parent | coworker | friend | other). None = generic, any conversation.
+    relationship: str | None = None
+    # Wearer-typed background for this session (config `session_context`,
+    # validated by main.validate_session_context: stripped, <= 4000 chars,
+    # longer is rejected). Prompt-only and in-memory: never persisted.
+    session_context: str | None = None
+    # The debug-save registry entry for this session (None while the flag is
+    # off) -- see _debug_register_session.
+    debug_transcript: "_DebugTranscript | None" = None
     utterances: list[Utterance] = field(default_factory=list)
     # Verified Firebase uid, set by the WS auth handshake before any audio is
     # processed. None only during the pre-auth window; a session that reaches
@@ -1505,6 +1616,15 @@ class SessionContext:
     # re-sending identity on every frame.
     coaching_log: list[dict] = field(default_factory=list)
     self_labels: set[str] = field(default_factory=set)
+    # Mid-stream identity (2026-10-07): labels CONFIRMED as someone other
+    # than the wearer (phone/server voiceprint verdict, or the user naming
+    # the label as another person), the labels with a server voiceprint
+    # check in flight, and whether the phone vouched that its `self_speaker`
+    # is confirmed (config `wearer_known`). A bare self_speaker without
+    # wearer_known is NOT trusted -- see _resolve_wearer.
+    other_labels: set[str] = field(default_factory=set)
+    voiceprint_pending: set[str] = field(default_factory=set)
+    wearer_known: bool = False
     # Track 3-server — local-first (phone-orchestrated) sessions. Latched
     # True by the FIRST turn_local frame and never reset: a client that has
     # proven it segments/transcribes/speaks on-device keeps that role for
@@ -1614,15 +1734,83 @@ def _transcript_frame(
     return frame
 
 
+@dataclass
+class _DebugTranscript:
+    """What the debug save may read back for one (uid, session_id): the
+    live utterance buffers of every connection the session had (a resume
+    opens a new one), plus the wearer's typed context at its latest value."""
+    stamp: float
+    parts: list[list[Utterance]] = field(default_factory=list)
+    session_context: str | None = None
+
+
+# (uid, session_id) -> _DebugTranscript; insertion-ordered, oldest evicted.
+# Process-local and best-effort (a POST landing on another instance finds
+# nothing and stores the session without a transcript). Empty, and never
+# written, while LIVE_DEBUG_SAVE_EMPTY_SESSIONS is off.
+_DEBUG_TRANSCRIPTS: dict[tuple[str, str], _DebugTranscript] = {}
+
+
+def _debug_register_session(ctx: SessionContext) -> None:
+    """Make this connection's utterance buffer readable by the debug save
+    (by REFERENCE: later turns show up without further calls). No-op with
+    the flag off or before auth."""
+    if not LIVE_DEBUG_SAVE_EMPTY_SESSIONS or not ctx.uid:
+        return
+    now = time.monotonic()
+    for key, entry in list(_DEBUG_TRANSCRIPTS.items()):
+        if now - entry.stamp > DEBUG_TRANSCRIPT_TTL_S:
+            del _DEBUG_TRANSCRIPTS[key]
+    key = (ctx.uid, ctx.session_id)
+    entry = _DEBUG_TRANSCRIPTS.pop(key, None) or _DebugTranscript(stamp=now)
+    entry.stamp = now
+    if not any(part is ctx.utterances for part in entry.parts):
+        entry.parts.append(ctx.utterances)
+    if ctx.session_context is not None:
+        entry.session_context = ctx.session_context
+    _DEBUG_TRANSCRIPTS[key] = entry
+    while len(_DEBUG_TRANSCRIPTS) > DEBUG_TRANSCRIPT_MAX_SESSIONS:
+        del _DEBUG_TRANSCRIPTS[next(iter(_DEBUG_TRANSCRIPTS))]
+    ctx.debug_transcript = entry
+
+
+def debug_server_transcript(uid: str, session_id: str) -> tuple[list[dict], str | None] | None:
+    """(turn dicts shaped like TurnLocalEvent dumps, session_context) for
+    the debug save, or None when this process has nothing for that
+    uid+session (or the flag is off). Turns are in time order, duplicates
+    across connections dropped, marked ``transcript_source: "cloud"``."""
+    if not LIVE_DEBUG_SAVE_EMPTY_SESSIONS:
+        return None
+    entry = _DEBUG_TRANSCRIPTS.get((uid, session_id))
+    if entry is None:
+        return None
+    seen: set[tuple] = set()
+    turns: list[dict] = []
+    for u in sorted(
+        (u for part in entry.parts for u in part), key=lambda u: (u.start_time, u.end_time),
+    ):
+        key = (u.speaker, u.text, u.start_time, u.end_time)
+        if key in seen or not u.text.strip():
+            continue
+        seen.add(key)
+        turns.append({
+            "type": "turn_local", "session_id": session_id, "speaker": u.speaker,
+            "text": u.text, "start_time": float(u.start_time), "end_time": float(u.end_time),
+            "transcript_source": "cloud", "is_self": None,
+        })
+    return turns, entry.session_context
+
+
 def _remember_utterance(ctx: SessionContext, utterance: Utterance) -> None:
     """Append to the session's in-memory utterance buffer, bounded (P1-9).
 
     Nothing reads this buffer yet; it is kept (rather than removed) as the
     natural attachment point for a future in-session summary/context feature,
     but capped so an hour-long session cannot grow process memory without
-    bound. Deliberately NOT persisted anywhere: whether live-session
-    transcripts may be stored server-side at all is a flagged human/product
-    decision, and this module must not pre-empt it.
+    bound. Not persisted by this module. The one exception is the owner-
+    approved debug save (LIVE_DEBUG_SAVE_EMPTY_SESSIONS): when the phone
+    POSTs a session with zero turns, the ingest reads this buffer via
+    debug_server_transcript and stores it. Flag off -> never read.
     """
     ctx.utterances.append(utterance)
     if len(ctx.utterances) > UTTERANCE_BUFFER_MAX:
@@ -1694,17 +1882,34 @@ async def _close_ws_guest_limit(websocket: WebSocket, send_json=None) -> None:
         )
 
 
-async def _apply_config(ctx: SessionContext, payload: dict) -> None:
+async def _apply_config(ctx: SessionContext, payload: dict) -> dict[str, str]:
     """Apply a config frame's non-auth fields to the session context.
 
     Shared by the initial auth handshake and later in-session config updates so
     empathy/role/voice-profile handling lives in exactly one place. The voice
     profile is loaded once, uid-scoped, the first time both ids are known.
+
+    Returns ``{field: reason}`` for values that were REJECTED rather than
+    silently ignored (today only ``session_context``); the caller reports
+    them via :func:`_send_config_ack`.
     """
+    rejected: dict[str, str] = {}
     if "empathy_slider" in payload:
         val = payload["empathy_slider"]
         if isinstance(val, int) and 0 <= val <= 100:
             ctx.empathy_slider = val
+    # Wearer-typed background. Unlike the silently-ignored fields here, a bad
+    # value is REPORTED (returned in `rejected`; the caller tells the client)
+    # and the previous context is kept -- never silently truncated.
+    if "session_context" in payload:
+        from main import validate_session_context
+        try:
+            ctx.session_context = validate_session_context(payload["session_context"])
+            if ctx.debug_transcript is not None:
+                # Kept ONLY for the debug save (flag on, zero phone turns).
+                ctx.debug_transcript.session_context = ctx.session_context
+        except ValueError as exc:
+            rejected["session_context"] = str(exc)
     if "interject_level" in payload:
         val = payload["interject_level"]
         if isinstance(val, int) and 0 <= val <= 100:
@@ -1715,6 +1920,17 @@ async def _apply_config(ctx: SessionContext, payload: dict) -> None:
         # clamp the length (cost + injection surface).
         if isinstance(role_val, str):
             ctx.role = role_val[:MAX_ROLE_CHARS]
+        elif role_val is None:
+            ctx.role = None
+    # Optional relationship hint: a known slug sets it, JSON null resets it,
+    # anything else is ignored (validated-or-ignored like the fields above).
+    if "relationship" in payload:
+        from main import normalize_relationship
+        rel_hint = payload["relationship"]
+        if rel_hint is None:
+            ctx.relationship = None
+        elif normalize_relationship(rel_hint) is not None:
+            ctx.relationship = normalize_relationship(rel_hint)
     # Optional voice-profile context. These only feed a DB lookup (not the
     # prompt directly), but clamp length anyway as defence in depth.
     rel_val = payload.get("relationship_id")
@@ -1732,9 +1948,19 @@ async def _apply_config(ctx: SessionContext, payload: dict) -> None:
     if "self_speaker" in payload:
         self_val = payload["self_speaker"]
         if isinstance(self_val, str) and _SELF_SPEAKER_RE.match(self_val):
+            if self_val != ctx.self_speaker:
+                # A different label is a new, unconfirmed claim unless this
+                # same frame vouches for it (wearer_known below).
+                ctx.wearer_known = False
             ctx.self_speaker = self_val
         elif self_val is None:
             ctx.self_speaker = None
+            ctx.wearer_known = False
+    # Mid-stream identity: the phone vouches that `self_speaker` IS the
+    # wearer (its on-device voiceprint matched, or the user confirmed it).
+    # Booleans only; without it a self_speaker label is not trusted.
+    if "wearer_known" in payload and isinstance(payload["wearer_known"], bool):
+        ctx.wearer_known = payload["wearer_known"]
     # Track 3-server: who voices suggestions in a local-first session. Same
     # validated-or-ignored / null-resets shape as self_speaker. Has no effect
     # until the session is local_first (see SessionContext.tts_mode).
@@ -1765,6 +1991,7 @@ async def _apply_config(ctx: SessionContext, payload: dict) -> None:
                 "Voice profile lookup failed for session %s",
                 ctx.session_id, exc_info=True,
             )
+    return rejected
 
 
 # Mid-call naming (`speaker_label` frames). Same slug rule as
@@ -1806,11 +2033,17 @@ def apply_speaker_label(ctx: SessionContext, payload: dict) -> dict | None:
             if other != speaker and existing.get("person_id") == person_id:
                 del ctx.speaker_labels[other]
     ctx.speaker_labels[speaker] = entry
+    # The user naming a label is a human confirmation of identity.
     if is_self:
+        ctx.self_labels.add(speaker)
+        ctx.other_labels.discard(speaker)
         if _SELF_SPEAKER_RE.match(speaker):
             ctx.self_speaker = speaker
-    elif ctx.self_speaker == speaker:
-        ctx.self_speaker = None
+    else:
+        ctx.other_labels.add(speaker)
+        ctx.self_labels.discard(speaker)
+        if ctx.self_speaker == speaker:
+            ctx.self_speaker = None
     return {"type": "speaker_label_ack", "speaker": speaker, **entry}
 
 
@@ -1918,7 +2151,7 @@ async def _authenticate(
         ctx.is_guest = True
         ctx.guest_deadline = time.monotonic() + guest_quota.guest_max_session_seconds()
     ctx.uid = uid
-    await _apply_config(ctx, payload)
+    rejected = await _apply_config(ctx, payload) or {}
     ack: dict[str, object] = {"type": "config_ack"}
     if ctx.is_guest:
         # Tell a guest the shape of their allowance on the way IN, not on the
@@ -1933,8 +2166,21 @@ async def _authenticate(
             "max_sessions_per_day": guest_quota.GUEST_MAX_SESSIONS_PER_DAY,
             "max_session_minutes": guest_quota.GUEST_MAX_SESSION_MIN,
         }
-    await send_json(ack)
+    await _send_config_ack(send_json, rejected, ack)
     return True
+
+
+async def _send_config_ack(send_json, rejected: dict[str, str], ack: dict | None = None) -> None:
+    """The config ack, plus -- only when a value was rejected -- a
+    ``rejected`` map on the ack and one ``{"error": ...}`` frame per field,
+    AFTER the ack so a client waiting for the ack is never confused. A clean
+    config frame gets exactly the old ``{"type": "config_ack"}``."""
+    ack = dict(ack or {"type": "config_ack"})
+    if rejected:
+        ack["rejected"] = dict(rejected)
+    await send_json(ack)
+    for reason in rejected.values():
+        await send_json({"error": reason})
 
 
 async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
@@ -1944,7 +2190,7 @@ async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
     --------
     Client → Server (binary):  raw audio chunks
     Client → Server (text):    JSON control messages, e.g.
-        {"type": "config", "empathy_slider": 75, "role": "Husband",
+        {"type": "config", "empathy_slider": 75, "relationship": "child",
          "id_token": "<firebase id token>"}
         The FIRST frame must be such a config carrying a valid ``id_token``
         (the WS handshake cannot send an Authorization header): the server
@@ -1989,6 +2235,15 @@ async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                                                  a reported turn are dropped.
         config keys ``tts`` ("server" | "on-device" | null) and
         ``report_latency`` (bool) — see ``_apply_config``.
+        Coaching config keys (all optional, accepted on every config frame):
+        ``relationship`` (child|partner|parent|coworker|friend|other|null) —
+        a light tone hint; ``wearer_known`` (bool) — the phone vouches that
+        ``self_speaker`` IS the wearer (without it the label is not trusted
+        and turns are coached speaker-neutrally, see ``_resolve_wearer``);
+        ``session_context`` (string <= 4000 chars after strip, or null to
+        clear) — wearer-typed background; a longer value is rejected:
+        the ack carries ``rejected: {"session_context": reason}`` and an
+        ``{"error": reason}`` frame follows it.
         {"type": "speaker_label", "speaker": "Speaker B",
          "display_name": "Mom", "person_id": "mom" | null,
          "is_self": false}                    — mid-call naming: the coach's
@@ -2189,6 +2444,9 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
     # 4401; just return (no worker task has been created yet, so nothing leaks).
     if not await _authenticate(websocket, ctx, send_json):
         return
+    # Debug save (LIVE_DEBUG_SAVE_EMPTY_SESSIONS): expose this session's own
+    # transcript to POST /sessions/live, for a phone that produced no turns.
+    _debug_register_session(ctx)
 
     # Cost guardrails: refresh what OTHER server instances have already
     # counted for this account today, ONCE, before any spend — so a second
@@ -2305,13 +2563,13 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         # time snapshot, so a mid-flight config change never retypes this
         # already-queued turn. Neither known → every turn is an OTHER turn,
         # i.e. the original behaviour.
-        if job.is_self is not None:
-            self_turn = job.is_self
-        else:
-            self_turn = (
-                job.self_speaker is not None
-                and utterance.speaker == job.self_speaker
+        identity = job.identity
+        if identity is None:
+            identity = (
+                WEARER_UNKNOWN if job.is_self is None
+                else WEARER_SELF if job.is_self else WEARER_OTHER
             )
+        self_turn = identity == WEARER_SELF
 
         # Hedge bookkeeping for this turn's LLM call (filled by the streaming
         # helper when the client's stream is a hedge-capable one).
@@ -2335,7 +2593,8 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                     ctx.voice_profile, job.tone_context,
                     speaker_name=speaker_name,
                     stream=progressive, stats=hedge_stats,
-                    history=job.history,
+                    history=job.history, relationship=job.relationship,
+                    session_context=job.session_context,
                 )
             timing.llm_end = ctx.latency.now()
             note_hedge()
@@ -2403,7 +2662,9 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 ctx.voice_profile, job.tone_context,
                 on_first_suggestion=on_first_suggestion if progressive else None,
                 speaker_name=speaker_name, stats=hedge_stats,
-                history=job.history,
+                history=job.history, relationship=job.relationship,
+                session_context=job.session_context,
+                wearer_unknown=identity == WEARER_UNKNOWN,
             )
         timing.llm_end = ctx.latency.now()
         note_hedge()
@@ -2566,16 +2827,20 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         timing.enqueued = ctx.latency.now()
         timing.queue_depth = suggestion_queue.qsize()
         previous = chain_tail[0]
+        identity = _resolve_wearer(ctx, utterance, is_self)
         job = SuggestionJob(
             utterance=utterance,
             empathy_slider=ctx.empathy_slider,
             interject_level=ctx.interject_level,
             role=ctx.role,
+            relationship=ctx.relationship,
+            session_context=ctx.session_context,
             self_speaker=ctx.self_speaker,
             timing=timing,
             is_self=is_self,
             tone_context=tone_context,
-            history=_history_for_prompt(ctx, utterance, is_self=is_self),
+            history=_history_for_prompt(ctx, utterance, is_self=is_self, identity=identity),
+            identity=identity,
             prev_done=previous.done if previous is not None else None,
             done=asyncio.get_running_loop().create_future(),
         )
@@ -2642,6 +2907,25 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                     end_time=segment.end_time,
                 ).model_dump())
 
+            if (
+                ctx.call is None
+                and recordings_store is not None
+                and speaker_id is not None
+                and speaker not in ctx.self_labels
+                and speaker not in ctx.other_labels
+                and speaker not in ctx.voiceprint_pending
+                and len(enrichment_tasks) < MAX_ENRICHMENT_INFLIGHT
+            ):
+                # Mid-stream identity: try to confirm who this label is from
+                # the user's enrolled voiceprint (background, never blocks
+                # the coaching below). One check per label at a time.
+                ctx.voiceprint_pending.add(speaker)
+                vp_task = asyncio.create_task(_guarded_wearer_check(
+                    ctx, speaker, segment.start_time, segment.end_time,
+                    send_json, recordings_store,
+                ))
+                enrichment_tasks.add(vp_task)
+                vp_task.add_done_callback(enrichment_tasks.discard)
             if ctx.call_role != calls.ROLE_THERAPIST:
                 await enqueue_job(utterance, ctx.latency.start(
                     frame_received=frame_received, segment_finalized=segment_finalized,
@@ -3222,8 +3506,8 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                     # is verified only on the FIRST config — the auth handshake
                     # above — so later frames reuse the established uid and need
                     # not (and do not) re-present a token.
-                    await _apply_config(ctx, payload)
-                    await send_json({"type": "config_ack"})
+                    rejected = await _apply_config(ctx, payload) or {}
+                    await _send_config_ack(send_json, rejected)
                 elif msg_type == "turn_local":
                     # Track 3-server: a phone-finalized turn. Validated with
                     # the shared model so a malformed report is rejected at
@@ -3753,6 +4037,7 @@ async def _enrich_identity(
     # The score that justified the verdict; for "unknown", the best near-miss
     # so a client (or a log reader) can see how close it came.
     score = float(scores.get(person_id, max(scores.values(), default=0.0)))
+    _record_voiceprint_verdict(ctx, event.speaker, is_self, person_id)
     if event.is_self is not None and event.is_self != is_self:
         logger.info(
             "Correcting phone speaker verdict for session %s: phone is_self=%s, "
@@ -3772,6 +4057,74 @@ async def _enrich_identity(
         with contextlib.suppress(Exception):
             await ctx.call.fan_out(ctx.uid, identity.model_dump())
     return identity
+
+
+async def _guarded_wearer_check(
+    ctx: SessionContext, label: str, start_time: float, end_time: float,
+    send_json, store,
+) -> None:
+    """:func:`_confirm_wearer_by_voiceprint`, isolated: a failure is logged
+    and leaves the label unknown; the pending mark is always cleared so a
+    later turn from the label can try again."""
+    try:
+        await _confirm_wearer_by_voiceprint(ctx, label, start_time, end_time, send_json, store)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.warning(
+            "wearer voiceprint check failed for session %s", ctx.session_id, exc_info=True,
+        )
+    finally:
+        ctx.voiceprint_pending.discard(label)
+
+
+async def _confirm_wearer_by_voiceprint(
+    ctx: SessionContext, label: str, start_time: float, end_time: float,
+    send_json, store,
+) -> None:
+    """Server-side wearer confirmation for a CLOUD-transcribed turn.
+
+    The turn_local path already gets a server voiceprint verdict
+    (:func:`_enrich_identity`); a session where the phone produced no turns
+    (the dinner) had none, so nothing could ever confirm the wearer. This
+    matches the turn's slice of the ring buffer against the uid's enrolled
+    voiceprints and folds the verdict into the session's identity
+    (:func:`_record_voiceprint_verdict`), emitting the same
+    ``speaker_identity`` event the turn_local path does. Best-effort and
+    skipped cleanly (no deps, no store, no enrolled print, too little
+    audio). The turn that triggered it is coached as it stands; later turns
+    from a confirmed label get personalized coaching."""
+    if speaker_id is None or store is None or not ctx.uid:
+        return
+    if not await asyncio.to_thread(speaker_id.is_available):
+        return
+    docs = await _session_voiceprints(ctx, store)
+    if not docs:
+        return
+    await _await_audio_through(ctx, end_time)
+    sr = ctx.pcm.sample_rate
+    pcm = _pcm16_to_float32(ctx.pcm.slice(start_time, end_time))
+    min_seconds = float(getattr(speaker_id, "MIN_MATCH_SECONDS", 1.0))
+    if pcm.size < int(min_seconds * sr):
+        return
+    entry = await asyncio.to_thread(_identify_turn_person, pcm, sr, label, docs)
+    if entry is None:
+        return
+    person_id = entry.get("matched_person_id")
+    is_self = bool(entry.get("is_self"))
+    _record_voiceprint_verdict(ctx, label, is_self, person_id)
+    if not person_id:
+        return  # no match: nothing decided, nothing to tell the phone
+    scores = entry.get("scores") or {}
+    score = float(scores.get(person_id, max(scores.values(), default=0.0)))
+    await send_json(SpeakerIdentityEvent(
+        session_id=ctx.session_id,
+        speaker=label,
+        person_id=person_id,
+        display_name=entry.get("display_name"),
+        is_self=is_self,
+        score=round(score, 4),
+    ).model_dump())
 
 
 async def _relay_turn_local(
@@ -3999,7 +4352,7 @@ async def _generate_suggestions(
     llm: LLMClient,
     utterance: Utterance,
     empathy_slider: int,
-    role: str,
+    role: str | None = None,
     voice_profile: dict | None = None,
     tone_context: dict | None = None,
     *,
@@ -4007,6 +4360,9 @@ async def _generate_suggestions(
     speaker_name: str | None = None,
     stats: dict | None = None,
     history: dict | None = None,
+    relationship: str | None = None,
+    wearer_unknown: bool = False,
+    session_context: str | None = None,
 ) -> tuple[list[str], int]:
     """Call LLMClient.complete(); parse suggestions + moment importance.
 
@@ -4030,11 +4386,19 @@ async def _generate_suggestions(
     suggestion string while the rest is still streaming. Both None → the
     prompt and the ``complete()`` call are byte-identical to before.
     """
-    from main import empathy_system_prompt
+    from main import empathy_system_prompt, unknown_wearer_prompt
 
-    system = empathy_system_prompt(
-        empathy_slider, role, voice_profile, live=LIVE_PROMPT,
-    )
+    if wearer_unknown:
+        # Speaker-neutral cues only -- see main.COACH_UNKNOWN_WEARER_RULES.
+        system = unknown_wearer_prompt(
+            empathy_slider, role, relationship=relationship,
+            session_context=session_context,
+        )
+    else:
+        system = empathy_system_prompt(
+            empathy_slider, role, voice_profile, live=LIVE_PROMPT,
+            relationship=relationship, session_context=session_context,
+        )
     user_content = _turn_prompt(utterance, tone_context, speaker_name, history)
 
     if on_first_suggestion is not None and _supports_streaming(llm):
@@ -4078,7 +4442,7 @@ async def _generate_nudge(
     llm: LLMClient,
     utterance: Utterance,
     empathy_slider: int,
-    role: str,
+    role: str | None = None,
     voice_profile: dict | None = None,
     tone_context: dict | None = None,
     speaker_name: str | None = None,
@@ -4086,6 +4450,8 @@ async def _generate_nudge(
     stream: bool = False,
     stats: dict | None = None,
     history: dict | None = None,
+    relationship: str | None = None,
+    session_context: str | None = None,
 ) -> tuple[str, int]:
     """Call the LLM for a SELF turn; parse the single delivery nudge + urgency.
 
@@ -4107,7 +4473,10 @@ async def _generate_nudge(
     """
     from main import self_feedback_prompt
 
-    system = self_feedback_prompt(empathy_slider, role, voice_profile)
+    system = self_feedback_prompt(
+        empathy_slider, role, voice_profile, relationship=relationship,
+        session_context=session_context,
+    )
     # tone_context renders the phone's measurements as hints (Track 3-server);
     # None keeps the prompt byte-identical. No streaming PREVIEW for a nudge
     # (one short phrase, nothing to preview) — but with ``stream=True`` and

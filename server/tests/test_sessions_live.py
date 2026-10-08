@@ -533,7 +533,11 @@ class TestIngest:
         growth = (await client.get("/growth")).json()
         assert growth["identified_recordings"] == 0 and growth["total_recordings"] == 1
 
-    async def test_validation(self, client, store):
+    async def test_validation(self, client, store, monkeypatch):
+        # Zero turns is a 422 only with the debug save off (it is on by
+        # default since 2026-10-07 -- see test_sessions_live_debug_save.py).
+        import audio_pipeline
+        monkeypatch.setattr(audio_pipeline, "LIVE_DEBUG_SAVE_EMPTY_SESSIONS", False)
         # A turn from another session is refused at the door.
         bad = _body(turns=[dict(TURNS[0], session_id="other")])
         assert (await client.post("/sessions/live", json=bad)).status_code == 422

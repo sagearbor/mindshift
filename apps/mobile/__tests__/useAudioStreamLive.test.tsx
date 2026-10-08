@@ -159,9 +159,11 @@ describe("cloudAnswersOpenMoment", () => {
     expect(cloudAnswersOpenMoment([open, answered], "well I am busy")).toBe(false); // earlier turn
     expect(cloudAnswersOpenMoment([answered], "you never call me")).toBe(false); // already answered locally
   });
-  it("treats words the phone never reported (or no text) as the only voice there is", () => {
-    expect(cloudAnswersOpenMoment([], "anything")).toBe(true);
-    expect(cloudAnswersOpenMoment([], null)).toBe(true);
+  it("treats words the phone never reported (or no text) as the only voice there is — once the phone has heard anything", () => {
+    // No local turn at all: the phone can't place the moment (2026-10-07,
+    // a loop that finalized nothing all dinner) — shown, never voiced.
+    expect(cloudAnswersOpenMoment([], "anything")).toBe(false);
+    expect(cloudAnswersOpenMoment([], null)).toBe(false);
     expect(cloudAnswersOpenMoment([answered, open], "something the VAD missed")).toBe(true);
     expect(cloudAnswersOpenMoment([open, answered], "something the VAD missed")).toBe(false);
     expect(cloudAnswersOpenMoment([open], null)).toBe(true);
@@ -336,6 +338,13 @@ describe("useAudioStream live mode", () => {
     await act(async () => {
       await flush();
     });
+    // One real turn: a session with none is never POSTed (turns: [] is a 422).
+    await act(async () => {
+      feed(toneInt16(1.0, -20));
+      fake.rec.emit({ text: "how was your day", isFinal: true });
+      feed(silenceInt16(0.5));
+      await fake.loop!.settle();
+    });
     await act(async () => {
       await hook.result.current.stopSession();
     });
@@ -364,6 +373,13 @@ describe("useAudioStream live mode", () => {
     await act(async () => {
       await flush();
     });
+    // One real turn: a session with none is never POSTed (turns: [] is a 422).
+    await act(async () => {
+      feed(toneInt16(1.0, -20));
+      fake.rec.emit({ text: "how was your day", isFinal: true });
+      feed(silenceInt16(0.5));
+      await fake.loop!.settle();
+    });
     await act(async () => {
       await hook.result.current.stopSession();
     });
@@ -384,6 +400,15 @@ describe("useAudioStream live mode", () => {
     await act(() => ws.emitOpen());
     // Local-first config asks the server for its latency report too.
     expect(ws.sentJson().some((m) => m.type === "config" && m.report_latency === true)).toBe(true);
+    // The phone hears the turn itself (its providers fall through to the
+    // cloud) — a cloud answer is only voiced for a moment the phone placed.
+    await act(async () => {
+      feed(toneInt16(1.0, -20));
+      fake.rec.emit({ text: "hello", isFinal: true });
+      feed(silenceInt16(0.5));
+      await fake.loop!.settle();
+      await flush();
+    });
     await act(() => {
       ws.emitServer({ type: "suggestion", session_id: "live-p", speaker: "Speaker A", utterance_text: "hello", suggestions: ["Prev"], empathy_slider: 50, speak: false, partial: true });
     });
@@ -724,8 +749,11 @@ describe("useAudioStream live mode", () => {
         await flush();
       });
     };
-    await turn("first voice"); // Speaker A = you by convention -> nudge
-    expect(hook.result.current.suggestions[0].kind).toBe("nudge");
+    // No "you speak first" convention: nobody is the wearer until the
+    // voiceprint or the user says so, so the first voice gets a response.
+    expect(hook.result.current.selfSpeaker).toBeNull();
+    await turn("first voice");
+    expect(hook.result.current.suggestions[0].kind).toBe("response");
     await act(() => hook.result.current.setSelfSpeaker("Speaker B"));
     expect(ws.sentJson().some((m) => m.type === "config" && m.self_speaker === "Speaker B")).toBe(true);
     await turn("second voice"); // Speaker B is now you -> nudge (not a response)

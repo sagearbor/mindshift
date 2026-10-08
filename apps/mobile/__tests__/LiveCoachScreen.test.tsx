@@ -307,6 +307,74 @@ describe("LiveCoachScreen", () => {
     expect(root!.root.findAllByProps({ testID: "speech-unavailable-note" })).toHaveLength(0);
   });
 
+  it("earpiece mode with no headset says the coach is silent (never the phone speaker)", async () => {
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      sessionActive: true,
+      sessionMode: "earpiece",
+      privateAudioRoute: "public",
+    });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = track(renderer.create(<LiveCoachScreen />));
+    });
+    await flush();
+    const note = root!.root.findByProps({ testID: "earpiece-route-lost-note" });
+    expect(JSON.stringify(note.props.children)).toMatch(/No headset connected/);
+
+    // Headset back: the note goes away.
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      sessionActive: true,
+      sessionMode: "earpiece",
+      privateAudioRoute: "private",
+    });
+    act(() => root!.update(<LiveCoachScreen />));
+    expect(root!.root.findAllByProps({ testID: "earpiece-route-lost-note" })).toHaveLength(0);
+  });
+
+  it("relationship chips: nothing preselected; a tap sets it, a second tap clears it", async () => {
+    const setRelationship = jest.fn();
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, relationship: null, setRelationship });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = track(renderer.create(<LiveCoachScreen />));
+    });
+    await flush();
+    const chip = root!.root.findByProps({ testID: "relationship-parent" });
+    expect(chip.props.accessibilityState).toEqual({ selected: false });
+    act(() => chip.props.onPress());
+    expect(setRelationship).toHaveBeenCalledWith("parent");
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, relationship: "parent", setRelationship });
+    act(() => root!.update(<LiveCoachScreen />));
+    act(() => root!.root.findByProps({ testID: "relationship-parent" }).props.onPress());
+    expect(setRelationship).toHaveBeenLastCalledWith(null);
+  });
+
+  it("session context: the remembered text is loaded, handed to the hook, saved on edit and cleared in one tap", async () => {
+    const ctxModule = require("../src/live/sessionContext");
+    const store = { load: jest.fn(() => "Raise talk"), save: jest.fn(), clear: jest.fn() };
+    const spy = jest.spyOn(ctxModule, "defaultSessionContextStore").mockReturnValue(store);
+    const setSessionContext = jest.fn();
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, setSessionContext, setRelationship: jest.fn(), relationship: null });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = track(renderer.create(<LiveCoachScreen />));
+    });
+    await flush();
+    const input = root!.root.findByProps({ testID: "session-context-input" });
+    expect(input.props.value).toBe("Raise talk");
+    expect(setSessionContext).toHaveBeenCalledWith("Raise talk");
+    act(() => input.props.onChangeText("Raise talk with Dana"));
+    expect(setSessionContext).toHaveBeenLastCalledWith("Raise talk with Dana");
+    expect(store.save).toHaveBeenLastCalledWith("Raise talk with Dana");
+    act(() => root!.root.findByProps({ testID: "session-context-clear" }).props.onPress());
+    expect(setSessionContext).toHaveBeenLastCalledWith("");
+    expect(store.clear).toHaveBeenCalled();
+    expect(root!.root.findByProps({ testID: "session-context-input" }).props.value).toBe("");
+    spy.mockRestore();
+  });
+
   it("hides the unavailable note when TTS works", async () => {
     let root: renderer.ReactTestRenderer;
     act(() => {
@@ -416,6 +484,26 @@ describe("LiveCoachScreen", () => {
       root!.root.findByProps({ testID: "self-speaker-chip" }).props.onPress();
     });
     expect(setSelfSpeaker).toHaveBeenCalledWith("Speaker B");
+  });
+
+  it("identity chip assumes nobody: 'not set' until the user picks, first tap picks Speaker A", async () => {
+    const setSelfSpeaker = jest.fn();
+    mockUseAudioStream.mockReturnValue({
+      ...defaultHookState,
+      sessionActive: true,
+      selfSpeaker: null,
+      wearerVoiceConfirmed: false,
+      setSelfSpeaker,
+    });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = track(renderer.create(<LiveCoachScreen />));
+    });
+    await flush();
+    const chip = root!.root.findByProps({ testID: "self-speaker-chip" });
+    expect(JSON.stringify(chip.findByType(require("react-native").Text).props.children)).toContain("not set");
+    act(() => chip.props.onPress());
+    expect(setSelfSpeaker).toHaveBeenCalledWith("Speaker A");
   });
 
   it("hides the identity chip before any session — and always in therapist mode", async () => {

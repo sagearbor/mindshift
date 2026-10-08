@@ -193,6 +193,7 @@ describe("WebSpeechRecognizer", () => {
     h.browser.error("no-speech");
     h.browser.error("aborted");
     expect(h.errors).toEqual([]);
+    expect(h.rec.restartErrorCodes).toEqual({ "no-speech": 1, aborted: 1 });
     h.browser.end();
     h.runTimers();
     expect(FakeRecognition.instances).toHaveLength(2);
