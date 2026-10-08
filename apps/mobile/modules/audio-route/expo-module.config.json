@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["AudioRouteModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.mindshift.audioroute.AudioRouteModule"]
+  }
+}

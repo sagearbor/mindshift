@@ -122,6 +122,9 @@ interface AdvancedScreenProps {
    *  recognizes — add, rename, forget). Optional so existing callers and
    *  tests that don't wire it keep rendering; the row hides without it. */
   onOpenPeople?: () => void;
+  /** Open the coach Library (notes + documents the live coach can draw on).
+   *  Optional; the row hides without it. */
+  onOpenLibrary?: () => void;
   /** Open the selfie-capture flow (Task N6 of P3-10) — the same flow the
    *  avatar menu's "Set profile photo" row opens. "Remove photo" doesn't
    *  need navigation (see the Account section below) — it clears
@@ -168,6 +171,7 @@ export default function AdvancedScreen({
   onOpenTutorial,
   onOpenHomeDesign,
   onOpenPeople,
+  onOpenLibrary,
   onSetProfilePhoto,
   initialSection,
 }: AdvancedScreenProps) {
@@ -465,6 +469,21 @@ export default function AdvancedScreen({
       <Text style={styles.sectionHeading} testID="section-your-tools">
         Your tools
       </Text>
+
+      {onOpenLibrary ? (
+        <TouchableOpacity
+          testID="advanced-library"
+          accessibilityRole="button"
+          style={styles.row}
+          onPress={onOpenLibrary}
+        >
+          <Text style={styles.rowTitle}>Coach library</Text>
+          <Text style={styles.rowSub}>
+            Notes and documents the live coach can draw on: pricing, talking
+            points, a brief. Pick which to use on Live Coach.
+          </Text>
+        </TouchableOpacity>
+      ) : null}
 
       <TouchableOpacity
         testID="advanced-watch-setup"

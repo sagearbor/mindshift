@@ -66,6 +66,8 @@ export function backTarget(screen: Screen): Screen | null {
     // People labeling: same dynamic-returnTo treatment (Settings' row or
     // the hamburger catalog from any primary screen).
     case "people":
+    // Coach library: pushed from Settings or Live Coach.
+    case "library":
       return screen.returnTo;
 
     // N7 fix round 1 (IMPORTANT 2): same dynamic-returnTo treatment as the

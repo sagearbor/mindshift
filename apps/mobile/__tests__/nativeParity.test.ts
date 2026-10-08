@@ -3,7 +3,7 @@
  * way they drift is a native change that reaches one store and not the other,
  * or an OTA that outruns both. This test makes that a build failure:
  *
- *  - native inputs (app.json minus counters, eas.json, plugins/, targets/,
+ *  - native inputs (app.json minus counters, eas.json, plugins/, targets/, modules/,
  *    native dependency versions) must match native-fingerprint.json, OR
  *    expo.version must have been bumped since the record was written;
  *  - runtimeVersion policy must stay `appVersion` so an OTA can never reach a

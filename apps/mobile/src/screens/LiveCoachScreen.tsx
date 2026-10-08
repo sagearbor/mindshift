@@ -21,6 +21,7 @@ import ScoreboardPanel from "../components/ScoreboardPanel";
 import WhoIsThisSheet, { type LiveLabelChoice } from "../components/WhoIsThisSheet";
 import CallPanel from "../components/CallPanel";
 import JournalPanel, { type JournalGate } from "../components/JournalPanel";
+import RoomPanel from "../components/RoomPanel";
 import { IDLE_JOURNAL_STATE } from "../live/journalRecorder";
 import { IDLE_CALL_VIEW } from "../live/call/types";
 import { callApi } from "../live/call/callApi";
@@ -40,6 +41,8 @@ import { getTherapistLink, type TherapistLink } from "../api/therapist";
 import * as apiClient from "../api/client";
 import ConversationContextPanel from "../components/ConversationContextPanel";
 import { defaultSessionContextStore } from "../live/sessionContext";
+import LibraryPicker from "../components/LibraryPicker";
+import { defaultLibrarySelectionStore } from "../live/librarySelection";
 import type { VoicePerson as ApiVoicePerson } from "../api/client";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -99,6 +102,8 @@ interface LiveCoachScreenProps {
   /** Opens Settings scrolled to the Voice section — the Journal gate's
    *  "Train my voice" button. Optional; without it the gate stays text. */
   onOpenVoiceSettings?: () => void;
+  /** Opens the coach Library screen (the picker's "Manage library"). */
+  onOpenLibrary?: () => void;
 }
 
 export default function LiveCoachScreen({
@@ -110,6 +115,7 @@ export default function LiveCoachScreen({
   journalAction = null,
   onJournalActionConsumed,
   onOpenVoiceSettings,
+  onOpenLibrary,
 }: LiveCoachScreenProps = {}) {
   // Keep this session's audio (default ON — see keepAudioPrefs.ts): read
   // once per account before the hook needs it; the switch below changes it
@@ -163,6 +169,8 @@ export default function LiveCoachScreen({
     relationship,
     setRelationship,
     setSessionContext,
+    setLibraryItemIds,
+    libraryAck,
     liveStatus,
     nudgeFlash,
     clearNudgeFlash,
@@ -179,6 +187,7 @@ export default function LiveCoachScreen({
     lastEpisode,
     journal,
     retryJournalUploads,
+    room,
     speakerNames,
     displayNameOf,
     labelSpeaker,
@@ -217,6 +226,25 @@ export default function LiveCoachScreen({
     setSessionContext?.("");
     contextStoreRef.current.clear();
   }, [setSessionContext]);
+
+  // Coach-library items picked for the session: remembered on this device,
+  // handed to the hook (ids only), which sends `library_item_ids`.
+  const libraryStoreRef = useRef(defaultLibrarySelectionStore());
+  const [libraryIds, setLibraryIds] = useState<string[]>(() => libraryStoreRef.current.load());
+  useEffect(() => {
+    setLibraryItemIds?.(libraryIds);
+    // Only on mount: later changes go through handleLibraryChange.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const handleLibraryChange = useCallback(
+    (ids: string[]) => {
+      setLibraryIds(ids);
+      setLibraryItemIds?.(ids);
+      libraryStoreRef.current.save(ids);
+    },
+    [setLibraryItemIds],
+  );
+  const libraryIgnored = (libraryAck?.ignored_item_ids ?? []).filter((id) => libraryIds.includes(id)).length;
 
   const userId = useAuthStore((s) => s.user?.uid ?? null);
   const [empathyLevel, setEmpathyLevel] = useState(50);
@@ -563,6 +591,10 @@ export default function LiveCoachScreen({
   // Journal mode ("listen for my voice"): no coaching, no transcript, no
   // server while it runs — the screen collapses to the journal panel + Stop.
   const isJournal = mode === "journal";
+  // Room mode (src/live/roomMode.ts): an assistant for the whole meeting —
+  // the screen collapses to RoomPanel (consent banner, big cards, the last
+  // spoken answer) + the library picker + Stop. No coaching UI.
+  const isRoom = mode === "room";
   const journalState = journal ?? IDLE_JOURNAL_STATE;
   // The honest gate: an enrolled OWNER voiceprint with at least one
   // recording pooled into it. The hook re-checks at Start (the labeler's
@@ -692,8 +724,8 @@ export default function LiveCoachScreen({
             <Text style={styles.backButtonText}>←</Text>
           </TouchableOpacity>
         )}
-        <Text style={styles.heading} numberOfLines={1}>
-          Live Coach
+        <Text style={styles.heading} numberOfLines={1} testID="live-coach-heading">
+          {isRoom && sessionActive ? "\u25CF Room \u2014 listening" : "Live Coach"}
         </Text>
         <View style={styles.statusRow}>
           <View
@@ -714,7 +746,7 @@ export default function LiveCoachScreen({
           be meaningless. Until the voiceprint or the user says which voice is
           theirs it reads "not set" — never a speaking-order guess. Therapist mode has no "you" on the
           mic, so the chip is hidden there. */}
-      {!isTherapist && !isCall && !isJournal && (sessionActive || transcript.length > 0) && (
+      {!isTherapist && !isCall && !isJournal && !isRoom && (sessionActive || transcript.length > 0) && (
         <View style={styles.identityRow}>
           <TouchableOpacity
             testID="self-speaker-chip"
@@ -772,6 +804,18 @@ export default function LiveCoachScreen({
           controls. The transcript and suggestions below are shared with
           every other mode — the other person's turns arrive as transcript
           events with their name. */}
+      {isRoom ? (
+        <RoomPanel
+          state={room}
+          sessionActive={sessionActive}
+          transcript={transcript}
+          speakAloud={speakAloud}
+          onSpeakAloudChange={setSpeakAloud}
+          speechAvailable={speechAvailable}
+          librarySelected={libraryIds.length}
+        />
+      ) : null}
+
       {isCall ? (
         <CallPanel
           call={callView}
@@ -802,7 +846,7 @@ export default function LiveCoachScreen({
         />
       ) : null}
 
-      {devMode && liveCapable && !isJournal ? (
+      {devMode && liveCapable && !isJournal && !isRoom ? (
         <View style={styles.modeRow} testID="live-mode-row">
           <Text style={styles.modeLabel}>On-device coaching</Text>
           <Switch
@@ -818,7 +862,7 @@ export default function LiveCoachScreen({
       ) : null}
 
       {/* What the loop actually loaded (or why it isn't running). */}
-      {devMode && liveStatus && !isJournal ? (
+      {devMode && liveStatus && !isJournal && !isRoom ? (
         <Text style={styles.speechUnavailableText} testID="live-status">
           {liveStatus}
         </Text>
@@ -826,7 +870,7 @@ export default function LiveCoachScreen({
 
       {/* Pleasantness scoreboard (PRD §6): opt-in, off by default, remembered
           per account. A race to be nicer — both lines climbing is the win. */}
-      {isJournal ? null : (
+      {isJournal || isRoom ? null : (
       <>
       <TouchableOpacity
         testID="coach-options-toggle"
@@ -909,7 +953,7 @@ export default function LiveCoachScreen({
 
       {/* Who's talking: one chip per voice heard. Tap to name them ("Who is
           this?") — the name applies for the rest of the call at once. */}
-      {speakerChips.length > 0 ? (
+      {speakerChips.length > 0 && !isRoom ? (
         <View style={styles.chipRow} testID="speaker-chips">
           {speakerChips.map((c) => (
             <TouchableOpacity
@@ -930,7 +974,7 @@ export default function LiveCoachScreen({
       ) : null}
 
       {/* Session strip: mode + escalation count while live. */}
-      {sessionActive && !isJournal ? (
+      {sessionActive && !isJournal && !isRoom ? (
         <View style={styles.sessionStrip} testID="session-strip">
           <Text style={styles.sessionStripText}>{modeLabel}</Text>
           <Text
@@ -1001,7 +1045,7 @@ export default function LiveCoachScreen({
 
       {/* Honest state: a spoken mode selected but this platform has no TTS —
           suggestions stay visual-only instead of silently pretending. */}
-      {!isTherapist && !isJournal && !speechAvailable ? (
+      {!isTherapist && !isJournal && !isRoom && !speechAvailable ? (
         <Text style={styles.speechUnavailableText} testID="speech-unavailable-note">
           Spoken suggestions aren&apos;t available on this platform — showing
           them on screen only.
@@ -1020,7 +1064,7 @@ export default function LiveCoachScreen({
 
       {/* About this conversation (optional, generic by default): before Start
           and editable mid-session. Not for an observer or the journal. */}
-      {!isTherapist && !isJournal && setRelationship ? (
+      {!isTherapist && !isJournal && !isRoom && setRelationship ? (
         <ConversationContextPanel
           relationship={relationship ?? null}
           onRelationshipChange={setRelationship}
@@ -1029,9 +1073,17 @@ export default function LiveCoachScreen({
           onClearSessionContext={handleContextClear}
         />
       ) : null}
+      {!isTherapist && !isJournal ? (
+        <LibraryPicker
+          selectedIds={libraryIds}
+          onChange={handleLibraryChange}
+          onManage={onOpenLibrary}
+          ignoredCount={libraryIgnored}
+        />
+      ) : null}
 
       {/* Empathy slider + interject: the coach's knobs — none in Journal mode. */}
-      {isJournal ? null : (
+      {isJournal || isRoom ? null : (
         <View style={optionsOpen ? undefined : styles.hidden} testID="coach-options-sliders">
           <EmpathySlider
             value={empathyLevel}
@@ -1047,7 +1099,7 @@ export default function LiveCoachScreen({
       {/* Idle: the honest pre-flight (what will run on this phone, who the
           loop expects to hear) and the short how-to. Disappears the moment a
           session starts or any transcript arrives. */}
-      {idle && !isJournal ? (
+      {idle && !isJournal && !isRoom ? (
         <>
           <LivePreflightPanel
             liveCapable={liveCapable}
@@ -1102,7 +1154,7 @@ export default function LiveCoachScreen({
 
       {/* Live transcript: two labelled columns in therapist mode; none in
           Journal mode (nothing is transcribed while it listens). */}
-      {isJournal ? null : isTherapist ? (
+      {isJournal || isRoom ? null : isTherapist ? (
         <TherapistTranscript entries={transcript} onSpeakerPress={openWho} isNamed={isNamed} />
       ) : (
         <LiveTranscript
@@ -1131,7 +1183,7 @@ export default function LiveCoachScreen({
           banner; responses render the usual SuggestionCard stack. Each entry
           says where it came from (the phone's fast loop or the cloud) — the
           local one lands first, the cloud one augments it. */}
-      {!isJournal && suggestions.length > 0 && (
+      {!isJournal && !isRoom && suggestions.length > 0 && (
         <ScrollView
           style={styles.suggestionsContainer}
           horizontal={false}
@@ -1261,6 +1313,10 @@ export default function LiveCoachScreen({
                 ? sessionActive
                   ? "Stop Journal"
                   : "Start Journal"
+                : isRoom
+                  ? sessionActive
+                    ? "Stop Room Assistant"
+                    : "Start Room Assistant"
                 : sessionActive
                   ? "Stop Listening"
                   : "Start Listening"}

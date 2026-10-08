@@ -487,6 +487,19 @@ class TestIngest:
         res = await client.get(f"/recordings/{b['episode_id']}", headers={"X-Test-Uid": "user-a"})
         assert res.status_code == 404
 
+    async def test_room_session_is_stored_but_never_reflected(self, client, store, mock_llm):
+        # Room mode serves the whole meeting: no personal "could have said"
+        # coaching afterwards either, even with a self speaker on the turns.
+        mock_llm.complete.side_effect = _llm_side_effect()
+        res = await client.post("/sessions/live", json=_body(mode="room"))
+        assert res.status_code == 201, res.text
+        body = res.json()
+        assert body["reflect_scheduled"] is False
+        await _drain()
+        detail = (await client.get(f"/recordings/{body['episode_id']}")).json()
+        assert detail["mode"] == "room"
+        assert detail["analysis"]["live"].get("could_have_said") is None
+
     async def test_short_session_skips_analysis_but_still_reflects(self, client, store, mock_llm):
         mock_llm.complete.side_effect = _llm_side_effect(
             reflect_payload=json.dumps({"reflections": [REFLECTIONS[0]]}),

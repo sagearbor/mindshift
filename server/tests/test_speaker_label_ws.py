@@ -121,8 +121,8 @@ class TestSpeakerLabelFrame:
         seen = {}
         original = audio_pipeline._apply_config
 
-        async def spy(ctx, payload):
-            await original(ctx, payload)
+        async def spy(ctx, payload, *rest):
+            await original(ctx, payload, *rest)
             seen["ctx"] = ctx
         monkeypatch.setattr(audio_pipeline, "_apply_config", spy)
         with open_ws(fake_ws, f"/ws/session/{self.SID}") as ws:

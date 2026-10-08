@@ -1,9 +1,9 @@
 {
   "_comment": "Written by `node scripts/nativeFingerprint.js --update` after a native change AND an expo.version bump. Both platforms must be built from this version. See scripts/nativeFingerprint.js.",
-  "hash": "ce3ee01f0ec62319fdb74957e0f0e58ebf0b77c1e41c82bcb2d1ae76f605c049",
-  "version": "1.18.0",
-  "recordedAt": "2026-09-25T04:51:43.842Z",
-  "note": "baseline at 1.18.0: android 40 / ios 5 both built from this native set",
+  "hash": "4ddd9e3a83dce1b3aa05b4eb7976b4835ac6f9f168f927b052db7244298f1b91",
+  "version": "1.19.0",
+  "recordedAt": "2026-10-08T01:00:33.466Z",
+  "note": "native audio-route module (LE Audio / A2DP earpiece detection)",
   "nativeDependencies": [
     "@bacons/apple-targets@5.0.0",
     "@config-plugins/react-native-webrtc@15.0.2",

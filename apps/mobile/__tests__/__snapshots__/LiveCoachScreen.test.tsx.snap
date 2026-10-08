@@ -48,6 +48,7 @@ exports[`LiveCoachScreen renders disconnected state 1`] = `
               "marginRight": 8,
             }
           }
+          testID="live-coach-heading"
         >
           Live Coach
         </Text>
@@ -414,6 +415,63 @@ exports[`LiveCoachScreen renders disconnected state 1`] = `
               Journal
             </Text>
           </View>
+          <View
+            accessibilityRole="button"
+            accessibilityState={
+              {
+                "busy": undefined,
+                "checked": undefined,
+                "disabled": false,
+                "expanded": undefined,
+                "selected": false,
+              }
+            }
+            accessibilityValue={
+              {
+                "max": undefined,
+                "min": undefined,
+                "now": undefined,
+                "text": undefined,
+              }
+            }
+            accessible={true}
+            collapsable={false}
+            focusable={true}
+            onClick={[Function]}
+            onResponderGrant={[Function]}
+            onResponderMove={[Function]}
+            onResponderRelease={[Function]}
+            onResponderTerminate={[Function]}
+            onResponderTerminationRequest={[Function]}
+            onStartShouldSetResponder={[Function]}
+            style={
+              {
+                "backgroundColor": "#FFFFFF",
+                "borderColor": "#D1D5DB",
+                "borderRadius": 16,
+                "borderWidth": 1,
+                "opacity": 1,
+                "paddingHorizontal": 14,
+                "paddingVertical": 6,
+              }
+            }
+            testID="session-mode-room"
+          >
+            <Text
+              style={
+                [
+                  {
+                    "color": "#6B7280",
+                    "fontSize": 13,
+                    "fontWeight": "500",
+                  },
+                  false,
+                ]
+              }
+            >
+              Room
+            </Text>
+          </View>
         </View>
         <Text
           style={
@@ -651,6 +709,66 @@ exports[`LiveCoachScreen renders disconnected state 1`] = `
             }
           >
             off
+          </Text>
+        </View>
+      </View>
+      <View
+        style={
+          {
+            "paddingHorizontal": 16,
+            "paddingVertical": 6,
+          }
+        }
+        testID="library-picker"
+      >
+        <View
+          accessibilityRole="button"
+          accessibilityState={
+            {
+              "busy": undefined,
+              "checked": undefined,
+              "disabled": undefined,
+              "expanded": false,
+              "selected": undefined,
+            }
+          }
+          accessibilityValue={
+            {
+              "max": undefined,
+              "min": undefined,
+              "now": undefined,
+              "text": undefined,
+            }
+          }
+          accessible={true}
+          collapsable={false}
+          focusable={true}
+          onClick={[Function]}
+          onResponderGrant={[Function]}
+          onResponderMove={[Function]}
+          onResponderRelease={[Function]}
+          onResponderTerminate={[Function]}
+          onResponderTerminationRequest={[Function]}
+          onStartShouldSetResponder={[Function]}
+          style={
+            {
+              "opacity": 1,
+            }
+          }
+          testID="library-picker-toggle"
+        >
+          <Text
+            style={
+              {
+                "color": "#374151",
+                "fontSize": 13,
+                "fontWeight": "600",
+                "marginBottom": 6,
+              }
+            }
+          >
+            ▸
+             Use from library
           </Text>
         </View>
       </View>
@@ -904,6 +1022,7 @@ exports[`LiveCoachScreen renders initial idle state 1`] = `
               "marginRight": 8,
             }
           }
+          testID="live-coach-heading"
         >
           Live Coach
         </Text>
@@ -1270,6 +1389,63 @@ exports[`LiveCoachScreen renders initial idle state 1`] = `
               Journal
             </Text>
           </View>
+          <View
+            accessibilityRole="button"
+            accessibilityState={
+              {
+                "busy": undefined,
+                "checked": undefined,
+                "disabled": false,
+                "expanded": undefined,
+                "selected": false,
+              }
+            }
+            accessibilityValue={
+              {
+                "max": undefined,
+                "min": undefined,
+                "now": undefined,
+                "text": undefined,
+              }
+            }
+            accessible={true}
+            collapsable={false}
+            focusable={true}
+            onClick={[Function]}
+            onResponderGrant={[Function]}
+            onResponderMove={[Function]}
+            onResponderRelease={[Function]}
+            onResponderTerminate={[Function]}
+            onResponderTerminationRequest={[Function]}
+            onStartShouldSetResponder={[Function]}
+            style={
+              {
+                "backgroundColor": "#FFFFFF",
+                "borderColor": "#D1D5DB",
+                "borderRadius": 16,
+                "borderWidth": 1,
+                "opacity": 1,
+                "paddingHorizontal": 14,
+                "paddingVertical": 6,
+              }
+            }
+            testID="session-mode-room"
+          >
+            <Text
+              style={
+                [
+                  {
+                    "color": "#6B7280",
+                    "fontSize": 13,
+                    "fontWeight": "500",
+                  },
+                  false,
+                ]
+              }
+            >
+              Room
+            </Text>
+          </View>
         </View>
         <Text
           style={
@@ -1507,6 +1683,66 @@ exports[`LiveCoachScreen renders initial idle state 1`] = `
             }
           >
             off
+          </Text>
+        </View>
+      </View>
+      <View
+        style={
+          {
+            "paddingHorizontal": 16,
+            "paddingVertical": 6,
+          }
+        }
+        testID="library-picker"
+      >
+        <View
+          accessibilityRole="button"
+          accessibilityState={
+            {
+              "busy": undefined,
+              "checked": undefined,
+              "disabled": undefined,
+              "expanded": false,
+              "selected": undefined,
+            }
+          }
+          accessibilityValue={
+            {
+              "max": undefined,
+              "min": undefined,
+              "now": undefined,
+              "text": undefined,
+            }
+          }
+          accessible={true}
+          collapsable={false}
+          focusable={true}
+          onClick={[Function]}
+          onResponderGrant={[Function]}
+          onResponderMove={[Function]}
+          onResponderRelease={[Function]}
+          onResponderTerminate={[Function]}
+          onResponderTerminationRequest={[Function]}
+          onStartShouldSetResponder={[Function]}
+          style={
+            {
+              "opacity": 1,
+            }
+          }
+          testID="library-picker-toggle"
+        >
+          <Text
+            style={
+              {
+                "color": "#374151",
+                "fontSize": 13,
+                "fontWeight": "600",
+                "marginBottom": 6,
+              }
+            }
+          >
+            ▸
+             Use from library
           </Text>
         </View>
       </View>
@@ -2668,6 +2904,7 @@ exports[`LiveCoachScreen renders recording state with transcript and suggestions
               "marginRight": 8,
             }
           }
+          testID="live-coach-heading"
         >
           Live Coach
         </Text>
@@ -3101,6 +3338,63 @@ exports[`LiveCoachScreen renders recording state with transcript and suggestions
               Journal
             </Text>
           </View>
+          <View
+            accessibilityRole="button"
+            accessibilityState={
+              {
+                "busy": undefined,
+                "checked": undefined,
+                "disabled": true,
+                "expanded": undefined,
+                "selected": false,
+              }
+            }
+            accessibilityValue={
+              {
+                "max": undefined,
+                "min": undefined,
+                "now": undefined,
+                "text": undefined,
+              }
+            }
+            accessible={true}
+            collapsable={false}
+            focusable={false}
+            onClick={[Function]}
+            onResponderGrant={[Function]}
+            onResponderMove={[Function]}
+            onResponderRelease={[Function]}
+            onResponderTerminate={[Function]}
+            onResponderTerminationRequest={[Function]}
+            onStartShouldSetResponder={[Function]}
+            style={
+              {
+                "backgroundColor": "#FFFFFF",
+                "borderColor": "#D1D5DB",
+                "borderRadius": 16,
+                "borderWidth": 1,
+                "opacity": 0.6,
+                "paddingHorizontal": 14,
+                "paddingVertical": 6,
+              }
+            }
+            testID="session-mode-room"
+          >
+            <Text
+              style={
+                [
+                  {
+                    "color": "#6B7280",
+                    "fontSize": 13,
+                    "fontWeight": "500",
+                  },
+                  false,
+                ]
+              }
+            >
+              Room
+            </Text>
+          </View>
         </View>
         <Text
           style={
@@ -3509,6 +3803,66 @@ exports[`LiveCoachScreen renders recording state with transcript and suggestions
         >
           escalations: 0
         </Text>
+      </View>
+      <View
+        style={
+          {
+            "paddingHorizontal": 16,
+            "paddingVertical": 6,
+          }
+        }
+        testID="library-picker"
+      >
+        <View
+          accessibilityRole="button"
+          accessibilityState={
+            {
+              "busy": undefined,
+              "checked": undefined,
+              "disabled": undefined,
+              "expanded": false,
+              "selected": undefined,
+            }
+          }
+          accessibilityValue={
+            {
+              "max": undefined,
+              "min": undefined,
+              "now": undefined,
+              "text": undefined,
+            }
+          }
+          accessible={true}
+          collapsable={false}
+          focusable={true}
+          onClick={[Function]}
+          onResponderGrant={[Function]}
+          onResponderMove={[Function]}
+          onResponderRelease={[Function]}
+          onResponderTerminate={[Function]}
+          onResponderTerminationRequest={[Function]}
+          onStartShouldSetResponder={[Function]}
+          style={
+            {
+              "opacity": 1,
+            }
+          }
+          testID="library-picker-toggle"
+        >
+          <Text
+            style={
+              {
+                "color": "#374151",
+                "fontSize": 13,
+                "fontWeight": "600",
+                "marginBottom": 6,
+              }
+            }
+          >
+            ▸
+             Use from library
+          </Text>
+        </View>
       </View>
       <View
         style={

@@ -108,7 +108,17 @@ import {
   onDeviceSessionContext,
   type Relationship,
 } from "../live/sessionContext";
+import { normalizeSelection } from "../live/librarySelection";
 import { createDefaultAudioRouteProbe, ROUTE_POLL_MS, type AudioRouteProbe, type AudioRouteState } from "../live/audioRoute";
+import {
+  applyRoomFrame,
+  IDLE_ROOM_STATE,
+  modeRunsCoachingLoop,
+  parseRoomFrame,
+  ROOM_CONSENT_LINE,
+  speechRouteRule,
+  type RoomViewState,
+} from "../live/roomMode";
 
 const API_URL =
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:8000";
@@ -378,6 +388,15 @@ interface UseAudioStreamReturn {
    *  POST /sessions/live when non-empty; a mid-session edit goes out as a
    *  config update after a short pause in typing. Never in diagnostics. */
   setSessionContext: (text: string) => void;
+  /** Coach-library items picked for this session (ids only, ≤ 20). Sent as
+   *  `library_item_ids` on the first config frame when non-empty, and as a
+   *  config update the moment the selection changes mid-session ([] clears
+   *  it). Titles and contents never pass through here. */
+  setLibraryItemIds: (ids: string[]) => void;
+  /** What the server last acknowledged for the selection (its config_ack
+   *  `library`): ids it will use and ids it ignored (not the user's own /
+   *  deleted). Null until a frame carrying ids is acknowledged. */
+  libraryAck: { item_ids: string[]; ignored_item_ids: string[] } | null;
   /** What the fast loop actually loaded, or why it isn't running. Empty on
    *  the legacy path. */
   liveStatus: string;
@@ -417,6 +436,10 @@ interface UseAudioStreamReturn {
   journal: JournalState;
   /** Journal mode: send every journal file still on the phone now. */
   retryJournalUploads: () => Promise<void>;
+  /** Room mode: the library cards (newest first, a few), the latest spoken
+   *  answers, and whether the assistant is waiting for a question.
+   *  IDLE_ROOM_STATE outside a room session. */
+  room: RoomViewState;
   /** Mid-call naming: raw wire label → the person the user (or a voiceprint
    *  match) says it is. Reset per session. */
   speakerNames: Record<string, SpeakerBinding>;
@@ -690,6 +713,12 @@ export function useAudioStream(
   const sessionContextRef = useRef("");
   const sentContextRef = useRef("");
   const contextSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Coach-library selection (ids only) and what the server was last sent. */
+  const libraryIdsRef = useRef<string[]>([]);
+  const sentLibraryIdsRef = useRef<string[]>([]);
+  const [libraryAck, setLibraryAck] = useState<
+    { item_ids: string[]; ignored_item_ids: string[] } | null
+  >(null);
   const [liveStatus, setLiveStatus] = useState("");
   const [nudgeFlash, setNudgeFlash] = useState<NudgeEvent | null>(null);
   /** 💚 The most recent thing the user did WELL (positiveNudges.ts). Only
@@ -870,6 +899,10 @@ export function useAudioStream(
   const lastJournalRef = useRef<JournalRecorder | null>(null);
   const micHoldRef = useRef<BackgroundMicHold | null>(null);
   const [journal, setJournal] = useState<JournalState>(IDLE_JOURNAL_STATE);
+  /** Room mode view state (src/live/roomMode.ts); reset per session. */
+  const [room, setRoom] = useState<RoomViewState>(IDLE_ROOM_STATE);
+  /** The room consent line is spoken once per session, on the server's ack. */
+  const roomConsentSpokenRef = useRef(false);
 
   const releaseMicHold = useCallback(() => {
     const hold = micHoldRef.current;
@@ -1094,32 +1127,49 @@ export function useAudioStream(
     return state;
   }, []);
 
-  /** True when earpiece mode must stay silent right now (no private route). */
+  /** True when the current route must not carry speech right now. Decided
+   *  by the SESSION MODE first (roomMode.speechRouteRule): earpiece needs a
+   *  private route and asks audioRoute; room speaks on the loudspeaker on
+   *  purpose and never asks; every other mode keeps whatever route is on. */
   const earpieceRouteBlocksSpeech = useCallback((): boolean => {
-    if (sessionModeRef.current !== "earpiece") return false;
+    const rule = speechRouteRule(sessionModeRef.current);
+    if (rule !== "private-only") return false;
     return checkPrivateRoute() !== "private";
   }, [checkPrivateRoute]);
 
-  const startRoutePoll = useCallback(() => {
-    if (routePollRef.current !== null) clearInterval(routePollRef.current);
-    routePollRef.current = null;
-    routeProbeRef.current?.dispose();
-    routeProbeRef.current = null;
-    routeStateRef.current = null;
-    setPrivateAudioRoute(null);
-    if (sessionModeRef.current !== "earpiece") return;
-    checkPrivateRoute();
-    routePollRef.current = setInterval(() => {
-      if (sessionModeRef.current === "earpiece") checkPrivateRoute();
-    }, ROUTE_POLL_MS);
-  }, [checkPrivateRoute]);
+  const routeUnsubscribeRef = useRef<(() => void) | null>(null);
 
   const stopRoutePoll = useCallback(() => {
     if (routePollRef.current !== null) clearInterval(routePollRef.current);
     routePollRef.current = null;
+    routeUnsubscribeRef.current?.();
+    routeUnsubscribeRef.current = null;
     routeProbeRef.current?.dispose();
     routeProbeRef.current = null;
   }, []);
+
+  /** Watch the route for an earpiece session: native route-change events
+   *  (immediate cut on a disconnect) with the poll kept as a backstop. */
+  const startRoutePoll = useCallback(() => {
+    stopRoutePoll();
+    routeStateRef.current = null;
+    setPrivateAudioRoute(null);
+    if (sessionModeRef.current !== "earpiece") return;
+    checkPrivateRoute();
+    try {
+      routeUnsubscribeRef.current =
+        routeProbeRef.current?.subscribe?.(() => {
+          // Re-read rather than trust the event payload: one code path, and
+          // check() is what gates every utterance anyway.
+          if (sessionModeRef.current === "earpiece") checkPrivateRoute();
+        }) ?? null;
+    } catch {
+      routeUnsubscribeRef.current = null; // events are a bonus; the poll remains
+    }
+    routePollRef.current = setInterval(() => {
+      if (sessionModeRef.current === "earpiece") checkPrivateRoute();
+    }, ROUTE_POLL_MS);
+  }, [checkPrivateRoute, stopRoutePoll]);
   const drainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Wall-clock time (ms epoch) at which the drain must end no matter what —
    *  the absolute cap the re-armed inactivity window can never exceed. */
@@ -2170,6 +2220,16 @@ export function useAudioStream(
               sentContextRef.current = ctx;
               return ctx ? { session_context: ctx } : {};
             })(),
+            // Coach-library items picked for this session (ids only).
+            ...(() => {
+              const ids = libraryIdsRef.current;
+              sentLibraryIdsRef.current = ids;
+              return ids.length ? { library_item_ids: ids } : {};
+            })(),
+            // Room mode: the server runs the meeting-room assistant instead
+            // of the coach (server/room_mode.py). Other modes send no `mode`
+            // (their wire is unchanged).
+            ...(sessionModeRef.current === "room" ? { mode: "room" } : {}),
             // On-device TTS: the server must not synthesize audio for us;
             // and report its per-stage latency with session_complete.
             ...(liveActiveRef.current
@@ -2452,6 +2512,9 @@ export function useAudioStream(
               const voiceIt =
                 !muted &&
                 !forName &&
+                // Room mode never coaches aloud (the server sends no
+                // suggestions there; this is belt and braces).
+                sessionModeRef.current !== "room" &&
                 // A suggestion that lands after Stop is never voiced (and
                 // never handed to the loop's hold slot).
                 !stopRequestedRef.current &&
@@ -2476,6 +2539,17 @@ export function useAudioStream(
                 } else {
                   loop.offerSpeech(items[0]);
                 }
+              }
+            }
+          } else if (typeof data.type === "string" && data.type.startsWith("room_")) {
+            // Room mode (server/room_mode.py): cards are screen-only; an
+            // answer is the ONE thing spoken, through the same gate as every
+            // other utterance (Stop, speak-aloud off, no TTS all silence it).
+            const frame = parseRoomFrame(data);
+            if (frame && sessionModeRef.current === "room") {
+              setRoom((prev) => applyRoomFrame(prev, frame));
+              if (frame.kind === "answer" && !stopRequestedRef.current) {
+                speakSuggestion(frame.answer.text);
               }
             }
           } else if (data.type === "nudge") {
@@ -2612,6 +2686,21 @@ export function useAudioStream(
             const limits = (data as { guest_limits?: unknown }).guest_limits;
             if (limits && typeof limits === "object") {
               useGuestLimitsStore.getState().learnFromServer(limits);
+            }
+            if ((data as { mode?: unknown }).mode === "room" && sessionModeRef.current === "room") {
+              setRoom((prev) => (prev.serverConfirmed ? prev : { ...prev, serverConfirmed: true }));
+              // Consent: say once, out loud, that the room is being listened
+              // to (the banner keeps saying it while the mode is on).
+              if (!roomConsentSpokenRef.current && !stopRequestedRef.current) {
+                roomConsentSpokenRef.current = true;
+                speakSuggestion(ROOM_CONSENT_LINE);
+              }
+            }
+            const lib = (data as { library?: { item_ids?: unknown; ignored_item_ids?: unknown } }).library;
+            if (lib && typeof lib === "object") {
+              const ids = (v: unknown) =>
+                Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+              setLibraryAck({ item_ids: ids(lib.item_ids), ignored_item_ids: ids(lib.ignored_item_ids) });
             }
           }
           // Other control frames need no UI action.
@@ -2762,7 +2851,8 @@ export function useAudioStream(
         return;
       }
 
-      const wantLive = liveModeRef.current && liveCapability.capable;
+      const wantLive =
+        liveModeRef.current && liveCapability.capable && modeRunsCoachingLoop(sessionModeRef.current);
       const { capture, primed } = prepared;
       const failure = await prepared.started;
       if (failure) {
@@ -2953,7 +3043,7 @@ export function useAudioStream(
       // Cold-start pre-roll: collect from the first captured frame whenever
       // an on-device loop will be brought up for this session.
       loopExpectedRef.current =
-        liveModeRef.current && liveCapability.capable && sessionModeRef.current !== "journal";
+        liveModeRef.current && liveCapability.capable && modeRunsCoachingLoop(sessionModeRef.current);
       backgroundSnapshotSentRef.current = false;
       prerollRef.current = loopExpectedRef.current ? { chunks: [], samples: 0, dropped: 0 } : null;
       localTurnsRef.current = [];
@@ -2987,6 +3077,8 @@ export function useAudioStream(
         return;
       }
       setJournal(IDLE_JOURNAL_STATE);
+      setRoom(IDLE_ROOM_STATE);
+      roomConsentSpokenRef.current = false;
       // Earpiece mode: watch the private audio route for the whole session.
       startRoutePoll();
 
@@ -3061,7 +3153,7 @@ export function useAudioStream(
       beginAudioKeep(sessionId);
       setIsRecording(true);
 
-      if (liveModeRef.current && liveCapability.capable) {
+      if (liveModeRef.current && liveCapability.capable && modeRunsCoachingLoop(sessionModeRef.current)) {
         // Native mic is flowing: bring up the on-device loop alongside the
         // server stream. Failure degrades to the server path (see
         // startFastLoop) — the session is already live either way.
@@ -3166,6 +3258,23 @@ export function useAudioStream(
         // Socket mid-close: a reconnect's config frame carries it.
       }
     }, CONTEXT_SEND_DEBOUNCE_MS);
+  }, []);
+
+  const setLibraryItemIds = useCallback((ids: string[]) => {
+    const value = normalizeSelection(ids);
+    libraryIdsRef.current = value;
+    if (!sessionActiveRef.current) return; // the first config frame carries it
+    const sent = sentLibraryIdsRef.current;
+    if (value.length === sent.length && value.every((id, i) => id === sent[i])) return;
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return; // a reconnect's config carries it
+    try {
+      // [] clears a selection sent earlier in the session.
+      ws.send(JSON.stringify({ type: "config", library_item_ids: value }));
+      sentLibraryIdsRef.current = value;
+    } catch {
+      // Socket mid-close: a reconnect's config frame carries it.
+    }
   }, []);
 
   const setSessionMode = useCallback((mode: LiveMode) => {
@@ -3567,6 +3676,8 @@ export function useAudioStream(
     relationship,
     setRelationship,
     setSessionContext,
+    setLibraryItemIds,
+    libraryAck,
     liveStatus,
     nudgeFlash,
     clearNudgeFlash,
@@ -3584,6 +3695,7 @@ export function useAudioStream(
     audioKeep,
     journal,
     retryJournalUploads,
+    room,
     speakerNames,
     displayNameOf,
     labelSpeaker,

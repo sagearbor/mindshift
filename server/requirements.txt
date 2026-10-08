@@ -43,3 +43,7 @@ openai>=1.40,<2
 google-generativeai>=0.7,<1
 mistralai>=1,<2
 python-multipart>=0.0.9,<1
+# Coach knowledge library (server/library/extract.py): PDF text and .xlsx
+# workbooks. Both pure-Python. .docx is read with the stdlib (zipfile + XML).
+pypdf>=5,<7
+openpyxl>=3.1,<4

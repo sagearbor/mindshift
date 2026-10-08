@@ -266,14 +266,25 @@ describe("A. STOP means stop", () => {
 /** A route probe the test flips like a headset being plugged/unplugged. */
 function switchableRoute(initial: "private" | "public" | "unknown" = "private") {
   const state = { route: initial as "private" | "public" | "unknown", checks: 0 };
+  const listeners = new Set<(s: "private" | "public" | "unknown") => void>();
   return {
     state,
+    listeners,
+    /** A native route-change event (Bluetooth disconnect) — no poll needed. */
+    fire(next: "private" | "public" | "unknown") {
+      state.route = next;
+      for (const fn of [...listeners]) fn(next);
+    },
     make: () => ({
       check: () => {
         state.checks += 1;
         return state.route;
       },
-      dispose: () => {},
+      subscribe: (fn: (s: "private" | "public" | "unknown") => void) => {
+        listeners.add(fn);
+        return () => void listeners.delete(fn);
+      },
+      dispose: () => listeners.clear(),
     }),
   };
 }
@@ -318,6 +329,36 @@ describe("B. Earpiece mode never falls back to the loudspeaker", () => {
         await hook.result.current.stopSession();
       });
     }
+  });
+
+  it("a native route-change event (disconnect) cuts the line in flight immediately, without waiting for the poll", async () => {
+    const route = switchableRoute("private");
+    const { hook, ws } = await startEarpieceSession({ ...LEGACY, makeAudioRouteProbe: route.make });
+    expect(route.listeners.size).toBe(1); // subscribed while the earpiece session runs
+    await act(() => ws.emitServer(cloudSuggestion("Breathe first.")));
+    expect(speakMock).toHaveBeenCalledTimes(1);
+    speechStopMock.mockClear();
+    const checksBefore = route.state.checks;
+
+    await act(async () => {
+      route.fire("public"); // AudioDeviceCallback.onAudioDevicesRemoved / routeChangeNotification
+    });
+    // Synchronous: no poll tick has elapsed.
+    expect(speechStopMock).toHaveBeenCalled();
+    expect(route.state.checks).toBe(checksBefore + 1);
+    expect(hook.result.current.privateAudioRoute).toBe("public");
+    await act(() => ws.emitServer(cloudSuggestion("Not out loud.")));
+    expect(speakMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      route.fire("private");
+    });
+    expect(hook.result.current.privateAudioRoute).toBe("private");
+
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    expect(route.listeners.size).toBe(0); // unsubscribed on stop
   });
 
   it("the route is checked right before every utterance, not only on the poll", async () => {
@@ -1192,5 +1233,75 @@ describe("Diagnostics are sent even when the session never got going or the app 
       addSpy.mockRestore();
       sendSpy.mockRestore();
     }
+  });
+});
+
+describe("Coach library selection (library_item_ids)", () => {
+  const A = "11111111-1111-4111-8111-111111111111";
+  const B = "22222222-2222-4222-8222-222222222222";
+
+  it("picked before Start: on the first config frame; nothing picked sends no key", async () => {
+    const hook = await renderHook(() => useAudioStream({ ...LEGACY }));
+    await act(async () => {
+      await hook.result.current.startSession("lib-0", 50);
+    });
+    let ws = FakeWebSocket.instances.at(-1)!;
+    await act(() => ws.emitOpen());
+    expect(ws.sentJson().some((m) => "library_item_ids" in m)).toBe(false);
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+
+    await act(() => hook.result.current.setLibraryItemIds([A, B, A]));
+    await act(async () => {
+      await hook.result.current.startSession("lib-1", 50);
+    });
+    ws = FakeWebSocket.instances.at(-1)!;
+    await act(() => ws.emitOpen());
+    const first = ws.sentJson().find((m) => m.type === "config" && "self_speaker" in m);
+    expect(first.library_item_ids).toEqual([A, B]);
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+  });
+
+  it("changed mid-session: one config update per change, [] clears; the ack is surfaced", async () => {
+    const hook = await renderHook(() => useAudioStream({ ...LEGACY }));
+    await act(async () => {
+      await hook.result.current.startSession("lib-2", 50);
+    });
+    const ws = FakeWebSocket.instances.at(-1)!;
+    await act(() => ws.emitOpen());
+    const updates = () =>
+      ws.sentJson().filter((m) => m.type === "config" && "library_item_ids" in m && !("self_speaker" in m));
+    await act(() => hook.result.current.setLibraryItemIds([A]));
+    await act(() => hook.result.current.setLibraryItemIds([A])); // unchanged: no resend
+    expect(updates()).toEqual([{ type: "config", library_item_ids: [A] }]);
+    await act(async () => {
+      ws.emitServer({ type: "config_ack", library: { item_ids: [A], ignored_item_ids: [B] } });
+      await flush();
+    });
+    expect(hook.result.current.libraryAck).toEqual({ item_ids: [A], ignored_item_ids: [B] });
+    await act(() => hook.result.current.setLibraryItemIds([]));
+    expect(updates().at(-1)).toEqual({ type: "config", library_item_ids: [] });
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+  });
+
+  it("caps the selection at 20 ids", async () => {
+    const many = Array.from({ length: 25 }, (_, i) => `id-${i}`);
+    const hook = await renderHook(() => useAudioStream({ ...LEGACY }));
+    await act(() => hook.result.current.setLibraryItemIds(many));
+    await act(async () => {
+      await hook.result.current.startSession("lib-3", 50);
+    });
+    const ws = FakeWebSocket.instances.at(-1)!;
+    await act(() => ws.emitOpen());
+    const first = ws.sentJson().find((m) => m.type === "config" && "self_speaker" in m);
+    expect(first.library_item_ids).toHaveLength(20);
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
   });
 });

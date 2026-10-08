@@ -3297,7 +3297,7 @@ export interface components {
              * Mode
              * @enum {string}
              */
-            mode: "earpiece" | "speaker" | "therapist" | "call";
+            mode: "earpiece" | "speaker" | "therapist" | "call" | "room";
             /** Turns */
             turns: components["schemas"]["TurnLocalEvent"][];
             /** Tone Flags */

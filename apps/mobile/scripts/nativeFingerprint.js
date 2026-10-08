@@ -11,7 +11,8 @@
  * The fingerprint hashes exactly the inputs that can change native behavior:
  *   - app.json with the version/build counters removed
  *   - eas.json
- *   - plugins/**, targets/** (config plugins and the watchOS target)
+ *   - plugins/**, targets/**, modules/** (config plugins, the watchOS target,
+ *     and the local Expo native modules)
  *   - the name@version of every dependency that ships android/ or ios/ code
  * JS-only dependency bumps do not move it, on purpose.
  *
@@ -24,12 +25,17 @@ const crypto = require("crypto");
 const ROOT = path.resolve(__dirname, "..");
 const RECORD = path.join(ROOT, "native-fingerprint.json");
 
+const BUILD_DIRS = new Set(["build", ".gradle", ".cxx", "node_modules", "Pods"]);
+
 function walk(dir, out) {
   if (!fs.existsSync(dir)) return out;
   for (const name of fs.readdirSync(dir).sort()) {
     const p = path.join(dir, name);
     const st = fs.statSync(p);
-    if (st.isDirectory()) walk(p, out);
+    // Local build output (a gradle compile of modules/*/android) is not an input.
+    if (st.isDirectory()) {
+      if (!BUILD_DIRS.has(name)) walk(p, out);
+    }
     else if (!/\.(png|jpg|jpeg|md)$/i.test(name)) out.push(p);
   }
   return out;
@@ -79,7 +85,7 @@ function computeFingerprint() {
   const appJson = JSON.parse(fs.readFileSync(path.join(ROOT, "app.json"), "utf8"));
   h.update("app.json\n" + JSON.stringify(stripVersions(appJson)) + "\n");
   h.update("eas.json\n" + fs.readFileSync(path.join(ROOT, "eas.json"), "utf8") + "\n");
-  for (const dir of ["plugins", "targets"]) {
+  for (const dir of ["plugins", "targets", "modules"]) {
     for (const f of walk(path.join(ROOT, dir), [])) {
       h.update(path.relative(ROOT, f) + "\n" + fs.readFileSync(f) + "\n");
     }
