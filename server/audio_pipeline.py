@@ -45,7 +45,9 @@ import guest_quota
 import llm_client
 import session_resume
 import usage_meter
-from llm_client import LLMClient
+from library import live as library_live
+from library.models import LibraryContext
+from llm_client import CachedPrefixPrompt, LLMClient
 from models.audio import (
     DiarizationConfig,
     SpeakerIdentityEvent,
@@ -1134,6 +1136,9 @@ class SuggestionJob:
     history: dict | None = None
     relationship: str | None = None
     session_context: str | None = None
+    # Enqueue-time retrieval query for the library (the last few turns'
+    # text); "" when no library is selected.
+    library_recent: str = ""
     # Enqueue-time wearer identity (WEARER_SELF / WEARER_OTHER /
     # WEARER_UNKNOWN, see _resolve_wearer). None only for a job built
     # directly (tests): process_segment then derives it from is_self alone.
@@ -1568,6 +1573,11 @@ class SessionContext:
     # validated by main.validate_session_context: stripped, <= 4000 chars,
     # longer is rejected). Prompt-only and in-memory: never persisted.
     session_context: str | None = None
+    # Coach knowledge library: the session's selected items (config
+    # `library_item_ids`, validated as the caller's own) and their per-turn
+    # lookup state. None = nothing selected. Prompt-only; the library text
+    # and titles never go into logs or diagnostics, only ids and counts.
+    library: "library_live.LiveLibrary | None" = None
     # The debug-save registry entry for this session (None while the flag is
     # off) -- see _debug_register_session.
     debug_transcript: "_DebugTranscript | None" = None
@@ -1882,7 +1892,9 @@ async def _close_ws_guest_limit(websocket: WebSocket, send_json=None) -> None:
         )
 
 
-async def _apply_config(ctx: SessionContext, payload: dict) -> dict[str, str]:
+async def _apply_config(
+    ctx: SessionContext, payload: dict, ack: dict | None = None,
+) -> dict[str, str]:
     """Apply a config frame's non-auth fields to the session context.
 
     Shared by the initial auth handshake and later in-session config updates so
@@ -1890,10 +1902,35 @@ async def _apply_config(ctx: SessionContext, payload: dict) -> dict[str, str]:
     profile is loaded once, uid-scoped, the first time both ids are known.
 
     Returns ``{field: reason}`` for values that were REJECTED rather than
-    silently ignored (today only ``session_context``); the caller reports
-    them via :func:`_send_config_ack`.
+    silently ignored (``session_context``, ``library_item_ids``); the caller
+    reports them via :func:`_send_config_ack`. ``ack`` (when given) receives
+    extra ack fields: ``library`` = ``{item_ids, ignored_item_ids}`` whenever
+    the frame carried ``library_item_ids``.
     """
     rejected: dict[str, str] = {}
+    # Coach knowledge library selection. A bad value (not a list of ids, or
+    # more than 20) is REPORTED and the previous selection kept; ids that are
+    # not this user's own items are dropped and named in the ack.
+    if "library_item_ids" in payload:
+        try:
+            ids = library_live.validate_selection(payload["library_item_ids"])
+        except ValueError as exc:
+            rejected["library_item_ids"] = str(exc)
+        else:
+            accepted, ignored = (
+                await library_live.resolve_owned(ctx.uid, ids) if ctx.uid else ([], ids)
+            )
+            current = ctx.library.item_ids if ctx.library is not None else []
+            if accepted != current:
+                if ctx.library is not None:
+                    ctx.library.close()
+                ctx.library = library_live.LiveLibrary(ctx.uid, accepted) if accepted else None
+            if ack is not None:
+                ack["library"] = {"item_ids": accepted, "ignored_item_ids": ignored}
+            logger.info(
+                "Session %s library selection: %d items (%d ignored)",
+                ctx.session_id, len(accepted), len(ignored),
+            )
     if "empathy_slider" in payload:
         val = payload["empathy_slider"]
         if isinstance(val, int) and 0 <= val <= 100:
@@ -2151,8 +2188,8 @@ async def _authenticate(
         ctx.is_guest = True
         ctx.guest_deadline = time.monotonic() + guest_quota.guest_max_session_seconds()
     ctx.uid = uid
-    rejected = await _apply_config(ctx, payload) or {}
     ack: dict[str, object] = {"type": "config_ack"}
+    rejected = await _apply_config(ctx, payload, ack) or {}
     if ctx.is_guest:
         # Tell a guest the shape of their allowance on the way IN, not on the
         # way out. These numbers were previously only ever sent by
@@ -2244,6 +2281,11 @@ async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
         clear) — wearer-typed background; a longer value is rejected:
         the ack carries ``rejected: {"session_context": reason}`` and an
         ``{"error": reason}`` frame follows it.
+        ``library_item_ids`` (list of <= 20 library item ids, [] or null to
+        clear) — coach knowledge library selection; the ack carries
+        ``library: {item_ids, ignored_item_ids}`` (ids that are not this
+        user's own items are ignored). More than 20 is rejected like an
+        over-long ``session_context``.
         {"type": "speaker_label", "speaker": "Speaker B",
          "display_name": "Mom", "person_id": "mom" | null,
          "is_self": false}                    — mid-call naming: the coach's
@@ -2571,6 +2613,16 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             )
         self_turn = identity == WEARER_SELF
 
+        # Coach knowledge library: bounded wait (library_live.TURN_TIMEOUT_S);
+        # None on timeout/failure/nothing selected — the turn is then coached
+        # exactly as without a library. Never raises.
+        library_ctx: LibraryContext | None = None
+        if ctx.library is not None:
+            try:
+                library_ctx = await ctx.library.for_turn(job.library_recent)
+            except Exception:  # noqa: BLE001 — belt and braces
+                logger.warning("library lookup raised for session %s", session_id, exc_info=True)
+
         # Hedge bookkeeping for this turn's LLM call (filled by the streaming
         # helper when the client's stream is a hedge-capable one).
         hedge_stats: dict = {}
@@ -2594,7 +2646,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                     speaker_name=speaker_name,
                     stream=progressive, stats=hedge_stats,
                     history=job.history, relationship=job.relationship,
-                    session_context=job.session_context,
+                    session_context=job.session_context, library=library_ctx,
                 )
             timing.llm_end = ctx.latency.now()
             note_hedge()
@@ -2663,7 +2715,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                 on_first_suggestion=on_first_suggestion if progressive else None,
                 speaker_name=speaker_name, stats=hedge_stats,
                 history=job.history, relationship=job.relationship,
-                session_context=job.session_context,
+                session_context=job.session_context, library=library_ctx,
                 wearer_unknown=identity == WEARER_UNKNOWN,
             )
         timing.llm_end = ctx.latency.now()
@@ -2835,6 +2887,9 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             role=ctx.role,
             relationship=ctx.relationship,
             session_context=ctx.session_context,
+            library_recent=library_live.recent_text(
+                [u.text for u in ctx.utterances if u is not utterance] + [utterance.text]
+            ) if ctx.library is not None else "",
             self_speaker=ctx.self_speaker,
             timing=timing,
             is_self=is_self,
@@ -3506,8 +3561,9 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                     # is verified only on the FIRST config — the auth handshake
                     # above — so later frames reuse the established uid and need
                     # not (and do not) re-present a token.
-                    rejected = await _apply_config(ctx, payload) or {}
-                    await _send_config_ack(send_json, rejected)
+                    ack = {"type": "config_ack"}
+                    rejected = await _apply_config(ctx, payload, ack) or {}
+                    await _send_config_ack(send_json, rejected, ack)
                 elif msg_type == "turn_local":
                     # Track 3-server: a phone-finalized turn. Validated with
                     # the shared model so a malformed report is rejected at
@@ -3686,6 +3742,8 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             with contextlib.suppress(Exception):
                 await ctx.call.leave(ctx.uid, call_endpoint)
         await cancel_workers()
+        if ctx.library is not None:
+            ctx.library.close()
         # Enrichment tasks may still be inside a model call (to_thread) — the
         # thread finishes on its own; the task just stops mattering.
         for task in list(enrichment_tasks):
@@ -4348,6 +4406,29 @@ async def _stream_with_first_suggestion(
 # LLM suggestion helper
 # ---------------------------------------------------------------------------
 
+def _with_library(
+    system: str, user_content: str, library: LibraryContext | None,
+) -> tuple[str, str]:
+    """Place the ``<wearer_library>`` block (already wrapped and
+    delimiter-neutralised by library.context) in a coaching prompt.
+
+    * ``full``: FIRST in the system prompt, as a :class:`CachedPrefixPrompt`
+      so the Anthropic request carries a cache marker right after it. The
+      block is byte-identical every turn for the same selection, and being
+      first it stays a cached prefix whichever prompt variant (self / other
+      / wearer unknown) follows it. The rules (main.LIBRARY_RULES) follow
+      the data, as for ``<wearer_context>``.
+    * ``retrieved``: the excerpts change every turn, so they ride in the
+      user message ahead of the turn, leaving the system prompt stable.
+    * nothing / empty: both strings unchanged.
+    """
+    if library is None or not library.text:
+        return system, user_content
+    if library.mode == "full":
+        return CachedPrefixPrompt(library.text + "\n", system), user_content
+    return system, library.text + "\n" + user_content
+
+
 async def _generate_suggestions(
     llm: LLMClient,
     utterance: Utterance,
@@ -4363,6 +4444,7 @@ async def _generate_suggestions(
     relationship: str | None = None,
     wearer_unknown: bool = False,
     session_context: str | None = None,
+    library: LibraryContext | None = None,
 ) -> tuple[list[str], int]:
     """Call LLMClient.complete(); parse suggestions + moment importance.
 
@@ -4388,18 +4470,21 @@ async def _generate_suggestions(
     """
     from main import empathy_system_prompt, unknown_wearer_prompt
 
+    has_library = bool(library is not None and library.text)
     if wearer_unknown:
         # Speaker-neutral cues only -- see main.COACH_UNKNOWN_WEARER_RULES.
         system = unknown_wearer_prompt(
             empathy_slider, role, relationship=relationship,
-            session_context=session_context,
+            session_context=session_context, library=has_library,
         )
     else:
         system = empathy_system_prompt(
             empathy_slider, role, voice_profile, live=LIVE_PROMPT,
             relationship=relationship, session_context=session_context,
+            library=has_library,
         )
     user_content = _turn_prompt(utterance, tone_context, speaker_name, history)
+    system, user_content = _with_library(system, user_content, library)
 
     if on_first_suggestion is not None and _supports_streaming(llm):
         raw = await _stream_with_first_suggestion(
@@ -4452,6 +4537,7 @@ async def _generate_nudge(
     history: dict | None = None,
     relationship: str | None = None,
     session_context: str | None = None,
+    library: LibraryContext | None = None,
 ) -> tuple[str, int]:
     """Call the LLM for a SELF turn; parse the single delivery nudge + urgency.
 
@@ -4476,6 +4562,7 @@ async def _generate_nudge(
     system = self_feedback_prompt(
         empathy_slider, role, voice_profile, relationship=relationship,
         session_context=session_context,
+        library=bool(library is not None and library.text),
     )
     # tone_context renders the phone's measurements as hints (Track 3-server);
     # None keeps the prompt byte-identical. No streaming PREVIEW for a nudge
@@ -4484,6 +4571,7 @@ async def _generate_nudge(
     # stream, so a nudge gets the same first-token tail protection as a
     # suggestion. ``stream=False`` (legacy clients) is the exact old call.
     user_content = _turn_prompt(utterance, tone_context, speaker_name, history)
+    system, user_content = _with_library(system, user_content, library)
 
     if stream and _supports_streaming(llm):
         raw = await _stream_with_first_suggestion(
