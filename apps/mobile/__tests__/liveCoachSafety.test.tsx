@@ -1194,3 +1194,73 @@ describe("Diagnostics are sent even when the session never got going or the app 
     }
   });
 });
+
+describe("Coach library selection (library_item_ids)", () => {
+  const A = "11111111-1111-4111-8111-111111111111";
+  const B = "22222222-2222-4222-8222-222222222222";
+
+  it("picked before Start: on the first config frame; nothing picked sends no key", async () => {
+    const hook = await renderHook(() => useAudioStream({ ...LEGACY }));
+    await act(async () => {
+      await hook.result.current.startSession("lib-0", 50);
+    });
+    let ws = FakeWebSocket.instances.at(-1)!;
+    await act(() => ws.emitOpen());
+    expect(ws.sentJson().some((m) => "library_item_ids" in m)).toBe(false);
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+
+    await act(() => hook.result.current.setLibraryItemIds([A, B, A]));
+    await act(async () => {
+      await hook.result.current.startSession("lib-1", 50);
+    });
+    ws = FakeWebSocket.instances.at(-1)!;
+    await act(() => ws.emitOpen());
+    const first = ws.sentJson().find((m) => m.type === "config" && "self_speaker" in m);
+    expect(first.library_item_ids).toEqual([A, B]);
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+  });
+
+  it("changed mid-session: one config update per change, [] clears; the ack is surfaced", async () => {
+    const hook = await renderHook(() => useAudioStream({ ...LEGACY }));
+    await act(async () => {
+      await hook.result.current.startSession("lib-2", 50);
+    });
+    const ws = FakeWebSocket.instances.at(-1)!;
+    await act(() => ws.emitOpen());
+    const updates = () =>
+      ws.sentJson().filter((m) => m.type === "config" && "library_item_ids" in m && !("self_speaker" in m));
+    await act(() => hook.result.current.setLibraryItemIds([A]));
+    await act(() => hook.result.current.setLibraryItemIds([A])); // unchanged: no resend
+    expect(updates()).toEqual([{ type: "config", library_item_ids: [A] }]);
+    await act(async () => {
+      ws.emitServer({ type: "config_ack", library: { item_ids: [A], ignored_item_ids: [B] } });
+      await flush();
+    });
+    expect(hook.result.current.libraryAck).toEqual({ item_ids: [A], ignored_item_ids: [B] });
+    await act(() => hook.result.current.setLibraryItemIds([]));
+    expect(updates().at(-1)).toEqual({ type: "config", library_item_ids: [] });
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+  });
+
+  it("caps the selection at 20 ids", async () => {
+    const many = Array.from({ length: 25 }, (_, i) => `id-${i}`);
+    const hook = await renderHook(() => useAudioStream({ ...LEGACY }));
+    await act(() => hook.result.current.setLibraryItemIds(many));
+    await act(async () => {
+      await hook.result.current.startSession("lib-3", 50);
+    });
+    const ws = FakeWebSocket.instances.at(-1)!;
+    await act(() => ws.emitOpen());
+    const first = ws.sentJson().find((m) => m.type === "config" && "self_speaker" in m);
+    expect(first.library_item_ids).toHaveLength(20);
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+  });
+});

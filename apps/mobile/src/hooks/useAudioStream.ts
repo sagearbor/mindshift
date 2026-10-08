@@ -108,6 +108,7 @@ import {
   onDeviceSessionContext,
   type Relationship,
 } from "../live/sessionContext";
+import { normalizeSelection } from "../live/librarySelection";
 import { createDefaultAudioRouteProbe, ROUTE_POLL_MS, type AudioRouteProbe, type AudioRouteState } from "../live/audioRoute";
 
 const API_URL =
@@ -378,6 +379,15 @@ interface UseAudioStreamReturn {
    *  POST /sessions/live when non-empty; a mid-session edit goes out as a
    *  config update after a short pause in typing. Never in diagnostics. */
   setSessionContext: (text: string) => void;
+  /** Coach-library items picked for this session (ids only, ≤ 20). Sent as
+   *  `library_item_ids` on the first config frame when non-empty, and as a
+   *  config update the moment the selection changes mid-session ([] clears
+   *  it). Titles and contents never pass through here. */
+  setLibraryItemIds: (ids: string[]) => void;
+  /** What the server last acknowledged for the selection (its config_ack
+   *  `library`): ids it will use and ids it ignored (not the user's own /
+   *  deleted). Null until a frame carrying ids is acknowledged. */
+  libraryAck: { item_ids: string[]; ignored_item_ids: string[] } | null;
   /** What the fast loop actually loaded, or why it isn't running. Empty on
    *  the legacy path. */
   liveStatus: string;
@@ -690,6 +700,12 @@ export function useAudioStream(
   const sessionContextRef = useRef("");
   const sentContextRef = useRef("");
   const contextSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Coach-library selection (ids only) and what the server was last sent. */
+  const libraryIdsRef = useRef<string[]>([]);
+  const sentLibraryIdsRef = useRef<string[]>([]);
+  const [libraryAck, setLibraryAck] = useState<
+    { item_ids: string[]; ignored_item_ids: string[] } | null
+  >(null);
   const [liveStatus, setLiveStatus] = useState("");
   const [nudgeFlash, setNudgeFlash] = useState<NudgeEvent | null>(null);
   /** 💚 The most recent thing the user did WELL (positiveNudges.ts). Only
@@ -2170,6 +2186,12 @@ export function useAudioStream(
               sentContextRef.current = ctx;
               return ctx ? { session_context: ctx } : {};
             })(),
+            // Coach-library items picked for this session (ids only).
+            ...(() => {
+              const ids = libraryIdsRef.current;
+              sentLibraryIdsRef.current = ids;
+              return ids.length ? { library_item_ids: ids } : {};
+            })(),
             // On-device TTS: the server must not synthesize audio for us;
             // and report its per-stage latency with session_complete.
             ...(liveActiveRef.current
@@ -2612,6 +2634,12 @@ export function useAudioStream(
             const limits = (data as { guest_limits?: unknown }).guest_limits;
             if (limits && typeof limits === "object") {
               useGuestLimitsStore.getState().learnFromServer(limits);
+            }
+            const lib = (data as { library?: { item_ids?: unknown; ignored_item_ids?: unknown } }).library;
+            if (lib && typeof lib === "object") {
+              const ids = (v: unknown) =>
+                Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+              setLibraryAck({ item_ids: ids(lib.item_ids), ignored_item_ids: ids(lib.ignored_item_ids) });
             }
           }
           // Other control frames need no UI action.
@@ -3168,6 +3196,23 @@ export function useAudioStream(
     }, CONTEXT_SEND_DEBOUNCE_MS);
   }, []);
 
+  const setLibraryItemIds = useCallback((ids: string[]) => {
+    const value = normalizeSelection(ids);
+    libraryIdsRef.current = value;
+    if (!sessionActiveRef.current) return; // the first config frame carries it
+    const sent = sentLibraryIdsRef.current;
+    if (value.length === sent.length && value.every((id, i) => id === sent[i])) return;
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return; // a reconnect's config carries it
+    try {
+      // [] clears a selection sent earlier in the session.
+      ws.send(JSON.stringify({ type: "config", library_item_ids: value }));
+      sentLibraryIdsRef.current = value;
+    } catch {
+      // Socket mid-close: a reconnect's config frame carries it.
+    }
+  }, []);
+
   const setSessionMode = useCallback((mode: LiveMode) => {
     sessionModeRef.current = mode;
     loopModeRef.current = mode;
@@ -3567,6 +3612,8 @@ export function useAudioStream(
     relationship,
     setRelationship,
     setSessionContext,
+    setLibraryItemIds,
+    libraryAck,
     liveStatus,
     nudgeFlash,
     clearNudgeFlash,
