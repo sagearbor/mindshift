@@ -68,6 +68,11 @@ export interface PickedLibraryFile {
 
 export type LibraryApiError = Error & { status?: number };
 
+/** The honest line shown when the server cannot search inside documents
+ *  (`retrieval_available: false`). */
+export const RETRIEVAL_UNAVAILABLE_TEXT =
+  "Search unavailable: large documents can't be used yet. Notes and short documents still work.";
+
 async function headers(json: boolean): Promise<Record<string, string>> {
   const token = await getFreshToken();
   const h: Record<string, string> = json ? { "Content-Type": "application/json" } : {};

@@ -657,6 +657,66 @@ exports[`LiveCoachScreen renders disconnected state 1`] = `
       <View
         style={
           {
+            "paddingHorizontal": 16,
+            "paddingVertical": 6,
+          }
+        }
+        testID="library-picker"
+      >
+        <View
+          accessibilityRole="button"
+          accessibilityState={
+            {
+              "busy": undefined,
+              "checked": undefined,
+              "disabled": undefined,
+              "expanded": false,
+              "selected": undefined,
+            }
+          }
+          accessibilityValue={
+            {
+              "max": undefined,
+              "min": undefined,
+              "now": undefined,
+              "text": undefined,
+            }
+          }
+          accessible={true}
+          collapsable={false}
+          focusable={true}
+          onClick={[Function]}
+          onResponderGrant={[Function]}
+          onResponderMove={[Function]}
+          onResponderRelease={[Function]}
+          onResponderTerminate={[Function]}
+          onResponderTerminationRequest={[Function]}
+          onStartShouldSetResponder={[Function]}
+          style={
+            {
+              "opacity": 1,
+            }
+          }
+          testID="library-picker-toggle"
+        >
+          <Text
+            style={
+              {
+                "color": "#374151",
+                "fontSize": 13,
+                "fontWeight": "600",
+                "marginBottom": 6,
+              }
+            }
+          >
+            ▸
+             Use from library
+          </Text>
+        </View>
+      </View>
+      <View
+        style={
+          {
             "display": "none",
           }
         }
@@ -1507,6 +1567,66 @@ exports[`LiveCoachScreen renders initial idle state 1`] = `
             }
           >
             off
+          </Text>
+        </View>
+      </View>
+      <View
+        style={
+          {
+            "paddingHorizontal": 16,
+            "paddingVertical": 6,
+          }
+        }
+        testID="library-picker"
+      >
+        <View
+          accessibilityRole="button"
+          accessibilityState={
+            {
+              "busy": undefined,
+              "checked": undefined,
+              "disabled": undefined,
+              "expanded": false,
+              "selected": undefined,
+            }
+          }
+          accessibilityValue={
+            {
+              "max": undefined,
+              "min": undefined,
+              "now": undefined,
+              "text": undefined,
+            }
+          }
+          accessible={true}
+          collapsable={false}
+          focusable={true}
+          onClick={[Function]}
+          onResponderGrant={[Function]}
+          onResponderMove={[Function]}
+          onResponderRelease={[Function]}
+          onResponderTerminate={[Function]}
+          onResponderTerminationRequest={[Function]}
+          onStartShouldSetResponder={[Function]}
+          style={
+            {
+              "opacity": 1,
+            }
+          }
+          testID="library-picker-toggle"
+        >
+          <Text
+            style={
+              {
+                "color": "#374151",
+                "fontSize": 13,
+                "fontWeight": "600",
+                "marginBottom": 6,
+              }
+            }
+          >
+            ▸
+             Use from library
           </Text>
         </View>
       </View>
@@ -3509,6 +3629,66 @@ exports[`LiveCoachScreen renders recording state with transcript and suggestions
         >
           escalations: 0
         </Text>
+      </View>
+      <View
+        style={
+          {
+            "paddingHorizontal": 16,
+            "paddingVertical": 6,
+          }
+        }
+        testID="library-picker"
+      >
+        <View
+          accessibilityRole="button"
+          accessibilityState={
+            {
+              "busy": undefined,
+              "checked": undefined,
+              "disabled": undefined,
+              "expanded": false,
+              "selected": undefined,
+            }
+          }
+          accessibilityValue={
+            {
+              "max": undefined,
+              "min": undefined,
+              "now": undefined,
+              "text": undefined,
+            }
+          }
+          accessible={true}
+          collapsable={false}
+          focusable={true}
+          onClick={[Function]}
+          onResponderGrant={[Function]}
+          onResponderMove={[Function]}
+          onResponderRelease={[Function]}
+          onResponderTerminate={[Function]}
+          onResponderTerminationRequest={[Function]}
+          onStartShouldSetResponder={[Function]}
+          style={
+            {
+              "opacity": 1,
+            }
+          }
+          testID="library-picker-toggle"
+        >
+          <Text
+            style={
+              {
+                "color": "#374151",
+                "fontSize": 13,
+                "fontWeight": "600",
+                "marginBottom": 6,
+              }
+            }
+          >
+            ▸
+             Use from library
+          </Text>
+        </View>
       </View>
       <View
         style={

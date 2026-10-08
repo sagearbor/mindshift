@@ -40,6 +40,8 @@ import { getTherapistLink, type TherapistLink } from "../api/therapist";
 import * as apiClient from "../api/client";
 import ConversationContextPanel from "../components/ConversationContextPanel";
 import { defaultSessionContextStore } from "../live/sessionContext";
+import LibraryPicker from "../components/LibraryPicker";
+import { defaultLibrarySelectionStore } from "../live/librarySelection";
 import type { VoicePerson as ApiVoicePerson } from "../api/client";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -99,6 +101,8 @@ interface LiveCoachScreenProps {
   /** Opens Settings scrolled to the Voice section — the Journal gate's
    *  "Train my voice" button. Optional; without it the gate stays text. */
   onOpenVoiceSettings?: () => void;
+  /** Opens the coach Library screen (the picker's "Manage library"). */
+  onOpenLibrary?: () => void;
 }
 
 export default function LiveCoachScreen({
@@ -110,6 +114,7 @@ export default function LiveCoachScreen({
   journalAction = null,
   onJournalActionConsumed,
   onOpenVoiceSettings,
+  onOpenLibrary,
 }: LiveCoachScreenProps = {}) {
   // Keep this session's audio (default ON — see keepAudioPrefs.ts): read
   // once per account before the hook needs it; the switch below changes it
@@ -163,6 +168,8 @@ export default function LiveCoachScreen({
     relationship,
     setRelationship,
     setSessionContext,
+    setLibraryItemIds,
+    libraryAck,
     liveStatus,
     nudgeFlash,
     clearNudgeFlash,
@@ -217,6 +224,25 @@ export default function LiveCoachScreen({
     setSessionContext?.("");
     contextStoreRef.current.clear();
   }, [setSessionContext]);
+
+  // Coach-library items picked for the session: remembered on this device,
+  // handed to the hook (ids only), which sends `library_item_ids`.
+  const libraryStoreRef = useRef(defaultLibrarySelectionStore());
+  const [libraryIds, setLibraryIds] = useState<string[]>(() => libraryStoreRef.current.load());
+  useEffect(() => {
+    setLibraryItemIds?.(libraryIds);
+    // Only on mount: later changes go through handleLibraryChange.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const handleLibraryChange = useCallback(
+    (ids: string[]) => {
+      setLibraryIds(ids);
+      setLibraryItemIds?.(ids);
+      libraryStoreRef.current.save(ids);
+    },
+    [setLibraryItemIds],
+  );
+  const libraryIgnored = (libraryAck?.ignored_item_ids ?? []).filter((id) => libraryIds.includes(id)).length;
 
   const userId = useAuthStore((s) => s.user?.uid ?? null);
   const [empathyLevel, setEmpathyLevel] = useState(50);
@@ -1027,6 +1053,14 @@ export default function LiveCoachScreen({
           sessionContext={contextText}
           onSessionContextChange={handleContextChange}
           onClearSessionContext={handleContextClear}
+        />
+      ) : null}
+      {!isTherapist && !isJournal ? (
+        <LibraryPicker
+          selectedIds={libraryIds}
+          onChange={handleLibraryChange}
+          onManage={onOpenLibrary}
+          ignoredCount={libraryIgnored}
         />
       ) : null}
 

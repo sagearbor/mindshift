@@ -27,6 +27,18 @@ jest.mock("../src/live/modePrefs", () => ({
 jest.mock("../src/api/client", () => ({
   postShare: jest.fn(),
 }));
+// Coach library: the remembered selection and the list the picker shows.
+let mockLibrarySaved: string[] = [];
+const mockLibrarySave = jest.fn();
+jest.mock("../src/live/librarySelection", () => ({
+  ...jest.requireActual("../src/live/librarySelection"),
+  defaultLibrarySelectionStore: () => ({ load: () => mockLibrarySaved, save: mockLibrarySave }),
+}));
+const mockListLibrary = jest.fn();
+jest.mock("../src/api/library", () => ({
+  ...jest.requireActual("../src/api/library"),
+  listLibrary: () => mockListLibrary(),
+}));
 
 import LiveCoachScreen from "../src/screens/LiveCoachScreen";
 
@@ -811,5 +823,49 @@ describe("LiveCoachScreen — coaching options are collapsed until asked for", (
     expect(body().props.style).toBeUndefined();
     expect(sliders().props.style).toBeUndefined();
     act(() => component.unmount());
+  });
+});
+
+describe("LiveCoachScreen — Use from library", () => {
+  const A = "11111111-1111-4111-8111-111111111111";
+  const B = "22222222-2222-4222-8222-222222222222";
+  const item = (id: string, title: string) => ({
+    id, title, kind: "note", chars: 10, status: "ready", error: null,
+    created_at: "2026-10-07T00:00:00Z", updated_at: "2026-10-07T00:00:00Z", indexed: false,
+  });
+
+  afterEach(() => {
+    mockLibrarySaved = [];
+  });
+
+  it("hands the remembered selection to the hook on mount; a pick is sent and remembered; Manage opens the library", async () => {
+    mockLibrarySaved = [A];
+    mockListLibrary.mockResolvedValue({
+      items: [item(A, "Pricing"), item(B, "Objections")],
+      retrieval_available: true,
+      limits: { max_file_bytes: 1, max_text_chars: 1, max_items: 50 },
+    });
+    const setLibraryItemIds = jest.fn();
+    const onOpenLibrary = jest.fn();
+    mockUseAudioStream.mockReturnValue({ ...defaultHookState, setLibraryItemIds, libraryAck: null });
+    let root: renderer.ReactTestRenderer;
+    act(() => {
+      root = track(renderer.create(<LiveCoachScreen onOpenLibrary={onOpenLibrary} />));
+    });
+    await flush();
+    expect(setLibraryItemIds).toHaveBeenCalledWith([A]);
+
+    await act(async () => {
+      root!.root.findByProps({ testID: "library-picker-toggle" }).props.onPress();
+    });
+    await flush();
+    await act(async () => {
+      root!.root.findByProps({ testID: `library-pick-${B}` }).props.onPress();
+    });
+    expect(setLibraryItemIds).toHaveBeenLastCalledWith([A, B]);
+    expect(mockLibrarySave).toHaveBeenLastCalledWith([A, B]);
+
+    act(() => root!.root.findByProps({ testID: "library-picker-manage" }).props.onPress());
+    expect(onOpenLibrary).toHaveBeenCalled();
   });
 });

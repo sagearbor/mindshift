@@ -11,6 +11,7 @@ import HomeScreen from "./src/screens/HomeScreen";
 import AnalyzeScreen from "./src/screens/AnalyzeScreen";
 import AdvancedScreen from "./src/screens/AdvancedScreen";
 import PeopleScreen from "./src/screens/PeopleScreen";
+import LibraryScreen from "./src/screens/LibraryScreen";
 import HomeDesignScreen from "./src/screens/HomeDesignScreen";
 import WatchSetupScreen from "./src/screens/WatchSetupScreen";
 import SessionScreen from "./src/screens/SessionScreen";
@@ -126,6 +127,10 @@ export type Screen =
   // `returnTo` carries wherever it was launched from (same dynamic-returnTo
   // pattern as watch-setup below).
   | { name: "people"; returnTo: Screen }
+  // Coach knowledge library (notes + documents the live coach can draw on).
+  // Pushed from Settings and from Live Coach's "Manage library"; pops back
+  // to wherever it was launched from.
+  | { name: "library"; returnTo: Screen }
   // Phase 3 Slice 1: install the watch app + redeem its pairing code.
   // Pushed from Settings' "Set up your watch" row (returnTo "advanced") AND
   // (Task N3 fix round 1) from the hamburger catalog on any primary screen —
@@ -544,6 +549,7 @@ export default function App({ initialUrl }: AppProps = {}) {
             onOpenVoiceSettings={() =>
               setScreen({ name: "advanced", returnTo: screen, section: "voice" })
             }
+            onOpenLibrary={() => setScreen({ name: "library", returnTo: screen })}
             onReviewTranscript={(turns) => {
               // Hand the finished live conversation to the text tools, where
               // Get Suggestions / Analyze dynamics work off the loaded turns.
@@ -615,6 +621,7 @@ export default function App({ initialUrl }: AppProps = {}) {
               setScreen({ name: "home-design", returnTo: screen })
             }
             onOpenPeople={() => setScreen({ name: "people", returnTo: screen })}
+            onOpenLibrary={() => setScreen({ name: "library", returnTo: screen })}
             onSetProfilePhoto={() =>
               setScreen({
                 name: "avatar-capture",
@@ -639,6 +646,9 @@ export default function App({ initialUrl }: AppProps = {}) {
             }
           />
         );
+      case "library":
+        // Coach knowledge library: pops back to Settings or Live Coach.
+        return <LibraryScreen onBack={() => setScreen(screen.returnTo)} />;
       case "watch-setup":
         // Task N3 fix round 1: returns to wherever it was actually launched
         // from (Settings' own row, or now the hamburger catalog from any
