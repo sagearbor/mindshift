@@ -266,14 +266,25 @@ describe("A. STOP means stop", () => {
 /** A route probe the test flips like a headset being plugged/unplugged. */
 function switchableRoute(initial: "private" | "public" | "unknown" = "private") {
   const state = { route: initial as "private" | "public" | "unknown", checks: 0 };
+  const listeners = new Set<(s: "private" | "public" | "unknown") => void>();
   return {
     state,
+    listeners,
+    /** A native route-change event (Bluetooth disconnect) — no poll needed. */
+    fire(next: "private" | "public" | "unknown") {
+      state.route = next;
+      for (const fn of [...listeners]) fn(next);
+    },
     make: () => ({
       check: () => {
         state.checks += 1;
         return state.route;
       },
-      dispose: () => {},
+      subscribe: (fn: (s: "private" | "public" | "unknown") => void) => {
+        listeners.add(fn);
+        return () => void listeners.delete(fn);
+      },
+      dispose: () => listeners.clear(),
     }),
   };
 }
@@ -318,6 +329,36 @@ describe("B. Earpiece mode never falls back to the loudspeaker", () => {
         await hook.result.current.stopSession();
       });
     }
+  });
+
+  it("a native route-change event (disconnect) cuts the line in flight immediately, without waiting for the poll", async () => {
+    const route = switchableRoute("private");
+    const { hook, ws } = await startEarpieceSession({ ...LEGACY, makeAudioRouteProbe: route.make });
+    expect(route.listeners.size).toBe(1); // subscribed while the earpiece session runs
+    await act(() => ws.emitServer(cloudSuggestion("Breathe first.")));
+    expect(speakMock).toHaveBeenCalledTimes(1);
+    speechStopMock.mockClear();
+    const checksBefore = route.state.checks;
+
+    await act(async () => {
+      route.fire("public"); // AudioDeviceCallback.onAudioDevicesRemoved / routeChangeNotification
+    });
+    // Synchronous: no poll tick has elapsed.
+    expect(speechStopMock).toHaveBeenCalled();
+    expect(route.state.checks).toBe(checksBefore + 1);
+    expect(hook.result.current.privateAudioRoute).toBe("public");
+    await act(() => ws.emitServer(cloudSuggestion("Not out loud.")));
+    expect(speakMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      route.fire("private");
+    });
+    expect(hook.result.current.privateAudioRoute).toBe("private");
+
+    await act(async () => {
+      await hook.result.current.stopSession();
+    });
+    expect(route.listeners.size).toBe(0); // unsubscribed on stop
   });
 
   it("the route is checked right before every utterance, not only on the poll", async () => {
