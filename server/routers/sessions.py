@@ -123,7 +123,7 @@ _LIVE_NAMESPACE = uuid.UUID("6f1c2f2e-3b3a-4c6e-9d8e-7a5b2c1d0e9f")
 # "call" (2026-08-25): an in-app call — the merged two-participant transcript
 # persisted by server/calls.py at call end, one episode per participant. The
 # phone never POSTs a call session itself.
-LiveMode = Literal["earpiece", "speaker", "therapist", "call"]
+LiveMode = Literal["earpiece", "speaker", "therapist", "call", "room"]
 
 # Background post-ingest tasks (batch analysis + reflection), strong-ref'd
 # like main._JOB_TASKS so the event loop never garbage-collects one mid-run.

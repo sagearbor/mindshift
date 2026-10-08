@@ -46,6 +46,7 @@ import llm_client
 import session_resume
 import usage_meter
 from library import live as library_live
+import room_mode
 from library.models import LibraryContext
 from llm_client import CachedPrefixPrompt, LLMClient
 from models.audio import (
@@ -1143,6 +1144,8 @@ class SuggestionJob:
     # WEARER_UNKNOWN, see _resolve_wearer). None only for a job built
     # directly (tests): process_segment then derives it from is_self alone.
     identity: str | None = None
+    # Room mode at enqueue time: the turn goes to room_mode, not the coach.
+    room: bool = False
     prev_done: "asyncio.Future[None] | None" = field(default=None, repr=False, compare=False)
     done: "asyncio.Future[None] | None" = field(default=None, repr=False, compare=False)
 
@@ -1578,6 +1581,12 @@ class SessionContext:
     # lookup state. None = nothing selected. Prompt-only; the library text
     # and titles never go into logs or diagnostics, only ids and counts.
     library: "library_live.LiveLibrary | None" = None
+    # Session mode from config `mode` (earpiece | speaker | therapist | call |
+    # room; None = unset, i.e. coaching). Only "room" changes the pipeline:
+    # each utterance goes to room_mode (addressed questions answered aloud,
+    # library info cards) instead of the coach, and `room` holds its state.
+    mode: str | None = None
+    room: "room_mode.RoomState | None" = None
     # The debug-save registry entry for this session (None while the flag is
     # off) -- see _debug_register_session.
     debug_transcript: "_DebugTranscript | None" = None
@@ -1892,6 +1901,10 @@ async def _close_ws_guest_limit(websocket: WebSocket, send_json=None) -> None:
         )
 
 
+# Config `mode` values that keep the coaching pipeline (see _apply_config).
+_COACHING_MODES = ("earpiece", "speaker", "therapist", "call")
+
+
 async def _apply_config(
     ctx: SessionContext, payload: dict, ack: dict | None = None,
 ) -> dict[str, str]:
@@ -1908,6 +1921,22 @@ async def _apply_config(
     the frame carried ``library_item_ids``.
     """
     rejected: dict[str, str] = {}
+    # Session mode. "room" switches the per-utterance pipeline to room_mode;
+    # a coaching mode or null switches back. Unknown values are ignored
+    # (validated-or-ignored, like relationship). The ack echoes the mode in
+    # force whenever the frame carried the key.
+    if "mode" in payload:
+        mode_val = payload["mode"]
+        if mode_val == room_mode.MODE_ROOM:
+            ctx.mode = mode_val
+            if ctx.room is None:
+                ctx.room = room_mode.RoomState()
+        elif mode_val is None or mode_val in _COACHING_MODES:
+            ctx.mode = mode_val
+            ctx.room = None
+        if ack is not None:
+            ack["mode"] = ctx.mode
+        logger.info("Session %s mode: %s", ctx.session_id, ctx.mode)
     # Coach knowledge library selection. A bad value (not a list of ids, or
     # more than 20) is REPORTED and the previous selection kept; ids that are
     # not this user's own items are dropped and named in the ack.
@@ -2286,6 +2315,13 @@ async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
         ``library: {item_ids, ignored_item_ids}`` (ids that are not this
         user's own items are ignored). More than 20 is rejected like an
         over-long ``session_context``.
+        ``mode`` ("room" | "earpiece" | "speaker" | "therapist" | "call" |
+        null) — "room" switches the per-utterance pipeline from coaching to
+        the meeting-room assistant (server/room_mode.py): an utterance that
+        starts with the wake phrase ("MindShift, ...") gets a spoken
+        ``room_answer`` from the library + conversation, a mention of
+        something the library covers gets a ``room_card``; no suggestions,
+        nudges or wearer identity. The ack echoes ``mode``.
         {"type": "speaker_label", "speaker": "Speaker B",
          "display_name": "Mom", "person_id": "mom" | null,
          "is_self": false}                    — mid-call naming: the coach's
@@ -2308,6 +2344,18 @@ async def audio_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
         {"type": "speaker_identity", ...}      — ``SpeakerIdentityEvent``: the
                                                  server's voiceprint verdict on the
                                                  turn's speaker
+        {"type": "room_card", "id", "title", "fact", "source_item_id",
+         "source_title", "t"}                 — room mode: a verbatim library
+                                                 fact for something just
+                                                 mentioned (rate-limited,
+                                                 de-duplicated); never spoken
+        {"type": "room_listening", "t"}        — room mode: wake phrase alone
+        {"type": "room_answer", "question", "text", "known",
+         "source_item_ids", "t", "speak": true}
+                                               — room mode: the answer to an
+                                                 addressed question, to be
+                                                 spoken aloud by the phone
+        {"type": "room_answer_error", "question", "reason", "t"}
         {"type": "session_complete",
          "latency_summary": {stage: {p50, p95, n}}}
                                                — per-stage ms percentiles for
@@ -2576,7 +2624,52 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             with contextlib.suppress(Exception):
                 await ctx.call.fan_out(ctx.uid, event.model_dump())
 
+    async def process_room_segment(job: SuggestionJob) -> None:
+        """Room mode: the turn goes to room_mode, not the coach. No nudges,
+        no suggestions, no wearer identity -- an answer only when addressed,
+        a library card when something the library covers is mentioned."""
+        utterance, timing = job.utterance, job.timing
+        room = ctx.room
+        if room is None:
+            return
+
+        async def room_send(frame: dict) -> None:
+            await job.wait_turn()  # frames go out in utterance order
+            await send_json(frame)
+
+        async def get_library(query: str) -> LibraryContext | None:
+            lib = ctx.library
+            if lib is None:
+                return None
+            try:
+                return await lib.for_turn(query)
+            except Exception:  # noqa: BLE001 — never break the room
+                logger.warning("room library lookup raised for session %s", session_id, exc_info=True)
+                return None
+
+        conversation = [
+            f"{display_speaker(ctx, u.speaker)}: {u.text}"
+            for u in ctx.utterances if u is not utterance and u.text.strip()
+        ][-room_mode.ANSWER_HISTORY_TURNS:]
+        timing.llm_start = ctx.latency.now()
+        with usage_meter.attribute(ctx.uid, usage_meter.SITE_ROOM_ANSWER):
+            await room_mode.handle_room_turn(
+                room,
+                text=utterance.text,
+                speaker=display_speaker(ctx, utterance.speaker),
+                t=float(utterance.end_time),
+                conversation=conversation,
+                get_library=get_library if ctx.library is not None else None,
+                llm=llm_client,
+                send=room_send,
+            )
+        timing.llm_end = timing.sent = ctx.latency.now()
+        ctx.latency.record(timing, session_id)
+
     async def process_segment(job: SuggestionJob) -> None:
+        if job.room:
+            await process_room_segment(job)
+            return
         utterance, timing = job.utterance, job.timing
         # Mid-call naming: the LLM is told the turn came from "Mom"; the wire
         # keeps the raw label (events are built from the original utterance,
@@ -2865,7 +2958,10 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         # talking. Drop pending (not-yet-started) turns so the coach
         # always reacts to the most recent thing said; the dropped turns
         # remain in the transcript and the utterance buffer above.
-        while not suggestion_queue.empty():
+        # Room mode keeps every turn: a queued addressed question must never
+        # be superseded (non-addressed room turns cost milliseconds, so the
+        # queue only backs up behind an answer's LLM call).
+        while ctx.room is None and not suggestion_queue.empty():
             with contextlib.suppress(asyncio.QueueEmpty):
                 dropped = suggestion_queue.get_nowait()
                 suggestion_queue.task_done()
@@ -2896,6 +2992,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             tone_context=tone_context,
             history=_history_for_prompt(ctx, utterance, is_self=is_self, identity=identity),
             identity=identity,
+            room=ctx.room is not None,
             prev_done=previous.done if previous is not None else None,
             done=asyncio.get_running_loop().create_future(),
         )
@@ -2964,6 +3061,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
 
             if (
                 ctx.call is None
+                and ctx.room is None  # room mode never needs the wearer
                 and recordings_store is not None
                 and speaker_id is not None
                 and speaker not in ctx.self_labels
