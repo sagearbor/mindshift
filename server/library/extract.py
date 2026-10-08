@@ -6,9 +6,10 @@ OOXML package read with the stdlib — no python-docx dependency), .csv and
 ("Plan: Growth; Seats: 25; Price: 199") and are marked ``kind="table"`` so the
 coach can read a row without knowing column positions.
 
-Known v1 weakness: tables are embedded and retrieved as text, so numeric
-lookups ("which plan is cheapest above 20 seats?") are only as good as the
-rows that happen to be retrieved; nothing computes over the numbers.
+Tables ALSO come back in a typed, queryable form (``Extracted.table``, see
+library/tables.py) built from the very same rows, so the coach can be handed
+exact computed answers ("Q3 Northeast revenue = $225,500, rows 5-7") instead
+of guessing from retrieved row text.
 
 Nothing here truncates. A file that yields no text, or that its parser cannot
 read, raises :class:`ExtractionError`; a file type we do not handle raises
@@ -55,6 +56,7 @@ class Extracted:
     kind: str  # "document" | "table"
     text: str
     ext: str
+    table: dict | None = None  # typed rows + schema (tables only)
 
 
 def resolve_extension(filename: str | None, content_type: str | None) -> str:
@@ -72,15 +74,16 @@ def resolve_extension(filename: str | None, content_type: str | None) -> str:
 
 def extract_text(filename: str | None, content_type: str | None, data: bytes) -> Extracted:
     ext = resolve_extension(filename, content_type)
+    table = None
     try:
         if ext == ".pdf":
             text, kind = _pdf(data), "document"
         elif ext == ".docx":
             text, kind = _docx(data), "document"
         elif ext == ".csv":
-            text, kind = _csv(data), "table"
+            (text, table), kind = _csv(data), "table"
         elif ext == ".xlsx":
-            text, kind = _xlsx(data), "table"
+            (text, table), kind = _xlsx(data), "table"
         else:
             text, kind = _decode(data), "document"
     except (UnsupportedType, ExtractionError):
@@ -90,7 +93,7 @@ def extract_text(filename: str | None, content_type: str | None, data: bytes) ->
     text = _normalize(text)
     if not text.strip():
         raise ExtractionError(f"no readable text found in this {ext} file")
-    return Extracted(kind=kind, text=text, ext=ext)
+    return Extracted(kind=kind, text=text, ext=ext, table=table)
 
 
 def _normalize(text: str) -> str:
@@ -167,27 +170,58 @@ def rows_to_text(rows: list[list[str]]) -> str:
     return "\n".join(out)
 
 
-def _csv(data: bytes) -> str:
+def _csv(data: bytes) -> tuple[str, dict | None]:
     text = _decode(data)
     try:
         dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t|")
     except csv.Error:
         dialect = csv.excel
     rows = [[_cell(c) for c in row] for row in csv.reader(io.StringIO(text), dialect)]
-    return rows_to_text(rows)
+    return rows_to_text(rows), _table([(None, rows, {})])
 
 
-def _xlsx(data: bytes) -> str:
+def _table(sheets) -> dict | None:
+    """The typed table (library/tables.py); a failure here never fails the
+    upload — the item still works as text."""
+    from library import tables
+
+    try:
+        return tables.build_table(sheets)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _currency_of(number_format: str | None) -> str | None:
+    for sym in "$€£¥":
+        if number_format and sym in number_format:
+            return sym
+    return None
+
+
+def _xlsx(data: bytes) -> tuple[str, dict | None]:
     import openpyxl
 
     wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     try:
         sheets = []
+        parsed = []
         for ws in wb.worksheets:
-            rows = [[_cell(c) for c in row] for row in ws.iter_rows(values_only=True)]
+            rows: list[list[str]] = []
+            units: dict[int, str] = {}
+            for row in ws.iter_rows():
+                vals = []
+                for i, c in enumerate(row):
+                    value = getattr(c, "value", None)
+                    vals.append(_cell(value))
+                    if isinstance(value, (int, float)) and i not in units:
+                        sym = _currency_of(getattr(c, "number_format", None))
+                        if sym:
+                            units[i] = sym
+                rows.append(vals)
             body = rows_to_text(rows)
             if body:
                 sheets.append(f"Sheet: {ws.title}\n{body}")
-        return "\n\n".join(sheets)
+                parsed.append((ws.title, rows, units))
+        return "\n\n".join(sheets), _table(parsed)
     finally:
         wb.close()
