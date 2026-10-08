@@ -1116,26 +1116,39 @@ export function useAudioStream(
     return checkPrivateRoute() !== "private";
   }, [checkPrivateRoute]);
 
-  const startRoutePoll = useCallback(() => {
-    if (routePollRef.current !== null) clearInterval(routePollRef.current);
-    routePollRef.current = null;
-    routeProbeRef.current?.dispose();
-    routeProbeRef.current = null;
-    routeStateRef.current = null;
-    setPrivateAudioRoute(null);
-    if (sessionModeRef.current !== "earpiece") return;
-    checkPrivateRoute();
-    routePollRef.current = setInterval(() => {
-      if (sessionModeRef.current === "earpiece") checkPrivateRoute();
-    }, ROUTE_POLL_MS);
-  }, [checkPrivateRoute]);
+  const routeUnsubscribeRef = useRef<(() => void) | null>(null);
 
   const stopRoutePoll = useCallback(() => {
     if (routePollRef.current !== null) clearInterval(routePollRef.current);
     routePollRef.current = null;
+    routeUnsubscribeRef.current?.();
+    routeUnsubscribeRef.current = null;
     routeProbeRef.current?.dispose();
     routeProbeRef.current = null;
   }, []);
+
+  /** Watch the route for an earpiece session: native route-change events
+   *  (immediate cut on a disconnect) with the poll kept as a backstop. */
+  const startRoutePoll = useCallback(() => {
+    stopRoutePoll();
+    routeStateRef.current = null;
+    setPrivateAudioRoute(null);
+    if (sessionModeRef.current !== "earpiece") return;
+    checkPrivateRoute();
+    try {
+      routeUnsubscribeRef.current =
+        routeProbeRef.current?.subscribe?.(() => {
+          // Re-read rather than trust the event payload: one code path, and
+          // check() is what gates every utterance anyway.
+          if (sessionModeRef.current === "earpiece") checkPrivateRoute();
+        }) ?? null;
+    } catch {
+      routeUnsubscribeRef.current = null; // events are a bonus; the poll remains
+    }
+    routePollRef.current = setInterval(() => {
+      if (sessionModeRef.current === "earpiece") checkPrivateRoute();
+    }, ROUTE_POLL_MS);
+  }, [checkPrivateRoute, stopRoutePoll]);
   const drainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Wall-clock time (ms epoch) at which the drain must end no matter what —
    *  the absolute cap the re-armed inactivity window can never exceed. */

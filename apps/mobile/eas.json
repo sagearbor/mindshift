@@ -69,6 +69,14 @@
         "ascApiKeyId": "KW53SD5THJ",
         "ascApiKeyIssuerId": "39e04851-c5b1-4255-bab4-db1cfca564ab"
       }
+    },
+    "internal": {
+      "extends": "production",
+      "android": {
+        "serviceAccountKeyPath": "./play-service-account.json",
+        "track": "internal",
+        "releaseStatus": "completed"
+      }
     }
   }
 }

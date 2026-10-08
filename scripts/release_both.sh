@@ -35,7 +35,7 @@ node scripts/nativeFingerprint.js
 node_modules/.bin/jest --ci --silent __tests__/nativeParity.test.ts >/dev/null
 echo "release_both: parity OK"
 
-if [ -n "$(git -C "$ROOT" status --porcelain -- apps/mobile/app.json apps/mobile/eas.json apps/mobile/plugins apps/mobile/targets)" ]; then
+if [ -n "$(git -C "$ROOT" status --porcelain -- apps/mobile/app.json apps/mobile/eas.json apps/mobile/plugins apps/mobile/targets apps/mobile/modules)" ]; then
   echo "release_both: uncommitted native inputs — commit first so both builds come from one SHA" >&2
   exit 1
 fi
