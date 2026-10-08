@@ -7,7 +7,9 @@ it. The logic lives in ``server/library/``; this file is the HTTP shape.
 * ``POST   /library/items``       JSON ``{kind:"note", title, text}`` OR a
   multipart upload (``file`` + optional ``title``) → 201 ``LibraryItem``
 * ``GET    /library/items``       ``{items, retrieval_available, limits}``
-* ``GET    /library/items/{id}``  ``LibraryItemDetail`` (adds a text preview)
+* ``GET    /library/items/{id}``  ``LibraryItemDetail`` (adds a text preview;
+  ``?full=1`` also returns the whole text, capped at the 2 MB item limit, so
+  the phone can edit a note longer than the preview)
 * ``PATCH  /library/items/{id}``  ``{title?, text?}`` (text: notes only)
 * ``DELETE /library/items/{id}``  removes the GCS blobs, the Firestore doc
   and every chunk/vector
@@ -64,6 +66,10 @@ class LibraryItemDetail(LibraryItem):
     chunk_count: int = 0
     preview: str
     preview_truncated: bool
+    text: Optional[str] = Field(
+        default=None,
+        description="The whole text (only with ?full=1; capped at max_text_chars).",
+    )
 
 
 class LibraryLimits(BaseModel):
@@ -166,7 +172,9 @@ async def list_items(uid: str = Depends(get_current_uid)) -> LibraryList:
 
 
 @router.get("/items/{item_id}", response_model=LibraryItemDetail)
-async def get_item(item_id: str, uid: str = Depends(get_current_uid)) -> LibraryItemDetail:
+async def get_item(
+    item_id: str, full: bool = False, uid: str = Depends(get_current_uid),
+) -> LibraryItemDetail:
     _check_id(item_id)
     svc = library.get_service()
     rec = await svc.get_item(uid, item_id)
@@ -181,6 +189,8 @@ async def get_item(item_id: str, uid: str = Depends(get_current_uid)) -> Library
         **base, filename=rec.filename, content_type=rec.content_type,
         chunk_count=rec.chunk_count, preview=text[: models.PREVIEW_CHARS],
         preview_truncated=len(text) > models.PREVIEW_CHARS,
+        # Owner-only by construction: rec was looked up by the caller's uid.
+        text=text[: models.MAX_TEXT_CHARS] if full else None,
     )
 
 

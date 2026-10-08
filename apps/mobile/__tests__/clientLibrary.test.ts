@@ -91,6 +91,18 @@ describe("library API client", () => {
     expect(calls[3][1].method).toBe("DELETE");
   });
 
+  it("asks for the full text only when requested (?full=1)", async () => {
+    mockFetch
+      .mockResolvedValueOnce(ok({ ...ITEM, preview: "S", preview_truncated: true, chunk_count: 0, text: "Starter long" }))
+      .mockResolvedValueOnce(ok({ ...ITEM, preview: "S", preview_truncated: true, chunk_count: 0 }));
+    const full = await getLibraryItem(ITEM.id, { full: true });
+    await getLibraryItem(ITEM.id);
+    const calls = mockFetch.mock.calls;
+    expect(calls[0][0]).toMatch(new RegExp(`/library/items/${ITEM.id}\\?full=1$`));
+    expect(calls[1][0]).toMatch(new RegExp(`/library/items/${ITEM.id}$`));
+    expect(full.text).toBe("Starter long");
+  });
+
   it("surfaces the server's reason and status (413 too big)", async () => {
     mockFetch.mockResolvedValueOnce(fail(413, "file is larger than the 10,485,760-byte (10 MB) limit"));
     await expect(

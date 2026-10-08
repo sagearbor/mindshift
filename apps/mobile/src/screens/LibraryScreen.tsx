@@ -164,14 +164,18 @@ export default function LibraryScreen({ onBack }: LibraryScreenProps) {
     setEditBlocked(null);
     setBusy(`load-${item.id}`);
     try {
-      const detail = await getLibraryItem(item.id);
+      const detail = await getLibraryItem(item.id, { full: true });
       if (!mounted.current) return;
-      if (detail.preview_truncated) {
+      // The full text when the server sends it; else the preview, but only
+      // if it IS the whole text (an older server without ?full): saving a
+      // truncated preview would silently cut the note.
+      const fullText = typeof detail.text === "string" ? detail.text : null;
+      if (fullText === null && detail.preview_truncated) {
         setEditBlocked(item.id);
         return;
       }
       setEditing(item.id);
-      setEditDraft(detail.preview);
+      setEditDraft(fullText ?? detail.preview);
     } catch (e) {
       if (mounted.current) setActionError((e as Error).message || "Couldn't open that note.");
     } finally {
@@ -358,7 +362,7 @@ export default function LibraryScreen({ onBack }: LibraryScreenProps) {
           ) : null}
           {editBlocked === item.id ? (
             <Text style={styles.itemSub} testID={`library-edit-blocked-${item.id}`}>
-              This note is too long to edit on the phone. Delete it and add a new one instead.
+              The full text of this note could not be loaded, so it cannot be edited here safely. Try again later.
             </Text>
           ) : null}
 

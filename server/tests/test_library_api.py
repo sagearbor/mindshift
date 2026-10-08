@@ -111,6 +111,22 @@ async def test_preview_is_capped_but_flagged(client):
     body = r.json()
     assert len(body["preview"]) == models.PREVIEW_CHARS
     assert body["preview_truncated"] is True
+    assert body.get("text") is None  # full text only on request
+
+
+async def test_full_text_is_opt_in_and_owner_only(client):
+    long_text = "Line of a long note. " * 500  # ~10,500 chars, past the preview
+    item = await _note(client, text=long_text)
+    iid = item["id"]
+    r = await client.get(f"/library/items/{iid}?full=1", headers=A)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["text"] == long_text.strip()
+    assert len(body["preview"]) == models.PREVIEW_CHARS and body["preview_truncated"] is True
+    # Another user gets the same 404 with or without ?full.
+    assert (await client.get(f"/library/items/{iid}?full=1", headers=B)).status_code == 404
+    # full=0 behaves like no flag.
+    assert (await client.get(f"/library/items/{iid}?full=0", headers=A)).json().get("text") is None
 
 
 async def test_patch_renames_and_edits_note_text(client, svc):

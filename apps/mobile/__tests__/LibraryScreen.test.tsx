@@ -141,7 +141,7 @@ describe("LibraryScreen", () => {
     await s.unmount();
   });
 
-  it("edits a note's text from its full preview, and refuses to edit a truncated one", async () => {
+  it("edits a note's text, long ones via the full text, and refuses a truncated preview", async () => {
     (getLibraryItem as jest.Mock).mockResolvedValueOnce({
       ...NOTE, preview: "Starter is 49.", preview_truncated: false, chunk_count: 0,
     });
@@ -159,6 +159,24 @@ describe("LibraryScreen", () => {
     });
     expect(updateLibraryItem).toHaveBeenCalledWith(NOTE.id, { text: "Starter is 59." });
 
+    // A note longer than the preview opens with its FULL text (?full=1).
+    const long = "Long note. ".repeat(400);
+    (getLibraryItem as jest.Mock).mockResolvedValueOnce({
+      ...NOTE, preview: long.slice(0, 2000), preview_truncated: true, chunk_count: 0, text: long,
+    });
+    await waitFor(() => expect(s.getByTestId(`library-edit-${NOTE.id}`)).toBeTruthy());
+    await act(async () => {
+      await fireEvent.press(s.getByTestId(`library-edit-${NOTE.id}`));
+    });
+    expect(getLibraryItem).toHaveBeenLastCalledWith(NOTE.id, { full: true });
+    expect(s.getByTestId(`library-edit-input-${NOTE.id}`).props.value).toBe(long);
+    expect(s.queryByTestId(`library-edit-blocked-${NOTE.id}`)).toBeNull();
+    await act(async () => {
+      await fireEvent.press(s.getByTestId(`library-edit-save-${NOTE.id}`));
+    });
+    expect(updateLibraryItem).toHaveBeenLastCalledWith(NOTE.id, { text: long });
+
+    // An older server without ?full support: still refuse to edit a truncated preview.
     (getLibraryItem as jest.Mock).mockResolvedValueOnce({
       ...NOTE, preview: "x".repeat(2000), preview_truncated: true, chunk_count: 0,
     });

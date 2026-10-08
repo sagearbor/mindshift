@@ -41,6 +41,9 @@ export interface LibraryItemDetail extends LibraryItem {
   /** The first ~2,000 characters of the text. */
   preview: string;
   preview_truncated: boolean;
+  /** The whole text — only when fetched with `{ full: true }` (`?full=1`),
+   *  capped server-side at the 2 MB item limit. Absent from older servers. */
+  text?: string | null;
 }
 
 export interface LibraryLimits {
@@ -112,8 +115,14 @@ export async function listLibrary(): Promise<LibraryList> {
   return call<LibraryList>("/library/items", { method: "GET", headers: await headers(false) });
 }
 
-export async function getLibraryItem(id: string): Promise<LibraryItemDetail> {
-  return call<LibraryItemDetail>(itemPath(id), { method: "GET", headers: await headers(false) });
+/** Item detail. `{ full: true }` also asks for the whole text (`?full=1`),
+ *  which the edit flow needs for notes longer than the ~2,000-char preview. */
+export async function getLibraryItem(
+  id: string,
+  opts?: { full?: boolean },
+): Promise<LibraryItemDetail> {
+  const path = opts?.full ? `${itemPath(id)}?full=1` : itemPath(id);
+  return call<LibraryItemDetail>(path, { method: "GET", headers: await headers(false) });
 }
 
 export async function createLibraryNote(title: string, text: string): Promise<LibraryItem> {
