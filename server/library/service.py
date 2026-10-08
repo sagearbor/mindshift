@@ -16,13 +16,16 @@ Lifecycle of an item:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import time
 import uuid
 from collections import OrderedDict
 from datetime import datetime, timezone
 
 from library import blobs as blobs_mod
 from library import context as ctx_mod
+from library import tables as tables_mod
 from library.chunking import chunk_text, estimate_tokens
 from library.embeddings import EmbeddingUnavailable
 from library.extract import CONTENT_TYPES, ExtractionError, UnsupportedType, extract_text
@@ -34,6 +37,7 @@ from library.models import (
     ChunkRecord,
     ItemRecord,
     LibraryContext,
+    LibraryFacts,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,6 +46,13 @@ logger = logging.getLogger(__name__)
 # latest turns matter most).
 QUERY_TAIL_CHARS = 4000
 MAX_RETRIEVED_CANDIDATES = 50
+# The typed table JSON stays within the same 2 MB per-item limit as the text
+# (it is usually SMALLER than the labelled row text). Over it, the item is
+# still saved and usable as text; only exact lookups are skipped.
+MAX_TABLE_JSON_BYTES = MAX_TEXT_CHARS
+# How long build_facts reuses the selected items' metadata (one store read
+# per item otherwise, every turn). Same window as live.FULL_CACHE_TTL_S.
+FACTS_RECORDS_TTL_S = 60.0
 
 
 class LibraryError(Exception):
@@ -100,6 +111,8 @@ class LibraryService:
         self._tasks: set[asyncio.Task] = set()
         self._index_locks: dict[str, asyncio.Lock] = {}
         self._text_cache: OrderedDict[tuple[str, int], str] = OrderedDict()
+        self._table_cache: OrderedDict[tuple[str, int], tables_mod.TableSet] = OrderedDict()
+        self._facts_recs: dict[tuple[str, str], tuple[float, ItemRecord | None]] = {}
 
     @property
     def retrieval_available(self) -> bool:
@@ -156,7 +169,20 @@ class LibraryService:
         )
         rec.original_key = blobs_mod.item_prefix(uid, rec.id) + "original" + extracted.ext
         await self.blobs.put(rec.original_key, data, rec.content_type or "application/octet-stream")
+        if extracted.table is not None:
+            await self._save_table(rec, extracted.table)
         return await self._save_and_index(rec, extracted.text)
+
+    async def _save_table(self, rec: ItemRecord, table: dict) -> None:
+        blob = json.dumps(table, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        if len(blob) > MAX_TABLE_JSON_BYTES:
+            logger.warning(
+                "library table form skipped (%d bytes > %d) item=%s; text still saved",
+                len(blob), MAX_TABLE_JSON_BYTES, rec.id,
+            )
+            return
+        rec.table_key = blobs_mod.item_prefix(rec.uid, rec.id) + "table.json"
+        await self.blobs.put(rec.table_key, blob, "application/json")
 
     async def _save_and_index(self, rec: ItemRecord, text: str) -> ItemRecord:
         await self.blobs.put(rec.text_key, text.encode("utf-8"), "text/plain; charset=utf-8")
@@ -295,6 +321,9 @@ class LibraryService:
         await self.store.delete_item(uid, item_id)
         for key in [k for k in self._text_cache if k[0] == item_id]:
             del self._text_cache[key]
+        for key in [k for k in self._table_cache if k[0] == item_id]:
+            del self._table_cache[key]
+        self._facts_recs.pop((uid, item_id), None)
         return True
 
     async def delete_all_for_user(self, uid: str) -> int:
@@ -307,6 +336,60 @@ class LibraryService:
         await self.blobs.delete_prefix(blobs_mod.user_prefix(uid))
         await self.store.delete_all_chunks(uid)
         return len(items)
+
+    # -- exact table lookups ----------------------------------------------------------
+
+    async def _facts_record(self, uid: str, item_id: str) -> ItemRecord | None:
+        key = (uid, item_id)
+        hit = self._facts_recs.get(key)
+        if hit is not None and time.monotonic() - hit[0] < FACTS_RECORDS_TTL_S:
+            return hit[1]
+        rec = await self.store.get_item(uid, item_id)
+        if len(self._facts_recs) > 512:
+            self._facts_recs.clear()
+        self._facts_recs[key] = (time.monotonic(), rec)
+        return rec
+
+    async def get_table(self, rec: ItemRecord) -> tables_mod.TableSet | None:
+        """The loaded, indexed table of a table item (None when it has no
+        stored table form). Cached by (id, version)."""
+        if not rec.table_key:
+            return None
+        key = (rec.id, rec.version)
+        if key in self._table_cache:
+            self._table_cache.move_to_end(key)
+            return self._table_cache[key]
+        raw = await self.blobs.get(rec.table_key)
+        if raw is None:
+            return None
+        ts = await asyncio.to_thread(lambda: tables_mod.TableSet.from_json(json.loads(raw)))
+        self._table_cache[key] = ts
+        while len(self._table_cache) > 32:
+            self._table_cache.popitem(last=False)
+        return ts
+
+    async def build_facts(self, uid: str, item_ids: list[str], recent_text: str) -> LibraryFacts:
+        wanted = list(dict.fromkeys(i for i in item_ids if i))
+        recs = await asyncio.gather(*(self._facts_record(uid, i) for i in wanted))
+        table_recs = sorted(
+            (r for r in recs if r is not None and r.kind == "table" and r.table_key),
+            key=lambda r: (r.created_at, r.id),
+        )
+        if not table_recs:
+            return LibraryFacts(has_tables=False)
+        sources = []
+        for rec in table_recs:
+            ts = await self.get_table(rec)
+            if ts is not None and ts.sheets:
+                sources.append((tables_mod.Source(rec.id, rec.title), ts))
+        if not sources or not (recent_text or "").strip():
+            return LibraryFacts(has_tables=bool(sources))
+        facts = await asyncio.to_thread(tables_mod.answer, sources, recent_text)
+        return LibraryFacts(
+            text=tables_mod.render_facts(facts),
+            item_ids=list(dict.fromkeys(f.item_id for f in facts)),
+            has_tables=True,
+        )
 
     # -- the coach hook ----------------------------------------------------------------
 

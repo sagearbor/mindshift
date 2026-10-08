@@ -26,17 +26,31 @@ The lookup is not cancelled on timeout: a slow first fetch (cold blob read,
 embedding call) keeps running in the background and serves a later turn.
 That is also how the session warms up: the fetch starts when the selection
 is set, before the first turn.
+
+Table FACTS
+-----------
+When the selection holds spreadsheets, every turn also asks
+:func:`library.build_library_facts` for exact values computed from them
+(library/tables.py — a deterministic matcher, no model call). It runs
+concurrently with the block lookup and shares the SAME per-turn deadline
+(one :data:`TURN_TIMEOUT_S` in total, not one each). A lookup that misses the
+deadline keeps running and, if it produced facts, is served to the next turn
+as long as its question is still among the latest two turns. A failure is
+logged and ignored. Once the warm-up learns the selection has no table, no
+further lookups are started. The facts change per turn, so they ride with
+the turn (``LibraryContext.facts``), never inside the cached full block.
 """
 
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 import os
 import time
 
-from library import build_library_context
-from library.models import LibraryContext
+from library import build_library_context, build_library_facts
+from library.models import LibraryContext, LibraryFacts
 
 logger = logging.getLogger("library.live")
 
@@ -113,8 +127,13 @@ class LiveLibrary:
         self._needs_retrieval = False
         self._inflight: asyncio.Task | None = None
         self._unavailable_logged = False
+        # Table facts: None = unknown yet, False = no table selected (stop).
+        self._has_tables: bool | None = None
+        self._facts_warm: asyncio.Task | None = None
+        self._facts_late: tuple[asyncio.Task, str] | None = None
         if self.item_ids and warm:
             self._start("")  # warm up before the first turn
+            self._facts_warm = self._spawn_facts("")
 
     def _budget(self) -> int:
         return RETRIEVED_BUDGET_TOKENS if self._needs_retrieval else FULL_BUDGET_TOKENS
@@ -128,17 +147,97 @@ class LiveLibrary:
             self._inflight = None
         return self._inflight
 
+    # -- table facts -----------------------------------------------------------
+
+    def _spawn_facts(self, recent_text: str) -> asyncio.Task | None:
+        try:
+            return asyncio.ensure_future(
+                build_library_facts(self.uid, self.item_ids, recent_text)
+            )
+        except RuntimeError:  # no running loop (sync construction in a test)
+            return None
+
+    def _facts_result(self, task: asyncio.Task) -> LibraryFacts | None:
+        """A finished facts task's result; None (logged) on failure."""
+        if task.cancelled():
+            return None
+        exc = task.exception()
+        if exc is not None:
+            logger.warning(
+                "library facts lookup failed (%d items); coaching without it: %s",
+                len(self.item_ids), type(exc).__name__,
+            )
+            return None
+        res = task.result()
+        if res.has_tables is not None:
+            self._has_tables = res.has_tables
+        return res
+
+    def _start_facts(self, recent_text: str) -> asyncio.Task | None:
+        warm = self._facts_warm
+        if warm is not None and warm.done():
+            self._facts_result(warm)
+            self._facts_warm = None
+        if self._has_tables is False or not recent_text.strip():
+            return None
+        return self._spawn_facts(recent_text)
+
+    async def _facts_for_turn(
+        self, task: asyncio.Task | None, recent_text: str, deadline: float,
+    ) -> str:
+        late, self._facts_late = self._facts_late, None
+        text = ""
+        if task is not None:
+            remaining = max(0.0, deadline - asyncio.get_running_loop().time())
+            done, _ = await asyncio.wait({task}, timeout=remaining)
+            if done:
+                res = self._facts_result(task)
+                text = res.text if res is not None else ""
+            else:
+                logger.warning(
+                    "library facts lookup timed out (%d items); coaching without it",
+                    len(self.item_ids),
+                )
+                self._facts_late = (task, _question_key(recent_text))
+        if not text and late is not None:
+            late_task, key = late
+            if late_task.done() and key and key in _latest_turns(recent_text):
+                res = self._facts_result(late_task)
+                text = res.text if res is not None else ""
+            elif not late_task.done() and self._facts_late is None:
+                self._facts_late = late  # still running: keep it for the next turn
+        return text
+
+    # -- per turn ------------------------------------------------------------------
+
     async def for_turn(self, recent_text: str) -> LibraryContext | None:
         """The block for this turn, or ``None`` (nothing selected, nothing
-        fits, lookup slow or failing). Waits at most :data:`TURN_TIMEOUT_S`."""
+        fits, lookup slow or failing). Waits at most :data:`TURN_TIMEOUT_S`
+        in total, table facts included."""
         if not self.item_ids:
             return None
+        deadline = asyncio.get_running_loop().time() + TURN_TIMEOUT_S
+        facts_task = None
+        try:
+            facts_task = self._start_facts(recent_text)
+        except Exception as exc:  # noqa: BLE001 — facts are optional
+            logger.warning("library facts lookup could not start: %s", type(exc).__name__)
+        ctx = await self._context_for_turn(recent_text, deadline)
+        try:
+            facts = await self._facts_for_turn(facts_task, recent_text, deadline)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("library facts lookup failed: %s", type(exc).__name__)
+            facts = ""
+        return _with_facts(ctx, facts)
+
+    async def _context_for_turn(self, recent_text: str, deadline: float) -> LibraryContext | None:
         if self._full is not None and time.monotonic() - self._full_at < FULL_CACHE_TTL_S:
             return self._full
         task = self._inflight if self._inflight is not None else self._start(recent_text)
         if task is None:
             return None
-        done, _ = await asyncio.wait({task}, timeout=TURN_TIMEOUT_S)
+        remaining = max(0.0, deadline - asyncio.get_running_loop().time())
+        done, _ = await asyncio.wait({task}, timeout=remaining)
         if not done:
             logger.warning(
                 "library lookup timed out after %d ms (%d items); coaching without it",
@@ -170,9 +269,38 @@ class LiveLibrary:
         return ctx
 
     def close(self) -> None:
-        if self._inflight is not None and not self._inflight.done():
-            self._inflight.cancel()
+        for task in (
+            self._inflight, self._facts_warm,
+            self._facts_late[0] if self._facts_late else None,
+        ):
+            if task is not None and not task.done():
+                task.cancel()
         self._inflight = None
+        self._facts_warm = None
+        self._facts_late = None
+
+
+def _latest_turns(text: str, n: int = 2) -> list[str]:
+    return [t.strip() for t in (text or "").split("\n") if t.strip()][-n:]
+
+
+def _question_key(text: str) -> str:
+    latest = _latest_turns(text, 1)
+    return latest[0] if latest else ""
+
+
+def _with_facts(ctx: LibraryContext | None, facts: str) -> LibraryContext | None:
+    """Attach this turn's facts without touching a cached full block: full
+    mode keeps its byte-stable ``text`` and carries ``facts`` separately;
+    retrieved excerpts (already per-turn) get the facts in front; with no
+    library text at all the facts alone ride with the turn."""
+    if not facts:
+        return ctx
+    if ctx is None or not ctx.text:
+        return LibraryContext(text=facts, mode="retrieved")
+    if ctx.mode == "full":
+        return dataclasses.replace(ctx, facts=facts)
+    return dataclasses.replace(ctx, text=facts + ctx.text)
 
 
 def recent_text(texts: list[str]) -> str:

@@ -4420,11 +4420,15 @@ def _with_library(
       the data, as for ``<wearer_context>``.
     * ``retrieved``: the excerpts change every turn, so they ride in the
       user message ahead of the turn, leaving the system prompt stable.
+    * ``facts`` (a per-turn ``<library_facts>`` block computed from the
+      selected tables): with the turn, so the full block stays cached.
     * nothing / empty: both strings unchanged.
     """
     if library is None or not library.text:
         return system, user_content
     if library.mode == "full":
+        if library.facts:
+            user_content = library.facts + "\n" + user_content
         return CachedPrefixPrompt(library.text + "\n", system), user_content
     return system, library.text + "\n" + user_content
 

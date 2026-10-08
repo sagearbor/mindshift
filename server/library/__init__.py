@@ -9,9 +9,12 @@ surface is ``server/routers/library.py``; account deletion calls
 
 from __future__ import annotations
 
-from library.models import LibraryContext
+from library.models import LibraryContext, LibraryFacts
 
-__all__ = ["LibraryContext", "build_library_context", "get_service", "set_service"]
+__all__ = [
+    "LibraryContext", "LibraryFacts", "build_library_context", "build_library_facts",
+    "get_service", "set_service",
+]
 
 _service = None
 
@@ -49,3 +52,10 @@ async def build_library_context(
     listed in ``missing_item_ids``.
     """
     return await get_service().build_context(uid, item_ids, recent_text, budget_tokens)
+
+
+async def build_library_facts(uid: str, item_ids: list[str], recent_text: str) -> LibraryFacts:
+    """Exact values computed from the selected TABLE items for the latest
+    turn of ``recent_text`` (see library/tables.py), as a ``<library_facts>``
+    block. Items not owned by ``uid`` never contribute."""
+    return await get_service().build_facts(uid, item_ids, recent_text)

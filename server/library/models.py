@@ -35,6 +35,7 @@ class ItemRecord:
     content_type: str | None = None
     original_key: str | None = None
     text_key: str | None = None
+    table_key: str | None = None   # typed table JSON (kind "table"; library/tables.py)
     indexed: bool = False
     chunk_count: int = 0
     embedding_model: str | None = None
@@ -75,6 +76,10 @@ class LibraryContext:
     ``missing_item_ids`` requested ids that are not this user's / do not exist.
     ``skipped_item_ids`` selected items that could not contribute in
                   retrieved mode because they are not (yet) indexed.
+    ``facts``     a ``<library_facts>`` block of values computed from the
+                  selected tables for THIS turn ("" when none). It changes
+                  per turn, so callers put it with the turn (user message),
+                  never inside the cached full-mode prefix.
     """
 
     text: str
@@ -85,3 +90,19 @@ class LibraryContext:
     reason: str | None = None
     missing_item_ids: list[str] = field(default_factory=list)
     skipped_item_ids: list[str] = field(default_factory=list)
+    facts: str = ""
+
+
+@dataclass
+class LibraryFacts:
+    """What :func:`library.build_library_facts` returns for one turn.
+
+    ``text``        the rendered ``<library_facts>`` block, or "".
+    ``item_ids``    table items that contributed a fact.
+    ``has_tables``  whether the selection holds any queryable table (None
+                    when that could not be determined).
+    """
+
+    text: str = ""
+    item_ids: list[str] = field(default_factory=list)
+    has_tables: bool | None = None
