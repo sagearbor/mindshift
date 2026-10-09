@@ -135,3 +135,25 @@ def test_percentile_helper():
     assert score.percentile([], 50) is None
     assert score.percentile([1, 2, 3, 4], 50) == pytest.approx(2.5)
     assert score.percentile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 90) == pytest.approx(9.1)
+
+
+def test_report_renders_mobile_page_with_every_section():
+    from recreplay import report
+
+    b = _bundle()
+    b["name"] = "unit"
+    b["annotations"][0]["model"] = "SYNTHETIC test"
+    b["score"] = score.score(b, moment_window_s=6.0)
+    page = report.render(b)
+    assert page.startswith("<!doctype html>")
+    assert 'name="viewport"' in page and "prefers-color-scheme: dark" in page
+    for section in ("Timeline at a glance", "Moments", "Everything, in order", "Coach lines and latency",
+                    "Who is the owner?", "Inputs", "What is and isn't measured"):
+        assert section in page
+    assert "SYNTHETIC" in page                       # synthetic inputs are bannered
+    assert "Denver" in page and "invented-fact" in page
+    assert "<script" not in page                     # static: opens from tmp/ anywhere
+    # escaped, never raw
+    b["server"]["events"][1]["event"]["suggestions"] = ["<b>x</b>"]
+    b["score"] = score.score(b)
+    assert "&lt;b&gt;x&lt;/b&gt;" in report.render(b)

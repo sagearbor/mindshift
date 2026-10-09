@@ -35,8 +35,8 @@ from typing import Any
 
 import numpy as np
 
-MOMENT_WINDOW_S = 10.0
-MOMENT_PRE_S = 2.0
+MOMENT_WINDOW_S = 6.0
+MOMENT_PRE_S = 1.5
 
 
 def percentile(values: list[float], q: float) -> float | None:
