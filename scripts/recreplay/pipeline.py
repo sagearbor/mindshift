@@ -40,6 +40,7 @@ class RunInputs:
     llm_cache_dir: Path
     profile_path: Path | None = None
     offline: bool = False
+    app_meta: dict | None = None                 # <name>.app_meta.json (an app recording pulled from GCS)
 
 
 @dataclass
@@ -58,6 +59,7 @@ class RunOptions:
     wearer: str | None = None                    # Deepgram label override
     moment_window_s: float = score_mod.MOMENT_WINDOW_S
     replay_latency: bool = True
+    llm_model: str | None = None                 # pin the model (offline fixture re-runs)
     skip_phone: bool = False
     skip_server: bool = False
     log: list[str] = field(default_factory=list)
@@ -69,11 +71,14 @@ def inputs_from_inbox(folder: Path, *, work_root: Path | None = None, profile: P
     work = (work_root or RECORDINGS / "work") / name
     notes_path = next((p for p in (folder / f"{name}.notes.txt", folder / "notes.txt") if p.exists()), None)
     prof = profile if profile is not None else (DEFAULT_PROFILE if DEFAULT_PROFILE.exists() else None)
+    app_meta_path = folder / f"{name}.app_meta.json"
+    app_meta = json.loads(app_meta_path.read_text()) if app_meta_path.exists() else None
     return RunInputs(
         name=name, audio=audio_mod.find_audio(folder, name),
         notes_text=notes_path.read_text(errors="replace") if notes_path else "",
         annotation_files=ann.discover(folder, name), work=work,
         deepgram_cache=work / "deepgram.json", llm_cache_dir=work / "llm_cache", profile_path=prof,
+        app_meta=app_meta,
     )
 
 
@@ -84,6 +89,7 @@ def _say(opts: RunOptions, msg: str) -> None:
 
 def run(inp: RunInputs, opts: RunOptions) -> dict:
     t_start = time.monotonic()
+    server_run.ensure_ecapa_cache()
     inp.work.mkdir(parents=True, exist_ok=True)
     problems: list[str] = []
 
@@ -130,6 +136,13 @@ def run(inp: RunInputs, opts: RunOptions) -> dict:
     _say(opts, f"owner = {wearer.wearer_label} / {wearer.wearer_ann_id} ({wearer.method})"
                + (f" — {'; '.join(wearer.warnings)}" if wearer.warnings else ""))
 
+    # A print enrolled FROM this very recording makes the identity numbers optimistic.
+    rec_id = (inp.app_meta or {}).get("recording_id") or (inp.app_meta or {}).get("id")
+    if profile and rec_id and any(s.get("recording_id") == rec_id for s in profile.get("samples") or []):
+        wearer.warnings.append(
+            f"the owner's voiceprint was partly enrolled from THIS recording ({rec_id[:8]}…): "
+            "voice-ID results here are optimistic, not what a new conversation gets")
+
     mode = opts.mode or notes.mode or "earpiece"
     phone_tone = opts.phone_tone or ("annotation" if a0 is not None else "neutral")
     enroll = opts.enroll or ("profile" if profile else "same")
@@ -165,7 +178,7 @@ def run(inp: RunInputs, opts: RunOptions) -> dict:
             library_item_ids=opts.library_item_ids if opts.library_item_ids is not None else notes.library_item_ids,
             speed=opts.speed, llm_cache_dir=inp.llm_cache_dir, offline=inp.offline,
             replay_latency=opts.replay_latency, profile=profile,
-            id_token=opts.id_token, email=opts.email, password=opts.password,
+            id_token=opts.id_token, email=opts.email, password=opts.password, llm_model=opts.llm_model,
         )
         _say(opts, f"server: streaming {audio_info['duration_s']:.0f} s in real time to "
                    f"{opts.url or 'a local uvicorn'} ({len(turn_locals)} turn_local)…")
@@ -205,6 +218,7 @@ def run(inp: RunInputs, opts: RunOptions) -> dict:
         "primary_annotation": a0.label if a0 else None,
         "identity": wearer.as_dict(),
         "voiceprint_profile": str(inp.profile_path) if profile else None,
+        "app_meta": inp.app_meta,
         "phone_meta": {"segmentation": seg_source, "path": str(meta_path), "turns": len(meta["turns"])},
         "phone": _slim_phone(phone_out),
         "phone_ceiling": _slim_phone(phone_ceiling, ceiling=True),

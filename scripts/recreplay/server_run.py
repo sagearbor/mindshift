@@ -226,6 +226,14 @@ class LocalServer:
                 delattr(self._app.state, k)
 
 
+def ensure_ecapa_cache() -> None:
+    """Point server/speaker_id.py at an existing checkpoint cache (a worktree
+    has none of its own; without this it would download one)."""
+    p = _main_checkout_ecapa_cache()
+    if p and not os.getenv("MINDSHIFT_ECAPA_CACHE"):
+        os.environ["MINDSHIFT_ECAPA_CACHE"] = str(p)
+
+
 def _main_checkout_ecapa_cache() -> Path | None:
     here = Path(__file__).resolve()
     for d in here.parents:
