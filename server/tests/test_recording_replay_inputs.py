@@ -64,6 +64,11 @@ def test_notes_lenient_keys_and_flags():
     assert any("random chatter" in p for p in n.problems)
 
 
+def test_notes_comment_lines_are_ignored():
+    n = notes_mod.parse_notes("# written by a helper\nwho: I'm S1\nsetting: car\nphone: pocket")
+    assert n.problems == [] and n.self_speaker_id == "S1"
+
+
 def test_notes_missing_everything_is_reported_not_raised():
     n = notes_mod.parse_notes("")
     assert n.who is None and n.setting is None

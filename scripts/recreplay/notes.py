@@ -96,7 +96,7 @@ def _ts_seconds(h: str | None, m: str, s: str) -> float:
 def parse_notes(text: str) -> Notes:
     n = Notes(raw=text or "")
     for lineno, line in enumerate((text or "").splitlines(), 1):
-        if not line.strip():
+        if not line.strip() or line.lstrip().startswith("#"):
             continue
         km = _KEY_RE.match(line)
         if km:

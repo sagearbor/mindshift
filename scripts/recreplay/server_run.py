@@ -57,6 +57,7 @@ class ServerConfig:
     password: str | None = None
     stop_timeout_s: float = 90.0
     llm_client: Any = None                       # tests inject a double here
+    llm_model: str | None = None                 # None = main.MINDSHIFT_MODEL; a fixture pins its recorded model
 
 
 @dataclass
@@ -172,14 +173,15 @@ class LocalServer:
             self.notes.append("LLM: injected test double")
         else:
             real = None
+            model = self.cfg.llm_model or main.MINDSHIFT_MODEL
             if not self.cfg.offline:
                 from llm_client import LLMClient
-                real = LLMClient(model=main.MINDSHIFT_MODEL)
+                real = LLMClient(model=model)
             cache_dir = self.cfg.llm_cache_dir or Path(tempfile.mkdtemp(prefix="recreplay-llm-"))
-            llm = LLMResponseCache(real, cache_dir=Path(cache_dir), model=main.MINDSHIFT_MODEL,
+            llm = LLMResponseCache(real, cache_dir=Path(cache_dir), model=model,
                                    replay_latency=self.cfg.replay_latency)
             self.notes.append(
-                f"LLM: {main.MINDSHIFT_MODEL} via llm_cache ({'offline: cache only' if self.cfg.offline else 'record: real call on a miss'}"
+                f"LLM: {model} via llm_cache ({'offline: cache only' if self.cfg.offline else 'record: real call on a miss'}"
                 f"{', recorded latency replayed on hits' if self.cfg.replay_latency else ''})"
             )
         self.llm = llm
@@ -299,7 +301,7 @@ def run_server(pcm16: np.ndarray, turn_locals: list[dict], release_times: list[f
             run = asyncio.run(go(local.url))
             llm = local.llm
             if hasattr(llm, "stats"):
-                llm_stats = {**llm.stats, "log": list(getattr(llm, "log", []))}
+                llm_stats = {**llm.stats, "model": getattr(llm, "model", None), "log": list(getattr(llm, "log", []))}
             if local.store.calls:
                 notes.append(f"store calls answered empty: {sorted(set(local.store.calls))}")
         target = "local uvicorn (main.app, in-process)"

@@ -46,6 +46,24 @@ def env_value(key: str) -> str | None:
     return None
 
 
+def load_dotenv_into_environ() -> Path | None:
+    """Load the repo's ``.env`` (the main checkout's when run from a
+    worktree) without overriding real environment variables — what
+    server/main.py does for its own checkout. Returns the file used."""
+    env = _find_env_file(Path(__file__).resolve().parent)
+    if env is None:
+        return None
+    for line in env.read_text(errors="replace").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, val = line.removeprefix("export ").split("=", 1)
+        key, val = key.strip(), val.strip().strip('"').strip("'")
+        if key and val and key not in os.environ:
+            os.environ[key] = val
+    return env
+
+
 def deepgram_key() -> str | None:
     return env_value("DEEPGRAM_API_KEY")
 
