@@ -100,7 +100,9 @@ def pull_latest(inbox: Path, *, email: str | None = None, uid: str | None = None
     if client is None:
         try:
             from google.cloud import storage
-            client = storage.Client()
+            # Bucket reads need no project; ADC on a laptop often has none set.
+            project = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("GCP_PROJECT") or "_"
+            client = storage.Client(project=project)
         except Exception as exc:  # noqa: BLE001
             raise AppPullError(f"Google Cloud Storage unavailable ({type(exc).__name__}: {exc}); "
                                "run `gcloud auth application-default login`") from exc
