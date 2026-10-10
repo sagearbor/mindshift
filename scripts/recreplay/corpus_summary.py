@@ -27,6 +27,7 @@ GROUPS = [("heated", "Heated"), ("calm", "Calm control"), ("open-web", "Open-web
 NO_SPEAKER_TRUTH = ("CONFER",)
 RULE_BY_NUDGE = score_mod.RULE_BY_NUDGE
 SPLITS = Path(__file__).resolve().parents[2] / "tmp" / "recordings" / "landscape" / "splits.json"
+CLIP_PREFIX = "clip30_"
 LAUGH_PRE_S, LAUGH_POST_S = 1.0, 4.0
 LEAK_RE = re.compile(r"\bSpeaker [A-Z]\b")
 GATES = (50, 70)
@@ -548,9 +549,11 @@ def load_bundles(work_root: Path, inbox: Path, names: list[str] | None = None) -
         name = run.parent.name
         if names is not None and name not in names:
             continue
+        if names is None and name.startswith(CLIP_PREFIX):
+            continue                     # 30 s curriculum clips (clips.py) are a set of their own, never in "all"
         prov_path = Path(inbox) / name / f"{name}.corpus.json"
         prov = json.loads(prov_path.read_text()) if prov_path.exists() else None
-        if prov is None and not name.startswith(("yt_", "clip30_")):
+        if prov is None and not name.startswith("yt_"):
             continue
         bundle = json.loads(run.read_text())
         if not bundle.get("server"):
@@ -564,6 +567,9 @@ def split_names(split: str, splits_path: Path = SPLITS) -> list[str] | None:
     all | dev | held_out (held-out is for baseline rows only, never tuning)."""
     if split == "all":
         return None
+    if split.startswith(CLIP_PREFIX):                 # a clip set from tmp/recordings/inbox/clip30_manifest.json
+        man = json.loads((Path(splits_path).parents[1] / "inbox" / "clip30_manifest.json").read_text())
+        return [n for k, v in man["sets"].items() if k == split or split == "clip30_all" for n in v]
     sp = json.loads(Path(splits_path).read_text())
     key = {"dev": "dev", "held_out": "held_out", "heldout": "held_out", "held-out": "held_out"}[split]
     return list(sp[key])
@@ -613,6 +619,8 @@ def collect(work_root: Path, inbox: Path, names: list[str] | None = None, *, res
         name = run.parent.name
         if names is not None and name not in names:
             continue
+        if names is None and name.startswith(CLIP_PREFIX):
+            continue
         prov_path = Path(inbox) / name / f"{name}.corpus.json"
         prov = json.loads(prov_path.read_text()) if prov_path.exists() else None
         if prov is None and not name.startswith("yt_"):
@@ -627,7 +635,8 @@ def collect(work_root: Path, inbox: Path, names: list[str] | None = None, *, res
 def write(out: Path, work_root: Path, inbox: Path, *, notes: list[str] | None = None, rescore_runs: bool = True) -> Path:
     items = collect(work_root, inbox, rescore_runs=rescore_runs)
     done = {i["name"] for i in items}
-    missing = sorted(p.parent.name for p in Path(inbox).glob("*/*.corpus.json") if p.parent.name not in done)
+    missing = sorted(p.parent.name for p in Path(inbox).glob("*/*.corpus.json")
+                     if p.parent.name not in done and not p.parent.name.startswith(CLIP_PREFIX))
     notes = list(notes or [])
     if missing:
         notes.append("Not in these numbers (no completed server run): " + ", ".join(esc(m) for m in missing)
