@@ -6,6 +6,10 @@
  *     [--mode earpiece|speaker|therapist] [--enroll profile|same|none] \
  *     [--profile tmp/private_fixtures/owner_profile.json] [--self You]
  *
+ *   MINDSHIFT_FLOOR_TICK=1 turns on the mid-turn floor cue
+ *   (FastLoopDeps.floorTick, dark on the phone); MINDSHIFT_FLOOR_TICK_X /
+ *   _GAP override its threshold / min gap (s). Cues land in `floorCues`.
+ *
  * Runs the REAL on-device fast loop (`replayScene`: Silero VAD + segmenter +
  * ECAPA speaker-ID, the real nudge policy) over a real recording whose meta
  * the Python side wrote from Deepgram's words (+ an annotation's emotions as
@@ -31,6 +35,8 @@ import * as path from "path";
 import type { LiveMode } from "../localLlm";
 import type { SpeakerLabelerOptions } from "../speakerId";
 import type { TurnLocalEvent } from "../types";
+import type { FastLoopDeps } from "../fastLoop";
+import type { FloorTickConfig } from "../floorTick";
 import type { EnrollmentRecord } from "./enroll";
 import { loadModels, loadScene, replayScene, DEFAULT_REPLAY_OPTIONS, type LoadedModels, type ReplayResult } from "./sceneReplay";
 import { describeTuning, tuningFromEnv, type ListeningTuning } from "./tuning";
@@ -151,6 +157,21 @@ export interface RecordingReplayOutput {
   wallMs: number;
   /** The listening-stage settings this run used (replay/tuning.ts). */
   listening?: string;
+  /** Mid-turn floor cues (MINDSHIFT_FLOOR_TICK=1), audio seconds. */
+  floorCues?: ReplayResult["floorCues"];
+  floorTick?: Exclude<FastLoopDeps["floorTick"], undefined> | null;
+}
+
+/** MINDSHIFT_FLOOR_TICK=1 [MINDSHIFT_FLOOR_TICK_X=45] [MINDSHIFT_FLOOR_TICK_GAP=30]. */
+export function floorTickFromEnv(env: Record<string, string | undefined> = process.env): Partial<FloorTickConfig> | null {
+  const on = (env.MINDSHIFT_FLOOR_TICK ?? "").trim().toLowerCase();
+  if (!on || ["0", "false", "off", "no"].includes(on)) return null;
+  const cfg: Partial<FloorTickConfig> = {};
+  const x = Number(env.MINDSHIFT_FLOOR_TICK_X);
+  const gap = Number(env.MINDSHIFT_FLOOR_TICK_GAP);
+  if (env.MINDSHIFT_FLOOR_TICK_X && Number.isFinite(x)) cfg.thresholdSeconds = x;
+  if (env.MINDSHIFT_FLOOR_TICK_GAP && Number.isFinite(gap)) cfg.minGapSeconds = gap;
+  return cfg;
 }
 
 export function outputFor(r: ReplayResult, enroll: RecordingEnroll): RecordingReplayOutput {
@@ -184,6 +205,7 @@ export function outputFor(r: ReplayResult, enroll: RecordingEnroll): RecordingRe
     boundaries: r.boundaries,
     latency: r.latency,
     wallMs: Math.round(r.wall.totalMs),
+    ...(r.options.floorTick ? { floorTick: r.options.floorTick, floorCues: r.floorCues } : {}),
   };
 }
 
@@ -191,6 +213,7 @@ export async function runRecordingReplay(
   args: RecordingArgs,
   models?: LoadedModels,
   listening: ListeningTuning = tuningFromEnv(),
+  floorTick: Partial<FloorTickConfig> | null = floorTickFromEnv(),
 ): Promise<RecordingReplayOutput> {
   const scene = loadScene(args.wav, { metaPath: args.meta, selfSpeaker: args.self ?? undefined });
   const loaded =
@@ -214,6 +237,7 @@ export async function runRecordingReplay(
     enrollFrom: [],
     enrolled,
     ...(args.speakerOptions ? { speakerOptions: args.speakerOptions } : {}),
+    ...(floorTick ? { floorTick } : {}),
     listening,
   });
   const out = { ...outputFor(result, args.enroll), listening: describeTuning(listening) };
