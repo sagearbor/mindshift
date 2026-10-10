@@ -215,6 +215,9 @@ export interface UseAudioStreamOptions {
   capability?: LiveCapability;
   /** Build the fast loop for a session. */
   makeFastLoop?: (handlers: FastLoopHandlers, mode: LiveMode) => Promise<FastLoopBuild>;
+  /** Send turn_local before the on-device LLM runs so the cloud suggestion
+   *  starts sooner (FastLoopDeps.earlyTurnLocal). Default OFF. */
+  earlyTurnLocal?: boolean;
   /** POST the finished session (Track 2's /sessions/live). */
   postSession?: (body: LiveSessionBody) => Promise<PostLiveSessionResult>;
   /** KEEP_LIVE_SESSION_PAYLOAD_FOR_DEBUG override: keep a local copy of the
@@ -1505,6 +1508,7 @@ export function useAudioStream(
       let sttFailure: string | null = null;
       const handlers: FastLoopHandlers = {
         ...(primedRecognizer ? { recognizer: primedRecognizer } : {}),
+        ...(options.earlyTurnLocal ? { earlyTurnLocal: true } : {}),
         // Build progress (the web build's one-time voice-model download).
         onStatus: (line) => {
           if (sessionActiveRef.current && !drainingRef.current) setLiveStatus(line);
@@ -2523,10 +2527,17 @@ export function useAudioStream(
                 (!liveActiveRef.current ||
                   liveSttFailedRef.current ||
                   (source === "cloud" &&
-                    cloudAnswersOpenMoment(
+                    (cloudAnswersOpenMoment(
                       recentLocalTurnsRef.current,
                       typeof data.utterance_text === "string" ? data.utterance_text : null,
-                    )));
+                    ) ||
+                      // earlyTurnLocal: the turn's record does not exist yet
+                      // (its local LLM is still running) but the loop knows
+                      // the words are its open turn — the cloud answers it.
+                      (loop?.claimsOpenTurn(
+                        typeof data.utterance_text === "string" ? data.utterance_text : null,
+                      ) ??
+                        false))));
               if (voiceIt) {
                 // Earpiece mode: speak the newest TOP suggestion with free
                 // on-device TTS — nudges too, they're short. (The event also
@@ -2537,7 +2548,10 @@ export function useAudioStream(
                 if (!loop || !liveActiveRef.current) {
                   speakSuggestion(items[0]);
                 } else {
-                  loop.offerSpeech(items[0]);
+                  loop.offerSpeech(
+                    items[0],
+                    typeof data.utterance_text === "string" ? data.utterance_text : null,
+                  );
                 }
               }
             }
