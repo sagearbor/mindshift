@@ -62,6 +62,18 @@ def test_item_metrics():
     assert m["missed_by_rule"] == {"raised-voice": 1} and m["hit_by_rule"] == {"talks-over": 1}
 
 
+def test_raised_interject_slider_gates_server_lines_on_importance():
+    b = _bundle()
+    b["score"]["lines"][0]["importance"] = 80      # nudge at 12 s, near the 10 s moment
+    b["score"]["lines"][2]["importance"] = 40      # the 300 s line, no moment
+    m = cs.item_metrics(b, {"group": "heated", "corpus": "SBCSAE"})
+    g50 = m["gated"][50]
+    assert g50["fires"] == 2 and g50["false_fires"] == 1 and g50["hits"] == 1   # nudge + the phone buzz
+    assert m["importances"] == [80.0, 40.0]
+    agg = cs.aggregate([m])[("heated", "ALL")]
+    assert agg["gated"][50]["moment_hit_rate"] == 0.5
+
+
 def test_identity_is_not_scored_without_speaker_truth():
     m = cs.item_metrics(_bundle("confer_Y"), {"group": "heated", "corpus": "CONFER"})
     assert m["identity_accuracy"] is None and m["time_to_confirm_s"] is None

@@ -30,6 +30,7 @@ RULE_BY_NUDGE = {
     "It's heating up: slow down, lower voice.": "conflict-peak",
 }
 LAUGH_PRE_S, LAUGH_POST_S = 1.0, 4.0
+GATES = (50, 70)        # interject-slider values to report besides the app default (0)
 
 
 def esc(x) -> str:
@@ -102,6 +103,20 @@ def item_metrics(bundle: dict, prov: dict | None) -> dict:
         if not it.get("hit"):
             missed.append({"t": it.get("t"), "rule": rule, "what": it.get("what_happened"), "priority": it.get("priority"),
                            "nearest": it.get("nearest")})
+    # The app's interject slider defaults to 0 (every coach line is spoken).
+    # What a raised slider would have done: server lines gated on importance.
+    gated = {}
+    moments_t = [float(it["t"]) for it in mom.get("items") or []]
+    pre, post = 1.5, float(mom.get("window_s") or 6.0)
+    for th in GATES:
+        fz = [ln for ln in lines if (ln.get("source") == "phone" and ln.get("fires"))
+              or (ln.get("source") == "server" and ln.get("kind") in ("response", "nudge")
+                  and (ln.get("importance") or 0) >= th)]
+        near = [ln for ln in fz if any(t - pre <= ln["at_s"] <= t + post for t in moments_t)]
+        gated[th] = {"fires": len(fz), "false_fires": len(fz) - len(near),
+                     "hits": sum(1 for t in moments_t if any(t - pre <= ln["at_s"] <= t + post for ln in fz))}
+    imps = [float(ln["importance"]) for ln in lines
+            if ln.get("source") == "server" and ln.get("kind") in ("response", "nudge") and ln.get("importance") is not None]
     ph = (sc.get("identity") or {}).get("phone") or {}
     srv = (sc.get("identity") or {}).get("server") or {}
     has_truth = corpus not in NO_SPEAKER_TRUTH and bool(segs)
@@ -135,6 +150,7 @@ def item_metrics(bundle: dict, prov: dict | None) -> dict:
         "laughter_examples": [{"at_s": ln["at_s"], "text": ln.get("text"), "source": ln.get("source")} for ln in near_laugh[:3]],
         "laughs": len(laughs),
         "hit_by_rule": dict(hit_by), "missed_by_rule": dict(miss_by), "missed": missed[:8],
+        "gated": gated, "importances": imps,
         "false_fire_examples": [{"at_s": u["at_s"], "text": u.get("text"), "source": u.get("source"), "kind": u.get("kind")} for u in unmatched[:6]],
     }
 
@@ -158,8 +174,17 @@ def _agg(items: list[dict]) -> dict:
         viol.update(i["violations"])
     rec = [i["identity_recall"] for i in items if i["identity_recall"] is not None]
     lines = sum(i["server_lines"] for i in items)
+    gate = {}
+    for th in GATES:
+        f = sum(i["gated"][th]["fires"] for i in items)
+        ff = sum(i["gated"][th]["false_fires"] for i in items)
+        h = sum(i["gated"][th]["hits"] for i in items)
+        gate[th] = {"fires_per_h": f / hours if hours else None, "false_fires_per_h": ff / hours if hours else None,
+                    "moment_hit_rate": h / tot if tot else None, "hits": h}
+    imps = [x for i in items for x in i["importances"]]
     return {
-        "items": len(items), "hours": hours,
+        "items": len(items), "hours": hours, "gated": gate,
+        "importance_p50": _pctl(imps, 50), "importance_p90": _pctl(imps, 90),
         "moments_hits": hits, "moments_total": tot, "moment_hit_rate": hits / tot if tot else None,
         "fires": sum(i["fires"] for i in items), "false_fires": sum(i["false_fires"] for i in items),
         "fires_per_h": sum(i["fires"] for i in items) / hours if hours else None,
@@ -196,6 +221,21 @@ def defects(items: list[dict]) -> list[dict]:
     def g(group, key):
         return (agg.get((group, "ALL")) or {}).get(key)
 
+    spoken = sum(i["server_spoken"] for i in items)
+    srv_lines = sum(i["server_lines"] for i in items)
+    if srv_lines and spoken >= 0.9 * srv_lines:
+        cg = (agg.get(("calm", "ALL")) or {}).get("gated") or {}
+        hg = (agg.get(("heated", "ALL")) or {}).get("gated") or {}
+        out.append({"id": "every-line", "title": "The default interject setting (0) speaks after nearly every turn",
+                    "severity": (g("calm", "fires_per_h") or 0) / 10,
+                    "evidence": f"{spoken} of {srv_lines} coach lines spoken; calm controls {_num(g('calm', 'fires_per_h'))} fires/h, "
+                                f"heated {_num(g('heated', 'fires_per_h'))}/h. At interject 50: calm "
+                                f"{_num((cg.get(50) or {}).get('false_fires_per_h'))}/h, heated moments caught "
+                                f"{_pct((hg.get(50) or {}).get('moment_hit_rate'))}; at 70: calm "
+                                f"{_num((cg.get(70) or {}).get('false_fires_per_h'))}/h, heated "
+                                f"{_pct((hg.get(70) or {}).get('moment_hit_rate'))}. Importance p50 calm "
+                                f"{_num(g('calm', 'importance_p50'), '{:.0f}')} vs heated {_num(g('heated', 'importance_p50'), '{:.0f}')}",
+                    "items": []})
     calm_ff = g("calm", "false_fires_per_h")
     lively = [i for i in items if i["corpus"] in ("AMI", "CHiME-6") and i["group"] == "heated"]
     lively_ff = _agg(lively)["false_fires_per_h"] if lively else None
@@ -283,7 +323,11 @@ def _tiles(a: dict) -> str:
         tile(_num(a["time_to_confirm_median_s"]), "median s to first correct “that's you”"),
         tile(f"{_ms(a['latency_p50_ms'])} / {_ms(a['latency_p90_ms'])}", f"coach latency p50 / p90 (n={a['latency_n']})"),
         tile(f"{a['invented_fact']} / {a['words_in_mouth']}", f"invented-fact / words-in-mouth flags ({a['server_lines']} lines)"),
-    ]) + "</div>"
+    ]) + "</div>" + '<div class="sub" style="margin-top:6px">Above: the app default (interject slider 0, every coach line spoken). '\
+        'If the slider were raised, server lines below that importance stay silent:</div><div class="tiles">' + "".join(
+        tile(f"{_pct(a['gated'][th]['moment_hit_rate'])} · {_num(a['gated'][th]['false_fires_per_h'])}/h",
+             f"interject {th}: moments caught · no-moment fires per hour") for th in GATES) + tile(
+        f"{_num(a['importance_p50'], '{:.0f}')} / {_num(a['importance_p90'], '{:.0f}')}", "coach importance p50 / p90") + "</div>"
 
 
 def _corpus_table(agg: dict, group: str) -> str:
