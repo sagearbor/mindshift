@@ -42,6 +42,7 @@ from pydantic import ValidationError
 
 import calls
 import coach_gate
+import coach_rules
 import speak_verifier
 import guest_quota
 import llm_client
@@ -1592,6 +1593,9 @@ class SessionContext:
     # library info cards) instead of the coach, and `room` holds its state.
     mode: str | None = None
     room: "room_mode.RoomState | None" = None
+    # The no-LLM coach (MINDSHIFT_COACH_RULES=1, server/coach_rules.py):
+    # created on the first turn_local; None while the flag is off.
+    rules: "coach_rules.RulesCoach | None" = None
     # The debug-save registry entry for this session (None while the flag is
     # off) -- see _debug_register_session.
     debug_transcript: "_DebugTranscript | None" = None
@@ -3234,6 +3238,34 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
                         "end_time": segment.end_time, "transcript_source": "cloud",
                     })
 
+    async def rules_turn(event: TurnLocalEvent, utterance: Utterance) -> None:
+        """One turn through the no-LLM coach (coach_rules). A fire is sent
+        as a final suggestion tagged ``suggestion_source: "rules"``; voiced
+        when its fixed importance clears the interject slider. No fire →
+        nothing is sent (silence is the default)."""
+        if ctx.rules is None:
+            ctx.rules = coach_rules.from_env()
+        fire = ctx.rules.observe_turn(event.text, event.start_time, event.end_time, is_self=event.is_self)
+        if fire is None:
+            return
+        line = coach_gate.scrub_line(fire.line, ctx.self_labels)
+        speak = bool(line) and fire.importance >= ctx.interject_level
+        if speak:
+            ctx.last_spoken_t = float(utterance.end_time)
+        await send_event(SuggestionEvent(
+            session_id=session_id,
+            utterance_text=utterance.text,
+            speaker=utterance.speaker,
+            suggestions=[line] if line else [],
+            empathy_slider=ctx.empathy_slider,
+            audio_b64=None,
+            importance=fire.importance,
+            speak=speak,
+            kind=fire.kind,
+            suggestion_source="rules",
+        ))
+        _remember_coaching(ctx, utterance, line, fire.kind)
+
     async def handle_turn_local(event: TurnLocalEvent, received: float) -> None:
         """A turn the PHONE finalized (Track 3-server).
 
@@ -3287,6 +3319,12 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             enrichment_tasks.add(task)
             task.add_done_callback(enrichment_tasks.discard)
 
+        if ctx.room is None and coach_rules.enabled():
+            # --coach rules: deterministic triggers decide, no LLM is called
+            # (the replay's $0 path and the fast-tier prototype). Every turn
+            # is observed, empty text included — the floor clock needs them.
+            await rules_turn(event, utterance)
+            return
         if not event.text.strip():
             return  # nothing to coach; the range is still remembered above
         await enqueue_job(

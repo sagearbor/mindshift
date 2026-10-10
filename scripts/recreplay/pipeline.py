@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import annotation as ann
+from . import answer_misses
 from . import audio as audio_mod
 from . import identity as identity_mod
 from . import notes as notes_mod
@@ -69,6 +70,9 @@ class RunOptions:
     skip_phone: bool = False
     skip_server: bool = False
     skip_ceiling: bool = False                   # no same-recording enrollment ceiling run (sweeps)
+    offline: bool = False                        # $0: STT + LLM from caches only; LLM misses -> work/llm_misses.jsonl
+    coach: str = "llm"                           # llm | rules (no-LLM coach; implies offline)
+    miss_log: Path | None = None                 # override the offline miss log path
     log: list[str] = field(default_factory=list)
 
 
@@ -170,6 +174,15 @@ def run(inp: RunInputs, opts: RunOptions) -> dict:
     server_run.ensure_ecapa_cache()
     inp.work.mkdir(parents=True, exist_ok=True)
     problems: list[str] = []
+    if opts.coach == "rules" and opts.url:
+        raise ValueError("--coach rules runs on the local server only (a deployed server has its own coach)")
+    if opts.offline or opts.coach == "rules":
+        inp.offline = True  # never a paid call: STT and LLM from their caches only
+    miss_log = None
+    if inp.offline and not opts.url:
+        miss_log = Path(opts.miss_log) if opts.miss_log else inp.work / "llm_misses.jsonl"
+        if miss_log.exists():
+            miss_log.unlink()  # this run's misses only
 
     # 1. notes
     notes = notes_mod.parse_notes(inp.notes_text)
@@ -268,6 +281,7 @@ def run(inp: RunInputs, opts: RunOptions) -> dict:
             speed=opts.speed, llm_cache_dir=inp.llm_cache_dir, offline=inp.offline,
             replay_latency=opts.replay_latency, profile=profile,
             id_token=opts.id_token, email=opts.email, password=opts.password, llm_model=opts.llm_model,
+            miss_log=miss_log, coach=opts.coach,
         )
         _say(opts, f"server: streaming {audio_info['duration_s']:.0f} s in real time to "
                    f"{opts.url or 'a local uvicorn'} ({len(turn_locals)} turn_local)…")
@@ -278,6 +292,9 @@ def run(inp: RunInputs, opts: RunOptions) -> dict:
             n_sug = sum(1 for e in srv.events if e["event"].get("type") == "suggestion" and not e["event"].get("partial"))
             _say(opts, f"server: {len(srv.events)} events, {n_sug} suggestions, llm {srv.llm.get('hits', '-')} hits / "
                        f"{srv.llm.get('misses', '-')} misses" + (f", ERROR {srv.error}" if srv.error else ""))
+            _say(opts, answer_misses.sources_line(srv.llm, srv.rules))
+            if miss_log is not None and miss_log.exists():
+                _say(opts, f"LLM miss log: {miss_log} — answer at $0 with scripts/recreplay/answer_misses.py")
         except Exception as exc:  # noqa: BLE001 — reported in the run, never a crash past this point
             server_error = f"{type(exc).__name__}: {exc}"
             problems.append(f"server run failed: {server_error}")
@@ -289,6 +306,8 @@ def run(inp: RunInputs, opts: RunOptions) -> dict:
         "name": inp.name,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "offline": inp.offline,
+        "coach": opts.coach,
+        "llm_sources": llm_sources(server_out, miss_log),
         "audio": audio_info,
         "notes": {"who": notes.who, "self_clause": notes.self_clause, "setting": notes.setting, "phone": notes.phone,
                   "relationship": notes.relationship, "mode": notes.mode, "library_item_ids": notes.library_item_ids,
@@ -322,6 +341,27 @@ def run(inp: RunInputs, opts: RunOptions) -> dict:
     bundle["wall_s"] = round(time.monotonic() - t_start, 1)
     (inp.work / "run.json").write_text(json.dumps(bundle, indent=1, default=str))
     return bundle
+
+
+def llm_sources(server_out: dict | None, miss_log: Path | None) -> dict:
+    """Where this run's coach answers came from: real API calls, recorded
+    cache, Claude Code subagent stand-ins (simulated latency), rules."""
+    llm = (server_out or {}).get("llm") or {}
+    rules = (server_out or {}).get("rules")
+    src = llm.get("sources") or {}
+    out = {
+        "api": int(src.get("api") or 0), "cache": int(src.get("cache") or 0),
+        "cc_subagent": int(src.get("cc-subagent") or 0), "cc_models": llm.get("cc_models") or {},
+        "rules_fires": int((rules or {}).get("fires") or 0), "rules_turns": int((rules or {}).get("turns") or 0),
+        "offline_misses": int(llm.get("offline_misses") or 0),
+        "miss_log": str(miss_log) if miss_log is not None and miss_log.exists() else None,
+        "line": answer_misses.sources_line(llm, rules),
+    }
+    out["paid_calls"] = out["api"]
+    if out["cc_subagent"]:
+        out["note"] = ("cc-subagent answers are a Claude Code stand-in, not the coach model; their latency is "
+                       "simulated from recorded real calls (not measured)")
+    return out
 
 
 def trim_wav(wav: Path, end_s: float, audio_info: dict) -> dict:

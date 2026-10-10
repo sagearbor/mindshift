@@ -58,6 +58,8 @@ class ServerConfig:
     stop_timeout_s: float = 90.0
     llm_client: Any = None                       # tests inject a double here
     llm_model: str | None = None                 # None = main.MINDSHIFT_MODEL; a fixture pins its recorded model
+    miss_log: Path | None = None                 # offline: append each missed prompt here (answer_misses.py)
+    coach: str = "llm"                           # llm | rules (no-LLM coach, server/coach_rules.py)
 
 
 @dataclass
@@ -73,6 +75,8 @@ class ServerRun:
     config_ack: dict | None
     llm: dict
     notes: list[str]
+    coach: str = "llm"
+    rules: dict | None = None    # coach_rules tally when coach == "rules"
 
     def as_dict(self) -> dict:
         return dict(self.__dict__)
@@ -137,7 +141,12 @@ class LocalServer:
         self.llm = None
 
     def __enter__(self) -> "LocalServer":
-        self._saved_env = {k: os.environ.get(k) for k in ("MINDSHIFT_ECAPA_CACHE",)}
+        self._saved_env = {k: os.environ.get(k) for k in ("MINDSHIFT_ECAPA_CACHE", "MINDSHIFT_COACH_RULES")}
+        if self.cfg.coach == "rules":
+            import coach_rules
+            os.environ["MINDSHIFT_COACH_RULES"] = "1"
+            coach_rules.reset_stats()
+            self.notes.append("coach: RULES (no LLM; server/coach_rules.py; suggestion_source \"rules\")")
         os.environ.setdefault("MINDSHIFT_DB_PATH", tempfile.NamedTemporaryFile(suffix=".db", delete=False).name)
         main_ecapa = _main_checkout_ecapa_cache()
         if main_ecapa and not os.getenv("MINDSHIFT_ECAPA_CACHE"):
@@ -182,11 +191,14 @@ class LocalServer:
             cache_dir = (os.getenv("MINDSHIFT_REPLAY_LLM_CACHE") or "").strip() or self.cfg.llm_cache_dir \
                 or Path(tempfile.mkdtemp(prefix="recreplay-llm-"))
             llm = LLMResponseCache(real, cache_dir=Path(cache_dir), model=model,
-                                   replay_latency=self.cfg.replay_latency)
+                                   replay_latency=self.cfg.replay_latency,
+                                   miss_log=self.cfg.miss_log if self.cfg.offline else None)
             self.notes.append(
                 f"LLM: {model} via llm_cache ({'offline: cache only' if self.cfg.offline else 'record: real call on a miss'}"
                 f"{', recorded latency replayed on hits' if self.cfg.replay_latency else ''})"
             )
+            if self.cfg.offline and self.cfg.miss_log:
+                self.notes.append(f"LLM miss log: {self.cfg.miss_log} (answer with scripts/recreplay/answer_misses.py)")
         self.llm = llm
         app.state.llm_client = llm
         app.state.transcriber_factory = lambda: _NullTranscriber()
@@ -295,6 +307,7 @@ def run_server(pcm16: np.ndarray, turn_locals: list[dict], release_times: list[f
     notes: list[str] = []
     local = None
     llm_stats: dict = {}
+    rules_stats: dict | None = None
 
     async def go(base_url: str):
         account = await _account(cfg)
@@ -313,6 +326,9 @@ def run_server(pcm16: np.ndarray, turn_locals: list[dict], release_times: list[f
             llm = local.llm
             if hasattr(llm, "stats"):
                 llm_stats = {**llm.stats, "model": getattr(llm, "model", None), "log": list(getattr(llm, "log", []))}
+            if cfg.coach == "rules":
+                import coach_rules
+                rules_stats = coach_rules.stats_snapshot()
             if local.store.calls:
                 notes.append(f"store calls answered empty: {sorted(set(local.store.calls))}")
         target = "local uvicorn (main.app, in-process)"
@@ -328,5 +344,6 @@ def run_server(pcm16: np.ndarray, turn_locals: list[dict], release_times: list[f
         target=target, session_id=session_id, events=events, sent=sent,
         audio_seconds=run.audio_seconds, wall_seconds=round(time.monotonic() - t0, 2),
         error=run.error, session_complete=run.session_complete, config_ack=ack, llm=llm_stats, notes=notes,
+        coach=cfg.coach, rules=rules_stats,
     )
 

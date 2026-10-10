@@ -307,6 +307,12 @@ def render(b: dict) -> str:
     stage = lat.get("server_stage_summary") or {}
     stage_rows = "".join(f"<tr><td>{esc(k)}</td><td class=num>{v.get('p50')}</td><td class=num>{v.get('p95')}</td><td class=num>{v.get('n')}</td></tr>" for k, v in stage.items() if isinstance(v, dict))
 
+    srcs = b.get("llm_sources") or {}
+    if srcs.get("cc_subagent"):
+        flags = [*flags, f"{srcs['cc_subagent']} coach answer(s) came from a Claude Code subagent stand-in "
+                         f"({', '.join(srcs.get('cc_models') or {})}), not the coach model; their latency is simulated"]
+    if b.get("coach") == "rules":
+        flags = [*flags, "rules coach: no LLM — every line is a fixed deterministic-trigger line (suggestion_source rules)"]
     banner = "".join(f'<div class="banner">⚠ {esc(f)}</div>' for f in flags)
     warn_list = "".join(f'<div class="banner">{esc(w)}</div>' for w in idn.get("warnings") or [])
     title = f"Coach replay: {b.get('name')}"
@@ -360,6 +366,7 @@ Coaching direction (nudge for the owner's own turns, “say this” for others')
 <p><b>Deepgram</b> ({esc((b.get("stt") or {}).get("source"))}): {len((b.get("stt") or {}).get("words") or [])} words, {len((b.get("stt") or {}).get("turns") or [])} turns.
 <b>Phone script</b>: {esc((b.get("phone_meta") or {}).get("segmentation"))} segmentation, tone stand-in = {esc(settings.get("phone_tone"))}.
 <b>LLM</b>: {esc(llm.get("model"))} · cache hits {llm.get("hits", "–")}, misses {llm.get("misses", "–")}{", offline misses " + str(llm.get("offline_misses")) if llm.get("offline_misses") else ""}.
+<b>Coach answer sources</b> ({esc(b.get("coach") or "llm")} coach): {esc((b.get("llm_sources") or {}).get("line") or "–")}.
 <b>Session context sent</b>: “{esc(settings.get("session_context"))}”.</p>
 {ann_rows}
 <details><summary>server notes</summary><ul class="plain">{"".join(f"<li>{esc(n)}</li>" for n in srv.get("notes") or [])}</ul></details>

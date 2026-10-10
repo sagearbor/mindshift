@@ -538,7 +538,8 @@ def score(bundle: dict, moment_window_s: float = MOMENT_WINDOW_S, *, moment_pre_
             "first_words_p50_ms": percentile(first, 50), "first_words_p90_ms": percentile(first, 90),
             "from_sent_p50_ms": percentile(sent_lat, 50), "from_sent_p90_ms": percentile(sent_lat, 90),
             "phone_haptic_p50_ms": percentile(phone_lat, 50),
-            "llm_cache": {k: llm.get(k) for k in ("hits", "misses", "offline_misses", "model") if k in llm},
+            "llm_cache": {k: llm.get(k) for k in ("hits", "misses", "offline_misses", "model", "sources", "cc_models")
+                          if k in llm},
             "server_stage_summary": ((bundle.get("server") or {}).get("session_complete") or {}).get("latency_summary"),
         },
         "moments": moments(bundle, lines, moment_window_s, pre_s=moment_pre_s, anchor=moment_anchor),

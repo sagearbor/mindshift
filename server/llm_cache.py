@@ -9,6 +9,17 @@ Usage:
     result = cache.complete(system="...", user="...", max_tokens=256)
 
 Set ``REFRESH_LLM_CACHE=1`` to force a real call even on a cache hit.
+
+Free replays (scripts/recreplay/answer_misses.py):
+
+* ``miss_log=`` (or ``MINDSHIFT_LLM_MISS_LOG=<path>``): an OFFLINE miss also
+  appends the exact prompt (key, model, system, user, params) to a JSONL log,
+  once per key, so it can be answered later at $0. The miss still raises.
+* every entry carries ``provenance``: ``"api"`` for a real provider call
+  (entries written before this field existed are real calls too), or
+  ``"cc-subagent:<model>"`` for a Claude Code subagent's stand-in answer.
+  ``stats["sources"]`` counts answers by where they came from, so no report
+  mistakes a stand-in for the coach model.
 """
 
 import hashlib
@@ -58,6 +69,7 @@ class LLMResponseCache:
         *,
         model: str | None = None,
         replay_latency: bool = False,
+        miss_log: Path | str | None = None,
     ):
         self._client = llm_client
         self._model = model
@@ -68,8 +80,12 @@ class LLMResponseCache:
         self._refresh = os.getenv("REFRESH_LLM_CACHE", "").strip() == "1"
         self._replay_latency = replay_latency
         self._lock = threading.Lock()
-        self.stats = {"hits": 0, "misses": 0, "offline_misses": 0}
+        self.stats = {"hits": 0, "misses": 0, "offline_misses": 0,
+                      "sources": {"api": 0, "cache": 0, "cc-subagent": 0}, "cc_models": {}}
         self.log: list[dict] = []
+        env_log = (os.getenv("MINDSHIFT_LLM_MISS_LOG") or "").strip()
+        self._miss_log = Path(miss_log) if miss_log else (Path(env_log) if env_log else None)
+        self._miss_logged: set[str] = set()
 
     @property
     def model(self) -> str:
@@ -89,9 +105,20 @@ class LLMResponseCache:
     def _cache_path(self, key: str) -> Path:
         return self._cache_dir / f"{key}.json"
 
-    def _note(self, kind: str, key: str, hit: bool, latency_ms: float | None, system: str) -> None:
+    def _note(self, kind: str, key: str, hit: bool, latency_ms: float | None, system: str,
+              provenance: str | None = None) -> None:
+        source, cc_model = "api", None
+        if hit:
+            prov = str(provenance or "")
+            if prov.startswith("cc-subagent"):
+                source, cc_model = "cc-subagent", (prov.split(":", 1)[1] if ":" in prov else "unknown")
+            else:
+                source = "cache"
         with self._lock:
             self.stats["hits" if hit else "misses"] += 1
+            self.stats["sources"][source] += 1
+            if cc_model:
+                self.stats["cc_models"][cc_model] = self.stats["cc_models"].get(cc_model, 0) + 1
             self.log.append({"kind": kind, "key": key[:12], "hit": hit, "latency_ms": latency_ms,
                              "system": str(system)[:60]})
 
@@ -101,6 +128,22 @@ class LLMResponseCache:
         if path.exists() and not self._refresh:
             return key, path, json.loads(path.read_text())
         return key, path, None
+
+    def _log_miss(self, key: str, kind: str, system: str, user: str, temperature: float, max_tokens: int,
+                  response_schema: dict | None) -> None:
+        if self._miss_log is None:
+            return
+        with self._lock:
+            if key in self._miss_logged:
+                return
+            self._miss_logged.add(key)
+            self._miss_log.parent.mkdir(parents=True, exist_ok=True)
+            with self._miss_log.open("a") as f:
+                f.write(json.dumps({
+                    "key": key, "model": self.model, "kind": kind, "system": str(system), "user": str(user),
+                    "temperature": temperature, "max_tokens": max_tokens, "response_schema": response_schema,
+                    "cache_dir": str(self._cache_dir), "logged_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                }) + "\n")
 
     def _offline_miss(self, key: str, system: str) -> LLMCacheMiss:
         with self._lock:
@@ -112,7 +155,8 @@ class LLMResponseCache:
 
     def _write(self, path: Path, system: str, user: str, response: str, **extra) -> None:
         path.write_text(json.dumps(
-            {"model": self.model, "system": str(system), "user": str(user), "response": response, **extra},
+            {"model": self.model, "provenance": "api", "system": str(system), "user": str(user),
+             "response": response, **extra},
             indent=2,
         ))
 
@@ -129,9 +173,10 @@ class LLMResponseCache:
         if data is not None:
             if self._replay_latency and data.get("latency_ms"):
                 time.sleep(float(data["latency_ms"]) / 1000.0)
-            self._note("complete", key, True, data.get("latency_ms"), system)
+            self._note("complete", key, True, data.get("latency_ms"), system, data.get("provenance"))
             return data["response"]
         if self._client is None:
+            self._log_miss(key, "complete", system, user, temperature, max_tokens, response_schema)
             raise self._offline_miss(key, system)
 
         # Cache miss or forced refresh — call the real LLM (inside the spend
@@ -162,10 +207,9 @@ class LLMResponseCache:
         if data is not None:
             return self._replay(key, data, system)
         if self._client is None:
-            miss = self._offline_miss(key, system)
-
             def _raise() -> Iterator[str]:
-                raise miss
+                self._log_miss(key, "stream", system, user, temperature, max_tokens, response_schema)
+                raise self._offline_miss(key, system)
                 yield  # pragma: no cover — makes this a generator
 
             return _raise()
@@ -173,7 +217,7 @@ class LLMResponseCache:
 
     def _replay(self, key: str, data: dict, system: str) -> Iterator[str]:
         chunks = data.get("chunks") or [[data.get("latency_ms") or 0.0, data["response"]]]
-        self._note("stream", key, True, data.get("latency_ms"), system)
+        self._note("stream", key, True, data.get("latency_ms"), system, data.get("provenance"))
         t0 = time.monotonic()
         for at_ms, text in chunks:
             if self._replay_latency:

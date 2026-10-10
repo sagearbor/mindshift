@@ -117,7 +117,9 @@ class SuggestionEvent(ObserverTagged):
     # phone's local model, echoed back through the server so the transcript
     # has one source of truth). Plain str + default, same back-compat reasoning
     # as `kind`: every legacy event is "cloud", and an old client that never
-    # reads this field still parses the event.
+    # reads this field still parses the event. "rules" = the no-LLM coach
+    # (server/coach_rules.py, MINDSHIFT_COACH_RULES=1): a deterministic
+    # trigger's fixed line, never model output.
     suggestion_source: str = Field(default="cloud", description='"cloud" | "on-device"')
     # True for a PROGRESSIVE preview of a cloud suggestion (Track 3-server):
     # the streaming LLM has completed the FIRST suggestion string, and it is

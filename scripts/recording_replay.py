@@ -81,6 +81,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--email", help="account email (--url sign-in with --password; --app-latest lookup)")
     s.add_argument("--password", help="account password for --url")
     s.add_argument("--speed", type=float, default=1.0, help="stream N x faster than real time (latency then means less)")
+    s.add_argument("--offline", action="store_true",
+                   help="$0: STT and LLM from caches only; each LLM miss is logged to work/<name>/llm_misses.jsonl "
+                        "(answer it with scripts/recreplay/answer_misses.py)")
+    s.add_argument("--coach", choices=["llm", "rules"], default="llm",
+                   help="rules = no-LLM coach (server/coach_rules.py: floor >= 45 s + lexical hook); implies --offline")
+    s.add_argument("--miss-log", type=Path, help="with --offline: write the miss log here instead")
     o = ap.add_argument_group("output")
     o.add_argument("--no-freeze", action="store_true", help="don't write/refresh tmp/recordings/fixtures/<name>")
     o.add_argument("--rebaseline", action="store_true", help="overwrite the fixture's baseline with this run")
@@ -96,7 +102,7 @@ def _options(args) -> pipeline.RunOptions:
         library_item_ids=[x.strip() for x in args.library.split(",") if x.strip()] if args.library else None,
         session_context=args.context, url=args.url, id_token=args.id_token, email=args.email if args.url else None,
         password=args.password, speed=args.speed, phone_tone=args.phone_tone, enroll=args.enroll, wearer=args.wearer,
-        skip_server=args.skip_server,
+        skip_server=args.skip_server, offline=args.offline, coach=args.coach, miss_log=args.miss_log,
     )
     if args.window is not None:
         opts.moment_window_s = args.window
