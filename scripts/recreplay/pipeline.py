@@ -42,6 +42,10 @@ class RunInputs:
     offline: bool = False
     app_meta: dict | None = None                 # <name>.app_meta.json (an app recording pulled from GCS)
     stt_language: str | None = None              # Deepgram language override (annotation audio.language)
+    stt_engine: str = "deepgram"                 # deepgram | whisper (local faster-whisper, $0)
+    replay_end_s: float | None = None            # <name>.replay_window.json: replay only [0, end) — the
+                                                 # tail is the wearer's held-out enrollment slice (yt_* items)
+    wearer_label: str | None = None              # <name>.wearer.json: reference-STT label of the wearer
 
 
 @dataclass
@@ -64,10 +68,12 @@ class RunOptions:
     llm_model: str | None = None                 # pin the model (offline fixture re-runs)
     skip_phone: bool = False
     skip_server: bool = False
+    skip_ceiling: bool = False                   # no same-recording enrollment ceiling run (sweeps)
     log: list[str] = field(default_factory=list)
 
 
-def inputs_from_inbox(folder: Path, *, work_root: Path | None = None, profile: Path | None = None) -> RunInputs:
+def inputs_from_inbox(folder: Path, *, work_root: Path | None = None, profile: Path | None = None,
+                      stt_engine: str | None = None) -> RunInputs:
     folder = Path(folder)
     name = folder.name
     work = (work_root or RECORDINGS / "work") / name
@@ -79,17 +85,66 @@ def inputs_from_inbox(folder: Path, *, work_root: Path | None = None, profile: P
     item_vp = folder / f"{name}.voiceprint.json"
     if item_vp.exists():
         prof = item_vp
-    elif notes_path is not None and "source: corpus ground truth" in notes_path.read_text(errors="replace"):
+    elif notes_path is not None and any(
+            k in notes_path.read_text(errors="replace") for k in ("source: corpus ground truth", "source: open web")):
         prof = None
+    # An open-web item never goes to a paid STT: whisper unless asked otherwise.
+    if stt_engine is None:
+        open_web = notes_path is not None and "source: open web" in notes_path.read_text(errors="replace")
+        stt_engine = "whisper" if open_web else "deepgram"
+    rw_path = folder / f"{name}.replay_window.json"
+    replay_end = float(json.loads(rw_path.read_text())["end_s"]) if rw_path.exists() else None
+    we_path = folder / f"{name}.wearer.json"
+    wearer_label = json.loads(we_path.read_text()).get("label") if we_path.exists() else None
     app_meta_path = folder / f"{name}.app_meta.json"
     app_meta = json.loads(app_meta_path.read_text()) if app_meta_path.exists() else None
     return RunInputs(
         name=name, audio=audio_mod.find_audio(folder, name),
         notes_text=notes_path.read_text(errors="replace") if notes_path else "",
         annotation_files=ann.discover(folder, name), work=work,
-        deepgram_cache=work / "deepgram.json", llm_cache_dir=work / "llm_cache", profile_path=prof,
-        app_meta=app_meta, stt_language=_annotation_language(folder, name),
+        # --stt whisper: the Deepgram-SHAPED reference (whisper words + speakers)
+        # is cached as whisper.json and read through the same cache path, so the
+        # fixture freeze / offline re-run need nothing special.
+        deepgram_cache=work / ("whisper.json" if stt_engine == "whisper" else "deepgram.json"),
+        llm_cache_dir=work / "llm_cache", profile_path=prof,
+        app_meta=app_meta, stt_language=_annotation_language(folder, name), stt_engine=stt_engine,
+        replay_end_s=replay_end, wearer_label=wearer_label,
     )
+
+
+def build_whisper_reference(inp: RunInputs, wav: Path, pcm, opts: "RunOptions | None" = None, *,
+                            raw_cache: Path | None = None, out: Path | None = None) -> dict:
+    """Write ``inp.deepgram_cache`` (whisper.json) from a local faster-whisper
+    decode: speakers from the first usable annotation's ALIGNED segments,
+    else the server's local ECAPA diarizer, else one label. $0."""
+    doc, src = stt.transcribe_whisper(wav, raw_cache or inp.work / "whisper.raw.json", offline=inp.offline,
+                                      language=inp.stt_language)
+    words0 = stt.words_from_raw(stt.raw_from_whisper(doc))
+    speakers, info = None, None
+    for f in inp.annotation_files:
+        a = ann.load_file(f)
+        if not a.ok or not a.segments:
+            continue
+        al = ann.align(a, words0)
+        if al.quality.get("words_matched_pct", 0.0) < phone_mod.MIN_ALIGN_PCT:
+            continue
+        segs = [{"start": sg.start, "end": sg.end, "speaker": sg.speaker} for sg in al.segments]
+        speakers = stt.speakers_from_segments(words0, segs)
+        info = {"source": f"annotation:{f.label}", "num_speakers": len(set(speakers)),
+                "words_matched_pct": al.quality.get("words_matched_pct"),
+                "labels": stt.segment_label_ids(segs)}
+        break
+    if speakers is None:
+        speakers, info = stt.diarize_whisper(pcm, doc)
+    raw = stt.raw_from_whisper(doc, speakers, diarization=info)
+    raw["metadata"]["decode"] = src
+    dest = out or inp.deepgram_cache
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps(raw))
+    if opts is not None:
+        _say(opts, f"whisper {doc.get('model')} ({src}): {len(words0)} words; speakers from {info['source']} "
+                   f"({info.get('num_speakers')})")
+    return raw
 
 
 def _annotation_language(folder: Path, name: str) -> str | None:
@@ -128,21 +183,31 @@ def run(inp: RunInputs, opts: RunOptions) -> dict:
         audio_info = {"path": str(wav), "duration_s": round(len(audio_mod.read_wav16(wav)) / 16000, 3), "source": str(inp.audio)}
     else:
         audio_info = audio_mod.normalize(inp.audio, wav)
+    if inp.replay_end_s is not None:
+        audio_info = trim_wav(wav, inp.replay_end_s, audio_info)
+        _say(opts, f"replaying [0, {inp.replay_end_s:.1f}) s only: the tail is the wearer's held-out enrollment slice")
     pcm = audio_mod.read_wav16(wav)
     _say(opts, f"{inp.name}: {audio_info['duration_s']:.1f} s audio")
 
-    # 3. reference transcript
-    raw, stt_source = stt.transcribe(wav.read_bytes(), inp.deepgram_cache, offline=inp.offline,
+    # 3. reference transcript (Deepgram, or local whisper at $0)
+    if inp.stt_engine == "whisper" and not inp.deepgram_cache.exists():
+        build_whisper_reference(inp, wav, pcm, opts)
+    raw, stt_source = stt.transcribe(wav.read_bytes(), inp.deepgram_cache,
+                                     offline=inp.offline or inp.stt_engine == "whisper",
                                      language=inp.stt_language)
+    if (raw.get("metadata") or {}).get("engine") == "faster-whisper":
+        stt_source = f"whisper-{stt_source}"
     words = stt.words_from_raw(raw)
     dg_turns = stt.turns_from_words(words)
-    _say(opts, f"Deepgram ({stt_source}): {len(words)} words, {len(dg_turns)} turns, "
+    _say(opts, f"reference STT ({stt_source}): {len(words)} words, {len(dg_turns)} turns, "
                f"{len({t['speaker'] for t in dg_turns})} speakers")
 
     # 4. annotations
     annotations = []
     for f in inp.annotation_files:
         a = ann.load_file(f)
+        if inp.replay_end_s is not None:
+            clip_annotation(a, inp.replay_end_s)
         al = ann.align(a, words) if a.ok else None
         annotations.append((a, al))
         _say(opts, f"annotation {f.label}: ok={a.ok} segments={len(a.segments)} "
@@ -156,7 +221,7 @@ def run(inp: RunInputs, opts: RunOptions) -> dict:
     vp = identity_mod.voiceprint_scores(pcm, dg_turns, profile) if profile else None
     dg_speakers = sorted({t["speaker"] for t in dg_turns})
     wearer = identity_mod.resolve(notes, a0, al0, voiceprint_scores=vp, dg_speakers=dg_speakers,
-                                  talk_seconds=stt.talk_seconds(dg_turns), override=opts.wearer)
+                                  talk_seconds=stt.talk_seconds(dg_turns), override=opts.wearer or inp.wearer_label)
     _say(opts, f"owner = {wearer.wearer_label} / {wearer.wearer_ann_id} ({wearer.method})"
                + (f" — {'; '.join(wearer.warnings)}" if wearer.warnings else ""))
 
@@ -184,7 +249,7 @@ def run(inp: RunInputs, opts: RunOptions) -> dict:
             phone_out = phone_mod.run_phone(wav, meta_path, inp.work / "phone.json", mode=mode, enroll=enroll,
                                             profile=inp.profile_path)
             _say(opts, f"phone ({enroll}): {phone_out.get('_stdout', '')}")
-            if enroll != "same":
+            if enroll != "same" and not opts.skip_ceiling:
                 phone_ceiling = phone_mod.run_phone(wav, meta_path, inp.work / "phone_same.json", mode=mode,
                                                     enroll="same")
         except phone_mod.PhoneReplayUnavailable as exc:
@@ -257,6 +322,27 @@ def run(inp: RunInputs, opts: RunOptions) -> dict:
     bundle["wall_s"] = round(time.monotonic() - t_start, 1)
     (inp.work / "run.json").write_text(json.dumps(bundle, indent=1, default=str))
     return bundle
+
+
+def trim_wav(wav: Path, end_s: float, audio_info: dict) -> dict:
+    """Cut the normalised WAV to [0, end_s) in place (times stay unchanged)."""
+    import wave as _wave
+
+    pcm = audio_mod.read_wav16(wav)[: int(round(end_s * 16000))]
+    with _wave.open(str(wav), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(pcm.astype("<i2").tobytes())
+    return {**audio_info, "duration_s": round(len(pcm) / 16000, 3), "replay_end_s": end_s}
+
+
+def clip_annotation(a, end_s: float) -> None:
+    """Drop annotation segments / events / moments at or past ``end_s``
+    (the held-out enrollment tail is not replayed, so not scored)."""
+    a.segments = [sg for sg in a.segments if sg.start < end_s]
+    a.events = [e for e in a.events if e.t < end_s]
+    a.coach_moments = [m for m in a.coach_moments if m.t < end_s]
 
 
 def _slim_phone(p: dict | None, *, ceiling: bool = False) -> dict | None:

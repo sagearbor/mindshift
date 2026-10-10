@@ -68,6 +68,7 @@ export const HEAT_WINDOW_SECONDS = 2;
 export const HEAT_TICK_SECONDS = 1;
 import { OVERLAP_PROBE_MIN_SECONDS, probeOverlapAsync, type OverlapSummary } from "./overlapProbe";
 import type { TurnLocalEvent } from "./types";
+import { splitSpanBySpeaker, TURN_SPLIT_DEFAULTS, TURN_SPLIT_ENABLED, type TurnSplitConfig } from "./turnSplit";
 
 export type SuggestionKind = "response" | "nudge";
 
@@ -184,6 +185,10 @@ export interface LocalTurn {
 export interface FastLoopDeps {
   vad: FrameVad;
   segmenter?: SegmenterConfig;
+  /** Speaker-change split inside a VAD span (turnSplit.ts): true = the
+   *  defaults, a config = those settings, false = off. Absent =
+   *  TURN_SPLIT_ENABLED. Needs the embedder; without one spans stay whole. */
+  turnSplit?: boolean | TurnSplitConfig;
   /** Null => speaker-ID disabled (no ECAPA model): every turn is "Unknown". */
   embedder: Embedder | null;
   labeler: SpeakerLabeler | null;
@@ -975,9 +980,24 @@ export class FastLoop {
 
   private enqueueTurn(span: Span) {
     const segmentEndMs = this.now() - this.startWallMs;
+    const split = this.turnSplitConfig();
     this.turnQueue = this.turnQueue
-      .then(() => this.finalizeTurn(span, segmentEndMs))
+      .then(async () => {
+        const embedder = this.deps.embedder;
+        const pieces = split && embedder ? await splitSpanBySpeaker(this.sliceHistory(span), span, embedder, split) : [span];
+        if (pieces.length > 1) this.spansSplit += 1;
+        for (const piece of pieces) await this.finalizeTurn(piece, segmentEndMs);
+      })
       .catch(() => {});
+  }
+
+  /** Spans the speaker-change pass cut into two or more turns. */
+  spansSplit = 0;
+
+  private turnSplitConfig(): TurnSplitConfig | null {
+    const t = this.deps.turnSplit ?? TURN_SPLIT_ENABLED;
+    if (t === false) return null;
+    return t === true ? TURN_SPLIT_DEFAULTS : t;
   }
 
   /** Deliver policy nudges: screen always; haptic on ESCALATION only

@@ -33,6 +33,7 @@ import type { SpeakerLabelerOptions } from "../speakerId";
 import type { TurnLocalEvent } from "../types";
 import type { EnrollmentRecord } from "./enroll";
 import { loadModels, loadScene, replayScene, DEFAULT_REPLAY_OPTIONS, type LoadedModels, type ReplayResult } from "./sceneReplay";
+import { describeTuning, tuningFromEnv, type ListeningTuning } from "./tuning";
 
 export type RecordingEnroll = "profile" | "same" | "none";
 
@@ -148,6 +149,8 @@ export interface RecordingReplayOutput {
   boundaries: ReplayResult["boundaries"];
   latency: ReplayResult["latency"];
   wallMs: number;
+  /** The listening-stage settings this run used (replay/tuning.ts). */
+  listening?: string;
 }
 
 export function outputFor(r: ReplayResult, enroll: RecordingEnroll): RecordingReplayOutput {
@@ -184,11 +187,21 @@ export function outputFor(r: ReplayResult, enroll: RecordingEnroll): RecordingRe
   };
 }
 
-export async function runRecordingReplay(args: RecordingArgs, models?: LoadedModels): Promise<RecordingReplayOutput> {
+export async function runRecordingReplay(
+  args: RecordingArgs,
+  models?: LoadedModels,
+  listening: ListeningTuning = tuningFromEnv(),
+): Promise<RecordingReplayOutput> {
   const scene = loadScene(args.wav, { metaPath: args.meta, selfSpeaker: args.self ?? undefined });
   const loaded =
     models ??
-    (await loadModels({ ortFactory: null, sileroPath: DEFAULT_REPLAY_OPTIONS.sileroPath, ecapaPath: DEFAULT_REPLAY_OPTIONS.ecapaPath, energyVad: false }));
+    (await loadModels({
+      ortFactory: null,
+      sileroPath: DEFAULT_REPLAY_OPTIONS.sileroPath,
+      ecapaPath: DEFAULT_REPLAY_OPTIONS.ecapaPath,
+      energyVad: false,
+      listening,
+    }));
   let enrolled: EnrollmentRecord[] | undefined;
   if (args.enroll === "profile") {
     const doc = JSON.parse(fs.readFileSync(args.profile as string, "utf8")) as Record<string, unknown>;
@@ -201,8 +214,9 @@ export async function runRecordingReplay(args: RecordingArgs, models?: LoadedMod
     enrollFrom: [],
     enrolled,
     ...(args.speakerOptions ? { speakerOptions: args.speakerOptions } : {}),
+    listening,
   });
-  const out = outputFor(result, args.enroll);
+  const out = { ...outputFor(result, args.enroll), listening: describeTuning(listening) };
   fs.mkdirSync(path.dirname(path.resolve(args.out)), { recursive: true });
   fs.writeFileSync(args.out, JSON.stringify(out, null, 1) + "\n");
   return out;

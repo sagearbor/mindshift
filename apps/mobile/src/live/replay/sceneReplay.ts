@@ -22,7 +22,8 @@
 import * as fs from "fs";
 import * as path from "path";
 import { FastLoop, type HeatWindow, type LocalTurn, type TurnLatency } from "../fastLoop";
-import { SileroVad, EnergyVad, type FrameVad } from "../vad";
+import { SileroVad, EnergyVad, SpeechGate, withVadAgc, type FrameVad } from "../vad";
+import type { ListeningTuning } from "./tuning";
 import { EcapaEmbedder, SpeakerLabeler, type Embedder, type SpeakerLabelerOptions } from "../speakerId";
 import { cloudProvider, ProviderChain, type LiveMode } from "../localLlm";
 import { phoneNudgePolicy, type NudgeEvent } from "../nudgePolicy";
@@ -183,6 +184,9 @@ export interface ReplayOptions {
   ortFactory: OnnxSessionFactory | null;
   /** Reuse loaded sessions across runs (the CLI/Jest load ECAPA once). */
   models?: LoadedModels;
+  /** VAD / segmenter / splitter overrides (replay/tuning.ts); absent = the
+   *  production constants. Applied by loadModels (VAD) and the loop. */
+  listening?: ListeningTuning;
   /** Pre-built voiceprints used INSTEAD of enrolling from the meta — e.g.
    *  the owner's real enrolled print replaying one of his own recordings
    *  (replay/recordingReplay.ts). `enroll` / `enrollFrom` are ignored. */
@@ -223,12 +227,20 @@ export interface LoadedModels {
 
 /** Load Silero (per run — it is stateful) and ECAPA (once) through the node
  *  ORT seam. Returns `embedder: null` when no export is on this machine. */
-export async function loadModels(opts: Pick<ReplayOptions, "ortFactory" | "sileroPath" | "ecapaPath" | "energyVad">): Promise<LoadedModels> {
+export async function loadModels(
+  opts: Pick<ReplayOptions, "ortFactory" | "sileroPath" | "ecapaPath" | "energyVad" | "listening">,
+): Promise<LoadedModels> {
   const factory = opts.ortFactory ?? (await nodeFactory());
   const embedder = opts.ecapaPath && !opts.energyVad ? new EcapaEmbedder(await factory(opts.ecapaPath)) : null;
   const ecapaPath = embedder ? opts.ecapaPath : null;
   return {
-    vad: async () => (opts.energyVad ? new EnergyVad() : new SileroVad(await factory(opts.sileroPath))),
+    vad: async () => {
+      if (opts.energyVad) return new EnergyVad();
+      const t = opts.listening;
+      const silero = new SileroVad(await factory(opts.sileroPath), t ? new SpeechGate(t.vadOn, t.vadOff) : undefined);
+      // The same gain stage the phone's buildVad adds (vad.ts withVadAgc).
+      return t ? withVadAgc(silero, t.agc) : withVadAgc(silero);
+    },
     embedder,
     ecapaPath,
   };
@@ -404,6 +416,8 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
 
   const loop: FastLoop = new FastLoop({
     vad,
+    ...(opts.listening ? { segmenter: opts.listening.segmenter } : {}),
+    ...(opts.listening && opts.listening.turnSplit !== null ? { turnSplit: opts.listening.turnSplit } : {}),
     embedder,
     labeler,
     recognizer,
