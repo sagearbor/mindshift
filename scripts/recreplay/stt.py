@@ -68,10 +68,10 @@ def deepgram_key() -> str | None:
     return env_value("DEEPGRAM_API_KEY")
 
 
-def _post_deepgram(wav: bytes, key: str) -> dict:
+def _post_deepgram(wav: bytes, key: str, params: dict | None = None) -> dict:
     resp = httpx.post(
         audio_ingest.DEEPGRAM_PRERECORDED_URL,
-        params=audio_ingest.DEEPGRAM_PRERECORDED_PARAMS,
+        params=params or audio_ingest.DEEPGRAM_PRERECORDED_PARAMS,
         headers={"Authorization": f"Token {key}", "Content-Type": "audio/wav"},
         content=wav,
         timeout=audio_ingest.DEEPGRAM_PRERECORDED_TIMEOUT_S,
@@ -80,9 +80,11 @@ def _post_deepgram(wav: bytes, key: str) -> dict:
     return resp.json()
 
 
-def transcribe(wav: bytes, cache: Path, *, offline: bool = False, refresh: bool = False) -> tuple[dict, str]:
+def transcribe(wav: bytes, cache: Path, *, offline: bool = False, refresh: bool = False,
+               language: str | None = None) -> tuple[dict, str]:
     """(raw Deepgram response, "cache" | "deepgram"). ``offline`` never calls
-    out: a missing cache is an honest :class:`SttUnavailable`."""
+    out: a missing cache is an honest :class:`SttUnavailable`. ``language``
+    (e.g. "el" for a CONFER Greek debate) overrides Deepgram's English default."""
     cache = Path(cache)
     if cache.exists() and not refresh:
         return json.loads(cache.read_text()), "cache"
@@ -92,7 +94,10 @@ def transcribe(wav: bytes, cache: Path, *, offline: bool = False, refresh: bool 
     if not key:
         raise SttUnavailable("DEEPGRAM_API_KEY is not set (.env) and no cached transcript exists")
     try:
-        raw = _post_deepgram(wav, key)
+        params = dict(audio_ingest.DEEPGRAM_PRERECORDED_PARAMS)
+        if language:
+            params["language"] = language
+        raw = _post_deepgram(wav, key, params)
     except (httpx.HTTPError, ValueError) as exc:
         raise SttUnavailable(f"Deepgram request failed: {exc}") from exc
     cache.parent.mkdir(parents=True, exist_ok=True)

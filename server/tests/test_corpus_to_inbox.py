@@ -179,6 +179,11 @@ def test_confer_moments_from_rated_spans():
     assert [m["t"] for m in ms] == [10.0, 23.0]
     assert ms[0]["for_speaker"] is None and ms[1]["priority"] == 1
     assert corpora.heat_level(700) == 3 and corpora.heat_level(100) == 0
+    s = corpora.Session(corpus="CONFER", sid="c", turns=[], events=[], duration_s=29.0, setting="debate",
+                        speakers={}, licence="research", phone="studio", conflict=series, language="el")
+    obj, idmap = corpora.build_annotation(s, (0.0, 29.0), wearer=None, group="heated")
+    assert obj["audio"]["language"] == "el" and obj["segments"] == [] and idmap == {}
+    assert [m["t"] for m in obj["coach_moments"]] == [10.0, 23.0] and obj["summary"]["overall_heat"] == 1
 
 
 # ---------------------------------------------------------------------------

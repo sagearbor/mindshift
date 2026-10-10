@@ -156,7 +156,7 @@ def load_confer(clip: str) -> C.Session:
         setting=f"Greek televised political debate, {n_people} people arguing on air (CONFER clip {clip}; not English)",
         speakers={}, licence="CONFER: research use with citation, no redistribution",
         phone="corpus: broadcast studio mix of the debaters' microphones (no phone, no earpiece)",
-        relationship="other", conflict=list(e["conflict_per_second"]), read_audio=src.read,
+        relationship="other", conflict=list(e["conflict_per_second"]), read_audio=src.read, language="el",
     )
 
 

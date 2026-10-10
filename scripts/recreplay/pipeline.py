@@ -41,6 +41,7 @@ class RunInputs:
     profile_path: Path | None = None
     offline: bool = False
     app_meta: dict | None = None                 # <name>.app_meta.json (an app recording pulled from GCS)
+    stt_language: str | None = None              # Deepgram language override (annotation audio.language)
 
 
 @dataclass
@@ -86,8 +87,21 @@ def inputs_from_inbox(folder: Path, *, work_root: Path | None = None, profile: P
         notes_text=notes_path.read_text(errors="replace") if notes_path else "",
         annotation_files=ann.discover(folder, name), work=work,
         deepgram_cache=work / "deepgram.json", llm_cache_dir=work / "llm_cache", profile_path=prof,
-        app_meta=app_meta,
+        app_meta=app_meta, stt_language=_annotation_language(folder, name),
     )
+
+
+def _annotation_language(folder: Path, name: str) -> str | None:
+    """``audio.language`` of the folder's first annotation that states one
+    (a corpus item in another language, e.g. CONFER's Greek debates)."""
+    for f in ann.discover(folder, name):
+        try:
+            lang = (json.loads(f.path.read_text(errors="replace")).get("audio") or {}).get("language")
+        except (OSError, ValueError, AttributeError):
+            continue
+        if isinstance(lang, str) and lang.strip():
+            return lang.strip()
+    return None
 
 
 def _say(opts: RunOptions, msg: str) -> None:
@@ -117,7 +131,8 @@ def run(inp: RunInputs, opts: RunOptions) -> dict:
     _say(opts, f"{inp.name}: {audio_info['duration_s']:.1f} s audio")
 
     # 3. reference transcript
-    raw, stt_source = stt.transcribe(wav.read_bytes(), inp.deepgram_cache, offline=inp.offline)
+    raw, stt_source = stt.transcribe(wav.read_bytes(), inp.deepgram_cache, offline=inp.offline,
+                                     language=inp.stt_language)
     words = stt.words_from_raw(raw)
     dg_turns = stt.turns_from_words(words)
     _say(opts, f"Deepgram ({stt_source}): {len(words)} words, {len(dg_turns)} turns, "

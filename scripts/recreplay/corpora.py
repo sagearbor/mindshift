@@ -82,6 +82,7 @@ class Session:
     description: str = ""
     read_audio: Callable[[float, float], np.ndarray] | None = None
     loudness: np.ndarray | None = None               # dB per second (whole session)
+    language: str | None = None                      # not English (CONFER: "el"); goes to annotation audio.language
 
 
 # ---------------------------------------------------------------------------
@@ -582,7 +583,8 @@ def build_annotation(s: Session, window: tuple[float, float], *, wearer: str | N
     obj = {
         "format": "mindshift-annotation/v1",
         "annotator": {"model": f"corpus-ground-truth:{s.corpus}", "notes": derivation},
-        "audio": {"duration_s": round(b - a, 3), "quality": "ok", "environment": s.setting[:120]},
+        "audio": {"duration_s": round(b - a, 3), "quality": "ok", "environment": s.setting[:120],
+                  **({"language": s.language} if s.language else {})},
         "retime": False,
         "source": {"kind": "corpus ground truth", "corpus": s.corpus, "session": s.sid, "window_s": [a, b],
                    "licence": s.licence, "group": group, "speaker_ids": idmap},

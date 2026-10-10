@@ -89,3 +89,23 @@ def test_freeze_carries_the_item_voiceprint(tmp_path, monkeypatch):
     assert inp2.profile_path is not None and inp2.profile_path.exists()
     assert json.loads(inp2.profile_path.read_text())["embedding"][0] == 0.1
     assert fixture.is_corpus_fixture(fx)
+
+
+def test_stt_language_comes_from_the_groundtruth_annotation(tmp_path, monkeypatch):
+    from recreplay import stt
+    d = _item(tmp_path, "confer_y", with_vp=False)
+    obj = {**GT, "audio": {"language": "el"}}
+    (d / "confer_y.annotation.groundtruth.json").write_text(json.dumps(obj))
+    inp = pipeline.inputs_from_inbox(d, work_root=tmp_path / "work")
+    assert inp.stt_language == "el"
+    seen = {}
+
+    def fake_post(wav, key, params):
+        seen.update(params)
+        return {"results": {}}
+
+    monkeypatch.setattr(stt, "_post_deepgram", fake_post)
+    monkeypatch.setattr(stt, "deepgram_key", lambda: "k")
+    stt.transcribe(b"RIFF", tmp_path / "dg.json", language="el")
+    assert seen["language"] == "el" and seen["model"] == "nova-2"
+    assert pipeline.inputs_from_inbox(_item(tmp_path, "plain"), work_root=tmp_path / "w").stt_language is None
