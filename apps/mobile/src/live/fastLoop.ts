@@ -1176,7 +1176,20 @@ export class FastLoop {
           const embedPcm =
             pcm.length > this.maxEmbedSamples ? pcm.subarray(pcm.length - this.maxEmbedSamples) : pcm;
           const emb = await this.deps.embedder.embed(embedPcm, SILERO_SAMPLE_RATE);
-          verdict = this.deps.labeler.label(emb, duration);
+          // Sub-turn windows (SpeakerLabelerOptions.windowVote; off = none):
+          // non-overlapping, newest audio first-cut, at most maxWindows.
+          let windows: Float32Array[] | undefined;
+          const winS = this.deps.labeler.identityWindowSeconds;
+          if (winS > 0 && embedPcm.length >= 2 * winS * SILERO_SAMPLE_RATE) {
+            const n = Math.round(winS * SILERO_SAMPLE_RATE);
+            const count = Math.min(Math.floor(embedPcm.length / n), this.deps.labeler.identityMaxWindows);
+            windows = [];
+            for (let k = 1; k <= count; k++) {
+              const end = embedPcm.length - (k - 1) * n;
+              windows.push(await this.deps.embedder.embed(embedPcm.subarray(end - n, end), SILERO_SAMPLE_RATE));
+            }
+          }
+          verdict = this.deps.labeler.label(emb, duration, windows);
         } catch {
           // Unembeddable segment: no identity, never a guess.
         }

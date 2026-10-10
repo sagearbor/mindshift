@@ -450,6 +450,26 @@ export interface SpeakerLabelerOptions {
    *  `isSelf: null` (undecided) instead of `false`: a sub-second embedding
    *  is not evidence that someone else spoke. */
   shortUndecidedSeconds?: number;
+  /**
+   * Sub-turn ECAPA windows. The loop cuts a long turn into non-overlapping
+   * `seconds` windows (at most `maxWindows`, newest audio) and embeds each;
+   * the labeler scores every window against the owner's print. A window
+   * >= `selfThreshold` is an owner window, one < `otherCeiling` is clearly
+   * someone else. Then:
+   * - the full turn missed the owner but >= `minFrac` of windows are owner
+   *   windows -> the owner (basis absolute: windows matched the print);
+   * - some, but fewer than `minFrac`, owner windows -> undecided (a mixed /
+   *   overlapped turn is not evidence that someone else spoke);
+   * - the full turn matched the owner but most windows are clearly someone
+   *   else -> undecided (overlap carried the match).
+   */
+  windowVote?: {
+    seconds: number;
+    selfThreshold: number;
+    otherCeiling: number;
+    minFrac: number;
+    maxWindows: number;
+  } | null;
 }
 
 export class SpeakerLabeler {
@@ -468,6 +488,7 @@ export class SpeakerLabeler {
   private readonly sessionAdapt: SpeakerLabelerOptions["sessionAdapt"];
   private readonly sticky: SpeakerLabelerOptions["sticky"];
   private readonly shortUndecidedSeconds: number;
+  private readonly windowVote: SpeakerLabelerOptions["windowVote"];
   /** Running mean of the owner's print-vouched turns this session. */
   private sessionSelf: Float32Array | null = null;
   private sessionSelfCount = 0;
@@ -491,6 +512,7 @@ export class SpeakerLabeler {
     this.sessionAdapt = o.sessionAdapt ?? null;
     this.sticky = o.sticky ?? null;
     this.shortUndecidedSeconds = o.shortUndecidedSeconds ?? 0;
+    this.windowVote = o.windowVote ?? null;
     this.people = people.map((person) => ({
       person,
       vec: l2Normalize(person.embedding),
@@ -602,8 +624,51 @@ export class SpeakerLabeler {
     return { self, otherMax };
   }
 
-  label(embedding: ArrayLike<number> | null, seconds?: number): SpeakerVerdict {
+  /** Window length the loop should cut for `windowVote` (0 = off). */
+  get identityWindowSeconds(): number {
+    return this.windowVote?.seconds ?? 0;
+  }
+
+  /** Most windows the loop should embed per turn (0 = off). */
+  get identityMaxWindows(): number {
+    return this.windowVote?.maxWindows ?? 0;
+  }
+
+  /** `windows`: sub-turn embeddings (see `windowVote`); ignored when off. */
+  label(embedding: ArrayLike<number> | null, seconds?: number, windows?: readonly ArrayLike<number>[]): SpeakerVerdict {
     if (embedding === null || embedding.length === 0) return { ...NO_IDENTITY };
+    const vote = this.voteWindows(windows);
+    const v = this.labelFull(embedding, seconds, vote);
+    // Overlap veto: the full turn says owner, the windows say mostly not.
+    if (v.isSelf === true && vote && vote.selfFrac < vote.minFrac && vote.otherFrac >= 0.5) {
+      return { ...NO_IDENTITY, selfScore: v.selfScore ?? null };
+    }
+    return v;
+  }
+
+  private voteWindows(windows: readonly ArrayLike<number>[] | undefined): {
+    selfFrac: number;
+    otherFrac: number;
+    minFrac: number;
+    best: number;
+  } | null {
+    const wv = this.windowVote;
+    const self = this.people.find((p) => p.person.isSelf);
+    if (!wv || !self || !windows || windows.length === 0) return null;
+    const scores = windows.map((w) => cosine(w, self.vec));
+    return {
+      selfFrac: scores.filter((s) => s >= wv.selfThreshold).length / scores.length,
+      otherFrac: scores.filter((s) => s < wv.otherCeiling).length / scores.length,
+      minFrac: wv.minFrac,
+      best: Math.max(...scores),
+    };
+  }
+
+  private labelFull(
+    embedding: ArrayLike<number>,
+    seconds: number | undefined,
+    vote: ReturnType<SpeakerLabeler["voteWindows"]>,
+  ): SpeakerVerdict {
     // Greedy best-above-threshold against every enrolled print — the
     // ABSOLUTE path, unchanged: a turn that clears the 0.65 bar carries the
     // person outright and founds no cluster.
@@ -628,6 +693,20 @@ export class SpeakerLabeler {
     }
     const session = this.sessionSelfMatch(embedding, selfScore);
     if (session) return session;
+    if (vote && vote.selfFrac >= vote.minFrac) {
+      const self = this.people.find((p) => p.person.isSelf)?.person as EnrolledPerson;
+      this.selfPrintMatches += 1; // counts toward sticky; never pooled (a mixed embedding)
+      return {
+        speaker: self.displayName,
+        personId: self.personId,
+        displayName: self.displayName,
+        isSelf: true,
+        score: vote.best,
+        basis: "absolute",
+        selfScore,
+      };
+    }
+    if (vote && vote.selfFrac > 0) return { ...NO_IDENTITY, selfScore };
     const verdict = this.labelUnmatched(embedding, seconds, selfScore);
     if (verdict.isSelf === false && seconds !== undefined && seconds < this.shortUndecidedSeconds) {
       return { ...verdict, isSelf: null };
