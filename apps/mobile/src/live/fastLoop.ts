@@ -104,6 +104,8 @@ export interface TurnLatency {
   toSpeakMs: number | null;
   provider: string;
   held: boolean;
+  /** turn_local went out BEFORE the local LLM ran (FastLoopDeps.earlyTurnLocal). */
+  earlySent?: boolean;
   /** Per-provider outcome for THIS turn's suggestion attempt (os/bundled/cloud
    *  × ok/refused/timeout/unavailable/error/cloud), with the error/refusal
    *  detail so diagnostics can show WHY a local provider didn't answer — e.g.
@@ -178,6 +180,9 @@ export interface LocalTurn {
   /** Which provider produced the suggestion ("cloud" = waiting on server). */
   provider: string;
   spoken: boolean;
+  /** The cloud answered this turn first (earlyTurnLocal): the local
+   *  suggestion above was recorded but deliberately not voiced. */
+  cloudAnswered?: boolean;
   latency: TurnLatency;
 }
 
@@ -294,6 +299,16 @@ export interface FastLoopDeps {
    *  pause) — which the replay harness showed lands most suggestions inside
    *  the other person's sentence pauses; see the PR for the measurements. */
   speakQuietMs?: number;
+  /** Send turn_local as soon as the words, identity and prosody are known —
+   *  BEFORE the local LLM chain runs — so the cloud suggestion's clock no
+   *  longer starts after it (scripted 400 ms in the replay harness; up to the
+   *  OS model's 8 s budget on a real Pixel 10, see localLlm.osModelProvider).
+   *  The frame then carries no suggestion/text_tone (the server never reads
+   *  the suggestion for coaching; its tone context falls back to prosody).
+   *  A cloud line that answers the open turn (`offerSpeech(text, words)`) is
+   *  voiced at once and the slower local line stays silent — one answer per
+   *  moment. Default OFF (2026-10-10, measured but not yet device-verified). */
+  earlyTurnLocal?: boolean;
   /** With no voiceprint verdict, which unknown-cluster label is treated as
    *  the coached user for coaching purposes (the app's "you speak first"
    *  convention). Null disables the convention. Changeable mid-session via
@@ -420,6 +435,10 @@ export class FastLoop {
   private readonly contextTurns: number;
   private readonly speakHoldMaxMs: number;
   private readonly speakQuietMs: number;
+  private readonly earlyTurnLocal: boolean;
+  /** The turn whose turn_local went out early and whose local LLM is still
+   *  running (at most one: turns finalize serially). */
+  private openTurn: { index: number; text: string; cloudAnswered: boolean } | null = null;
   private readonly historySamples: number;
   private readonly maxEmbedSamples: number;
   private readonly maxPitchSeconds: number;
@@ -500,6 +519,7 @@ export class FastLoop {
     this.contextTurns = deps.contextTurns ?? 6;
     this.speakHoldMaxMs = deps.speakHoldMaxMs ?? 3000;
     this.speakQuietMs = deps.speakQuietMs ?? 0;
+    this.earlyTurnLocal = deps.earlyTurnLocal ?? false;
     this.repeatGate = deps.repeatGate === undefined ? new CoachRepeatGate() : deps.repeatGate;
     this.activationNudges = deps.activationNudges ?? true;
     this.overlapProbe = deps.overlapProbe ?? false;
@@ -747,6 +767,7 @@ export class FastLoop {
     this.turnUidPrefix = this.deps.turnUidPrefix ?? newTurnUidPrefix();
     this.turnUidSeq = 0;
     this.latencyLog.length = 0;
+    this.openTurn = null;
     this.bindings = new Map();
     this.boundLabelOfPerson = new Map();
     this.speakerPools = new Map();
@@ -882,15 +903,31 @@ export class FastLoop {
    * the loop took it (false = this mode never speaks; the caller shows it
    * on screen only).
    */
-  offerSpeech(text: string): boolean {
+  offerSpeech(text: string, utteranceText?: string | null): boolean {
     if (!this.session || this.session.mode === "therapist") return false;
     if (!this.running) return false;
+    // earlyTurnLocal: the cloud answered the turn whose local LLM is still
+    // running — it wins, and the local line for that turn stays silent.
+    if (utteranceText != null && this.claimsOpenTurn(utteranceText)) {
+      this.openTurn!.cloudAnswered = true;
+    }
     if (!this.quietEnoughToSpeak()) {
       this.held = { text, expiresAtMs: this.now() + this.speakHoldMaxMs, latency: null, turn: null };
     } else {
       this.speakNow(text, null, null);
     }
     return true;
+  }
+
+  /**
+   * earlyTurnLocal: is `utteranceText` the words of a turn whose turn_local
+   * already went out while its local LLM is still running? The hook uses it
+   * to voice a cloud answer for that turn before the turn record exists
+   * (useAudioStream.cloudAnswersOpenMoment cannot see an unfinished turn).
+   * Always false with the flag off.
+   */
+  claimsOpenTurn(utteranceText: string | null): boolean {
+    return utteranceText != null && this.openTurn !== null && this.openTurn.text === utteranceText;
   }
 
   /** Flush the open turn, wait for every queued stage, stop STT. */
@@ -1287,6 +1324,13 @@ export class FastLoop {
     let provider = "none";
     let llmMs = 0;
     let attempts: { provider: string; outcome: string }[] | undefined;
+    // earlyTurnLocal: the cloud's clock starts NOW, not after the local LLM.
+    // Same frame as below minus the two fields the LLM would fill in.
+    const earlySent = this.earlyTurnLocal && sttOwned && !!aligned.text && turnKind === "primary";
+    if (earlySent) {
+      this.openTurn = { index, text: aligned.text, cloudAnswered: false };
+      this.sendTurnLocal(session.sessionId, verdict, aligned.text, span, prosody, null, null);
+    }
     if (aligned.text && turnKind === "primary") {
       const tl0 = this.now();
       // The prompt names people the way the user does ("Mom", not
@@ -1326,6 +1370,11 @@ export class FastLoop {
 
     const overlap = await overlapPromise;
 
+    // earlyTurnLocal: did a cloud line for this turn get voiced while the
+    // local LLM was running? Then the local line is recorded, not spoken.
+    const cloudTookIt = this.openTurn?.index === index && this.openTurn.cloudAnswered;
+    if (this.openTurn?.index === index) this.openTurn = null;
+
     const latency: TurnLatency = {
       turn: index,
       segmentEndMs,
@@ -1336,6 +1385,7 @@ export class FastLoop {
       toSpeakMs: null,
       provider,
       held: false,
+      ...(earlySent ? { earlySent: true } : {}),
       attempts,
     };
     const turn: LocalTurn = {
@@ -1361,6 +1411,7 @@ export class FastLoop {
       suggestionKind: suggestion ? (coachedAsSelf ? "nudge" : "response") : null,
       provider,
       spoken: false,
+      ...(cloudTookIt ? { cloudAnswered: true } : {}),
       latency,
     };
     this.turns.push(turn);
@@ -1385,7 +1436,7 @@ export class FastLoop {
     this.emitNudges(this.policy.onEvents(nudgeEvents, span.end, duration), instantBuzzedLevel);
     this.emitPositives(turn, coachedAsSelf, measuredLoudLevel);
 
-    if (suggestion && session.mode !== "therapist") {
+    if (suggestion && session.mode !== "therapist" && !cloudTookIt) {
       if (!this.quietEnoughToSpeak()) {
         // Someone is talking (or just stopped): hold until the VAD has been
         // quiet long enough (most recent wins).
@@ -1400,35 +1451,48 @@ export class FastLoop {
     // suppresses the server's own transcript/suggestion for the span. Only
     // claim that when on-device STT actually heard the span — with STT
     // dead (or absent) the server's transcript is the only one there is.
-    if (sttOwned) {
-      this.sentTurns += 1;
-      this.deps.send({
-        type: "turn_local",
-        session_id: session.sessionId,
-        // Stamped here, once, so a turn the phone had to buffer through a
-        // network drop keeps the SAME id when it is finally sent — that is
-        // what lets the server ignore the copy that was in flight when the
-        // socket died (server/session_resume.py).
-        turn_uid: `${this.turnUidPrefix}-${(this.turnUidSeq += 1)}`,
-        speaker: verdict.speaker,
-        speaker_person_id: verdict.personId,
-        speaker_match_score: verdict.score,
-        // "solo" is journal-only and never reaches turn_local (the wire
-        // Literal is absolute|contrast); narrow defensively.
-        speaker_match_basis: verdict.basis === "solo" ? null : verdict.basis,
-        is_self: verdict.isSelf,
-        text: aligned.text,
-        start_time: span.start,
-        end_time: span.end,
-        transcript_source: "on-device",
-        prosody,
-        text_tone: textTone,
-        suggestion,
-        suggestion_source: suggestion ? "on-device" : null,
-        tts_source: "on-device",
-      });
+    // (earlyTurnLocal already sent this turn's frame above: never twice.)
+    if (sttOwned && !earlySent) {
+      this.sendTurnLocal(session.sessionId, verdict, aligned.text, span, prosody, textTone, suggestion);
     }
     this.deps.onTurn(turn);
+  }
+
+  private sendTurnLocal(
+    sessionId: string,
+    verdict: SpeakerVerdict,
+    text: string,
+    span: Span,
+    prosody: TurnProsody,
+    textTone: TextTone | null,
+    suggestion: string | null,
+  ) {
+    this.sentTurns += 1;
+    this.deps.send({
+      type: "turn_local",
+      session_id: sessionId,
+      // Stamped here, once, so a turn the phone had to buffer through a
+      // network drop keeps the SAME id when it is finally sent — that is
+      // what lets the server ignore the copy that was in flight when the
+      // socket died (server/session_resume.py).
+      turn_uid: `${this.turnUidPrefix}-${(this.turnUidSeq += 1)}`,
+      speaker: verdict.speaker,
+      speaker_person_id: verdict.personId,
+      speaker_match_score: verdict.score,
+      // "solo" is journal-only and never reaches turn_local (the wire
+      // Literal is absolute|contrast); narrow defensively.
+      speaker_match_basis: verdict.basis === "solo" ? null : verdict.basis,
+      is_self: verdict.isSelf,
+      text,
+      start_time: span.start,
+      end_time: span.end,
+      transcript_source: "on-device",
+      prosody,
+      text_tone: textTone,
+      suggestion,
+      suggestion_source: suggestion ? "on-device" : null,
+      tts_source: "on-device",
+    });
   }
 
   private speakNow(text: string, latency: TurnLatency | null, turn: LocalTurn | null) {
