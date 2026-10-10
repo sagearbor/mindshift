@@ -143,3 +143,19 @@ def test_gate_from_env(monkeypatch):
     monkeypatch.setenv("MINDSHIFT_SPEAK_GATE", "0")
     g = cg.SpeakGate.from_env()
     assert (g.enabled, g.min_importance, g.min_gap_s) == (False, 60, 12.0)
+
+
+# --- dark prompt flag: importance anchors -------------------------------------
+
+def test_importance_anchors_dark_by_default(monkeypatch):
+    import main
+    monkeypatch.delenv("MINDSHIFT_IMPORTANCE_PROMPT", raising=False)
+    prompts = [main.empathy_system_prompt(50, live=True), main.unknown_wearer_prompt(50),
+               main.self_feedback_prompt(50)]
+    assert not any(main.IMPORTANCE_ANCHORS in p for p in prompts)
+    monkeypatch.setenv("MINDSHIFT_IMPORTANCE_PROMPT", "anchored")
+    on = [main.empathy_system_prompt(50, live=True), main.unknown_wearer_prompt(50),
+          main.self_feedback_prompt(50)]
+    assert all(main.IMPORTANCE_ANCHORS in p for p in on)
+    for before, after in zip(prompts, on):
+        assert after.replace(" " + main.IMPORTANCE_ANCHORS, "") == before
