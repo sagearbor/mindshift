@@ -230,6 +230,82 @@ def skip_reason(
 
 
 # ---------------------------------------------------------------------------
+# 3a. Unknown-wearer neutral cues (coaching switched on mid-argument)
+# ---------------------------------------------------------------------------
+#
+# Until the wearer's voice is confirmed (~75 s on DEV) the unknown-wearer cap
+# keeps the coach silent. The owner switches coaching on MID-ARGUMENT, so one
+# narrow class is let through (``MINDSHIFT_SPEAK_UNKNOWN_NEUTRAL``): a short
+# speaker-neutral cue ("Pause.", "Let them finish.") when the turns show
+# someone claiming the floor right after a DIFFERENT speaker held it or
+# talked over them. Such a cue is right for either side of the argument.
+
+_NEUTRAL_CUE_RE = re.compile(
+    r"\b(?:pause"
+    r"|let (?:them|him|her|others|the other person|each other) (?:finish|respond|answer|speak|talk|reply|have the floor|get a word)"
+    r"|give (?:them|him|her) (?:room|space|a chance|a moment|the floor)"
+    r"|one at a time|hold on|wait for (?:them|him|her))\b",
+    re.IGNORECASE,
+)
+# Claims on the floor / complaints of being talked over. English + Greek
+# (the CONFER debates): "can I answer", "let me finish", "μπορώ να απαντήσω",
+# "αφήστε με να", "μη με διακόπτετε", "επιτρέψτε μου", "να ολοκληρώσω".
+_FLOOR_RE = re.compile(
+    r"\b(?:let me (?:just )?(?:finish|speak|talk|answer|respond|say|explain|get a word)"
+    r"|(?:can|could|may) i (?:just )?(?:finish|speak|answer|respond|say something|get a word)"
+    r"|i(?:'m| am) (?:still )?(?:talking|speaking|not finished|not done)"
+    r"|i wasn'?t (?:finished|done)"
+    r"|(?:stop|quit|you keep) interrupting|you(?:'re| are) interrupting|you interrupted"
+    r"|you(?:'re| are) not letting me|you won'?t let me|you never let me"
+    r")\b"
+    r"|μπορώ να (?:απαντήσω|μιλήσω|ολοκληρώσω|πω)"
+    r"|αφήστε με|άσε με να|μη(?:ν)? με διακόπτ|με διακόπτετε|επιτρέψτε μου|να ολοκληρώσω|να τελειώσω",
+    re.IGNORECASE,
+)
+EVIDENCE_WINDOW_S = 20.0
+HOLD_S = 20.0
+
+
+def neutral_cue(line: str) -> bool:
+    """A short line whose whole point is a speaker-neutral turn-taking cue."""
+    if not line or len(words(line)) > 10:
+        return False
+    return bool(_NEUTRAL_CUE_RE.search(line))
+
+
+def interruption_evidence(turns: list[tuple[str, float, float, str]]) -> bool:
+    """Strong turn-taking evidence in the last turns (oldest first, the
+    answered turn last): one of the last two turns, within
+    ``EVIDENCE_WINDOW_S`` of the newest, claims the floor, and right before
+    it a DIFFERENT speaker either overlapped / cut straight into that
+    speaker (handoff <= 0.1 s) or held the floor for >= ``HOLD_S``."""
+    turns = [t for t in turns if (t[3] or "").strip()]
+    if len(turns) < 2:
+        return False
+    newest_end = float(turns[-1][2])
+    for i in range(len(turns) - 1, max(0, len(turns) - 2) - 1, -1):
+        spk, start, end, text = turns[i]
+        if newest_end - float(end) > EVIDENCE_WINDOW_S or not _FLOOR_RE.search(text):
+            continue
+        for j in range(i - 1, max(-1, i - 4), -1):
+            ospk, ostart, oend, _ = turns[j]
+            if ospk == spk:
+                continue
+            if float(start) - float(oend) > EVIDENCE_WINDOW_S:
+                break
+            held = float(oend) - float(ostart) >= HOLD_S
+            cut_in = float(start) - float(oend) <= 0.1
+            # the other speaker started inside one of this speaker's turns
+            overlap = any(
+                t[0] == spk and float(t[1]) < float(ostart) < float(t[2]) - 0.2
+                for t in turns[max(0, j - 2):j]
+            )
+            if held or cut_in or overlap:
+                return True
+    return False
+
+
+# ---------------------------------------------------------------------------
 # 3. Speak gate (after the LLM)
 # ---------------------------------------------------------------------------
 
@@ -271,15 +347,25 @@ class SpeakGate:
         turn_duration_s: float,
         now_s: float,
         last_spoken_s: float | None,
+        neutral_ok: bool = False,
     ) -> tuple[bool, str]:
         """(voice it?, reason). ``now_s``/``last_spoken_s`` are session
-        seconds (the answered turn's end time)."""
+        seconds (the answered turn's end time). ``neutral_ok``: the caller
+        found a speaker-neutral cue backed by :func:`interruption_evidence`;
+        with ``MINDSHIFT_SPEAK_UNKNOWN_NEUTRAL`` on, an unknown-wearer line
+        then skips the cap and needs only
+        ``MINDSHIFT_SPEAK_NEUTRAL_MIN_IMPORTANCE`` (default 60)."""
         if not self.enabled:
             return True, "gate_off"
-        if self.effective_importance(importance, wearer_unknown) < self.min_importance:
+        neutral = (wearer_unknown and neutral_ok
+                   and _flag("MINDSHIFT_SPEAK_UNKNOWN_NEUTRAL", "0"))
+        if neutral:
+            if int(importance) < int(_num("MINDSHIFT_SPEAK_NEUTRAL_MIN_IMPORTANCE", 60)):
+                return False, "importance"
+        elif self.effective_importance(importance, wearer_unknown) < self.min_importance:
             return False, "unknown_cap" if wearer_unknown and importance >= self.min_importance else "importance"
         if last_spoken_s is not None and now_s - last_spoken_s < self.min_gap_s:
             return False, "gap"
         if not self.substantive(turn_text, turn_duration_s):
             return False, "not_substantive"
-        return True, "pass"
+        return True, "pass_neutral" if neutral else "pass"

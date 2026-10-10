@@ -162,3 +162,65 @@ def test_importance_anchors_dark_by_default(monkeypatch):
     assert all(main.IMPORTANCE_ANCHORS in p for p in on)
     for before, after in zip(prompts, on):
         assert after.replace(" " + main.IMPORTANCE_ANCHORS, "") == before
+
+
+# --- 3b. unknown-wearer neutral cues (mid-argument switch-on) -------------------
+
+ARGUE = [  # (speaker, start, end, text)
+    ("Speaker A", 0.0, 50.0, "You are obliged to apply the law, you are obliged, that is the point."),
+    ("Speaker B", 50.0, 52.0, "Can I answer? Of course, I'm listening."),
+]
+GREEK = [
+    ("Speaker A", 24.6, 76.0, "Εάν ήσασταν βουλευτής θα μπορούσατε να το είχατε καταψηφίσει."),
+    ("Speaker B", 77.3, 79.4, "Μπορώ να απαντήσω και ρε πρετε. Βεβαίως, ακούω."),
+]
+
+
+@pytest.mark.parametrize("line,want", [
+    ("Pause. Let them finish.", True),
+    ("Let him respond fully before you speak again.", True),
+    ("Pause.", True),
+    ("Give them room to answer.", True),
+    ("What's one thing you enjoy here?", False),
+    ("You're spiraling. Take a breath and ask what they meant by that.", False),
+])
+def test_neutral_cue(line, want):
+    assert cg.neutral_cue(line) is want
+
+
+def test_interruption_evidence_needs_a_floor_claim_after_someone_else_held_it():
+    assert cg.interruption_evidence(ARGUE)
+    assert cg.interruption_evidence(GREEK)
+    calm = [("Speaker A", 0.0, 50.0, ARGUE[0][3]), ("Speaker B", 51.0, 54.0, "I see what you mean about that law.")]
+    assert not cg.interruption_evidence(calm)
+    # a floor claim with nobody holding/overlapping before it is not enough
+    assert not cg.interruption_evidence([("Speaker B", 0.0, 2.0, "Can I answer? Of course.")])
+    # the same speaker asking after their own turn is not a claim against anyone
+    assert not cg.interruption_evidence([("Speaker B", 0.0, 30.0, ARGUE[0][3]), ("Speaker B", 30.0, 32.0, "Can I answer?")])
+
+
+def test_interruption_evidence_overlap_plus_claim():
+    turns = [("S1", 0.0, 6.0, "So what I was going to say is that the budget"),
+             ("S2", 4.0, 7.0, "No no that's not what happened at all"),
+             ("S1", 7.0, 9.0, "Let me finish, please, let me finish.")]
+    assert cg.interruption_evidence(turns)
+
+
+def test_interruption_evidence_ignores_stale_turns():
+    old = [("Speaker A", 0.0, 50.0, ARGUE[0][3]), ("Speaker B", 50.0, 52.0, "Can I answer?"),
+           ("Speaker A", 90.0, 95.0, "So anyway the weather has been lovely this week.")]
+    assert not cg.interruption_evidence(old)
+
+
+def test_gate_unknown_neutral_cue_bypasses_cap(monkeypatch):
+    g = _gate()
+    kw = dict(wearer_unknown=True, turn_text=SUBST, turn_duration_s=2, now_s=100, last_spoken_s=None)
+    assert g.passes(72, **kw)[0] is False
+    monkeypatch.setenv("MINDSHIFT_SPEAK_UNKNOWN_NEUTRAL", "1")
+    monkeypatch.setenv("MINDSHIFT_SPEAK_NEUTRAL_MIN_IMPORTANCE", "60")
+    assert g.passes(72, neutral_ok=True, **kw) == (True, "pass_neutral")
+    assert g.passes(55, neutral_ok=True, **kw)[0] is False      # below the neutral floor
+    assert g.passes(72, neutral_ok=False, **kw)[0] is False     # no evidence -> capped as before
+    assert g.passes(72, neutral_ok=True, **{**kw, "last_spoken_s": 90})[1] == "gap"  # gap still applies
+    monkeypatch.setenv("MINDSHIFT_SPEAK_UNKNOWN_NEUTRAL", "0")
+    assert g.passes(72, neutral_ok=True, **kw)[0] is False
