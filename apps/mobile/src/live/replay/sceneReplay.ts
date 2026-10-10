@@ -371,8 +371,8 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
   const labelLog: LabelLogEntry[] = [];
   if (labeler) {
     const label = labeler.label.bind(labeler);
-    labeler.label = (embedding, seconds) => {
-      const v = label(embedding, seconds);
+    labeler.label = (embedding, seconds, windows) => {
+      const v = label(embedding, seconds, windows);
       labelLog.push({ seconds: seconds ?? null, selfScore: v.selfScore ?? null, isSelf: v.isSelf, basis: v.basis, speaker: v.speaker });
       return v;
     };
