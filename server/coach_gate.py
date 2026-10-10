@@ -246,7 +246,7 @@ class SpeakGate:
         return cls(
             enabled=_flag("MINDSHIFT_SPEAK_GATE", "1"),
             min_importance=int(_num("MINDSHIFT_SPEAK_MIN_IMPORTANCE", 78)),
-            min_gap_s=_num("MINDSHIFT_SPEAK_MIN_GAP_S", 30.0),
+            min_gap_s=_num("MINDSHIFT_SPEAK_MIN_GAP_S", 60.0),
             min_words=int(_num("MINDSHIFT_SPEAK_MIN_WORDS", 3)),
             unknown_cap=int(_num("MINDSHIFT_SPEAK_UNKNOWN_CAP", 72)),
         )
