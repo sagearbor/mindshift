@@ -23,7 +23,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { FastLoop, type HeatWindow, type LocalTurn, type TurnLatency } from "../fastLoop";
 import { SileroVad, EnergyVad, type FrameVad } from "../vad";
-import { EcapaEmbedder, SpeakerLabeler, type Embedder, type SpeakerLabelerOptions } from "../speakerId";
+import { EcapaEmbedder, LIVE_LABELER_OPTIONS, SpeakerLabeler, type Embedder, type SpeakerLabelerOptions } from "../speakerId";
 import { cloudProvider, ProviderChain, type LiveMode } from "../localLlm";
 import { phoneNudgePolicy, type NudgeEvent } from "../nudgePolicy";
 import { vocabularyForCode } from "../nudgeVocabulary";
@@ -187,7 +187,8 @@ export interface ReplayOptions {
    *  the owner's real enrolled print replaying one of his own recordings
    *  (replay/recordingReplay.ts). `enroll` / `enrollFrom` are ignored. */
   enrolled?: EnrollmentRecord[];
-  /** Labeler tuning (identity sweeps); absent = the shipped labeler. */
+  /** Labeler tuning (identity sweeps); absent = LIVE_LABELER_OPTIONS, what
+   *  the phone runs. `{}` = the plain (pre-2026-10-10) labeler. */
   speakerOptions?: SpeakerLabelerOptions;
 }
 
@@ -365,7 +366,7 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
   }
   const speakerId = models.embedder !== null;
   const embedder = models.embedder ? new TrackedEmbedder(models.embedder, tracker, clock, opts.speakerCostMs) : null;
-  const labeler = speakerId ? new SpeakerLabeler(enrolled, opts.speakerOptions ?? {}) : null;
+  const labeler = speakerId ? new SpeakerLabeler(enrolled, opts.speakerOptions ?? LIVE_LABELER_OPTIONS) : null;
   // Every raw labeler verdict, in call order (one per embedded turn) — the
   // identity sweeps read the self cosine of turns that did NOT match.
   const labelLog: LabelLogEntry[] = [];

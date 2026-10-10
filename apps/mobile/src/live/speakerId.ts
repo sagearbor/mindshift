@@ -472,6 +472,28 @@ export interface SpeakerLabelerOptions {
   } | null;
 }
 
+/**
+ * The live coach's labeler tuning (defaultDeps / webDeps / the replay
+ * harness). Overnight tuning 2026-10-10 (agent C; landscape rows C-0xx, DEV
+ * split, phone-only replay vs C-000).
+ * - sticky: once the enrolled print has matched the owner TWICE this session
+ *   (>= MATCH_THRESHOLD, unchanged), the owner's bar against that same print
+ *   relaxes to 0.48 — the print has proven itself in this room/mic. DEV
+ *   (C-012 / C-025): wearer recall 0.478 -> 0.674, false-self 0.088 -> 0.082.
+ *   Fixture pack: the RAVDESS shout's first fragment is now recognised, so
+ *   the +29.8 dB shout buzzes the instant tier through the unchanged 3 s
+ *   hold; scene_meeting4 loses one self fragment (nudges unchanged).
+ *   `after: 1` gained maggiano3 a self turn but no DEV false-self headroom.
+ * - windowVote is NOT on: it won on DEV (false-self 0.057, C-022) but cost
+ *   family_real its self turn + instant buzz and added a false-positive
+ *   nudge in scene_family3 — the owner's own recordings outrank DEV.
+ * Sensitive: 0.50/0.52 instead of 0.48 cut DEV recall (C-004, C-013). The
+ * journal keeps the plain labeler.
+ */
+export const LIVE_LABELER_OPTIONS: Readonly<SpeakerLabelerOptions> = Object.freeze({
+  sticky: { after: 2, threshold: 0.48 },
+});
+
 export class SpeakerLabeler {
   private readonly people: { person: EnrolledPerson; vec: Float32Array }[];
   private hasSelf: boolean;
@@ -692,6 +714,11 @@ export class SpeakerLabeler {
       };
     }
     const session = this.sessionSelfMatch(embedding, selfScore);
+    // A session-matched turn founds/joins NO unknown-voice cluster, like an
+    // absolute match. Feeding the clusters too was tried (2026-10-10): it
+    // won back scene_meeting4's 5th self turn (a cluster centroid averaged
+    // past the bar) but the same averaging over overlap-dense CHiME turns
+    // called a mixed cluster the owner — false-self 0.088 -> 0.098 on DEV.
     if (session) return session;
     if (vote && vote.selfFrac >= vote.minFrac) {
       const self = this.people.find((p) => p.person.isSelf)?.person as EnrolledPerson;

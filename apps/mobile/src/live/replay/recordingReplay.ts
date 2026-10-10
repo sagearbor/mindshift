@@ -46,7 +46,7 @@ export interface RecordingArgs {
   self: string | null;
   /** `--speaker-opts '<json>'`: labeler tuning for identity sweeps
    *  (scripts/recreplay/identity_eval.py); null = the shipped labeler. */
-  speakerOptions: SpeakerLabelerOptions | null;
+  speakerOptions?: SpeakerLabelerOptions | null;
 }
 
 export function parseRecordingArgs(argv: string[]): RecordingArgs {
