@@ -138,7 +138,7 @@ def item_metrics(bundle: dict, prov: dict | None) -> dict:
     imps = [float(ln["importance"]) for ln in lines
             if ln.get("source") == "server" and ln.get("kind") in ("response", "nudge") and ln.get("importance") is not None]
     srv = [ln for ln in lines if ln.get("source") == "server" and ln.get("kind") in ("response", "nudge")]
-    frag = [ln for ln in srv if len(re.findall(r"[A-Za-z']+", ln.get("utterance_text") or "")) <= 2]
+    frag = [ln for ln in srv if len(re.findall(r"\w+", ln.get("utterance_text") or "")) <= 2]
     openings = Counter(_opening(ln.get("text") or "") for ln in srv)
     leak = [ln for ln in srv if LEAK_RE.search(" ".join(ln.get("all") or [ln.get("text") or ""]))]
     ph = (sc.get("identity") or {}).get("phone") or {}
@@ -189,6 +189,9 @@ def item_metrics(bundle: dict, prov: dict | None) -> dict:
         "gated": gated, "importances": imps,
         "phone_speech_coverage": coverage, "phone_alerts": len(alerts), "phone_positive": len(haps) - len(alerts),
         "fragment_lines": len(frag),
+        # what the wearer actually HEARS (a speak gate changes these, not the totals above)
+        "fragment_spoken": sum(1 for ln in frag if ln.get("fires")),
+        "label_leak_spoken": sum(1 for ln in leak if ln.get("fires")),
         "fragment_examples": [{"at_s": ln["at_s"], "text": f"“{ln.get('utterance_text')}” -> {ln.get('text')}"} for ln in frag[:3]],
         "openings": dict(openings),
         "label_leak_lines": len(leak),
@@ -567,7 +570,11 @@ def split_names(split: str, splits_path: Path = SPLITS) -> list[str] | None:
 
 
 def landscape_metrics(items: list[dict]) -> dict:
-    """The standard landscape.py metric names over a set of item_metrics rows."""
+    """The standard landscape.py metric names over a set of item_metrics rows.
+    label_leaks / short_turn_line_pct count SPOKEN server lines (what the
+    wearer hears); calm_fires_h / heated_fires_h = all fires per hour in the
+    calm-control / heated items; nomoment_fires_h = fires with no moment
+    nearby per hour over every item."""
     def grp(g):
         return [i for i in items if i["group"] == g]
     allm = _agg(items)
@@ -575,7 +582,7 @@ def landscape_metrics(items: list[dict]) -> dict:
 
     def r(v, nd=3):
         return None if v is None else round(float(v), nd)
-    srv = sum(i["server_lines"] for i in items)
+    spoken = sum(i["server_spoken"] for i in items)
     return {k: v for k, v in {
         "hit_rate": r(allm.get("moment_hit_rate")), "chance_hit_rate": r(allm.get("chance_hit_rate")),
         "lift": r(allm.get("lift")),
@@ -583,8 +590,9 @@ def landscape_metrics(items: list[dict]) -> dict:
         "nomoment_fires_h": r(allm.get("false_fires_per_h"), 1),
         "wearer_recall": r(allm.get("identity_recall_mean")), "time_to_confirm_s": r(allm.get("time_to_confirm_median_s"), 1),
         "alert_buzz_hits": sum(i["phone_alerts"] for i in items),
-        "label_leaks": sum(i["label_leak_lines"] for i in items),
-        "short_turn_line_pct": r(100.0 * sum(i["fragment_lines"] for i in items) / srv, 1) if srv else None,
+        "label_leaks": sum(i.get("label_leak_spoken", i["label_leak_lines"]) for i in items),
+        "short_turn_line_pct": r(100.0 * sum(i.get("fragment_spoken", i["fragment_lines"]) for i in items) / spoken, 1)
+        if spoken else None,
         "after_laugh_lines": allm.get("fires_near_laughter"),
         "latency_p50_s": r((allm.get("latency_p50_ms") or 0) / 1000.0, 2) if allm.get("latency_p50_ms") else None,
         "vad_coverage": r(allm.get("vad_coverage")),
