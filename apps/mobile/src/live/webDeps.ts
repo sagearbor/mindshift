@@ -17,7 +17,7 @@ import { ecapaModelUrl, ECAPA_REVISION, fetchVoiceprints, authHeaders } from "..
 import { FastLoop } from "./fastLoop";
 import type { FastLoopBuild, FastLoopCapabilities, FastLoopHandlers, DefaultFastLoopOptions } from "./defaultDeps";
 import { EnergyVad, SileroVad, type FrameVad } from "./vad";
-import { EcapaEmbedder, LIVE_LABELER_OPTIONS, SpeakerLabeler, type Embedder } from "./speakerId";
+import { EcapaEmbedder, SpeakerLabeler, type Embedder } from "./speakerId";
 import {
   activeCapability,
   describeSpeakerId,
@@ -127,7 +127,7 @@ async function buildSpeakerId(
   }
   return {
     embedder: new EcapaEmbedder(session),
-    labeler: new SpeakerLabeler(kept, LIVE_LABELER_OPTIONS),
+    labeler: new SpeakerLabeler(kept),
     capability: activeCapability(model, kept, dropped.length, voiceprints.error),
   };
 }

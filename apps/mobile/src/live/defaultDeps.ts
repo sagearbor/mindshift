@@ -22,7 +22,7 @@ import { Platform } from "react-native";
 import { ecapaModelUrl, ECAPA_REVISION, fetchVoiceprints, authHeaders } from "../api/liveSessions";
 import { FastLoop, type FastLoopDeps } from "./fastLoop";
 import { EnergyVad, SileroVad, type FrameVad } from "./vad";
-import { EcapaEmbedder, LIVE_LABELER_OPTIONS, SpeakerLabeler, type Embedder } from "./speakerId";
+import { EcapaEmbedder, SpeakerLabeler, type Embedder } from "./speakerId";
 import {
   activeCapability,
   describeSpeakerId,
@@ -272,7 +272,7 @@ export async function buildSpeakerId(): Promise<SpeakerIdBuild> {
   const capability = activeCapability(loaded.model, kept, dropped.length, voiceprints.error);
   return {
     embedder: new EcapaEmbedder(loaded.session),
-    labeler: new SpeakerLabeler(kept, LIVE_LABELER_OPTIONS),
+    labeler: new SpeakerLabeler(kept),
     capability,
   };
 }

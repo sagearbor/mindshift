@@ -17,7 +17,6 @@ import {
   identifyClusters,
   MIN_CLUSTER_SECONDS,
   l2Normalize,
-  LIVE_LABELER_OPTIONS,
   MATCH_THRESHOLD,
   runningMeanEmbedding,
   SpeakerLabeler,
@@ -394,13 +393,6 @@ describe("SpeakerLabeler", () => {
     expect(lab.label(vectorAtCosine(D, 0.55, 0, 3), 3)).toMatchObject({ isSelf: true, basis: "session" });
   });
 
-  it("sticky owner turns found no unknown-voice cluster (like an absolute match)", () => {
-    const lab = new SpeakerLabeler([you], { sticky: { after: 1, threshold: 0.48 } });
-    lab.label(vectorAtCosine(D, 0.7, 0, 1), 3); // absolute: no cluster
-    expect(lab.label(vectorAtCosine(D, 0.55, 0, 2), 3)).toMatchObject({ isSelf: true, basis: "session" });
-    expect(lab.clusterCount).toBe(0);
-  });
-
   it("shortUndecidedSeconds: a short turn that is not the owner is undecided, never 'not self'", () => {
     const lab = new SpeakerLabeler([you], { shortUndecidedSeconds: 1.5 });
     lab.label(unitVector(D, 5), 2.0); // Speaker A
@@ -408,18 +400,6 @@ describe("SpeakerLabeler", () => {
     expect(lab.label(unitVector(D, 5, 0.1, 4), 2.0)).toMatchObject({ speaker: "Speaker A", isSelf: false });
     // A short turn that DOES match the print is still self.
     expect(lab.label(vectorAtCosine(D, 0.7, 0, 1), 1.0)).toMatchObject({ isSelf: true });
-  });
-
-  it("LIVE_LABELER_OPTIONS: the tuned live config (sticky only) keeps the 0.60 print bar", () => {
-    expect(LIVE_LABELER_OPTIONS).toEqual({ sticky: { after: 2, threshold: 0.48 } });
-    expect(LIVE_LABELER_OPTIONS.matchThreshold).toBeUndefined();
-    // Before two print matches a 0.52 turn is not the owner; after them it is.
-    const lab = new SpeakerLabeler([you], LIVE_LABELER_OPTIONS);
-    expect(lab.label(vectorAtCosine(D, 0.52, 0, 1), 3)).toMatchObject({ isSelf: false });
-    lab.label(vectorAtCosine(D, 0.7, 0, 1), 3);
-    expect(lab.label(vectorAtCosine(D, 0.52, 0, 3), 3)).toMatchObject({ isSelf: false });
-    lab.label(vectorAtCosine(D, 0.7, 0, 1), 3);
-    expect(lab.label(vectorAtCosine(D, 0.52, 0, 2), 3)).toMatchObject({ isSelf: true, basis: "session" });
   });
 
   describe("windowVote (sub-turn ECAPA windows)", () => {

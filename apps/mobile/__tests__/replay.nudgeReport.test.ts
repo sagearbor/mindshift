@@ -340,23 +340,12 @@ maybe("nudge verification from recorded files (real Silero + ECAPA, scripted STT
     // hold, which is exactly why it is pinned here rather than left implicit.
     // The turn is still a HIT (above): the words reach the same lane through
     // `aggressive_tone`, a second or so later.
-    //
-    // 2026-10-10 (overnight identity tuning, LIVE_LABELER_OPTIONS sticky): the
-    // shout's FIRST fragment (2.1 s, +21 dB, scored just under the 0.60 bar)
-    // is now also recognised as the owner — the print already matched the
-    // owner earlier this session, so the owner's bar relaxes to 0.48. Two
-    // consecutive loud owner fragments are 4.5 s of loudness, which DOES serve
-    // the unchanged 3 s hold, so the +29.8 dB shout reaches the wrist through
-    // the instant tier again (level 3, ahead of the policy tier) — with the
-    // hold intact, not lowered.
     const shoutFragments = shout.fragments.filter((f) => f.coachedAsSelf);
-    expect(shoutFragments).toHaveLength(2);
-    expect(shoutFragments.every((f) => f.end - f.start < 3.0)).toBe(true);   // neither alone serves the hold
-    expect(shoutFragments.map((f) => f.instantLevel)).toEqual([3, 3]);       // measured, not gated away
-    expect(shoutFragments[0].earpiece.instantHaptic).toBeNull();             // 2.1 s: hold still serving
-    expect(shoutFragments[1].earpiece.instantHaptic).toMatchObject({ level: 3 });
-    expect(rep.scorecard.instantHaptics).toBe(1);
-    expect(Math.max(...rep.haptics.map((h) => h.level))).toBe(3);
+    expect(shoutFragments).toHaveLength(1);
+    expect(shoutFragments[0].end - shoutFragments[0].start).toBeLessThan(3.0);
+    expect(shoutFragments[0].instantLevel).toBe(3);   // measured, not gated away
+    expect(rep.scorecard.instantHaptics).toBe(0);
+    expect(Math.max(...rep.haptics.map((h) => h.level))).toBe(2);
 
     // The measurement that explains WHY one print could never do it, kept so
     // the reasoning cannot go stale even though the behaviour is now correct.

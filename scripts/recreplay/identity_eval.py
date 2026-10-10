@@ -65,7 +65,7 @@ def _tsx() -> Path:
     raise SystemExit("tsx not found")
 
 
-def run_item(name: str, out: Path, speaker_opts: str | None) -> dict:
+def run_item(name: str, out: Path, speaker_opts: str | None) -> dict | None:
     work = RECORDINGS / "work" / name
     vp = RECORDINGS / "inbox" / name / f"{name}.voiceprint.json"
     cmd = [str(_tsx()), str(CLI_TS), "--wav", str(work / "audio16k.wav"), "--meta", str(work / "phone_meta.json"),
@@ -78,6 +78,9 @@ def run_item(name: str, out: Path, speaker_opts: str | None) -> dict:
     if not out.exists():
         p = subprocess.run(cmd, cwd=str(REPO), env=env, capture_output=True, text=True, stdin=subprocess.DEVNULL)
         if p.returncode != 0:
+            if "needs a non-empty `turns`" in p.stderr:
+                print(f"{name}: SKIPPED — empty phone meta (no turns to replay)", file=sys.stderr)
+                return None
             raise RuntimeError(f"{name}: {p.stderr[-1500:]}")
     return json.loads(out.read_text())
 
@@ -172,7 +175,7 @@ def main() -> None:
     (out_dir / "speaker_opts.json").write_text(a.speaker_opts or "{}")
     with ThreadPoolExecutor(a.jobs) as ex:
         phones = list(ex.map(lambda n: run_item(n, out_dir / f"{n}.json", a.speaker_opts or None), names))
-    items = [score_item(n, p) for n, p in zip(names, phones)]
+    items = [score_item(n, p) for n, p in zip(names, phones) if p is not None]
     agg = aggregate(items)
     (out_dir / "summary.json").write_text(json.dumps({"items": items, "aggregate": agg}, indent=1))
     for i in items:

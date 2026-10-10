@@ -36,7 +36,7 @@ import {
   type SceneInput,
 } from "../src/live/replay/sceneReplay";
 import { SCENE_PACK } from "../src/live/replay/cli";
-import { LIVE_LABELER_OPTIONS, MATCH_THRESHOLD } from "../src/live/speakerId";
+import { MATCH_THRESHOLD } from "../src/live/speakerId";
 
 const ecapaPath = findEcapaModel();
 const maybe = ecapaPath ? describe : describe.skip;
@@ -104,14 +104,8 @@ maybe("scene pack replay (real Silero + ECAPA, scripted STT/LLM, virtual clock)"
     // (real short-turn same-voice similarity), the partner's fragments no
     // longer split off a stray cluster: 2 speakers, correct 12/13 (was 3/11).
     expect(r.attribution).toMatchObject({ correct: 13, total: 13, selfCorrect: 7, selfTotal: 7, speakersDetected: 2, unknownClusters: 1 });
-    // Print matches clear the 0.60 bar; "session" ones (LIVE_LABELER_OPTIONS
-    // sticky, 2026-10-10: the print already matched the owner this session)
-    // clear the relaxed 0.48 owner bar.
-    const selfTurns = r.turns.filter((t) => t.isSelf);
-    const minOf = (basis: string) => Math.min(...selfTurns.filter((t) => t.matchBasis === basis).map((t) => t.matchScore as number));
-    expect(minOf("absolute")).toBeGreaterThanOrEqual(MATCH_THRESHOLD);
-    expect(minOf("session")).toBeGreaterThanOrEqual(LIVE_LABELER_OPTIONS.sticky!.threshold);
-    expect(selfTurns.every((t) => t.matchBasis === "absolute" || t.matchBasis === "session")).toBe(true);
+    const selfScores = r.turns.filter((t) => t.isSelf).map((t) => t.matchScore as number);
+    expect(Math.min(...selfScores)).toBeGreaterThanOrEqual(MATCH_THRESHOLD);
     // Fragmentation: 30 loop turns, 12 of 13 scripted turns split, none merged.
     expect(r.turns).toHaveLength(30);
     expect(r.boundaries).toMatchObject({ split: 12, merged: 0, unmatched: 0, extra: 0 });
@@ -244,17 +238,7 @@ maybe("scene pack replay (real Silero + ECAPA, scripted STT/LLM, virtual clock)"
     // cluster's centroid clears the absolute bar (0.70) once its turns pool,
     // so it is identified as self (basis "absolute") while staying
     // "Speaker E" on the wire — and is scored as the person it carries.
-    // 2026-10-10 (LIVE_LABELER_OPTIONS sticky): 13/17, self 4/5, 3 unknown
-    // clusters (was 14/17, 5/5, 2). The shout's two later fragments (0.59 /
-    // 0.53 against the print) are now the owner directly (basis "session"),
-    // so they no longer pool into the shout cluster — whose centroid used to
-    // average past the bar and retroactively carry the shout's FIRST 2 s
-    // fragment (0.46) as self. That first fragment is now an unidentified
-    // voice. The nudge outcome is unchanged (2 hits, 0 misses, 0 FP below):
-    // the strong moment is still hit, on the later fragments. Feeding sticky
-    // turns into the clusters wins it back but raised DEV false-self
-    // (CHiME: a mixed cluster averaged into "the owner"); not taken.
-    expect(r.attribution).toMatchObject({ correct: 13, total: 17, selfCorrect: 4, selfTotal: 5, speakersDetected: 4, unknownClusters: 3 });
+    expect(r.attribution).toMatchObject({ correct: 14, total: 17, selfCorrect: 5, selfTotal: 5, speakersDetected: 3, unknownClusters: 2 });
     expect(r.turns).toHaveLength(34);
     expect(r.boundaries).toMatchObject({ split: 14, merged: 0, unmatched: 0 });
     // mild@11 hit; strong@13 missed: the 2 s shouted fragments score below
@@ -271,16 +255,13 @@ maybe("scene pack replay (real Silero + ECAPA, scripted STT/LLM, virtual clock)"
     expect(r.nudgeScore.perTurn[13]).toMatchObject({ expected: "strong", verdict: "hit", level: 2 });
     expect(r.nudgeScore.perTurn[7].level).toBe(0); // Speaker D's tense_rising: no nudge
     const shout = r.attribution.perTurn[13];
-    expect(shout).toMatchObject({ truth: "Speaker A", ok: false });
+    expect(shout).toMatchObject({ truth: "Speaker A", predicted: "Speaker A", ok: true });
     const shoutTurn = r.turns[shout.loopTurn as number];
-    // The shout's first fragment founds "Speaker C" and stays unidentified;
-    // the next two fragments carry the owner by the sticky bar.
-    expect(shoutTurn).toMatchObject({ speaker: "Speaker C", isSelf: false, matchBasis: null });
-    const after = r.turns.slice((shout.loopTurn as number) + 1, (shout.loopTurn as number) + 3);
-    expect(after.map((t) => [t.isSelf, t.matchBasis])).toEqual([
-      [true, "session"],
-      [true, "session"],
-    ]);
+    // Raw wire label is "Speaker C" now: the merged clustering (0.48) plus the
+    // 0.60 bar leaves 3 clusters for this 4-voice meeting instead of 6, so the
+    // shout cluster is the third founded, not the fifth. The person on it is
+    // unchanged — self, by the absolute bar.
+    expect(shoutTurn).toMatchObject({ speaker: "Speaker C", displayName: "Speaker A", isSelf: true, matchBasis: "absolute" });
     expect(r.speaking).toMatchObject({ spoken: 30, held: 33, overVadSpeech: 0 });
     expect(r.latency).toMatchObject({ toSpeakMedianMs: 2100, toSpeakMaxMs: 3400, textless: 0 });
     writeTurnLocalDump(r, REPLAY_OUT_DIR);
