@@ -1429,11 +1429,25 @@ def _history_for_prompt(
     if ctx.wearer_known and ctx.self_speaker:
         self_labels.add(ctx.self_speaker)
 
+    turn_ctx = _turn_context_on()
+    now = float(utterance.end_time)
+    other_confirmed = bool(self_labels)
     turns: list[dict] = []
     for u in ctx.utterances:
         if u is utterance:
             continue
         if not u.text.strip():
+            continue
+        if turn_ctx:
+            # Never future info: a turn that begins after "now" is excluded;
+            # one still running at "now" is marked ongoing.
+            if float(u.start_time) > now:
+                continue
+            turns.append({
+                "t": float(u.end_time), "start": float(u.start_time),
+                "who": _turn_role(ctx, u.speaker, self_labels, other_confirmed),
+                "text": u.text, "ongoing": float(u.end_time) > now,
+            })
             continue
         turns.append({
             "t": float(u.end_time),
@@ -1447,27 +1461,87 @@ def _history_for_prompt(
         for c in ctx.coaching_log
         if float(c["t"]) >= since or c is ctx.coaching_log[-1]
     ][-COACH_CONTEXT_TURNS:] if ctx.coaching_log else []
-    return {
+    out = {
         "turns": turns, "coach": coach_lines,
         "self": identity == WEARER_SELF, "unknown": identity == WEARER_UNKNOWN,
     }
+    if turn_ctx:
+        out["now"] = now
+        out["turn_start"] = float(utterance.start_time)
+        floor = 0.0
+        if identity == WEARER_SELF:
+            # Continuous floor: this turn plus the unbroken run of the
+            # wearer's own turns right before it.
+            floor_start = float(utterance.start_time)
+            for u in reversed([x for x in ctx.utterances if x is not utterance]):
+                if not u.text.strip():
+                    continue
+                if u.speaker not in self_labels or float(u.start_time) > now:
+                    break
+                floor_start = min(floor_start, float(u.start_time))
+            floor = max(0.0, now - floor_start)
+        out["wearer_floor_s"] = floor
+    return out
+
+
+def _turn_context_on() -> bool:
+    """MINDSHIFT_TURN_CONTEXT (default ON; "0" restores the old prompt).
+    Read at call time so a replay can A/B the two prompts."""
+    return os.getenv("MINDSHIFT_TURN_CONTEXT", "1").strip().lower() not in ("0", "false", "off", "")
+
+
+def _turn_role(ctx: SessionContext, speaker: str, self_labels: set, other_confirmed: bool) -> str:
+    """Role shown to the LLM for a history turn: "You" (confirmed wearer),
+    "Other" (confirmed not the wearer) or "Unknown". A mid-call name is kept
+    as "Other (Mom)"; a raw diarizer label is never shown."""
+    if speaker in self_labels:
+        return "You"
+    entry = ctx.speaker_labels.get(speaker)
+    name = entry.get("display_name") if isinstance(entry, dict) else None
+    has_name = isinstance(name, str) and name and not coach_gate.has_label(name)
+    if other_confirmed or speaker in ctx.other_labels:
+        return f"Other ({name})" if has_name else "Other"
+    return f"Unknown ({name})" if has_name else "Unknown"
+
+
+def _rel(now: float, t: float) -> str:
+    return f"{max(0, round(now - t))}s"
 
 
 def _render_history(history: dict) -> str:
     """Deterministic rendering of :func:`_history_for_prompt`'s dict."""
     turns = list(history.get("turns") or [])
     coach = list(history.get("coach") or [])
+    now = history.get("now")
+    stamped = now is not None
     rows: list[tuple[float, int, str]] = []
     for t in turns:
-        rows.append((float(t["t"]), 0, f'- {t["who"]}: "{t["text"]}"'))
+        if stamped:
+            when = f'{_rel(now, t["start"])}\u2013{_rel(now, t["t"])} ago'
+            if t.get("ongoing"):
+                when = f'started {_rel(now, t["start"])} ago, ongoing'
+            rows.append((float(t["t"]), 0, f'- [{when}] {t["who"]}: "{t["text"]}"'))
+        else:
+            rows.append((float(t["t"]), 0, f'- {t["who"]}: "{t["text"]}"'))
     for c in coach:
         what = "whispered to the wearer" if c.get("kind") == "nudge" else "suggested to the wearer"
-        rows.append((float(c["t"]), 1, f'- (coach {what}: "{c["text"]}")'))
+        tag = f"[{_rel(now, c['t'])} ago] " if stamped else ""
+        rows.append((float(c["t"]), 1, f'- {tag}(coach {what}: "{c["text"]}")'))
     rows.sort(key=lambda r: (r[0], r[1]))
     lines: list[str] = []
     if rows:
         lines.append("Recent exchange before this turn (oldest first):")
         lines.extend(r[2] for r in rows)
+    if stamped:
+        who = "the wearer (You)" if history.get("self") else (
+            "an unidentified speaker" if history.get("unknown") else "someone else (Other)")
+        lines.append(
+            f"The turn above is from {who}; it began {_rel(now, history.get('turn_start', now))} "
+            "before now and is the latest thing said. Times are seconds before now."
+        )
+        floor = float(history.get("wearer_floor_s") or 0)
+        if floor >= 1:
+            lines.append(f"The wearer has held the floor continuously for {round(floor)}s.")
     if history.get("self"):
         lines.append(_SELF_GUIDANCE)
     elif history.get("unknown"):
