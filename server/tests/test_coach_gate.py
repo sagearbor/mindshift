@@ -199,6 +199,21 @@ def test_interruption_evidence_needs_a_floor_claim_after_someone_else_held_it():
     assert not cg.interruption_evidence([("Speaker B", 0.0, 30.0, ARGUE[0][3]), ("Speaker B", 30.0, 32.0, "Can I answer?")])
 
 
+def test_interruption_evidence_sees_a_monologue_the_phone_chunked():
+    # E-020 confer_20111212_seq11: the phone cuts a 76 s monologue into ~8 s
+    # turns; the floor claim follows 1.5 s after the last chunk.
+    chunks = [("Speaker W", s, e, "Εάν ήσασταν βουλευτής θα μπορούσατε να το είχατε καταψηφίσει.")
+              for s, e in [(0.06, 37.8), (38.2, 46.4), (46.9, 57.6), (58.2, 66.3), (66.6, 71.9), (72.6, 76.1)]]
+    turns = chunks + [("Speaker A", 77.6, 79.4, "Μπορώ να απαντήσω και ρε πρετε. Βεβαίως, ακούω."),
+                      ("Unknown", 80.0, 80.7, "Μπορώ να απαντήσω και ρε πρετε. Βεβαίως, ακούω. Πρώτα")]
+    assert cg.interruption_evidence(turns)
+    assert cg.interruption_evidence(turns[:-1])
+    short = [("Speaker W", 70.0, 73.0, "and that is what the law says, clearly"),
+             ("Speaker W", 73.5, 76.1, "so you have to apply it"),
+             ("Speaker A", 77.6, 79.4, "Can I answer?")]
+    assert not cg.interruption_evidence(short)  # 6 s of talk, 1.5 s gap: no hold, no cut-in
+
+
 def test_interruption_evidence_overlap_plus_claim():
     turns = [("S1", 0.0, 6.0, "So what I was going to say is that the budget"),
              ("S2", 4.0, 7.0, "No no that's not what happened at all"),

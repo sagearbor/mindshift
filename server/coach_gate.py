@@ -264,6 +264,7 @@ _FLOOR_RE = re.compile(
 )
 EVIDENCE_WINDOW_S = 20.0
 HOLD_S = 20.0
+RUN_GAP_S = 1.5
 
 
 def neutral_cue(line: str) -> bool:
@@ -278,10 +279,19 @@ def interruption_evidence(turns: list[tuple[str, float, float, str]]) -> bool:
     answered turn last): one of the last two turns, within
     ``EVIDENCE_WINDOW_S`` of the newest, claims the floor, and right before
     it a DIFFERENT speaker either overlapped / cut straight into that
-    speaker (handoff <= 0.1 s) or held the floor for >= ``HOLD_S``."""
+    speaker (handoff <= 0.1 s) or held the floor for >= ``HOLD_S`` (one run
+    of their consecutive turns)."""
     turns = [t for t in turns if (t[3] or "").strip()]
     if len(turns) < 2:
         return False
+    # The phone cuts a monologue into ~8-10 s turns: a speaker's floor time
+    # is the run of their consecutive turns with gaps <= RUN_GAP_S.
+    run_start: list[float] = []
+    for k, (spk_k, s_k, _e, _t) in enumerate(turns):
+        if k and turns[k - 1][0] == spk_k and float(s_k) - float(turns[k - 1][2]) <= RUN_GAP_S:
+            run_start.append(run_start[-1])
+        else:
+            run_start.append(float(s_k))
     newest_end = float(turns[-1][2])
     for i in range(len(turns) - 1, max(0, len(turns) - 2) - 1, -1):
         spk, start, end, text = turns[i]
@@ -293,7 +303,7 @@ def interruption_evidence(turns: list[tuple[str, float, float, str]]) -> bool:
                 continue
             if float(start) - float(oend) > EVIDENCE_WINDOW_S:
                 break
-            held = float(oend) - float(ostart) >= HOLD_S
+            held = float(oend) - run_start[j] >= HOLD_S
             cut_in = float(start) - float(oend) <= 0.1
             # the other speaker started inside one of this speaker's turns
             overlap = any(
