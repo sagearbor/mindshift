@@ -531,6 +531,8 @@ def wearer(ann: dict) -> tuple[str, str]:
         if e["type"] in ("interruption", "escalation"):
             for k in e.get("speakers") or []:
                 score[k] = score.get(k, 0) + 5
+    if not score:
+        return (ann["speakers"][0]["id"] if ann.get("speakers") else "S1"), "no segments in the annotation"
     best = max(score, key=score.get)
     desc = next((s.get("voice_description") for s in ann["speakers"] if s["id"] == best), None) or ""
     return best, desc
@@ -631,6 +633,85 @@ def cmd_finalize(args) -> int:
     return 0
 
 
+def cmd_inbox(args) -> int:
+    """No Gemini calls: put every trimmed clip into the inbox as it stands.
+    Per video, the window with the hottest flash screen (else the first);
+    its flash annotation (if any) goes alongside; notes carry licence +
+    attribution, and ``annotation: none`` when there is no annotation."""
+    m = load()
+    n_ann = n_none = 0
+    for c in m["candidates"].values():
+        wins = c.get("windows") or []
+        if not wins:
+            continue
+        annotated = []
+        for j, w in enumerate(wins):
+            f = w.get("flash") or {}
+            fp = REPO / w["clip"]
+            fp = fp.with_name(f"{fp.stem}.annotation.{f['model']}.json") if f.get("model") else None
+            if fp and fp.exists():
+                fa = json.loads(fp.read_text())
+                f.update(heat_stats(fa))
+                f.update({k: v for k, v in overlap_stats(fa).items() if k != "talk_s"})
+                f["timing_untrustworthy"] = "TIMING UNTRUSTWORTHY" in (fa["annotator"].get("notes") or "")
+                annotated.append((hot_rank(w), j, w, fp, fa))
+        annotated.sort(key=lambda t: -t[0])
+        if annotated:
+            _, j, w, fp, fa = annotated[0]
+        else:
+            j, w, fp, fa = 0, wins[0], None, None
+        name = f"yt_{c['id']}"
+        d = INBOX / name
+        d.mkdir(parents=True, exist_ok=True)
+        audio = d / f"{name}.m4a"
+        if not audio.exists():
+            subprocess.run(["cp", str(REPO / w["clip"]), str(audio)], check=True)
+        lic = c["licence_kind"]
+        ymd = c.get("upload_date") or ""
+        date = f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}" if len(ymd) == 8 else ymd
+        span = f"{w['start'] // 60}:{w['start'] % 60:02d}-{w['end'] // 60}:{w['end'] % 60:02d}"
+        if fa is not None:
+            model = w["flash"]["model"]
+            dst = d / f"{name}.annotation.{model}.json"
+            if not dst.exists():
+                dst.write_text(fp.read_text())
+            spk, desc = wearer(fa)
+            who = f"who: I'm {spk} — {desc} (chosen as the most-involved speaker; not a real wearer)"
+            ann_line = f"annotation: {model} (cheap screening pass; see manifest for heat/overlap)"
+            if w["flash"].get("timing_untrustworthy"):
+                ann_line += " — TIMING UNTRUSTWORTHY, use words/heat only"
+            n_ann += 1
+        else:
+            who = "who: unknown — no annotation yet; pick the most-involved voice after annotating"
+            ann_line = "annotation: none"
+            n_none += 1
+        (d / f"{name}.notes.txt").write_text(
+            f"{who}\n"
+            f"setting: {c['title']} — {c['channel']}; open-web clip {span} of the original\n"
+            f"phone: none — meeting/broadcast/online video audio, not a phone recording\n"
+            f"source: open web, licence {lic}\n"
+            f"{ann_line}\n"
+            f"url: {c['webpage_url']}\n"
+            f"attribution: \"{c['title']}\" by {c['channel']} ({date}), {lic}, {c['webpage_url']}\n")
+        f = w.get("flash") or {}
+        ok_ev, why_ev = measured_heated(w.get("evidence") or {})
+        heated = bool(fa is not None and (f.get("overall_heat") or 0) >= 2 and ok_ev)
+        c["inbox"] = {"dir": str(d.relative_to(REPO)), "window": j, "span_s": [w["start"], w["end"]],
+                      "annotation": f"{name}.annotation.{f['model']}.json" if fa is not None else None,
+                      "heat_score": f.get("overall_heat"), "hot_speech_pct": f.get("hot_speech_pct"),
+                      "overlap_pct": f.get("overlap_pct"), "overlap_marked_pct": f.get("overlap_marked_pct"),
+                      "interruptions": f.get("interruptions"), "evidence": w.get("evidence"),
+                      "heated": heated,
+                      "why_heated": (f"Gemini flash overall_heat {f.get('overall_heat')}, {f.get('hot_speech_pct')}% "
+                                     f"of speech heated at intensity>=2, {f.get('interruptions')} interruptions, "
+                                     f"{f.get('overlap_marked_pct')}% segments marked overlapping; measured: {why_ev}")
+                      if fa is not None else "not annotated"}
+        c["stage"] = "inbox"
+    save(m)
+    log(f"inbox: {n_ann} with annotation, {n_none} without")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -652,8 +733,9 @@ def main(argv=None) -> int:
     fi.add_argument("--min-heat", type=int, default=2)
     fi.add_argument("--allow-calm", action="store_true")
     fi.add_argument("--cap", type=float, default=25.0)
+    sub.add_parser("inbox")
     args = ap.parse_args(argv)
-    return {"search": cmd_search, "download": cmd_download, "screen": cmd_screen, "flash": cmd_flash,
+    return {"inbox": cmd_inbox, "search": cmd_search, "download": cmd_download, "screen": cmd_screen, "flash": cmd_flash,
             "evidence": cmd_evidence, "finalize": cmd_finalize}[args.cmd](args)
 
 

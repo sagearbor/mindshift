@@ -122,7 +122,7 @@ def annotate_file(gem, audio: Path, model: str, *, window_s: float, overlap_s: f
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("target", type=Path, help="audio file, inbox item folder, or inbox folder (with --all)")
-    ap.add_argument("--model", action="append", help="Vertex Gemini model id (repeatable). Default gemini-2.5-pro")
+    ap.add_argument("--model", action="append", help="Vertex Gemini model id (repeatable). Default gemini-3.8-flash (best in validation)")
     ap.add_argument("--all", action="store_true", help="annotate every item in an inbox folder")
     ap.add_argument("--force", action="store_true", help="re-annotate even if the output exists")
     ap.add_argument("--window-s", type=float, default=480.0)
@@ -132,7 +132,7 @@ def main(argv=None) -> int:
     ap.add_argument("--schema", action="store_true",
                     help="also constrain decoding with the JSON schema (off by default: it caused runaway output)")
     args = ap.parse_args(argv)
-    models = args.model or ["gemini-2.5-pro"]
+    models = args.model or ["gemini-3.8-flash"]
 
     from annotator.gemini import Gemini
     ledger = core.Ledger(args.ledger, cap_usd=args.cap)

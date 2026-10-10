@@ -204,13 +204,22 @@ class Ledger:
         self.cap = float(cap_usd)
         self.calls  # fail fast if unreadable
 
-    def _read(self) -> list[dict]:
+    def _doc(self) -> dict:
         if not self.path.exists():
-            return []
+            return {}
         try:
-            return json.loads(self.path.read_text()).get("calls", [])
+            return json.loads(self.path.read_text())
         except (OSError, json.JSONDecodeError):
             raise RuntimeError(f"spend ledger {self.path} is unreadable; refusing to run without it")
+
+    def _read(self) -> list[dict]:
+        return self._doc().get("calls", [])
+
+    def effective_cap(self) -> float:
+        """The lower of this run's cap and a cap written into the ledger file
+        (so the owner can freeze spending by editing the file)."""
+        file_cap = self._doc().get("cap_usd")
+        return min(self.cap, float(file_cap)) if isinstance(file_cap, (int, float)) else self.cap
 
     @property
     def calls(self) -> list[dict]:
@@ -221,9 +230,9 @@ class Ledger:
         return float(sum(c.get("usd", 0.0) for c in self._read()))
 
     def check(self, projected_usd: float) -> None:
-        total = self.total
-        if total >= self.cap or total + projected_usd > self.cap:
-            raise BudgetExceeded(f"spend cap ${self.cap:.2f}: spent ${total:.4f}, "
+        total, cap = self.total, self.effective_cap()
+        if total >= cap or total + projected_usd > cap:
+            raise BudgetExceeded(f"spend cap ${cap:.2f}: spent ${total:.4f}, "
                                  f"next call could cost up to ${projected_usd:.4f}")
 
     def record(self, model: str, item: str, usd: float, usage: dict) -> None:
@@ -231,11 +240,12 @@ class Ledger:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.path.with_suffix(".lock"), "w") as lk:
             fcntl.flock(lk, fcntl.LOCK_EX)
+            cap = self.effective_cap()
             calls = self._read()
             calls.append({"t": time.strftime("%Y-%m-%dT%H:%M:%S"), "model": model, "item": item,
                           "usd": round(float(usd), 6), "usage": usage})
             tmp = self.path.with_suffix(f".{uuid.uuid4().hex[:8]}.tmp")
-            tmp.write_text(json.dumps({"cap_usd": self.cap,
+            tmp.write_text(json.dumps({"cap_usd": cap,
                                        "total_usd": round(sum(c.get("usd", 0.0) for c in calls), 6),
                                        "calls": calls}, indent=1))
             tmp.replace(self.path)

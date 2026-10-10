@@ -75,6 +75,19 @@ def test_ledger_is_shared_by_concurrent_runs(tmp_path):
     assert len(core.Ledger(tmp_path / "spend.json").calls) == 3
 
 
+def test_a_lower_cap_written_into_the_ledger_file_wins_and_survives_writes(tmp_path):
+    p = tmp_path / "spend.json"
+    led = core.Ledger(p, cap_usd=25.0)
+    led.record("m", "a", 1.0, {})
+    d = json.loads(p.read_text())
+    d["cap_usd"] = 1.0           # the owner freezes spending at what is spent
+    p.write_text(json.dumps(d))
+    with pytest.raises(core.BudgetExceeded):
+        led.check(0.0)
+    led.record("m", "late", 0.1, {})   # an in-flight call still gets recorded...
+    assert json.loads(p.read_text())["cap_usd"] == 1.0   # ...without raising the cap back
+
+
 # ---------------------------------------------------------------------------
 # Windows + stitching
 # ---------------------------------------------------------------------------
