@@ -32,17 +32,26 @@ export interface TurnSplitConfig {
   pieceMergeCos: number | null;
 }
 
+/** Tuned 2026-10-10 on the 5 DEV corpus items with ground-truth segment
+ *  times (landscape D-006..D-015, phone-only replays with the AGC on): 2 s
+ *  windows keep the wearer's self-time recall (1.5 s windows cost 7 points),
+ *  cos < 0.15 beats 0.1/0.2/0.25, and the piece-validation pass did not pay.
+ *  D-009 vs D-000: time-weighted purity 0.641 -> 0.701, self-time precision
+ *  0.587 -> 0.718, self-time recall 0.422 -> 0.435; fragmentation of
+ *  single-voice segments >= 2 s 31.5% -> 42.4%. */
 export const TURN_SPLIT_DEFAULTS: TurnSplitConfig = {
-  windowSec: 1.5,
+  windowSec: 2.0,
   hopSec: 0.5,
-  minSpanSec: 3.0,
-  threshold: 0.3,
-  minPieceSec: 1.5,
+  minSpanSec: 4.0,
+  threshold: 0.15,
+  minPieceSec: 2.0,
   maxPieces: 4,
   pieceMergeCos: null,
 };
 
-/** Production switch (FastLoop deps.turnSplit overrides). */
+/** Production switch (FastLoop deps.turnSplit overrides). DARK: turning it
+ *  on moves every pinned replay fixture (maggiano3's baseline included) and
+ *  adds ~(span - 2 s) / 0.5 s ECAPA passes per long turn — owner's call. */
 export const TURN_SPLIT_ENABLED = false;
 
 function dot(a: Float32Array, b: Float32Array): number {
