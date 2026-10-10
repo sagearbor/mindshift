@@ -96,7 +96,7 @@ def annotate_file(gem, audio: Path, model: str, *, window_s: float, overlap_s: f
             usd += res.usd
             stamp = time.strftime("%Y%m%d-%H%M%S")
             (RAW_DIR / f"{audio.stem}.{model}.w{i}.{stamp}.txt").write_text("\n\n=====PART=====\n\n".join(res.parts))
-            obj, repairs, problems = loads_lenient(res.parts[0], res.parts[1:])
+            obj, repairs, problems = loads_lenient(core.repair_text(core.join_parts(res.parts)))
             if len(res.parts) > 1:
                 notes.append(f"window {i}: {len(res.parts) - 1} continuation(s)")
             if obj is None:

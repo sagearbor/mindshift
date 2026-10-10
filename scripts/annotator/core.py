@@ -82,6 +82,70 @@ def window_note(start: float, end: float, total: float, known: list[dict]) -> st
 
 
 # ---------------------------------------------------------------------------
+# Raw-reply repairs (before the lenient JSON parse)
+# ---------------------------------------------------------------------------
+
+_CLOCK = re.compile(r'("(?:start|end|t|peak_heat_t)"\s*:\s*)(\d+):(\d{1,2}(?:\.\d+)?)(?::(\d{1,2}(?:\.\d+)?))?')
+
+
+def repair_text(text: str) -> str:
+    """Models sometimes write clock times (``"start": 1:52.4``), which is not
+    JSON. Convert them to seconds."""
+    def sub(m):
+        a, b, c = m.group(2), m.group(3), m.group(4)
+        secs = int(a) * 3600 + int(float(b)) * 60 + float(c) if c is not None else int(a) * 60 + float(b)
+        return f"{m.group(1)}{secs:.2f}"
+    return _CLOCK.sub(sub, text)
+
+
+def _strip_fence(s: str) -> str:
+    s = s.strip()
+    s = re.sub(r"^```(?:json)?\s*", "", s)
+    return re.sub(r"\s*```\s*$", "", s)
+
+
+def _open_stack(s: str) -> list[tuple[str, int]]:
+    stack: list[tuple[str, int]] = []
+    in_str = esc = False
+    for i, ch in enumerate(s):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch in "[{":
+            stack.append((ch, i))
+        elif ch in "]}" and stack:
+            stack.pop()
+    return stack
+
+
+def join_parts(parts: list[str]) -> str:
+    """Concatenate a cut-off reply and its continuation(s). The follow-up asks
+    for an exact continuation, but models often restart the half-written
+    array element instead (``{"start": ...``). Then the half element is cut
+    from the first part before joining."""
+    out = _strip_fence(parts[0]) if parts else ""
+    for cont in parts[1:]:
+        c = _strip_fence(cont)
+        if c.startswith("{") and not out.rstrip().endswith((",", "[")):
+            stack = _open_stack(out)
+            cut = None
+            for k in range(len(stack) - 1, 0, -1):
+                if stack[k][0] == "{" and stack[k - 1][0] == "[":
+                    cut = stack[k][1]
+                    break
+            if cut is not None:
+                out = out[:cut]
+        out = out + c
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Cost
 # ---------------------------------------------------------------------------
 

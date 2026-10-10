@@ -52,9 +52,32 @@ def is_federal_work(info: dict) -> tuple[bool, str]:
     return True, "official House/Senate channel with a .gov link"
 
 
+# The CC flag is the uploader's own claim. When the upload is plainly someone
+# else's footage (clickbait re-cuts of debates, police bodycam compilations,
+# "LOL:" reaction re-posts) the uploader most likely cannot licence it, so we
+# do not rely on it. When in doubt: reject.
+_REUPLOAD_TITLE = re.compile(r"\b(?:destroys|annihilates|obliterates|shuts down|humiliates|owns|"
+                             r"bodycam|body cam|police|arrest|cops?|reacts?|reaction|compilation|best of|"
+                             r"bbc|cnn|fox|msnbc|live tv|tv debate|jailed)\b|^lol\b", re.I)
+_REUPLOAD_CHANNEL = re.compile(r"\b(?:clips|highlights|daily|bodycam|police|reacts?|compilations?|"
+                               r"news channel|viral)\b", re.I)
+
+
+def reupload_risk(info: dict) -> str | None:
+    t, c = str(info.get("title") or ""), str(info.get("channel") or "")
+    if _REUPLOAD_TITLE.search(t):
+        return f"title {t[:60]!r} looks like a re-upload/re-cut of someone else's footage"
+    if _REUPLOAD_CHANNEL.search(c):
+        return f"channel {c!r} looks like a clip/compilation re-uploader"
+    return None
+
+
 def decide(info: dict) -> tuple[bool, str, str]:
     """(keep, licence_kind, reason)."""
     if is_creative_commons(info):
+        risk = reupload_risk(info)
+        if risk:
+            return False, "", f"CC label, but skipped as a likely re-upload: {risk}"
         return True, "CC BY (YouTube Creative Commons)", f"license field: {info.get('license')}"
     fed, why = is_federal_work(info)
     if fed:

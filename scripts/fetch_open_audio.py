@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import time
@@ -65,6 +66,10 @@ FED_QUERIES = [
     "house committee hearing heated exchange", "senate hearing heated exchange", "house oversight hearing heated",
     "house judiciary committee heated exchange", "senate judiciary committee heated", "house hearing shouting",
 ]
+# Official committee channels searched directly (still licence-gated per video:
+# of ~25 House/Senate handles probed on 2026-10-10, only HASC's channel text
+# carries the .gov link the gate requires).
+FED_CHANNEL_SEARCHES = [("HouseArmedServices", "heated exchange"), ("HouseArmedServices", "hearing")]
 MIN_S, MAX_S = 180, 4 * 3600
 
 
@@ -113,8 +118,12 @@ def cmd_search(args) -> int:
     m = load()
     seen = set(m["candidates"]) | set(m["rejected"])
     queries = [(q, True) for q in CC_QUERIES] + [(q, False) for q in FED_QUERIES]
+    queries += [(f"@{h}/search?query={q}", False) for h, q in FED_CHANNEL_SEARCHES]
     for q, cc in queries:
-        url = "https://www.youtube.com/results?search_query=" + q.replace(" ", "+") + (CC_FILTER if cc else "")
+        if q.startswith("@"):
+            url = "https://www.youtube.com/" + q.replace(" ", "+")
+        else:
+            url = "https://www.youtube.com/results?search_query=" + q.replace(" ", "+") + (CC_FILTER if cc else "")
         d = ytdlp_json(["--flat-playlist", "--playlist-end", str(args.per_query), url]) or {}
         ents = d.get("entries") or []
         log(f"[{'CC' if cc else 'fed'}] {q!r}: {len(ents)} results")
@@ -128,7 +137,7 @@ def cmd_search(args) -> int:
                 m["rejected"][vid] = {"title": e.get("title"), "channel": e.get("channel"),
                                       "why": f"duration {dur}s outside {MIN_S}-{MAX_S}s", "query": q}
                 continue
-            if not cc and not any(w in (e.get("channel") or "").lower() for w in ("house", "senate", "committee")):
+            if not cc and not q.startswith("@") and not any(w in (e.get("channel") or "").lower() for w in ("house", "senate", "committee")):
                 m["rejected"][vid] = {"title": e.get("title"), "channel": e.get("channel"), "query": q,
                                       "why": "not CC-filtered and channel name is not House/Senate/committee"}
                 continue
@@ -164,10 +173,61 @@ def cmd_search(args) -> int:
 # download + screen
 # ---------------------------------------------------------------------------
 
+_HOT_WORDS = re.compile(r"heated|argu|shout|yell|scream|fight|clash|angry|anger|furious|lit\b|meltdown|freaks? out|"
+                        r"rant|confront|heckl|outburst|chaos|explod|blow[s]? up|walks? out|kicked out|removed|"
+                        r"tense|spar|feud|debate|vs\.?\b|versus|interrupt|parking lot", re.I)
+
+
+def title_heat(c: dict) -> float:
+    """Download priority (before any audio): heat words in the title, and a
+    preference for 5-60 minute videos (short enough to be about the clash)."""
+    hits = len(_HOT_WORDS.findall(c.get("title") or ""))
+    d = c.get("duration") or 0
+    return hits * 2 + (1 if 300 <= d <= 3600 else 0) - (1 if d > 3 * 3600 else 0)
+
+
+# Channels whose CC flag we do not trust after reading their video lists:
+# they re-post other people's debates/streams/news footage.
+SKIP_CHANNELS = {
+    "Hope In Christ": "re-posts other creators' debate streams",
+    "Triggered Daily": "re-posts other creators' debate streams",
+    "KEWL V1C": "re-cuts of other creators' livestreams",
+    "Dum Dum News Channel": "news-footage re-uploads",
+    "The Humanist Report": "commentary over others' footage (host voice-over)",
+    "We See You!": "re-uploaded news footage",
+    "Patriot Fire": "re-uploaded meeting footage with commentary",
+    "Etaya TV": "re-uploaded parliament broadcast",
+    "3News": "broadcaster re-post",
+    "Bodycam Footage": "police bodycam compilations",
+    "Real Police Stories": "police bodycam compilations",
+    "Lovely News Network": "news-footage re-uploads",
+    "JUST ZEKI": "news re-telling over others' footage",
+}
+
+
+def regate(m: dict) -> None:
+    """Re-apply the licence gate (it may have tightened) + the channel skip list."""
+    for vid, c in list(m["candidates"].items()):
+        why = None
+        if c.get("channel") in SKIP_CHANNELS:
+            why = f"CC label, but skipped: channel {c['channel']!r} {SKIP_CHANNELS[c['channel']]}"
+        elif c.get("licence_kind", "").startswith("CC"):
+            keep, _, reason = licence.decide(c)
+            if not keep:
+                why = reason
+        if why:
+            m["rejected"][vid] = {"title": c.get("title"), "channel": c.get("channel"), "license": c.get("license"),
+                                  "url": c.get("webpage_url"), "why": why, "query": c.get("query")}
+            del m["candidates"][vid]
+
+
 def cmd_download(args) -> int:
     m = load()
+    regate(m)
+    save(m)
     RAW.mkdir(parents=True, exist_ok=True)
     todo = [c for c in m["candidates"].values() if c.get("stage") == "accepted"]
+    todo.sort(key=lambda c: -title_heat(c))
     if args.limit:
         todo = todo[:args.limit]
     for c in todo:

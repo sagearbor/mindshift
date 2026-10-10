@@ -115,6 +115,26 @@ def test_stitch_maps_speakers_by_overlap_region_and_cuts_at_midpoint():
     assert len(out["events"]) == 1 and out["events"][0]["speakers"] == ["S2"]
 
 
+def test_clock_style_timestamps_are_repaired():
+    txt = '{"segments": [{"start": 1:52.4, "end": 1:53.0}], "summary": {"peak_heat_t": 0:09.5}, "events": [{"t": 1:02:03}]}'
+    obj = json.loads(core.repair_text(txt))
+    assert obj["segments"][0]["start"] == pytest.approx(112.4)
+    assert obj["segments"][0]["end"] == pytest.approx(113.0)
+    assert obj["summary"]["peak_heat_t"] == pytest.approx(9.5)
+    assert obj["events"][0]["t"] == pytest.approx(3723.0)
+
+
+def test_join_parts_drops_the_half_object_when_the_continuation_restarts_it():
+    p1 = '{"segments": [\n {"start": 1.0, "text": "a"},\n {"start": 2.0, "end": 2.5, "text": "b", "is_'
+    p2 = '{"start": 2.0, "end": 2.5, "text": "b", "is_backchannel": false},\n {"start": 3.0, "text": "c"}]}'
+    obj = json.loads(core.join_parts([p1, p2]))
+    assert [s["text"] for s in obj["segments"]] == ["a", "b", "c"]
+    # a well-behaved continuation (picks up mid-token) is concatenated as is
+    q1 = '{"segments": [{"start": 1.0, "text": "a"}, {"start": 2.0, "te'
+    q2 = 'xt": "b"}]}'
+    assert json.loads(core.join_parts([q1, q2]))["segments"][1]["text"] == "b"
+
+
 def test_offset_shifts_all_times():
     obj = {"segments": [_seg(1, 2, "S1")], "events": [{"t": 1.0, "type": "question"}],
            "coach_moments": [{"t": 2.0, "for_speaker": "S1"}], "summary": {"peak_heat_t": 3.0}}
@@ -253,6 +273,22 @@ def test_licence_rejects_standard_youtube_and_lookalikes():
     ok, _, _ = licence.decide({"license": None, "channel": "Cj Hoeflich", "uploader_id": "@oversightcommittee",
                                "channel_description": "Oversight Committee is a new Mtl based musical project"})
     assert not ok
+
+
+def test_cc_label_on_an_obvious_reupload_is_skipped():
+    cc = "Creative Commons Attribution license (reuse allowed)"
+    for meta in (
+        {"license": cc, "channel": "Hope In Christ", "title": "Andrew Wilson DESTROYS Feminists in Heated Debate"},
+        {"license": cc, "channel": "Bodycam Footage", "title": "Jealous Sister Sparks Chaos at Walmart"},
+        {"license": cc, "channel": "Real Police Stories", "title": "How a Parking Lot Argument Triggered an Arrest"},
+        {"license": cc, "channel": "Dronetek", "title": "LOL: Outraged Parents Melt Down at School Meeting"},
+    ):
+        ok, _, why = licence.decide(meta)
+        assert not ok, meta
+        assert "re-upload" in why
+    ok, _, _ = licence.decide({"license": cc, "channel": "The Space Coast Rocket",
+                               "title": "School Board Meeting gets heated between Trent and Jenkins"})
+    assert ok
 
 
 # ---------------------------------------------------------------------------

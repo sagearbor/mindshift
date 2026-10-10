@@ -21,6 +21,7 @@ import json
 import os
 import re
 import subprocess
+import time
 import uuid
 import zlib
 from dataclasses import dataclass, field
@@ -32,6 +33,7 @@ PROJECT = os.getenv("MINDSHIFT_VERTEX_PROJECT", "arborfam-hub")
 DEFAULT_BUCKET = "arborfam-hub-mindshift-recordings"
 INLINE_MAX_BYTES = int(2.5 * 1024 * 1024)  # ~7 min of 48 kbps MP3; longer windows go via GCS
 MAX_CONTINUATIONS = 3
+THINKING_BUDGET_25 = 8192
 SCHEMA_PATH = Path(__file__).resolve().parents[2] / "server/tests/fixtures/annotation/mindshift-annotation-v1.schema.json"
 
 
@@ -158,22 +160,28 @@ class Gemini:
         locs = [self._loc_for[model]] if model in self._loc_for else ["us-central1", "global"]
         last = None
         for loc in locs:
-            try:
-                r = self._client(loc).models.generate_content(model=model, contents=contents, config=config)
-                self._loc_for[model] = loc
-                return r, loc
-            except Exception as exc:  # noqa: BLE001
-                if "404" in str(exc) or "NOT_FOUND" in str(exc):
-                    last = exc
-                    continue
-                raise
+            for wait in (20, 45, 90, 180, None):
+                try:
+                    r = self._client(loc).models.generate_content(model=model, contents=contents, config=config)
+                    self._loc_for[model] = loc
+                    return r, loc
+                except Exception as exc:  # noqa: BLE001
+                    msg = str(exc)
+                    if "404" in msg or "NOT_FOUND" in msg:
+                        last = exc
+                        break
+                    if wait and ("429" in msg or "RESOURCE_EXHAUSTED" in msg or "503" in msg or "UNAVAILABLE" in msg):
+                        self.log(f"    {msg[:40]}... retrying in {wait}s")
+                        time.sleep(wait)
+                        continue
+                    raise
         raise last
 
     def max_out_for(self, audio_s: float) -> int:
         """Output budget scaled to the audio: ~120 tokens/s of audio (about 4x
         what a dense annotation needs) + thinking headroom. A runaway reply
         therefore stops early instead of burning 65k tokens."""
-        return int(min(self.max_out, 8000 + 120 * audio_s))
+        return int(min(self.max_out, 16000 + 160 * audio_s))
 
     def annotate(self, model: str, audio: Path, prompt: str, audio_s: float, item: str) -> CallResult:
         from google.genai import types
@@ -189,6 +197,9 @@ class Gemini:
             while attempt <= MAX_CONTINUATIONS:
                 self.ledger.check(core.projected_cost(model, audio_s, budget))
                 cfg = {"max_output_tokens": budget}
+                if model.startswith("gemini-2.5"):
+                    # 2.5-flash spent 32k of a 44k budget thinking on a 5-min clip
+                    cfg["thinking_config"] = types.ThinkingConfig(thinking_budget=THINKING_BUDGET_25)
                 if attempt == 0:
                     cfg["response_mime_type"] = "application/json"
                     if self.use_schema and self._schema_ok.get(model, True):
