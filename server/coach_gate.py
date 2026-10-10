@@ -17,7 +17,8 @@ Speaker E finish"). Three independent policies, each behind its own env flag
 2. **Turn skip** — ``MINDSHIFT_TURN_SKIP`` (default ON; "0" is the kill
    switch). Before any LLM call: a turn of <= ``MINDSHIFT_TURN_SKIP_MAX_WORDS``
    (2) words, a NaturalTurn backchannel ("yeah okay", "mhm right"), laughter
-   itself, or a turn that starts within ``MINDSHIFT_LAUGH_SKIP_S`` (4 s) of
+   itself, or (opt-in, ``MINDSHIFT_LAUGH_SKIP_S`` > 0, default 0 = off: agent A
+   measured a post-laughter skip losing 9/25 DEV hits) a turn that starts within N s of
    laughter is not coached at all. Laughter is only detectable from the
    transcript (bracketed tags like "[laughter]", "haha"/"hehe") or a
    ``laughter`` flag in the phone's tone context — the phone's on-device STT
@@ -212,7 +213,7 @@ def skip_reason(
     w = words(stripped)
     if has_laughter(text) and len(w) <= 3:
         return "laughter"
-    window = _num("MINDSHIFT_LAUGH_SKIP_S", 4.0)
+    window = _num("MINDSHIFT_LAUGH_SKIP_S", 0.0)
     if window > 0:
         for s, e, t in recent:
             if has_laughter(t) and e <= start_time + 0.05 and start_time - e <= window:

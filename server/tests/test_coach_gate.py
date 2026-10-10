@@ -80,7 +80,10 @@ def test_greek_words_are_counted():
     assert cg.skip_reason("Σαφής", 0.0, 0.5) == "fragment"
 
 
-def test_after_laughter_window():
+def test_after_laughter_window_is_opt_in(monkeypatch):
+    recent0 = [(0.0, 2.0, "that is so funny hahaha")]
+    assert cg.skip_reason("And then what did he say to you", 3.0, 5.0, recent0) is None  # default off
+    monkeypatch.setenv("MINDSHIFT_LAUGH_SKIP_S", "4")
     recent = [(0.0, 2.0, "that is so funny hahaha")]
     assert cg.skip_reason("And then what did he say to you", 3.0, 5.0, recent) == "after_laughter"
     assert cg.skip_reason("And then what did he say to you", 9.0, 11.0, recent) is None
