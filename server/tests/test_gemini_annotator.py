@@ -241,6 +241,17 @@ def test_best_shift_finds_constant_offset():
     assert scoring.best_shift(truth, hyp, 30.0, max_shift=5.0) == pytest.approx(-2.0, abs=0.11)
 
 
+def test_best_affine_undoes_drift():
+    truth = {"A": [(0, 10), (40, 50)], "B": [(10, 40), (50, 60)]}
+    # the annotator's clock runs 25% fast
+    hyp = {"x": [(0, 12.5), (50, 62.5)], "y": [(12.5, 50), (62.5, 75)]}
+    scale, shift = scoring.best_affine(truth, hyp, 60.0)
+    assert scale == pytest.approx(0.8, abs=0.021)
+    assert abs(shift) <= 0.5
+    warped = scoring.warp(hyp, scale, shift)
+    assert scoring.der(truth, warped, 60.0)["der"] < 0.05
+
+
 def test_turn_boundary_error():
     truth = {"A": [(0, 10)], "B": [(10, 20)], "C": [(20, 30)]}
     hyp = {"x": [(0, 11)], "y": [(11, 19)], "z": [(19, 30)]}

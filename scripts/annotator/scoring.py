@@ -84,6 +84,28 @@ def best_shift(truth: dict, hyp: dict, duration: float, max_shift: float = 5.0, 
     return round(best, 2)
 
 
+def warp(hyp: dict, scale: float, shift: float) -> dict:
+    return {k: [[s * scale + shift, e * scale + shift] for s, e in v] for k, v in hyp.items()}
+
+
+def best_affine(truth: dict, hyp: dict, duration: float, scales=None, max_shift: float = 10.0,
+                step: float = 0.5) -> tuple[float, float]:
+    """The (scale, shift) mapping annotation time to true time that minimises
+    DER — the model's clock can drift (gemini-3.1-pro put a 300 s clip's last
+    segment at 379 s). Coarse grid; the recording-replay pipeline does the
+    real per-word re-timing against Deepgram."""
+    scales = scales if scales is not None else [round(0.70 + 0.02 * i, 2) for i in range(36)]
+    best, best_d = (1.0, 0.0), None
+    k = int(round(max_shift / step))
+    for sc in scales:
+        for i in range(-k, k + 1):
+            sh = i * step
+            d = der(truth, warp(hyp, sc, sh), duration)["der"]
+            if d is not None and (best_d is None or d < best_d - 1e-9):
+                best, best_d = (sc, sh), d
+    return best
+
+
 def _changes(spk: dict, min_gap_merge: float = 0.0) -> list[float]:
     ev = sorted((s, e, k) for k, v in spk.items() for s, e in v)
     out = []

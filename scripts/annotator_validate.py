@@ -264,9 +264,13 @@ def score_one(t: dict, ann: dict) -> dict:
         d0 = scoring.der(t["speakers"], hyp, dur)
         sh = scoring.best_shift(t["speakers"], hyp, dur, max_shift=5.0, step=0.25)
         d1 = scoring.der(t["speakers"], hyp, dur, shift=sh)
-        be = scoring.boundary_error(t["speakers"], {k: [[s + sh, e + sh] for s, e in v] for k, v in hyp.items()})
+        sc, sh2 = scoring.best_affine(t["speakers"], hyp, dur)
+        warped = scoring.warp(hyp, sc, sh2)
+        d2 = scoring.der(t["speakers"], warped, dur)
+        be = scoring.boundary_error(t["speakers"], warped)
         r.update({"speakers_true": len(t["speakers"]), "der": d0["der"], "der_shift": d1["der"], "shift": sh,
-                  "miss": d1["miss"], "fa": d1["false_alarm"], "conf": d1["confusion"],
+                  "der_affine": d2["der"], "scale": sc, "affine_shift": sh2,
+                  "miss": d2["miss"], "fa": d2["false_alarm"], "conf": d2["confusion"],
                   "boundary_med": be["median_s"], "boundary_1s": be["within_1s"]})
     if t.get("ref_text"):
         hyp_text = " ".join(s["text"] for s in sorted(ann["segments"], key=lambda s: s["start"]))
@@ -306,7 +310,8 @@ def cmd_score(_args) -> int:
             return float(np.mean(v)) if v else None
         conf = [r for r in mr if r["corpus"] == "CONFER"]
         summary[m] = {
-            "n": len(mr), "der": avg("der"), "der_shift": avg("der_shift"), "boundary_med": avg("boundary_med"),
+            "n": len(mr), "der": avg("der"), "der_shift": avg("der_shift"), "der_affine": avg("der_affine"),
+            "boundary_med": avg("boundary_med"),
             "boundary_1s": avg("boundary_1s"), "wer": avg("wer"),
             "wer_ami": avg("wer", [r for r in mr if r["corpus"] == "AMI"]),
             "spk_count_err": avg("spk_err", [dict(r, spk_err=abs(r["speakers_hyp"] - r["speakers_true"]))
@@ -336,7 +341,7 @@ def _f(v, pct=False, nd=2):
 
 def write_html(summary: dict, rows: list[dict], findings: dict) -> None:
     models = sorted(summary, key=lambda m: (summary[m]["der_shift"] is None, summary[m]["der_shift"] or 9))
-    head = ("<tr><th>model</th><th>clips</th><th>DER</th><th>DER after best shift</th><th>turn change: median miss</th>"
+    head = ("<tr><th>model</th><th>clips</th><th>DER</th><th>DER after best shift</th><th>DER after shift + clock-rate fit</th><th>turn change: median miss (after fit)</th>"
             "<th>changes within 1 s</th><th>speaker-count error</th><th>WER (AMI)</th><th>WER (all)</th>"
             "<th>heat vs conflict, across clips (ρ)</th><th>overall_heat vs conflict (ρ)</th>"
             "<th>heat vs conflict, per second (ρ)</th><th>est. $ / audio min</th></tr>")
@@ -345,7 +350,7 @@ def write_html(summary: dict, rows: list[dict], findings: dict) -> None:
         s = summary[m]
         per_min = s["usd"] / (s["audio_s"] / 60) if s["audio_s"] else None
         body.append(f"<tr><td><b>{html.escape(m)}</b></td><td>{s['n']}</td><td>{_f(s['der'], True)}</td>"
-                    f"<td>{_f(s['der_shift'], True)}</td><td>{_f(s['boundary_med'], nd=1)} s</td>"
+                    f"<td>{_f(s['der_shift'], True)}</td><td>{_f(s['der_affine'], True)}</td><td>{_f(s['boundary_med'], nd=1)} s</td>"
                     f"<td>{_f(s['boundary_1s'], True)}</td><td>{_f(s['spk_count_err'], nd=1)}</td>"
                     f"<td>{_f(s['wer_ami'], True)}</td><td>{_f(s['wer'], True)}</td>"
                     f"<td>{_f(s['heat_rho_clips'])}</td><td>{_f(s['overall_rho_clips'])}</td>"
@@ -356,6 +361,7 @@ def write_html(summary: dict, rows: list[dict], findings: dict) -> None:
             f"<tr><td>{html.escape(r['id'])}</td><td>{html.escape(r['model'])}</td><td>{r['segments']}</td>"
             f"<td>{r.get('speakers_hyp')}/{r.get('speakers_true', '—')}</td><td>{_f(r.get('der'), True)}</td>"
             f"<td>{_f(r.get('der_shift'), True)} ({_f(r.get('shift'), nd=2)} s)</td>"
+            f"<td>{_f(r.get('der_affine'), True)} (x{_f(r.get('scale'), nd=2)}, {_f(r.get('affine_shift'), nd=1)} s)</td>"
             f"<td>{_f(r.get('miss'), True)} / {_f(r.get('fa'), True)} / {_f(r.get('conf'), True)}</td>"
             f"<td>{_f(r.get('boundary_med'), nd=1)}</td><td>{_f(r.get('wer'), True)}</td>"
             f"<td>{r.get('overall_heat', '—')}</td><td>{_f(r.get('heat_mean'))}</td>"
@@ -393,12 +399,14 @@ laughter notation) still add some WER that is not Gemini's fault.</li>
 <li><b>CONFER</b> (8 Greek TV-debate clips, 37-114 s): ten raters' continuous conflict intensity. Annotated heat per second =
 max vocal intensity of segments covering it, +1 for angry/frustrated/sarcastic.</li>
 <li>DER: 10 ms frames, optimal one-to-one speaker mapping, no collar, overlap counted per speaker. "After best shift" removes one
-constant offset (±5 s) before scoring. A missing annotation for a clip (failed call) is left out of that model's averages.</li>
+constant offset (±5 s) before scoring; "after fit" also fits a clock rate (0.70-1.40) and offset (±10 s), because
+model timelines drift. The recording-replay pipeline re-times every segment against Deepgram's word timings, so the
+after-fit number is the one that matters for the pipeline; the raw one is what you get using Gemini's times as is. A missing annotation for a clip (failed call) is left out of that model's averages.</li>
 </ul>
 <h2>Failures and fixes seen while running</h2><ul>{failures}</ul>
 <h2>Caveats</h2><ul>{caveats}</ul>
 <h2>Per clip</h2><div class="tw"><table><tr><th>clip</th><th>model</th><th>segments</th><th>speakers hyp/true</th>
-<th>DER</th><th>DER shifted (shift)</th><th>miss / FA / confusion</th><th>turn-change miss (s)</th><th>WER</th>
+<th>DER</th><th>DER shifted (shift)</th><th>DER after fit (rate, shift)</th><th>miss / FA / confusion (after fit)</th><th>turn-change miss (s)</th><th>WER</th>
 <th>overall_heat</th><th>mean heat</th><th>conflict mean</th><th>per-second ρ</th></tr>{''.join(clip_rows)}</table></div>
 </main></body></html>"""
     REPORT.parent.mkdir(parents=True, exist_ok=True)
