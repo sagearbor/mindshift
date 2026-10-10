@@ -353,7 +353,11 @@ def overlap_stats(ann: dict) -> dict:
     ov = float((cnt >= 2).sum()) / hop
     talk = {k: float(v.sum()) / hop for k, v in by.items()}
     active = sum(1 for v in talk.values() if v >= 10)
+    # Annotators often write overlapping talk as back-to-back segments, so also
+    # count segments the annotator explicitly marked as overlapping someone.
+    marked = sum(1 for s in ann["segments"] if s.get("overlaps_with"))
     return {"overlap_pct": round(100 * ov / speech, 1) if speech else 0.0, "speech_s": speech,
+            "overlap_marked_pct": round(100 * marked / len(ann["segments"]), 1) if ann["segments"] else 0.0,
             "speakers_active": active, "talk_s": talk}
 
 
@@ -410,7 +414,8 @@ def hot_rank(w: dict) -> float:
     f = w.get("flash") or {}
     if "overall_heat" not in f:
         return -1
-    return ((f.get("overall_heat") or 0) * 10 + f.get("hot_speech_pct", 0) * 0.3 + min(f.get("overlap_pct", 0), 30) * 0.5
+    ov = max(f.get("overlap_pct", 0), f.get("overlap_marked_pct", 0))
+    return ((f.get("overall_heat") or 0) * 10 + f.get("hot_speech_pct", 0) * 0.3 + min(ov, 30) * 0.5
             + min(f.get("interruptions", 0), 15) * 0.5 + (0 if f.get("speakers_active", 0) >= 2 else -100))
 
 
@@ -465,15 +470,20 @@ def cmd_evidence(args) -> int:
     os.environ.setdefault("MINDSHIFT_TONE_CACHE", str(REPO.parent.parent.parent / "server/.tone_cache")
                           if (REPO.parent.parent.parent / "server/.tone_cache").exists()
                           else str(REPO / "server/.tone_cache"))
+    import annotate_audio as aa
     m = load()
     for c in m["candidates"].values():
         for w in c.get("windows") or []:
-            if not w.get("final") or w.get("evidence"):
+            f = w.get("flash") or {}
+            if w.get("evidence") or not f.get("model") or (f.get("overall_heat") or 0) < args.min_heat:
                 continue
-            ann_p = REPO / w["final"]["annotation"]
+            ann_p = aa.out_path(REPO / w["clip"], f["model"])
+            if not ann_p.exists():
+                continue
             ann = json.loads(ann_p.read_text())
             try:
-                w["evidence"] = measured_evidence(REPO / w["final"]["audio"], ann, use_tone=not args.no_tone)
+                w["evidence"] = measured_evidence(REPO / w["clip"], ann, use_tone=not args.no_tone)
+                w["evidence"]["segments_from"] = f["model"]
             except Exception as exc:  # noqa: BLE001
                 w["evidence"] = {"error": f"{type(exc).__name__}: {str(exc)[:200]}"}
             log(f"  {c['id']}: {w['evidence']}")
@@ -484,6 +494,25 @@ def cmd_evidence(args) -> int:
 # ---------------------------------------------------------------------------
 # finalize
 # ---------------------------------------------------------------------------
+
+# Server tone model (odyssey_dim) mean arousal on reference clips, measured
+# 2026-10-10 with the same code: AMI meeting 0.34, CHiME-6 dinner 0.48,
+# low-conflict CONFER TV debate 0.63, heated CONFER debate 0.83.
+AROUSAL_HEATED = 0.55
+RAISED_PCT_HEATED = 10.0
+
+
+def measured_heated(ev: dict) -> tuple[bool, str]:
+    if not ev or "error" in ev:
+        return False, f"no measured evidence ({(ev or {}).get('error', 'not computed')})"
+    ar, raised = ev.get("arousal_mean"), ev.get("raised_vs_own_baseline_pct", 0)
+    bits = []
+    if ar is not None:
+        bits.append(f"tone-model arousal {ar:.2f} (calm refs 0.34-0.48, heated debate 0.83)")
+    bits.append(f"{raised}% of segments >=6 dB above the speaker's own median (max +{ev.get('max_raise_db')} dB)")
+    ok = (ar is not None and ar >= AROUSAL_HEATED) or raised >= RAISED_PCT_HEATED
+    return ok, ("" if ok else "NOT heated by measurement: ") + "; ".join(bits)
+
 
 def wearer(ann: dict) -> tuple[str, str]:
     """Most-involved speaker: talk time + 2x time spent in overlap + 5 s per
@@ -517,6 +546,13 @@ def cmd_finalize(args) -> int:
     pool = []
     for c in m["candidates"].values():
         for j, w in enumerate(c.get("windows") or []):
+            f = w.get("flash") or {}
+            fp = aa.out_path(REPO / w["clip"], f["model"]) if f.get("model") else None
+            if fp and fp.exists():  # recompute with the current stats code
+                fa = json.loads(fp.read_text())
+                f.update(heat_stats(fa))
+                f.update({k: v for k, v in overlap_stats(fa).items() if k != "talk_s"})
+                f["timing_untrustworthy"] = "TIMING UNTRUSTWORTHY" in (fa["annotator"].get("notes") or "")
             if hot_rank(w) >= 0:
                 pool.append((hot_rank(w), c, j, w))
     pool.sort(key=lambda t: -t[0])
@@ -527,6 +563,15 @@ def cmd_finalize(args) -> int:
         f = w["flash"]
         if (f.get("overall_heat") or 0) < args.min_heat and not args.allow_calm:
             continue
+        if f.get("timing_untrustworthy"):
+            continue
+        ok_ev, why_ev = measured_heated(w.get("evidence") or {})
+        if not ok_ev and not args.allow_calm:
+            log(f"  skip {c['id']} w{j}: flash heat {f.get('overall_heat')} but {why_ev}")
+            continue
+        w["why_heated"] = (f"Gemini flash overall_heat {f.get('overall_heat')}, {f.get('hot_speech_pct')}% of speech "
+                           f"angry/frustrated/excited at intensity>=2, {f.get('interruptions')} interruptions; "
+                           f"measured: {why_ev}")
         seen.add(c["id"])
         chosen.append((c, j, w))
         if len(chosen) >= args.keep:
@@ -575,7 +620,9 @@ def cmd_finalize(args) -> int:
         hs, ov = heat_stats(ann), overlap_stats(ann)
         w["final"] = {"inbox": str(d.relative_to(REPO)), "audio": str(audio.relative_to(REPO)),
                       "annotation": str(dst.relative_to(REPO)), "model": args.model, "usd": round(usd, 4),
-                      "wearer": spk, **hs, "overlap_pct": ov["overlap_pct"], "speakers_active": ov["speakers_active"]}
+                      "wearer": spk, **hs, "overlap_pct": ov["overlap_pct"],
+                      "overlap_marked_pct": ov["overlap_marked_pct"], "speakers_active": ov["speakers_active"],
+                      "why_heated": w.get("why_heated")}
         c["stage"] = "final"
         c["chosen_window"] = j
         log(f"  {name}: heat {hs['overall_heat']} overlap {ov['overlap_pct']}% wearer {spk}  ${usd:.3f} "
@@ -598,6 +645,7 @@ def main(argv=None) -> int:
     f.add_argument("--cap", type=float, default=25.0)
     e = sub.add_parser("evidence")
     e.add_argument("--no-tone", action="store_true")
+    e.add_argument("--min-heat", type=int, default=2)
     fi = sub.add_parser("finalize")
     fi.add_argument("--model", default="gemini-2.5-pro")
     fi.add_argument("--keep", type=int, default=15)

@@ -329,6 +329,15 @@ def test_hot_window_finds_the_loud_stretch():
     assert w["raised_frac"] > 0.5
 
 
+def test_measured_heat_needs_arousal_or_raised_voices():
+    import fetch_open_audio as foa
+    assert foa.measured_heated({"arousal_mean": 0.8, "raised_vs_own_baseline_pct": 0})[0]
+    assert foa.measured_heated({"arousal_mean": 0.3, "raised_vs_own_baseline_pct": 15})[0]
+    ok, why = foa.measured_heated({"arousal_mean": 0.34, "raised_vs_own_baseline_pct": 2})
+    assert not ok and "NOT heated" in why
+    assert not foa.measured_heated({})[0]
+
+
 def test_overlap_and_wearer():
     import fetch_open_audio as foa
     ann = {"audio": {"duration_s": 60.0},
