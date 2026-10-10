@@ -23,7 +23,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { FastLoop, type HeatWindow, type LocalTurn, type TurnLatency } from "../fastLoop";
 import { SileroVad, EnergyVad, type FrameVad } from "../vad";
-import { EcapaEmbedder, SpeakerLabeler, type Embedder } from "../speakerId";
+import { EcapaEmbedder, SpeakerLabeler, type Embedder, type SpeakerLabelerOptions } from "../speakerId";
 import { cloudProvider, ProviderChain, type LiveMode } from "../localLlm";
 import { phoneNudgePolicy, type NudgeEvent } from "../nudgePolicy";
 import { vocabularyForCode } from "../nudgeVocabulary";
@@ -187,6 +187,8 @@ export interface ReplayOptions {
    *  the owner's real enrolled print replaying one of his own recordings
    *  (replay/recordingReplay.ts). `enroll` / `enrollFrom` are ignored. */
   enrolled?: EnrollmentRecord[];
+  /** Labeler tuning (identity sweeps); absent = the shipped labeler. */
+  speakerOptions?: SpeakerLabelerOptions;
 }
 
 export const DEFAULT_REPLAY_OPTIONS: Omit<ReplayOptions, "mode"> = {
@@ -259,6 +261,15 @@ export interface HapticFire {
   code: string | null;
 }
 
+/** One raw `SpeakerLabeler.label` verdict (before mid-call bindings). */
+export interface LabelLogEntry {
+  seconds: number | null;
+  selfScore: number | null;
+  isSelf: boolean | null;
+  basis: string | null;
+  speaker: string;
+}
+
 /** A NudgeEvent plus the virtual clock at which the loop emitted it
  *  (`t` is the audio second the turn closed; `atMs` is when the words and
  *  the tone were in — the LLM tier's latency is the difference). */
@@ -307,6 +318,7 @@ export interface ReplayResult {
   stt: { emitted: number; finals: number };
   providerCalls: { os: number; osRefused: number; bundled: number };
   attribution: AttributionScore;
+  labelLog: LabelLogEntry[];
   boundaries: BoundaryScore;
   nudgeScore: NudgeScore;
   speaking: SpeakScore;
@@ -353,7 +365,18 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
   }
   const speakerId = models.embedder !== null;
   const embedder = models.embedder ? new TrackedEmbedder(models.embedder, tracker, clock, opts.speakerCostMs) : null;
-  const labeler = speakerId ? new SpeakerLabeler(enrolled) : null;
+  const labeler = speakerId ? new SpeakerLabeler(enrolled, opts.speakerOptions ?? {}) : null;
+  // Every raw labeler verdict, in call order (one per embedded turn) — the
+  // identity sweeps read the self cosine of turns that did NOT match.
+  const labelLog: LabelLogEntry[] = [];
+  if (labeler) {
+    const label = labeler.label.bind(labeler);
+    labeler.label = (embedding, seconds, windows) => {
+      const v = label(embedding, seconds, windows);
+      labelLog.push({ seconds: seconds ?? null, selfScore: v.selfScore ?? null, isSelf: v.isSelf, basis: v.basis, speaker: v.speaker });
+      return v;
+    };
+  }
 
   // --- the loop -------------------------------------------------------------
   const vad = new TrackedVad(await models.vad(), tracker);
@@ -497,6 +520,7 @@ export async function replayScene(scene: SceneInput, partial: Partial<ReplayOpti
       bundled: bundled.calls.length,
     },
     attribution,
+    labelLog,
     boundaries,
     nudgeScore,
     speaking,

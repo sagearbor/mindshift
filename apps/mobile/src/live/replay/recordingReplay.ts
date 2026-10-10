@@ -29,6 +29,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import type { LiveMode } from "../localLlm";
+import type { SpeakerLabelerOptions } from "../speakerId";
 import type { TurnLocalEvent } from "../types";
 import type { EnrollmentRecord } from "./enroll";
 import { loadModels, loadScene, replayScene, DEFAULT_REPLAY_OPTIONS, type LoadedModels, type ReplayResult } from "./sceneReplay";
@@ -43,10 +44,13 @@ export interface RecordingArgs {
   enroll: RecordingEnroll;
   profile: string | null;
   self: string | null;
+  /** `--speaker-opts '<json>'`: labeler tuning for identity sweeps
+   *  (scripts/recreplay/identity_eval.py); null = the shipped labeler. */
+  speakerOptions?: SpeakerLabelerOptions | null;
 }
 
 export function parseRecordingArgs(argv: string[]): RecordingArgs {
-  const a: Partial<RecordingArgs> = { mode: "earpiece", enroll: "same", profile: null, self: null };
+  const a: Partial<RecordingArgs> = { mode: "earpiece", enroll: "same", profile: null, self: null, speakerOptions: null };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     const val = () => {
@@ -75,6 +79,14 @@ export function parseRecordingArgs(argv: string[]): RecordingArgs {
       case "--self":
         a.self = val();
         break;
+      case "--speaker-opts": {
+        const parsed: unknown = JSON.parse(val());
+        if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+          throw new Error("--speaker-opts must be a JSON object");
+        }
+        a.speakerOptions = parsed as SpeakerLabelerOptions;
+        break;
+      }
       default:
         throw new Error(`unknown option ${flag}`);
     }
@@ -132,6 +144,7 @@ export interface RecordingReplayOutput {
   positives: ReplayResult["positives"];
   spoken: ReplayResult["spoken"];
   attribution: ReplayResult["attribution"];
+  labelLog: ReplayResult["labelLog"];
   boundaries: ReplayResult["boundaries"];
   latency: ReplayResult["latency"];
   wallMs: number;
@@ -164,6 +177,7 @@ export function outputFor(r: ReplayResult, enroll: RecordingEnroll): RecordingRe
     positives: r.positives,
     spoken: r.spoken,
     attribution: r.attribution,
+    labelLog: r.labelLog,
     boundaries: r.boundaries,
     latency: r.latency,
     wallMs: Math.round(r.wall.totalMs),
@@ -186,6 +200,7 @@ export async function runRecordingReplay(args: RecordingArgs, models?: LoadedMod
     enroll: args.enroll === "none" ? "none" : "self",
     enrollFrom: [],
     enrolled,
+    ...(args.speakerOptions ? { speakerOptions: args.speakerOptions } : {}),
   });
   const out = outputFor(result, args.enroll);
   fs.mkdirSync(path.dirname(path.resolve(args.out)), { recursive: true });

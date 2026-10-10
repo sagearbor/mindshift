@@ -69,7 +69,10 @@ export const CROSS_MATCH_MIN_SETTINGS = 2;
  *  at >= CROSS_MATCH_THRESHOLD against a >= 2-recording self print —
  *  contrast can't run without a second voice, and a stranger measured
  *  <= 0.28 across settings. Never used for live coaching verdicts. */
-export type MatchBasis = "absolute" | "raised" | "contrast" | "solo";
+/** "session" is the labeler's in-session adaptation (`SpeakerLabelerOptions`
+ *  `sessionAdapt` / `sticky`): the owner accepted because THIS session already
+ *  proved the enrolled print. Not a server basis — sent as null on the wire. */
+export type MatchBasis = "absolute" | "raised" | "contrast" | "solo" | "session";
 // Merge threshold for the ONLINE (live, on-device) unknown-speaker clustering.
 // LOWER than the server/batch value (server/watch/diarize.py keeps 0.55) on
 // purpose: live turns are short and the on-device ECAPA embedding of the SAME
@@ -410,6 +413,65 @@ export function unknownLabel(index: number): string {
   return `Speaker ${String.fromCharCode(65 + (index % 26))}`;
 }
 
+/**
+ * Tuning knobs for [SpeakerLabeler]. Every field defaults to the shipped
+ * behaviour, so `{}` is exactly the labeler as it was. JSON-safe on purpose:
+ * the replay harness passes it through `recordingReplay.ts --speaker-opts`.
+ */
+export interface SpeakerLabelerOptions {
+  matchThreshold?: number;
+  clusterThreshold?: number;
+  minClusterSeconds?: number;
+  raisedMatchThreshold?: number;
+  /**
+   * In-session adaptation of the OWNER's print. The enrolled print comes from
+   * another room / mic / day; the same voice in THIS session scores lower
+   * against it than against itself. Turns that clear `minScore` against the
+   * enrolled print (and last >= `minSeconds`) are pooled into a session print;
+   * once `minTurns` are pooled, a later turn is the owner (basis "session")
+   * when it scores >= `matchThreshold` against the session print AND still
+   * >= `printFloor` against the enrolled one. Drift guard: only turns the
+   * ENROLLED print vouched for are ever pooled — a session-matched turn is
+   * never folded back in, so the session print cannot walk away by
+   * reinforcing itself, and the floor keeps it tied to the enrolled voice.
+   */
+  sessionAdapt?: {
+    minScore: number;
+    minSeconds: number;
+    minTurns: number;
+    matchThreshold: number;
+    printFloor: number;
+  } | null;
+  /** After `after` enrolled-print matches of the owner this session, the
+   *  owner's bar against the enrolled print relaxes to `threshold` (basis
+   *  "session"): the print has proven itself in this room. */
+  sticky?: { after: number; threshold: number } | null;
+  /** A turn shorter than this that is NOT matched to the owner gets
+   *  `isSelf: null` (undecided) instead of `false`: a sub-second embedding
+   *  is not evidence that someone else spoke. */
+  shortUndecidedSeconds?: number;
+  /**
+   * Sub-turn ECAPA windows. The loop cuts a long turn into non-overlapping
+   * `seconds` windows (at most `maxWindows`, newest audio) and embeds each;
+   * the labeler scores every window against the owner's print. A window
+   * >= `selfThreshold` is an owner window, one < `otherCeiling` is clearly
+   * someone else. Then:
+   * - the full turn missed the owner but >= `minFrac` of windows are owner
+   *   windows -> the owner (basis absolute: windows matched the print);
+   * - some, but fewer than `minFrac`, owner windows -> undecided (a mixed /
+   *   overlapped turn is not evidence that someone else spoke);
+   * - the full turn matched the owner but most windows are clearly someone
+   *   else -> undecided (overlap carried the match).
+   */
+  windowVote?: {
+    seconds: number;
+    selfThreshold: number;
+    otherCeiling: number;
+    minFrac: number;
+    maxWindows: number;
+  } | null;
+}
+
 export class SpeakerLabeler {
   private readonly people: { person: EnrolledPerson; vec: Float32Array }[];
   private hasSelf: boolean;
@@ -419,13 +481,38 @@ export class SpeakerLabeler {
   private identities: Map<number, ClusterIdentity> = new Map();
   /** Bumps whenever `identities` changes — a cheap "did anything move" check. */
   private revision = 0;
+  private readonly matchThreshold: number;
+  private readonly clusterThreshold: number;
+  private readonly minClusterSeconds: number;
+  private readonly raisedMatchThreshold: number;
+  private readonly sessionAdapt: SpeakerLabelerOptions["sessionAdapt"];
+  private readonly sticky: SpeakerLabelerOptions["sticky"];
+  private readonly shortUndecidedSeconds: number;
+  private readonly windowVote: SpeakerLabelerOptions["windowVote"];
+  /** Running mean of the owner's print-vouched turns this session. */
+  private sessionSelf: Float32Array | null = null;
+  private sessionSelfCount = 0;
+  /** Owner matches against the ENROLLED print this session (sticky). */
+  private selfPrintMatches = 0;
 
+  /** `opts` is either the tuning object or, for older callers, the match
+   *  threshold followed by the cluster threshold and the minimum seconds. */
   constructor(
     people: EnrolledPerson[],
-    private readonly matchThreshold = MATCH_THRESHOLD,
-    private readonly clusterThreshold = CLUSTER_THRESHOLD,
-    private readonly minClusterSeconds = MIN_CLUSTER_SECONDS,
+    opts: SpeakerLabelerOptions | number = {},
+    clusterThreshold?: number,
+    minClusterSeconds?: number,
   ) {
+    const o: SpeakerLabelerOptions =
+      typeof opts === "number" ? { matchThreshold: opts, clusterThreshold, minClusterSeconds } : opts;
+    this.matchThreshold = o.matchThreshold ?? MATCH_THRESHOLD;
+    this.clusterThreshold = o.clusterThreshold ?? CLUSTER_THRESHOLD;
+    this.minClusterSeconds = o.minClusterSeconds ?? MIN_CLUSTER_SECONDS;
+    this.raisedMatchThreshold = o.raisedMatchThreshold ?? RAISED_MATCH_THRESHOLD;
+    this.sessionAdapt = o.sessionAdapt ?? null;
+    this.sticky = o.sticky ?? null;
+    this.shortUndecidedSeconds = o.shortUndecidedSeconds ?? 0;
+    this.windowVote = o.windowVote ?? null;
     this.people = people.map((person) => ({
       person,
       vec: l2Normalize(person.embedding),
@@ -480,6 +567,7 @@ export class SpeakerLabeler {
     const next = new Map<number, ClusterIdentity>();
     for (const [key, id] of identifyClusters(clusters, this.people.map((p) => p.person), {
       matchThreshold: this.matchThreshold,
+      raisedMatchThreshold: this.raisedMatchThreshold,
     })) {
       next.set(Number(key), id);
     }
@@ -536,8 +624,51 @@ export class SpeakerLabeler {
     return { self, otherMax };
   }
 
-  label(embedding: ArrayLike<number> | null, seconds?: number): SpeakerVerdict {
+  /** Window length the loop should cut for `windowVote` (0 = off). */
+  get identityWindowSeconds(): number {
+    return this.windowVote?.seconds ?? 0;
+  }
+
+  /** Most windows the loop should embed per turn (0 = off). */
+  get identityMaxWindows(): number {
+    return this.windowVote?.maxWindows ?? 0;
+  }
+
+  /** `windows`: sub-turn embeddings (see `windowVote`); ignored when off. */
+  label(embedding: ArrayLike<number> | null, seconds?: number, windows?: readonly ArrayLike<number>[]): SpeakerVerdict {
     if (embedding === null || embedding.length === 0) return { ...NO_IDENTITY };
+    const vote = this.voteWindows(windows);
+    const v = this.labelFull(embedding, seconds, vote);
+    // Overlap veto: the full turn says owner, the windows say mostly not.
+    if (v.isSelf === true && vote && vote.selfFrac < vote.minFrac && vote.otherFrac >= 0.5) {
+      return { ...NO_IDENTITY, selfScore: v.selfScore ?? null };
+    }
+    return v;
+  }
+
+  private voteWindows(windows: readonly ArrayLike<number>[] | undefined): {
+    selfFrac: number;
+    otherFrac: number;
+    minFrac: number;
+    best: number;
+  } | null {
+    const wv = this.windowVote;
+    const self = this.people.find((p) => p.person.isSelf);
+    if (!wv || !self || !windows || windows.length === 0) return null;
+    const scores = windows.map((w) => cosine(w, self.vec));
+    return {
+      selfFrac: scores.filter((s) => s >= wv.selfThreshold).length / scores.length,
+      otherFrac: scores.filter((s) => s < wv.otherCeiling).length / scores.length,
+      minFrac: wv.minFrac,
+      best: Math.max(...scores),
+    };
+  }
+
+  private labelFull(
+    embedding: ArrayLike<number>,
+    seconds: number | undefined,
+    vote: ReturnType<SpeakerLabeler["voteWindows"]>,
+  ): SpeakerVerdict {
     // Greedy best-above-threshold against every enrolled print — the
     // ABSOLUTE path, unchanged: a turn that clears the 0.65 bar carries the
     // person outright and founds no cluster.
@@ -549,6 +680,7 @@ export class SpeakerLabeler {
       if (best === null || score > best.score) best = { person, score };
     }
     if (best && best.score >= this.matchThreshold) {
+      if (best.person.isSelf) this.noteSelfPrintMatch(embedding, best.score, seconds);
       return {
         speaker: best.person.displayName,
         personId: best.person.personId,
@@ -559,6 +691,69 @@ export class SpeakerLabeler {
         selfScore,
       };
     }
+    const session = this.sessionSelfMatch(embedding, selfScore);
+    if (session) return session;
+    if (vote && vote.selfFrac >= vote.minFrac) {
+      const self = this.people.find((p) => p.person.isSelf)?.person as EnrolledPerson;
+      this.selfPrintMatches += 1; // counts toward sticky; never pooled (a mixed embedding)
+      return {
+        speaker: self.displayName,
+        personId: self.personId,
+        displayName: self.displayName,
+        isSelf: true,
+        score: vote.best,
+        basis: "absolute",
+        selfScore,
+      };
+    }
+    if (vote && vote.selfFrac > 0) return { ...NO_IDENTITY, selfScore };
+    const verdict = this.labelUnmatched(embedding, seconds, selfScore);
+    if (verdict.isSelf === false && seconds !== undefined && seconds < this.shortUndecidedSeconds) {
+      return { ...verdict, isSelf: null };
+    }
+    return verdict;
+  }
+
+  /** Session-print turns pooled so far (0 without `sessionAdapt`). */
+  get sessionSelfTurns(): number {
+    return this.sessionSelfCount;
+  }
+
+  private noteSelfPrintMatch(embedding: ArrayLike<number>, score: number, seconds: number | undefined): void {
+    this.selfPrintMatches += 1;
+    const a = this.sessionAdapt;
+    if (!a || score < a.minScore || seconds === undefined || seconds < a.minSeconds) return;
+    this.sessionSelf = runningMeanEmbedding(this.sessionSelf, this.sessionSelfCount, embedding);
+    this.sessionSelfCount += 1;
+  }
+
+  /** The owner by in-session evidence (sticky / session print), or null. */
+  private sessionSelfMatch(embedding: ArrayLike<number>, selfScore: number | null): SpeakerVerdict | null {
+    if (selfScore === null) return null;
+    const self = this.people.find((p) => p.person.isSelf)?.person;
+    if (!self) return null;
+    let score: number | null = null;
+    if (this.sticky && this.selfPrintMatches >= this.sticky.after && selfScore >= this.sticky.threshold) {
+      score = selfScore;
+    }
+    const a = this.sessionAdapt;
+    if (score === null && a && this.sessionSelf && this.sessionSelfCount >= a.minTurns && selfScore >= a.printFloor) {
+      const s = cosine(embedding, this.sessionSelf);
+      if (s >= a.matchThreshold) score = s;
+    }
+    if (score === null) return null;
+    return {
+      speaker: self.displayName,
+      personId: self.personId,
+      displayName: self.displayName,
+      isSelf: true,
+      score,
+      basis: "session",
+      selfScore,
+    };
+  }
+
+  private labelUnmatched(embedding: ArrayLike<number>, seconds: number | undefined, selfScore: number | null): SpeakerVerdict {
     // Unknown: online clustering, order-stable, same as assign_speakers.
     let bestIdx: number | null = null;
     let bestScore = -1;
@@ -623,6 +818,9 @@ export class SpeakerLabeler {
     this.counts = [];
     this.identities = new Map();
     this.revision = 0;
+    this.sessionSelf = null;
+    this.sessionSelfCount = 0;
+    this.selfPrintMatches = 0;
   }
 }
 
