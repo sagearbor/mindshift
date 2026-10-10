@@ -59,6 +59,7 @@ class RunOptions:
     enroll: str | None = None                    # profile | same | none (None = profile if present)
     wearer: str | None = None                    # Deepgram label override
     moment_window_s: float = score_mod.MOMENT_WINDOW_S
+    moment_anchor: str = score_mod.MOMENT_ANCHOR       # turn_end | turn_start (legacy)
     replay_latency: bool = True
     llm_model: str | None = None                 # pin the model (offline fixture re-runs)
     skip_phone: bool = False
@@ -229,6 +230,7 @@ def run(inp: RunInputs, opts: RunOptions) -> dict:
                   "moments": [m.__dict__ for m in notes.moments], "problems": notes.problems},
         "settings": {"mode": mode, "phone_tone": phone_tone, "enroll": enroll, "speed": opts.speed,
                      "url": opts.url, "moment_window_s": opts.moment_window_s,
+                     "moment_anchor": opts.moment_anchor,
                      "session_context": opts.session_context or notes.setting,
                      "relationship": opts.relationship or notes.relationship},
         "stt": {"source": stt_source, "words": words, "turns": [{k: v for k, v in t.items() if k != "words"} for t in dg_turns]},
@@ -251,7 +253,7 @@ def run(inp: RunInputs, opts: RunOptions) -> dict:
         "problems": problems,
         "log": opts.log,
     }
-    bundle["score"] = score_mod.score(bundle, moment_window_s=opts.moment_window_s)
+    bundle["score"] = score_mod.score(bundle, moment_window_s=opts.moment_window_s, moment_anchor=opts.moment_anchor)
     bundle["wall_s"] = round(time.monotonic() - t_start, 1)
     (inp.work / "run.json").write_text(json.dumps(bundle, indent=1, default=str))
     return bundle
