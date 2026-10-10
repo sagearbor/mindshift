@@ -54,7 +54,7 @@ MAIN = Path("/Users/sagearbor/projects/githubs/mindshift")
 RECORDINGS = Path(os.getenv("MINDSHIFT_RECORDINGS_DIR") or (MAIN / "tmp" / "recordings"))
 CLI_TS = REPO / "apps" / "mobile" / "src" / "live" / "replay" / "recordingReplay.ts"
 ALERT_CODES = {None, "H", "C", "A"}
-WIN_BEFORE, WIN_AFTER = 1.5, 6.0
+WIN_BEFORE, WIN_AFTER = score_mod.MOMENT_PRE_S, score_mod.MOMENT_WINDOW_S
 
 
 def _tsx() -> Path:
@@ -82,25 +82,30 @@ def run_item(name: str, out: Path, speaker_opts: str | None) -> dict:
     return json.loads(out.read_text())
 
 
-def _moments(name: str) -> list[float]:
+def _moments(name: str, segs: list[dict], seg_basis: str) -> list[float]:
+    """Raised/shouted wearer moments, anchored the way score.moments anchors
+    them (agent A's fix: at the END of the wearer turn they are about — the
+    instant tier can only buzz once that turn closes)."""
     p = RECORDINGS / "inbox" / name / f"{name}.annotation.groundtruth.json"
     if not p.exists():
         return []
     a = json.loads(p.read_text())
-    return [float(m["t"]) for m in a.get("coach_moments") or [] if m.get("rule") == "raised-voice"]
+    basis = "segment" if seg_basis.startswith("annotation") else "deepgram-turn"
+    return [score_mod.anchor_moment(m, segs, basis)[0]
+            for m in a.get("coach_moments") or [] if m.get("rule") == "raised-voice"]
 
 
 def score_item(name: str, phone: dict) -> dict:
     bundle = json.loads((RECORDINGS / "work" / name / "run.json").read_text())
     bundle["phone"] = {k: v for k, v in phone.items() if not k.startswith("_")}
-    segs, _src = score_mod.truth_segments(bundle)
+    segs, src = score_mod.truth_segments(bundle)
     ph = score_mod.identity(bundle, [], segs)["phone"]
     rows = ph["rows"]
     other = [r for r in rows if r["truth"] is False]
     corpus = json.loads((RECORDINGS / "inbox" / name / f"{name}.corpus.json").read_text())
     dur = float(bundle["audio"]["duration_s"])
     alerts = [h["atSec"] for h in phone.get("haptics") or [] if h.get("code") in ALERT_CODES]
-    moms = _moments(name)
+    moms = _moments(name, segs, src)
     hits = sum(1 for m in moms if any(m - WIN_BEFORE <= a <= m + WIN_AFTER for a in alerts))
     nomoment = sum(1 for a in alerts if not any(m - WIN_BEFORE <= a <= m + WIN_AFTER for m in moms))
     return {

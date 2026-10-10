@@ -402,6 +402,47 @@ describe("SpeakerLabeler", () => {
     expect(lab.label(vectorAtCosine(D, 0.7, 0, 1), 1.0)).toMatchObject({ isSelf: true });
   });
 
+  describe("windowVote (sub-turn ECAPA windows)", () => {
+    const vote = { windowVote: { seconds: 2, selfThreshold: 0.6, otherCeiling: 0.3, minFrac: 0.5, maxWindows: 6 } };
+    const at = (c: number, k: number) => vectorAtCosine(D, c, 0, k);
+
+    it("exposes the window length the loop should cut (0 = off)", () => {
+      expect(new SpeakerLabeler([you]).identityWindowSeconds).toBe(0);
+      expect(new SpeakerLabeler([you], vote).identityWindowSeconds).toBe(2);
+      expect(new SpeakerLabeler([you], vote).identityMaxWindows).toBe(6);
+    });
+
+    it("off by default: windows are ignored", () => {
+      const lab = new SpeakerLabeler([you]);
+      expect(lab.label(at(0.55, 1), 6, [at(0.7, 2), at(0.7, 3), at(0.2, 4)])).toMatchObject({ isSelf: false });
+    });
+
+    it("a turn the full embedding misses is the owner when most windows match the print", () => {
+      const lab = new SpeakerLabeler([you], vote);
+      const v = lab.label(at(0.55, 1), 6, [at(0.7, 2), at(0.72, 3), at(0.2, 4)]);
+      expect(v).toMatchObject({ speaker: "You", isSelf: true, basis: "absolute" });
+      expect(v.score as number).toBeCloseTo(0.72, 3);
+    });
+
+    it("mixed turns are undecided, never 'not self': a minority of owner windows", () => {
+      const lab = new SpeakerLabeler([you], vote);
+      expect(lab.label(at(0.4, 1), 6, [at(0.65, 2), at(0.2, 3), at(0.1, 4)])).toMatchObject({ isSelf: null });
+    });
+
+    it("a full-turn match whose windows are mostly someone else is undecided (overlap), not self", () => {
+      const lab = new SpeakerLabeler([you], vote);
+      expect(lab.label(at(0.65, 1), 8, [at(0.7, 2), at(0.1, 3), at(0.1, 4), at(0.1, 5)])).toMatchObject({ isSelf: null });
+      // ...while a clean owner turn stays self.
+      expect(lab.label(at(0.65, 1), 8, [at(0.7, 2), at(0.62, 3), at(0.5, 4), at(0.66, 5)])).toMatchObject({ isSelf: true, basis: "absolute" });
+    });
+
+    it("no windows (a short turn) => the full-turn verdict, unchanged", () => {
+      const lab = new SpeakerLabeler([you], vote);
+      expect(lab.label(at(0.65, 1), 2)).toMatchObject({ isSelf: true });
+      expect(lab.label(at(0.4, 1), 2, [])).toMatchObject({ isSelf: false });
+    });
+  });
+
   it("raisedMatchThreshold reaches the cluster identification", () => {
     const raised = unitVector(D, 3);
     const shouter = { ...you, raisedEmbedding: raised };
