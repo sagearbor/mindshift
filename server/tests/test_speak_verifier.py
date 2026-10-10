@@ -60,6 +60,29 @@ def test_parse_is_strict(raw, which, want):
     assert sv.parse(raw, which)[0] is want
 
 
+@pytest.mark.parametrize("raw,want", [
+    ('{"speak": true, "why": "floor request"}', True),
+    ('```json\n{"speak": true, "why": "Other person explicitly requests the floor after', True),  # cut off
+    ('{"speak": false, "why": "calm', False),
+    ('{"why": "x", "speak": true', False),  # the verdict must LEAD (a truncated tail is not trusted)
+    ("speak: true", False),
+])
+def test_v6_terse_output_tolerates_truncation(raw, want):
+    assert sv.parse(raw, "v6")[0] is want
+
+
+def test_default_v4_runs_terse_and_reads_its_fenced_leading_verdict():
+    assert sv.DEFAULT_VARIANT == "v4" and "v4" in sv.TERSE
+    assert sv.parse('```json\n{\n  "speak": true,\n  "reason": "Other person explicitly req', "v4")[0] is True
+    assert sv.parse('```json\n{\n  "speak": false,\n  "reason": "Generic', "v4")[0] is False
+
+
+def test_v6_has_a_small_token_budget():
+    llm = FixedLLM('{"speak": false}')
+    sv.verify_sync(llm, "u", "v6")
+    assert llm.calls[0][2]["max_tokens"] <= 24
+
+
 def test_user_prompt_is_deterministic_and_marks_handoffs():
     u1 = sv.build_user(TURNS, "Let him answer.", setting="TV debate", relationship="other")
     u2 = sv.build_user(TURNS, "Let him answer.", setting="TV debate", relationship="other")

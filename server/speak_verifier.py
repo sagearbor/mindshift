@@ -131,7 +131,33 @@ _V5 = f"""{_ROLE_INTRO}
 First quote (8 words or fewer, original language) the words from the turns (not the line) that show the moment, or "" if there is none. A YES needs a non-empty quote.
 Return ONLY JSON: {{"evidence": "<short quote or empty>", "speak": true or false, "reason": "<= 12 words"}}"""
 
-VARIANTS = {"v1": _V1, "v2": _V2, "v3": _V3, "v4": _V4, "v5": _V5}
+# v6: v4's rules with a terse, verdict-first answer. Haiku ignored "<= 12
+# words" and wrote ~40-token reasons inside a ```json fence: p90 1.8 s, 19%
+# over the 1.2 s budget. v6 caps the answer at TERSE_MAX_TOKENS and reads
+# the leading "speak" key even when the tail is cut off.
+_V6 = f"""{_ROLE_INTRO}
+
+{_RULES_B}
+
+Answer with ONLY this JSON, no code fence, "speak" first: {{"speak": true or false, "why": "<= 5 words"}}"""
+
+# v7: v6 plus a 4-word "moment" BEFORE the verdict (a micro reasoning step
+# that still fits the small token budget).
+_V7 = f"""{_ROLE_INTRO}
+
+{_RULES_B}
+
+Answer with ONLY this JSON, no code fence: {{"moment": "<= 4 words naming what just happened", "speak": true or false}}"""
+
+VARIANTS = {"v1": _V1, "v2": _V2, "v3": _V3, "v4": _V4, "v5": _V5, "v6": _V6, "v7": _V7}
+# v4 answers verdict-first ('```json\n{"speak": true, "reason": ...'), so it
+# runs terse too: the cut-off tail is only the reason, the verdict tokens
+# are the same (temperature 0), and the call finishes ~1 s sooner at p90.
+TERSE = {"v4", "v6", "v7"}
+_V7_RE = re.compile(r'^\W*(?:json)?\s*\{\s*"moment"\s*:\s*"([^"]{0,80})"\s*,\s*"speak"\s*:\s*(true|false)\b',
+                    re.IGNORECASE)
+TERSE_MAX_TOKENS = 20
+_LEAD_RE = re.compile(r'^\W*(?:json)?\s*\{\s*"speak"\s*:\s*(true|false)\b', re.IGNORECASE)
 _EVIDENCE_VARIANTS = {"v2", "v5"}
 _MOMENTS = {"talked_over", "floor_request", "heat", "dismissal", "hanging_question", "repair"}
 
@@ -200,6 +226,17 @@ _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 def parse(raw: str, which: str) -> tuple[bool, str]:
     """(speak, reason). Strict: only an explicit yes speaks."""
+    if which == "v7":
+        m = _V7_RE.match(raw or "")
+        if not m:
+            return False, "unparseable"
+        return m.group(2).lower() == "true", m.group(1)
+    if which in TERSE:
+        m = _LEAD_RE.match(raw or "")
+        if not m:
+            return False, "unparseable"
+        why = re.search(r'"why"\s*:\s*"([^"]*)', raw or "")
+        return m.group(1).lower() == "true", (why.group(1) if why else "")[:120]
     m = _JSON_RE.search(raw or "")
     if not m:
         return False, "unparseable"
@@ -248,7 +285,8 @@ def verify_sync(llm, user: str, which: str | None = None) -> Verdict:
     which = which or variant()
     t0 = time.monotonic()
     try:
-        raw = llm.complete(system=VARIANTS[which], user=user, temperature=0.0, max_tokens=MAX_TOKENS)
+        raw = llm.complete(system=VARIANTS[which], user=user, temperature=0.0,
+                           max_tokens=TERSE_MAX_TOKENS if which in TERSE else MAX_TOKENS)
     except Exception as exc:  # noqa: BLE001 — fail closed
         return Verdict(False, "error", (time.monotonic() - t0) * 1000.0, type(exc).__name__)
     speak, reason = parse(raw, which)
