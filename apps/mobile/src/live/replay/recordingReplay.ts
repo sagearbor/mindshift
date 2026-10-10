@@ -148,6 +148,9 @@ export interface RecordingReplayOutput {
   labelLog: ReplayResult["labelLog"];
   boundaries: ReplayResult["boundaries"];
   latency: ReplayResult["latency"];
+  /** Per-second instant-tier heat windows (fastLoop.tickHeat) — the dark
+   *  live signal, dumped so offline buzz designs can be evaluated. */
+  heat: ReplayResult["heat"];
   wallMs: number;
   /** The listening-stage settings this run used (replay/tuning.ts). */
   listening?: string;
@@ -183,6 +186,7 @@ export function outputFor(r: ReplayResult, enroll: RecordingEnroll): RecordingRe
     labelLog: r.labelLog,
     boundaries: r.boundaries,
     latency: r.latency,
+    heat: r.heat,
     wallMs: Math.round(r.wall.totalMs),
   };
 }

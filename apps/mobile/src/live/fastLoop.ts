@@ -61,6 +61,7 @@ import { aggressiveToneLevel, CoachRepeatGate, LoudnessBaseline, phoneNudgePolic
 import { liveTurnKind } from "./naturalTurn";
 import { turnActivationAsync, type TurnActivation } from "./activation";
 import { instantHeatScore } from "./instantTier";
+import { RoomHeatBuzz, type RoomHeatBuzzOptions } from "./roomHeatBuzz";
 
 /** The rolling window the acoustic instant tier scores, and how often. Both
  *  fixed by the model: instantTier.model.json was fitted on 2 s windows. */
@@ -255,6 +256,13 @@ export interface FastLoopDeps {
    */
   activationNudges?: boolean;
   /**
+   * Identity-free "the room is heating" buzz (live/roomHeatBuzz.ts) on the
+   * per-second instant-tier heat windows, for whoever is talking. Default
+   * OFF (dark): evaluated offline only (landscape Z-002). `true` = the
+   * tuned defaults; an object overrides them. Needs `instantHeat` on.
+   */
+  roomHeatBuzz?: boolean | Partial<RoomHeatBuzzOptions>;
+  /**
    * Run the single-mic overlap probe (live/overlapProbe.ts). Default FALSE
    * since 2026-09-07, when it was finally measured against real overlapping
    * speech and did not survive.
@@ -416,6 +424,7 @@ export class FastLoop {
   private readonly repeatGate: CoachRepeatGate | null;
   private readonly activationNudges: boolean;
   private readonly overlapProbe: boolean;
+  private readonly roomBuzz: RoomHeatBuzz | null;
   private readonly instantHeat: boolean;
   private readonly baseline = new LoudnessBaseline();
   private readonly now: () => number;
@@ -508,6 +517,9 @@ export class FastLoop {
     this.repeatGate = deps.repeatGate === undefined ? new CoachRepeatGate() : deps.repeatGate;
     this.activationNudges = deps.activationNudges ?? true;
     this.overlapProbe = deps.overlapProbe ?? false;
+    this.roomBuzz = deps.roomHeatBuzz
+      ? new RoomHeatBuzz(typeof deps.roomHeatBuzz === "object" ? deps.roomHeatBuzz : {})
+      : null;
     this.instantHeat = deps.instantHeat ?? true;
     this.historySamples = Math.round((deps.historySeconds ?? 30) * SILERO_SAMPLE_RATE);
     this.maxEmbedSamples = Math.round((deps.maxEmbedSeconds ?? MAX_EMBED_SECONDS) * SILERO_SAMPLE_RATE);
@@ -1117,6 +1129,10 @@ export class FastLoop {
       };
       this.heatLog.push(w);
       this.deps.onHeat?.(w);
+      // Dark identity-free room-heat buzz: one gentle level-1 cue.
+      if (this.roomBuzz && this.roomBuzz.observe(w) && this.deps.haptics) {
+        void this.deps.haptics.nudge(1, "H").catch(() => {});
+      }
     }
   }
 
