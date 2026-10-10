@@ -42,6 +42,7 @@ from pydantic import ValidationError
 
 import calls
 import coach_gate
+import speak_verifier
 import guest_quota
 import llm_client
 import session_resume
@@ -854,6 +855,8 @@ class UtteranceTiming:
     llm_start: float | None = None
     llm_first_partial: float | None = None  # first suggestion string complete (streaming)
     llm_end: float | None = None
+    verifier_start: float | None = None     # speak_verifier call (only lines the gate would voice)
+    verifier_end: float | None = None
     tts_start: float | None = None
     tts_end: float | None = None
     sent: float | None = None               # SuggestionEvent on the wire (or decided: nothing to send)
@@ -873,6 +876,7 @@ class UtteranceTiming:
         ("llm_first_partial", "llm_start", "llm_first_partial"),
         ("tts", "tts_start", "tts_end"),
         ("total", "frame_received", "sent"),
+        ("verifier", "verifier_start", "verifier_end"),
     )
 
     def stage_ms(self) -> dict[str, float]:
@@ -949,7 +953,7 @@ class LatencyRecorder:
             self.hedge["hedge_won"] += int(timing.hedge_won)
         logger.info(
             "latency session=%s seg_to_enqueue=%s queue_wait=%s llm=%s "
-            "llm_first_partial=%s tts=%s total=%s queue_depth=%d "
+            "llm_first_partial=%s tts=%s total=%s verifier=%s queue_depth=%d "
             "hedged=%s hedge_won=%s",
             session_id,
             *(
@@ -2117,6 +2121,44 @@ def apply_speaker_label(ctx: SessionContext, payload: dict) -> dict | None:
     return {"type": "speaker_label_ack", "speaker": speaker, **entry}
 
 
+def _turns_up_to(ctx: SessionContext, utterance: Utterance, n: int = 6) -> list[Utterance]:
+    """The last ``n`` remembered turns ending with ``utterance`` (turns the
+    phone finalized AFTER it are not context for its coach line)."""
+    out: list[Utterance] = []
+    for u in ctx.utterances:
+        if u.text.strip():
+            out.append(u)
+        if u is utterance:
+            break
+    return out[-n:]
+
+
+def _gate_turns(ctx: SessionContext, utterance: Utterance) -> list[tuple[str, float, float, str]]:
+    """(speaker, start, end, text) for coach_gate.interruption_evidence."""
+    return [(u.speaker, float(u.start_time), float(u.end_time), u.text) for u in _turns_up_to(ctx, utterance)]
+
+
+def _verifier_user(ctx: SessionContext, utterance: Utterance, line: str, *, kind: str,
+                   identity: str, relationship: str | None, session_context: str | None) -> str:
+    """speak_verifier prompt from the session's own turns and roles: a
+    CONFIRMED wearer label is "wearer"; with the wearer unknown every other
+    turn is "unknown", otherwise "other"."""
+    self_labels = set(ctx.self_labels)
+    if ctx.wearer_known and ctx.self_speaker:
+        self_labels.add(ctx.self_speaker)
+    unknown = identity == WEARER_UNKNOWN
+    turns = []
+    for u in _turns_up_to(ctx, utterance, speak_verifier.CONTEXT_TURNS):
+        if u.speaker in self_labels or (u is utterance and identity == WEARER_SELF):
+            role = "wearer"
+        else:
+            role = "unknown" if unknown else "other"
+        turns.append(speak_verifier.Turn(role, display_speaker(ctx, u.speaker), float(u.start_time),
+                                         float(u.end_time), u.text))
+    return speak_verifier.build_user(turns, line, kind=kind, setting=session_context,
+                                     relationship=relationship, wearer_unknown=unknown)
+
+
 def display_speaker(ctx: SessionContext, speaker: str) -> str:
     """What the coach's prompt calls a raw label: its mid-call name, else
     the label itself."""
@@ -2712,21 +2754,45 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         speak_gate = coach_gate.SpeakGate.from_env()
         turn_dur = max(0.0, float(utterance.end_time) - float(utterance.start_time))
 
-        def gate_speak(importance: int, interject_level: int) -> bool:
+        def gate_speak(importance: int, interject_level: int, line: str = "") -> bool:
             # Interject slider AND the speak gate (coach_gate). The gap rule
             # reads ctx.last_spoken_t, so the decisive call is made AFTER
             # wait_turn (final events are in utterance order); a line that
             # fails is still sent, with speak=False (shown dimmed, silent).
             if importance < interject_level:
                 return False
+            # Mid-argument switch-on: an unknown-wearer, speaker-neutral cue
+            # ("Pause. Let them finish.") backed by turn-taking evidence.
+            neutral_ok = (
+                identity == WEARER_UNKNOWN and bool(line) and coach_gate.neutral_cue(line)
+                and coach_gate.interruption_evidence(_gate_turns(ctx, utterance))
+            )
             ok, why = speak_gate.passes(
                 importance, wearer_unknown=identity == WEARER_UNKNOWN,
                 turn_text=utterance.text, turn_duration_s=turn_dur,
                 now_s=float(utterance.end_time), last_spoken_s=ctx.last_spoken_t,
+                neutral_ok=neutral_ok,
             )
             if not ok:
                 logger.debug("Session %s: line shown, not spoken (%s)", session_id, why)
             return ok
+
+        async def verify_speak(line: str, kind: str) -> bool:
+            # Speak verifier (MINDSHIFT_SPEAK_VERIFIER, default off): a
+            # second, strict LLM yes/no for a line the gate would voice.
+            # Fails closed (error / timeout = silent); never rewrites a line.
+            if not speak_verifier.enabled() or not line:
+                return True
+            user = _verifier_user(ctx, utterance, line, kind=kind, identity=identity,
+                                  relationship=job.relationship, session_context=job.session_context)
+            timing.verifier_start = ctx.latency.now()
+            verdict = await speak_verifier.verify(llm_client, user)
+            timing.verifier_end = ctx.latency.now()
+            speak_verifier.note(verdict, line=line, t=float(utterance.end_time))
+            if not verdict.speak:
+                logger.debug("Session %s: verifier silenced a line (%s)", session_id,
+                             verdict.error or verdict.reason)
+            return verdict.speak
 
         def mark_spoken() -> None:
             ctx.last_spoken_t = float(utterance.end_time)
@@ -2783,6 +2849,8 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
             # Same interjection gate as below: voice (and synthesize TTS) only
             # when the nudge's urgency clears the session's threshold.
             speak = gate_speak(importance, job.interject_level)
+            if speak:
+                speak = await verify_speak(nudge, "nudge")
             tts_audio = None
             if speak and server_owns_tts():
                 timing.tts_start = ctx.latency.now()
@@ -2859,7 +2927,10 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         # is synthesized for it, so the earpiece stays quiet. `speak` stays
         # True for a local-first client even without server TTS: it means
         # "worth voicing", and the phone voices it itself.
-        speak = gate_speak(importance, job.interject_level)
+        first_line = suggestion_texts[0] if suggestion_texts else ""
+        speak = gate_speak(importance, job.interject_level, first_line)
+        if speak:
+            speak = await verify_speak(first_line, "response")
 
         # TTS for first suggestion (only when it will actually be voiced, and
         # only when this server is the voice).
@@ -2875,7 +2946,7 @@ async def _run_session(websocket: WebSocket, session_id: str) -> None:
         # gated — it is a best-effort glimpse, keyed by utterance_text, and
         # gating it would give back the time-to-first-partial we bought.
         await job.wait_turn()
-        if speak and not gate_speak(importance, job.interject_level):
+        if speak and not gate_speak(importance, job.interject_level, first_line):
             speak, tts_audio = False, None  # an earlier turn spoke meanwhile
         if speak:
             mark_spoken()
