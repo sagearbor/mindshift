@@ -32,7 +32,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("items", nargs="*")
     a = ap.parse_args(argv)
     inbox = pipeline.RECORDINGS / "inbox"
-    folders = [inbox / n for n in a.items] if a.items else sorted(inbox.glob("yt_*"))
+    folders = [inbox / n for n in a.items] if a.items else sorted(p for p in inbox.glob("yt_*") if p.is_dir())
     summary_path = inbox / "yt_prepared.json"
     summary = json.loads(summary_path.read_text()) if summary_path.exists() else {}
     for f in folders:
