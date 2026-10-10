@@ -11,7 +11,7 @@
  *   MINDSHIFT_SEG_MIN=0.6         segmenter minimum span (s)
  *   MINDSHIFT_TURN_SPLIT=0|1      speaker-change split inside a VAD span (turnSplit.ts)
  *   MINDSHIFT_TURN_SPLIT_THR=0.3  its cosine threshold (implies the split on)
- *   MINDSHIFT_TURN_SPLIT_WIN=1.5 / _HOP=0.5 / _MIN_SPAN=3
+ *   MINDSHIFT_TURN_SPLIT_WIN=1.5 / _HOP=0.5 / _MIN_SPAN=3 / _MERGE_COS=0.5 (piece validation)
  */
 import { TURN_SPLIT_DEFAULTS, type TurnSplitConfig } from "../turnSplit";
 import { DEFAULT_SEGMENTER_CONFIG, type SegmenterConfig } from "../segmenter";
@@ -62,8 +62,9 @@ function splitFromEnv(env: Record<string, string | undefined>): boolean | TurnSp
   const win = num(env, "MINDSHIFT_TURN_SPLIT_WIN");
   const hop = num(env, "MINDSHIFT_TURN_SPLIT_HOP");
   const minSpan = num(env, "MINDSHIFT_TURN_SPLIT_MIN_SPAN");
+  const mergeCos = num(env, "MINDSHIFT_TURN_SPLIT_MERGE_COS");
   if (on === false) return false;
-  if (thr === null && win === null && hop === null && minSpan === null) return on;
+  if (thr === null && win === null && hop === null && minSpan === null && mergeCos === null) return on;
   const w = win ?? TURN_SPLIT_DEFAULTS.windowSec;
   return {
     ...TURN_SPLIT_DEFAULTS,
@@ -72,6 +73,7 @@ function splitFromEnv(env: Record<string, string | undefined>): boolean | TurnSp
     minPieceSec: w,
     hopSec: hop ?? TURN_SPLIT_DEFAULTS.hopSec,
     minSpanSec: minSpan ?? TURN_SPLIT_DEFAULTS.minSpanSec,
+    pieceMergeCos: mergeCos ?? TURN_SPLIT_DEFAULTS.pieceMergeCos,
   };
 }
 
@@ -81,7 +83,7 @@ export function describeTuning(t: ListeningTuning): string {
     `agc=${t.agc ? "on" : "off"} vad=${t.vadOn}/${t.vadOff} ` +
     `seg gap=${t.segmenter.mergeGapSeconds}s min=${t.segmenter.minSeconds}s split=${
       typeof t.turnSplit === "object" && t.turnSplit !== null
-        ? `thr${t.turnSplit.threshold}/win${t.turnSplit.windowSec}/hop${t.turnSplit.hopSec}`
+        ? `thr${t.turnSplit.threshold}/win${t.turnSplit.windowSec}/hop${t.turnSplit.hopSec}/merge${t.turnSplit.pieceMergeCos}`
         : (t.turnSplit ?? "default")
     }`
   );

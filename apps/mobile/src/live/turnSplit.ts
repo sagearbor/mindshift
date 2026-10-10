@@ -27,6 +27,9 @@ export interface TurnSplitConfig {
   threshold: number;
   minPieceSec: number;
   maxPieces: number;
+  /** Re-join adjacent pieces whose whole-piece embeddings are at least this
+   *  similar (null = no validation pass). */
+  pieceMergeCos: number | null;
 }
 
 export const TURN_SPLIT_DEFAULTS: TurnSplitConfig = {
@@ -36,6 +39,7 @@ export const TURN_SPLIT_DEFAULTS: TurnSplitConfig = {
   threshold: 0.3,
   minPieceSec: 1.5,
   maxPieces: 4,
+  pieceMergeCos: null,
 };
 
 /** Production switch (FastLoop deps.turnSplit overrides). */
@@ -118,7 +122,7 @@ export async function splitSpanBySpeaker(
   }
   const cuts = chooseSplits(starts, embs, 0, dur, cfg);
   if (cuts.length === 0) return [{ ...span }];
-  const out: Span[] = [];
+  let out: Span[] = [];
   let prev = span.start;
   for (const c of cuts) {
     const t = Math.round((span.start + c) * 1000) / 1000;
@@ -126,5 +130,43 @@ export async function splitSpanBySpeaker(
     prev = t;
   }
   out.push({ start: prev, end: span.end });
+  if (cfg.pieceMergeCos !== null) {
+    try {
+      out = await mergeSameVoicePieces(pcm, span, out, embedder, cfg.pieceMergeCos, sampleRate);
+    } catch {
+      return [{ ...span }];
+    }
+  }
+  return out;
+}
+
+/** Validation pass: embed each whole piece and re-join neighbours whose
+ *  pooled voices still look alike (cosine >= `mergeCos`) — a dip between two
+ *  1.5 s windows is not proof of a second voice. */
+export async function mergeSameVoicePieces(
+  pcm: Float32Array,
+  span: Span,
+  pieces: Span[],
+  embedder: Embedder,
+  mergeCos: number,
+  sampleRate = 16000,
+): Promise<Span[]> {
+  const embOf = (p: Span) =>
+    embedder.embed(
+      pcm.subarray(Math.round((p.start - span.start) * sampleRate), Math.round((p.end - span.start) * sampleRate)),
+      sampleRate,
+    );
+  const out: Span[] = [{ ...pieces[0] }];
+  let prevEmb = await embOf(out[0]);
+  for (let i = 1; i < pieces.length; i++) {
+    const e = await embOf(pieces[i]);
+    if (dot(prevEmb, e) >= mergeCos) {
+      out[out.length - 1].end = pieces[i].end;
+      prevEmb = await embOf(out[out.length - 1]);
+    } else {
+      out.push({ ...pieces[i] });
+      prevEmb = e;
+    }
+  }
   return out;
 }

@@ -100,6 +100,26 @@ describe("splitSpanBySpeaker", () => {
     expect(await splitSpanBySpeaker(pcmFor(9, null), { start: 0, end: 9 }, counting, cfg)).toEqual([{ start: 0, end: 9 }]);
   });
 
+  it("the validation pass re-joins pieces whose whole-piece voices match", async () => {
+    // Window embedder says A|B at 4 s, but whole pieces both read as A.
+    let call = 0;
+    const fickle: Embedder = {
+      embed: async (p: Float32Array) => {
+        call++;
+        if (p.length === Math.round(cfg.windowSec * 16000)) return embedder.embed(p, 16000);
+        return A;
+      },
+    } as Embedder;
+    const pcm = pcmFor(8, 4);
+    expect((await splitSpanBySpeaker(pcm, { start: 0, end: 8 }, fickle, cfg)).length).toBe(2);
+    expect(await splitSpanBySpeaker(pcm, { start: 0, end: 8 }, fickle, { ...cfg, pieceMergeCos: 0.5 })).toEqual([
+      { start: 0, end: 8 },
+    ]);
+    expect(call).toBeGreaterThan(0);
+    // ...and keeps a real change.
+    expect((await splitSpanBySpeaker(pcm, { start: 0, end: 8 }, embedder, { ...cfg, pieceMergeCos: 0.5 })).length).toBe(2);
+  });
+
   it("an embedder failure keeps the span whole", async () => {
     const broken: Embedder = { embed: async () => Promise.reject(new Error("x")) } as unknown as Embedder;
     expect(await splitSpanBySpeaker(pcmFor(8, 4), { start: 0, end: 8 }, broken, cfg)).toEqual([{ start: 0, end: 8 }]);
