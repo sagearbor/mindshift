@@ -57,8 +57,9 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--relationship", choices=["child", "partner", "parent", "coworker", "friend", "other"])
     g.add_argument("--library", help="comma-separated library item ids (needs --url: the local server has no library)")
     g.add_argument("--context", help="session_context (default: the notes' setting: line)")
-    g.add_argument("--stt", choices=["deepgram", "whisper"], default="deepgram",
-                   help="reference transcript: Deepgram (paid, cached) or local faster-whisper ($0; cache work/<name>/whisper*.json)")
+    g.add_argument("--stt", choices=["deepgram", "whisper"], default=None,
+                   help="reference transcript: Deepgram (paid, cached) or local faster-whisper ($0; cache "
+                        "work/<name>/whisper*.json). Default: whisper for open-web items (notes 'source: open web'), else deepgram")
     g.add_argument("--wearer", help="force the owner's Deepgram label, e.g. 'Speaker B'")
     g.add_argument("--phone-tone", choices=["annotation", "neutral"], help="phone tone stand-in (default: annotation if present)")
     g.add_argument("--enroll", choices=["profile", "same", "none"], help="phone voiceprint (default: profile if owner_profile.json exists)")

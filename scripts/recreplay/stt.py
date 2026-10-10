@@ -238,6 +238,14 @@ def raw_from_whisper(doc: dict, speakers: list[int] | None = None, *, diarizatio
             "results": {"channels": [{"alternatives": [{"words": words}]}]}}
 
 
+def segment_label_ids(segments: list[dict]) -> dict[str, int]:
+    """Segment speaker label -> integer speaker, in order of first appearance."""
+    ids: dict[str, int] = {}
+    for s in sorted(segments, key=lambda s: float(s["start"])):
+        ids.setdefault(str(s["speaker"]), len(ids))
+    return ids
+
+
 def speakers_from_segments(words: list[dict], segments: list[dict]) -> list[int]:
     """Each word's speaker index from labelled time segments
     (``[{start, end, speaker}]``): the segment it overlaps most, else the
@@ -245,9 +253,7 @@ def speakers_from_segments(words: list[dict], segments: list[dict]) -> list[int]
     if not segments:
         return [0] * len(words)
     segs = sorted(segments, key=lambda s: float(s["start"]))
-    ids: dict[str, int] = {}
-    for s in segs:
-        ids.setdefault(str(s["speaker"]), len(ids))
+    ids = segment_label_ids(segs)
     out = []
     for w in words:
         a, b = float(w["start"]), float(w["end"])
