@@ -38,6 +38,18 @@ Speaker E finish"). Three independent policies, each behind its own env flag
    fail the gate are STILL SENT with ``speak: false``: the phone shows them
    dimmed in the feed (useAudioStream ``muted``) and never voices them. The
    session's interject slider still applies on top (both must pass).
+
+   **Importance floor 80** (owner-approved 2026-10-10): the default
+   ``MINDSHIFT_SPEAK_MIN_IMPORTANCE`` is 80 (was 78) - the setting that scored
+   least-bad on held-out judging (57% helpful vs 17% ungated; the B gate was
+   worse; silence still scores >= every gate on the judge metric). It is the
+   FIRST check in :meth:`SpeakGate.passes`, so it composes by conjunction:
+   importance (>= 80, after the unknown-wearer cap) AND min-gap AND a
+   substantive turn must all hold. Because ``MINDSHIFT_SPEAK_UNKNOWN_CAP`` (72)
+   stays below the floor, an unknown-wearer line is still never voiced. The
+   opt-in neutral-cue bypass (``MINDSHIFT_SPEAK_UNKNOWN_NEUTRAL``, default OFF,
+   still undecided) uses its own lower floor and is untouched. Override with
+   ``MINDSHIFT_SPEAK_MIN_IMPORTANCE=<n>``.
 """
 
 from __future__ import annotations
@@ -331,7 +343,7 @@ class SpeakGate:
     def from_env(cls) -> "SpeakGate":
         return cls(
             enabled=_flag("MINDSHIFT_SPEAK_GATE", "1"),
-            min_importance=int(_num("MINDSHIFT_SPEAK_MIN_IMPORTANCE", 78)),
+            min_importance=int(_num("MINDSHIFT_SPEAK_MIN_IMPORTANCE", 80)),
             min_gap_s=_num("MINDSHIFT_SPEAK_MIN_GAP_S", 60.0),
             min_words=int(_num("MINDSHIFT_SPEAK_MIN_WORDS", 3)),
             unknown_cap=int(_num("MINDSHIFT_SPEAK_UNKNOWN_CAP", 72)),

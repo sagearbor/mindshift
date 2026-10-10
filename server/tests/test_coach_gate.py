@@ -240,3 +240,30 @@ def test_gate_unknown_neutral_cue_bypasses_cap(monkeypatch):
     assert g.passes(72, neutral_ok=True, **{**kw, "last_spoken_s": 90})[1] == "gap"  # gap still applies
     monkeypatch.setenv("MINDSHIFT_SPEAK_UNKNOWN_NEUTRAL", "0")
     assert g.passes(72, neutral_ok=True, **kw)[0] is False
+
+
+# --- importance floor 80 (owner-approved 2026-10-10) ------------------------
+
+def test_default_importance_floor_is_80():
+    g = cg.SpeakGate.from_env()
+    assert g.min_importance == 80
+    kw = dict(wearer_unknown=False, turn_text=SUBST, turn_duration_s=2, now_s=100, last_spoken_s=None)
+    assert g.passes(79, **kw) == (False, "importance")
+    assert g.passes(80, **kw) == (True, "pass")
+
+
+def test_importance_floor_env_override(monkeypatch):
+    monkeypatch.setenv("MINDSHIFT_SPEAK_MIN_IMPORTANCE", "70")
+    g = cg.SpeakGate.from_env()
+    assert g.passes(72, wearer_unknown=False, turn_text=SUBST, turn_duration_s=2,
+                    now_s=100, last_spoken_s=None)[0]
+
+
+def test_floor_composes_with_gap_and_substance():
+    g = cg.SpeakGate.from_env()
+    kw = dict(wearer_unknown=False, turn_text=SUBST, turn_duration_s=2)
+    # importance is checked first, then gap, then substance
+    assert g.passes(85, now_s=100, last_spoken_s=80, **kw) == (False, "gap")
+    assert g.passes(79, now_s=100, last_spoken_s=80, **kw) == (False, "importance")
+    assert g.passes(85, wearer_unknown=False, turn_text="Yeah okay.", turn_duration_s=1,
+                    now_s=100, last_spoken_s=None) == (False, "not_substantive")
