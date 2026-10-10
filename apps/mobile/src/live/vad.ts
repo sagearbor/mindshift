@@ -115,6 +115,135 @@ export class SileroVad implements FrameVad {
 }
 
 // ---------------------------------------------------------------------------
+// Input gain normalisation (AGC) in front of the VAD.
+// ---------------------------------------------------------------------------
+//
+// Silero has a level floor: a talker far from the phone (quiet room, phone on
+// the table) stays under its threshold however long they talk. Measured
+// 2026-10-10 on the recording corpus (frame-level Silero vs human ground-truth
+// speech times, overnight tuning agent D): SBC033 (DEV) 64% -> 86% of speech
+// detected; the same clip attenuated 18 dB 0% -> 83%; louder DEV clips +1-3
+// points; false speech outside ground truth +0.00-0.04 min per 5 min, and
+// none at all on synthetic pink/white/hum noise at -60..-35 dBFS (Silero
+// rejects amplified stationary noise). The two quiet held-out recordings
+// (SBC042 at -36 dBFS, AMI ES2003a at -46 dBFS) were 15% / 23% detected —
+// a real VAD miss, not reference-STT sparsity: lowering the threshold to
+// 0.25 alone only reached 24% / 25%.
+//
+// Only the VAD sees the gained audio: speaker-ID and prosody keep the raw
+// frames (loudness drives the heat lane and the alert buzz).
+
+export interface AgcConfig {
+  /** Level the speech envelope is lifted to (dBFS RMS). */
+  targetDbfs: number;
+  /** Ceiling on the gain (dB) — bounds how much room noise is amplified. */
+  maxGainDb: number;
+  /** Envelope attack: fraction of the way to a louder frame per frame. */
+  attack: number;
+  /** Envelope release (dB per second) after the talker goes quiet. */
+  releaseDbPerSec: number;
+}
+
+export const VAD_AGC_DEFAULTS: AgcConfig = {
+  targetDbfs: -16,
+  maxGainDb: 30,
+  attack: 0.5,
+  releaseDbPerSec: 3,
+};
+
+/** Production switch for the gain stage in front of the VAD (buildVad).
+ *  DARK for now: turning it on changes every pinned replay fixture
+ *  (maggiano3's baseline included), which needs the owner's sign-off.
+ *  Replays measure it with MINDSHIFT_VAD_AGC=1 (replay/tuning.ts). */
+export const VAD_AGC_ENABLED = false;
+
+/**
+ * Streaming peak-envelope AGC over fixed frames: the envelope rises quickly to
+ * a louder frame and falls slowly (`releaseDbPerSec`); gain = target /
+ * envelope, clamped to [1, maxGain] — it only ever amplifies, never attenuates.
+ */
+export class GainNormalizer {
+  private env: number;
+  private g = 1;
+  private readonly target: number;
+  private readonly maxGain: number;
+  constructor(
+    private readonly cfg: AgcConfig = VAD_AGC_DEFAULTS,
+    private readonly frameSeconds = SILERO_CHUNK_SAMPLES / SILERO_SAMPLE_RATE,
+  ) {
+    this.target = 10 ** (cfg.targetDbfs / 20);
+    this.maxGain = 10 ** (cfg.maxGainDb / 20);
+    this.env = this.target;
+  }
+  /** Current linear gain (1 = unity). */
+  get gain(): number {
+    return this.g;
+  }
+  process(frame: Float32Array): Float32Array {
+    let acc = 0;
+    for (let i = 0; i < frame.length; i++) acc += frame[i] * frame[i];
+    const r = Math.max(Math.sqrt(acc / Math.max(1, frame.length)), 1e-7);
+    if (r > this.env) {
+      this.env += this.cfg.attack * (r - this.env);
+    } else {
+      const rel = 10 ** ((-this.cfg.releaseDbPerSec * this.frameSeconds * frame.length) / SILERO_CHUNK_SAMPLES / 20);
+      this.env = Math.max(this.env * rel, r);
+    }
+    this.g = Math.min(Math.max(this.target / this.env, 1), this.maxGain);
+    const out = new Float32Array(frame.length);
+    for (let i = 0; i < frame.length; i++) {
+      const v = frame[i] * this.g;
+      out[i] = v > 1 ? 1 : v < -1 ? -1 : v;
+    }
+    return out;
+  }
+  reset() {
+    this.env = this.target;
+    this.g = 1;
+  }
+}
+
+/** A FrameVad that runs its input through a {@link GainNormalizer} first. */
+export class AgcVad implements FrameVad {
+  readonly frameSamples: number;
+  private readonly agc: GainNormalizer;
+  constructor(
+    readonly inner: FrameVad,
+    cfg: AgcConfig = VAD_AGC_DEFAULTS,
+  ) {
+    this.frameSamples = inner.frameSamples;
+    this.agc = new GainNormalizer(cfg, inner.frameSamples / SILERO_SAMPLE_RATE);
+  }
+  get gain(): number {
+    return this.agc.gain;
+  }
+  /** Pass-through of the inner detector's probability (fast loop logging). */
+  get lastProbability(): number | undefined {
+    return (this.inner as { lastProbability?: number }).lastProbability;
+  }
+  isSpeech(frame: Float32Array): Promise<boolean> {
+    return this.inner.isSpeech(this.agc.process(frame));
+  }
+  reset() {
+    this.agc.reset();
+    this.inner.reset();
+  }
+}
+
+/** The detector under any wrappers (capability reporting). */
+export function baseVad(vad: FrameVad): FrameVad {
+  let v = vad;
+  while (v instanceof AgcVad) v = v.inner;
+  return v;
+}
+
+/** Production wrapping: the gain stage when {@link VAD_AGC_ENABLED}. The
+ *  energy fallback is left alone (its fixed dBFS floor IS a level rule). */
+export function withVadAgc(vad: FrameVad, enabled = VAD_AGC_ENABLED): FrameVad {
+  return enabled && vad instanceof SileroVad ? new AgcVad(vad) : vad;
+}
+
+// ---------------------------------------------------------------------------
 // Energy VAD — port of server/watch/diarize.py's per-frame decision.
 // ---------------------------------------------------------------------------
 

@@ -21,7 +21,7 @@
 import { Platform } from "react-native";
 import { ecapaModelUrl, ECAPA_REVISION, fetchVoiceprints, authHeaders } from "../api/liveSessions";
 import { FastLoop, type FastLoopDeps } from "./fastLoop";
-import { EnergyVad, SileroVad, type FrameVad } from "./vad";
+import { baseVad, EnergyVad, SileroVad, withVadAgc, type FrameVad } from "./vad";
 import { EcapaEmbedder, SpeakerLabeler, type Embedder } from "./speakerId";
 import {
   activeCapability,
@@ -233,7 +233,7 @@ function ortNative(): typeof import("./ortNative") | null {
 /** The VAD rung on its own (shared with the Journal mode, journalDeps.ts). */
 export async function buildVad(): Promise<{ vad: FrameVad; name: string }> {
   const session = await ortNative()?.loadSileroSession();
-  if (session) return { vad: new SileroVad(session), name: "Silero VAD" };
+  if (session) return { vad: withVadAgc(new SileroVad(session)), name: "Silero VAD" };
   return { vad: new EnergyVad(), name: "energy VAD" };
 }
 
@@ -348,7 +348,7 @@ export async function createDefaultFastLoop(
     haptics: expoHaptics,
   });
   const capabilities: FastLoopCapabilities = {
-    vad: vad instanceof SileroVad ? "silero" : "energy",
+    vad: baseVad(vad) instanceof SileroVad ? "silero" : "energy",
     speakerId: speaker.capability,
     llm: llm.providerNames,
   };
@@ -395,7 +395,7 @@ export async function probeFastLoopCapabilities(
   // Fire-and-forget; each provider memoizes the preparation. See ProviderChain.prewarm.
   llm.prewarm();
   return {
-    vad: vad instanceof SileroVad ? "silero" : "energy",
+    vad: baseVad(vad) instanceof SileroVad ? "silero" : "energy",
     speakerId: speaker.capability,
     llm: llm.providerNames,
   };

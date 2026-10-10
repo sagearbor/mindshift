@@ -177,6 +177,9 @@ def prepare_item(folder: Path, *, work_root: Path) -> dict:
                 p.unlink()
         (work / "whisper.json").write_text(json.dumps(raw))
         (work / "whisper.raw.json").write_text(json.dumps(doc))
+    # Disk is shared and tight: the full-clip WAV was only needed for the
+    # decode + enrollment above (the replay re-normalises from the original).
+    full_wav.unlink(missing_ok=True)
     return {"name": name, "clip_s": round(duration, 1), "words": len(words),
             "speakers": len({w["speaker"] for w in words}), "speakers_from": diar.get("source"),
             "wearer": wearer, "wearer_how": how,
