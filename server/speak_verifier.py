@@ -235,7 +235,7 @@ def parse(raw: str, which: str) -> tuple[bool, str]:
         m = _LEAD_RE.match(raw or "")
         if not m:
             return False, "unparseable"
-        why = re.search(r'"why"\s*:\s*"([^"]*)', raw or "")
+        why = re.search(r'"(?:why|reason)"\s*:\s*"([^"]*)', raw or "")
         return m.group(1).lower() == "true", (why.group(1) if why else "")[:120]
     m = _JSON_RE.search(raw or "")
     if not m:
