@@ -23,7 +23,11 @@ import pytest
 
 from recreplay import fixture, phone, pipeline
 
-FIXTURES = fixture.list_fixtures()
+# Corpus fixtures (scripts/corpus_to_inbox.py; ~1.6 h of real-time streaming
+# for the default batch) re-run in full only on request; their fast integrity
+# check lives in test_recording_replay_corpus_fixtures.py.
+FIXTURES = [fx for fx in fixture.list_fixtures()
+            if os.getenv("MINDSHIFT_CORPUS_FIXTURES_FULL") or not fixture.is_corpus_fixture(fx)]
 _SKIP_REASON = None
 if not FIXTURES:
     _SKIP_REASON = f"no private recording fixtures under {fixture.FIXTURES}"

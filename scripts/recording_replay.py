@@ -72,6 +72,8 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("--no-freeze", action="store_true", help="don't write/refresh tmp/recordings/fixtures/<name>")
     o.add_argument("--rebaseline", action="store_true", help="overwrite the fixture's baseline with this run")
     o.add_argument("--skip-server", action="store_true", help="phone side only")
+    o.add_argument("--corpus-summary", action="store_true",
+                   help="write tmp/recordings/reports/corpus-summary.html over every corpus item run so far (scripts/corpus_to_inbox.py)")
     return ap
 
 
@@ -137,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
     fixtures = [fixture.FIXTURES / n for n in args.fixture]
     if args.fixtures:
         fixtures += fixture.list_fixtures()
-    if not folders and not fixtures:
+    if not folders and not fixtures and not args.corpus_summary:
         build_parser().print_help()
         return 1
     for f in folders:
@@ -153,6 +155,11 @@ def main(argv: list[str] | None = None) -> int:
             ok = False
             continue
         ok = run_fixture(fx) and ok
+    if args.corpus_summary:
+        from recreplay import corpus_summary
+        out = corpus_summary.write(pipeline.RECORDINGS / "reports" / "corpus-summary.html",
+                                   pipeline.RECORDINGS / "work", pipeline.RECORDINGS / "inbox")
+        print(f"[recording-replay] corpus summary: {out}")
     return 0 if ok else 1
 
 
