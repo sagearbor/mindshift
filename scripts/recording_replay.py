@@ -9,6 +9,7 @@ guide) and docs/recording-annotation-format.md (the sidecar contract).
     tmp/venv/bin/python scripts/recording_replay.py --app-latest --email sagearbor@gmail.com
     tmp/venv/bin/python scripts/recording_replay.py --fixture <name>      # offline regression re-run
     tmp/venv/bin/python scripts/recording_replay.py --fixtures            # all of them
+    tmp/venv/bin/python scripts/recording_replay.py --set clip30_t1 --jobs 4   # a 30 s clip set (recreplay/clips.py)
 
 Per recording: ffmpeg -> 16 kHz mono; Deepgram reference transcript
 (cached); annotations re-timed to Deepgram's words; which voice is the
@@ -24,6 +25,10 @@ Exit status: 0 ok; 1 a recording failed or (--fixture) regressed.
 from __future__ import annotations
 
 import argparse
+import json
+import os
+import subprocess
+import time
 import sys
 import tempfile
 import traceback
@@ -52,6 +57,11 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--uid", help="with --app-latest: the account uid (skips the email lookup)")
     ap.add_argument("--fixture", action="append", default=[], help="re-run a frozen fixture OFFLINE and compare to its baseline")
     ap.add_argument("--fixtures", action="store_true", help="re-run every frozen fixture")
+    ap.add_argument("--set", action="append", default=[], metavar="NAME",
+                    help="run a clip set from tmp/recordings/inbox/clip30_manifest.json (clip30_t1|t2|t3|all); "
+                         "implies --no-freeze")
+    ap.add_argument("--jobs", type=int, default=1,
+                    help="with --set/--all/folders: replay this many items at once (each its own local server)")
     g = ap.add_argument_group("session")
     g.add_argument("--mode", choices=["earpiece", "speaker", "therapist", "room"])
     g.add_argument("--relationship", choices=["child", "partner", "parent", "coworker", "friend", "other"])
@@ -120,10 +130,66 @@ def run_fixture(fx: Path) -> bool:
     return not reg
 
 
+CLIP_PREFIX = "clip30_"
+
+
+def clip_set_folders(name: str) -> list[Path]:
+    """Inbox folders of a clip set (scripts/recreplay/clips.py's manifest)."""
+    inbox = pipeline.RECORDINGS / "inbox"
+    man = json.loads((inbox / "clip30_manifest.json").read_text())
+    sets = man["sets"]
+    if name not in sets and name != "clip30_all":
+        raise SystemExit(f"unknown clip set {name!r}; have {sorted(sets)} (or clip30_all)")
+    names = [n for k, v in sorted(sets.items()) if k == name or name == "clip30_all" for n in v]
+    return [inbox / n for n in names]
+
+
+def _child_argv(argv: list[str]) -> list[str]:
+    """argv minus the item selection (folders, --set, --all, --jobs)."""
+    out, skip = [], False
+    for x in argv:
+        if skip:
+            skip = False
+            continue
+        if x in ("--set", "--jobs"):
+            skip = True
+            continue
+        if x.startswith(("--set=", "--jobs=")) or x == "--all" or not x.startswith("-") and Path(x).is_dir():
+            continue
+        out.append(x)
+    return out
+
+
+def run_parallel(folders: list[Path], jobs: int, argv: list[str]) -> bool:
+    """Each folder in its own child process (own local server on a free
+    port), ``jobs`` at a time; logs to tmp/recordings/logs/<name>.log."""
+    logs = pipeline.RECORDINGS / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    base = [sys.executable, str(Path(__file__).resolve())] + _child_argv(argv) + ["--no-freeze"]
+    pending, running, ok = list(folders), [], True
+    while pending or running:
+        while pending and len(running) < jobs:
+            f = pending.pop(0)
+            fh = open(logs / f"{f.name}.log", "w")
+            running.append((f, subprocess.Popen(base + [str(f)], stdout=fh, stderr=subprocess.STDOUT, env=os.environ.copy()), fh))
+        for item in list(running):
+            f, proc, fh = item
+            if proc.poll() is not None:
+                fh.close()
+                running.remove(item)
+                ok = ok and proc.returncode == 0
+                print(f"[recording-replay] {f.name}: {'ok' if proc.returncode == 0 else f'FAILED (exit {proc.returncode})'}"
+                      f" — log {logs / (f.name + '.log')}", flush=True)
+        if running:
+            time.sleep(0.5)
+    return ok
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     ok = True
     folders = list(args.folders)
+    ran_parallel = False
     if args.app_latest:
         try:
             dest = app_pull.pull_latest(pipeline.RECORDINGS / "inbox", email=args.email, uid=args.uid,
@@ -135,11 +201,20 @@ def main(argv: list[str] | None = None) -> int:
         folders.append(dest)
     if args.all:
         inbox = pipeline.RECORDINGS / "inbox"
-        folders += sorted(p for p in inbox.iterdir() if p.is_dir()) if inbox.is_dir() else []
+        # the 30 s curriculum clips are a set of their own (--set), never part of --all
+        folders += sorted(p for p in inbox.iterdir() if p.is_dir() and not p.name.startswith(CLIP_PREFIX)) \
+            if inbox.is_dir() else []
+    for name in args.set:
+        folders += clip_set_folders(name)
+        args.no_freeze = True
+    if args.jobs > 1 and len(folders) > 1:
+        ok = run_parallel(folders, args.jobs, argv if argv is not None else sys.argv[1:]) and ok
+        ran_parallel = True
+        folders = []
     fixtures = [fixture.FIXTURES / n for n in args.fixture]
     if args.fixtures:
         fixtures += fixture.list_fixtures()
-    if not folders and not fixtures and not args.corpus_summary:
+    if not folders and not fixtures and not args.corpus_summary and not ran_parallel:
         build_parser().print_help()
         return 1
     for f in folders:
