@@ -242,7 +242,7 @@ def skip_reason(
 
 _NEUTRAL_CUE_RE = re.compile(
     r"\b(?:pause"
-    r"|let (?:them|him|her|others|the other person|each other) (?:finish|respond|answer|speak|talk|reply|have the floor|get a word)"
+    r"|let (?:them|him|her|others|the other person|each other) (?:finish|complete|continue|respond|answer|speak|talk|reply|have the floor|get a word)"
     r"|give (?:them|him|her) (?:room|space|a chance|a moment|the floor)"
     r"|one at a time|hold on|wait for (?:them|him|her))\b",
     re.IGNORECASE,

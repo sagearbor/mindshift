@@ -181,6 +181,7 @@ GREEK = [
     ("Let him respond fully before you speak again.", True),
     ("Pause.", True),
     ("Give them room to answer.", True),
+    ("Let them complete their response fully.", True),
     ("What's one thing you enjoy here?", False),
     ("You're spiraling. Take a breath and ask what they meant by that.", False),
 ])
