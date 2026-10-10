@@ -71,6 +71,14 @@ def inputs_from_inbox(folder: Path, *, work_root: Path | None = None, profile: P
     work = (work_root or RECORDINGS / "work") / name
     notes_path = next((p for p in (folder / f"{name}.notes.txt", folder / "notes.txt") if p.exists()), None)
     prof = profile if profile is not None else (DEFAULT_PROFILE if DEFAULT_PROFILE.exists() else None)
+    # A corpus item (scripts/corpus_to_inbox.py) brings its wearer's own print,
+    # enrolled from a held-out part of the same session.
+    # Never the owner's print on a stranger's corpus conversation.
+    item_vp = folder / f"{name}.voiceprint.json"
+    if item_vp.exists():
+        prof = item_vp
+    elif notes_path is not None and "source: corpus ground truth" in notes_path.read_text(errors="replace"):
+        prof = None
     app_meta_path = folder / f"{name}.app_meta.json"
     app_meta = json.loads(app_meta_path.read_text()) if app_meta_path.exists() else None
     return RunInputs(

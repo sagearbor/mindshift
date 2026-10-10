@@ -23,6 +23,7 @@ re-executed, the server re-run locally in real time.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -130,7 +131,11 @@ def freeze(bundle: dict, inp: RunInputs, *, dest: Path | None = None, rebaseline
         settings = dict(bundle.get("settings") or {})
         settings["llm_model"] = ((bundle.get("server") or {}).get("llm") or {}).get("model")
         prof = bundle.get("voiceprint_profile")
-        if prof:
+        if prof and Path(prof).name.endswith(".voiceprint.json") and Path(prof).exists():
+            # a per-item print travels WITH the fixture (repo-relative, unresolved: tmp/ may be a symlink)
+            shutil.copyfile(prof, dest / "voiceprint.json")
+            prof = os.path.relpath(dest / "voiceprint.json", REPO_ROOT)
+        elif prof:
             try:  # portable: relative to the checkout when it lives inside it
                 prof = str(Path(prof).resolve().relative_to(REPO_ROOT.resolve()))
             except ValueError:
@@ -141,6 +146,15 @@ def freeze(bundle: dict, inp: RunInputs, *, dest: Path | None = None, rebaseline
                                          "settings": settings, "metrics": metrics(bundle)}, indent=1))
     (dest / "run.json").write_text(json.dumps(bundle, indent=1, default=str))
     return dest
+
+
+CORPUS_MARK = "source: corpus ground truth"
+
+
+def is_corpus_fixture(fx: Path) -> bool:
+    """Frozen from a public corpus item (scripts/corpus_to_inbox.py), not an owner recording."""
+    notes = Path(fx) / "notes.txt"
+    return notes.exists() and CORPUS_MARK in notes.read_text(errors="replace")
 
 
 def list_fixtures(root: Path | None = None) -> list[Path]:
@@ -154,6 +168,8 @@ def inputs_from_fixture(fx: Path, work: Path) -> tuple[RunInputs, dict]:
     name = baseline.get("name") or fx.name
     prof = (baseline.get("settings") or {}).get("profile")
     prof_path = (Path(prof) if Path(prof).is_absolute() else REPO_ROOT / prof) if prof else None
+    if prof_path is not None and not prof_path.exists() and (fx / "voiceprint.json").exists():
+        prof_path = fx / "voiceprint.json"
     if prof_path is not None and not prof_path.exists():
         # the recording machine's absolute path; fall back to this checkout's private fixtures
         alt = PRIVATE / prof_path.name

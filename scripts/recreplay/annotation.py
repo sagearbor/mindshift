@@ -375,7 +375,9 @@ def parse_annotation_obj(obj: dict, *, problems: list[str] | None = None, repair
     oh = _num(summary.get("overall_heat"))
     a.overall_heat = None if oh is None else int(oh)
     a.peak_heat_t = _num(summary.get("peak_heat_t"))
-    a.ok = bool(a.segments)
+    # A heat-only annotation (corpus ground truth with rated conflict but no
+    # speaker turns, e.g. CONFER) still carries moments worth scoring.
+    a.ok = bool(a.segments) or (obj.get("retime") is False and bool(a.coach_moments))
     return a
 
 
@@ -542,12 +544,19 @@ def align(a: Annotation, words: list[dict]) -> Alignment:
     out_segs: list[Segment] = []
     anchors: list[tuple[float, float]] = []
     shifts: list[float] = []
+    # Human ground truth (corpus transcripts, ``"retime": false``) is already
+    # on the audio clock: keep its times, only measure how well it matches.
+    keep_times = isinstance(a.raw, dict) and a.raw.get("retime") is False
     for si, s in enumerate(a.segments):
         total = seg_total.get(si, 0)
         hits = per_seg.get(si, [])
         match = (len(hits) / total) if total else 0.0
         ns = replace(s, orig_start=s.start, orig_end=s.end, match=round(match, 3))
-        if hits and match >= ALIGNED_MIN_MATCH:
+        if keep_times:
+            ns.aligned = True
+            if hits:
+                shifts.append(float(words[min(hits)]["start"]) - s.start)
+        elif hits and match >= ALIGNED_MIN_MATCH:
             w0, w1 = words[min(hits)], words[max(hits)]
             ns.start, ns.end = float(w0["start"]), float(w1["end"])
             ns.aligned = True
@@ -559,7 +568,7 @@ def align(a: Annotation, words: list[dict]) -> Alignment:
         else:
             ns.aligned = False
         out_segs.append(ns)
-    anchors = _monotonic(sorted(anchors))
+    anchors = [] if keep_times else _monotonic(sorted(anchors))   # no anchors = identity map
     for ns in out_segs:
         if not ns.aligned:
             dur = ns.end - ns.start
@@ -589,6 +598,7 @@ def align(a: Annotation, words: list[dict]) -> Alignment:
         "median_shift_s": round(statistics.median(shifts), 3) if shifts else None,
         "max_abs_shift_s": round(max(abs(x) for x in shifts), 3) if shifts else None,
         "speaker_overlap_s": {k: {kk: round(vv, 2) for kk, vv in v.items()} for k, v in overlap.items()},
+        "retimed": not keep_times,
     }
     return Alignment(out_segs, events, moments, speaker_map, quality, anchors)
 
