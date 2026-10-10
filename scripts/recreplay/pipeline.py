@@ -68,6 +68,7 @@ class RunOptions:
     llm_model: str | None = None                 # pin the model (offline fixture re-runs)
     skip_phone: bool = False
     skip_server: bool = False
+    skip_ceiling: bool = False                   # no same-recording enrollment ceiling run (sweeps)
     log: list[str] = field(default_factory=list)
 
 
@@ -248,7 +249,7 @@ def run(inp: RunInputs, opts: RunOptions) -> dict:
             phone_out = phone_mod.run_phone(wav, meta_path, inp.work / "phone.json", mode=mode, enroll=enroll,
                                             profile=inp.profile_path)
             _say(opts, f"phone ({enroll}): {phone_out.get('_stdout', '')}")
-            if enroll != "same":
+            if enroll != "same" and not opts.skip_ceiling:
                 phone_ceiling = phone_mod.run_phone(wav, meta_path, inp.work / "phone_same.json", mode=mode,
                                                     enroll="same")
         except phone_mod.PhoneReplayUnavailable as exc:
