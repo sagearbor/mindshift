@@ -194,5 +194,8 @@ def options_from_baseline(baseline: dict):
         mode=st.get("mode"), relationship=st.get("relationship"), session_context=st.get("session_context"),
         speed=float(st.get("speed") or 1.0), phone_tone=st.get("phone_tone"), enroll=st.get("enroll"),
         moment_window_s=float(st.get("moment_window_s") or 6.0),
+        # baselines recorded before the scorer anchored moments at turn END
+        # carry no moment_anchor: compare them like for like
+        moment_anchor=st.get("moment_anchor") or "turn_start",
         llm_model=st.get("llm_model"), replay_latency=True,
     )

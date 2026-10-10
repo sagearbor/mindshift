@@ -59,7 +59,8 @@ def test_voiceprint_was_enrolled_outside_the_window(fx: Path):
 def test_rescoring_the_frozen_run_reproduces_the_baseline(fx: Path):
     bundle = json.loads((fx / "run.json").read_text())
     base = json.loads((fx / "baseline.json").read_text())
-    bundle["score"] = score_mod.score(bundle, moment_window_s=float(base["settings"].get("moment_window_s") or 6.0))
+    bundle["score"] = score_mod.score(bundle, moment_window_s=float(base["settings"].get("moment_window_s") or 6.0),
+                                      moment_anchor=base["settings"].get("moment_anchor") or "turn_start")
     cur = fixture.metrics(bundle)
     for k in ("moments_hits", "moments_total", "fires", "identity_phone_accuracy", "violations", "server_lines"):
         assert cur[k] == base["metrics"][k], f"{fx.name}: {k} {cur[k]} != baseline {base['metrics'][k]}"
