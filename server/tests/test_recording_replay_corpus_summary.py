@@ -51,6 +51,7 @@ def test_item_metrics():
     m = cs.item_metrics(_bundle(), {"group": "heated", "corpus": "SBCSAE", "heat_basis": "argument"})
     assert m["moments_hits"] == 1 and m["moments_total"] == 2
     assert m["fires"] == 3 and m["false_fires"] == 2
+    assert m["chance_hit_rate"] == pytest.approx(1 - 2.718281828 ** (-3 / 600 * 7.5), rel=1e-6)
     assert m["false_fires_per_h"] == pytest.approx(12.0)
     assert m["identity_accuracy"] == 0.5 and m["time_to_confirm_s"] == 19.5
     assert m["latencies_ms"] == [1000.0, 3000.0, 2000.0]

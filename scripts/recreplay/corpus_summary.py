@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +32,11 @@ RULE_BY_NUDGE = {
 }
 LAUGH_PRE_S, LAUGH_POST_S = 1.0, 4.0
 GATES = (50, 70)        # interject-slider values to report besides the app default (0)
+
+
+def _opening(text: str) -> str:
+    """A coach line's first two words, lowercased ("pause let", "slow down")."""
+    return " ".join(re.findall(r"[a-z']+", text.lower())[:2])
 
 
 def esc(x) -> str:
@@ -117,8 +123,11 @@ def item_metrics(bundle: dict, prov: dict | None) -> dict:
                      "hits": sum(1 for t in moments_t if any(t - pre <= ln["at_s"] <= t + post for ln in fz))}
     imps = [float(ln["importance"]) for ln in lines
             if ln.get("source") == "server" and ln.get("kind") in ("response", "nudge") and ln.get("importance") is not None]
+    srv = [ln for ln in lines if ln.get("source") == "server" and ln.get("kind") in ("response", "nudge")]
+    frag = [ln for ln in srv if len(re.findall(r"[A-Za-z']+", ln.get("utterance_text") or "")) <= 2]
+    openings = Counter(_opening(ln.get("text") or "") for ln in srv)
     ph = (sc.get("identity") or {}).get("phone") or {}
-    srv = (sc.get("identity") or {}).get("server") or {}
+    srv_id = (sc.get("identity") or {}).get("server") or {}
     has_truth = corpus not in NO_SPEAKER_TRUTH and bool(segs)
     viol = sc.get("violations") or []
     lat = [float(ln["latency_ms"]) for ln in lines
@@ -129,6 +138,9 @@ def item_metrics(bundle: dict, prov: dict | None) -> dict:
         "wearer": prov.get("wearer"), "window_s": prov.get("window_s"),
         "moments_hits": int(mom.get("hits") or 0), "moments_total": int(mom.get("total") or 0),
         "fires": len(fires), "false_fires": len(unmatched),
+        # What the same number of fires dropped at RANDOM times would catch:
+        # P(at least one fire in the 7.5 s window) for a Poisson stream.
+        "chance_hit_rate": (1.0 - float(np.exp(-len(fires) / dur * (pre + post)))) if dur else None,
         "fires_per_h": len(fires) / hours if hours else None,
         "false_fires_per_h": len(unmatched) / hours if hours else None,
         "server_lines": sum(1 for ln in lines if ln.get("source") == "server" and ln.get("kind") in ("response", "nudge")),
@@ -140,7 +152,7 @@ def item_metrics(bundle: dict, prov: dict | None) -> dict:
         "identity_decided": ph.get("decided") if has_truth else None,
         "identity_correct": ph.get("correct") if has_truth else None,
         "time_to_confirm_s": ph.get("first_confirmed_s") if has_truth else None,
-        "server_time_to_confirm_s": srv.get("first_confirmed_s") if has_truth else None,
+        "server_time_to_confirm_s": srv_id.get("first_confirmed_s") if has_truth else None,
         "latencies_ms": lat,
         "violations": dict(Counter(v["kind"] for v in viol)),
         "violation_examples": [{"kind": v["kind"], "at_s": v["at_s"], "text": v.get("text"), "evidence": v.get("evidence")} for v in viol[:6]],
@@ -151,6 +163,9 @@ def item_metrics(bundle: dict, prov: dict | None) -> dict:
         "laughs": len(laughs),
         "hit_by_rule": dict(hit_by), "missed_by_rule": dict(miss_by), "missed": missed[:8],
         "gated": gated, "importances": imps,
+        "fragment_lines": len(frag),
+        "fragment_examples": [{"at_s": ln["at_s"], "text": f"“{ln.get('utterance_text')}” -> {ln.get('text')}"} for ln in frag[:3]],
+        "openings": dict(openings),
         "false_fire_examples": [{"at_s": u["at_s"], "text": u.get("text"), "source": u.get("source"), "kind": u.get("kind")} for u in unmatched[:6]],
     }
 
@@ -186,6 +201,8 @@ def _agg(items: list[dict]) -> dict:
         "items": len(items), "hours": hours, "gated": gate,
         "importance_p50": _pctl(imps, 50), "importance_p90": _pctl(imps, 90),
         "moments_hits": hits, "moments_total": tot, "moment_hit_rate": hits / tot if tot else None,
+        "chance_hit_rate": (sum(i["chance_hit_rate"] * i["moments_total"] for i in items if i["chance_hit_rate"] is not None) / tot)
+        if tot else None,
         "fires": sum(i["fires"] for i in items), "false_fires": sum(i["false_fires"] for i in items),
         "fires_per_h": sum(i["fires"] for i in items) / hours if hours else None,
         "false_fires_per_h": sum(i["false_fires"] for i in items) / hours if hours else None,
@@ -236,6 +253,23 @@ def defects(items: list[dict]) -> list[dict]:
                                 f"{_pct((hg.get(70) or {}).get('moment_hit_rate'))}. Importance p50 calm "
                                 f"{_num(g('calm', 'importance_p50'), '{:.0f}')} vs heated {_num(g('heated', 'importance_p50'), '{:.0f}')}",
                     "items": []})
+    if srv_lines:
+        fr = sum(i["fragment_lines"] for i in items)
+        worst = sorted(items, key=lambda i: i["fragment_lines"], reverse=True)[:3]
+        out.append({"id": "fragments", "title": "Coaching on fragments and backchannels (turns of two words or fewer)",
+                    "severity": 25.0 * fr / srv_lines,
+                    "evidence": f"{fr} of {srv_lines} coach lines ({100.0 * fr / srv_lines:.0f}%) answer a turn of <= 2 words",
+                    "items": [(i["name"], f"{i['fragment_lines']} lines", i["fragment_examples"][:2]) for i in worst if i["fragment_lines"]]})
+        op = Counter()
+        for i in items:
+            op.update(i["openings"])
+        top = op.most_common(4)
+        share = sum(n for _, n in top) / srv_lines
+        out.append({"id": "template", "title": "Template collapse: the same few openings everywhere, calm or heated",
+                    "severity": 15.0 * share,
+                    "evidence": f"{100 * share:.0f}% of {srv_lines} lines open with one of: "
+                                + ", ".join(f"“{k}…” ({n})" for k, n in top),
+                    "items": []})
     calm_ff = g("calm", "false_fires_per_h")
     lively = [i for i in items if i["corpus"] in ("AMI", "CHiME-6") and i["group"] == "heated"]
     lively_ff = _agg(lively)["false_fires_per_h"] if lively else None
@@ -283,7 +317,7 @@ def defects(items: list[dict]) -> list[dict]:
         worst = sorted(heated, key=lambda i: (i["moments_total"] - i["moments_hits"]), reverse=True)[:3]
         out.append({"id": "missed-moments", "title": "Heated moments missed",
                     "severity": 10.0 * sum(miss.values()) / max(sum(miss.values()) + sum(hit.values()), 1),
-                    "evidence": "hit rate by rule: " + ", ".join(f"{r} {hit[r]}/{hit[r] + miss[r]} ({100 * v:.0f}%)" for r, v in sorted(rate.items())),
+                    "evidence": f"overall {_pct(_agg(heated)['moment_hit_rate'])} vs {_pct(_agg(heated)['chance_hit_rate'])} for random fires at the same rate; by rule: " + ", ".join(f"{r} {hit[r]}/{hit[r] + miss[r]} ({100 * v:.0f}%)" for r, v in sorted(rate.items())),
                     "items": [(i["name"], f"{i['moments_hits']}/{i['moments_total']} caught",
                                [{"at_s": m["t"], "text": f"{m['rule']}: {m['what']}"} for m in i["missed"][:2]]) for i in worst]})
     flags = sum(i["violations"].get("invented-fact", 0) + i["violations"].get("words-in-mouth", 0) for i in items)
@@ -317,7 +351,8 @@ def _tiles(a: dict) -> str:
     def tile(v, label, cls=""):
         return f'<div class="tile"><b class="{cls}">{v}</b><span>{esc(label)}</span></div>'
     return '<div class="tiles">' + "".join([
-        tile(f"{a['moments_hits']}/{a['moments_total']}", f"moments caught ({_pct(a['moment_hit_rate'])})"),
+        tile(f"{a['moments_hits']}/{a['moments_total']}",
+             f"moments caught ({_pct(a['moment_hit_rate'])}; random fires at the same rate: {_pct(a['chance_hit_rate'])})"),
         tile(_num(a["false_fires_per_h"]), "fires with no moment / hour", "bad" if (a["false_fires_per_h"] or 0) > 30 else ""),
         tile(_pct(a["identity_accuracy"]), f"phone voice-ID accuracy ({a['identity_items']} items)"),
         tile(_num(a["time_to_confirm_median_s"]), "median s to first correct “that's you”"),
