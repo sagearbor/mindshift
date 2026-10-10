@@ -19,6 +19,11 @@ import time
 from pathlib import Path
 from typing import Iterator
 
+try:
+    import spend_ledger  # server/ on sys.path (how the server and tests import)
+except ImportError:  # imported as server.llm_cache from the repo root
+    from server import spend_ledger  # type: ignore
+
 # Default cache location: <repo-root>/tests/fixtures/llm_cache
 CACHE_DIR = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "llm_cache"
 
@@ -129,7 +134,9 @@ class LLMResponseCache:
         if self._client is None:
             raise self._offline_miss(key, system)
 
-        # Cache miss or forced refresh — call the real LLM.
+        # Cache miss or forced refresh — call the real LLM (inside the spend
+        # ledger's cap when the offline tooling enabled it).
+        spend_ledger.reserve("anthropic", spend_ledger.llm_cost(system, user, max_tokens=max_tokens))
         kwargs = {"system": system, "user": user, "temperature": temperature, "max_tokens": max_tokens}
         if response_schema is not None:
             kwargs["response_schema"] = response_schema
@@ -137,6 +144,7 @@ class LLMResponseCache:
         response = self._client.complete(**kwargs)
         latency = round((time.monotonic() - t0) * 1000.0, 1)
         self._write(path, system, user, response, latency_ms=latency)
+        spend_ledger.record("anthropic", spend_ledger.llm_cost(system, user, out_text=response), key[:12])
         self._note("complete", key, False, latency, system)
         return response
 
@@ -175,6 +183,7 @@ class LLMResponseCache:
             yield text
 
     def _record(self, key, path, system, user, temperature, max_tokens, response_schema) -> Iterator[str]:
+        spend_ledger.reserve("anthropic", spend_ledger.llm_cost(system, user, max_tokens=max_tokens))
         kwargs = {"system": system, "user": user, "temperature": temperature, "max_tokens": max_tokens}
         if response_schema is not None:
             kwargs["response_schema"] = response_schema
@@ -188,4 +197,6 @@ class LLMResponseCache:
         latency = round((time.monotonic() - t0) * 1000.0, 1)
         self._write(path, system, user, "".join(c[1] for c in chunks), chunks=chunks, latency_ms=latency,
                     first_chunk_ms=chunks[0][0] if chunks else None)
+        spend_ledger.record("anthropic", spend_ledger.llm_cost(system, user, out_text="".join(c[1] for c in chunks)),
+                            key[:12])
         self._note("stream", key, False, latency, system)

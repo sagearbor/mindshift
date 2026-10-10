@@ -12,6 +12,7 @@ from pathlib import Path
 
 import httpx
 
+import spend_ledger  # server/spend_ledger.py — shared paid-call budget
 import audio_ingest  # server/audio_ingest.py — the server's own Deepgram client constants
 
 from .annotation import dg_label
@@ -97,7 +98,9 @@ def transcribe(wav: bytes, cache: Path, *, offline: bool = False, refresh: bool 
         params = dict(audio_ingest.DEEPGRAM_PRERECORDED_PARAMS)
         if language:
             params["language"] = language
+        spend_ledger.reserve("deepgram", spend_ledger.deepgram_cost(len(wav)), str(cache))
         raw = _post_deepgram(wav, key, params)
+        spend_ledger.record("deepgram", spend_ledger.deepgram_cost(len(wav)), str(cache))
     except (httpx.HTTPError, ValueError) as exc:
         raise SttUnavailable(f"Deepgram request failed: {exc}") from exc
     cache.parent.mkdir(parents=True, exist_ok=True)
