@@ -75,6 +75,20 @@ def test_raised_interject_slider_gates_server_lines_on_importance():
     assert agg["gated"][50]["moment_hit_rate"] == 0.5
 
 
+def test_phone_coverage_alerts_and_label_leaks():
+    b = _bundle()
+    b["phone"]["haptics"] = [{"level": 1, "code": "E", "atSec": 5.0}, {"level": 2, "code": "A", "atSec": 9.0}]
+    b["score"]["lines"][2]["text"] = "Let Speaker E finish."
+    m = cs.item_metrics(b, {"group": "heated", "corpus": "SBCSAE"})
+    # GT speech 0-20 + 30-40 = 30 s; phone turns cover 0-19 + 30-40 = 29 s
+    assert m["phone_speech_coverage"] == pytest.approx(29 / 30, abs=0.01)
+    assert m["phone_alerts"] == 1 and m["phone_positive"] == 1
+    assert m["label_leak_lines"] == 1 and "Speaker E" in m["label_leaks"][0]["text"]
+    ids = [d["id"] for d in cs.defects([m])]
+    assert "label-leak" in ids and "dropped-speech" in ids
+    assert ids.index("dropped-speech") < ids.index("label-leak")    # ordered by wearer impact (RANK)
+
+
 def test_identity_is_not_scored_without_speaker_truth():
     m = cs.item_metrics(_bundle("confer_Y"), {"group": "heated", "corpus": "CONFER"})
     assert m["identity_accuracy"] is None and m["time_to_confirm_s"] is None

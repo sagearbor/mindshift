@@ -31,7 +31,12 @@ RULE_BY_NUDGE = {
     "It's heating up: slow down, lower voice.": "conflict-peak",
 }
 LAUGH_PRE_S, LAUGH_POST_S = 1.0, 4.0
-GATES = (50, 70)        # interject-slider values to report besides the app default (0)
+LEAK_RE = re.compile(r"\bSpeaker [A-Z]\b")
+GATES = (50, 70)
+# Defects are ordered by what they cost a wearer (judged, written down here),
+# not by the detectors' raw magnitudes, which are not comparable.
+RANK = ("every-line", "false-fires", "no-alert-buzz", "identity", "turn-merging", "dropped-speech", "loud-happy",
+        "label-leak", "fragments", "template", "missed-moments", "flags")        # interject-slider values to report besides the app default (0)
 
 
 def _opening(text: str) -> str:
@@ -101,6 +106,18 @@ def item_metrics(bundle: dict, prov: dict | None) -> dict:
             merged += 1
             if len(merged_ex) < 3:
                 merged_ex.append({"t": a, "end": b, "voices": sorted(voices), "text": (t.get("text") or "")[:160]})
+    # how much ground-truth speech the phone turned into turns at all (0.1 s grid)
+    coverage = None
+    if segs and dur:
+        g = np.zeros(int(dur * 10) + 2, dtype=bool)
+        p = np.zeros_like(g)
+        for s in segs:
+            g[int(s["start"] * 10):int(s["end"] * 10)] = True
+        for t in sent:
+            p[int(float(t["start_time"]) * 10):int(float(t["end_time"]) * 10)] = True
+        coverage = float((g & p).sum() / max(g.sum(), 1))
+    haps = (bundle.get("phone") or {}).get("haptics") or []
+    alerts = [h for h in haps if (h.get("code") or "") not in ("D", "E", "R", "K") and int(h.get("level") or 0) >= 1]
     hit_by, miss_by = Counter(), Counter()
     missed = []
     for it in mom.get("items") or []:
@@ -126,6 +143,7 @@ def item_metrics(bundle: dict, prov: dict | None) -> dict:
     srv = [ln for ln in lines if ln.get("source") == "server" and ln.get("kind") in ("response", "nudge")]
     frag = [ln for ln in srv if len(re.findall(r"[A-Za-z']+", ln.get("utterance_text") or "")) <= 2]
     openings = Counter(_opening(ln.get("text") or "") for ln in srv)
+    leak = [ln for ln in srv if LEAK_RE.search(" ".join(ln.get("all") or [ln.get("text") or ""]))]
     ph = (sc.get("identity") or {}).get("phone") or {}
     srv_id = (sc.get("identity") or {}).get("server") or {}
     has_truth = corpus not in NO_SPEAKER_TRUTH and bool(segs)
@@ -163,9 +181,13 @@ def item_metrics(bundle: dict, prov: dict | None) -> dict:
         "laughs": len(laughs),
         "hit_by_rule": dict(hit_by), "missed_by_rule": dict(miss_by), "missed": missed[:8],
         "gated": gated, "importances": imps,
+        "phone_speech_coverage": coverage, "phone_alerts": len(alerts), "phone_positive": len(haps) - len(alerts),
         "fragment_lines": len(frag),
         "fragment_examples": [{"at_s": ln["at_s"], "text": f"“{ln.get('utterance_text')}” -> {ln.get('text')}"} for ln in frag[:3]],
         "openings": dict(openings),
+        "label_leak_lines": len(leak),
+        "label_leaks": [{"at_s": ln["at_s"], "text": next((x for x in (ln.get("all") or [ln.get("text")]) if x and LEAK_RE.search(x)),
+                                                          ln.get("text"))} for ln in leak[:2]],
         "false_fire_examples": [{"at_s": u["at_s"], "text": u.get("text"), "source": u.get("source"), "kind": u.get("kind")} for u in unmatched[:6]],
     }
 
@@ -253,6 +275,27 @@ def defects(items: list[dict]) -> list[dict]:
                                 f"{_pct((hg.get(70) or {}).get('moment_hit_rate'))}. Importance p50 calm "
                                 f"{_num(g('calm', 'importance_p50'), '{:.0f}')} vs heated {_num(g('heated', 'importance_p50'), '{:.0f}')}",
                     "items": []})
+    heated_items = [i for i in items if i["group"] == "heated"]
+    if heated_items:
+        al = sum(i["phone_alerts"] for i in heated_items)
+        mins = sum(i["hours"] for i in heated_items) * 60
+        if al <= 0.05 * mins:
+            out.append({"id": "no-alert-buzz", "title": "The phone's own alert buzz almost never fires, even in rated conflict and shouting",
+                        "severity": 40.0,
+                        "evidence": f"{al} alert buzzes in {mins:.0f} min of heated audio (all {sum(i['phone_positive'] for i in items)} "
+                                    "phone haptics in the batch were positive-reinforcement codes)",
+                        "items": [(i["name"], f"{i['moments_total']} moments, {i['phone_alerts']} alert buzzes", [])
+                                  for i in sorted(heated_items, key=lambda i: i["moments_total"], reverse=True)[:3]]})
+    cov = [i for i in items if i["phone_speech_coverage"] is not None]
+    if cov:
+        low = sorted(cov, key=lambda i: i["phone_speech_coverage"])[:3]
+        mean = float(np.mean([i["phone_speech_coverage"] for i in cov]))
+        out.append({"id": "dropped-speech", "title": "Quiet talk never becomes a phone turn (dropped speech)",
+                    "severity": 40.0 * (1 - low[0]["phone_speech_coverage"]) * (1 if low[0]["phone_speech_coverage"] < 0.5 else 0.3),
+                    "evidence": f"mean {100 * mean:.0f}% of ground-truth speech covered by a phone turn; worst "
+                                + ", ".join(f"{i['name']} {100 * i['phone_speech_coverage']:.0f}%" for i in low),
+                    "items": [(i["name"], f"{100 * i['phone_speech_coverage']:.0f}% of speech covered, {i['phone_turns']} turns, "
+                                          f"{i['moments_hits']}/{i['moments_total']} moments", []) for i in low]})
     if srv_lines:
         fr = sum(i["fragment_lines"] for i in items)
         worst = sorted(items, key=lambda i: i["fragment_lines"], reverse=True)[:3]
@@ -329,7 +372,16 @@ def defects(items: list[dict]) -> list[dict]:
                     "evidence": f"{flags} flags over {lines} coach lines",
                     "items": [(i["name"], json.dumps(i["violations"]), [{"at_s": v["at_s"], "text": f"{v['text']} [{v['evidence']}]"}
                                                                        for v in i["violation_examples"][:2]]) for i in worst]})
-    return sorted(out, key=lambda d: d["severity"], reverse=True)
+    leaks = [(i, e) for i in items for e in i["label_leaks"]]
+    if leaks:
+        n = sum(i["label_leak_lines"] for i in items)
+        out.append({"id": "label-leak", "title": "The coach says internal diarization labels aloud (“Let Speaker E finish”)",
+                    "severity": 20.0 * n / max(srv_lines, 1),
+                    "evidence": f"{n} of {srv_lines} coach lines name a “Speaker X” label the wearer has never heard "
+                                "(most of the heuristic invented-fact flags are these)",
+                    "items": [(i["name"], "", [e]) for i, e in leaks[:3]]})
+    order = {k: n for n, k in enumerate(RANK)}
+    return sorted(out, key=lambda d: (order.get(d["id"], 99), -d["severity"]))
 
 
 # ---------------------------------------------------------------------------
@@ -476,6 +528,15 @@ def collect(work_root: Path, inbox: Path, names: list[str] | None = None) -> lis
 
 def write(out: Path, work_root: Path, inbox: Path, *, notes: list[str] | None = None) -> Path:
     items = collect(work_root, inbox)
+    done = {i["name"] for i in items}
+    missing = sorted(p.parent.name for p in Path(inbox).glob("*/*.corpus.json") if p.parent.name not in done)
+    notes = list(notes or [])
+    if missing:
+        notes.append("Not in these numbers (no completed server run): " + ", ".join(esc(m) for m in missing)
+                     + ". Typical cause: Deepgram returned no words, so the phone loop had no script.")
+    if any(i["corpus"] == "CONFER" for i in items):
+        notes.append("CONFER is Greek: Deepgram ran with language=el and the coach read Greek text. Its numbers test "
+                     "conflict detection and pacing, not English coaching; it has no speaker truth, so no voice-ID numbers.")
     agg = aggregate(items)
     defs = defects(items)
     out = Path(out)
