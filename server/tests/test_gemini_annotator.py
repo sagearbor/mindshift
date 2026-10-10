@@ -249,3 +249,39 @@ def test_licence_rejects_standard_youtube_and_lookalikes():
     # "Standard YouTube License" explicit
     ok, _, _ = licence.decide({"license": "Standard YouTube License", "channel": "x"})
     assert not ok
+    # a musician who named his project "Oversight Committee" (real channel @oversightcommittee)
+    ok, _, _ = licence.decide({"license": None, "channel": "Cj Hoeflich", "uploader_id": "@oversightcommittee",
+                               "channel_description": "Oversight Committee is a new Mtl based musical project"})
+    assert not ok
+
+
+# ---------------------------------------------------------------------------
+# Open-audio screening helpers
+# ---------------------------------------------------------------------------
+
+def test_hot_window_finds_the_loud_stretch():
+    import numpy as np
+
+    import fetch_open_audio as foa
+    rng = np.random.default_rng(0)
+    db = np.full(1200, -70.0)
+    db[100:1100] = -30 + rng.normal(0, 1.5, 1000)      # ordinary speech
+    db[700:900] = -18 + rng.normal(0, 1.5, 200)        # raised voices
+    w = foa.hot_windows(db, 300, k=1)[0]
+    assert w["start"] <= 700 and w["end"] >= 900
+    assert w["raised_frac"] > 0.5
+
+
+def test_overlap_and_wearer():
+    import fetch_open_audio as foa
+    ann = {"audio": {"duration_s": 60.0},
+           "speakers": [{"id": "S1", "voice_description": "man"}, {"id": "S2", "voice_description": "woman"},
+                        {"id": "S3", "voice_description": "chair"}],
+           "segments": [{"start": 0, "end": 20, "speaker": "S1"}, {"start": 15, "end": 40, "speaker": "S2"},
+                        {"start": 38, "end": 40, "speaker": "S1"}, {"start": 50, "end": 52, "speaker": "S3"}],
+           "events": [{"t": 15, "type": "interruption", "speakers": ["S2"]}]}
+    ov = foa.overlap_stats(ann)
+    assert ov["overlap_pct"] == pytest.approx(100 * 7 / 42, abs=0.2)
+    assert ov["speakers_active"] == 2
+    spk, desc = foa.wearer(ann)
+    assert spk == "S2" and desc == "woman"
