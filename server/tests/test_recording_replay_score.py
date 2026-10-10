@@ -157,3 +157,77 @@ def test_report_renders_mobile_page_with_every_section():
     b["server"]["events"][1]["event"]["suggestions"] = ["<b>x</b>"]
     b["score"] = score.score(b)
     assert "&lt;b&gt;x&lt;/b&gt;" in report.render(b)
+
+
+
+# ---------------------------------------------------------------------------
+# Turn-end anchoring, chance-adjusted lift, VAD coverage from segment times
+# ---------------------------------------------------------------------------
+
+def _rule_bundle():
+    """Wearer S1 talks over S2 at 10 s and holds the floor until 18 s; the
+    coach answers 2 s after that turn ENDS (20 s)."""
+    b = _bundle()
+    al = b["annotations"][0]["aligned"]
+    al["segments"] = [
+        {"start": 5.0, "end": 12.0, "speaker": "S2", "text": "a long point", "aligned": True},
+        {"start": 10.0, "end": 18.0, "speaker": "S1", "text": "no listen to me", "aligned": True},
+        {"start": 18.5, "end": 19.0, "speaker": "S2", "text": "yeah", "aligned": True, "is_backchannel": True},
+    ]
+    al["coach_moments"] = [{"t": 10.0, "for_speaker": "S1", "ideal_nudge": "Let them finish first.", "kind": "warning",
+                            "priority": 2}]
+    b["notes"]["moments"] = []
+    b["audio"]["duration_s"] = 60.0
+    b["phone"]["haptics"] = []
+    b["phone"]["sent"] = [_turn("p1", "Speaker B", False, "a long point", 5.0, 9.5, 10.0),
+                          _turn("p2", "You", True, "no listen to me", 10.0, 18.2, 19.0)]
+    b["server"]["events"] = [_sugg(20.0, "no listen to me", "nudge", ["let them finish"])]
+    return b
+
+
+def test_rule_moment_is_anchored_at_the_end_of_the_wearers_turn():
+    s = score.score(_rule_bundle())
+    it = s["moments"]["items"][0]
+    assert it["rule"] == "talks-over" and it["anchor_basis"] == "segment-end"
+    assert it["anchor_t"] == 18.0 and it["hit"] is True
+    assert it["nearest"]["delta_s"] == 2.0 and it["nearest"]["delta_from_t_s"] == 10.0
+    # the legacy start anchor misses the same reply (10 + 6 s < 20 s)
+    legacy = score.score(_rule_bundle(), moment_anchor="turn_start")
+    assert legacy["moments"]["items"][0]["hit"] is False
+    assert legacy["moments"]["anchor"] == "turn_start"
+    # the window stays explicit and configurable
+    narrow = score.score(_rule_bundle(), moment_window_s=1.0)
+    assert narrow["moments"]["items"][0]["hit"] is False and narrow["moments"]["window_s"] == 1.0
+
+
+def test_owner_and_free_text_moments_are_never_moved():
+    s = score.score(_bundle())
+    assert all(it["anchor_t"] == it["t"] and it["anchor_basis"] == "as-marked" for it in s["moments"]["items"])
+
+
+def test_anchor_shift_is_capped():
+    segs = [{"start": 0.0, "end": 100.0, "label": "S1", "wearer": True}]
+    t, basis = score.anchor_moment({"t": 0.0, "text": "Let them finish first."}, segs)
+    assert t == score.ANCHOR_MAX_SHIFT_S and basis == "segment-end-capped"
+
+
+def test_chance_hits_keeps_the_fire_trains_spacing():
+    # one fire, one moment, window 7.5 s of a 75 s file: chance is 10 %
+    assert score.chance_hits([30.0], [5.0], 75.0, 1.5, 6.0) == pytest.approx(0.1, abs=0.01)
+    assert score.chance_hits([], [5.0], 75.0, 1.5, 6.0) == 0.0
+    assert score.chance_hits([30.0], [], 75.0, 1.5, 6.0) == 0.0
+    m = score.score(_rule_bundle())["moments"]
+    assert m["hit_rate"] == 1.0 and m["lift"] == pytest.approx(1.0 - m["chance_hit_rate"])
+
+
+def test_turn_coverage_uses_segment_times_not_words():
+    tc = score.score(_rule_bundle())["turn_coverage"]
+    assert tc["basis"].startswith("annotation")
+    # truth speech (backchannel excluded) = 5..18 s = 13 s; phone turns cover 5..9.5 and 10..18.2
+    assert tc["vad_coverage"] == pytest.approx(12.5 / 13.0, abs=0.01)
+    assert tc["vad_precision"] == pytest.approx(12.5 / 12.7, abs=0.01)
+    assert tc["segment_recall"] == 1.0 and tc["wearer_segment_recall"] == 1.0
+    assert tc["end_offset_p50_s"] == pytest.approx(-1.0, abs=0.3)      # median of -2.5 (S2) and +0.2 (S1)
+    b = _rule_bundle()
+    b["annotations"] = []
+    assert score.score(b)["turn_coverage"]["vad_coverage"] is None    # Deepgram truth: no independent timing

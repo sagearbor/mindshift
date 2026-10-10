@@ -18,7 +18,14 @@ frame granularity.
   phone alert haptic (level >= 1).
 * **moments** — the owner's ``mm:ss`` lines and the primary annotation's
   coach_moments FOR THE WEARER; a moment is hit when a fire lands within
-  ``[t - MOMENT_PRE_S, t + window]``.
+  ``[anchor - pre_s, anchor + window]``. A rule-derived corpus moment is
+  anchored at the END of the turn it is about (MOMENT_ANCHOR; the coach
+  cannot answer before the turn closes); others at their own ``t``. The
+  headline is the chance-adjusted ``lift`` = hit rate minus the hit rate
+  of the same fire train at random circular offsets (chance_hits).
+* **turn_coverage** — the phone's turns vs ground-truth segment TIMES
+  (VAD coverage / precision, segment recall, how late turns close),
+  independent of any text.
 * **identity** — the phone's per-turn ``is_self`` and the server's
   ``speaker_identity`` verdicts vs who was actually speaking (annotation
   segments, else Deepgram + the resolved owner label).
@@ -35,8 +42,27 @@ from typing import Any
 
 import numpy as np
 
-MOMENT_WINDOW_S = 6.0
-MOMENT_PRE_S = 1.5
+MOMENT_WINDOW_S = 6.0          # a fire counts up to this long AFTER the moment's anchor
+MOMENT_PRE_S = 1.5             # ... and from this long BEFORE it
+# Where a rule-derived moment's window is anchored. The corpus rules
+# (corpora.derive_moments) stamp talks-over / raised-voice at the wearer
+# turn's START, but the coach can only answer once the phone closes the
+# turn: fires land ~2 s after the turn's END, so a start-anchored 6 s window
+# misses every reply to a turn longer than ~4 s. "turn_end" (default) moves
+# the anchor to the end of the turn the rule is about (ground-truth segment
+# times; Deepgram turns when there is no segment truth, e.g. CONFER);
+# "turn_start" reproduces the legacy scoring. The owner's own mm:ss moments
+# and free-text annotator moments are never moved (a human / the annotator
+# chose that instant).
+MOMENT_ANCHOR = "turn_end"
+ANCHOR_MAX_SHIFT_S = 15.0      # never move an anchor further than this past the rule's own t
+RULE_BY_NUDGE = {
+    "Let them finish first.": "talks-over",
+    "Lower your voice, slow down.": "raised-voice",
+    "Pause, they're trying to speak.": "monologue-cuts-off",
+    "It's heating up: slow down, lower voice.": "conflict-peak",
+}
+CHANCE_SHIFTS = 200            # circular shifts of the fire train used for the chance hit rate
 
 
 def percentile(values: list[float], q: float) -> float | None:
@@ -59,14 +85,16 @@ def truth_segments(bundle: dict) -> tuple[list[dict], str]:
             wid = ident.get("wearer_ann_id")
             segs = [{"start": float(s["start"]), "end": float(s["end"]), "label": s["speaker"],
                      "wearer": s["speaker"] == wid, "intensity": s.get("vocal_intensity"),
-                     "emotion": s.get("vocal_emotion"), "text": s.get("text", "")}
+                     "emotion": s.get("vocal_emotion"), "text": s.get("text", ""),
+                     "is_backchannel": bool(s.get("is_backchannel"))}
                     for s in a["aligned"].get("segments", [])]
             if segs:
                 return segs, f"annotation:{primary}"
     wl = ident.get("wearer_label")
     turns = (bundle.get("stt") or {}).get("turns") or []
     return ([{"start": float(t["start_time"]), "end": float(t["end_time"]), "label": t["speaker"],
-              "wearer": t["speaker"] == wl, "intensity": None, "emotion": None, "text": t.get("text", "")}
+              "wearer": t["speaker"] == wl, "intensity": None, "emotion": None, "text": t.get("text", ""),
+              "is_backchannel": False}
              for t in turns], "deepgram")
 
 
@@ -164,9 +192,79 @@ def coach_lines(bundle: dict) -> tuple[list[dict], list[dict]]:
 # Moments
 # ---------------------------------------------------------------------------
 
-def moments(bundle: dict, lines: list[dict], window_s: float) -> dict:
+def moment_rule(it: dict) -> str | None:
+    """The corpus rule a moment came from (by its fixed nudge text), else None."""
+    if it.get("rule"):
+        return it["rule"]
+    return RULE_BY_NUDGE.get(it.get("text") or it.get("ideal_nudge") or "")
+
+
+def anchor_moment(it: dict, segs: list[dict], basis: str = "segment",
+                  anchor: str = MOMENT_ANCHOR, max_shift_s: float = ANCHOR_MAX_SHIFT_S) -> tuple[float, str]:
+    """(anchor time, basis) for one moment item. ``segs`` = truth_segments()
+    (``basis`` "segment" for annotation truth, "deepgram-turn" when they are
+    Deepgram's turns). See MOMENT_ANCHOR."""
+    t = float(it["t"])
+    rule = moment_rule(it)
+    if anchor != "turn_end" or it.get("source") == "owner" or rule is None:
+        return t, "as-marked"
+    real = [s for s in segs if not s.get("is_backchannel")]
+    if not real:
+        return t, "no-turns"
+    wearer_only = rule in ("talks-over", "raised-voice", "monologue-cuts-off") and any(s.get("wearer") for s in real)
+    pool = [s for s in real if s.get("wearer")] if wearer_only else real
+    cand = None
+    if rule in ("talks-over", "raised-voice"):
+        exact = [s for s in pool if abs(s["start"] - t) <= 0.05]
+        if exact:
+            cand = max(exact, key=lambda s: s["end"])
+    if cand is None:
+        inside = [s for s in pool if s["start"] - 0.05 <= t < s["end"]]
+        if inside:
+            cand = min(inside, key=lambda s: s["end"])         # the first moment the floor can change
+        else:
+            nxt = [s for s in pool if t <= s["start"] <= t + 3.0]
+            cand = min(nxt, key=lambda s: s["start"]) if nxt else None
+    if cand is None:
+        return t, "no-turn-at-t"
+    end = float(cand["end"])
+    if end - t > max_shift_s:
+        return t + max_shift_s, f"{basis}-end-capped"
+    return max(end, t), f"{basis}-end"
+
+
+def chance_hits(anchors: list[float], fire_times: list[float], dur: float, pre_s: float, post_s: float,
+                shifts: int = CHANCE_SHIFTS) -> float | None:
+    """Expected number of moments a fire train with the SAME count and the
+    same internal spacing would hit at a random offset: the mean over
+    ``shifts`` evenly spaced circular shifts of the fire times (mod dur).
+    Keeping the train's clustering makes this harder to beat than a Poisson
+    stream at the same rate."""
+    if not anchors:
+        return 0.0
+    if not dur or dur <= 0:
+        return None
+    if not fire_times:
+        return 0.0
+    f = np.asarray(fire_times, dtype=float)
+    a = np.asarray(anchors, dtype=float)
+    total = 0
+    for k in range(shifts):
+        g = np.sort((f + dur * k / shifts) % dur)
+        lo = np.searchsorted(g, a - pre_s, side="left")
+        hi = np.searchsorted(g, a + post_s, side="right")
+        total += int(np.count_nonzero(hi > lo))
+    return total / shifts
+
+
+def moments(bundle: dict, lines: list[dict], window_s: float, *, pre_s: float = MOMENT_PRE_S,
+            anchor: str = MOMENT_ANCHOR, segs: list[dict] | None = None) -> dict:
     ident = bundle.get("identity") or {}
     wid = ident.get("wearer_ann_id")
+    if segs is None:
+        segs, src = truth_segments(bundle)
+    else:
+        src = "given"
     items: list[dict] = []
     for m in (bundle.get("notes") or {}).get("moments") or []:
         items.append({"source": "owner", "t": float(m["t"]), "text": m.get("text", ""), "kind": None})
@@ -184,23 +282,37 @@ def moments(bundle: dict, lines: list[dict], window_s: float) -> dict:
             else:
                 others.append(row)
     fires = [ln for ln in lines if ln["fires"]]
+    seg_basis = "deepgram-turn" if src == "deepgram" else "segment"
     for it in items:
-        near = [ln for ln in fires if it["t"] - MOMENT_PRE_S <= ln["at_s"] <= it["t"] + window_s]
+        it["anchor_t"], it["anchor_basis"] = anchor_moment(it, segs, seg_basis, anchor)
+        it["anchor_t"] = round(it["anchor_t"], 3)
+        it["rule"] = moment_rule(it)
+        a = it["anchor_t"]
+        near = [ln for ln in fires if a - pre_s <= ln["at_s"] <= a + window_s]
         it["hit"] = bool(near)
-        best = min(near, key=lambda ln: abs(ln["at_s"] - it["t"])) if near else (
-            min(fires, key=lambda ln: abs(ln["at_s"] - it["t"])) if fires else None)
+        best = min(near, key=lambda ln: abs(ln["at_s"] - a)) if near else (
+            min(fires, key=lambda ln: abs(ln["at_s"] - a)) if fires else None)
         it["nearest"] = None if best is None else {"at_s": best["at_s"], "kind": best["kind"], "text": best["text"],
-                                                   "delta_s": round(best["at_s"] - it["t"], 2)}
+                                                   "delta_s": round(best["at_s"] - a, 2),
+                                                   "delta_from_t_s": round(best["at_s"] - it["t"], 2)}
     items.sort(key=lambda x: x["t"])
     unmatched = [ln for ln in fires
-                 if not any(it["t"] - MOMENT_PRE_S <= ln["at_s"] <= it["t"] + window_s for it in items)]
+                 if not any(it["anchor_t"] - pre_s <= ln["at_s"] <= it["anchor_t"] + window_s for it in items)]
+    dur = float((bundle.get("audio") or {}).get("duration_s") or 0.0)
+    hits = sum(1 for it in items if it["hit"])
+    ch = chance_hits([it["anchor_t"] for it in items], [ln["at_s"] for ln in fires], dur, pre_s, window_s)
     return {
-        "window_s": window_s, "pre_s": MOMENT_PRE_S, "items": items, "for_others": others,
-        "hits": sum(1 for it in items if it["hit"]), "total": len(items),
+        "window_s": window_s, "pre_s": pre_s, "anchor": anchor, "items": items, "for_others": others,
+        "hits": hits, "total": len(items),
         "owner_hits": sum(1 for it in items if it["hit"] and it["source"] == "owner"),
         "owner_total": sum(1 for it in items if it["source"] == "owner"),
         "unmatched_lines": [{"at_s": ln["at_s"], "kind": ln["kind"], "text": ln["text"], "source": ln["source"]} for ln in unmatched],
         "fires": len(fires),
+        # chance-adjusted: the same fire train circularly shifted (see chance_hits)
+        "chance_hits": ch,
+        "hit_rate": (hits / len(items)) if items else None,
+        "chance_hit_rate": (ch / len(items)) if items and ch is not None else None,
+        "lift": ((hits - ch) / len(items)) if items and ch is not None else None,
     }
 
 
@@ -349,12 +461,66 @@ def violations(bundle: dict, lines: list[dict], segs: list[dict]) -> list[dict]:
 # Heat lane (annotation intensity)
 # ---------------------------------------------------------------------------
 
+def turn_coverage(bundle: dict, segs: list[dict], truth_source: str, *, grid_s: float = 0.05,
+                  min_seg_s: float = 0.5) -> dict:
+    """How well the phone's turn segmentation (VAD + segmenter) covers the
+    ground-truth speech, from segment TIMES only (never the words):
+
+    * ``vad_coverage`` — share of ground-truth speech time (union of
+      non-backchannel segments) inside some phone turn's [start, end];
+    * ``vad_precision`` — share of phone-turn time that is ground-truth speech;
+    * ``segment_recall`` — share of ground-truth segments >= ``min_seg_s``
+      at least half covered by phone turns (``wearer_segment_recall``: the
+      wearer's segments only);
+    * ``end_offset_p50_s`` — median (phone turn end - ground-truth segment
+      end) over ground-truth segments, each matched to
+      the phone turn holding most of the segment — how late the phone
+      closes a turn (negative: it cut the segment short).
+
+    None when the truth is Deepgram's own turns (no independent timing)."""
+    if not truth_source.startswith("annotation"):
+        return {"basis": "none (no ground-truth segment times)", "vad_coverage": None, "vad_precision": None,
+                "segment_recall": None, "wearer_segment_recall": None, "end_offset_p50_s": None, "segments": 0}
+    real = [s for s in segs if not s.get("is_backchannel") and s["end"] > s["start"]]
+    turns = [(float(t["start_time"]), float(t["end_time"])) for t in (bundle.get("phone") or {}).get("sent") or []]
+    dur = max([float((bundle.get("audio") or {}).get("duration_s") or 0.0)] + [s["end"] for s in real] + [b for _, b in turns])
+    n = int(dur / grid_s) + 2
+    g = np.zeros(n, dtype=bool)
+    p = np.zeros(n, dtype=bool)
+    for s in real:
+        g[int(s["start"] / grid_s):int(s["end"] / grid_s)] = True
+    for a, b in turns:
+        p[int(a / grid_s):int(b / grid_s)] = True
+    long = [s for s in real if s["end"] - s["start"] >= min_seg_s]
+
+    def covered(s):
+        a, b = int(s["start"] / grid_s), int(s["end"] / grid_s)
+        return b > a and p[a:b].mean() >= 0.5
+
+    offs = []
+    for s in long:
+        ov = [(min(b, s["end"]) - max(a, s["start"]), b) for a, b in turns]
+        ov = [x for x in ov if x[0] > 0]
+        if ov:
+            offs.append(max(ov)[1] - s["end"])       # the phone turn holding most of this segment
+    wl = [s for s in long if s.get("wearer")]
+    return {
+        "basis": truth_source, "segments": len(long), "phone_turns": len(turns),
+        "vad_coverage": float((g & p).sum() / g.sum()) if g.any() else None,
+        "vad_precision": float((g & p).sum() / p.sum()) if p.any() else None,
+        "segment_recall": (sum(1 for s in long if covered(s)) / len(long)) if long else None,
+        "wearer_segment_recall": (sum(1 for s in wl if covered(s)) / len(wl)) if wl else None,
+        "end_offset_p50_s": percentile(offs, 50),
+    }
+
+
 def heat(segs: list[dict]) -> list[dict]:
     return [{"start": s["start"], "end": s["end"], "intensity": s["intensity"], "emotion": s["emotion"], "label": s["label"]}
             for s in segs if s.get("intensity") is not None or s.get("emotion")]
 
 
-def score(bundle: dict, moment_window_s: float = MOMENT_WINDOW_S) -> dict[str, Any]:
+def score(bundle: dict, moment_window_s: float = MOMENT_WINDOW_S, *, moment_pre_s: float = MOMENT_PRE_S,
+          moment_anchor: str = MOMENT_ANCHOR) -> dict[str, Any]:
     segs, truth_source = truth_segments(bundle)
     lines, errors = coach_lines(bundle)
     srv_final = [ln for ln in lines if ln["source"] == "server" and ln["kind"] in ("response", "nudge") and ln["latency_ms"] is not None]
@@ -375,7 +541,8 @@ def score(bundle: dict, moment_window_s: float = MOMENT_WINDOW_S) -> dict[str, A
             "llm_cache": {k: llm.get(k) for k in ("hits", "misses", "offline_misses", "model") if k in llm},
             "server_stage_summary": ((bundle.get("server") or {}).get("session_complete") or {}).get("latency_summary"),
         },
-        "moments": moments(bundle, lines, moment_window_s),
+        "moments": moments(bundle, lines, moment_window_s, pre_s=moment_pre_s, anchor=moment_anchor),
+        "turn_coverage": turn_coverage(bundle, segs, truth_source),
         "identity": identity(bundle, lines, segs),
         "violations": violations(bundle, lines, segs),
         "heat": heat(segs),
