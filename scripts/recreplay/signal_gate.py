@@ -222,13 +222,16 @@ def apply_gate(lines: list[dict], facts: dict, gate: dict) -> list[dict]:
     return out
 
 
-def load(split: str, names: list[str] | None = None) -> list[tuple[dict, dict | None, dict]]:
+def load(split: str, names: list[str] | None = None, work_root: Path | None = None) -> list[tuple[dict, dict | None, dict]]:
+    """``yt`` reads the ungated yt_* sanity runs (ot/X/X-Y0: work/ holds only their transcripts)."""
+    if work_root is None:
+        work_root = RECORDINGS / ("ot/X/X-Y0" if split == "yt" else "work")
     if names is None:
         if split == "yt":
-            names = sorted(p.parent.name for p in (RECORDINGS / "work").glob("yt_*/run.json"))
+            names = sorted(p.parent.name for p in Path(work_root).glob("yt_*/run.json"))
         else:
             names = cs.split_names(split, RECORDINGS / "landscape" / "splits.json")
-    pairs = cs.load_bundles(RECORDINGS / "work", RECORDINGS / "inbox", names)
+    pairs = cs.load_bundles(Path(work_root), RECORDINGS / "inbox", names)
     out = []
     for b, prov in pairs:
         b = cs.rescore(b)
