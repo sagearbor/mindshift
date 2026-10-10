@@ -25,6 +25,15 @@ def test_frag_pct_counts_long_segments_split_across_turns():
     assert L.frag_pct(sent, segs) == 50.0      # seg 0-4 split; 10-13 whole; 5-6 too short to count
 
 
+def test_time_identity_weighs_by_speech_time():
+    segs = [dict(seg(0, 4, "S1"), wearer=True), dict(seg(4, 6, "S2"), wearer=False), dict(seg(8, 10, "S1"), wearer=True)]
+    sent = [dict(turn(0, 6), is_self=True), dict(turn(8, 10), is_self=None)]
+    m = L.time_identity(sent, segs)
+    assert m["purity"] == (4 + 2) / 8          # turn 1: S1 4 of 6; turn 2 pure
+    assert m["self_time_recall"] == 4 / 6      # wearer 6 s, 4 s inside a self-called turn
+    assert m["self_time_precision"] == 4 / 6   # self-called turn: 4 of 6 s are the wearer
+
+
 def test_none_without_truth():
     assert L.merged_turn_pct([turn(0, 1)], []) is None
     assert L.frag_pct([], []) is None
