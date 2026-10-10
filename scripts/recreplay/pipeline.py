@@ -42,6 +42,7 @@ class RunInputs:
     offline: bool = False
     app_meta: dict | None = None                 # <name>.app_meta.json (an app recording pulled from GCS)
     stt_language: str | None = None              # Deepgram language override (annotation audio.language)
+    stt_engine: str = "deepgram"                 # deepgram | whisper (local faster-whisper, $0)
 
 
 @dataclass
@@ -66,7 +67,8 @@ class RunOptions:
     log: list[str] = field(default_factory=list)
 
 
-def inputs_from_inbox(folder: Path, *, work_root: Path | None = None, profile: Path | None = None) -> RunInputs:
+def inputs_from_inbox(folder: Path, *, work_root: Path | None = None, profile: Path | None = None,
+                      stt_engine: str = "deepgram") -> RunInputs:
     folder = Path(folder)
     name = folder.name
     work = (work_root or RECORDINGS / "work") / name
@@ -86,9 +88,45 @@ def inputs_from_inbox(folder: Path, *, work_root: Path | None = None, profile: P
         name=name, audio=audio_mod.find_audio(folder, name),
         notes_text=notes_path.read_text(errors="replace") if notes_path else "",
         annotation_files=ann.discover(folder, name), work=work,
-        deepgram_cache=work / "deepgram.json", llm_cache_dir=work / "llm_cache", profile_path=prof,
-        app_meta=app_meta, stt_language=_annotation_language(folder, name),
+        # --stt whisper: the Deepgram-SHAPED reference (whisper words + speakers)
+        # is cached as whisper.json and read through the same cache path, so the
+        # fixture freeze / offline re-run need nothing special.
+        deepgram_cache=work / ("whisper.json" if stt_engine == "whisper" else "deepgram.json"),
+        llm_cache_dir=work / "llm_cache", profile_path=prof,
+        app_meta=app_meta, stt_language=_annotation_language(folder, name), stt_engine=stt_engine,
     )
+
+
+def build_whisper_reference(inp: RunInputs, wav: Path, pcm, opts: "RunOptions | None" = None) -> dict:
+    """Write ``inp.deepgram_cache`` (whisper.json) from a local faster-whisper
+    decode: speakers from the first usable annotation's ALIGNED segments,
+    else the server's local ECAPA diarizer, else one label. $0."""
+    doc, src = stt.transcribe_whisper(wav, inp.work / "whisper.raw.json", offline=inp.offline,
+                                      language=inp.stt_language)
+    words0 = stt.words_from_raw(stt.raw_from_whisper(doc))
+    speakers, info = None, None
+    for f in inp.annotation_files:
+        a = ann.load_file(f)
+        if not a.ok or not a.segments:
+            continue
+        al = ann.align(a, words0)
+        if al.quality.get("words_matched_pct", 0.0) < phone_mod.MIN_ALIGN_PCT:
+            continue
+        segs = [{"start": sg.start, "end": sg.end, "speaker": sg.speaker} for sg in al.segments]
+        speakers = stt.speakers_from_segments(words0, segs)
+        info = {"source": f"annotation:{f.label}", "num_speakers": len(set(speakers)),
+                "words_matched_pct": al.quality.get("words_matched_pct")}
+        break
+    if speakers is None:
+        speakers, info = stt.diarize_whisper(pcm, doc)
+    raw = stt.raw_from_whisper(doc, speakers, diarization=info)
+    raw["metadata"]["decode"] = src
+    inp.deepgram_cache.parent.mkdir(parents=True, exist_ok=True)
+    inp.deepgram_cache.write_text(json.dumps(raw))
+    if opts is not None:
+        _say(opts, f"whisper {doc.get('model')} ({src}): {len(words0)} words; speakers from {info['source']} "
+                   f"({info.get('num_speakers')})")
+    return raw
 
 
 def _annotation_language(folder: Path, name: str) -> str | None:
@@ -130,12 +168,17 @@ def run(inp: RunInputs, opts: RunOptions) -> dict:
     pcm = audio_mod.read_wav16(wav)
     _say(opts, f"{inp.name}: {audio_info['duration_s']:.1f} s audio")
 
-    # 3. reference transcript
-    raw, stt_source = stt.transcribe(wav.read_bytes(), inp.deepgram_cache, offline=inp.offline,
+    # 3. reference transcript (Deepgram, or local whisper at $0)
+    if inp.stt_engine == "whisper" and not inp.deepgram_cache.exists():
+        build_whisper_reference(inp, wav, pcm, opts)
+    raw, stt_source = stt.transcribe(wav.read_bytes(), inp.deepgram_cache,
+                                     offline=inp.offline or inp.stt_engine == "whisper",
                                      language=inp.stt_language)
+    if (raw.get("metadata") or {}).get("engine") == "faster-whisper":
+        stt_source = f"whisper-{stt_source}"
     words = stt.words_from_raw(raw)
     dg_turns = stt.turns_from_words(words)
-    _say(opts, f"Deepgram ({stt_source}): {len(words)} words, {len(dg_turns)} turns, "
+    _say(opts, f"reference STT ({stt_source}): {len(words)} words, {len(dg_turns)} turns, "
                f"{len({t['speaker'] for t in dg_turns})} speakers")
 
     # 4. annotations
